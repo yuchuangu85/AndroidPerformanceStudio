@@ -31,6 +31,8 @@ import com.androidperformancestudio.memory.capture.MemoryCaptureRequest
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
 import com.androidperformancestudio.memory.capture.NativeHeapCaptureRequest
 import com.androidperformancestudio.memory.capture.NativeHeapCaptureSession
+import com.androidperformancestudio.memory.capture.SampledArtAllocationCaptureRequest
+import com.androidperformancestudio.memory.capture.SampledArtAllocationCaptureSession
 import com.androidperformancestudio.memory.export.BitmapDumpExportAdapters
 import com.androidperformancestudio.memory.export.MemoryExportAdapters
 import com.androidperformancestudio.memory.hprof.BitmapDumpParseException
@@ -72,6 +74,8 @@ import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
+import com.androidperformancestudio.memory.presentation.MemorySampledArtOrigin
+import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.memory.storage.SqliteMemorySessionStore
@@ -79,7 +83,10 @@ import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
@@ -101,12 +108,13 @@ internal class DesktopMemoryProfilerBackend(
     private val language: UiLanguage = UiLanguage.ENGLISH,
     private val nativeHeapArtifactAnalyzer: NativeHeapArtifactAnalyzer = PerfettoNativeHeapArtifactAnalyzer(),
     private val javaHeapArtifactAnalyzer: JavaHeapArtifactAnalyzer = PerfettoJavaHeapArtifactAnalyzer(),
+    private val sampledArtArtifactAnalyzer: SampledArtArtifactAnalyzer = PerfettoSampledArtArtifactAnalyzer(),
+    private val hprofClassMetricsAnalyzer: HprofClassMetricsAnalyzer = TraceProcessorHprofClassMetricsAnalyzer(),
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val inputProbe = HprofInputProbe()
     private val recordIndexer = HprofRecordIndexer()
     private val analyzer = MemoryDeepAnalyzer()
-    private val sharkLeakAnalyzer = SharkLeakAnalyzer()
     private val exports = MemoryExportAdapters()
     private val bitmapParser = BitmapDumpParser()
     private val bitmapAnalyzer = BitmapDumpAnalyzer()
@@ -377,6 +385,75 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 
+    override suspend fun captureSampledArtAllocations(
+        serial: String,
+        process: MemoryProcessOption,
+    ): MemoryBackendResult<LoadedSampledArt> =
+        withContext(Dispatchers.IO) {
+            val adb = adbLocator() ?: return@withContext missingAdb()
+            when (
+                val result =
+                    SampledArtAllocationCaptureSession(adb).capture(
+                        SampledArtAllocationCaptureRequest(
+                            sessionId = sessionId(),
+                            sessionRoot = dataRoot.resolve("sessions"),
+                            serial = serial,
+                            pid = process.pid,
+                            packageName = process.packageName,
+                        ),
+                    )
+            ) {
+                is StudioResult.Failure -> result.toBackendFailure("ART allocation sampling failed")
+                is StudioResult.Success ->
+                    MemoryBackendResult.Success(
+                        LoadedSampledArt(
+                            trace =
+                                MemorySampledArtTrace(
+                                    file = result.value.traceFile.toString(),
+                                    fileSizeBytes = Files.size(result.value.traceFile),
+                                    packageName = result.value.packageName,
+                                    pid = result.value.pid,
+                                    sdkLevel = result.value.sdkLevel,
+                                    samplingIntervalBytes = result.value.samplingIntervalBytes,
+                                    durationMs = result.value.durationMs,
+                                    source = result.value.source,
+                                    origin = MemorySampledArtOrigin.CAPTURE,
+                                ),
+                            processing = sampledArtArtifactAnalyzer.analyze(result.value.traceFile),
+                        ),
+                    )
+            }
+        }
+
+    override suspend fun importSampledArtAllocations(file: Path): MemoryBackendResult<LoadedSampledArt> =
+        withContext(Dispatchers.IO) {
+            if (!Files.isRegularFile(file) || !Files.isReadable(file) || Files.size(file) == 0L) {
+                return@withContext MemoryBackendResult.Failure(
+                    title = "ART sample trace unavailable",
+                    detail = "Select a readable, nonempty Perfetto trace: $file",
+                )
+            }
+            MemoryBackendResult.Success(
+                LoadedSampledArt(
+                    trace =
+                        MemorySampledArtTrace(
+                            file = file.toAbsolutePath().normalize().toString(),
+                            fileSizeBytes = Files.size(file),
+                            source = "local Perfetto import; ART samples queried via Trace Processor",
+                            origin = MemorySampledArtOrigin.IMPORT,
+                        ),
+                    processing = sampledArtArtifactAnalyzer.analyze(file),
+                ),
+            )
+        }
+
+    override fun exportSampledArtAllocations(
+        trace: MemorySampledArtTrace,
+        output: Path,
+    ) {
+        Files.copy(Path.of(trace.file), output, StandardCopyOption.REPLACE_EXISTING)
+    }
+
     override suspend fun importNativeHeap(file: Path): MemoryBackendResult<LoadedNativeHeap> =
         withContext(Dispatchers.IO) {
             if (!Files.isRegularFile(file)) {
@@ -588,32 +665,59 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
-    override suspend fun analyzeLeaks(): MemoryBackendResult<LeakCanaryReport> =
+    override suspend fun analyzeLeaks(): MemoryBackendResult<LeakCanaryReport> {
+        val loaded =
+            lastLoadedHeap
+                ?: return MemoryBackendResult.Failure(
+                    "Leak analysis unavailable",
+                    "Load an HPROF snapshot before starting LeakCanary analysis.",
+                )
+        return analyzeLeaks(loaded) {}
+    }
+
+    override suspend fun analyzeLeaks(
+        snapshot: LoadedHeap,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LeakCanaryReport> =
         withContext(Dispatchers.IO) {
-            val loaded =
-                lastLoadedHeap
-                    ?: return@withContext MemoryBackendResult.Failure(
-                        "Leak analysis unavailable",
-                        "Load an HPROF snapshot before starting LeakCanary analysis.",
-                    )
-            val hprofFile = loaded.heapDump.convertedHprofFile ?: loaded.heapDump.rawHprofFile
+            val heapDump = snapshot.heapDump
+            val hprofFile = heapDump.convertedHprofFile ?: heapDump.rawHprofFile
             if (hprofFile == null || !Files.isRegularFile(hprofFile)) {
                 return@withContext MemoryBackendResult.Failure(
                     "Leak analysis unavailable",
                     "The loaded snapshot does not have a readable HPROF source.",
                 )
             }
-            runCatching { sharkLeakAnalyzer.analyze(loaded.heapDump, hprofFile) }
-                .fold(
-                    onSuccess = { MemoryBackendResult.Success(it) },
-                    onFailure = { error ->
-                        MemoryBackendResult.Failure(
-                            "Leak analysis failed",
-                            error.message ?: error::class.simpleName.orEmpty(),
-                        )
-                    },
+            val context = currentCoroutineContext()
+            try {
+                fun sourceUnchanged(): Boolean =
+                    snapshot.analysisSourceDigest == null ||
+                        digestFile(hprofFile) { context.ensureActive() } == snapshot.analysisSourceDigest
+
+                if (!sourceUnchanged()) return@withContext changedHeapSourceFailure()
+                val report =
+                    SharkLeakAnalyzer { progress ->
+                        context.ensureActive()
+                        onProgress(progress)
+                    }.analyze(heapDump, hprofFile)
+                context.ensureActive()
+                if (!sourceUnchanged()) return@withContext changedHeapSourceFailure()
+                MemoryBackendResult.Success(report)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    "Leak analysis failed",
+                    exception.message ?: exception::class.simpleName.orEmpty(),
                 )
+            }
         }
+
+    private fun changedHeapSourceFailure(): MemoryBackendResult.Failure =
+        MemoryBackendResult.Failure(
+            "Snapshot source changed",
+            "The HPROF source no longer matches the loaded object graph. Re-import the snapshot before analysis.",
+        )
 
     override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> =
         withContext(Dispatchers.IO) {
@@ -777,34 +881,48 @@ internal class DesktopMemoryProfilerBackend(
         bitmapExports.exportComparisonMarkdown(comparison, output)
     }
 
-    private fun loadHeap(
+    @Suppress("CyclomaticComplexMethod")
+    private suspend fun loadHeap(
         request: HeapLoadRequest,
         onProgress: (Int) -> Unit = {},
     ): MemoryBackendResult<LoadedHeap> {
+        val previousRequest = lastLoadRequest
         lastLoadRequest = request
+        val previousHeap = lastLoadedHeap
         return try {
             val probe = inputProbe.inspect(request.file)
             val probeWarning = probe.warnings.joinToString(separator = "\n").ifBlank { null }
             val indexFile = ensureLargeFileIndex(request.file, probe.fileSizeBytes)
+            val analysisSourceDigest = digestFile(request.file)
+            // Re-importing the same unchanged source must not materialize another multi-gigabyte
+            // graph while the previous snapshot is still retained by the workspace.
+            val reusable = reusableLoadedHeap(request, previousRequest, previousHeap, analysisSourceDigest)
+            if (reusable != null) {
+                onProgress(100)
+                require(digestFile(request.file) == analysisSourceDigest) {
+                    "The HPROF source changed during import. Re-import the snapshot before analysis."
+                }
+                val reused =
+                    reusable.copy(
+                        uiSettings = request.sessionMetadata?.sessionId?.let(::loadWorkspaceSettings) ?: reusable.uiSettings,
+                    )
+                lastLoadedHeap = reused
+                return MemoryBackendResult.Success(reused)
+            }
             val parsedFile =
                 parser.parse(request.file) { parserProgress -> onProgress(parserProgress / 2) }.copy(
                     rawHprofFile = request.rawFile,
                     convertedHprofFile = request.convertedFile,
                 )
             val mappingForLoad = validatedMapping()
-            val mappingWarning =
-                if (mapping != null && mappingForLoad == null) {
-                    "mapping.txt digest changed or the file is unavailable; mapping was ignored until re-imported"
-                } else {
-                    null
-                }
+            val mappingWarning = invalidMappingWarning(mappingForLoad)
             val deobfuscated = mappingForLoad?.let { parsedFile.withDeobfuscation(it) } ?: parsedFile
             val parserWarning =
                 parsedFile.warnings
                     .joinToString(separator = "\n", transform = { it.message })
                     .ifBlank { null }
             val capturedAt = Instant.now()
-            val loaded =
+            val analyzed =
                 analyzeAndPackage(
                     heapDump = deobfuscated,
                     id = request.sessionMetadata?.sessionId ?: request.file.fileName.toString(),
@@ -819,7 +937,16 @@ internal class DesktopMemoryProfilerBackend(
                     cleanupWarning = request.cleanupWarning,
                     onAnalysisProgress = { onProgress(50 + it / 2) },
                     deobfuscator = mappingForLoad,
+                    analysisSourceDigest = analysisSourceDigest,
                 )
+            val loaded =
+                hprofClassMetricsAnalyzer
+                    .analyze(request.file)
+                    ?.let { analyzed.withTraceProcessorNativeSizes(it, parsedFile, mappingForLoad) }
+                    ?: analyzed
+            require(digestFile(request.file) == analysisSourceDigest) {
+                "The HPROF source changed during import. Re-import the snapshot before analysis."
+            }
             request.sessionMetadata?.let { metadata ->
                 persistSession(
                     metadata,
@@ -832,24 +959,152 @@ internal class DesktopMemoryProfilerBackend(
                 )
             }
             val uiSettings = request.sessionMetadata?.sessionId?.let(::loadWorkspaceSettings) ?: MemorySessionUiSettings()
-            MemoryBackendResult.Success(
+            val completed =
                 loaded.copy(
                     uiSettings = uiSettings,
-                    sourceFileDigest = digestFile(request.rawFile),
+                    sourceFileDigest =
+                        if (request.rawFile == request.file) analysisSourceDigest else digestFile(request.rawFile),
                     mappingDigest = mappingDigest,
                     indexFile = indexFile,
-                ),
-            )
+                )
+            lastLoadedHeap = completed
+            MemoryBackendResult.Success(completed)
         } catch (exception: HprofParseException) {
+            lastLoadedHeap = previousHeap
             analysisFailure(exception)
         } catch (exception: IOException) {
+            lastLoadedHeap = previousHeap
             analysisFailure(exception)
         } catch (exception: IllegalArgumentException) {
+            lastLoadedHeap = previousHeap
             analysisFailure(exception)
         } catch (exception: SQLException) {
+            lastLoadedHeap = previousHeap
             analysisFailure(exception)
         }
     }
+
+    private fun reusableLoadedHeap(
+        request: HeapLoadRequest,
+        previousRequest: HeapLoadRequest?,
+        previousHeap: LoadedHeap?,
+        analysisSourceDigest: String,
+    ): LoadedHeap? {
+        if (request.rawFile != request.file || request != previousRequest) return null
+        return previousHeap?.takeIf {
+            it.analysisSourceDigest == analysisSourceDigest && it.mapping === validatedMapping()
+        }
+    }
+
+    /** TP names belong to the raw file; validate them before mapping can merge class identities. */
+    @Suppress("ReturnCount", "CyclomaticComplexMethod")
+    private fun LoadedHeap.withTraceProcessorNativeSizes(
+        metrics: List<HprofClassMetric>,
+        rawHeapDump: HeapDump,
+        classMapping: ProguardMapping?,
+    ): LoadedHeap {
+        if (metrics.isEmpty()) return this
+        val normalized = metrics.groupBy { it.heapName.normalizedHeapName() }
+        if (normalized.keys != availableHeaps.toSet()) return this
+        val validated =
+            availableHeaps.associateWith { heapName ->
+                val rows = normalized[heapName].orEmpty()
+                val rawParsed =
+                    if (classMapping == null) {
+                        perHeapClasses[heapName].orEmpty().associateBy { it.className }
+                    } else {
+                        MemoryHistogramAnalyzer()
+                            .histogram(rawHeapDump, heapName = heapName)
+                            .classes
+                            .associateBy { it.className }
+                    }
+                val rawByClass = rows.associateBy { it.className }
+                if (rawByClass.size != rows.size || rawByClass.keys != rawParsed.keys) return this
+                if (rows.any { row ->
+                        val current = rawParsed[row.className] ?: return@any true
+                        current.instanceCount.toLong() != row.objectCount || current.shallowSize != row.shallowSize
+                    }
+                ) {
+                    return this
+                }
+                val mappedRows =
+                    try {
+                        rows
+                            .groupBy { classMapping?.originalClassName(it.className) ?: it.className }
+                            .mapValues { (className, classRows) ->
+                                classRows
+                                    .reduce { total, row ->
+                                        total.copy(
+                                            className = className,
+                                            objectCount = Math.addExact(total.objectCount, row.objectCount),
+                                            shallowSize = Math.addExact(total.shallowSize, row.shallowSize),
+                                            nativeSize = Math.addExact(total.nativeSize, row.nativeSize),
+                                            reachableShallowSize =
+                                                Math.addExact(total.reachableShallowSize, row.reachableShallowSize),
+                                            reachableNativeSize =
+                                                Math.addExact(total.reachableNativeSize, row.reachableNativeSize),
+                                        )
+                                    }.copy(className = className)
+                            }
+                    } catch (_: ArithmeticException) {
+                        return this
+                    }
+                val parsed = perHeapClasses[heapName].orEmpty()
+                if (mappedRows.keys != parsed.mapTo(mutableSetOf()) { it.className }) return this
+                if (parsed.any { stats ->
+                        val row = mappedRows.getValue(stats.className)
+                        stats.instanceCount.toLong() != row.objectCount || stats.shallowSize != row.shallowSize
+                    }
+                ) {
+                    return this
+                }
+                parsed.map { stats ->
+                    val metric = mappedRows.getValue(stats.className)
+                    stats.copy(
+                        nativeSize = metric.nativeSize,
+                        reachableShallowSize = metric.reachableShallowSize,
+                        reachableNativeSize = metric.reachableNativeSize,
+                    )
+                }
+            }
+        val groupedMetrics = validated.values.flatten().groupBy { it.className }
+        val classTotals =
+            try {
+                groupedMetrics.mapValues { (_, rows) ->
+                    Triple(
+                        rows.fold(0L) { sum, row -> Math.addExact(sum, checkNotNull(row.nativeSize)) },
+                        rows.fold(0L) { sum, row -> Math.addExact(sum, checkNotNull(row.reachableShallowSize)) },
+                        rows.fold(0L) { sum, row -> Math.addExact(sum, checkNotNull(row.reachableNativeSize)) },
+                    )
+                }
+            } catch (_: ArithmeticException) {
+                return this
+            }
+        val updatedHistogram =
+            histogram.copy(
+                classes =
+                    histogram.classes.map { stats ->
+                        stats.copy(
+                            nativeSize = classTotals[stats.className]?.first,
+                            reachableShallowSize = classTotals[stats.className]?.second,
+                            reachableNativeSize = classTotals[stats.className]?.third,
+                        )
+                    },
+            )
+        return copy(
+            histogram = updatedHistogram,
+            perHeapClasses = validated,
+            heapDump = heapDump.copy(topClasses = updatedHistogram.classes),
+        )
+    }
+
+    private fun String.normalizedHeapName(): String =
+        when (lowercase()) {
+            "app" -> "App"
+            "zygote" -> "Zygote"
+            "image" -> "Image"
+            else -> replaceFirstChar(Char::uppercase)
+        }
 
     private fun validatedMapping(): ProguardMapping? {
         val current = mapping
@@ -868,6 +1123,13 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 
+    private fun invalidMappingWarning(mappingForLoad: ProguardMapping?): String? =
+        if (mapping != null && mappingForLoad == null) {
+            "mapping.txt digest changed or the file is unavailable; mapping was ignored until re-imported"
+        } else {
+            null
+        }
+
     private fun ensureLargeFileIndex(
         file: Path,
         fileSizeBytes: Long,
@@ -883,11 +1145,15 @@ internal class DesktopMemoryProfilerBackend(
         return indexFile
     }
 
-    private fun digestFile(file: Path): String {
+    private fun digestFile(
+        file: Path,
+        checkpoint: () -> Unit = {},
+    ): String {
         val digest = MessageDigest.getInstance("SHA-256")
         Files.newInputStream(file).use { input ->
             val buffer = ByteArray(DEFAULT_DIGEST_BUFFER_BYTES)
             while (true) {
+                checkpoint()
                 val count = input.read(buffer)
                 if (count < 0) break
                 if (count > 0) digest.update(buffer, 0, count)
@@ -913,6 +1179,7 @@ internal class DesktopMemoryProfilerBackend(
         cleanupWarning: String? = null,
         onAnalysisProgress: (Int) -> Unit = {},
         deobfuscator: ProguardMapping? = mapping,
+        analysisSourceDigest: String? = null,
     ): LoadedHeap {
         val deepAnalysis = analyzer.analyze(heapDump, deobfuscator = deobfuscator, onProgress = onAnalysisProgress)
         val histogram = deepAnalysis.histogram
@@ -954,6 +1221,7 @@ internal class DesktopMemoryProfilerBackend(
                 objectImmediateDominators = deepAnalysis.dominatorTree.immediateDominators,
                 bitmapInstances = deepAnalysis.bitmapInstances,
                 activityLeaks = deepAnalysis.activityLeaks,
+                activityFragmentLeakObjectIds = deepAnalysis.activityFragmentLeakObjectIds,
             )
         val parsed =
             analysisHeap.copy(
@@ -975,6 +1243,8 @@ internal class DesktopMemoryProfilerBackend(
                         .joinToString("\n")
                         .ifBlank { null },
                 cleanupWarning = cleanupWarning,
+                analysisSourceDigest =
+                    analysisSourceDigest ?: (heapDump.convertedHprofFile ?: heapDump.rawHprofFile)?.let { digestFile(it) },
             )
         lastLoadedHeap = loaded
         return loaded

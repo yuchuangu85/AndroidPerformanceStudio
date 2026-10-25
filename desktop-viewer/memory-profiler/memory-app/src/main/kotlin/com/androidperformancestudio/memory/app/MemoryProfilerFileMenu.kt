@@ -14,11 +14,13 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_native_heap_trace
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_object_investigation
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_raw_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.export_sampled_art_trace
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_snapshot_json
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_standard_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_java_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_mapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_sampled_art
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.ui.ActivePageMenu
 import com.androidperformancestudio.ui.MenuCommand
@@ -38,6 +40,8 @@ internal data class MemoryProfilerFileMenuModel(
     val importNativeHeapEnabled: Boolean = false,
     val importJavaHeapLabel: String = "Java Heap…",
     val importJavaHeapEnabled: Boolean = false,
+    val importSampledArtLabel: String = "ART Sample Trace…",
+    val importSampledArtEnabled: Boolean = false,
     val exportRawHprofLabel: String,
     val exportStandardHprofLabel: String,
     val exportCsvLabel: String,
@@ -61,6 +65,8 @@ internal data class MemoryProfilerFileMenuModel(
     val bitmapComparisonExportEnabled: Boolean = false,
     val exportNativeHeapLabel: String = "Export Native Heap trace",
     val exportNativeHeapEnabled: Boolean = false,
+    val exportSampledArtLabel: String = "Export ART Sample Trace",
+    val exportSampledArtEnabled: Boolean = false,
     val recentSessions: List<MemorySessionMetadata> = emptyList(),
     val recentSessionsEnabled: Boolean = false,
 )
@@ -83,7 +89,9 @@ internal fun memoryProfilerFileMenuModel(
     importMappingEnabled: Boolean = false,
     importNativeHeapEnabled: Boolean = false,
     importJavaHeapEnabled: Boolean = false,
+    importSampledArtEnabled: Boolean = false,
     exportNativeHeapEnabled: Boolean = false,
+    exportSampledArtEnabled: Boolean = false,
 ): MemoryProfilerFileMenuModel =
     MemoryProfilerFileMenuModel(
         importMappingLabel = localizedStringResource(Res.string.menu_import_mapping, language),
@@ -92,8 +100,12 @@ internal fun memoryProfilerFileMenuModel(
         importNativeHeapEnabled = importNativeHeapEnabled,
         importJavaHeapLabel = localizedStringResource(Res.string.menu_import_java_heap, language),
         importJavaHeapEnabled = importJavaHeapEnabled,
+        importSampledArtLabel = localizedStringResource(Res.string.menu_import_sampled_art, language),
+        importSampledArtEnabled = importSampledArtEnabled,
         exportNativeHeapLabel = localizedStringResource(Res.string.export_native_heap_trace, language),
         exportNativeHeapEnabled = exportNativeHeapEnabled,
+        exportSampledArtLabel = localizedStringResource(Res.string.export_sampled_art_trace, language),
+        exportSampledArtEnabled = exportSampledArtEnabled,
         exportRawHprofLabel = localizedStringResource(Res.string.export_raw_hprof, language),
         exportStandardHprofLabel = localizedStringResource(Res.string.export_standard_hprof, language),
         exportCsvLabel = localizedStringResource(Res.string.export_csv, language),
@@ -129,6 +141,7 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     onImportMapping: () -> Unit = {},
     onImportNativeHeap: () -> Unit = {},
     onImportJavaHeap: () -> Unit = {},
+    onImportSampledArt: () -> Unit = {},
     onExportRawHprof: () -> Unit,
     onExportStandardHprof: () -> Unit,
     onExportCsv: () -> Unit,
@@ -140,6 +153,7 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     onExportBitmapDump: () -> Unit = {},
     onExportBitmapComparison: () -> Unit = {},
     onExportNativeHeap: () -> Unit = {},
+    onExportSampledArt: () -> Unit = {},
     onLoadSession: (MemorySessionMetadata) -> Unit = {},
 ) {
     ActivePageMenu(
@@ -149,25 +163,58 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
             // Mapping deobfuscates the loaded heap; Java and native heap traces add a dataset to the session.
             imports =
                 listOf(
-                    MenuCommand(model.importJavaHeapLabel, enabled = model.importJavaHeapEnabled, onClick = onImportJavaHeap),
-                    MenuCommand(model.importNativeHeapLabel, enabled = model.importNativeHeapEnabled, onClick = onImportNativeHeap),
-                    MenuCommand(model.importMappingLabel, enabled = model.importMappingEnabled, onClick = onImportMapping),
+                    MenuCommand(
+                        model.importJavaHeapLabel,
+                        enabled = model.importJavaHeapEnabled,
+                        onClick = onImportJavaHeap,
+                    ),
+                    MenuCommand(
+                        model.importNativeHeapLabel,
+                        enabled = model.importNativeHeapEnabled,
+                        onClick = onImportNativeHeap,
+                    ),
+                    MenuCommand(
+                        model.importSampledArtLabel,
+                        enabled = model.importSampledArtEnabled,
+                        onClick = onImportSampledArt,
+                    ),
+                    MenuCommand(
+                        model.importMappingLabel,
+                        enabled = model.importMappingEnabled,
+                        onClick = onImportMapping,
+                    ),
                 ),
             recent =
                 RecentMenu(
-                    items = model.recentSessions.map { session -> MenuCommand(recentSessionLabel(session)) { onLoadSession(session) } },
+                    items =
+                        model.recentSessions.map { session ->
+                            MenuCommand(recentSessionLabel(session)) { onLoadSession(session) }
+                        },
                     enabled = model.recentSessionsEnabled,
                 ),
             exportGroups =
                 listOf(
                     listOf(
-                        MenuCommand(model.exportRawHprofLabel, enabled = model.rawHprofExportEnabled, onClick = onExportRawHprof),
+                        MenuCommand(
+                            model.exportRawHprofLabel,
+                            enabled = model.rawHprofExportEnabled,
+                            onClick = onExportRawHprof,
+                        ),
                         MenuCommand(
                             model.exportStandardHprofLabel,
                             enabled = model.standardHprofExportEnabled,
                             onClick = onExportStandardHprof,
                         ),
-                        MenuCommand(model.exportNativeHeapLabel, enabled = model.exportNativeHeapEnabled, onClick = onExportNativeHeap),
+                        MenuCommand(
+                            model.exportNativeHeapLabel,
+                            enabled = model.exportNativeHeapEnabled,
+                            onClick = onExportNativeHeap,
+                        ),
+                        MenuCommand(
+                            model.exportSampledArtLabel,
+                            enabled = model.exportSampledArtEnabled,
+                            onClick = onExportSampledArt,
+                        ),
                     ),
                     listOf(
                         MenuCommand(model.exportCsvLabel, enabled = model.csvExportEnabled, onClick = onExportCsv),
@@ -182,7 +229,11 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                             onClick = onExportObjectInvestigation,
                         ),
                         MenuCommand(model.exportDiffLabel, enabled = model.exportDiffEnabled, onClick = onExportDiff),
-                        MenuCommand(model.exportSnapshotJsonLabel, enabled = model.exportSnapshotJsonEnabled, onClick = onExportSnapshotJson),
+                        MenuCommand(
+                            model.exportSnapshotJsonLabel,
+                            enabled = model.exportSnapshotJsonEnabled,
+                            onClick = onExportSnapshotJson,
+                        ),
                         MenuCommand(
                             model.exportInvestigationReportLabel,
                             enabled = model.exportInvestigationReportEnabled,
@@ -190,7 +241,11 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
                         ),
                     ),
                     listOf(
-                        MenuCommand(model.exportBitmapDumpLabel, enabled = model.bitmapDumpExportEnabled, onClick = onExportBitmapDump),
+                        MenuCommand(
+                            model.exportBitmapDumpLabel,
+                            enabled = model.bitmapDumpExportEnabled,
+                            onClick = onExportBitmapDump,
+                        ),
                         MenuCommand(
                             model.exportBitmapComparisonLabel,
                             enabled = model.bitmapComparisonExportEnabled,

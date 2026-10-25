@@ -15,7 +15,7 @@ public object MemoryProfilerPresenter {
         return input.copy(
             classes = sortedAll,
             displayedClasses = displayed,
-            classListSummary = buildSummary(displayed, leakClasses, duplicateClasses),
+            classListSummary = buildSummary(input, displayed, duplicateClasses),
             classifierRows =
                 buildClassifierRows(
                     displayed,
@@ -86,6 +86,7 @@ public object MemoryProfilerPresenter {
             totalCount = stats.totalCount ?: stats.instanceCount.toLong(),
             nativeSize = stats.nativeSize,
             shallowSize = stats.shallowSize,
+            retainedNativeSize = stats.reachableNativeSize,
             retainedSize = stats.retainedSize,
             allocationsSize = stats.allocationsSize,
             deallocationsSize = stats.deallocationsSize,
@@ -117,6 +118,7 @@ public object MemoryProfilerPresenter {
                 deallocations = all.mapNotNull { it.deallocations }.takeIf { it.size == all.size }?.sum(),
                 nativeSize = all.mapNotNull { it.nativeSize }.takeIf { it.size == all.size }?.sum(),
                 shallowSize = all.sumOf { it.shallowSize },
+                retainedNativeSize = all.mapNotNull { it.retainedNativeSize }.takeIf { it.size == all.size }?.sum(),
                 retainedSize = all.mapNotNull { it.retainedSize }.takeIf { it.size == all.size }?.sum(),
                 allocationsSize = all.mapNotNull { it.allocationsSize }.takeIf { it.size == all.size }?.sum(),
                 deallocationsSize = all.mapNotNull { it.deallocationsSize }.takeIf { it.size == all.size }?.sum(),
@@ -155,6 +157,7 @@ public object MemoryProfilerPresenter {
                 MemoryClassifierColumn.TOTAL_COUNT -> compareValues { it.totalCount }
                 MemoryClassifierColumn.NATIVE_SIZE -> compareValues { it.nativeSize }
                 MemoryClassifierColumn.SHALLOW_SIZE -> compareValues { it.shallowSize }
+                MemoryClassifierColumn.RETAINED_NATIVE_SIZE -> compareValues { it.retainedNativeSize }
                 MemoryClassifierColumn.RETAINED_SIZE -> compareValues { it.retainedSize }
                 MemoryClassifierColumn.ALLOCATIONS_SIZE -> compareValues { it.allocationsSize }
                 MemoryClassifierColumn.DEALLOCATIONS_SIZE -> compareValues { it.deallocationsSize }
@@ -192,12 +195,14 @@ public object MemoryProfilerPresenter {
         buildSet {
             input.leakSuspects.forEach { add(it.className) }
             input.activityLeaks.forEach { add(it.className) }
+            input.lifecycleLeakObjects.forEach { add(it.className) }
         }
 
     private fun activityFragmentLeakClassNames(input: MemoryProfilerState): Set<String> =
         buildSet {
             input.activityLeaks.forEach { add(it.className) }
             input.leakSuspects.filter { it.activityOrFragmentLeak }.forEach { add(it.className) }
+            input.lifecycleLeakObjects.forEach { add(it.className) }
         }
 
     /** Bitmap classes sharing Perfetto storage identity, or dimensions when that identity is absent. */
@@ -236,19 +241,39 @@ public object MemoryProfilerPresenter {
     }
 
     private fun buildSummary(
+        input: MemoryProfilerState,
         displayed: List<ClassStats>,
-        leakClasses: Set<String>,
         duplicateClasses: Set<String>,
-    ): MemoryClassListSummary =
-        MemoryClassListSummary(
+    ): MemoryClassListSummary {
+        val displayedNames = displayed.mapTo(hashSetOf()) { it.className }
+        val knownNativeSizes = displayed.mapNotNull(ClassStats::nativeSize)
+        val knownReachableShallowSizes = displayed.mapNotNull(ClassStats::reachableShallowSize)
+        val knownReachableNativeSizes = displayed.mapNotNull(ClassStats::reachableNativeSize)
+        val classFilterActive =
+            input.classScope != MemoryClassScope.ALL ||
+                input.leakFilter != MemoryLeakFilter.NONE ||
+                input.searchText.isNotEmpty()
+        return MemoryClassListSummary(
             classCount = displayed.size,
-            leakCount = displayed.count { it.className in leakClasses },
+            leakCount =
+                input.lifecycleLeakObjects.count { candidate ->
+                    (input.heapFilter == null || input.heapFilter == candidate.heapName) &&
+                        candidate.className in displayedNames
+                },
             duplicateBitmapCount = displayed.count { it.className in duplicateClasses },
             totalCount = displayed.sumOf { it.instanceCount },
-            totalNativeSize = displayed.sumOf { it.nativeSize ?: 0L },
+            totalNativeSize = knownNativeSizes.takeIf { it.isNotEmpty() && it.size == displayed.size }?.sum(),
+            totalRetainedNativeSize =
+                knownReachableNativeSizes
+                    .takeIf { !classFilterActive && it.isNotEmpty() && it.size == displayed.size }
+                    ?.sum(),
             totalShallowSize = displayed.sumOf { it.shallowSize },
-            totalRetainedSize = displayed.sumOf { it.retainedSize ?: 0L },
+            totalRetainedSize =
+                knownReachableShallowSizes
+                    .takeIf { !classFilterActive && it.isNotEmpty() && it.size == displayed.size }
+                    ?.sum(),
         )
+    }
 
     private fun nativeSizeByClass(input: MemoryProfilerState): Map<String, Long> {
         val result =

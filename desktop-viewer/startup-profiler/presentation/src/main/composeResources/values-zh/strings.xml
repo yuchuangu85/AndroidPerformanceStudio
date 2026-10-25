@@ -112,6 +112,7 @@
 用户第一印象</string>
     <string name="scenario_configuration">分析场景</string>
     <string name="application">应用 / 组件</string>
+    <string name="process">进程</string>
     <string name="device">测试设备</string>
     <string name="iterations">迭代次数</string>
     <string name="compilation">编译模式</string>

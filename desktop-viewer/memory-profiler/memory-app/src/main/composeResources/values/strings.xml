@@ -2,6 +2,12 @@
 <resources>
     <string name="diff_view">Diff</string>
     <string name="native_heap_view">Native Heap</string>
+    <string name="sampled_art_view">ART Samples</string>
+    <string name="record_sampled_art">Record ART Samples</string>
+    <string name="menu_import_sampled_art">ART Sample Trace…</string>
+    <string name="export_sampled_art_trace">Export ART Sample Trace</string>
+    <string name="recording_sampled_art_allocations">Recording sampled ART allocations for %1$s…</string>
+    <string name="sampled_art_capture_failed">ART allocation sampling failed</string>
     <string name="bitmap_dump_view">Bitmaps</string>
     <string name="dashboard_view">Leaks &amp; Bitmaps</string>
     <string name="class_list_view">Classes</string>

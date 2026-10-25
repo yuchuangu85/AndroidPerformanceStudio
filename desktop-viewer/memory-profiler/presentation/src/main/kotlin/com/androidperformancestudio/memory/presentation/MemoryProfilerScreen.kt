@@ -48,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -232,13 +233,27 @@ public fun MemoryProfilerScreen(
                                     }.getOrNull()
                                 }
                                 val filtered =
-                                    presentedState.dominatorRows.filter { row ->
-                                    if (presentedState.useRegex) {
-                                        searchRegex?.containsMatchIn(row.className) == true
-                                    } else {
-                                        row.className.contains(presentedState.searchText, ignoreCase = !presentedState.matchCase)
+                                    remember(
+                                        presentedState.dominatorRows,
+                                        presentedState.searchText,
+                                        presentedState.matchCase,
+                                        presentedState.useRegex,
+                                    ) {
+                                        if (presentedState.searchText.isEmpty()) {
+                                            presentedState.dominatorRows
+                                        } else {
+                                            presentedState.dominatorRows.filter { row ->
+                                                if (presentedState.useRegex) {
+                                                    searchRegex?.containsMatchIn(row.className) == true
+                                                } else {
+                                                    row.className.contains(
+                                                        presentedState.searchText,
+                                                        ignoreCase = !presentedState.matchCase,
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
-                                }
                                 MemoryProfilerDominatorPane(filtered, actions, language, paneModifier)
                             }
                             else -> MemorySnapshotComparison(presentedState, actions, language, paneModifier)
@@ -260,12 +275,18 @@ public fun MemoryProfilerScreen(
                         language = language,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
+                MemoryProfilerViewMode.SampledArtAllocations ->
+                    MemorySampledArtAllocationPage(
+                        trace = presentedState.sampledArtTrace,
+                        analysis = presentedState.sampledArtAnalysis,
+                        isRecording = presentedState.isDumping,
+                        language = language,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                 MemoryProfilerViewMode.LeakCanary ->
                     MemoryProfilerLeakCanaryPage(
-                        report = presentedState.leakCanaryReport,
-                        hasHeap = presentedState.snapshotSummary != null,
-                        isLoading = presentedState.isDumping,
-                        liveSession = presentedState.leakCanaryLiveSession,
+                        state = presentedState,
+                        actions = actions,
                         language = language,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
@@ -317,19 +338,43 @@ private fun MemoryProfilerDominatorPane(
     modifier: Modifier,
 ) {
     val expanded = remember(rows) { mutableStateMapOf<Long, Boolean>() }
-    val childrenByParent = remember(rows) { rows.groupBy { it.parentObjectId } }
-    val rowsById = remember(rows) { rows.associateBy { it.objectId } }
+    // A multi-million-object dump cannot afford two more boxed maps of every dominator row.
+    val objectIds =
+        remember(rows) {
+            LongArray(rows.size) { index -> rows[index].objectId }.apply { sort() }
+        }
+    val parentIds =
+        remember(rows) {
+            LongArray(rows.size) { index -> rows[index].parentObjectId ?: Long.MIN_VALUE }.apply { sort() }
+        }
+    val rootRows =
+        remember(rows) {
+            rows.filter { row -> row.parentObjectId?.let { objectIds.binarySearch(it) < 0 } ?: true }
+                .sortedByDescending { it.retainedSize }
+        }
+    val expandedChildren = remember(rows) { mutableMapOf<Long, List<MemoryDominatorRow>>() }
 
-    val visibleRows =
-        buildList {
-        val visited = mutableSetOf<Long>()
-        val pending = ArrayDeque(rows.filter { it.parentObjectId !in rowsById }.sortedByDescending { it.retainedSize })
-        while (pending.isNotEmpty()) {
-            val row = pending.removeFirst()
-            if (!visited.add(row.objectId)) continue
-            add(row)
-            if (expanded[row.objectId] == true) {
-                childrenByParent[row.objectId].orEmpty().sortedBy { it.retainedSize }.forEach { pending.addFirst(it) }
+    fun childrenOf(parentId: Long): List<MemoryDominatorRow> =
+        expandedChildren.getOrPut(parentId) {
+            rows.asSequence()
+                .filter { it.parentObjectId == parentId }
+                .sortedBy { it.retainedSize }
+                .toList()
+        }
+
+    val visibleRows by remember(rows) {
+        derivedStateOf {
+            buildList {
+                val visited = mutableSetOf<Long>()
+                val pending = ArrayDeque(rootRows)
+                while (pending.isNotEmpty()) {
+                    val row = pending.removeFirst()
+                    if (!visited.add(row.objectId)) continue
+                    add(row)
+                    if (expanded[row.objectId] == true) {
+                        childrenOf(row.objectId).forEach { pending.addFirst(it) }
+                    }
+                }
             }
         }
     }
@@ -351,7 +396,7 @@ private fun MemoryProfilerDominatorPane(
         } else {
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 itemsIndexed(visibleRows, key = { _, row -> row.objectId }) { index, row ->
-                    val hasChildren = childrenByParent[row.objectId].orEmpty().isNotEmpty()
+                    val hasChildren = parentIds.binarySearch(row.objectId) >= 0
                     val isExpanded = expanded[row.objectId] == true
                     Row(
                         modifier =
@@ -439,6 +484,19 @@ private fun MemoryProfilerStatusBar(
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.cancel, language),
                     onClick = actions.onCancelOperation,
+                )
+                hasStatus = true
+            }
+            if (state.isSelectionLoading) {
+                if (hasStatus) MemoryProfilerStatusDivider()
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+                Text(
+                    text = localizedStringResource(Res.string.in_progress, language),
+                    color = colors.secondaryText,
+                    fontSize = ViewerTypography.label.fontSize,
                 )
                 hasStatus = true
             }

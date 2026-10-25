@@ -9,6 +9,7 @@ import com.androidperformancestudio.contracts.ArtifactLocation
 import com.androidperformancestudio.contracts.ArtifactProvenance
 import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.frame.analysis.FrameTimelineTraceAdapter
+import com.androidperformancestudio.memory.analysis.ArtSampledAllocationTraceProcessorAdapter
 import com.androidperformancestudio.memory.analysis.JavaHeapTraceProcessorAdapter
 import com.androidperformancestudio.memory.analysis.NativeHeapTraceProcessorAdapter
 import com.androidperformancestudio.model.StudioResult
@@ -47,6 +48,10 @@ class PerfettoFeatureSchemaCompatibilityTest {
                 val native = NativeHeapTraceProcessorAdapter()
                 assertQuery(context, native.allocationQuery)
                 assertQuery(context, native.callStackQuery)
+
+                val sampledArt = ArtSampledAllocationTraceProcessorAdapter()
+                assertQuery(context, sampledArt.allocationQuery)
+                assertQuery(context, sampledArt.callStackQuery)
 
                 val java = JavaHeapTraceProcessorAdapter()
                 assertQuery(context, java.classQuery)

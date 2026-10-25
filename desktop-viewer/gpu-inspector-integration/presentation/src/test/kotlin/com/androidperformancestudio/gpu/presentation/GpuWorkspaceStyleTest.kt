@@ -17,6 +17,18 @@ class GpuWorkspaceStyleTest {
     private val model = source("GpuHubModel.kt")
 
     @Test
+    fun `device selector and refresh use title bar with inline fallback`() {
+        val panel = hub.substringAfter("private fun GpuDeviceContextPanel(")
+        assertTrue(panel.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(panel.contains("DeviceDropdownSelector("))
+        assertTrue(panel.contains("TitleBarRefreshOrInline("))
+        assertTrue(panel.contains("onRefresh = actions.onRefreshDevices"))
+        assertTrue(panel.contains("onClick = actions.onRefreshDevices"))
+        assertTrue(panel.contains("titleBarTargets?.deviceReady(it.serial) != false"))
+        assertTrue(panel.contains("displayTextOverride = titleBarTargets?.selectedDeviceLabel"))
+    }
+
+    @Test
     fun `hub renders no decorative banner and installs no page local theme`() {
         assertFalse(hub.contains("StudioWorkspaceHeader("))
         assertFalse(hub.contains("Brush.horizontalGradient("))
@@ -145,7 +157,8 @@ class GpuWorkspaceStyleTest {
         assertTrue(hub.contains("onItemSelected = actions.onSelectHubTab"))
         assertTrue(artifacts.contains("onValueChange = actions.onFilterArtifacts"))
         assertTrue(hub.contains("onClick = actions.onRefreshDevices"))
-        assertTrue(hub.contains("onItemSelected = { it.serial?.let(actions.onSelectDevice) }"))
+        assertTrue(hub.contains("titleBarTargets?.chooseDevice(serial, device.selectorLabel())"))
+        assertTrue(hub.contains("actions.onSelectDevice(serial)"))
         assertTrue(hub.contains("onItemSelected = { actions.onSelectArtifact(it.id) }"))
         listOf("onOpenArtifact", "onVerifyArtifact", "onRevealArtifact", "onRelocateArtifact").forEach { action ->
             assertTrue(hub.contains("actions.$action") || artifacts.contains("actions.$action"), action)

@@ -3,6 +3,7 @@
     <string name="back_to_home">返回主页</string>
     <string name="device">设备</string>
     <string name="app_uid">应用 / UID</string>
+    <string name="process">进程</string>
     <string name="refresh">刷新</string>
     <string name="status">状态</string>
     <string name="stop_analyze">停止并分析</string>

@@ -90,6 +90,7 @@ class InstanceReferenceQueryTest {
 
         assertNull(rows.single().depth)
         assertFalse(rows.single().reachable)
+        assertTrue(assertNotNull(query.detailOf(7)).references.isEmpty())
     }
 
     @Test
@@ -107,6 +108,26 @@ class InstanceReferenceQueryTest {
         assertEquals(2, detail?.referenceChain?.size)
         assertEquals("GC Root (JNI_GLOBAL)", detail?.referenceChain?.first()?.fieldName)
         assertEquals(setOf("child", "[0]"), detail?.references?.map { it.name }?.toSet())
+    }
+
+    @Test
+    fun `inbound references are rendered and sorted when an object is inspected`() {
+        val query =
+            InstanceReferenceQuery(
+                HeapDump(
+                    instances =
+                        listOf(
+                            instance(3, "ZSource", refs = listOf(ref("last", 2), ref("first", 2))),
+                            instance(1, "ASource", refs = listOf(ref("middle", 2))),
+                            instance(2, "Target"),
+                        ),
+                ),
+            )
+
+        val references = assertNotNull(query.detailOf(2)).references
+
+        assertEquals(listOf("middle", "first", "last"), references.map { it.name })
+        assertEquals(listOf("ASource @0x1", "ZSource @0x3", "ZSource @0x3"), references.map { it.displayValue })
     }
 
     @Test
@@ -217,7 +238,7 @@ class InstanceReferenceQueryTest {
     }
 
     @Test
-    fun `class dump records can be inspected through java lang Class row`() {
+    fun `class dump rows join instances of represented class while details keep physical type`() {
         val query =
             InstanceReferenceQuery(
                 HeapDump(
@@ -226,13 +247,82 @@ class InstanceReferenceQueryTest {
                             HeapClass(10, "java.lang.Class", instanceSize = 32),
                             HeapClass(11, "com.example.Item", instanceSize = 24),
                         ),
+                    instances = listOf(instance(21, "com.example.Item")),
+                    heapByObjectId = mapOf(10L to "Zygote", 11L to "App", 21L to "App"),
                 ),
             )
 
-        val rows = query.instancesOf("java.lang.Class")
-        assertEquals(listOf(10L, 11L), rows.map { it.objectId })
-        assertEquals(listOf(32L, 32L), rows.map { it.shallowSize })
+        val classRows = query.instancesOf("java.lang.Class")
+        assertEquals(listOf(10L), classRows.map { it.objectId })
+        val itemRows = query.instancesOf("com.example.Item", heapName = "App")
+        assertEquals(listOf(11L, 21L), itemRows.map { it.objectId })
+        assertEquals(listOf(1, 2), itemRows.map { it.index })
+        assertEquals(listOf(32L, 10L), itemRows.map { it.shallowSize })
         assertEquals("java.lang.Class", query.detailOf(11)?.className)
+    }
+
+    @Test
+    fun `static class edges remain navigable without materializing a full graph`() {
+        val query =
+            InstanceReferenceQuery(
+                HeapDump(
+                    classes =
+                        listOf(
+                            HeapClass(10, "java.lang.Class", instanceSize = 32),
+                            HeapClass(11, "com.example.Holder", staticReferences = listOf(ref("static child", 2))),
+                        ),
+                    instances = listOf(instance(2, "com.example.Child")),
+                    gcRoots = listOf(HeapRoot(11, HeapRootKind.JNI_GLOBAL)),
+                ),
+            )
+
+        val detail = assertNotNull(query.detailOf(2))
+
+        assertEquals(1, detail.depth)
+        assertEquals(listOf("GC Root (JNI_GLOBAL)", "static child"), detail.referenceChain.map { it.fieldName })
+        assertEquals(listOf(11L), detail.references.map { it.targetObjectId })
+    }
+
+    @Test
+    fun `long same-class chain exposes cached breadth-first depths`() {
+        val count = 5_000
+        val query =
+            InstanceReferenceQuery(
+                HeapDump(
+                    instances =
+                        (1..count).map { id ->
+                            instance(
+                                id.toLong(),
+                                "Node",
+                                refs = if (id < count) listOf(ref("next", id + 1L)) else emptyList(),
+                            )
+                        },
+                    gcRoots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+                ),
+            )
+
+        val rows = query.instancesOf("Node")
+
+        assertEquals(count, rows.size)
+        assertEquals(0, rows.first().depth)
+        assertEquals(count - 1, rows.last().depth)
+        assertEquals(count, query.detailOf(count.toLong())?.referenceChain?.size)
+    }
+
+    @Test
+    fun `sparse array inbound scan retains absolute field indexes`() {
+        val ids = MutableList(50_000) { 0L }
+        ids[20_000] = 2L
+        ids[49_999] = 2L
+        val query =
+            InstanceReferenceQuery(
+                HeapDump(
+                    instances = listOf(instance(2, "Target")),
+                    objectArrays = listOf(HeapObjectArray(1, 100, "Target[]", ids.size, ids)),
+                ),
+            )
+
+        assertEquals(listOf("[20000]", "[49999]"), query.detailOf(2)?.references?.map { it.name })
     }
 
     private fun instance(

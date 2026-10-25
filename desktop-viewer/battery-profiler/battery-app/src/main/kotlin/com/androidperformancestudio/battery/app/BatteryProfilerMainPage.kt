@@ -70,6 +70,7 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.pack
 import com.androidperformancestudio.battery.battery_app.generated.resources.package_uid_shared
 import com.androidperformancestudio.battery.battery_app.generated.resources.polling
 import com.androidperformancestudio.battery.battery_app.generated.resources.polling_value
+import com.androidperformancestudio.battery.battery_app.generated.resources.process
 import com.androidperformancestudio.battery.battery_app.generated.resources.refresh
 import com.androidperformancestudio.battery.battery_app.generated.resources.repeated
 import com.androidperformancestudio.battery.battery_app.generated.resources.reset
@@ -91,8 +92,13 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -113,6 +119,11 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
     val controller = remember(language) { BatteryProfilerController(language = language) }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val targetHost = LocalTitleBarTargetHost.current
+    val selectionReady =
+        targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
+            targetHost?.packageReady(state.selectedPackageName) != false
+    var pendingSharedDevice by remember { mutableStateOf<String?>(null) }
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     var showConfiguration by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -128,6 +139,37 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
 
     LaunchedEffect(controller) { controller.refreshSessions() }
     LaunchedEffect(controller) { controller.refreshDevices() }
+    LaunchedEffect(targetHost, targetHost?.selectedDeviceSerial, state.selectedDeviceSerial, state.devices, state.isRunning) {
+        if (targetHost == null || state.isRunning) return@LaunchedEffect
+        val sharedSerial = targetHost.selectedDeviceSerial
+        if (sharedSerial == null) {
+            state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.let {
+                targetHost.chooseDevice(it.serial, it.name)
+            }
+        } else if (sharedSerial == state.selectedDeviceSerial) {
+            pendingSharedDevice = null
+        } else if (pendingSharedDevice != sharedSerial && state.devices.any { it.serial == sharedSerial && it.online }) {
+            pendingSharedDevice = sharedSerial
+            controller.selectDevice(sharedSerial)
+        }
+    }
+    LaunchedEffect(
+        targetHost,
+        targetHost?.selectedPackageName,
+        targetHost?.selectedDeviceSerial,
+        state.selectedDeviceSerial,
+        state.selectedPackageName,
+        state.targets,
+        state.isRunning,
+    ) {
+        if (targetHost == null || state.isRunning || !targetHost.deviceReady(state.selectedDeviceSerial)) return@LaunchedEffect
+        val sharedPackage = targetHost.selectedPackageName
+        if (sharedPackage == null) {
+            state.selectedPackageName?.let(targetHost::choosePackage)
+        } else if (sharedPackage != state.selectedPackageName && state.targets.any { it.packageName == sharedPackage }) {
+            controller.selectTarget(sharedPackage)
+        }
+    }
     LaunchedEffect(state.isInteractiveActive, state.config.mode, state.config.pollingIntervalSeconds) {
         if (state.isInteractiveActive && state.config.mode == BatteryCaptureMode.ONLINE) {
             while (true) {
@@ -153,7 +195,10 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                 jsonExportEnabled = state.analysis != null && state.experiment != null && !state.isRunning,
                 csvExportEnabled = state.analysis != null && !state.isRunning,
                 rawEvidenceExportEnabled = state.experiment != null && !state.isRunning,
-                resetEnabled = state.selectedDeviceSerial != null && !state.isRunning,
+                resetEnabled =
+                    state.selectedDeviceSerial != null &&
+                        targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
+                        !state.isRunning,
             ),
         onImport = {
             chooseOpenFile(
@@ -208,40 +253,71 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     modifier = Modifier.horizontalScroll(rememberScrollState()).widthIn(min = minimumToolbarWidth),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    DeviceDropdownSelector(
-                        language = language,
-                        items = state.devices,
-                        selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-                        onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                        itemLabel = { it.name },
-                        enabled = !state.isRunning,
-                        itemEnabled = { it.online },
-                    )
-                    HeaderSpacer()
-                    DropdownSelector(
-                        items = state.targets,
-                        searchable = true,
-                        searchLanguage = language,
-                        selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
-                        onItemSelected = { controller.selectTarget(it.packageName) },
-                        itemLabel = {
-                            localizedStringResource(
-                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                language,
-                                it.packageName,
-                                it.uid,
-                            )
-                        },
-                        placeholder = localizedStringResource(Res.string.app_uid, language),
-                        enabled = !state.isRunning && state.selectedDeviceSerial != null,
-                    )
-                    HeaderSpacer()
-                    ProfilerCompactButton(
-                        text = localizedStringResource(Res.string.refresh, language),
+                    val inTitleBar = targetHost != null
+                    TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                        DeviceDropdownSelector(
+                            language = language,
+                            items = state.devices,
+                            selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                            onItemSelected = { device ->
+                                targetHost?.chooseDevice(device.serial, device.name)
+                                pendingSharedDevice = device.serial
+                                scope.launch { controller.selectDevice(device.serial) }
+                            },
+                            itemLabel = { it.name },
+                            enabled = !state.isRunning,
+                            itemEnabled = { it.online },
+                            modifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier,
+                            fillWidth = inTitleBar,
+                            displayTextOverride = targetHost?.selectedDeviceLabel,
+                        )
+                    }
+                    if (!inTitleBar) HeaderSpacer()
+                    TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+                        DropdownSelector(
+                            items = state.targets,
+                            searchable = true,
+                            searchLanguage = language,
+                            selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
+                            onItemSelected = {
+                                targetHost?.choosePackage(it.packageName)
+                                controller.selectTarget(it.packageName)
+                            },
+                            itemLabel = {
+                                localizedStringResource(
+                                    if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
+                                    language,
+                                    it.packageName,
+                                    it.uid,
+                                )
+                            },
+                            placeholder = localizedStringResource(if (inTitleBar) Res.string.process else Res.string.app_uid, language),
+                            selectorDescription =
+                                localizedStringResource(
+                                    if (inTitleBar) Res.string.process else Res.string.app_uid,
+                                    language,
+                                ),
+                            enabled =
+                                !state.isRunning &&
+                                    state.selectedDeviceSerial != null &&
+                                    (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
+                            modifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier,
+                            fillWidth = inTitleBar,
+                            displayTextOverride = targetHost?.selectedPackageName,
+                        )
+                    }
+                    if (!inTitleBar) HeaderSpacer()
+                    TitleBarRefreshOrInline(
                         enabled = !state.isRunning && !state.isRefreshing,
-                        onClick = { scope.launch { controller.refreshDevices() } },
-                    )
-                    HeaderSpacer()
+                        onRefresh = { scope.launch { controller.refreshDevices() } },
+                    ) {
+                        ProfilerCompactButton(
+                            text = localizedStringResource(Res.string.refresh, language),
+                            enabled = !state.isRunning && !state.isRefreshing,
+                            onClick = { scope.launch { controller.refreshDevices() } },
+                        )
+                    }
+                    if (!inTitleBar) HeaderSpacer()
                     ProfilerCompactButton(
                         text =
                             when {
@@ -249,11 +325,15 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                                 state.isRunning -> localizedStringResource(Res.string.cancel_experiment, language)
                                 else -> localizedStringResource(Res.string.run_experiment, language)
                             },
-                        enabled = state.selectedPackageName != null && !state.isLoadingSession,
+                        enabled =
+                            state.isInteractiveActive ||
+                                state.isRunning ||
+                                (state.selectedPackageName != null && selectionReady && !state.isLoadingSession),
                         onClick = {
                             when {
                                 state.isInteractiveActive -> experimentJob = scope.launch { controller.stopInteractive() }
                                 state.isRunning -> experimentJob?.cancel()
+                                !selectionReady -> Unit
                                 state.config.mode == BatteryCaptureMode.INTERACTIVE || state.config.mode == BatteryCaptureMode.ONLINE ->
                                     experimentJob =
                                         scope.launch { controller.startInteractive() }
@@ -272,7 +352,10 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                     Spacer(Modifier.weight(1f))
                     ProfilerCompactButton(
                         text = localizedStringResource(Res.string.battery_historian, language),
-                        enabled = state.selectedDeviceSerial != null && !state.isRunning,
+                        enabled =
+                            state.selectedDeviceSerial != null &&
+                                targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
+                                !state.isRunning,
                         onClick = {
                             confirmBugreport = true
                         },

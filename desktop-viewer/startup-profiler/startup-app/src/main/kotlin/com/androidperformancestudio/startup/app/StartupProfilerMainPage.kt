@@ -59,9 +59,11 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.refr
 import com.androidperformancestudio.startup.startup_app.generated.resources.status
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -83,6 +85,11 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
+    val targetHost = LocalTitleBarTargetHost.current
+    val selectedPackage = state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.packageName
+    val selectionReady =
+        targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
+            targetHost?.packageReady(selectedPackage) != false
 
     LaunchedEffect(controller) { controller.refreshDevices() }
 
@@ -104,7 +111,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             onStartStop = {
                 if (state.isRunning) {
                     experimentJob?.cancel()
-                } else if (experimentJob?.isActive != true && state.selectedComponentName != null) {
+                } else if (selectionReady && experimentJob?.isActive != true && state.selectedComponentName != null) {
                     experimentJob = scope.launch { controller.runExperiment() }
                 }
             },
@@ -165,7 +172,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 TextButton(
                     onClick = {
                         controller.dismissCompilationConfirmation()
-                        if (experimentJob?.isActive != true) {
+                        if (selectionReady && experimentJob?.isActive != true) {
                             experimentJob = scope.launch { controller.runExperiment(compilationChangeConfirmed = true) }
                         }
                     },
@@ -194,13 +201,18 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     actions = actions,
                     language = language,
                 )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh, language),
+                if (LocalTitleBarTargetHost.current == null) HeaderSpacer()
+                TitleBarRefreshOrInline(
                     enabled = !state.isRunning && !state.isRefreshing,
-                    onClick = actions.onRefresh,
-                )
-                HeaderSpacer()
+                    onRefresh = actions.onRefresh,
+                ) {
+                    ProfilerCompactButton(
+                        text = localizedStringResource(Res.string.refresh, language),
+                        enabled = !state.isRunning && !state.isRefreshing,
+                        onClick = actions.onRefresh,
+                    )
+                }
+                if (targetHost == null) HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.import_report, language),
                     enabled = !state.isRunning,

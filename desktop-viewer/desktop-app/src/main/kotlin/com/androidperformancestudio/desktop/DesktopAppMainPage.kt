@@ -1,15 +1,18 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.LocalPageMenuHost
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.MenuCommand
 import com.androidperformancestudio.ui.MenuShortcuts
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.TitleBarTargetControls
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.WindowMenuBar
 import com.androidperformancestudio.ui.WindowMenuChrome
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.rememberPageMenuHost
+import com.androidperformancestudio.ui.rememberTitleBarTargetHost
 import com.androidperformancestudio.ui.rememberViewerThemeContext
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
@@ -138,6 +141,8 @@ fun FrameWindowScope.DesktopAppMainPage(
     // The window owns one fixed menu skeleton; the active page only fills its slots, so switching
     // destinations never adds or removes a top-level native menu.
     val pageMenuHost = rememberPageMenuHost()
+    val titleBarTargetHost = rememberTitleBarTargetHost()
+    val canEmbedTitleBarTargets = MacOsWindowChrome.embedsTitleBar()
     WindowMenuBar(
         host = pageMenuHost,
         chrome =
@@ -197,6 +202,15 @@ fun FrameWindowScope.DesktopAppMainPage(
             // The title text inverts against its own strip so it stays legible in either theme.
             contentColor = windowColors.primaryText,
             dividerColor = windowColors.border,
+            targetControls = {
+                ViewerTheme(
+                    darkTheme = darkTheme,
+                    displayScale = 1f,
+                    accentColor = applicationSettings.themeColor,
+                ) {
+                    TitleBarTargetControls(titleBarTargetHost, language)
+                }
+            },
         )
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             ViewerTheme(
@@ -217,6 +231,8 @@ fun FrameWindowScope.DesktopAppMainPage(
                                 CompositionLocalProvider(
                                     LocalWindowMenuBarActive provides active,
                                     LocalPageMenuHost provides pageMenuHost,
+                                    LocalTitleBarTargetHost provides
+                                        titleBarTargetHost.takeIf { canEmbedTitleBarTargets && active },
                                 ) {
                                     Box(
                                         modifier =

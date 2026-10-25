@@ -391,6 +391,8 @@ class HprofParser {
             instanceSize = instanceSize,
             metadata = ClassMetadata(superClassObjectId, classLoaderObjectId, instanceFields, staticReferences),
         )
+        // CLASS_DUMP is also a java.lang.Class object in the active Android heap.
+        state.heapByObjectId[classObjectId] = state.currentHeap
     }
 
     private fun parseInstanceDump(
@@ -430,7 +432,9 @@ class HprofParser {
                 className = state.classNameForObjectId(arrayClassObjectId),
                 elementCount = elementCount,
                 elementIds = elementIds,
-                shallowSize = OBJECT_ARRAY_HEADER_BYTES + (elementCount.toLong() * state.idSize),
+                shallowSize =
+                    (if (state.idSize == ID_SIZE_4) OBJECT_ARRAY_HEADER_BYTES else WIDE_PRIMITIVE_ARRAY_HEADER_BYTES) +
+                        (elementCount.toLong() * state.idSize),
             )
     }
 
@@ -452,9 +456,21 @@ class HprofParser {
                 objectId = objectId,
                 primitiveType = primitiveType,
                 elementCount = elementCount,
-                shallowSize = PRIMITIVE_ARRAY_HEADER_BYTES + (elementCount.toLong() * primitiveType.byteWidth),
+                shallowSize =
+                    primitiveArrayHeaderBytes(primitiveType, state.idSize) +
+                        (elementCount.toLong() * primitiveType.byteWidth),
             )
     }
+
+    private fun primitiveArrayHeaderBytes(
+        type: PrimitiveType,
+        idSize: Int,
+    ): Long =
+        if (idSize != ID_SIZE_4 || type == PrimitiveType.DOUBLE || type == PrimitiveType.LONG) {
+            WIDE_PRIMITIVE_ARRAY_HEADER_BYTES
+        } else {
+            PRIMITIVE_ARRAY_HEADER_BYTES
+        }
 
     private data class ParserState(
         val idSize: Int,
@@ -556,8 +572,11 @@ class HprofParser {
     )
 
     companion object {
-        const val OBJECT_ARRAY_HEADER_BYTES = 16L
-        const val PRIMITIVE_ARRAY_HEADER_BYTES = 16L
+        // Match Trace Processor's Android HPROF self-size projection: a 12-byte array header,
+        // aligned to 16 bytes for long[] and double[].
+        const val OBJECT_ARRAY_HEADER_BYTES = 12L
+        const val PRIMITIVE_ARRAY_HEADER_BYTES = 12L
+        const val WIDE_PRIMITIVE_ARRAY_HEADER_BYTES = 16L
 
         private const val ID_SIZE_4 = 4
         private const val ID_SIZE_8 = 8

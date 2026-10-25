@@ -18,7 +18,6 @@ class MemoryProfilerCardSourceTest {
                     "HeapDiffSection",
                     "BitmapSection",
                 ),
-            "MemoryProfilerLeakCanaryPage.kt" to listOf("LeakMetricCard", "LeakCanaryFindingCard", "LiveEventsSection"),
             "MemoryProfilerBitmapDumpPage.kt" to listOf("BitmapSummaryMetricCard", "BitmapDumpImageCard"),
         ).forEach { (file, functions) ->
             val source = source(file)
@@ -36,6 +35,25 @@ class MemoryProfilerCardSourceTest {
         assertTrue(metric.contains("value = value"))
         assertTrue(metric.contains("modifier = modifier"))
         assertFalse(metric.contains(".padding("))
+    }
+
+    @Test
+    fun `offline leak investigation uses structural panes instead of nested finding cards`() {
+        listOf(
+            "MemoryProfilerLeakCanaryPage.kt",
+            "MemoryLeakInvestigationPanes.kt",
+            "MemoryLeakLiveControls.kt",
+        ).forEach { file ->
+            val source = source(file)
+            assertFalse(source.contains("StudioCard("), "$file must remain an unframed investigation workspace")
+            assertFalse(source.contains("ViewerTypography.pageTitle"))
+            assertFalse(source.contains("ViewerTypography.metric"))
+        }
+        val page = source("MemoryProfilerLeakCanaryPage.kt")
+        assertTrue(page.contains("MemoryLeakFindingsPane("))
+        assertTrue(page.contains("MemoryLeakPathPane("))
+        assertTrue(page.contains("MemoryObjectInspector("))
+        assertTrue(page.contains("HorizontalScrollbar("))
     }
 
     @Test

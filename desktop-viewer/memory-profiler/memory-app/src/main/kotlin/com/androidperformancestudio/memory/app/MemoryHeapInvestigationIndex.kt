@@ -9,43 +9,55 @@ internal class MemoryHeapInvestigationIndex(
     heapDump: HeapDump,
 ) {
     val query = InstanceReferenceQuery(heapDump)
-    val dominators: List<MemoryDominatorRow>
+    private val dominatorRows =
+        lazy {
+            // A large dump can have millions of objects. Reuse the query's object lookup and keep
+            // depth memoization in primitive arrays instead of another boxed map per object.
+            val ids =
+                heapDump.objectRetainedSizes.keys
+                    .toLongArray()
+                    .apply { sort() }
+            val depths = IntArray(ids.size) { -1 }
+            val path = IntArray(ids.size)
 
-    init {
-        val objects =
-            buildMap {
-                heapDump.instances.forEach { put(it.objectId, it.className to it.shallowSize) }
-                heapDump.objectArrays.forEach { put(it.objectId, it.className to it.shallowSize) }
-                heapDump.primitiveArrays.forEach { put(it.objectId, it.className to it.shallowSize) }
+            fun depthOf(objectId: Long): Int {
+                var current: Long? = objectId
+                var pathSize = 0
+                var knownDepth = -1
+                while (current != null && pathSize < path.size) {
+                    val index = ids.binarySearch(current)
+                    if (index < 0) {
+                        current = null
+                    } else if (depths[index] >= 0) {
+                        knownDepth = depths[index]
+                        current = null
+                    } else {
+                        path[pathSize++] = index
+                        current = heapDump.objectImmediateDominators[current]
+                    }
+                }
+                while (pathSize > 0) depths[path[--pathSize]] = ++knownDepth
+                return depths[ids.binarySearch(objectId)]
             }
-        val depths = mutableMapOf<Long, Int>()
-
-        fun depthOf(objectId: Long): Int {
-            val path = linkedSetOf<Long>()
-            var current: Long? = objectId
-            while (current != null && current !in depths && path.add(current)) {
-                current = heapDump.objectImmediateDominators[current]
-            }
-            var depth = current?.let { depths[it] } ?: -1
-            path.toList().asReversed().forEach { depths[it] = ++depth }
-            return depths.getValue(objectId)
-        }
-        dominators =
             heapDump.objectRetainedSizes
                 .mapNotNull { (objectId, retainedSize) ->
-                    val (className, shallowSize) = objects[objectId] ?: return@mapNotNull null
+                    val obj = query.objectOf(objectId) ?: return@mapNotNull null
                     MemoryDominatorRow(
                         objectId,
-                        className,
-                        shallowSize,
+                        obj.className,
+                        obj.shallowSize,
                         retainedSize,
                         depthOf(objectId),
                         heapDump.objectImmediateDominators[objectId],
                     )
                 }.sortedWith(
-                    compareBy<MemoryDominatorRow> {
-                        it.depth
-                    }.thenByDescending { it.retainedSize }.thenBy { it.className },
+                    compareBy<MemoryDominatorRow> { it.depth }
+                        .thenByDescending { it.retainedSize }
+                        .thenBy { it.className },
                 )
-    }
+        }
+
+    val dominators: List<MemoryDominatorRow> get() = dominatorRows.value
+
+    internal val dominatorsInitialized: Boolean get() = dominatorRows.isInitialized()
 }

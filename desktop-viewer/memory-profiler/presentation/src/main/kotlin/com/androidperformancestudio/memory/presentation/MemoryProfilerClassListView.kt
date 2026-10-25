@@ -134,6 +134,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.refe
 import com.androidperformancestudio.memory.presentation.generated.resources.references
 import com.androidperformancestudio.memory.presentation.generated.resources.regex
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
+import com.androidperformancestudio.memory.presentation.generated.resources.retained_native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.root_reachability
 import com.androidperformancestudio.memory.presentation.generated.resources.root_reachability_unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.select_a_class_to_view_its_instances
@@ -334,48 +335,11 @@ internal fun MemoryFiltersPane(
             FilterCheckbox(localizedStringResource(Res.string.regex, language), state.useRegex, actions.onUseRegexChange)
             return@Column
         }
-        Text(localizedStringResource(Res.string.heap, language), style = ViewerTypography.secondary)
-        DropdownSelector(
-            items = state.availableHeaps, selectedItem = state.heapFilter,
-            onItemSelected = actions.onHeapFilterChange, itemLabel = { it },
-            placeholder = localizedStringResource(Res.string.all_heaps, language),
-            onPlaceholderSelected = { actions.onHeapFilterChange(null) }, fillWidth = true,
-            selectorDescription = localizedStringResource(Res.string.heap, language),
-        )
-        Text(localizedStringResource(Res.string.class_scope, language), style = ViewerTypography.secondary)
-        DropdownSelector(
-            items = MemoryClassScope.entries, selectedItem = state.classScope,
-            onItemSelected = actions.onClassScopeChange, itemLabel = { classScopeLabel(it, language) },
-            placeholder = "", fillWidth = true,
-            selectorDescription = localizedStringResource(Res.string.class_scope, language),
-        )
-        Text(localizedStringResource(Res.string.filter_by, language), style = ViewerTypography.secondary)
-        DropdownSelector(
-            items = MemoryLeakFilter.entries, selectedItem = state.leakFilter,
-            onItemSelected = actions.onLeakFilterChange, itemLabel = { leakFilterLabel(it, language) },
-            placeholder = "", fillWidth = true,
-            selectorDescription = localizedStringResource(Res.string.filter_by, language),
-        )
-        HorizontalDivider()
-        Text(localizedStringResource(Res.string.arrange_by, language), style = ViewerTypography.secondary)
-        DropdownSelector(
-            items = state.availableArrangeBy, selectedItem = state.arrangeBy,
-            onItemSelected = actions.onArrangeByChange, itemLabel = { arrangeByLabel(it, language) },
-            placeholder = "", fillWidth = true,
-            selectorDescription = localizedStringResource(Res.string.arrange_by, language),
-        )
-        com.androidperformancestudio.ui.ProfilerCompactTextField(
-            label = "", value = state.searchText, onValueChange = actions.onSearchChange,
-            placeholder = localizedStringResource(Res.string.filter_classes, language),
-            modifier = Modifier.fillMaxWidth().testTag("memory-workspace-search"),
-        )
-        FilterCheckbox(localizedStringResource(Res.string.match_case, language), state.matchCase, actions.onMatchCaseChange)
-        FilterCheckbox(localizedStringResource(Res.string.regex, language), state.useRegex, actions.onUseRegexChange)
-        HorizontalDivider()
         Text(localizedStringResource(Res.string.memory_columns, language), style = ViewerTypography.secondary)
         listOf(
             MemoryClassifierColumn.NATIVE_SIZE to Res.string.native_size,
             MemoryClassifierColumn.SHALLOW_SIZE to Res.string.shallow,
+            MemoryClassifierColumn.RETAINED_NATIVE_SIZE to Res.string.retained_native_size,
             MemoryClassifierColumn.RETAINED_SIZE to Res.string.retained,
         ).forEach { (column, label) ->
             FilterCheckbox(localizedStringResource(label, language), column in state.visibleClassifierColumns) {
@@ -412,7 +376,12 @@ internal fun MemoryClassesPane(
 ) {
     val columns =
         state.visibleClassifierColumns.intersect(
-            setOf(MemoryClassifierColumn.NATIVE_SIZE, MemoryClassifierColumn.SHALLOW_SIZE, MemoryClassifierColumn.RETAINED_SIZE),
+            setOf(
+                MemoryClassifierColumn.NATIVE_SIZE,
+                MemoryClassifierColumn.SHALLOW_SIZE,
+                MemoryClassifierColumn.RETAINED_NATIVE_SIZE,
+                MemoryClassifierColumn.RETAINED_SIZE,
+            ),
         ) + MemoryClassifierColumn.TOTAL_COUNT
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
@@ -470,125 +439,151 @@ internal fun MemoryClassesPane(
 }
 
 @Composable
-private fun FilterBar(
+internal fun MemoryPrimaryFilterBar(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
     language: UiLanguage,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DropdownSelector(
-            items = state.availableHeaps,
-            selectedItem = state.heapFilter,
-            onItemSelected = { heap -> actions.onHeapFilterChange(heap) },
-            itemLabel = { it },
-            selectedItemLabel = { it },
-            placeholder = localizedStringResource(Res.string.all_heaps, language),
-            onPlaceholderSelected = { actions.onHeapFilterChange(null) },
-            selectorDescription = localizedStringResource(Res.string.heap, language),
-        )
-        DropdownSelector(
-            items = MemoryClassScope.entries,
-            selectedItem = state.classScope,
-            onItemSelected = { scope -> actions.onClassScopeChange(scope) },
-            itemLabel = { scope -> classScopeLabel(scope, language) },
-            selectedItemLabel = { scope -> classScopeLabel(scope, language) },
-            placeholder = localizedStringResource(Res.string.all_classes, language),
-            selectorDescription = localizedStringResource(Res.string.class_scope, language),
-        )
-        DropdownSelector(
-            items = MemoryLeakFilter.entries,
-            selectedItem = state.leakFilter,
-            onItemSelected = { filter -> actions.onLeakFilterChange(filter) },
-            itemLabel = { filter -> leakFilterLabel(filter, language) },
-            selectedItemLabel = { filter -> leakFilterLabel(filter, language) },
-            placeholder = localizedStringResource(Res.string.none, language),
-            selectorDescription = localizedStringResource(Res.string.filter_by, language),
-        )
-        DropdownSelector(
-            items = state.availableArrangeBy,
-            selectedItem = state.arrangeBy,
-            onItemSelected = { arrange -> actions.onArrangeByChange(arrange) },
-            itemLabel = { arrange -> arrangeByLabel(arrange, language) },
-            selectedItemLabel = { arrange -> arrangeByLabel(arrange, language) },
-            placeholder = localizedStringResource(Res.string.class_option, language),
-            selectorDescription = localizedStringResource(Res.string.arrange_by, language),
-        )
-        BasicTextField(
-            value = state.searchText,
-            onValueChange = actions.onSearchChange,
-            singleLine = true,
-            textStyle =
-                TextStyle(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                ),
+    FilterBar(state, actions, language, advancedControls = false)
+}
+
+@Composable
+private fun FilterBar(
+    state: MemoryProfilerState,
+    actions: MemoryProfilerActions,
+    language: UiLanguage,
+    advancedControls: Boolean = true,
+) {
+    val scroll = rememberScrollState()
+    Box(Modifier.fillMaxWidth().testTag("memory-primary-filter-bar")) {
+        Row(
             modifier =
                 Modifier
-                    .widthIn(min = 160.dp, max = 220.dp)
-                    .height(32.dp)
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp),
-            decorationBox = { innerTextField ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                    if (state.searchText.isEmpty()) {
-                        Text(
-                            localizedStringResource(Res.string.filter_classes, language),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = ViewerTypography.bodyCompact.fontSize,
-                        )
+                    .fillMaxWidth()
+                    .horizontalScroll(scroll)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DropdownSelector(
+                items = state.availableHeaps,
+                selectedItem = state.heapFilter,
+                onItemSelected = { heap -> actions.onHeapFilterChange(heap) },
+                itemLabel = { it },
+                selectedItemLabel = { it },
+                placeholder = localizedStringResource(Res.string.all_heaps, language),
+                onPlaceholderSelected = { actions.onHeapFilterChange(null) },
+                selectorDescription = localizedStringResource(Res.string.heap, language),
+            )
+            DropdownSelector(
+                items = MemoryClassScope.entries,
+                selectedItem = state.classScope,
+                onItemSelected = { scope -> actions.onClassScopeChange(scope) },
+                itemLabel = { scope -> classScopeLabel(scope, language) },
+                selectedItemLabel = { scope -> classScopeLabel(scope, language) },
+                placeholder = localizedStringResource(Res.string.all_classes, language),
+                selectorDescription = localizedStringResource(Res.string.class_scope, language),
+            )
+            DropdownSelector(
+                items = MemoryLeakFilter.entries,
+                selectedItem = state.leakFilter,
+                onItemSelected = { filter -> actions.onLeakFilterChange(filter) },
+                itemLabel = { filter -> leakFilterLabel(filter, language) },
+                selectedItemLabel = { filter -> leakFilterLabel(filter, language) },
+                placeholder = localizedStringResource(Res.string.none, language),
+                selectorDescription = localizedStringResource(Res.string.filter_by, language),
+            )
+            DropdownSelector(
+                items = state.availableArrangeBy,
+                selectedItem = state.arrangeBy,
+                onItemSelected = { arrange -> actions.onArrangeByChange(arrange) },
+                itemLabel = { arrange -> arrangeByLabel(arrange, language) },
+                selectedItemLabel = { arrange -> arrangeByLabel(arrange, language) },
+                placeholder = localizedStringResource(Res.string.class_option, language),
+                selectorDescription = localizedStringResource(Res.string.arrange_by, language),
+            )
+            BasicTextField(
+                value = state.searchText,
+                onValueChange = actions.onSearchChange,
+                singleLine = true,
+                textStyle =
+                    TextStyle(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = ViewerTypography.bodyCompact.fontSize,
+                    ),
+                modifier =
+                    Modifier
+                        .widthIn(min = 160.dp, max = 220.dp)
+                        .height(32.dp)
+                        .testTag("memory-workspace-search")
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (state.searchText.isEmpty()) {
+                            Text(
+                                localizedStringResource(Res.string.filter_classes, language),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = ViewerTypography.bodyCompact.fontSize,
+                            )
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
-                }
-            },
-        )
-        FilterCheckbox(
-            label = localizedStringResource(Res.string.match_case, language),
-            checked = state.matchCase,
-            onChecked = actions.onMatchCaseChange,
-        )
-        FilterCheckbox(
-            label = localizedStringResource(Res.string.regex, language),
-            checked = state.useRegex,
-            onChecked = actions.onUseRegexChange,
-        )
-        FilterCheckbox(
-            label = localizedStringResource(Res.string.native_size, language),
-            checked = MemoryClassifierColumn.NATIVE_SIZE in state.visibleClassifierColumns,
-            onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.NATIVE_SIZE) },
-        )
-        FilterCheckbox(
-            label = localizedStringResource(Res.string.retained, language),
-            checked = MemoryClassifierColumn.RETAINED_SIZE in state.visibleClassifierColumns,
-            onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.RETAINED_SIZE) },
-        )
-        FilterCheckbox(
-            label = localizedStringResource(Res.string.shallow, language),
-            checked = MemoryClassifierColumn.SHALLOW_SIZE in state.visibleClassifierColumns,
-            onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.SHALLOW_SIZE) },
-        )
-        DropdownSelector(
-            items = state.savedFilterPresets,
-            selectedItem = state.savedFilterPresets.firstOrNull { it.id == state.activeFilterPresetId },
-            onItemSelected = actions.onApplyFilterPreset,
-            itemLabel = { it.label },
-            selectedItemLabel = { it.label },
-            placeholder = localizedStringResource(Res.string.saved_filters, language),
-            selectorDescription = localizedStringResource(Res.string.saved_filters, language),
-        )
-        ProfilerCompactButton(
-            text = localizedStringResource(Res.string.save_filter, language),
-            onClick = actions.onSaveFilterPreset,
-        )
-        ProfilerCompactButton(
-            text = localizedStringResource(Res.string.delete_filter, language),
-            enabled = state.activeFilterPresetId != null,
-            onClick = actions.onDeleteFilterPreset,
-        )
+                },
+            )
+            FilterCheckbox(
+                label = localizedStringResource(Res.string.match_case, language),
+                checked = state.matchCase,
+                onChecked = actions.onMatchCaseChange,
+            )
+            FilterCheckbox(
+                label = localizedStringResource(Res.string.regex, language),
+                checked = state.useRegex,
+                onChecked = actions.onUseRegexChange,
+            )
+            if (advancedControls) {
+                FilterCheckbox(
+                    label = localizedStringResource(Res.string.native_size, language),
+                    checked = MemoryClassifierColumn.NATIVE_SIZE in state.visibleClassifierColumns,
+                    onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.NATIVE_SIZE) },
+                )
+                FilterCheckbox(
+                    label = localizedStringResource(Res.string.retained, language),
+                    checked = MemoryClassifierColumn.RETAINED_SIZE in state.visibleClassifierColumns,
+                    onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.RETAINED_SIZE) },
+                )
+                FilterCheckbox(
+                    label = localizedStringResource(Res.string.retained_native_size, language),
+                    checked = MemoryClassifierColumn.RETAINED_NATIVE_SIZE in state.visibleClassifierColumns,
+                    onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.RETAINED_NATIVE_SIZE) },
+                )
+                FilterCheckbox(
+                    label = localizedStringResource(Res.string.shallow, language),
+                    checked = MemoryClassifierColumn.SHALLOW_SIZE in state.visibleClassifierColumns,
+                    onChecked = { actions.onToggleClassifierColumn(MemoryClassifierColumn.SHALLOW_SIZE) },
+                )
+                DropdownSelector(
+                    items = state.savedFilterPresets,
+                    selectedItem = state.savedFilterPresets.firstOrNull { it.id == state.activeFilterPresetId },
+                    onItemSelected = actions.onApplyFilterPreset,
+                    itemLabel = { it.label },
+                    selectedItemLabel = { it.label },
+                    placeholder = localizedStringResource(Res.string.saved_filters, language),
+                    selectorDescription = localizedStringResource(Res.string.saved_filters, language),
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.save_filter, language),
+                    onClick = actions.onSaveFilterPreset,
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.delete_filter, language),
+                    enabled = state.activeFilterPresetId != null,
+                    onClick = actions.onDeleteFilterPreset,
+                )
+            }
+        }
+        HorizontalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.BottomStart).fillMaxWidth())
     }
 }
 
@@ -627,9 +622,15 @@ private fun SummaryBar(
         SummaryMetric(localizedStringResource(Res.string.duplicates_summary, language, integer(summary.duplicateBitmapCount)))
         Spacer(Modifier.weight(1f))
         SummaryMetric("${localizedStringResource(Res.string.count, language)} ${integer(summary.totalCount)}")
-        SummaryMetric("${localizedStringResource(Res.string.native_size, language)} ${formatBytes(summary.totalNativeSize)}")
+        SummaryMetric(
+            "${localizedStringResource(Res.string.native_size, language)} " +
+                (summary.totalNativeSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language)),
+        )
         SummaryMetric("${localizedStringResource(Res.string.shallow, language)} ${formatBytes(summary.totalShallowSize)}")
-        SummaryMetric("${localizedStringResource(Res.string.retained, language)} ${formatBytes(summary.totalRetainedSize)}")
+        SummaryMetric(
+            "${localizedStringResource(Res.string.retained, language)} " +
+                (summary.totalRetainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language)),
+        )
     }
 }
 
@@ -666,6 +667,7 @@ private fun ClassTableHeader(
             MemoryClassifierColumn.TOTAL_COUNT to localizedStringResource(Res.string.total_count, language),
             MemoryClassifierColumn.NATIVE_SIZE to localizedStringResource(Res.string.native_size, language),
             MemoryClassifierColumn.SHALLOW_SIZE to localizedStringResource(Res.string.shallow, language),
+            MemoryClassifierColumn.RETAINED_NATIVE_SIZE to localizedStringResource(Res.string.retained_native_size, language),
             MemoryClassifierColumn.RETAINED_SIZE to localizedStringResource(Res.string.retained, language),
             MemoryClassifierColumn.ALLOCATIONS_SIZE to localizedStringResource(Res.string.allocations_size, language),
             MemoryClassifierColumn.DEALLOCATIONS_SIZE to
@@ -809,6 +811,9 @@ private fun ClassifierTableRow(
         if (MemoryClassifierColumn.TOTAL_COUNT in visibleColumns) classifierCell(integer(row.totalCount))
         if (MemoryClassifierColumn.NATIVE_SIZE in visibleColumns) classifierCell(row.nativeSize?.let(::formatBytes))
         if (MemoryClassifierColumn.SHALLOW_SIZE in visibleColumns) classifierCell(formatBytes(row.shallowSize))
+        if (MemoryClassifierColumn.RETAINED_NATIVE_SIZE in visibleColumns) {
+            classifierCell(row.retainedNativeSize?.let(::formatBytes))
+        }
         if (MemoryClassifierColumn.RETAINED_SIZE in visibleColumns) classifierCell(row.retainedSize?.let(::formatBytes))
         if (MemoryClassifierColumn.ALLOCATIONS_SIZE in
             visibleColumns

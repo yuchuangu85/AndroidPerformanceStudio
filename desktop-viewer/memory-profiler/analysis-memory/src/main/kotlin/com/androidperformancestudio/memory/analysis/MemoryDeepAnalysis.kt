@@ -21,6 +21,7 @@ data class MemoryDeepAnalysisResult(
     val leakSuspects: List<LeakSuspect>,
     val bitmapInstances: List<BitmapInstanceStats>,
     val activityLeaks: List<ActivityLeakEntry>,
+    val activityFragmentLeakObjectIds: Set<Long> = emptySet(),
 )
 
 class MemoryDeepAnalyzer(
@@ -52,7 +53,26 @@ class MemoryDeepAnalyzer(
             leakSuspects = leaks,
             bitmapInstances = bitmaps,
             activityLeaks = activityLeakReport(heapDump, dominators.retainedSizes, chainFinder),
+            activityFragmentLeakObjectIds = activityFragmentLeakObjectIds(heapDump, chainFinder),
         )
+    }
+
+    /** Studio's HPROF leak summary counts matching objects, not collapsed class suspects. */
+    private fun activityFragmentLeakObjectIds(
+        heapDump: HeapDump,
+        chainFinder: ReferenceChainFinder,
+    ): Set<Long> {
+        val activityClassIds = heapDump.classIdsAssignableTo("android.app.Activity")
+        val fragmentClassIds = FRAGMENT_BASE_CLASSES.flatMapTo(hashSetOf()) { heapDump.classIdsAssignableTo(it) }
+        return heapDump.instances
+            .asSequence()
+            .filter { instance ->
+                val detachedFragment =
+                    instance.classObjectId in fragmentClassIds &&
+                        instance.hasNullReference("mFragmentManager")
+                (instance.classObjectId in activityClassIds && isDestroyed(instance)) || detachedFragment
+            }.filter { instance -> chainFinder.depthOf(instance.objectId)?.let { it > 0 } == true }
+            .mapTo(linkedSetOf()) { it.objectId }
     }
 
     /**
@@ -67,15 +87,20 @@ class MemoryDeepAnalyzer(
         retainedSizes: Map<Long, Long>,
         chainFinder: ReferenceChainFinder,
     ): List<LeakSuspect> {
-        val instancesByClass = heapDump.instances.groupBy { it.className }
+        val instanceCountsByClass = heapDump.instances.groupingBy { it.className }.eachCount()
         val activityClassIds = heapDump.classIdsAssignableTo("android.app.Activity")
         val fragmentClassIds =
             FRAGMENT_BASE_CLASSES.flatMapTo(hashSetOf()) { heapDump.classIdsAssignableTo(it) }
 
         fun isActivity(instance: HeapInstance): Boolean = instance.classObjectId in activityClassIds
+        val activitiesById =
+            heapDump.instances
+                .asSequence()
+                .filter(::isActivity)
+                .associateBy { it.objectId }
 
         val candidates = mutableListOf<LeakCandidate>()
-        heapDump.instances.filter { isActivity(it) && isDestroyed(it) }.forEach { activity ->
+        activitiesById.values.filter(::isDestroyed).forEach { activity ->
             val chain = chainFinder.chainTo(activity.objectId)
             if (chainFinder.depthOf(activity.objectId)?.let { it > 0 } == true) {
                 candidates +=
@@ -83,13 +108,14 @@ class MemoryDeepAnalyzer(
                         activity.className,
                         "Destroyed or finished Activity remains strongly reachable",
                         retainedSizes[activity.objectId] ?: activity.shallowSize,
-                        instancesByClass[activity.className]?.size ?: 1,
+                        instanceCountsByClass[activity.className] ?: 1,
                         chain,
                         activityOrFragmentLeak = true,
                     )
             }
         }
         heapDump.instances
+            .asSequence()
             .filter { it.classObjectId in fragmentClassIds && it.hasNullReference("mFragmentManager") }
             .forEach { fragment ->
                 val chain = chainFinder.chainTo(fragment.objectId)
@@ -99,7 +125,7 @@ class MemoryDeepAnalyzer(
                             fragment.className,
                             "Detached Fragment remains strongly reachable (mFragmentManager is null; may be a false positive)",
                             retainedSizes[fragment.objectId] ?: fragment.shallowSize,
-                            instancesByClass[fragment.className]?.size ?: 1,
+                            instanceCountsByClass[fragment.className] ?: 1,
                             chain,
                             activityOrFragmentLeak = true,
                         )
@@ -115,24 +141,24 @@ class MemoryDeepAnalyzer(
                             "Static/singleton field ${heapClass.name}." +
                                 "${reference.fieldName.removePrefix("static ")} retains a Context",
                             retainedSizes[reference.targetObjectId] ?: 0L,
-                            instancesByClass[targetClass]?.size ?: 1,
+                            instanceCountsByClass[targetClass] ?: 1,
                             chainFinder.chainTo(reference.targetObjectId),
                         )
                 }
             }
         }
-        heapDump.instances.filter { isHandlerOrThreadClass(it.className) }.forEach { holder ->
-            holder.references.forEach { reference ->
-                val targetClass = graph.classNames[reference.targetObjectId].orEmpty()
-                val target = heapDump.instances.firstOrNull { it.objectId == reference.targetObjectId }
-                val chain = chainFinder.chainTo(reference.targetObjectId)
-                if (target != null && isActivity(target) && chain.isNotEmpty()) {
+        heapDump.instances.asSequence().filter { isHandlerOrThreadClass(it.className) }.forEach { holder ->
+            holder.references.forEach referenceLoop@{ reference ->
+                val target = activitiesById[reference.targetObjectId] ?: return@referenceLoop
+                val chain = chainFinder.chainTo(target.objectId)
+                if (chain.isNotEmpty()) {
+                    val targetClass = graph.classNames[target.objectId].orEmpty()
                     candidates +=
                         LeakCandidate(
                             targetClass,
                             "${holder.className} retains an Activity through ${reference.fieldName}",
                             retainedSizes[reference.targetObjectId] ?: 0L,
-                            instancesByClass[targetClass]?.size ?: 1,
+                            instanceCountsByClass[targetClass] ?: 1,
                             chain,
                         )
                 }

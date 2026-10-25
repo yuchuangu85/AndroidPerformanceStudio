@@ -20,6 +20,8 @@ class MethodRecordingWorkspaceSourceTest {
         assertTrue(source.contains("ProfilerCompactButton("))
         assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertFalse(source.contains("HomeButton("))
+        assertTrue(source.contains("TitleBarRefreshOrInline("))
+        assertTrue(source.contains("onRefresh = { scope.launch { controller.refreshDevices() } }"))
     }
 
     @Test

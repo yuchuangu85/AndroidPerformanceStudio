@@ -25,6 +25,7 @@ public fun <T> DeviceDropdownSelector(
     colors: ViewerColors = LocalViewerColors.current,
     onAutomaticSelection: (() -> Unit)? = null,
     menuModifier: Modifier = Modifier,
+    displayTextOverride: String? = null,
 ) {
     DropdownSelector(
         items = items,
@@ -43,5 +44,6 @@ public fun <T> DeviceDropdownSelector(
         onPlaceholderSelected = onAutomaticSelection,
         menuModifier = menuModifier,
         placeholderMenuLabel = localizedStringResource(Res.string.device_selector_automatic, language),
+        displayTextOverride = displayTextOverride,
     )
 }

@@ -88,6 +88,35 @@ class MemoryDeepAnalysisTest {
     }
 
     @Test
+    fun `long ancestor chain with a back edge does not overflow the stack`() {
+        val nodeCount = 20_000
+        val ids = (1L..nodeCount.toLong()).toList()
+        val references =
+            ids.associateWith { id ->
+                when (id) {
+                    nodeCount.toLong() -> listOf(ref("back", 2L))
+                    else -> listOf(ref("next", id + 1))
+                }
+            }
+        val graph =
+            HeapGraph(
+                ids = ids,
+                shallowSizes = ids.associateWith { 1L },
+                classNames = emptyMap(),
+                references = references,
+                roots = listOf(1L),
+            )
+
+        val result = DominatorTreeAnalyzer().analyze(graph)
+
+        assertNull(result.immediateDominators.getValue(1L))
+        assertEquals(1L, result.immediateDominators.getValue(2L))
+        assertEquals(nodeCount.toLong() - 1, result.immediateDominators.getValue(nodeCount.toLong()))
+        assertEquals(nodeCount.toLong(), result.retainedSizes.getValue(1L))
+        assertEquals(1L, result.retainedSizes.getValue(nodeCount.toLong()))
+    }
+
+    @Test
     fun `leak rules include stable shortest root chain and bitmap metadata`() {
         val activityBase = HeapClass(objectId = 100, name = "android.app.Activity")
         val activityClass =
@@ -317,6 +346,51 @@ class MemoryDeepAnalysisTest {
         assertTrue(result.leakSuspects.any { it.className == "com.example.MainActivity" && it.confidence == 0f })
         assertTrue(result.leakSuspects.all { it.requiresManualVerification })
         assertTrue(result.leakSuspects.single().activityOrFragmentLeak)
+        assertEquals(setOf(1L), result.activityFragmentLeakObjectIds)
+    }
+
+    @Test
+    fun `lifecycle leak summary counts distinct reachable objects instead of classes`() {
+        val activity = HeapClass(90, "android.app.Activity")
+        val launcher = HeapClass(91, "com.example.Launcher", superClassObjectId = 90)
+        val fragment = HeapClass(92, "androidx.fragment.app.Fragment")
+        val screen = HeapClass(93, "com.example.Screen", superClassObjectId = 92)
+        val heap =
+            HeapDump(
+                classes = listOf(activity, launcher, fragment, screen),
+                instances =
+                    listOf(
+                        HeapInstance(1, 91, launcher.name, primitiveFields = mapOf("mDestroyed" to 1L)),
+                        HeapInstance(2, 91, launcher.name, primitiveFields = mapOf("mFinished" to 1L)),
+                        HeapInstance(3, 91, launcher.name, primitiveFields = mapOf("mDestroyed" to 1L)),
+                        HeapInstance(4, 91, launcher.name, primitiveFields = mapOf("mDestroyed" to 1L)),
+                        HeapInstance(5, 93, screen.name, references = listOf(ref("mFragmentManager", 0))),
+                        HeapInstance(6, 93, screen.name, references = listOf(ref("mFragmentManager", 5))),
+                        HeapInstance(7, 93, screen.name),
+                        instance(
+                            10,
+                            "com.example.Root",
+                            refs =
+                                listOf(
+                                    ref("a", 1),
+                                    ref("b", 2),
+                                    ref("c", 4),
+                                    ref("f", 5),
+                                    ref("g", 6),
+                                    ref("missing", 7),
+                                ),
+                        ),
+                    ),
+                gcRoots = listOf(HeapRoot(4, HeapRootKind.JNI_GLOBAL), HeapRoot(10, HeapRootKind.JNI_GLOBAL)),
+            )
+
+        val result = MemoryDeepAnalyzer().analyze(heap)
+
+        assertEquals(setOf(1L, 2L, 5L), result.activityFragmentLeakObjectIds)
+        assertTrue(3L !in result.activityFragmentLeakObjectIds) // unreachable
+        assertTrue(4L !in result.activityFragmentLeakObjectIds) // root, depth zero
+        assertTrue(6L !in result.activityFragmentLeakObjectIds) // attached Fragment
+        assertTrue(7L !in result.activityFragmentLeakObjectIds) // missing field is not a null field
     }
 
     @Test

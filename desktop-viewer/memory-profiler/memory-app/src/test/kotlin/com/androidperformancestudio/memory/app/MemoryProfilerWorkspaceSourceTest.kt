@@ -22,6 +22,21 @@ class MemoryProfilerWorkspaceSourceTest {
         )
 
     @Test
+    fun `leak view is accessible offline and monitoring requires its own explicit action`() {
+        val leakButton =
+            workspace
+                .substringAfter("text = localizedStringResource(Res.string.memory_leaks_view, language)")
+                .substringBefore("text = localizedStringResource(Res.string.inject_leak_canary_agent, language)")
+        assertTrue(leakButton.contains("state.snapshotSummary != null ||"))
+        assertTrue(leakButton.contains("onClick = { controller.changeViewMode(MemoryProfilerViewMode.LeakCanary) }"))
+        assertFalse(leakButton.contains("monitorLiveLeakCanary"))
+        assertTrue(workspace.contains("onAnalyzeLeaks = { scope.launch { controller.analyzeLeaks() } }"))
+        assertTrue(workspace.contains("onStartLiveLeakMonitoring = {"))
+        assertTrue(workspace.contains("if (sharedTargetsReady) scope.launch { controller.monitorLiveLeakCanary() }"))
+        assertTrue(workspace.contains("onStopLiveLeakMonitoring = controller::stopLiveLeakCanary"))
+    }
+
+    @Test
     fun `import uses a composition owned native dialog and backend owns io dispatch`() {
         val requestDialog = workspace.indexOf("showHprofFileDialog = true")
         val nativeDialog = workspace.indexOf("DesktopOpenFileDialog(")
@@ -38,8 +53,41 @@ class MemoryProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `large heap selection callbacks run through asynchronous controller queries`() {
+        assertTrue(workspace.contains("controller.selectClassAsync(className)"))
+        assertTrue(workspace.contains("controller.selectClassifierAsync(row)"))
+        assertTrue(workspace.contains("controller.selectInstanceAsync(objectId)"))
+        assertTrue(workspace.contains("controller.loadArrayRangeAsync(objectId, start)"))
+        assertTrue(workspace.contains("controller.navigateInstanceBackAsync()"))
+        assertTrue(workspace.contains("controller.navigateInstanceForwardAsync()"))
+        assertFalse(workspace.contains("onSelectClass = controller::selectClass"))
+        assertFalse(workspace.contains("onSelectInstance = controller::selectInstance"))
+    }
+
+    @Test
+    fun `sampled ART control is separately named and never labels the raw trace Full`() {
+        assertTrue(workspace.contains("Res.string.record_sampled_art"))
+        assertTrue(workspace.contains("controller.captureSampledArtAllocations()"))
+        assertTrue(workspace.contains("MemoryProfilerViewMode.SampledArtAllocations"))
+        assertTrue(backend.contains("SampledArtAllocationCaptureSession(adb).capture("))
+        val page =
+            Files.readString(
+                Path.of(
+                    "../presentation/src/main/kotlin/" +
+                        "com/androidperformancestudio/memory/presentation/MemorySampledArtAllocationPage.kt",
+                ),
+            )
+        assertTrue(page.contains("art_sampled_evidence_boundary"))
+        assertFalse(page.contains("Full tracking available"))
+        assertTrue(workspace.contains("controller.importSampledArtAllocations(selectedFile.toPath())"))
+        assertTrue(workspace.contains("controller::exportSampledArtAllocations"))
+    }
+
+    @Test
     fun `workspace toolbar uses shared compact chrome`() {
         assertTrue(workspace.contains("HeaderToolbar("))
+        assertTrue(workspace.contains("TitleBarRefreshOrInline("))
+        assertTrue(workspace.contains("onRefresh = { scope.launch { controller.refreshDevices() } }"))
         assertFalse(workspace.contains("ProfilerMacOsToolbar"))
         assertTrue(workspace.contains("ProfilerCompactButton"))
         assertFalse(workspace.contains("import androidx.compose.material3.OutlinedButton"))
@@ -86,6 +134,36 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(toolbar.contains("onCaptureNativeHeap = {"))
         assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)"))
         assertTrue(toolbar.contains("Res.string.native_heap_view"))
+    }
+
+    @Test
+    fun `all toolbar actions after refresh belong to the horizontal scroll region`() {
+        val toolbar =
+            workspace
+                .substringAfter("HeaderToolbar(")
+                .substringBefore("        }\n        HorizontalDivider")
+        val refresh = toolbar.indexOf("Res.string.refresh_devices")
+        val scroll = toolbar.indexOf(".horizontalScroll(rememberScrollState())")
+        val scrollingActions =
+            toolbar
+                .substringAfter(".horizontalScroll(rememberScrollState()),")
+                .substringBefore("\n            }\n")
+
+        assertTrue(refresh >= 0 && scroll > refresh)
+        assertEquals(1, Regex("horizontalScroll\\(").findAll(toolbar).count())
+        listOf(
+            "SegmentedSelector(",
+            "Res.string.bitmap_dump_view",
+            "Res.string.native_heap_view",
+            "Res.string.sampled_art_view",
+            "Res.string.memory_leaks_view",
+            "Res.string.inject_leak_canary_agent",
+            "MemoryProfilerDumpHeapButton(",
+            "MemoryProfilerCaptureNativeHeapButton(",
+            "Res.string.record_sampled_art",
+            "MemoryProfilerDumpBitmapsButton(",
+            "MemoryWorkspaceActions(",
+        ).forEach { action -> assertTrue(scrollingActions.contains(action), "$action must scroll with the toolbar") }
     }
 
     @Test

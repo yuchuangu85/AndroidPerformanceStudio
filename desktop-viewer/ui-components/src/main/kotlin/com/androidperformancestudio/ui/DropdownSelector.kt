@@ -77,6 +77,7 @@ public fun <T> DropdownSelector(
     searchLanguage: UiLanguage = UiLanguage.ENGLISH,
     itemSearchText: (T) -> String = itemLabel,
     placeholderMenuLabel: String = placeholder,
+    displayTextOverride: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -85,7 +86,7 @@ public fun <T> DropdownSelector(
         expanded = false
         searchQuery = ""
     }
-    val displayText = selectedItem?.let(selectedItemLabel) ?: placeholder
+    val displayText = displayTextOverride ?: selectedItem?.let(selectedItemLabel) ?: placeholder
     val controlTextSize = controlFontSize ?: ViewerTypography.secondary.fontSize
     val menuTextSize = menuFontSize ?: ViewerTypography.bodyCompact.fontSize
     val canExpand = enabled && (items.isNotEmpty() || onPlaceholderSelected != null || onControlClick != null)

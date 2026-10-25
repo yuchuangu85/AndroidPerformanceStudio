@@ -1,7 +1,9 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.ui.unit.dp
 import java.nio.file.Files
 import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.Test
 class MacOsWindowChromeTest {
     @Test
     fun `only macOS embeds the title bar into the app background`() {
+        assertEquals(30.dp, MacOsWindowChrome.titleBarHeight)
         assertTrue(MacOsWindowChrome.embedsTitleBar("Mac OS X"))
         assertTrue(MacOsWindowChrome.embedsTitleBar("macOS 15.5"))
         assertFalse(MacOsWindowChrome.embedsTitleBar("Windows 11"))
@@ -52,5 +55,28 @@ class MacOsWindowChromeTest {
         assertTrue(page.contains("viewerColors("))
         // Outside ViewerTheme so the fixed point height is not inflated by the display scale.
         assertTrue(page.indexOf("MacOsTitleBar(") < page.indexOf("ViewerTheme("))
+    }
+
+    @Test
+    fun `title bar targets preserve traffic lights and use fixed scale theme`() {
+        val chrome = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/MacOsWindowChrome.kt"))
+        val page = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"))
+
+        assertTrue(chrome.contains("modifier = Modifier.fillMaxWidth().padding(start = 80.dp, end = 12.dp)"))
+        assertTrue(chrome.contains("Box(Modifier.widthIn(max = 484.dp).clipToBounds()) { targetControls() }"))
+        assertTrue(page.contains("LocalTitleBarTargetHost provides"))
+        assertTrue(page.contains("titleBarTargetHost.takeIf { canEmbedTitleBarTargets && active }"))
+        assertTrue(page.contains("displayScale = 1f"))
+        assertTrue(page.contains("TitleBarTargetControls(titleBarTargetHost, language)"))
+        assertTrue(page.contains("targetControls = {"))
+    }
+
+    @Test
+    fun `home device refresh moves to title bar without removing standalone retry`() {
+        val home = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/AppHomePage.kt"))
+
+        assertTrue(home.contains("TitleBarRefreshOrInline(enabled = active, onRefresh = { deviceRefreshRevision++ })"))
+        assertTrue(home.contains("if (!refreshInTitleBar)"))
+        assertTrue(home.contains("onRetry = onRefresh.takeUnless { refreshInTitleBar }"))
     }
 }

@@ -17,6 +17,7 @@ public fun MemoryProfilerDumpHeapButton(
     state: MemoryProfilerState,
     onDumpHeap: () -> Unit,
     language: UiLanguage = UiLanguage.ENGLISH,
+    targetReady: Boolean = true,
 ) {
     ProfilerCompactButton(
         text =
@@ -25,7 +26,7 @@ public fun MemoryProfilerDumpHeapButton(
                 language,
             ),
         enabled =
-            !state.isDumping &&
+            targetReady && !state.isDumping &&
                 state.selectedDeviceSerial != null &&
                 state.selectedProcessId != null,
         onClick = onDumpHeap,
@@ -37,11 +38,12 @@ public fun MemoryProfilerCaptureNativeHeapButton(
     state: MemoryProfilerState,
     onCaptureNativeHeap: () -> Unit,
     language: UiLanguage = UiLanguage.ENGLISH,
+    targetReady: Boolean = true,
 ) {
     ProfilerCompactButton(
         text = localizedStringResource(Res.string.capture_native_heap, language),
         enabled =
-            !state.isDumping &&
+            targetReady && !state.isDumping &&
                 state.selectedDeviceSerial != null &&
                 state.selectedProcessId != null,
         onClick = onCaptureNativeHeap,
@@ -53,11 +55,12 @@ public fun MemoryProfilerDumpBitmapsButton(
     state: MemoryProfilerState,
     onDumpBitmaps: () -> Unit,
     language: UiLanguage = UiLanguage.ENGLISH,
+    targetReady: Boolean = true,
 ) {
     ProfilerCompactButton(
         text = localizedStringResource(Res.string.dump_bitmaps, language),
         enabled =
-            !state.isDumping &&
+            targetReady && !state.isDumping &&
                 state.selectedDeviceSerial != null &&
                 state.selectedProcessId != null &&
                 state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.supportsBitmapDump == true,

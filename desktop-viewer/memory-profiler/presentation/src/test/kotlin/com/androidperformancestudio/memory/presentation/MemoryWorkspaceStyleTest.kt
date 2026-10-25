@@ -55,17 +55,29 @@ class MemoryWorkspaceStyleTest {
                 .substringBefore("private fun BitmapDumpSummaryMetrics(")
         assertTrue(gallery.contains(".padding(StudioTokens.workspacePadding)"))
         assertTrue(bitmap.contains("contentSpacing = 4.dp"))
-        val leaks = source("MemoryProfilerLeakCanaryPage.kt")
-        assertTrue(leaks.contains("Modifier.fillMaxSize().padding(StudioTokens.workspacePadding)"))
-        assertTrue(leaks.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
-        assertTrue(leaks.contains("horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
-        assertTrue(leaks.contains("Modifier.fillMaxWidth().padding(24.dp)"))
         val suspects =
             source("MemoryProfilerScreen.kt")
                 .substringAfter("private fun LeakSuspectsPhaseTwo(")
                 .substringBefore("private fun ActivityLeakSection(")
         assertFalse(suspects.contains(".padding("), "Finding cards must align with the surrounding dashboard cards")
         assertTrue(suspects.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+    }
+
+    @Test
+    fun `leak analysis keeps compact chrome and horizontally reachable independent panes`() {
+        val page = source("MemoryProfilerLeakCanaryPage.kt")
+        assertTrue(page.contains(".padding(StudioTokens.workspacePadding)"))
+        assertTrue(page.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(page.contains("maxOf(maxWidth, 1120.dp)"))
+        assertTrue(page.contains(".horizontalScroll(scroll)"))
+        assertTrue(page.contains(".requiredWidth(contentWidth)"))
+        assertTrue(page.contains("Modifier.width(280.dp).fillMaxHeight()"))
+        assertTrue(page.contains("Modifier.width(330.dp).fillMaxHeight()"))
+        val panes = source("MemoryLeakInvestigationPanes.kt")
+        assertTrue(panes.contains("LazyColumn("))
+        assertTrue(panes.contains("VerticalScrollbar("))
+        assertFalse(page.contains("verticalScroll("))
+        assertFalse(page.contains("tonalElevation"))
     }
 
     private fun source(file: String): String =

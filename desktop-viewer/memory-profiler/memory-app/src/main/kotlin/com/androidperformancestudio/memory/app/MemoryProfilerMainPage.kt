@@ -35,8 +35,11 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.inject_leak_canary_agent
 import com.androidperformancestudio.memory.memory_app.generated.resources.memory_leaks_view
+import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_sampled_art
 import com.androidperformancestudio.memory.memory_app.generated.resources.native_heap_view
+import com.androidperformancestudio.memory.memory_app.generated.resources.record_sampled_art
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
+import com.androidperformancestudio.memory.memory_app.generated.resources.sampled_art_view
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
 import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNativeHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmapsButton
@@ -49,7 +52,9 @@ import com.androidperformancestudio.memory.presentation.MemoryWorkspaceActions
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.SegmentedSelector
 import com.androidperformancestudio.ui.SegmentedSelectorStyle
 import com.androidperformancestudio.ui.UiLanguage
@@ -97,12 +102,17 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         }
     DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
+    val titleBarHost = LocalTitleBarTargetHost.current
+    val selectedPackageName = state.processes.firstOrNull { it.pid == state.selectedProcessId }?.packageName
+    val sharedTargetsReady = titleBarHost?.deviceReady(state.selectedDeviceSerial) != false &&
+        titleBarHost?.packageReady(selectedPackageName) != false
     val scope = rememberCoroutineScope()
     val loaded = controller.loadedHeap
     var showHprofFileDialog by remember { mutableStateOf(false) }
     var showMappingFileDialog by remember { mutableStateOf(false) }
     var showNativeHeapFileDialog by remember { mutableStateOf(false) }
     var showJavaHeapFileDialog by remember { mutableStateOf(false) }
+    var showSampledArtFileDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(controller) { controller.refreshDevices() }
     LaunchedEffect(controller) { controller.refreshSessions() }
@@ -132,6 +142,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             state.bitmapDumpComparison != null,
             controller.loadedBitmapDump != null,
             state.nativeHeapTrace != null,
+            state.sampledArtTrace != null,
             controller.recentSessions,
         ) {
             memoryProfilerFileMenuModel(
@@ -151,7 +162,9 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 importMappingEnabled = !state.isDumping,
                 importNativeHeapEnabled = !state.isDumping,
                 importJavaHeapEnabled = !state.isDumping,
+                importSampledArtEnabled = !state.isDumping,
                 exportNativeHeapEnabled = state.nativeHeapTrace != null,
+                exportSampledArtEnabled = state.sampledArtTrace != null && !state.isDumping,
             )
         }
 
@@ -161,6 +174,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         onImportMapping = { showMappingFileDialog = true },
         onImportNativeHeap = { showNativeHeapFileDialog = true },
         onImportJavaHeap = { showJavaHeapFileDialog = true },
+        onImportSampledArt = { showSampledArtFileDialog = true },
         onExportNativeHeap = {
             chooseSaveFile(
                 window,
@@ -168,6 +182,14 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 "native-heap.pb",
             )?.toPath()
                 ?.let(controller::exportNativeHeap)
+        },
+        onExportSampledArt = {
+            chooseSaveFile(
+                window,
+                localizedStringResource(Res.string.export_memory_profiler_data, language),
+                "art-sampled.pb",
+            )?.toPath()
+                ?.let(controller::exportSampledArtAllocations)
         },
         onExportRawHprof = {
             chooseSaveFile(
@@ -266,12 +288,17 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                 onSelectProcess = controller::selectProcess,
                 language = language,
             )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh_devices, language),
-                onClick = { scope.launch { controller.refreshDevices() } },
-            )
-            HeaderSpacer()
+            if (titleBarHost == null) HeaderSpacer()
+            TitleBarRefreshOrInline(
+                enabled = true,
+                onRefresh = { scope.launch { controller.refreshDevices() } },
+            ) {
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh_devices, language),
+                    onClick = { scope.launch { controller.refreshDevices() } },
+                )
+            }
+            if (titleBarHost == null) HeaderSpacer()
             Row(
                 modifier =
                     Modifier
@@ -299,16 +326,17 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     onClick = { controller.changeViewMode(MemoryProfilerViewMode.NativeHeap) },
                 )
                 ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.sampled_art_view, language),
+                    selected = state.viewMode == MemoryProfilerViewMode.SampledArtAllocations,
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.SampledArtAllocations) },
+                )
+                ProfilerCompactButton(
                     text = localizedStringResource(Res.string.memory_leaks_view, language),
                     selected = state.viewMode == MemoryProfilerViewMode.LeakCanary,
                     enabled =
-                        state.selectedDeviceSerial != null &&
-                            state.selectedProcessId != null &&
-                            !state.isDumping,
-                    onClick = {
-                        controller.changeViewMode(MemoryProfilerViewMode.LeakCanary)
-                        scope.launch { controller.monitorLiveLeakCanary() }
-                    },
+                        state.snapshotSummary != null ||
+                            (sharedTargetsReady && state.selectedDeviceSerial != null && state.selectedProcessId != null),
+                    onClick = { controller.changeViewMode(MemoryProfilerViewMode.LeakCanary) },
                 )
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.inject_leak_canary_agent, language),
@@ -319,40 +347,59 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                             ?.let { projectRoot -> scope.launch { controller.injectLeakCanaryAgent(projectRoot) } }
                     },
                 )
+                MemoryProfilerDumpHeapButton(
+                    state = state,
+                    onDumpHeap = {
+                        if (sharedTargetsReady) {
+                            controller.changeViewMode(MemoryProfilerViewMode.ClassList)
+                            scope.launch { controller.dumpHeap() }
+                        }
+                    },
+                    language = language,
+                    targetReady = sharedTargetsReady,
+                )
+                HeaderSpacer()
+                MemoryProfilerCaptureNativeHeapButton(
+                    state = state,
+                    onCaptureNativeHeap = {
+                        if (sharedTargetsReady) {
+                            controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)
+                            scope.launch { controller.captureNativeHeap() }
+                        }
+                    },
+                    language = language,
+                    targetReady = sharedTargetsReady,
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.record_sampled_art, language),
+                    enabled =
+                        !state.isDumping &&
+                            sharedTargetsReady &&
+                            state.selectedDeviceSerial != null &&
+                            state.selectedProcessId != null,
+                    onClick = { if (sharedTargetsReady) scope.launch { controller.captureSampledArtAllocations() } },
+                )
+                HeaderSpacer()
+                MemoryProfilerDumpBitmapsButton(
+                    state = state,
+                    onDumpBitmaps = {
+                        if (sharedTargetsReady) {
+                            controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)
+                            scope.launch { controller.dumpBitmaps() }
+                        }
+                    },
+                    language = language,
+                    targetReady = sharedTargetsReady,
+                )
+                HeaderSpacer()
+                MemoryWorkspaceActions(
+                    state = state,
+                    language = language,
+                    onMapping = { showMappingFileDialog = true },
+                    onCompare = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
+                )
             }
-            MemoryProfilerDumpHeapButton(
-                state = state,
-                onDumpHeap = {
-                    controller.changeViewMode(MemoryProfilerViewMode.ClassList)
-                    scope.launch { controller.dumpHeap() }
-                },
-                language = language,
-            )
-            HeaderSpacer()
-            MemoryProfilerCaptureNativeHeapButton(
-                state = state,
-                onCaptureNativeHeap = {
-                    controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)
-                    scope.launch { controller.captureNativeHeap() }
-                },
-                language = language,
-            )
-            HeaderSpacer()
-            MemoryProfilerDumpBitmapsButton(
-                state = state,
-                onDumpBitmaps = {
-                    controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)
-                    scope.launch { controller.dumpBitmaps() }
-                },
-                language = language,
-            )
-            HeaderSpacer()
-            MemoryWorkspaceActions(
-                state = state,
-                language = language,
-                onMapping = { showMappingFileDialog = true },
-                onCompare = { controller.changeViewMode(MemoryProfilerViewMode.Diff) },
-            )
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         MemoryProfilerSnapshotTabs(
@@ -370,19 +417,26 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     onSortHistogram = controller::sort,
                     onRetry = { scope.launch { controller.refreshDevices() } },
                     onCancelOperation = controller::cancelActiveOperation,
+                    onAnalyzeLeaks = { scope.launch { controller.analyzeLeaks() } },
+                    onStartLiveLeakMonitoring = {
+                        if (sharedTargetsReady) scope.launch { controller.monitorLiveLeakCanary() }
+                    },
+                    onStopLiveLeakMonitoring = controller::stopLiveLeakCanary,
                     onHighlightClass = controller::highlightClass,
                     onChangeViewMode = controller::changeViewMode,
-                    onSelectClass = controller::selectClass,
-                    onSelectInstance = controller::selectInstance,
+                    onSelectClass = { className -> scope.launch { controller.selectClassAsync(className) } },
+                    onSelectInstance = { objectId -> scope.launch { controller.selectInstanceAsync(objectId) } },
                     onCopyObjectId = { objectId ->
                         Toolkit.getDefaultToolkit().systemClipboard.setContents(
                             StringSelection("0x${java.lang.Long.toHexString(objectId)}"),
                             null,
                         )
                     },
-                    onLoadArrayRange = controller::loadArrayRange,
-                    onNavigateInstanceBack = controller::navigateInstanceBack,
-                    onNavigateInstanceForward = controller::navigateInstanceForward,
+                    onLoadArrayRange = { objectId, start ->
+                        scope.launch { controller.loadArrayRangeAsync(objectId, start) }
+                    },
+                    onNavigateInstanceBack = { scope.launch { controller.navigateInstanceBackAsync() } },
+                    onNavigateInstanceForward = { scope.launch { controller.navigateInstanceForwardAsync() } },
                     onTogglePinnedInstance = controller::togglePinnedInstance,
                     onHeapFilterChange = controller::changeHeapFilter,
                     onClassScopeChange = controller::changeClassScope,
@@ -396,7 +450,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     onDeleteFilterPreset = controller::deleteActiveFilterPreset,
                     onToggleClassifierColumn = controller::toggleClassifierColumn,
                     onClassifierSort = controller::sortClassifier,
-                    onSelectClassifier = controller::selectClassifier,
+                    onSelectClassifier = { row -> scope.launch { controller.selectClassifierAsync(row) } },
                 ),
             language = language,
             modifier = Modifier.weight(1f),
@@ -464,6 +518,22 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     scope.launch {
                         controller.importJavaHeap(selectedFile.toPath())
                     }
+                }
+            },
+        )
+    }
+
+    if (showSampledArtFileDialog) {
+        DesktopOpenFileDialog(
+            parent = window,
+            title = localizedStringResource(Res.string.menu_import_sampled_art, language),
+            acceptFileName = {
+                it.endsWith(".pb", ignoreCase = true) || it.endsWith(".perfetto-trace", ignoreCase = true)
+            },
+            onCloseRequest = { selectedFile ->
+                showSampledArtFileDialog = false
+                if (selectedFile != null) {
+                    scope.launch { controller.importSampledArtAllocations(selectedFile.toPath()) }
                 }
             },
         )

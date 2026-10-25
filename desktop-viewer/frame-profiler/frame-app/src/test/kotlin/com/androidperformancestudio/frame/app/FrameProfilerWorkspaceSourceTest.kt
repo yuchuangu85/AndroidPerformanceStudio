@@ -73,6 +73,8 @@ class FrameProfilerWorkspaceSourceTest {
         assertTrue(homeBlock.contains("controller.stopOnlineCapture()"))
         assertTrue(homeBlock.contains("onBack()"))
 
+        assertTrue(source.contains("TitleBarRefreshOrInline("))
+
         assertBlockContains(
             "localizedStringResource(Res.string.refresh, language)",
             "enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices",
@@ -80,13 +82,13 @@ class FrameProfilerWorkspaceSourceTest {
         )
         assertBlockContains(
             "localizedStringResource(Res.string.capture_frametimeline, language)",
-            "enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading",
+            "enabled = sharedTargetsReady && state.selectedProcessId != null && !state.isCapturing && !state.isLoading",
             "controller.captureFrameTimeline()",
         )
         assertBlockContains(
             "localizedStringResource(Res.string.start_capture, language)",
-            "enabled = state.selectedProcessId != null",
-            "if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()",
+            "enabled = state.selectedProcessId != null && (state.isCapturing || (sharedTargetsReady && !state.isLoading))",
+            "if (state.isCapturing) controller.stopOnlineCapture() else if (sharedTargetsReady) controller.startOnlineCapture()",
         )
         assertTrue(
             source.contains(

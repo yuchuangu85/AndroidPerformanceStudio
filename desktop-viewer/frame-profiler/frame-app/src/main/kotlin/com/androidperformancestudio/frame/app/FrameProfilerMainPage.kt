@@ -1,4 +1,4 @@
-@file:Suppress("CyclomaticComplexMethod", "FunctionName", "LongMethod", "ktlint:standard:function-naming")
+@file:Suppress("CyclomaticComplexMethod", "ComplexCondition", "FunctionName", "LongMethod", "MaxLineLength", "ktlint:standard:function-naming")
 
 package com.androidperformancestudio.frame.app
 
@@ -62,8 +62,14 @@ import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -104,6 +110,10 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }
     val operationMessage = state.operationStatus?.localizedText(language)
+    val titleBarHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
+    val selectedProcess = state.processes.firstOrNull { it.pid == state.selectedProcessId }
+    val sharedTargetsReady = titleBarHost?.deviceReady(state.selectedDeviceSerial) != false &&
+        titleBarHost?.packageReady(selectedProcess?.packageName) != false
 
     LaunchedEffect(controller, isActive) {
         if (isActive) controller.refreshDevices()
@@ -112,6 +122,27 @@ public fun FrameWindowScope.FrameProfilerMainPage(
         while (controller.state.value.isCapturing) {
             controller.pollOnlineCapture()
             delay(POLL_INTERVAL_MILLIS.milliseconds)
+        }
+    }
+    LaunchedEffect(titleBarHost, titleBarHost?.selectedDeviceSerial, state.devices, state.selectedDeviceSerial) {
+        if (titleBarHost != null) {
+            val desired = titleBarHost.selectedDeviceSerial
+            val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
+            if (desired == null && selectedDevice != null) {
+                titleBarHost.chooseDevice(selectedDevice.serial, selectedDevice.name)
+            } else if (desired != null && desired != state.selectedDeviceSerial && state.devices.any { it.serial == desired && it.online } && !state.isCapturing) {
+                controller.selectDevice(desired)
+            }
+        }
+    }
+    LaunchedEffect(titleBarHost, titleBarHost?.selectedPackageName, state.processes, state.selectedProcessId, state.selectedDeviceSerial) {
+        if (titleBarHost != null && titleBarHost.deviceReady(state.selectedDeviceSerial)) {
+            val desired = titleBarHost.selectedPackageName
+            if (desired == null && selectedProcess != null) {
+                titleBarHost.choosePackage(selectedProcess.packageName)
+            } else if (desired != null && selectedProcess?.packageName != desired && !state.isCapturing) {
+                state.processes.firstOrNull { it.packageName == desired }?.let { controller.selectProcess(it.pid) }
+            }
         }
     }
 
@@ -162,41 +193,64 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                DeviceDropdownSelector(
-                    language = language,
-                    items = state.devices,
-                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-                    onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                    itemLabel = { it.name },
-                    enabled = !state.isCapturing && !state.isLoading,
-                    itemEnabled = { it.online },
-                )
-                HeaderSpacer()
-                DropdownSelector(
-                    items = state.processes,
-                    searchable = true,
-                    searchLanguage = language,
-                    itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
-                    selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
-                    onItemSelected = { controller.selectProcess(it.pid) },
-                    itemLabel = {
-                        localizedStringResource(
-                            Res.string.process_with_pid,
-                            language,
-                            it.name,
-                            it.pid,
-                        )
-                    },
-                    placeholder = localizedStringResource(Res.string.process, language),
-                    enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null,
-                )
-                HeaderSpacer()
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh, language),
+                val inTitleBar = LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null
+                val selectorModifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier
+                TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                    DeviceDropdownSelector(
+                        language = language,
+                        items = state.devices,
+                        selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+                        onItemSelected = { device ->
+                            titleBarHost?.chooseDevice(device.serial, device.name)
+                            scope.launch { controller.selectDevice(device.serial) }
+                        },
+                        itemLabel = { it.name },
+                        enabled = !state.isCapturing && !state.isLoading,
+                        itemEnabled = { it.online },
+                        modifier = selectorModifier,
+                        fillWidth = inTitleBar,
+                        displayTextOverride = titleBarHost?.selectedDeviceLabel,
+                    )
+                }
+                if (!inTitleBar) HeaderSpacer()
+                TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+                    DropdownSelector(
+                        items = state.processes,
+                        searchable = true,
+                        searchLanguage = language,
+                        itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
+                        selectedItem = state.processes.firstOrNull { it.pid == state.selectedProcessId },
+                        onItemSelected = {
+                            titleBarHost?.choosePackage(it.packageName)
+                            controller.selectProcess(it.pid)
+                        },
+                        itemLabel = {
+                            localizedStringResource(
+                                Res.string.process_with_pid,
+                                language,
+                                it.name,
+                                it.pid,
+                            )
+                        },
+                        placeholder = localizedStringResource(Res.string.process, language),
+                        enabled = !state.isCapturing && !state.isLoading && state.selectedDeviceSerial != null,
+                        modifier = selectorModifier,
+                        fillWidth = inTitleBar,
+                        displayTextOverride = titleBarHost?.selectedPackageName,
+                    )
+                }
+                if (!inTitleBar) HeaderSpacer()
+                TitleBarRefreshOrInline(
                     enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices,
-                    onClick = { scope.launch { controller.refreshDevices() } },
-                )
-                HeaderSpacer()
+                    onRefresh = { scope.launch { controller.refreshDevices() } },
+                ) {
+                    ProfilerCompactButton(
+                        text = localizedStringResource(Res.string.refresh, language),
+                        enabled = !state.isCapturing && !state.isLoading && !state.isRefreshingDevices,
+                        onClick = { scope.launch { controller.refreshDevices() } },
+                    )
+                }
+                if (!inTitleBar) HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.import_perfetto_frametimeline, language),
                     enabled = !state.isCapturing && !state.isLoading,
@@ -233,8 +287,8 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                 HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.capture_frametimeline, language),
-                    enabled = state.selectedProcessId != null && !state.isCapturing && !state.isLoading,
-                    onClick = { scope.launch { controller.captureFrameTimeline() } },
+                    enabled = sharedTargetsReady && state.selectedProcessId != null && !state.isCapturing && !state.isLoading,
+                    onClick = { if (sharedTargetsReady) scope.launch { controller.captureFrameTimeline() } },
                 )
                 HeaderSpacer()
                 ProfilerCompactButton(
@@ -250,10 +304,10 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         } else {
                             localizedStringResource(Res.string.start_capture, language)
                         },
-                    enabled = state.selectedProcessId != null && (state.isCapturing || !state.isLoading),
+                    enabled = state.selectedProcessId != null && (state.isCapturing || (sharedTargetsReady && !state.isLoading)),
                     onClick = {
                         scope.launch {
-                            if (state.isCapturing) controller.stopOnlineCapture() else controller.startOnlineCapture()
+                            if (state.isCapturing) controller.stopOnlineCapture() else if (sharedTargetsReady) controller.startOnlineCapture()
                         }
                     },
                 )

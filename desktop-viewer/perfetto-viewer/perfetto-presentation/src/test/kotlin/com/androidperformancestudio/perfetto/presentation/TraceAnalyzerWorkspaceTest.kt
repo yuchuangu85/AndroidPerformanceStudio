@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -27,6 +28,35 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class TraceAnalyzerWorkspaceTest {
+    @Test
+    fun `trace open errors remain accessible with or without a previously opened artifact`() {
+        listOf(900, 1280).forEach { width ->
+            listOf(false, true).forEach { hasActiveTrace ->
+                runDesktopComposeUiTest(width = width, height = 720) {
+                    val error = "Trace file is missing: /temporary/deleted.pftrace. Re-import or record a new capture."
+                    val state = if (hasActiveTrace) traceWorkspaceState() else TraceAnalyzerWorkspaceState()
+                    setContent {
+                        ViewerTheme(darkTheme = hasActiveTrace) {
+                            TraceAnalyzerWorkspace(
+                                state = state.copy(error = error),
+                                actions = TraceAnalyzerWorkspaceActions(),
+                            )
+                        }
+                    }
+                    if (width == 900) onNodeWithTag("trace-workspace-error").performScrollTo()
+                    onNodeWithTag("trace-workspace-error").assertIsDisplayed().assertTextEquals(error)
+                    if (hasActiveTrace) {
+                        onNodeWithTag("active-trace-name").assertExists()
+                        onNodeWithTag("open-perfetto-viewer").assertIsEnabled()
+                    } else {
+                        onNodeWithTag("active-trace-name").assertDoesNotExist()
+                        onNodeWithTag("open-perfetto-viewer").assertDoesNotExist()
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun `wide workspace keeps sessions viewer and insights in separate columns without a top banner`() =
         runDesktopComposeUiTest(width = 1280, height = 800) {

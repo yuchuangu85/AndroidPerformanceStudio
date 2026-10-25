@@ -13,6 +13,16 @@ import org.junit.jupiter.api.Test
 
 class HeaderControlTest {
     @Test
+    fun `shared device selection gates capture when device is unavailable`() {
+        val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"))
+
+        assertTrue(source.contains("titleBarTargets?.chooseDevice(serial, device.displayName)"))
+        assertTrue(source.contains("titleBarTargets?.clearDevice()"))
+        assertTrue(source.contains("titleBarTargets?.deviceReady(selectedDeviceSerial) == false"))
+        assertTrue(source.contains("displayTextOverride = if (inTitleBar) titleBarTargets?.selectedDeviceLabel else null"))
+    }
+
+    @Test
     fun `top-level navigation buttons are hidden while header actions remain available`() {
         val source = Files.readString(
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
@@ -201,7 +211,7 @@ class HeaderControlTest {
         assertTrue(header.contains("if (!autoScanEnabled && archiveUiState !is CaptureArchiveUiState.Working)"))
         // Full Compose is no longer a reason to disable the control: the manual path runs the full
         // pipeline once, so the gate is the in-flight refresh plus an active archive import.
-        assertTrue(header.contains("manualRefreshAvailable = true"))
+        assertTrue(header.contains("manualRefreshAvailable = titleBarTargets?.deviceReady(selectedDeviceSerial) != false"))
         assertTrue(header.contains("if (!manualRefreshInProgress &&"))
         assertTrue(header.contains("if (autoScanEnabled) performAction(ViewerAction.TOGGLE_AUTO_SCAN)"))
         assertTrue(header.contains("manualRefreshRequest += 1"))
@@ -234,6 +244,11 @@ class HeaderControlTest {
             header.indexOf("DeviceSelector(") < header.indexOf("WindowSelector("),
             "DeviceSelector should be rendered before WindowSelector",
         )
+        assertTrue(header.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(header.contains("TitleBarRefreshOrInline("))
+        assertTrue(header.contains("onRefresh = { deviceListRefreshRequest += 1 }"))
+        assertTrue(header.contains("ScanModeButtons("))
+        assertTrue(header.contains("language = language,"))
     }
 
     @Test

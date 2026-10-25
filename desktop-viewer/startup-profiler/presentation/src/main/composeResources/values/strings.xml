@@ -111,6 +111,7 @@
     <string name="startup_workspace_quote">Faster startup. A better first impression.</string>
     <string name="scenario_configuration">Scenario Configuration</string>
     <string name="application">Application / Component</string>
+    <string name="process">Process</string>
     <string name="device">Device</string>
     <string name="iterations">Iterations</string>
     <string name="compilation">Compilation</string>

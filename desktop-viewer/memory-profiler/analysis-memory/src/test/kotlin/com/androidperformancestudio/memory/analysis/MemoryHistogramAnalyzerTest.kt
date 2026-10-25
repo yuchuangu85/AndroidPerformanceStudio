@@ -124,7 +124,7 @@ class MemoryHistogramAnalyzerTest {
     }
 
     @Test
-    fun `class dump records are classified as java lang Class like Android Studio`() {
+    fun `class dump records are grouped with their represented class`() {
         val histogram =
             analyzer.histogram(
                 HeapDump(
@@ -136,11 +136,38 @@ class MemoryHistogramAnalyzerTest {
                 ),
             )
 
-        val classObjects = histogram.classes.single()
-        assertEquals("java.lang.Class", classObjects.className)
-        assertEquals(2, classObjects.instanceCount)
-        assertEquals(64L, classObjects.shallowSize)
+        assertEquals(listOf("com.example.Item", "java.lang.Class"), histogram.classes.map { it.className })
+        assertEquals(listOf(1, 1), histogram.classes.map { it.instanceCount })
+        assertEquals(listOf(32L, 32L), histogram.classes.map { it.shallowSize })
         assertEquals(2, histogram.summary.objectCount)
+    }
+
+    @Test
+    fun `class object and ordinary instances share represented class histogram row`() {
+        val heap =
+            HeapDump(
+                classes =
+                    listOf(
+                        HeapClass(10, "java.lang.Class", instanceSize = 32),
+                        HeapClass(11, "com.example.Item", instanceSize = 24),
+                    ),
+                instances = listOf(HeapInstance(21, 11, "com.example.Item", 24)),
+                heapByObjectId = mapOf(10L to "Zygote", 11L to "App", 21L to "App"),
+            )
+        val histogram = analyzer.histogram(heap)
+
+        val item = histogram.classes.single { it.className == "com.example.Item" }
+        assertEquals(2, item.instanceCount)
+        assertEquals(56L, item.shallowSize)
+        assertEquals(setOf("App"), item.heapNames)
+        assertEquals(
+            2,
+            analyzer
+                .histogram(heap, heapName = "App")
+                .classes
+                .single()
+                .instanceCount,
+        )
     }
 
     @Test

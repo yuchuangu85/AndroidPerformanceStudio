@@ -50,6 +50,8 @@ import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -137,6 +139,7 @@ internal fun AppHomePage(
     var loadingRecentItems by remember { mutableStateOf(true) }
     var deviceOverview by remember { mutableStateOf<StudioDeviceOverview?>(null) }
     var deviceRefreshRevision by remember { mutableStateOf(0) }
+    TitleBarRefreshOrInline(enabled = active, onRefresh = { deviceRefreshRevision++ }) {}
     LaunchedEffect(active) {
         if (active) {
             loadingRecentItems = true
@@ -667,6 +670,7 @@ private fun HomeDeviceSummary(
     onRefresh: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
+    val refreshInTitleBar = LocalTitleBarTargetHost.current != null
     val title = localizedStringResource(Res.string.connected_devices, language)
     when (overview) {
         null -> StudioLoadingState(
@@ -676,19 +680,21 @@ private fun HomeDeviceSummary(
         StudioDeviceOverview.Unavailable -> StudioErrorState(
             title = title,
             detail = localizedStringResource(Res.string.device_discovery_unavailable, language),
-            retryLabel = localizedStringResource(Res.string.refresh_devices, language),
-            onRetry = onRefresh,
+            retryLabel = if (refreshInTitleBar) null else localizedStringResource(Res.string.refresh_devices, language),
+            onRetry = onRefresh.takeUnless { refreshInTitleBar },
         )
         is StudioDeviceOverview.Available ->
             StudioPanel(modifier = Modifier.fillMaxWidth()) {
                 StudioPanelHeader(title = title) {
-                    TextButton(onClick = onRefresh) {
-                        Text(
-                            text = localizedStringResource(Res.string.refresh_devices, language),
-                            color = colors.accent,
-                            fontSize = ViewerTypography.bodyCompact.fontSize,
-                            lineHeight = ViewerTypography.bodyCompact.lineHeight,
-                        )
+                    if (!refreshInTitleBar) {
+                        TextButton(onClick = onRefresh) {
+                            Text(
+                                text = localizedStringResource(Res.string.refresh_devices, language),
+                                color = colors.accent,
+                                fontSize = ViewerTypography.bodyCompact.fontSize,
+                                lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                            )
+                        }
                     }
                 }
                 if (overview.devices.isEmpty()) {

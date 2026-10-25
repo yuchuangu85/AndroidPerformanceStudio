@@ -3,6 +3,8 @@
 package com.androidperformancestudio.startup.presentation
 
 import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -32,18 +34,118 @@ import com.androidperformancestudio.startup.analysis.StartupComparison
 import com.androidperformancestudio.startup.analysis.StartupComparisonStatus
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.EvidenceConfidence
+import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupMilestoneKind
 import com.androidperformancestudio.startup.model.StartupProfileSource
+import com.androidperformancestudio.startup.model.StartupTarget
 import com.androidperformancestudio.startup.model.StartupType
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarTargetControls
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.rememberTitleBarTargetHost
 import com.androidperformancestudio.ui.viewerColors
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class StartupProfilerWorkspaceTest {
+    @Test
+    fun `startup restores shared device and application package before enabling capture`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            val state =
+                mutableStateOf(
+                    StartupProfilerState(
+                        devices = listOf(StartupDevice("first", "First"), StartupDevice("second", "Second")),
+                        selectedDeviceSerial = "first",
+                        targets =
+                            listOf(
+                                StartupTarget("com.old", "com.old/.Main", true),
+                                StartupTarget("com.shared", "com.shared/.Main", true),
+                            ),
+                        selectedComponentName = "com.old/.Main",
+                    ),
+                )
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    val host = rememberTitleBarTargetHost()
+                    LaunchedEffect(host) {
+                        host.chooseDevice("second", "Second")
+                        host.choosePackage("com.shared")
+                    }
+                    CompositionLocalProvider(LocalTitleBarTargetHost provides host) {
+                        val actions =
+                            StartupProfilerActions(
+                                onSelectDevice = { serial -> state.value = state.value.copy(selectedDeviceSerial = serial) },
+                                onSelectTarget = { component -> state.value = state.value.copy(selectedComponentName = component) },
+                            )
+                        Row { StartupTargetSelectors(state.value, actions, UiLanguage.ENGLISH) }
+                        StartupScenarioControls(state.value, actions, UiLanguage.ENGLISH)
+                    }
+                }
+            }
+
+            waitForIdle()
+            assertEquals("second", state.value.selectedDeviceSerial)
+            assertEquals("com.shared/.Main", state.value.selectedComponentName)
+            onNodeWithTag("startup-start-stop").assertIsEnabled()
+        }
+
+    @Test
+    fun `startup keeps unmatched shared package visible and capture disabled`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    val host = rememberTitleBarTargetHost()
+                    LaunchedEffect(host) {
+                        host.chooseDevice("phone", "Phone")
+                        host.choosePackage("com.unavailable")
+                    }
+                    CompositionLocalProvider(LocalTitleBarTargetHost provides host) {
+                        val state =
+                            StartupProfilerState(
+                                devices = listOf(StartupDevice("phone", "Phone")),
+                                selectedDeviceSerial = "phone",
+                                targets = listOf(StartupTarget("com.local", "com.local/.Main", true)),
+                                selectedComponentName = "com.local/.Main",
+                            )
+                        Row { StartupTargetSelectors(state, StartupProfilerActions(), UiLanguage.ENGLISH) }
+                        TitleBarTargetControls(host)
+                        StartupScenarioControls(state, StartupProfilerActions(), UiLanguage.ENGLISH)
+                    }
+                }
+            }
+
+            waitForIdle()
+            onNodeWithText("com.unavailable").assertIsDisplayed()
+            onNodeWithTag("startup-start-stop").assertIsNotEnabled()
+        }
+
+    @Test
+    fun `device and application targets occupy ordered title bar dropdown slots`() {
+        val controls =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt"),
+            )
+        val selectors =
+            controls
+                .substringAfter("public fun StartupTargetSelectors(")
+                .substringBefore("internal fun StartupScenarioControls(")
+        assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selectors.indexOf("TitleBarTargetSlot.DEVICE") < selectors.indexOf("TitleBarTargetSlot.PROCESS"))
+        assertTrue(selectors.contains("DeviceDropdownSelector("))
+        assertTrue(selectors.contains("DropdownSelector("))
+        assertTrue(selectors.contains("targetHost?.choosePackage(it.packageName)"))
+        assertTrue(selectors.contains("actions.onSelectTarget(it.componentName)"))
+        assertTrue(selectors.contains("displayTextOverride = targetHost?.selectedPackageName"))
+        assertTrue(selectors.contains("selectorDescription = localizedStringResource(if (inTitleBar) Res.string.process"))
+        assertTrue(selectors.contains("if (!inTitleBar) HeaderSpacer()"))
+    }
+
     @Test
     fun `Startup evidence panel uses the shared palette without a second surface tint`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {

@@ -2,6 +2,7 @@ package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.memory.model.BitmapInstanceStats
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakSuspect
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -87,6 +88,29 @@ class MemoryProfilerPresenterTest {
             )
 
         assertEquals(listOf("com.example.Tiny"), presented.displayedClasses.map { it.className })
+    }
+
+    @Test
+    fun `lifecycle leak objects remain visible under activity and all issue filters`() {
+        val base =
+            MemoryProfilerState(
+                heapBaseClasses =
+                    listOf(
+                        ClassStats("sample.Leak", instanceCount = 2),
+                        ClassStats("sample.Healthy", instanceCount = 1),
+                    ),
+                lifecycleLeakObjects =
+                    listOf(
+                        MemoryLifecycleLeakObject(1, "sample.Leak", "App"),
+                        MemoryLifecycleLeakObject(2, "sample.Leak", "App"),
+                    ),
+            )
+
+        listOf(MemoryLeakFilter.ACTIVITY_FRAGMENT_LEAK, MemoryLeakFilter.ALL_ISSUE).forEach { filter ->
+            val presented = MemoryProfilerPresenter.present(base.copy(leakFilter = filter))
+            assertEquals(listOf("sample.Leak"), presented.displayedClasses.map { it.className })
+            assertEquals(2, presented.classListSummary.leakCount)
+        }
     }
 
     @Test
@@ -239,6 +263,7 @@ class MemoryProfilerPresenterTest {
                 MemoryClassifierColumn.TOTAL_COUNT,
                 MemoryClassifierColumn.NATIVE_SIZE,
                 MemoryClassifierColumn.SHALLOW_SIZE,
+                MemoryClassifierColumn.RETAINED_NATIVE_SIZE,
                 MemoryClassifierColumn.RETAINED_SIZE,
                 MemoryClassifierColumn.ALLOCATIONS_SIZE,
                 MemoryClassifierColumn.DEALLOCATIONS_SIZE,
@@ -294,23 +319,154 @@ class MemoryProfilerPresenterTest {
     }
 
     @Test
+    fun `summary leaves native size unavailable when the dump has no native evidence`() {
+        val presented = MemoryProfilerPresenter.present(MemoryProfilerState(heapBaseClasses = sampleClasses()))
+
+        assertEquals(null, presented.classListSummary.totalNativeSize)
+    }
+
+    @Test
+    fun `class list metric cards use the filtered heap rather than all heaps`() {
+        val input =
+            MemoryProfilerState(
+                viewMode = MemoryProfilerViewMode.ClassList,
+                summary = HeapSummary(objectCount = 8, shallowSize = 500, classCount = 3),
+                heapBaseClasses =
+                    listOf(
+                        ClassStats("com.example.App", instanceCount = 2, shallowSize = 40),
+                        ClassStats("com.example.Other", instanceCount = 6, shallowSize = 460),
+                    ),
+                searchText = "App",
+            )
+
+        val presented = MemoryProfilerPresenter.present(input)
+
+        assertEquals(2, snapshotSummaryMetrics(presented).objectCount)
+        assertEquals(40, snapshotSummaryMetrics(presented).shallowSize)
+        assertEquals(1, snapshotSummaryMetrics(presented).classCount)
+        val dominatorState = presented.copy(viewMode = MemoryProfilerViewMode.Dominators)
+        assertEquals(input.summary, snapshotSummaryMetrics(dominatorState))
+    }
+
+    @Test
     fun `summary aggregates counts native shallow retained and leak flags`() {
         val presented =
             MemoryProfilerPresenter.present(
                 MemoryProfilerState(
                     heapBaseClasses = sampleClasses(),
                     leakSuspects = listOf(LeakSuspect(className = "com.example.Tiny", reason = "")),
+                    lifecycleLeakObjects =
+                        listOf(
+                            MemoryLifecycleLeakObject(10, "com.example.Tiny", "App"),
+                            MemoryLifecycleLeakObject(11, "com.example.Tiny", "App"),
+                        ),
                     bitmapInstances = listOf(bitmap(1, nativeSizeBytes = 40_000L)),
                 ),
             )
         val summary = presented.classListSummary
 
         assertEquals(4, summary.classCount)
-        assertEquals(1, summary.leakCount)
+        assertEquals(2, summary.leakCount)
         assertEquals(0, summary.duplicateBitmapCount)
         assertEquals(28, summary.totalCount)
-        assertEquals(40_000L, summary.totalNativeSize)
+        assertEquals(null, summary.totalNativeSize)
         assertEquals(2_048L + 4_096L + 4_096L + 8L, summary.totalShallowSize)
+    }
+
+    @Test
+    fun `lifecycle leak count follows selected heap and displayed classes without collapsing objects`() {
+        val candidates =
+            listOf(
+                MemoryLifecycleLeakObject(1, "sample.Leak", "App"),
+                MemoryLifecycleLeakObject(2, "sample.Leak", "App"),
+                MemoryLifecycleLeakObject(3, "sample.Leak", "Zygote"),
+            )
+        val base =
+            MemoryProfilerState(
+                heapBaseClasses = listOf(ClassStats("sample.Leak", instanceCount = 3)),
+                lifecycleLeakObjects = candidates,
+            )
+
+        assertEquals(3, MemoryProfilerPresenter.present(base).classListSummary.leakCount)
+        assertEquals(2, MemoryProfilerPresenter.present(base.copy(heapFilter = "App")).classListSummary.leakCount)
+        assertEquals(0, MemoryProfilerPresenter.present(base.copy(searchText = "Other")).classListSummary.leakCount)
+    }
+
+    @Test
+    fun `summary reports native size when every selected class has native evidence`() {
+        val presented =
+            MemoryProfilerPresenter.present(
+                MemoryProfilerState(
+                    heapBaseClasses = listOf(ClassStats("android.graphics.Bitmap", instanceCount = 1)),
+                    bitmapInstances = listOf(bitmap(1, nativeSizeBytes = 40_000L)),
+                ),
+            )
+
+        assertEquals(40_000L, presented.classListSummary.totalNativeSize)
+    }
+
+    @Test
+    fun `filtered summary does not claim retained size evidence`() {
+        val base =
+            MemoryProfilerState(
+                heapBaseClasses =
+                    listOf(
+                        ClassStats(
+                            "com.example.Item",
+                            instanceCount = 2,
+                            retainedSize = 100,
+                            reachableShallowSize = 80,
+                            reachableNativeSize = 12,
+                        ),
+                        ClassStats(
+                            "com.example.Other",
+                            instanceCount = 1,
+                            retainedSize = 25,
+                            reachableShallowSize = 20,
+                            reachableNativeSize = 3,
+                        ),
+                    ),
+            )
+
+        assertEquals(100L, MemoryProfilerPresenter.present(base).classListSummary.totalRetainedSize)
+        assertEquals(15L, MemoryProfilerPresenter.present(base).classListSummary.totalRetainedNativeSize)
+        assertEquals(
+            null,
+            MemoryProfilerPresenter.present(base.copy(searchText = "Item")).classListSummary.totalRetainedSize,
+        )
+        assertEquals(
+            null,
+            MemoryProfilerPresenter.present(base.copy(searchText = "Item")).classListSummary.totalRetainedNativeSize,
+        )
+        assertEquals(
+            null,
+            MemoryProfilerPresenter
+                .present(base.copy(classScope = MemoryClassScope.PROJECT))
+                .classListSummary.totalRetainedSize,
+        )
+        assertEquals(
+            null,
+            MemoryProfilerPresenter
+                .present(base.copy(heapBaseClasses = listOf(ClassStats("Unknown"))))
+                .classListSummary.totalRetainedSize,
+        )
+    }
+
+    @Test
+    fun `classifier row retains native reachability and sorts that column`() {
+        val rows =
+            MemoryProfilerPresenter.buildClassifierRows(
+                listOf(
+                    ClassStats("sample.Small", reachableNativeSize = 12),
+                    ClassStats("sample.Large", reachableNativeSize = 30),
+                ),
+                MemoryArrangeBy.CLASS,
+                MemoryClassifierColumn.RETAINED_NATIVE_SIZE,
+                MemorySortDirection.DESCENDING,
+            )
+
+        assertEquals(listOf("sample.Large", "sample.Small"), rows.map { it.className })
+        assertEquals(listOf(30L, 12L), rows.map { it.retainedNativeSize })
     }
 
     private fun bitmap(

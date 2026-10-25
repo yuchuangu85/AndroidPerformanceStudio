@@ -1,6 +1,11 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.DeviceDropdownSelector
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 
@@ -301,6 +306,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     }
     var availableDevices by remember { mutableStateOf<List<AndroidDeviceInfo>>(emptyList()) }
     var selectedDeviceSerial by remember(correlationHint) { mutableStateOf(correlationHint?.deviceSerial) }
+    val titleBarTargets = LocalTitleBarTargetHost.current
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
@@ -340,10 +346,32 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             runCatching { deviceClient.listAuthorizedDeviceInfos() }.getOrDefault(emptyList())
         }
         availableDevices = devices
-        selectedDeviceSerial = sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
+        selectedDeviceSerial =
+            if (titleBarTargets?.selectedDeviceSerial != null) {
+                titleBarTargets.selectedDeviceSerial?.takeIf { shared ->
+                    devices.any { it.serial == shared && it.online }
+                }
+            } else {
+                sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
+            }
+    }
+
+    LaunchedEffect(titleBarTargets, titleBarTargets?.selectedDeviceSerial, selectedDeviceSerial, availableDevices) {
+        val host = titleBarTargets ?: return@LaunchedEffect
+        val sharedSerial = host.selectedDeviceSerial
+        if (sharedSerial == null) {
+            availableDevices.firstOrNull { it.serial == selectedDeviceSerial }?.let { device ->
+                host.chooseDevice(device.serial, device.displayName)
+            }
+        } else if (sharedSerial != selectedDeviceSerial) {
+            selectedDeviceSerial = sharedSerial.takeIf { serial ->
+                availableDevices.any { it.serial == serial && it.online }
+            }
+        }
     }
 
     val prepareFullComposeForForeground: () -> Unit = prepare@{
+        if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return@prepare
         val serial = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial ?: return@prepare
         if (automaticComposePreflightInProgress) return@prepare
         automaticComposePreflightInProgress = true
@@ -414,7 +442,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     // prepare the new package. Without this the first attempt stayed sticky: preparing a native View
     // app used to block every later Compose app, and a previously authorized app was reused after
     // another app took the foreground.
-    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode) {
+    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, titleBarTargets?.selectedDeviceSerial) {
+        if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return@LaunchedEffect
         val serial = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial ?: return@LaunchedEffect
         foregroundPackage = null
         while (currentCoroutineContext().isActive) {
@@ -429,7 +458,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
     }
 
-    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization) {
+    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization, titleBarTargets?.selectedDeviceSerial) {
         if (!autoScanEnabled) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE &&
                 store.state.connectionStatus != ConnectionStatus.ERROR
@@ -440,6 +469,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
             return@LaunchedEffect
         }
+        if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return@LaunchedEffect
         importedRawArtifacts = null
         manualRefreshSession.invalidate()
         while (currentCoroutineContext().isActive) {
@@ -563,6 +593,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     LaunchedEffect(manualRefreshRequest, autoScanEnabled) {
         if (manualRefreshRequest == 0 || autoScanEnabled) {
+            manualRefreshInProgress = false
+            return@LaunchedEffect
+        }
+        if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) {
             manualRefreshInProgress = false
             return@LaunchedEffect
         }
@@ -1076,20 +1110,39 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             ) {
                 val colors = LocalViewerColors.current
                 val language = LocalLayoutInspectorLanguage.current
-                DeviceSelector(
-                    devices = deviceChoices(availableDevices),
-                    selectedSerial = selectedDeviceSerial,
-                    onSelectDevice = { serial ->
-                        manualRefreshSession.invalidate()
-                        composeAuthorization = null
-                        fullComposeEnabled = false
-                        recompositionActive = false
-                        automaticComposePreflightAttempt = null
-                        selectedDeviceSerial = serial
-                        deviceListRefreshRequest += 1
-                    },
-                )
-                HeaderSpacer()
+                val inTitleBar = LocalTitleBarTargetHost.current != null
+                TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                    DeviceSelector(
+                        devices = deviceChoices(availableDevices),
+                        selectedSerial = selectedDeviceSerial,
+                        onSelectDevice = { serial ->
+                            if (serial == null) {
+                                titleBarTargets?.clearDevice()
+                            } else {
+                                availableDevices.firstOrNull { it.serial == serial }?.let { device ->
+                                    titleBarTargets?.chooseDevice(serial, device.displayName)
+                                }
+                            }
+                            manualRefreshSession.invalidate()
+                            composeAuthorization = null
+                            fullComposeEnabled = false
+                            recompositionActive = false
+                            automaticComposePreflightAttempt = null
+                            selectedDeviceSerial = serial
+                            deviceListRefreshRequest += 1
+                        },
+                        language = language,
+                        inTitleBar = inTitleBar,
+                        displayTextOverride = if (inTitleBar) titleBarTargets?.selectedDeviceLabel else null,
+                    )
+                }
+                // Refreshing the device list is separate from the manual hierarchy scan below.
+                // On platforms without the title strip, the existing scan refresh stays inline.
+                TitleBarRefreshOrInline(
+                    enabled = true,
+                    onRefresh = { deviceListRefreshRequest += 1 },
+                ) {}
+                if (!inTitleBar) HeaderSpacer()
                 CaptureTargetSelector(
                     selectedMode = captureTargetMode,
                     onSelectMode = { mode ->
@@ -1136,8 +1189,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 )
                 ScanModeButtons(
                     scanControlState = scanControlState,
-                    controlsEnabled = archiveUiState !is CaptureArchiveUiState.Working,
-                    manualRefreshAvailable = true,
+                    controlsEnabled = archiveUiState !is CaptureArchiveUiState.Working &&
+                        titleBarTargets?.deviceReady(selectedDeviceSerial) != false,
+                    manualRefreshAvailable = titleBarTargets?.deviceReady(selectedDeviceSerial) != false,
                     onAutoScanSelected = {
                         if (!autoScanEnabled && archiveUiState !is CaptureArchiveUiState.Working) {
                             performAction(ViewerAction.TOGGLE_AUTO_SCAN)
@@ -1734,8 +1788,10 @@ private fun DeviceSelector(
     devices: List<DeviceChoiceModel>,
     selectedSerial: String?,
     onSelectDevice: (String?) -> Unit,
+    language: UiLanguage,
+    inTitleBar: Boolean,
+    displayTextOverride: String?,
 ) {
-    val language = LocalLayoutInspectorLanguage.current
     val selectedDevice = devices.firstOrNull { it.serial == selectedSerial }
 
     DeviceDropdownSelector(
@@ -1745,6 +1801,9 @@ private fun DeviceSelector(
         onItemSelected = { device -> onSelectDevice(device.serial) },
         itemLabel = DeviceChoiceModel::label,
         onAutomaticSelection = { onSelectDevice(null) },
+        modifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier,
+        fillWidth = inTitleBar,
+        displayTextOverride = displayTextOverride,
     )
 }
 

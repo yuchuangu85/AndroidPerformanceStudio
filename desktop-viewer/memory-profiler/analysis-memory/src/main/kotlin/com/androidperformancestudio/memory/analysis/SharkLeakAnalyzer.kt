@@ -8,91 +8,132 @@ import com.androidperformancestudio.memory.model.LeakCanaryTraceElement
 import shark.HeapAnalysisFailure
 import shark.HeapAnalysisSuccess
 import shark.HeapAnalyzer
-import shark.LeakingObjectFinder
+import shark.HeapGraph
+import shark.HprofHeapGraph.Companion.openHeapGraph
 import shark.MetadataExtractor
 import shark.ObjectInspectors
 import shark.OnAnalysisProgressListener
+import shark.ReferenceMatcher
+import java.io.IOException
 import java.nio.file.Path
+import java.util.concurrent.CancellationException
+import java.util.concurrent.TimeUnit
 
 /**
  * Host-side adapter around LeakCanary's Shark engine.
  *
- * The desktop viewer already captures and converts HPROF files. This adapter deliberately uses the
- * existing heuristic candidates as the input set for Shark so a single arbitrary heap dump does
- * not turn into a full-heap report containing thousands of unrelated paths.
+ * Candidates come from individual objects' lifecycle state and ObjectWatcher evidence in the raw
+ * heap, never from histogram or class-level retention heuristics.
+ * This is a bounded inspector / non-strong-reference matcher set, not Android appDefaults.
  */
 public class SharkLeakAnalyzer(
+    private val additionalReferenceMatchers: List<ReferenceMatcher> = emptyList(),
     private val progress: (Int) -> Unit = {},
 ) {
     public fun analyze(
         heapDump: HeapDump,
         hprofFile: Path,
     ): LeakCanaryReport {
-        val candidateClassNames =
-            (heapDump.leakSuspects.map { it.className } + heapDump.activityLeaks.map { it.className })
-                .filter(String::isNotBlank)
-                .toSet()
-        if (candidateClassNames.isEmpty()) {
-            return LeakCanaryReport(
-                status = LeakCanaryStatus.NO_CANDIDATES,
-                message = "No lifecycle or retention candidates were produced for Shark analysis.",
-            )
-        }
+        val startedAt = System.nanoTime()
+        var candidateObjectCount = 0
+        var analyzedClassCount = heapDump.classes.size
+        var analyzedObjectCount = heapDump.instances.size
+        var lastProgress = 0
 
-        val objectFinder =
-            LeakingObjectFinder { graph ->
-                graph.instances
-                    .filter { candidateClassNames.contains(it.instanceClassName) }
-                    .map { it.objectId }
-                    .toSet()
-            }
+        fun reportProgress(value: Int) {
+            lastProgress = maxOf(lastProgress, value.coerceIn(0, MAX_PROGRESS))
+            progress(lastProgress)
+        }
         val listener =
             OnAnalysisProgressListener { step ->
-                progress(step.ordinal * PROGRESS_STEP_PERCENT)
+                reportProgress(ANALYSIS_PROGRESS_START + step.ordinal * ANALYSIS_PROGRESS_STEP)
             }
+        val report =
+            try {
+                reportProgress(0)
+                hprofFile.toFile().openHeapGraph().use { rawGraph ->
+                    val graph = ProgressReportingHeapGraph(rawGraph) { reportProgress(lastProgress) }
+                    analyzedClassCount = graph.classCount
+                    analyzedObjectCount = graph.objectCount
+                    reportProgress(DISCOVERY_PROGRESS)
+                    val candidates = LifecycleLeakingObjectFinder.findLeakingObjectIds(graph)
+                    candidateObjectCount = candidates.size
+                    reportProgress(ANALYSIS_PROGRESS_START)
+                    analyzeCandidates(graph, hprofFile, candidates, listener)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: IOException) {
+                failedReport(exception)
+            } catch (exception: IllegalArgumentException) {
+                failedReport(exception)
+            } catch (exception: IllegalStateException) {
+                failedReport(exception)
+            } catch (exception: SecurityException) {
+                failedReport(exception)
+            }
+        reportProgress(MAX_PROGRESS)
+        return report.copy(
+            analyzedClassCount = analyzedClassCount,
+            analyzedObjectCount = analyzedObjectCount,
+            candidateObjectCount = candidateObjectCount,
+            analysisDurationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
+        )
+    }
 
-        @Suppress("DEPRECATION")
-        fun runAnalysis(): shark.HeapAnalysis =
-            HeapAnalyzer(listener).analyze(
-                hprofFile.toFile(),
-                objectFinder,
-                emptyList(),
-                true,
-                ObjectInspectors.values().toList(),
-                MetadataExtractor.NO_OP,
-                null,
+    private fun analyzeCandidates(
+        graph: HeapGraph,
+        hprofFile: Path,
+        candidates: Set<Long>,
+        listener: OnAnalysisProgressListener,
+    ): LeakCanaryReport {
+        if (candidates.isEmpty()) {
+            return LeakCanaryReport(
+                status = LeakCanaryStatus.NO_CANDIDATES,
+                message = "No object-specific lifecycle or ObjectWatcher candidates found.",
             )
-        val analysis = runAnalysis()
+        }
+        val analysis =
+            HeapAnalyzer(listener).analyze(
+                heapDumpFile = hprofFile.toFile(),
+                graph = graph,
+                leakingObjectFinder = { candidates },
+                referenceMatchers = additionalReferenceMatchers + SharkReferenceMatchers.nonStrongReferences,
+                computeRetainedHeapSize = true,
+                objectInspectors =
+                    ObjectInspectors.jdkDefaults + LifecycleObjectInspector + SharkObjectIdentity.inspector,
+                metadataExtractor = MetadataExtractor.NO_OP,
+            )
         return when (analysis) {
-            is HeapAnalysisSuccess ->
-                LeakCanaryReport(
-                    status = LeakCanaryStatus.COMPLETED,
-                    analyzedClassCount = heapDump.classes.size,
-                    analyzedObjectCount = heapDump.instances.size,
-                    applicationLeaks =
-                        analysis.applicationLeaks.flatMap { leak ->
-                            leak.leakTraces.map { trace -> leak.toModel(trace) }
-                        },
-                    libraryLeaks =
-                        analysis.libraryLeaks.flatMap { leak ->
-                            leak.leakTraces.map { trace -> leak.toModel(trace) }
-                        },
-                    message =
-                        if (analysis.applicationLeaks.isEmpty() && analysis.libraryLeaks.isEmpty()) {
-                            "No Shark leak traces found."
-                        } else {
-                            null
-                        },
-                )
-            is HeapAnalysisFailure ->
-                LeakCanaryReport(
-                    status = LeakCanaryStatus.FAILED,
-                    analyzedClassCount = heapDump.classes.size,
-                    analyzedObjectCount = heapDump.instances.size,
-                    message = analysis.exception.message ?: "Shark analysis failed.",
-                )
+            is HeapAnalysisSuccess -> analysis.toModel()
+            is HeapAnalysisFailure -> {
+                // Shark catches Throwable internally, including cancellation from our callbacks.
+                val cause = analysis.exception.cause
+                if (cause is CancellationException) throw cause
+                failedReport(analysis.exception)
+            }
         }
     }
+
+    private fun failedReport(exception: Exception): LeakCanaryReport =
+        LeakCanaryReport(
+            status = LeakCanaryStatus.FAILED,
+            message = exception.message ?: "Shark analysis failed.",
+        )
+
+    private fun HeapAnalysisSuccess.toModel(): LeakCanaryReport =
+        LeakCanaryReport(
+            status = LeakCanaryStatus.COMPLETED,
+            applicationLeaks = applicationLeaks.flatMap { leak -> leak.leakTraces.map { leak.toModel(it) } },
+            libraryLeaks = libraryLeaks.flatMap { leak -> leak.leakTraces.map { leak.toModel(it) } },
+            message =
+                if (applicationLeaks.isEmpty() && libraryLeaks.isEmpty()) {
+                    "No Shark leak traces found within the supported lifecycle / ObjectWatcher scope."
+                } else {
+                    "Bounded lifecycle / ObjectWatcher analysis; " +
+                        "Android framework/OEM leak matching is not included by default."
+                },
+        )
 
     private fun shark.ApplicationLeak.toModel(trace: shark.LeakTrace): LeakCanaryLeak =
         LeakCanaryLeak(
@@ -103,6 +144,7 @@ public class SharkLeakAnalyzer(
             retainedObjectCount = trace.retainedObjectCount,
             gcRootType = trace.gcRootType.name,
             trace = trace.toModel(),
+            leakingObjectId = SharkObjectIdentity.objectId(trace.leakingObject),
         )
 
     private fun shark.LibraryLeak.toModel(trace: shark.LeakTrace): LeakCanaryLeak =
@@ -114,18 +156,12 @@ public class SharkLeakAnalyzer(
             retainedObjectCount = trace.retainedObjectCount,
             gcRootType = trace.gcRootType.name,
             trace = trace.toModel(),
+            leakingObjectId = SharkObjectIdentity.objectId(trace.leakingObject),
         )
 
     private fun shark.LeakTrace.toModel(): List<LeakCanaryTraceElement> =
         buildList {
-            add(
-                LeakCanaryTraceElement(
-                    className = leakingObject.className,
-                    leakingStatus = leakingObject.leakingStatus.name,
-                    leakingStatusReason = leakingObject.leakingStatusReason,
-                ),
-            )
-            referencePath.asReversed().forEach { reference ->
+            referencePath.forEachIndexed { index, reference ->
                 add(
                     LeakCanaryTraceElement(
                         className = reference.originObject.className,
@@ -133,12 +169,27 @@ public class SharkLeakAnalyzer(
                         referenceType = reference.referenceType.name,
                         leakingStatus = reference.originObject.leakingStatus.name,
                         leakingStatusReason = reference.originObject.leakingStatusReason,
+                        objectId = SharkObjectIdentity.objectId(reference.originObject),
+                        labels = SharkObjectIdentity.labels(reference.originObject),
+                        isSuspect = referencePathElementIsSuspect(index),
                     ),
                 )
             }
+            add(
+                LeakCanaryTraceElement(
+                    className = leakingObject.className,
+                    leakingStatus = leakingObject.leakingStatus.name,
+                    leakingStatusReason = leakingObject.leakingStatusReason,
+                    objectId = SharkObjectIdentity.objectId(leakingObject),
+                    labels = SharkObjectIdentity.labels(leakingObject),
+                ),
+            )
         }
 
     private companion object {
-        const val PROGRESS_STEP_PERCENT = 20
+        const val DISCOVERY_PROGRESS = 5
+        const val ANALYSIS_PROGRESS_START = 30
+        const val ANALYSIS_PROGRESS_STEP = 6
+        const val MAX_PROGRESS = 100
     }
 }

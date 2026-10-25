@@ -29,6 +29,12 @@ Prerequisites:
 ./gradlew :desktop-app:run
 ```
 
+The desktop application's maximum heap defaults to 4 GiB. On a larger machine, the
+`apsDesktopMaxHeap` property can raise the limit, for example
+`./gradlew :desktop-app:run -PapsDesktopMaxHeap=8g`. `org.gradle.jvmargs` controls
+Gradle, not the desktop application. Pass the property to `:desktop-app:createDistributable`
+when packaging with a non-default limit.
+
 The root application opens on a three-entry home page. Selecting Layout Inspector or Simpleperf
 replaces the home page with that feature's original full-window interface. Selecting Perfetto opens
 `https://ui.perfetto.dev` in the system browser for online trace analysis while the desktop window

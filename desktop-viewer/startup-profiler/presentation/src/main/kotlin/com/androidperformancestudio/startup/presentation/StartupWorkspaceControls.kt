@@ -28,6 +28,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +59,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.hot
 import com.androidperformancestudio.startup.presentation.generated.resources.iterations
 import com.androidperformancestudio.startup.presentation.generated.resources.perfetto_capture
 import com.androidperformancestudio.startup.presentation.generated.resources.practical_threshold
+import com.androidperformancestudio.startup.presentation.generated.resources.process
 import com.androidperformancestudio.startup.presentation.generated.resources.profile_artifact_hint
 import com.androidperformancestudio.startup.presentation.generated.resources.profile_baseline_plugin
 import com.androidperformancestudio.startup.presentation.generated.resources.profile_build_variant
@@ -76,9 +78,13 @@ import com.androidperformancestudio.startup.presentation.generated.resources.war
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -147,8 +153,8 @@ internal fun StartupTypeTabs(
 /**
  * Page-level target selection for the startup experiment.
  *
- * The device comes first because it scopes the application list; both selectors live in the page
- * header so the selected device and component stay visible above the scrolling workspace.
+ * The device scopes the application list. On macOS the shell shows both selectors in the title bar;
+ * standalone and other-platform windows keep them inline in the same order.
  */
 @Composable
 public fun StartupTargetSelectors(
@@ -156,35 +162,87 @@ public fun StartupTargetSelectors(
     actions: StartupProfilerActions,
     language: UiLanguage,
 ) {
-    DeviceDropdownSelector(
-        language = language,
-        items = state.devices,
-        selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
-        onItemSelected = { actions.onSelectDevice(it.serial) },
-        itemLabel = { it.name },
-        itemEnabled = { it.online },
-        modifier = Modifier.width(160.dp).testTag("startup-device"),
-        fillWidth = true,
-        enabled = !state.isRunning && !state.isRefreshing,
-    )
-    HeaderSpacer()
-    DropdownSelector(
-        items = state.targets,
-        searchable = true,
-        searchLanguage = language,
-        selectedItem = state.targets.firstOrNull { it.componentName == state.selectedComponentName },
-        onItemSelected = {
-            actions.onSelectTarget(it.componentName)
-        },
-        itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-        selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-        itemSecondary = { it.componentName },
-        placeholder = localizedStringResource(Res.string.application, language),
-        selectorDescription = localizedStringResource(Res.string.application, language),
-        modifier = Modifier.width(220.dp).testTag("startup-target"),
-        fillWidth = true,
-        enabled = !state.isRunning && state.selectedDeviceSerial != null,
-    )
+    val targetHost = LocalTitleBarTargetHost.current
+    val inTitleBar = targetHost != null
+    val selectedTarget = state.targets.firstOrNull { it.componentName == state.selectedComponentName }
+    val pendingSharedDevice = remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(targetHost, targetHost?.selectedDeviceSerial, state.selectedDeviceSerial, state.devices, state.isRunning) {
+        if (targetHost == null || state.isRunning) return@LaunchedEffect
+        val sharedSerial = targetHost.selectedDeviceSerial
+        if (sharedSerial == null) {
+            state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.let {
+                targetHost.chooseDevice(it.serial, it.name)
+            }
+        } else if (sharedSerial == state.selectedDeviceSerial) {
+            pendingSharedDevice.value = null
+        } else if (pendingSharedDevice.value != sharedSerial && state.devices.any { it.serial == sharedSerial && it.online }) {
+            pendingSharedDevice.value = sharedSerial
+            actions.onSelectDevice(sharedSerial)
+        }
+    }
+    LaunchedEffect(
+        targetHost,
+        targetHost?.selectedPackageName,
+        targetHost?.selectedDeviceSerial,
+        state.selectedDeviceSerial,
+        state.selectedComponentName,
+        state.targets,
+        state.isRunning,
+    ) {
+        if (targetHost == null || state.isRunning || !targetHost.deviceReady(state.selectedDeviceSerial)) return@LaunchedEffect
+        val sharedPackage = targetHost.selectedPackageName
+        if (sharedPackage == null) {
+            selectedTarget?.let { targetHost.choosePackage(it.packageName) }
+        } else if (selectedTarget?.packageName != sharedPackage) {
+            state.targets.firstOrNull { it.packageName == sharedPackage }?.let {
+                actions.onSelectTarget(it.componentName)
+            }
+        }
+    }
+    TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+        DeviceDropdownSelector(
+            language = language,
+            items = state.devices,
+            selectedItem = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial },
+            onItemSelected = {
+                targetHost?.chooseDevice(it.serial, it.name)
+                pendingSharedDevice.value = it.serial
+                actions.onSelectDevice(it.serial)
+            },
+            itemLabel = { it.name },
+            itemEnabled = { it.online },
+            modifier = Modifier.width(if (inTitleBar) TitleBarTargetWidth else 160.dp).testTag("startup-device"),
+            fillWidth = true,
+            enabled = !state.isRunning && !state.isRefreshing,
+            displayTextOverride = targetHost?.selectedDeviceLabel,
+        )
+    }
+    if (!inTitleBar) HeaderSpacer()
+    TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+        DropdownSelector(
+            items = state.targets,
+            searchable = true,
+            searchLanguage = language,
+            selectedItem = selectedTarget,
+            onItemSelected = {
+                targetHost?.choosePackage(it.packageName)
+                actions.onSelectTarget(it.componentName)
+            },
+            itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
+            selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
+            itemSecondary = { it.componentName },
+            placeholder = localizedStringResource(if (inTitleBar) Res.string.process else Res.string.application, language),
+            selectorDescription = localizedStringResource(if (inTitleBar) Res.string.process else Res.string.application, language),
+            modifier = Modifier.width(if (inTitleBar) TitleBarTargetWidth else 220.dp).testTag("startup-target"),
+            fillWidth = true,
+            enabled =
+                !state.isRunning &&
+                    state.selectedDeviceSerial != null &&
+                    (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
+            displayTextOverride = targetHost?.selectedPackageName,
+        )
+    }
 }
 
 @Composable
@@ -194,6 +252,11 @@ internal fun StartupScenarioControls(
     language: UiLanguage,
 ) {
     val config = state.config
+    val targetHost = LocalTitleBarTargetHost.current
+    val selectedPackage = state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.packageName
+    val targetReady =
+        targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
+            targetHost?.packageReady(selectedPackage) != false
     StudioPanel(
         modifier = Modifier.fillMaxWidth().testTag("startup-scenario"),
         contentPadding = StudioTokens.compactContentPadding,
@@ -296,7 +359,8 @@ internal fun StartupScenarioControls(
                         language,
                     ),
                 enabled =
-                    state.isRunning || (!state.isRefreshing && state.selectedComponentName != null && state.selectedDeviceSerial != null),
+                    state.isRunning ||
+                        (!state.isRefreshing && state.selectedComponentName != null && state.selectedDeviceSerial != null && targetReady),
                 modifier = Modifier.padding(start = 14.dp).testTag("startup-start-stop"),
                 onClick = actions.onStartStop,
             )

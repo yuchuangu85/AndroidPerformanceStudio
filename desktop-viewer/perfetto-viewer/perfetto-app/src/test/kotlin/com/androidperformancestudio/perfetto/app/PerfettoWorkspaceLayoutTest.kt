@@ -14,6 +14,14 @@ class PerfettoWorkspaceLayoutTest {
         )
 
     @Test
+    fun `shared device selection restores the matching serial and guards capture`() {
+        assertTrue(source.contains("host.chooseDevice(device.serial, device.displayName)"))
+        assertTrue(source.contains("selectedDeviceSerial = sharedSerial"))
+        assertTrue(source.contains("titleBarTargets?.deviceReady(deviceSerial) != false"))
+        assertTrue(source.contains("displayTextOverride = if (inTitleBar) sharedDeviceLabel else null"))
+    }
+
+    @Test
     fun `workspace keeps shared shell chrome around the commercial trace analyzer`() {
         assertTrue(source.contains("HeaderToolbar("))
         assertFalse(source.contains("private fun PerfettoToolbar("))
@@ -24,6 +32,20 @@ class PerfettoWorkspaceLayoutTest {
         assertTrue(source.contains("TraceAnalyzerWorkspace("))
         assertTrue(source.contains("state = workspaceState"))
         assertTrue(source.contains("actions = workspaceActions"))
+    }
+
+    @Test
+    fun `trace open failures return before replacing active evidence or recent files`() {
+        val openTrace = source.substringAfter("val openTrace:").substringBefore("val exportRawTrace:")
+        val prepared = openTrace.indexOf("prepareTraceArtifact(traceFile, artifact)")
+        val failure = openTrace.indexOf("is StudioResult.Failure ->")
+        val exit = openTrace.indexOf("return@withLock", failure)
+        val publish = openTrace.indexOf("activeTraceFile = traceFile")
+        assertTrue(prepared >= 0 && failure > prepared && exit > failure && publish > exit)
+        assertTrue(openTrace.substring(failure, exit).contains("diagnosticError = prepared.error.message"))
+        assertTrue(openTrace.indexOf("activeArtifact = importedArtifact") > publish)
+        assertTrue(openTrace.indexOf("recentFiles =") > publish)
+        assertTrue(openTrace.indexOf("launchTraceInUi(") > publish)
     }
 
     @Test
@@ -62,6 +84,18 @@ class PerfettoWorkspaceLayoutTest {
         assertTrue(footer.contains("Res.string.device_status"))
         assertTrue(footer.contains("Res.string.device_connected"))
         assertTrue(footer.contains("Res.string.no_online_device"))
+    }
+
+    @Test
+    fun `device selector and refresh move to title bar while retaining inline fallback`() {
+        val toolbar = source.substringAfter("private fun RowScope.PerfettoToolbarContent(")
+            .substringBefore("private fun DeviceSelector(")
+        assertTrue(toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(toolbar.contains("DeviceSelector("))
+        assertTrue(toolbar.contains("PerfettoCompactTextField("))
+        assertTrue(toolbar.contains("TitleBarRefreshOrInline("))
+        assertTrue(toolbar.contains("onRefresh = onRefreshDevices"))
+        assertTrue(toolbar.contains("onClick = onRefreshDevices"))
     }
 
     @Test

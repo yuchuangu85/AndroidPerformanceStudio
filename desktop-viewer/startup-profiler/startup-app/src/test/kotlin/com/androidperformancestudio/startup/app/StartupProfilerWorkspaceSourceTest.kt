@@ -24,6 +24,8 @@ class StartupProfilerWorkspaceSourceTest {
         assertTrue(toolbar.contains("ProfilerToolbarStatus("))
         assertTrue(toolbar.contains("SelectionContainer"))
         assertTrue(toolbar.contains("StartupTargetSelectors("))
+        assertTrue(toolbar.contains("TitleBarRefreshOrInline("))
+        assertTrue(toolbar.contains("onRefresh = actions.onRefresh"))
         assertFalse(toolbar.contains("DropdownSelector"))
         assertFalse(toolbar.contains("Checkbox"))
         assertFalse(toolbar.contains("onStartStop"))

@@ -36,6 +36,9 @@ public enum class MemoryProfilerViewMode {
     /** Android Studio-style native allocation trace workspace. */
     NativeHeap,
 
+    /** Raw Perfetto ART allocation sampling, distinct from Studio Full recording. */
+    SampledArtAllocations,
+
     /** LeakCanary-compatible Shark leak trace workspace. */
     LeakCanary,
 }
@@ -71,6 +74,7 @@ public enum class MemoryClassifierColumn {
     TOTAL_COUNT,
     NATIVE_SIZE,
     SHALLOW_SIZE,
+    RETAINED_NATIVE_SIZE,
     RETAINED_SIZE,
     ALLOCATIONS_SIZE,
     DEALLOCATIONS_SIZE,
@@ -90,6 +94,7 @@ public data class MemoryClassifierRow(
     val totalCount: Long = 0L,
     val nativeSize: Long? = null,
     val shallowSize: Long = 0L,
+    val retainedNativeSize: Long? = null,
     val retainedSize: Long? = null,
     val allocationsSize: Long? = null,
     val deallocationsSize: Long? = null,
@@ -123,6 +128,46 @@ public data class MemoryDominatorRow(
     val parentObjectId: Long?,
 )
 
+/** ART sampling capture receipt. File size is not an allocation metric. */
+public enum class MemorySampledArtOrigin { CAPTURE, IMPORT }
+
+public data class MemorySampledArtTrace(
+    val file: String,
+    val fileSizeBytes: Long,
+    val packageName: String? = null,
+    val pid: Int? = null,
+    val sdkLevel: Int? = null,
+    val samplingIntervalBytes: Int? = null,
+    val durationMs: Long? = null,
+    val source: String,
+    val origin: MemorySampledArtOrigin = MemorySampledArtOrigin.CAPTURE,
+)
+
+public data class MemorySampledArtCallSite(
+    val callsiteId: Long,
+    val sampledObjectCount: Long,
+    val sampledBytes: Long,
+    val callStack: List<String>,
+)
+
+/** Analysis evidence is distinct from the raw trace receipt and from Studio Full recording. */
+public sealed interface MemorySampledArtAnalysis {
+    public data class Analyzed(
+        val sampleRows: Long,
+        val sampledObjectCount: Long,
+        val sampledBytes: Long,
+        val callSites: List<MemorySampledArtCallSite>,
+    ) : MemorySampledArtAnalysis
+
+    public data class Unavailable(
+        val reason: String,
+    ) : MemorySampledArtAnalysis
+
+    public data class Failed(
+        val reason: String,
+    ) : MemorySampledArtAnalysis
+}
+
 /** A single field value of an instance, either a primitive or an object reference. */
 public data class MemoryInstanceField(
     val name: String,
@@ -149,9 +194,19 @@ public data class MemoryClassListSummary(
     val leakCount: Int = 0,
     val duplicateBitmapCount: Int = 0,
     val totalCount: Int = 0,
-    val totalNativeSize: Long = 0L,
+    /** Null unless every selected class has native-size evidence. */
+    val totalNativeSize: Long? = null,
+    val totalRetainedNativeSize: Long? = null,
     val totalShallowSize: Long = 0L,
-    val totalRetainedSize: Long = 0L,
+    /** Unavailable while a class filter is active or any selected class lacks retained evidence. */
+    val totalRetainedSize: Long? = null,
+)
+
+/** Object-level Activity/Fragment lifecycle candidate from one HPROF; IDs are snapshot-local. */
+public data class MemoryLifecycleLeakObject(
+    val objectId: Long,
+    val className: String,
+    val heapName: String?,
 )
 
 /** Full detail view of one selected heap object. */
@@ -199,10 +254,13 @@ public data class MemoryProfilerState(
     val highlightedClassName: String? = null,
     val mappingLoaded: Boolean = false,
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
+    val lifecycleLeakObjects: List<MemoryLifecycleLeakObject> = emptyList(),
     val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
     val leakCanaryLiveSession: LeakCanaryLiveSession = LeakCanaryLiveSession(),
     val nativeHeapTrace: NativeHeapTrace? = null,
     val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
+    val sampledArtTrace: MemorySampledArtTrace? = null,
+    val sampledArtAnalysis: MemorySampledArtAnalysis? = null,
     val artifact: CaptureArtifact? = null,
     val viewMode: MemoryProfilerViewMode = MemoryProfilerViewMode.ClassList,
     val selectedClassName: String? = null,
@@ -210,6 +268,8 @@ public data class MemoryProfilerState(
     val selectedClassifierLabel: String? = null,
     val selectedClassInstances: List<MemoryInstanceRow> = emptyList(),
     val selectedInstanceDetail: MemoryInstanceDetail? = null,
+    /** A class/instance graph query is running off the UI thread. */
+    val isSelectionLoading: Boolean = false,
     val dominatorRows: List<MemoryDominatorRow> = emptyList(),
     /** Object IDs visited in the active snapshot; IDs never cross snapshot boundaries. */
     val instanceHistory: List<Long> = emptyList(),
@@ -293,4 +353,7 @@ public data class MemoryProfilerActions(
     val onToggleClassifierColumn: (MemoryClassifierColumn) -> Unit = {},
     val onClassifierSort: (MemoryClassifierColumn) -> Unit = {},
     val onSelectClassifier: (MemoryClassifierRow) -> Unit = {},
+    val onAnalyzeLeaks: () -> Unit = {},
+    val onStartLiveLeakMonitoring: () -> Unit = {},
+    val onStopLiveLeakMonitoring: () -> Unit = {},
 )

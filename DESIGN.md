@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-10-22
+- Last refreshed: 2026-10-25
 - Primary product surfaces:
   - Compose Desktop 主入口与打包：`desktop-viewer/desktop-app`
   - Layout Inspector 功能 UI：`desktop-viewer/layout-inspector/presentation`
@@ -244,6 +244,16 @@ Adoption contract:
 - Toolbar, snapshot tabs, provenance/evidence strip, and status bar remain chrome rather than analysis cards. Existing dedicated Bitmap, Native Heap, LeakCanary, and Dashboard surfaces are not redesigned by this refinement.
 - Validate compact metrics and card separation at 1280x720, horizontal reachability at 900x720, English/Chinese, and light/dark themes. Review generated screenshots, run affected tests/static checks and desktop integration compilation; native packaged-app acceptance remains a separate gate.
 
+## Window Title-Bar Device and Process Targets (2026-10-25)
+
+This is a cross-workspace placement change, not a shared capture-session or target-identity change. The existing device and second-target dropdowns keep their page-owned state and callbacks.
+
+- On macOS, the main window retains native close/minimize/full-screen buttons and displays the active page's device and, where one exists, second-target dropdown on the right side of its app-painted title strip. Both controls retain the bordered dropdown/chevron affordance. The title and native-button area stay unobstructed. Inactive retained pages must not publish controls into the visible page's title strip.
+- Windows/Linux currently use native window frames, and standalone feature windows do not have the main shell's title-bar host. Their selectors remain in the original page position until a separately designed native/custom title-bar implementation exists; do not silently remove these controls.
+- The second title-bar position is a **visual target slot**, not proof that its contents are an OS process. Memory, Frame, and Method Recording expose real process selectors there. CPU exposes its application/package selector there and keeps its real process and thread selectors in the capture toolbar. Startup exposes its application/component target there, and Battery exposes its app/UID target there. Each retains its actual localized label and callback rather than fabricating process identity. Layout Inspector's capture mode, Network serial/package inputs, and Benchmark are not converted into process selectors. GPU currently has only a device selector and no process list; it continues to expose that device in the first slot rather than duplicating or relabeling it as a process.
+- Selection predicates, online/disabled state, automatic device choice, searchable process lists, localization, and refresh/capture actions must retain their current behavior. Moving a selector must not create a global device or process selection state.
+- Title-bar selectors use bounded widths and a fixed window-point scale so long device/process names cannot cover the native controls or push the window title out. Keyboard/focus semantics and dropdown opening must be checked in a real macOS window in addition to focused Compose tests.
+
 
 ## Compact Card Exterior Spacing (2026-10-22)
 
@@ -254,3 +264,14 @@ User-requested refinement across every card-containing Desktop workspace, includ
 - Apply to horizontal/vertical card grids, nested card lists and card groups at the content area's four boundaries. Toolbars, navigation, footer chrome, table-row density, chart axes, splitter hit targets, and card internal text/control padding remain unchanged.
 - Reuse `StudioCard`, `StudioPanel`, existing theme/color/radius ownership and current responsive/scroll behavior. No new dependency or parallel styling layer.
 - Validate all four exterior edges and both card-gap directions with rendered geometry at 1280x720 and 900x720 in light/dark themes, preserve 8dp default content insets, inspect generated screenshots, run affected tests and integration compilation. Automated render checks do not imply native packaged-app acceptance.
+
+## Offline Leak Investigation (2026-10-24)
+
+User-requested Android Studio-style leak analysis supersedes the earlier exclusion of the dedicated LeakCanary page from redesign. The reference is the official heap-dump investigation workflow, not a supplied pixel-exact screenshot.
+
+- Bind analysis to the selected immutable HPROF snapshot, including when an older open snapshot is selected. Offline analysis requires no device or injected agent. Keep candidate detection distinct from a proven application bug.
+- Use a compact analysis toolbar and independently scrollable findings, reference-path, and object-inspector panes. Prefer dense rows, column headers, restrained selection, monospace object identities, and existing theme tokens over summary-card stacks.
+- Show GC-root-to-retained-object paths, suspect references, retained bytes/counts, and available lifecycle reasons. Navigate only using original object IDs from the same HPROF; never resolve an instance by its class name.
+- Keep live Agent start/stop and live events explicitly separate from offline snapshot evidence. Opening the leak view must not start device monitoring implicitly.
+- Preserve findings per open snapshot. Loading, cancellation, recoverable failure/retry, no candidates, and no retained paths have distinct states. Missing metrics and identities remain unavailable.
+- Keep all panes reachable at narrow widths through horizontal scrolling or explicit pane selection. Validate 1280x720 and 900x720, English/Chinese and light/dark, object navigation, and analysis state controls with Compose tests and inspected screenshots. Real Android dump coverage, runtime monitoring, and native packaged-app acceptance are separate gates.

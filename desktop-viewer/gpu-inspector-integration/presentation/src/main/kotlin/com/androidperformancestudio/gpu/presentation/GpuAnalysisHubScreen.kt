@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,9 +38,14 @@ import com.androidperformancestudio.gpu.presentation.generated.resources.Res
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.SegmentedSelector
 import com.androidperformancestudio.ui.SegmentedSelectorStyle
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -81,6 +87,18 @@ public fun GpuAnalysisHubScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
+    val titleBarTargets = LocalTitleBarTargetHost.current
+    LaunchedEffect(titleBarTargets, titleBarTargets?.selectedDeviceSerial, state.devices, state.selectedDeviceSerial) {
+        val host = titleBarTargets ?: return@LaunchedEffect
+        val sharedSerial = host.selectedDeviceSerial
+        if (sharedSerial == null) {
+            state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.let { device ->
+                device.serial?.let { host.chooseDevice(it, device.selectorLabel()) }
+            }
+        } else if (sharedSerial != state.selectedDeviceSerial && state.devices.any { it.serial == sharedSerial }) {
+            actions.onSelectDevice(sharedSerial)
+        }
+    }
     val selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId }
     val summary = state.hubSummary()
     BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.workspacePadding)) {
@@ -382,26 +400,43 @@ private fun GpuDeviceContextPanel(
     language: UiLanguage,
 ) {
     val colors = LocalViewerColors.current
+    val titleBarTargets = LocalTitleBarTargetHost.current
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
+        ?.takeIf { titleBarTargets?.deviceReady(it.serial) != false }
     StudioPanel(Modifier.fillMaxWidth()) {
         StudioPanelHeader(
             title = localizedStringResource(Res.string.device_graphics_context, language),
             actions = {
-                DeviceDropdownSelector(
-                    language = language,
-                    items = state.devices,
-                    selectedItem = selectedDevice,
-                    onItemSelected = { it.serial?.let(actions.onSelectDevice) },
-                    itemLabel = GpuDeviceContext::selectorLabel,
-                    selectedItemLabel = GpuDeviceContext::selectorLabel,
-                    modifier = Modifier.widthIn(min = 200.dp, max = 360.dp),
-                    enabled = !state.isRefreshingDevices && state.devices.isNotEmpty(),
-                )
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh_devices, language),
+                val inTitleBar = titleBarTargets != null
+                TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                    DeviceDropdownSelector(
+                        language = language,
+                        items = state.devices,
+                        selectedItem = selectedDevice,
+                        onItemSelected = { device ->
+                            device.serial?.let { serial ->
+                                titleBarTargets?.chooseDevice(serial, device.selectorLabel())
+                                actions.onSelectDevice(serial)
+                            }
+                        },
+                        itemLabel = GpuDeviceContext::selectorLabel,
+                        selectedItemLabel = GpuDeviceContext::selectorLabel,
+                        modifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.widthIn(min = 200.dp, max = 360.dp),
+                        fillWidth = inTitleBar,
+                        displayTextOverride = titleBarTargets?.selectedDeviceLabel,
+                        enabled = !state.isRefreshingDevices && state.devices.isNotEmpty(),
+                    )
+                }
+                TitleBarRefreshOrInline(
                     enabled = !state.isRefreshingDevices,
-                    onClick = actions.onRefreshDevices,
-                )
+                    onRefresh = actions.onRefreshDevices,
+                ) {
+                    ProfilerCompactButton(
+                        text = localizedStringResource(Res.string.refresh_devices, language),
+                        enabled = !state.isRefreshingDevices,
+                        onClick = actions.onRefreshDevices,
+                    )
+                }
             },
         )
         if (state.isInspectingDevice || state.isRefreshingDevices) {

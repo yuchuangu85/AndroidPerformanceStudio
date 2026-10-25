@@ -16,7 +16,6 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.analyzing_memory_leaks
 import com.androidperformancestudio.memory.memory_app.generated.resources.bitmap_dump_failed
 import com.androidperformancestudio.memory.memory_app.generated.resources.capturing_native_heap
-import com.androidperformancestudio.memory.memory_app.generated.resources.connecting_leak_canary_agent
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_bitmaps_for
 import com.androidperformancestudio.memory.memory_app.generated.resources.dumping_heap_for
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_parser_out_of_memory
@@ -26,7 +25,8 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.import
 import com.androidperformancestudio.memory.memory_app.generated.resources.loading_session
 import com.androidperformancestudio.memory.memory_app.generated.resources.mapping_imported
 import com.androidperformancestudio.memory.memory_app.generated.resources.memory_leaks_analysis_failed
-import com.androidperformancestudio.memory.memory_app.generated.resources.monitoring_leak_canary
+import com.androidperformancestudio.memory.memory_app.generated.resources.recording_sampled_art_allocations
+import com.androidperformancestudio.memory.memory_app.generated.resources.sampled_art_capture_failed
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_analyze_hprof
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_capture_native_heap
 import com.androidperformancestudio.memory.memory_app.generated.resources.unable_to_import_java_heap
@@ -47,6 +47,7 @@ import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
+import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.MemoryArrangeBy
@@ -64,6 +65,9 @@ import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerError
 import com.androidperformancestudio.memory.presentation.MemoryProfilerState
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
+import com.androidperformancestudio.memory.presentation.MemorySampledArtAnalysis
+import com.androidperformancestudio.memory.presentation.MemorySampledArtCallSite
+import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
 import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionFilterPreset
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
@@ -71,12 +75,19 @@ import com.androidperformancestudio.memory.storage.MemorySessionUiSettings
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -91,6 +102,8 @@ internal data class LoadedHeap(
     val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
     val uiSettings: MemorySessionUiSettings = MemorySessionUiSettings(),
     val sourceFileDigest: String? = null,
+    /** Digest of the raw or converted file whose bytes define this graph's object IDs. */
+    val analysisSourceDigest: String? = null,
     val mappingDigest: String? = null,
     val indexFile: Path? = null,
     val investigationIndex: MemoryHeapInvestigationIndex = MemoryHeapInvestigationIndex(heapDump),
@@ -99,6 +112,11 @@ internal data class LoadedHeap(
 internal data class LoadedNativeHeap(
     val trace: NativeHeapTrace,
     val analysis: NativeHeapAnalysis,
+)
+
+internal data class LoadedSampledArt(
+    val trace: MemorySampledArtTrace,
+    val processing: SampledArtProcessingResult,
 )
 
 internal data class LoadedBitmapDump(
@@ -157,6 +175,11 @@ internal interface MemoryProfilerBackend {
             "Leak analysis unavailable",
             "The selected backend does not support LeakCanary analysis.",
         )
+
+    suspend fun analyzeLeaks(
+        snapshot: LoadedHeap,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LeakCanaryReport> = analyzeLeaks()
 
     suspend fun injectLeakCanaryAgent(projectRoot: Path): MemoryBackendResult<String> =
         MemoryBackendResult.Failure(
@@ -261,6 +284,26 @@ internal interface MemoryProfilerBackend {
             detail = "The selected backend does not support heapprofd captures.",
         )
 
+    suspend fun captureSampledArtAllocations(
+        serial: String,
+        process: MemoryProcessOption,
+    ): MemoryBackendResult<LoadedSampledArt> =
+        MemoryBackendResult.Failure(
+            title = "ART sampling unavailable",
+            detail = "The selected backend does not support sampled ART allocation recording.",
+        )
+
+    suspend fun importSampledArtAllocations(file: Path): MemoryBackendResult<LoadedSampledArt> =
+        MemoryBackendResult.Failure(
+            title = "ART sample import unavailable",
+            detail = "The selected backend does not support importing ART sampling traces.",
+        )
+
+    fun exportSampledArtAllocations(
+        trace: MemorySampledArtTrace,
+        output: Path,
+    ) = Unit
+
     suspend fun importNativeHeap(file: Path): MemoryBackendResult<LoadedNativeHeap> =
         MemoryBackendResult.Failure(
             title = "Native heap import unavailable",
@@ -286,9 +329,14 @@ private const val MAX_SNAPSHOT_HISTORY = 8
 internal class MemoryProfilerController(
     private val backend: MemoryProfilerBackend,
     private val language: UiLanguage = UiLanguage.ENGLISH,
+    private val selectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val mutableState = MutableStateFlow(MemoryProfilerState())
     private var activeOperationJob: Job? = null
+    private var liveLeakMonitoringJob: Job? = null
+    private var previousLeakReport: LeakCanaryReport? = null
+    private val selectionMutex = Mutex()
+    private var selectionGeneration = 0L
 
     val state: StateFlow<MemoryProfilerState> = mutableState.asStateFlow()
 
@@ -372,13 +420,16 @@ internal class MemoryProfilerController(
         )
 
     fun close() {
+        invalidateSelection()
+        activeOperationJob?.cancel()
+        stopLiveLeakCanary()
         processSelectionSubscription.close()
         targetSubscription.close()
     }
 
     suspend fun refreshDevices() {
         when (val result = backend.listDevices()) {
-            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Failure -> showTargetFailure(result)
             is MemoryBackendResult.Success -> {
                 val currentSerial = mutableState.value.selectedDeviceSerial
                 val retainedSerial =
@@ -419,7 +470,9 @@ internal class MemoryProfilerController(
                 operationMessage = null,
                 loadPhase = HeapLoadPhase.CANCELLED,
                 loadProgress = null,
+                leakCanaryReport = previousLeakReport ?: mutableState.value.leakCanaryReport,
             )
+        previousLeakReport = null
     }
 
     suspend fun selectDevice(serial: String) {
@@ -428,7 +481,7 @@ internal class MemoryProfilerController(
         val result = backend.listProcesses(serial)
         if (processSelection.snapshot.serial != serial) return
         when (result) {
-            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Failure -> showTargetFailure(result)
             is MemoryBackendResult.Success -> {
                 processSelection.updateProcesses(serial, result.value)
                 mutableState.value = mutableState.value.copy(error = null)
@@ -469,6 +522,7 @@ internal class MemoryProfilerController(
 
     fun closeSnapshot(snapshotId: String) {
         if (mutableState.value.isDumping) return
+        invalidateSelection()
         val current = mutableState.value
         val remaining = current.snapshotSummaries.filterNot { it.id == snapshotId }
         loadedHeapsBySnapshotId.remove(snapshotId)
@@ -507,6 +561,7 @@ internal class MemoryProfilerController(
                     classifierRows = emptyList(),
                     heapDiff = null,
                     leakSuspects = emptyList(),
+                    lifecycleLeakObjects = emptyList(),
                     bitmapInstances = emptyList(),
                     activityLeaks = emptyList(),
                     activityCount = 0,
@@ -533,15 +588,37 @@ internal class MemoryProfilerController(
     }
 
     fun changeViewMode(mode: MemoryProfilerViewMode) {
-        mutableState.value = mutableState.value.copy(viewMode = mode)
+        invalidateSelection()
+        val dominators =
+            if (mode == MemoryProfilerViewMode.Dominators) {
+                loadedHeap?.investigationIndex?.dominators.orEmpty()
+            } else {
+                emptyList()
+            }
+        mutableState.value = mutableState.value.copy(viewMode = mode, dominatorRows = dominators)
     }
 
     fun selectClass(className: String) {
+        invalidateSelection()
         val instances =
             instanceQuery
                 ?.instancesOf(className, heapName = mutableState.value.heapFilter)
                 .orEmpty()
                 .map { it.toPresentation() }
+        publishClassSelection(className, instances)
+    }
+
+    suspend fun selectClassAsync(className: String) {
+        querySelection(
+            compute = { query, heapFilter -> query.instancesOf(className, heapFilter).map { it.toPresentation() } },
+            publish = { instances -> publishClassSelection(className, instances) },
+        )
+    }
+
+    private fun publishClassSelection(
+        className: String,
+        instances: List<MemoryInstanceRow>,
+    ) {
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = className,
@@ -555,6 +632,7 @@ internal class MemoryProfilerController(
     }
 
     fun selectClassifier(row: MemoryClassifierRow) {
+        invalidateSelection()
         val classNames = row.classNames()
         val instances =
             classNames
@@ -564,6 +642,26 @@ internal class MemoryProfilerController(
                         .orEmpty()
                 }.sortedBy { it.objectId }
                 .map { it.toPresentation() }
+        publishClassifierSelection(row, instances)
+    }
+
+    suspend fun selectClassifierAsync(row: MemoryClassifierRow) {
+        val classNames = row.classNames()
+        querySelection(
+            compute = { query, heapFilter ->
+                classNames
+                    .flatMap { className -> query.instancesOf(className, heapFilter) }
+                    .sortedBy { it.objectId }
+                    .map { it.toPresentation() }
+            },
+            publish = { instances -> publishClassifierSelection(row, instances) },
+        )
+    }
+
+    private fun publishClassifierSelection(
+        row: MemoryClassifierRow,
+        instances: List<MemoryInstanceRow>,
+    ) {
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = row.className,
@@ -580,6 +678,10 @@ internal class MemoryProfilerController(
         selectInstance(objectId, appendToHistory = true)
     }
 
+    suspend fun selectInstanceAsync(objectId: Long) {
+        selectInstanceAsync(objectId, appendToHistory = true)
+    }
+
     fun loadArrayRange(
         objectId: Long,
         arrayStart: Int,
@@ -589,6 +691,13 @@ internal class MemoryProfilerController(
             appendToHistory = false,
             arrayStart = arrayStart,
         )
+    }
+
+    suspend fun loadArrayRangeAsync(
+        objectId: Long,
+        arrayStart: Int,
+    ) {
+        selectInstanceAsync(objectId, appendToHistory = false, arrayStart = arrayStart)
     }
 
     fun navigateInstanceBack() {
@@ -601,11 +710,28 @@ internal class MemoryProfilerController(
         )
     }
 
+    suspend fun navigateInstanceBackAsync() {
+        val current = mutableState.value
+        if (current.instanceHistoryIndex <= 0) return
+        selectInstanceAsync(
+            current.instanceHistory[current.instanceHistoryIndex - 1],
+            appendToHistory = false,
+            historyIndex = current.instanceHistoryIndex - 1,
+        )
+    }
+
     fun navigateInstanceForward() {
         val current = mutableState.value
         val nextIndex = current.instanceHistoryIndex + 1
         if (nextIndex !in current.instanceHistory.indices) return
         selectInstance(current.instanceHistory[nextIndex], appendToHistory = false, historyIndex = nextIndex)
+    }
+
+    suspend fun navigateInstanceForwardAsync() {
+        val current = mutableState.value
+        val nextIndex = current.instanceHistoryIndex + 1
+        if (nextIndex !in current.instanceHistory.indices) return
+        selectInstanceAsync(current.instanceHistory[nextIndex], appendToHistory = false, historyIndex = nextIndex)
     }
 
     fun togglePinnedInstance(objectId: Long) {
@@ -620,16 +746,62 @@ internal class MemoryProfilerController(
         historyIndex: Int? = null,
         arrayStart: Int = 0,
     ) {
+        invalidateSelection()
         val boundedStart = arrayStart.coerceAtLeast(0)
         val detail =
             instanceQuery?.detailOf(objectId, arrayStart = boundedStart)?.toPresentation(arrayStart = boundedStart)
                 ?: return
+        val groupingClassName = instanceQuery?.groupingClassNameOf(objectId) ?: detail.className
         val current = mutableState.value
         val instances =
             instanceQuery
-                ?.instancesOf(detail.className, heapName = current.heapFilter)
+                ?.instancesOf(groupingClassName, heapName = current.heapFilter)
                 .orEmpty()
                 .map { it.toPresentation() }
+        publishInstanceSelection(
+            objectId,
+            InstanceSelection(detail, groupingClassName, instances),
+            appendToHistory,
+            historyIndex,
+        )
+    }
+
+    private suspend fun selectInstanceAsync(
+        objectId: Long,
+        appendToHistory: Boolean,
+        historyIndex: Int? = null,
+        arrayStart: Int = 0,
+    ) {
+        val boundedStart = arrayStart.coerceAtLeast(0)
+        querySelection(
+            compute = { query, heapFilter ->
+                query
+                    .detailOf(objectId, arrayStart = boundedStart)
+                    ?.toPresentation(arrayStart = boundedStart)
+                    ?.let { detail ->
+                        val groupingClassName = query.groupingClassNameOf(objectId) ?: detail.className
+                        InstanceSelection(
+                            detail,
+                            groupingClassName,
+                            query.instancesOf(groupingClassName, heapFilter).map { it.toPresentation() },
+                        )
+                    }
+            },
+            publish = { selection ->
+                selection?.let {
+                    publishInstanceSelection(objectId, it, appendToHistory, historyIndex)
+                }
+            },
+        )
+    }
+
+    private fun publishInstanceSelection(
+        objectId: Long,
+        selection: InstanceSelection,
+        appendToHistory: Boolean,
+        historyIndex: Int?,
+    ) {
+        val current = mutableState.value
         val nextHistory =
             if (appendToHistory) {
                 (
@@ -642,18 +814,79 @@ internal class MemoryProfilerController(
             }
         mutableState.value =
             current.copy(
-                selectedClassName = detail.className,
-                selectedClassifierId = "class:${detail.className}",
-                selectedClassifierLabel = detail.className,
-                selectedClassInstances = instances,
-                selectedInstanceDetail = detail,
+                selectedClassName = selection.groupingClassName,
+                selectedClassifierId = "class:${selection.groupingClassName}",
+                selectedClassifierLabel = selection.groupingClassName,
+                selectedClassInstances = selection.instances,
+                selectedInstanceDetail = selection.detail,
                 instanceHistory = nextHistory,
                 instanceHistoryIndex = historyIndex ?: nextHistory.lastIndex,
             )
     }
 
+    private data class InstanceSelection(
+        val detail: MemoryInstanceDetail,
+        val groupingClassName: String,
+        val instances: List<MemoryInstanceRow>,
+    )
+
+    private data class SelectionRequest(
+        val query: InstanceReferenceQuery,
+        val snapshotId: String?,
+        val heapFilter: String?,
+        val generation: Long,
+    )
+
+    private data class SelectionValue<T>(
+        val value: T,
+    )
+
+    private fun invalidateSelection() {
+        selectionGeneration++
+        if (mutableState.value.isSelectionLoading) {
+            mutableState.value = mutableState.value.copy(isSelectionLoading = false)
+        }
+    }
+
+    private fun selectionIsCurrent(request: SelectionRequest): Boolean =
+        selectionGeneration == request.generation &&
+            instanceQuery === request.query &&
+            mutableState.value.activeSnapshotId == request.snapshotId &&
+            mutableState.value.heapFilter == request.heapFilter &&
+            !mutableState.value.isDumping
+
+    private suspend fun <T> querySelection(
+        compute: (InstanceReferenceQuery, String?) -> T,
+        publish: (T) -> Unit,
+    ) {
+        invalidateSelection()
+        val request =
+            SelectionRequest(
+                query = instanceQuery ?: return,
+                snapshotId = mutableState.value.activeSnapshotId,
+                heapFilter = mutableState.value.heapFilter,
+                generation = selectionGeneration,
+            )
+        mutableState.value = mutableState.value.copy(isSelectionLoading = true)
+        // Serialize large graph walks: cancelled/stale UI requests must not build multiple
+        // predecessor maps or inbound scans concurrently near the desktop heap cap.
+        try {
+            val result =
+                selectionMutex.withLock {
+                    if (!selectionIsCurrent(request)) return@withLock null
+                    SelectionValue(withContext(selectionDispatcher) { compute(request.query, request.heapFilter) })
+                }
+            if (result != null && selectionIsCurrent(request)) publish(result.value)
+        } finally {
+            if (selectionGeneration == request.generation) {
+                mutableState.value = mutableState.value.copy(isSelectionLoading = false)
+            }
+        }
+    }
+
     /** Switches the base class table between all heaps and a single [heap] (null = all heaps). */
     fun changeHeapFilter(heap: String?) {
+        invalidateSelection()
         val base =
             when (heap) {
                 null -> loadedHeap?.histogram?.classes.orEmpty()
@@ -729,6 +962,7 @@ internal class MemoryProfilerController(
 
     fun applyFilterPreset(preset: MemoryFilterPreset) {
         if (preset !in mutableState.value.savedFilterPresets) return
+        invalidateSelection()
         val base =
             when (preset.heapFilter) {
                 null -> loadedHeap?.histogram?.classes.orEmpty()
@@ -835,92 +1069,76 @@ internal class MemoryProfilerController(
 
     @Suppress("TooGenericExceptionCaught")
     suspend fun monitorLiveLeakCanary() {
-        activeOperationJob = currentCoroutineContext()[Job]
         val snapshot = mutableState.value
         val serial = snapshot.selectedDeviceSerial ?: return
         val process = snapshot.processes.firstOrNull { it.pid == snapshot.selectedProcessId } ?: return
+        if (liveLeakMonitoringJob != null) return
+        liveLeakMonitoringJob = currentCoroutineContext()[Job]
         mutableState.value =
             snapshot.copy(
-                isDumping = true,
-                operationMessage = localizedStringResource(Res.string.connecting_leak_canary_agent, language),
-                loadPhase = HeapLoadPhase.ANALYZE,
-                loadProgress = null,
-                error = null,
-                warning = null,
                 leakCanaryLiveSession = snapshot.leakCanaryLiveSession.copy(status = LeakCanaryLiveStatus.CONNECTING),
             )
-        when (val opened = backend.openLeakCanaryAgent(serial, process)) {
-            is MemoryBackendResult.Failure -> {
-                showFailure(opened)
-                mutableState.value =
-                    mutableState.value.copy(
-                        leakCanaryLiveSession =
-                            LeakCanaryLiveSession(
-                                status = LeakCanaryLiveStatus.FAILED,
-                                message = opened.detail,
-                            ),
-                    )
-                return
-            }
-            is MemoryBackendResult.Success ->
-                mutableState.value =
-                    mutableState.value.copy(
-                        leakCanaryLiveSession = opened.value.copy(status = LeakCanaryLiveStatus.RUNNING),
-                        operationMessage = localizedStringResource(Res.string.monitoring_leak_canary, language),
-                        error = null,
-                    )
-        }
         try {
+            when (val opened = backend.openLeakCanaryAgent(serial, process)) {
+                is MemoryBackendResult.Failure -> {
+                    mutableState.update {
+                        it.copy(leakCanaryLiveSession = LeakCanaryLiveSession(LeakCanaryLiveStatus.FAILED, message = opened.detail))
+                    }
+                    return
+                }
+                is MemoryBackendResult.Success ->
+                    mutableState.update {
+                        it.copy(leakCanaryLiveSession = opened.value.copy(status = LeakCanaryLiveStatus.RUNNING))
+                    }
+            }
             while (currentCoroutineContext().isActive) {
                 kotlinx.coroutines.delay(500L)
                 when (val polled = backend.pollLeakCanaryAgent()) {
                     is MemoryBackendResult.Failure -> {
-                        mutableState.value =
-                            mutableState.value.copy(
-                                isDumping = false,
-                                operationMessage = null,
-                                loadPhase = HeapLoadPhase.FAILED,
+                        mutableState.update {
+                            it.copy(
                                 leakCanaryLiveSession =
-                                    mutableState.value.leakCanaryLiveSession.copy(
+                                    it.leakCanaryLiveSession.copy(
                                         status = LeakCanaryLiveStatus.FAILED,
                                         message = polled.detail,
                                     ),
-                                error = MemoryProfilerError(polled.title, polled.detail),
                             )
+                        }
                         return
                     }
                     is MemoryBackendResult.Success ->
-                        mutableState.value =
-                            mutableState.value.copy(
-                                leakCanaryLiveSession = polled.value.copy(status = LeakCanaryLiveStatus.RUNNING),
-                                error = null,
-                            )
+                        mutableState.update {
+                            it.copy(leakCanaryLiveSession = polled.value.copy(status = LeakCanaryLiveStatus.RUNNING))
+                        }
                 }
+            }
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            mutableState.update {
+                it.copy(
+                    leakCanaryLiveSession =
+                        it.leakCanaryLiveSession.copy(status = LeakCanaryLiveStatus.FAILED, message = exception.message),
+                )
             }
         } finally {
             backend.closeLeakCanaryAgent()
-            activeOperationJob = null
-            mutableState.value =
-                mutableState.value.copy(
-                    isDumping = false,
-                    operationMessage = null,
-                    loadPhase = HeapLoadPhase.IDLE,
-                    leakCanaryLiveSession =
-                        mutableState.value.leakCanaryLiveSession.copy(
-                            status = LeakCanaryLiveStatus.STOPPED,
-                        ),
-                )
+            liveLeakMonitoringJob = null
+            mutableState.update {
+                if (it.leakCanaryLiveSession.status == LeakCanaryLiveStatus.FAILED) {
+                    it
+                } else {
+                    it.copy(leakCanaryLiveSession = it.leakCanaryLiveSession.copy(status = LeakCanaryLiveStatus.STOPPED))
+                }
+            }
         }
     }
 
     fun stopLiveLeakCanary() {
+        liveLeakMonitoringJob?.cancel()
         backend.closeLeakCanaryAgent()
-        activeOperationJob?.cancel()
         mutableState.value =
             mutableState.value.copy(
-                isDumping = false,
-                operationMessage = null,
-                loadPhase = HeapLoadPhase.IDLE,
                 leakCanaryLiveSession =
                     mutableState.value.leakCanaryLiveSession.copy(
                         status = LeakCanaryLiveStatus.STOPPED,
@@ -930,9 +1148,13 @@ internal class MemoryProfilerController(
 
     @Suppress("TooGenericExceptionCaught")
     suspend fun analyzeLeaks() {
-        activeOperationJob = currentCoroutineContext()[Job]
         val snapshot = mutableState.value
-        if (snapshot.snapshotSummary == null) return
+        val heap = loadedHeap ?: return
+        if (snapshot.snapshotSummary == null || snapshot.isDumping) return
+        val context = currentCoroutineContext()
+        val operationJob = context[Job]
+        activeOperationJob = operationJob
+        previousLeakReport = snapshot.leakCanaryReport
         mutableState.value =
             snapshot.copy(
                 isDumping = true,
@@ -940,13 +1162,19 @@ internal class MemoryProfilerController(
                 loadPhase = HeapLoadPhase.ANALYZE,
                 loadProgress = null,
                 error = null,
-                warning = null,
+                leakCanaryReport = snapshot.leakCanaryReport.copy(status = LeakCanaryStatus.ANALYZING),
             )
         val result =
             try {
-                backend.analyzeLeaks()
+                val report =
+                    backend.analyzeLeaks(heap) { progress ->
+                        context.ensureActive()
+                        updateLeakAnalysisProgress(operationJob, snapshot.activeSnapshotId, progress)
+                    }
+                context.ensureActive()
+                report
             } catch (exception: CancellationException) {
-                markOperationCancelled()
+                finishCancelledLeakAnalysis(operationJob, heap, snapshot)
                 throw exception
             } catch (exception: Exception) {
                 MemoryBackendResult.Failure(
@@ -954,10 +1182,19 @@ internal class MemoryProfilerController(
                     detail = exception.message ?: exception::class.simpleName.orEmpty(),
                 )
             }
+        if (activeOperationJob !== operationJob || loadedHeap !== heap) return
+        previousLeakReport = null
         when (result) {
-            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Failure -> {
+                val report = snapshot.leakCanaryReport.copy(status = LeakCanaryStatus.FAILED, message = result.detail)
+                cacheLeakReport(heap, report, snapshot.activeSnapshotId)
+                showFailure(result)
+                mutableState.value = mutableState.value.copy(leakCanaryReport = report)
+            }
             is MemoryBackendResult.Success -> {
+                invalidateSelection()
                 activeOperationJob = null
+                cacheLeakReport(heap, result.value, snapshot.activeSnapshotId)
                 mutableState.value =
                     mutableState.value.copy(
                         isDumping = false,
@@ -967,6 +1204,45 @@ internal class MemoryProfilerController(
                         leakCanaryReport = result.value,
                         error = null,
                     )
+            }
+        }
+    }
+
+    private fun finishCancelledLeakAnalysis(
+        operationJob: Job?,
+        heap: LoadedHeap,
+        snapshot: MemoryProfilerState,
+    ) {
+        if (activeOperationJob !== operationJob) return
+        previousLeakReport = null
+        if (loadedHeap === heap && mutableState.value.activeSnapshotId == snapshot.activeSnapshotId) {
+            markOperationCancelled()
+            mutableState.value = mutableState.value.copy(leakCanaryReport = snapshot.leakCanaryReport)
+        } else {
+            activeOperationJob = null
+        }
+    }
+
+    private fun cacheLeakReport(
+        heap: LoadedHeap,
+        report: LeakCanaryReport,
+        snapshotId: String?,
+    ) {
+        val analyzedHeap = heap.copy(heapDump = heap.heapDump.copy(leakCanaryReport = report))
+        loadedHeap = analyzedHeap
+        snapshotId?.let { loadedHeapsBySnapshotId[it] = analyzedHeap }
+    }
+
+    private fun updateLeakAnalysisProgress(
+        operationJob: Job?,
+        snapshotId: String?,
+        progress: Int,
+    ) {
+        mutableState.update { current ->
+            if (activeOperationJob === operationJob && current.activeSnapshotId == snapshotId) {
+                current.copy(loadProgress = progress.coerceIn(0, 100))
+            } else {
+                current
             }
         }
     }
@@ -1037,6 +1313,108 @@ internal class MemoryProfilerController(
                 )
             }
         applyNativeHeapResult(result)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun captureSampledArtAllocations() {
+        val snapshot = mutableState.value
+        if (snapshot.isDumping) return
+        val serial = snapshot.selectedDeviceSerial ?: return
+        val process = snapshot.processes.firstOrNull { it.pid == snapshot.selectedProcessId } ?: return
+        activeOperationJob = currentCoroutineContext()[Job]
+        mutableState.value =
+            snapshot.copy(
+                viewMode = MemoryProfilerViewMode.SampledArtAllocations,
+                isDumping = true,
+                operationMessage =
+                    localizedStringResource(Res.string.recording_sampled_art_allocations, language, process.name),
+                error = null,
+            )
+        val result =
+            try {
+                backend.captureSampledArtAllocations(serial, process)
+            } catch (exception: CancellationException) {
+                markOperationCancelled()
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.sampled_art_capture_failed, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        applySampledArtResult(result)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun importSampledArtAllocations(file: Path) {
+        if (mutableState.value.isDumping) return
+        activeOperationJob = currentCoroutineContext()[Job]
+        mutableState.value =
+            mutableState.value.copy(
+                viewMode = MemoryProfilerViewMode.SampledArtAllocations,
+                isDumping = true,
+                operationMessage = localizedStringResource(Res.string.importing, language, file.fileName),
+                error = null,
+            )
+        val result =
+            try {
+                backend.importSampledArtAllocations(file)
+            } catch (exception: CancellationException) {
+                markOperationCancelled()
+                throw exception
+            } catch (exception: Exception) {
+                MemoryBackendResult.Failure(
+                    title = localizedStringResource(Res.string.sampled_art_capture_failed, language),
+                    detail = exception.message ?: exception::class.simpleName.orEmpty(),
+                )
+            }
+        applySampledArtResult(result)
+    }
+
+    fun exportSampledArtAllocations(output: Path) {
+        mutableState.value.sampledArtTrace?.let { backend.exportSampledArtAllocations(it, output) }
+    }
+
+    private fun applySampledArtResult(result: MemoryBackendResult<LoadedSampledArt>) {
+        when (result) {
+            is MemoryBackendResult.Failure -> showFailure(result)
+            is MemoryBackendResult.Success -> {
+                val trace = result.value.trace
+                val analysis =
+                    when (val processing = result.value.processing) {
+                        is SampledArtProcessingResult.Success ->
+                            MemorySampledArtAnalysis.Analyzed(
+                                sampleRows = processing.analysis.sampleRows,
+                                sampledObjectCount = processing.analysis.sampledObjectCount,
+                                sampledBytes = processing.analysis.sampledBytes,
+                                callSites =
+                                    processing.analysis.callSites.map { site ->
+                                        MemorySampledArtCallSite(
+                                            callsiteId = site.callsiteId,
+                                            sampledObjectCount = site.sampledObjectCount,
+                                            sampledBytes = site.sampledBytes,
+                                            callStack = site.callStack,
+                                        )
+                                    },
+                            )
+                        is SampledArtProcessingResult.Unavailable ->
+                            MemorySampledArtAnalysis.Unavailable(processing.reason)
+                        is SampledArtProcessingResult.Failure ->
+                            MemorySampledArtAnalysis.Failed(processing.reason)
+                    }
+                activeOperationJob = null
+                mutableState.value =
+                    mutableState.value.copy(
+                        isDumping = false,
+                        operationMessage = null,
+                        loadPhase = HeapLoadPhase.IDLE,
+                        loadProgress = 100,
+                        error = null,
+                        sampledArtAnalysis = analysis,
+                        sampledArtTrace = trace,
+                    )
+            }
+        }
     }
 
     fun exportNativeHeap(output: Path) {
@@ -1325,6 +1703,17 @@ internal class MemoryProfilerController(
                                 .filter { it.className.endsWith("Activity") }
                                 .sumOf { it.instanceCount },
                         leakSuspects = result.value.heapDump.leakSuspects,
+                        lifecycleLeakObjects =
+                            result.value.heapDump.instances
+                                .asSequence()
+                                .filter { it.objectId in result.value.heapDump.activityFragmentLeakObjectIds }
+                                .map { instance ->
+                                    com.androidperformancestudio.memory.presentation.MemoryLifecycleLeakObject(
+                                        objectId = instance.objectId,
+                                        className = instance.className,
+                                        heapName = result.value.heapDump.heapByObjectId[instance.objectId],
+                                    )
+                                }.toList(),
                         isDumping = false,
                         operationMessage = null,
                         loadPhase = HeapLoadPhase.IDLE,
@@ -1373,7 +1762,12 @@ internal class MemoryProfilerController(
                         selectedClassifierLabel = null,
                         selectedClassInstances = emptyList(),
                         selectedInstanceDetail = null,
-                        dominatorRows = result.value.investigationIndex.dominators,
+                        dominatorRows =
+                            if (mutableState.value.viewMode == MemoryProfilerViewMode.Dominators) {
+                                result.value.investigationIndex.dominators
+                            } else {
+                                emptyList()
+                            },
                         instanceHistory = emptyList(),
                         instanceHistoryIndex = -1,
                         pinnedInstanceIds = emptySet(),
@@ -1534,6 +1928,10 @@ internal class MemoryProfilerController(
             if (classes.any { it.allocationCallstack.isNotEmpty() }) add(MemoryArrangeBy.CALLSTACK)
             if (classes.any { it.allocationMethod != null }) add(MemoryArrangeBy.ALLOCATION_METHOD)
         }
+
+    private fun showTargetFailure(failure: MemoryBackendResult.Failure) {
+        mutableState.value = mutableState.value.copy(error = MemoryProfilerError(failure.title, failure.detail))
+    }
 
     private fun showFailure(failure: MemoryBackendResult.Failure) {
         activeOperationJob = null

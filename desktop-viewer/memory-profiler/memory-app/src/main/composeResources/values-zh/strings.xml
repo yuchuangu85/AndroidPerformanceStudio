@@ -2,6 +2,12 @@
 <resources>
     <string name="diff_view">差异</string>
     <string name="native_heap_view">Native 堆</string>
+    <string name="sampled_art_view">ART 采样</string>
+    <string name="record_sampled_art">录制 ART 分配采样</string>
+    <string name="menu_import_sampled_art">导入 ART 采样轨迹…</string>
+    <string name="export_sampled_art_trace">导出 ART 采样轨迹</string>
+    <string name="recording_sampled_art_allocations">正在录制 %1$s 的 ART 分配采样…</string>
+    <string name="sampled_art_capture_failed">ART 分配采样失败</string>
     <string name="bitmap_dump_view">Bitmap</string>
     <string name="dashboard_view">泄漏与位图</string>
     <string name="class_list_view">类列表</string>

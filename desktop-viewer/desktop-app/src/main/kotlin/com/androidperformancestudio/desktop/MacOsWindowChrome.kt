@@ -2,13 +2,16 @@ package com.androidperformancestudio.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,8 +28,8 @@ import javax.swing.RootPaneContainer
  * native: dragging, double-click zoom and the green full-screen button keep working.
  */
 internal object MacOsWindowChrome {
-    /** Standard macOS title bar height, in points. */
-    internal val titleBarHeight: Dp = 28.dp
+    /** App-painted title strip, 2 dp taller than the original 28 dp layout. */
+    internal val titleBarHeight: Dp = 30.dp
 
     /** Hairline separating the title bar from the window body. */
     internal val titleBarDividerHeight: Dp = 1.dp
@@ -65,6 +68,7 @@ internal fun MacOsTitleBar(
     contentColor: Color,
     dividerColor: Color,
     modifier: Modifier = Modifier,
+    targetControls: (@Composable () -> Unit)? = null,
 ) {
     if (!MacOsWindowChrome.embedsTitleBar()) return
     Box(
@@ -75,16 +79,35 @@ internal fun MacOsTitleBar(
                 .background(background),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = title,
-            color = contentColor,
-            style = ViewerTypography.body,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            // The traffic lights own the leading edge; keep the title clear of them.
-            modifier = Modifier.padding(horizontal = 80.dp),
-        )
+        if (targetControls == null) {
+            Text(
+                text = title,
+                color = contentColor,
+                style = ViewerTypography.body,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // The traffic lights own the leading edge; keep the title clear of them.
+                modifier = Modifier.padding(horizontal = 80.dp),
+            )
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 80.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    color = contentColor,
+                    style = ViewerTypography.body,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // Keep selectors in the content area, away from the native window controls.
+                Box(Modifier.widthIn(max = 484.dp).clipToBounds()) { targetControls() }
+            }
+        }
         Box(
             modifier =
                 Modifier

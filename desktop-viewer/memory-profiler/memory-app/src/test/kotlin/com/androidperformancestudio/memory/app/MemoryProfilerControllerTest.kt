@@ -1,21 +1,40 @@
+@file:Suppress("LargeClass")
+
 package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
+import com.androidperformancestudio.memory.analysis.ArtSampledAllocationAnalysis
+import com.androidperformancestudio.memory.analysis.ArtSampledCallSite
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.LeakCanaryLeak
+import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
+import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
+import com.androidperformancestudio.memory.model.LeakCanaryReport
+import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
+import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
+import com.androidperformancestudio.memory.presentation.MemorySampledArtAnalysis
+import com.androidperformancestudio.memory.presentation.MemorySampledArtOrigin
+import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.test.Test
@@ -29,6 +48,406 @@ private typealias TargetListener = AndroidTargetListener
 private typealias TargetSubscription = AndroidTargetSubscription
 
 class MemoryProfilerControllerTest {
+    @Test
+    fun `class-object selection keeps its represented class group and physical detail type`() =
+        runTest {
+            val heap =
+                HeapDump(
+                    classes = listOf(HeapClass(100, "java.lang.Class", 16), HeapClass(101, "com.example.Item", 8)),
+                    instances = listOf(HeapInstance(1, 101, "com.example.Item", 8)),
+                )
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = heap })
+            controller.importHprof(Path.of("class-object.hprof"))
+            controller.selectClass("com.example.Item")
+            val classRows =
+                controller.state.value.selectedClassInstances
+                    .map { it.objectId }
+            assertEquals(listOf(1L, 101L), classRows)
+
+            controller.selectInstance(101)
+            assertEquals("com.example.Item", controller.state.value.selectedClassName)
+            val detailClassName =
+                controller.state.value.selectedInstanceDetail
+                    ?.className
+            assertEquals("java.lang.Class", detailClassName)
+            val selectedRows =
+                controller.state.value.selectedClassInstances
+                    .map { it.objectId }
+            assertEquals(listOf(1L, 101L), selectedRows)
+
+            controller.selectInstanceAsync(101)
+            assertEquals("com.example.Item", controller.state.value.selectedClassName)
+            val asyncDetailClassName =
+                controller.state.value.selectedInstanceDetail
+                    ?.className
+            assertEquals("java.lang.Class", asyncDetailClassName)
+        }
+
+    @Test
+    fun `sampled ART capture publishes verified rows separately from trace bytes`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.refreshDevices()
+            controller.selectProcess(42)
+
+            controller.captureSampledArtAllocations()
+
+            val trace = assertNotNull(controller.state.value.sampledArtTrace)
+            assertEquals("perfetto/android.heapprofd/com.android.art", trace.source)
+            assertEquals(42, trace.pid)
+            assertEquals("com.example", trace.packageName)
+            assertEquals(36, trace.sdkLevel)
+            assertEquals(3L, trace.fileSizeBytes)
+            val analysis = controller.state.value.sampledArtAnalysis as MemorySampledArtAnalysis.Analyzed
+            assertEquals(2L, analysis.sampleRows)
+            assertEquals(128L, analysis.sampledBytes)
+            assertEquals(listOf("com.example.Work.allocate"), analysis.callSites.single().callStack)
+            assertEquals(MemoryProfilerViewMode.SampledArtAllocations, controller.state.value.viewMode)
+            assertFalse(controller.state.value.isDumping)
+            assertEquals(listOf("sampledArt:serial-1:42"), backend.events.filter { it.startsWith("sampledArt:") })
+        }
+
+    @Test
+    fun `sampled ART capture keeps trace receipt when analysis is empty or unavailable`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.refreshDevices()
+            controller.selectProcess(42)
+
+            backend.sampledArtProcessing =
+                SampledArtProcessingResult.Success(ArtSampledAllocationAnalysis(0, 0, 0, emptyList()))
+            controller.captureSampledArtAllocations()
+            val empty = controller.state.value.sampledArtAnalysis as MemorySampledArtAnalysis.Analyzed
+            assertEquals(0L, empty.sampleRows)
+            assertNotNull(controller.state.value.sampledArtTrace)
+
+            backend.sampledArtProcessing = SampledArtProcessingResult.Unavailable("TRACE_PROCESSOR_NOT_FOUND")
+            controller.captureSampledArtAllocations()
+            assertTrue(controller.state.value.sampledArtAnalysis is MemorySampledArtAnalysis.Unavailable)
+            assertNotNull(controller.state.value.sampledArtTrace)
+
+            backend.sampledArtProcessing = SampledArtProcessingResult.Failure("TRACE_QUERY_FAILED")
+            controller.captureSampledArtAllocations()
+            assertTrue(controller.state.value.sampledArtAnalysis is MemorySampledArtAnalysis.Failed)
+            assertNotNull(controller.state.value.sampledArtTrace)
+        }
+
+    @Test
+    fun `local ART trace import preserves provenance and can export raw bytes`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            val source = Files.createTempFile("art-local", ".pb")
+            Files.write(source, byteArrayOf(4, 5, 6))
+
+            controller.importSampledArtAllocations(source)
+
+            val trace = assertNotNull(controller.state.value.sampledArtTrace)
+            assertEquals(MemorySampledArtOrigin.IMPORT, trace.origin)
+            assertNull(trace.pid)
+            assertEquals(source.toString(), trace.file)
+            assertTrue(controller.state.value.sampledArtAnalysis is MemorySampledArtAnalysis.Analyzed)
+            assertEquals(MemoryProfilerViewMode.SampledArtAllocations, controller.state.value.viewMode)
+            val output = Files.createTempFile("art-local-export", ".pb")
+            controller.exportSampledArtAllocations(output)
+            assertEquals(listOf<Byte>(4, 5, 6), Files.readAllBytes(output).toList())
+        }
+
+    @Test
+    fun `failed ART trace import retains the previously analyzed trace`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            val source = Files.createTempFile("art-good", ".pb")
+            Files.write(source, byteArrayOf(1, 2, 3))
+            controller.importSampledArtAllocations(source)
+            val previousTrace = assertNotNull(controller.state.value.sampledArtTrace)
+            val previousAnalysis = assertNotNull(controller.state.value.sampledArtAnalysis)
+
+            backend.failSampledArtImport = true
+            controller.importSampledArtAllocations(Path.of("missing.pb"))
+
+            assertEquals(previousTrace, controller.state.value.sampledArtTrace)
+            assertEquals(previousAnalysis, controller.state.value.sampledArtAnalysis)
+            val errorTitle =
+                controller.state.value.error
+                    ?.title
+            assertEquals("ART import failed", errorTitle)
+            assertFalse(controller.state.value.isDumping)
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `async class drilldown waits for worker and publishes only the latest selection`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller = MemoryProfilerController(FakeBackend(), selectionDispatcher = worker)
+            controller.importHprof(Path.of("heap.hprof"))
+
+            val obsolete = launch(start = CoroutineStart.UNDISPATCHED) { controller.selectClassAsync("Missing") }
+            val latest =
+                launch(start = CoroutineStart.UNDISPATCHED) {
+                    controller.selectClassAsync("com.example.Item")
+                }
+            assertNull(controller.state.value.selectedClassName)
+            assertTrue(controller.state.value.isSelectionLoading)
+            runCurrent()
+            obsolete.join()
+            latest.join()
+
+            assertEquals("com.example.Item", controller.state.value.selectedClassName)
+            assertEquals(3, controller.state.value.selectedClassInstances.size)
+            assertFalse(controller.state.value.isSelectionLoading)
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `async drilldown cannot restore a selection cleared by heap filter or snapshot switch`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller = MemoryProfilerController(FakeBackend(), selectionDispatcher = worker)
+            controller.importHprof(Path.of("before.hprof"))
+            controller.importHprof(Path.of("after.hprof"))
+
+            val filtered =
+                launch(start = CoroutineStart.UNDISPATCHED) {
+                    controller.selectClassAsync("com.example.Item")
+                }
+            controller.changeHeapFilter("App")
+            assertFalse(controller.state.value.isSelectionLoading)
+            runCurrent()
+            filtered.join()
+            assertNull(controller.state.value.selectedClassName)
+
+            val oldObject =
+                launch(start = CoroutineStart.UNDISPATCHED) { controller.selectInstanceAsync(1) }
+            controller.selectSnapshot("before.hprof")
+            runCurrent()
+            oldObject.join()
+            assertNull(controller.state.value.selectedInstanceDetail)
+
+            val currentObject =
+                launch(start = CoroutineStart.UNDISPATCHED) { controller.selectInstanceAsync(1) }
+            runCurrent()
+            currentObject.join()
+            assertEquals(
+                1L,
+                controller.state.value.selectedInstanceDetail
+                    ?.objectId,
+            )
+        }
+
+    @Test
+    fun `offline analysis needs no device and follows the selected snapshot rather than last import`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            controller.importHprof(Path.of("b.hprof"))
+            controller.selectSnapshot("a.hprof")
+
+            controller.analyzeLeaks()
+
+            assertNull(controller.state.value.selectedDeviceSerial)
+            assertEquals(listOf("analyze:a.hprof"), backend.events)
+            assertEquals(LeakCanaryStatus.COMPLETED, controller.state.value.leakCanaryReport.status)
+            val report = controller.state.value.leakCanaryReport
+            val objectId = assertNotNull(report.applicationLeaks.single().leakingObjectId)
+            assertEquals(1L, objectId)
+            assertEquals(100, controller.state.value.loadProgress)
+            assertFalse(controller.state.value.isDumping)
+            controller.selectInstance(objectId)
+            val detail = assertNotNull(controller.state.value.selectedInstanceDetail)
+            assertEquals(1L, detail.objectId)
+
+            controller.selectSnapshot("b.hprof")
+            assertEquals(LeakCanaryStatus.NOT_RUN, controller.state.value.leakCanaryReport.status)
+            controller.selectSnapshot("a.hprof")
+            assertEquals(LeakCanaryStatus.COMPLETED, controller.state.value.leakCanaryReport.status)
+        }
+
+    @Test
+    fun `offline analysis ignores duplicate starts and can be cancelled without losing snapshot evidence`() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val backend =
+                FakeBackend().apply {
+                    analysisStarted = started
+                    analysisRelease = release
+                }
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            val originalReport = controller.state.value.leakCanaryReport
+            val analyzing = launch { controller.analyzeLeaks() }
+            started.await()
+
+            assertTrue(controller.state.value.isDumping)
+            assertEquals(LeakCanaryStatus.ANALYZING, controller.state.value.leakCanaryReport.status)
+            assertEquals(35, controller.state.value.loadProgress)
+            controller.analyzeLeaks()
+            assertEquals(listOf("analyze:a.hprof"), backend.events)
+            controller.cancelActiveOperation()
+            analyzing.join()
+            release.complete(Unit)
+
+            assertTrue(analyzing.isCancelled)
+            assertEquals(originalReport, controller.state.value.leakCanaryReport)
+            assertEquals("a.hprof", controller.state.value.activeSnapshotId)
+            assertFalse(controller.state.value.isDumping)
+        }
+
+    @Test
+    fun `offline analysis failure is recoverable and retry preserves the same heap`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            backend.failAnalysis = true
+
+            controller.analyzeLeaks()
+
+            assertEquals(LeakCanaryStatus.FAILED, controller.state.value.leakCanaryReport.status)
+            assertEquals("Unreadable source", controller.state.value.leakCanaryReport.message)
+            assertNotNull(controller.state.value.error)
+            assertFalse(controller.state.value.isDumping)
+            backend.failAnalysis = false
+            controller.importHprof(Path.of("b.hprof"))
+            controller.selectSnapshot("a.hprof")
+            assertEquals(LeakCanaryStatus.FAILED, controller.state.value.leakCanaryReport.status)
+            assertEquals("Unreadable source", controller.state.value.leakCanaryReport.message)
+            controller.analyzeLeaks()
+            assertNull(controller.state.value.error)
+            assertEquals(LeakCanaryStatus.COMPLETED, controller.state.value.leakCanaryReport.status)
+            assertEquals(listOf("analyze:a.hprof", "analyze:a.hprof"), backend.events)
+        }
+
+    @Test
+    fun `device refresh failure does not abandon an offline analysis`() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val backend =
+                FakeBackend().apply {
+                    analysisStarted = started
+                    analysisRelease = release
+                    failDevices = true
+                }
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            val analyzing = launch { controller.analyzeLeaks() }
+            started.await()
+
+            controller.refreshDevices()
+            assertTrue(controller.state.value.isDumping)
+            assertEquals(LeakCanaryStatus.ANALYZING, controller.state.value.leakCanaryReport.status)
+            release.complete(Unit)
+            analyzing.join()
+
+            assertEquals(LeakCanaryStatus.COMPLETED, controller.state.value.leakCanaryReport.status)
+            assertFalse(controller.state.value.isDumping)
+        }
+
+    @Test
+    fun `cancel restores the report before another task can replace operation ownership`() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val backend =
+                FakeBackend().apply {
+                    analysisStarted = started
+                    analysisRelease = CompletableDeferred()
+                }
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            controller.refreshDevices()
+            controller.selectProcess(42)
+            val analyzing = launch { controller.analyzeLeaks() }
+            started.await()
+
+            controller.cancelActiveOperation()
+            assertEquals(LeakCanaryStatus.NOT_RUN, controller.state.value.leakCanaryReport.status)
+            controller.dumpBitmaps()
+            analyzing.join()
+
+            assertNotNull(controller.state.value.bitmapDumpSession)
+            assertEquals(LeakCanaryStatus.NOT_RUN, controller.state.value.leakCanaryReport.status)
+            assertFalse(controller.state.value.isDumping)
+        }
+
+    @Test
+    fun `late cancellation cleanup cannot restore evidence after its snapshot is closed`() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val backend =
+                FakeBackend().apply {
+                    analysisStarted = started
+                    analysisRelease = CompletableDeferred()
+                }
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            val analyzing = launch { controller.analyzeLeaks() }
+            started.await()
+
+            controller.cancelActiveOperation()
+            controller.closeSnapshot("a.hprof")
+            analyzing.join()
+
+            assertNull(controller.state.value.snapshotSummary)
+            assertEquals(LeakCanaryReport(), controller.state.value.leakCanaryReport)
+        }
+
+    @Test
+    fun `live monitor failure remains visible and does not overwrite offline evidence`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            controller.analyzeLeaks()
+            val report = controller.state.value.leakCanaryReport
+            controller.refreshDevices()
+            controller.selectProcess(42)
+
+            controller.monitorLiveLeakCanary()
+
+            assertEquals(LeakCanaryLiveStatus.FAILED, controller.state.value.leakCanaryLiveSession.status)
+            assertEquals("Live connection lost", controller.state.value.leakCanaryLiveSession.message)
+            assertEquals(report, controller.state.value.leakCanaryReport)
+            assertFalse(controller.state.value.isDumping)
+            assertTrue(backend.events.contains("closeLive"))
+        }
+
+    @Test
+    fun `stopping live monitoring does not cancel a simultaneous offline analysis`() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val backend =
+                FakeBackend().apply {
+                    analysisStarted = started
+                    analysisRelease = release
+                }
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("a.hprof"))
+            controller.refreshDevices()
+            controller.selectProcess(42)
+            val live = launch { controller.monitorLiveLeakCanary() }
+            val analyzing = launch { controller.analyzeLeaks() }
+            started.await()
+
+            controller.stopLiveLeakCanary()
+            live.join()
+            assertTrue(controller.state.value.isDumping)
+            assertTrue(analyzing.isActive)
+            release.complete(Unit)
+            analyzing.join()
+
+            assertFalse(analyzing.isCancelled)
+            assertEquals(LeakCanaryStatus.COMPLETED, controller.state.value.leakCanaryReport.status)
+            assertEquals(LeakCanaryLiveStatus.STOPPED, controller.state.value.leakCanaryLiveSession.status)
+        }
+
     @Test
     fun `comparison keeps explicit snapshot identities across selection swap and close`() =
         runTest {
@@ -273,6 +692,30 @@ class MemoryProfilerControllerTest {
         }
 
     @Test
+    fun `class view defers dominator projection until dominators are opened`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend())
+
+            controller.importHprof(Path.of("heap.hprof"))
+
+            val index =
+                assertNotNull(controller.loadedHeap)
+                    .investigationIndex
+            assertFalse(index.dominatorsInitialized)
+            val initialRows = controller.state.value.dominatorRows
+            assertTrue(initialRows.isEmpty())
+
+            controller.changeViewMode(MemoryProfilerViewMode.Dominators)
+
+            assertTrue(index.dominatorsInitialized)
+            assertEquals(index.dominators, controller.state.value.dominatorRows)
+
+            controller.changeViewMode(MemoryProfilerViewMode.ClassList)
+            val classListRows = controller.state.value.dominatorRows
+            assertTrue(classListRows.isEmpty())
+        }
+
+    @Test
     fun `sorting is state only and does not fabricate phase two values`() {
         val controller = MemoryProfilerController(FakeBackend())
 
@@ -373,13 +816,67 @@ class MemoryProfilerControllerTest {
         private val importRelease: CompletableDeferred<Unit>? = null,
     ) : MemoryProfilerBackend {
         val events = mutableListOf<String>()
+        var failAnalysis = false
+        var sampledArtProcessing: SampledArtProcessingResult =
+            SampledArtProcessingResult.Success(
+                ArtSampledAllocationAnalysis(
+                    sampleRows = 2,
+                    sampledObjectCount = 3,
+                    sampledBytes = 128,
+                    callSites =
+                        listOf(ArtSampledCallSite(11, 2, 3, 128, listOf("com.example.Work.allocate"), true)),
+                ),
+            )
+        var failDevices = false
+        var failSampledArtImport = false
+        var heapOverride: HeapDump? = null
+        var analysisStarted: CompletableDeferred<Unit>? = null
+        var analysisRelease: CompletableDeferred<Unit>? = null
         private val noOpTargetSubscription = TargetSubscription {}
 
         override fun registerTargetListener(listener: TargetListener): TargetSubscription = noOpTargetSubscription
 
         override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
             events += "listDevices"
+            if (failDevices) return MemoryBackendResult.Failure("ADB failed", "Offline device")
             return MemoryBackendResult.Success(listOf(MemoryDeviceOption("serial-1", "Pixel")))
+        }
+
+        override suspend fun analyzeLeaks(
+            snapshot: LoadedHeap,
+            onProgress: (Int) -> Unit,
+        ): MemoryBackendResult<LeakCanaryReport> {
+            events += "analyze:${snapshot.heapDump.id}"
+            onProgress(35)
+            analysisStarted?.complete(Unit)
+            analysisRelease?.await()
+            return if (failAnalysis) {
+                MemoryBackendResult.Failure("Analysis failed", "Unreadable source")
+            } else {
+                MemoryBackendResult.Success(
+                    LeakCanaryReport(
+                        status = LeakCanaryStatus.COMPLETED,
+                        candidateObjectCount = 1,
+                        applicationLeaks =
+                            listOf(
+                                LeakCanaryLeak("signature", "Retained Item", "com.example.Item", leakingObjectId = 1),
+                            ),
+                    ),
+                )
+            }
+        }
+
+        override suspend fun openLeakCanaryAgent(
+            serial: String,
+            process: MemoryProcessOption,
+        ): MemoryBackendResult<LeakCanaryLiveSession> =
+            MemoryBackendResult.Success(LeakCanaryLiveSession(status = LeakCanaryLiveStatus.RUNNING))
+
+        override suspend fun pollLeakCanaryAgent(): MemoryBackendResult<LeakCanaryLiveSession> =
+            MemoryBackendResult.Failure("Live failed", "Live connection lost")
+
+        override fun closeLeakCanaryAgent() {
+            events += "closeLive"
         }
 
         override suspend fun listProcesses(serial: String): MemoryBackendResult<List<MemoryProcessOption>> {
@@ -393,6 +890,57 @@ class MemoryProfilerControllerTest {
         ): MemoryBackendResult<LoadedHeap> {
             events += "capture:$serial:${process.pid}"
             return MemoryBackendResult.Success(loadedHeap())
+        }
+
+        override suspend fun captureSampledArtAllocations(
+            serial: String,
+            process: MemoryProcessOption,
+        ): MemoryBackendResult<LoadedSampledArt> {
+            events += "sampledArt:$serial:${process.pid}"
+            val file = Files.createTempFile("aps-art-sampled-test", ".pb")
+            Files.write(file, byteArrayOf(1, 2, 3))
+            return MemoryBackendResult.Success(
+                LoadedSampledArt(
+                    trace =
+                        MemorySampledArtTrace(
+                            file = file.toString(),
+                            fileSizeBytes = Files.size(file),
+                            packageName = process.packageName,
+                            pid = process.pid,
+                            sdkLevel = 36,
+                            samplingIntervalBytes = 4096,
+                            durationMs = 10_000,
+                            source = "perfetto/android.heapprofd/com.android.art",
+                            origin = MemorySampledArtOrigin.CAPTURE,
+                        ),
+                    processing = sampledArtProcessing,
+                ),
+            )
+        }
+
+        override suspend fun importSampledArtAllocations(file: Path): MemoryBackendResult<LoadedSampledArt> =
+            if (failSampledArtImport) {
+                MemoryBackendResult.Failure("ART import failed", "Unreadable trace")
+            } else {
+                MemoryBackendResult.Success(
+                    LoadedSampledArt(
+                        trace =
+                            MemorySampledArtTrace(
+                                file = file.toString(),
+                                fileSizeBytes = Files.size(file),
+                                source = "local Perfetto import; ART samples queried via Trace Processor",
+                                origin = MemorySampledArtOrigin.IMPORT,
+                            ),
+                        processing = sampledArtProcessing,
+                    ),
+                )
+            }
+
+        override fun exportSampledArtAllocations(
+            trace: MemorySampledArtTrace,
+            output: Path,
+        ) {
+            Files.copy(Path.of(trace.file), output, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         }
 
         override suspend fun captureBitmaps(
@@ -458,7 +1006,7 @@ class MemoryProfilerControllerTest {
         private fun loadedHeap(): LoadedHeap =
             LoadedHeap(
                 heapDump =
-                    HeapDump(
+                    heapOverride ?: HeapDump(
                         instances =
                             listOf(
                                 HeapInstance(1, 10, "com.example.Item", 8),

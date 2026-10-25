@@ -133,6 +133,11 @@ import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -212,6 +217,7 @@ fun FrameWindowScope.PerfettoMainPage(
     var adbPath by remember(androidSdkPath) { mutableStateOf(defaultPerfettoAdbPath(androidSdkPath)) }
     var devices by remember { mutableStateOf<List<PerfettoDevice>>(emptyList()) }
     var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
+    val titleBarTargets = LocalTitleBarTargetHost.current
     var deviceCapabilities by remember { mutableStateOf<PerfettoDeviceCapabilities?>(null) }
     var capabilityRefreshKey by remember { mutableStateOf(0) }
     var deviceRefreshInProgress by remember { mutableStateOf(false) }
@@ -245,9 +251,19 @@ fun FrameWindowScope.PerfettoMainPage(
         traceOpenJob =
             coroutineScope.launch {
                 traceOpenMutex.withLock {
+                    val prepared =
+                        withContext(Dispatchers.IO) {
+                            prepareTraceArtifact(traceFile, artifact) { source ->
+                                artifactFactory.imported(UUID.randomUUID().toString(), source, Instant.now())
+                            }
+                        }
                     val importedArtifact =
-                        artifact ?: withContext(Dispatchers.IO) {
-                            artifactFactory.imported(UUID.randomUUID().toString(), traceFile, Instant.now())
+                        when (prepared) {
+                            is StudioResult.Success -> prepared.value
+                            is StudioResult.Failure -> {
+                                diagnosticError = prepared.error.message
+                                return@withLock
+                            }
                         }
                     activeTraceFile = traceFile
                     activeArtifact = importedArtifact
@@ -309,6 +325,17 @@ fun FrameWindowScope.PerfettoMainPage(
 
     LaunchedEffect(Unit) { captureSession.state.collect { captureState = it } }
     LaunchedEffect(adbPath) { refreshDevices() }
+    LaunchedEffect(titleBarTargets, titleBarTargets?.selectedDeviceSerial, devices, selectedDeviceSerial) {
+        val host = titleBarTargets ?: return@LaunchedEffect
+        val sharedSerial = host.selectedDeviceSerial
+        if (sharedSerial == null) {
+            devices.firstOrNull { it.serial == selectedDeviceSerial }?.let { device ->
+                host.chooseDevice(device.serial, device.displayName)
+            }
+        } else if (sharedSerial != selectedDeviceSerial && devices.any { it.serial == sharedSerial && it.online }) {
+            selectedDeviceSerial = sharedSerial
+        }
+    }
     LaunchedEffect(adbPath, selectedDeviceSerial, devices, capabilityRefreshKey) {
         deviceCapabilities = null
         val device = devices.firstOrNull { it.serial == selectedDeviceSerial } ?: return@LaunchedEffect
@@ -803,7 +830,12 @@ fun FrameWindowScope.PerfettoMainPage(
                         onAdbPathChange = { adbPath = it },
                         devices = devices,
                         selectedDeviceSerial = selectedDeviceSerial,
-                        onSelectDevice = { selectedDeviceSerial = it },
+                        onSelectDevice = { serial ->
+                            devices.firstOrNull { it.serial == serial }?.let { device ->
+                                titleBarTargets?.chooseDevice(serial, device.displayName)
+                            }
+                            selectedDeviceSerial = serial
+                        },
                         deviceRefreshInProgress = deviceRefreshInProgress,
                         onRefreshDevices = { coroutineScope.launch { refreshDevices() } },
                     )
@@ -840,11 +872,13 @@ fun FrameWindowScope.PerfettoMainPage(
                     PerfettoCapturePage(
                         captureState = captureState,
                         language = language,
-                        selectedDeviceSerial = selectedDeviceSerial,
+                        selectedDeviceSerial = selectedDeviceSerial.takeIf { titleBarTargets?.deviceReady(it) != false },
                         deviceCapabilities = deviceCapabilities,
                         onStartCapture = { config, deviceSerial ->
-                            coroutineScope.launch {
-                                captureSession.startCapture(adbPath, deviceSerial, config)
+                            if (titleBarTargets?.deviceReady(deviceSerial) != false && deviceSerial == selectedDeviceSerial) {
+                                coroutineScope.launch {
+                                    captureSession.startCapture(adbPath, deviceSerial, config)
+                                }
                             }
                         },
                         onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
@@ -966,18 +1000,29 @@ private fun RowScope.PerfettoToolbarContent(
         placeholder = localizedStringResource(Res.string.adb, language),
     )
     HeaderSpacer()
-    DeviceSelector(
-        devices = devices,
-        selectedDeviceSerial = selectedDeviceSerial,
-        onSelectDevice = onSelectDevice,
-        language = language,
-    )
-    HeaderSpacer()
-    PerfettoCompactButton(
-        text = localizedStringResource(Res.string.refresh, language),
-        onClick = onRefreshDevices,
+    val inTitleBar = LocalTitleBarTargetHost.current != null
+    val sharedDeviceLabel = LocalTitleBarTargetHost.current?.selectedDeviceLabel
+    TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+        DeviceSelector(
+            devices = devices,
+            selectedDeviceSerial = selectedDeviceSerial,
+            onSelectDevice = onSelectDevice,
+            language = language,
+            inTitleBar = inTitleBar,
+            displayTextOverride = if (inTitleBar) sharedDeviceLabel else null,
+        )
+    }
+    if (!inTitleBar) HeaderSpacer()
+    TitleBarRefreshOrInline(
         enabled = !deviceRefreshInProgress,
-    )
+        onRefresh = onRefreshDevices,
+    ) {
+        PerfettoCompactButton(
+            text = localizedStringResource(Res.string.refresh, language),
+            onClick = onRefreshDevices,
+            enabled = !deviceRefreshInProgress,
+        )
+    }
 }
 
 @Composable
@@ -987,6 +1032,8 @@ private fun DeviceSelector(
     selectedDeviceSerial: String?,
     onSelectDevice: (String) -> Unit,
     language: UiLanguage,
+    inTitleBar: Boolean,
+    displayTextOverride: String?,
 ) {
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
     DeviceDropdownSelector(
@@ -996,9 +1043,10 @@ private fun DeviceSelector(
         onItemSelected = { onSelectDevice(it.serial) },
         itemLabel = PerfettoDevice::displayName,
         selectedItemLabel = PerfettoDevice::displayName,
-        modifier = Modifier.width(170.dp),
+        modifier = Modifier.width(if (inTitleBar) TitleBarTargetWidth else 170.dp),
         itemEnabled = PerfettoDevice::online,
         fillWidth = true,
+        displayTextOverride = displayTextOverride,
     )
 }
 

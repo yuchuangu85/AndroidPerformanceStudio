@@ -11,6 +11,7 @@ plugins {
 }
 
 val appVersion = project.version.toString()
+val desktopMaxHeap = providers.gradleProperty("apsDesktopMaxHeap").orElse("4g")
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
@@ -188,9 +189,9 @@ compose.desktop {
         mainClass = "com.androidperformancestudio.desktop.MainKt"
         jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
-        // Bound HPROF parsing so oversized imports fail with a recoverable Java OOME
-        // instead of letting the operating system terminate the desktop process.
-        jvmArgs("-Xmx4g")
+        // Large HPROF graphs need headroom beyond parsing for class and reference drill-down.
+        // Keep a finite cap so oversized imports produce a recoverable Java OOME.
+        jvmArgs("-Xmx${desktopMaxHeap.get()}")
 
         if (targetJavaHome != null) {
             javaHome = targetJavaHome

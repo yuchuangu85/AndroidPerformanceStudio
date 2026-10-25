@@ -28,6 +28,10 @@ class MemoryProfilerFileMenuTest {
         assertTrue(model.rawHprofExportEnabled)
         assertFalse(model.standardHprofExportEnabled)
         assertTrue(model.csvExportEnabled)
+        assertEquals("ART Sample Trace…", model.importSampledArtLabel)
+        assertFalse(model.importSampledArtEnabled)
+        assertEquals("Export ART Sample Trace", model.exportSampledArtLabel)
+        assertFalse(model.exportSampledArtEnabled)
     }
 
     @Test
@@ -43,6 +47,8 @@ class MemoryProfilerFileMenuTest {
         assertEquals("导出原始 HPROF", model.exportRawHprofLabel)
         assertEquals("导出标准 HPROF", model.exportStandardHprofLabel)
         assertEquals("导出 CSV", model.exportCsvLabel)
+        assertEquals("导入 ART 采样轨迹…", model.importSampledArtLabel)
+        assertEquals("导出 ART 采样轨迹", model.exportSampledArtLabel)
     }
 
     @Test

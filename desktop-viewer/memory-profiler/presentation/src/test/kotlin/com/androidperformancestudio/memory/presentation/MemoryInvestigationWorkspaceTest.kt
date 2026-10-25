@@ -19,6 +19,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapCapability
@@ -41,6 +42,48 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class MemoryInvestigationWorkspaceTest {
+    @Test
+    fun `active class toolbar keeps primary filters above the summary at desktop and narrow widths`() {
+        listOf(1280, 900).forEach { width ->
+            runDesktopComposeUiTest(width = width, height = 720) {
+                var searched = ""
+                var matchCase = false
+                var useRegex = false
+                var selectedHeap: String? = null
+                setContent {
+                    ViewerTheme(darkTheme = false) {
+                        MemoryProfilerScreen(
+                            fixture(),
+                            MemoryProfilerActions(
+                                onSearchChange = { searched = it },
+                                onMatchCaseChange = { matchCase = it },
+                                onUseRegexChange = { useRegex = it },
+                                onHeapFilterChange = { selectedHeap = it },
+                            ),
+                            UiLanguage.ENGLISH,
+                        )
+                    }
+                }
+                val toolbar = onNodeWithTag("memory-primary-filter-bar").fetchSemanticsNode().boundsInRoot
+                val summary = onNodeWithTag("memory-snapshot-summary").fetchSemanticsNode().boundsInRoot
+                assertTrue(toolbar.bottom <= summary.top)
+                onNodeWithContentDescription("Heap").assertExists()
+                onNodeWithContentDescription("Class scope").assertExists()
+                onNodeWithContentDescription("Filter by").assertExists()
+                onNodeWithContentDescription("Arrange by").assertExists()
+                onNodeWithTag("memory-workspace-search").performTextInput("Bitmap")
+                assertEquals("Bitmap", searched)
+                onNodeWithText("Match case").performScrollTo().performClick()
+                assertTrue(matchCase)
+                onNodeWithText("Regex").performScrollTo().performClick()
+                assertTrue(useRegex)
+                onNodeWithContentDescription("Heap").performClick()
+                onNodeWithText("Zygote").performClick()
+                assertEquals("Zygote", selectedHeap)
+            }
+        }
+    }
+
     @Test
     fun `instance table fills its card without centered exterior gutters`() {
         listOf(1280, 1440).forEach { width ->
@@ -134,7 +177,7 @@ class MemoryInvestigationWorkspaceTest {
                         }
                     }
                     val metrics =
-                        (0..3).map { onNodeWithTag("memory-metric-card-$it").fetchSemanticsNode().boundsInRoot }
+                        (0..7).map { onNodeWithTag("memory-metric-card-$it").fetchSemanticsNode().boundsInRoot }
                     metrics.zipWithNext().forEach { (left, right) ->
                         assertEquals(left.top, right.top)
                         assertEquals(left.bottom, right.bottom)
@@ -192,16 +235,36 @@ class MemoryInvestigationWorkspaceTest {
                         summary.height <= 48f,
                         "Summary should wrap its content, actual height: ${summary.height}",
                     )
-                    val inSummary = hasAnyAncestor(hasTestTag("memory-snapshot-summary"))
                     val labels =
                         if (language == UiLanguage.ENGLISH) {
-                            listOf("Heap Size", "Objects", "Classes", "Leak Suspects")
+                            listOf(
+                                "Leaks",
+                                "Duplicate Bitmaps",
+                                "Classes",
+                                "Count",
+                                "Native Size",
+                                "Shallow",
+                                "Retained Native Size",
+                                "Retained",
+                            )
                         } else {
-                            listOf("堆大小", "对象", "类", "泄漏疑点")
+                            listOf(
+                                "泄漏",
+                                "重复 Bitmap",
+                                "类",
+                                "数量",
+                                "Native 大小",
+                                "浅堆大小",
+                                "保留 Native 大小",
+                                "保留大小",
+                            )
                         }
-                    labels.zip(listOf("256.0 MB", "412,587", "6,484", "0")).forEach { (label, value) ->
-                        val labelBounds = onNode(hasText(label) and inSummary).fetchSemanticsNode().boundsInRoot
-                        val valueBounds = onNode(hasText(value) and inSummary).fetchSemanticsNode().boundsInRoot
+                    val unavailable = if (language == UiLanguage.ENGLISH) "Unavailable" else "不可用"
+                    val values = listOf("0", "0", "2", "68,772", unavailable, "57.0 MB", unavailable, unavailable)
+                    labels.zip(values).forEachIndexed { index, (label, value) ->
+                        val inCard = hasAnyAncestor(hasTestTag("memory-metric-card-$index"))
+                        val labelBounds = onNode(hasText(label) and inCard).fetchSemanticsNode().boundsInRoot
+                        val valueBounds = onNode(hasText(value) and inCard).fetchSemanticsNode().boundsInRoot
                         assertEquals(labelBounds.left, valueBounds.left)
                         assertTrue(labelBounds.top >= summary.top)
                         assertTrue(valueBounds.top >= labelBounds.bottom)
@@ -211,6 +274,35 @@ class MemoryInvestigationWorkspaceTest {
             }
         }
     }
+
+    @Test
+    fun `active class workspace renders source backed native and reachable totals`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            val classes =
+                listOf(
+                    ClassStats(
+                        className = "sample.Item",
+                        instanceCount = 2,
+                        shallowSize = 42,
+                        nativeSize = 64,
+                        reachableShallowSize = 40,
+                        reachableNativeSize = 60,
+                    ),
+                )
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    MemoryProfilerScreen(
+                        fixture().copy(classes = classes, heapBaseClasses = classes),
+                        MemoryProfilerActions(),
+                        UiLanguage.ENGLISH,
+                    )
+                }
+            }
+            onNode(hasText("64 B") and hasAnyAncestor(hasTestTag("memory-metric-card-4"))).assertExists()
+            onNode(hasText("42 B") and hasAnyAncestor(hasTestTag("memory-metric-card-5"))).assertExists()
+            onNode(hasText("60 B") and hasAnyAncestor(hasTestTag("memory-metric-card-6"))).assertExists()
+            onNode(hasText("40 B") and hasAnyAncestor(hasTestTag("memory-metric-card-7"))).assertExists()
+        }
 
     @Test
     fun `workspace keeps mapping and compare without file action buttons`() {
