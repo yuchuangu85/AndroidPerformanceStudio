@@ -259,8 +259,6 @@ class DeviceTargetPageBehaviorTest {
     fun `cascaded target and capture actions remain wired`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             val packages = mutableListOf<String>()
-            val processes = mutableListOf<Int>()
-            val threads = mutableListOf<ThreadOption>()
             val templates = mutableListOf<SamplingTemplate>()
             var startCount = 0
             val thread = ThreadOption(pid = 42, tid = 43, name = "RenderThread")
@@ -275,26 +273,6 @@ class DeviceTargetPageBehaviorTest {
                                 selectedPackageName = packageName,
                                 selectedTarget = CaptureTarget.App(packageName),
                                 threads = emptyList(),
-                            )
-                    },
-                    onSelectProcess = { pid ->
-                        processes += pid
-                        uiState.value =
-                            uiState.value.copy(
-                                selectedTarget = CaptureTarget.Process(pid, "com.example.second:worker"),
-                                threads = listOf(thread),
-                            )
-                    },
-                    onSelectThread = { selectedThread ->
-                        threads += selectedThread
-                        uiState.value =
-                            uiState.value.copy(
-                                selectedTarget =
-                                    CaptureTarget.Thread(
-                                        selectedThread.pid,
-                                        selectedThread.tid,
-                                        selectedThread.name,
-                                    ),
                             )
                     },
                     onSelectTemplate = templates::add,
@@ -317,18 +295,12 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithContentDescription("App selector").performClick()
             onNodeWithTag("dropdown-selector-search").performTextInput("SECOND")
             onNodeWithText("com.example.second").performClick()
-            onNodeWithContentDescription("Process selector").performClick()
-            onNodeWithTag("dropdown-selector-search").performTextInput("WORKER")
-            onNodeWithText("unrelated.process").assertDoesNotExist()
-            onNodeWithText("com.example.second:worker").performClick()
             assertEquals(
                 "com.example.second",
                 onNodeWithContentDescription("App selector")
                     .fetchSemanticsNode()
                     .config[SemanticsProperties.StateDescription],
             )
-            onNodeWithContentDescription("Thread selector").performClick()
-            onNodeWithText("RenderThread").performClick()
             onNodeWithText("Capabilities").performClick()
             onNodeWithText("Device capability").assertExists()
             onNodeWithText("system-wide").assertExists()
@@ -349,8 +321,6 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("Get data").performClick()
 
             assertEquals(listOf("com.example.second"), packages)
-            assertEquals(listOf(42), processes)
-            assertEquals(listOf(thread), threads)
             assertEquals(listOf(SamplingTemplate.LOW_OVERHEAD), templates)
             assertEquals(1, startCount)
         }

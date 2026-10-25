@@ -22,7 +22,6 @@ import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.PackageOption
 import com.androidperformancestudio.application.ProcessOption
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
@@ -88,31 +87,23 @@ class CpuProfilerProcessSelectionLayoutTest {
         }
 
     @Test
-    fun `CPU title bar second target is the device-wide process selector`() {
+    fun `CPU header keeps only the application selector`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/presentation/DeviceTargetPage.kt"))
+        val header = source.substringAfter("HeaderToolbar(").substringBefore("ReportWorkspace(")
+        assertTrue(header.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(header.contains("AppSelector("))
+        assertTrue(header.contains("actions.onSelectPackage"))
+        assertTrue(!header.contains("ProcessSelector("))
+        assertTrue(!header.contains("ThreadSelector("))
+        assertTrue(!header.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
         assertTrue(source.contains("TitleBarRefreshOrInline(enabled = enabled && !state.isLoading, onRefresh = actions.onRefresh)"))
-        val titleBarSlot =
-            source
-                .substringAfter("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {")
-                .substringBefore("if (!targetsInTitleBar) HeaderSpacer()")
-        assertTrue(titleBarSlot.contains("ProcessSelector("))
-        assertTrue(titleBarSlot.contains("state.selection?.applicationProcesses().orEmpty()"))
-        assertTrue(titleBarSlot.contains("actions.onSelectProcess"))
-        assertTrue(titleBarSlot.contains("SimpleperfLocalization(language)"))
-        assertTrue(!titleBarSlot.contains("AppSelector("))
-        val appSelectorInToolbar =
-            source
-                .substringAfter("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {")
-                .substringBefore("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {")
-        assertTrue(appSelectorInToolbar.contains("AppSelector("))
-        assertTrue(appSelectorInToolbar.contains("actions.onSelectPackage"))
     }
 
     @Test
-    fun `English process selection keeps toolbar stable`() = verifyLayout(UiLanguage.ENGLISH)
+    fun `English toolbar stays stable while the target loads`() = verifyLayout(UiLanguage.ENGLISH)
 
     @Test
-    fun `Chinese process selection keeps toolbar stable`() = verifyLayout(UiLanguage.SIMPLIFIED_CHINESE)
+    fun `Chinese toolbar stays stable while the target loads`() = verifyLayout(UiLanguage.SIMPLIFIED_CHINESE)
 
     private fun verifyLayout(language: UiLanguage) {
         listOf(980, 1440).forEach { width ->
@@ -138,8 +129,7 @@ class CpuProfilerProcessSelectionLayoutTest {
                             onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot
                         }
 
-                    onNodeWithContentDescription(selectorDescriptions[2]).performClick()
-                    onNodeWithText(PROCESS_NAME).performClick()
+                    runOnIdle { state.value = state.value.copy(isLoading = true) }
                     onNodeWithText(localizedStringResource(SimpleperfViewerRes.sp_target_refreshing, language))
                         .assertExists()
                     selectorDescriptions.forEach { description ->
@@ -148,17 +138,11 @@ class CpuProfilerProcessSelectionLayoutTest {
                         assertEquals(
                             before.getValue(description),
                             selector.fetchSemanticsNode().boundsInRoot,
-                            "$description moved while loading threads at width $width, dark=$darkTheme",
+                            "$description moved while loading at width $width, dark=$darkTheme",
                         )
                     }
 
-                    runOnIdle {
-                        state.value =
-                            state.value.copy(
-                                threads = listOf(ThreadOption(PROCESS_ID, PROCESS_ID + 1, "RenderThread")),
-                                isLoading = false,
-                            )
-                    }
+                    runOnIdle { state.value = state.value.copy(isLoading = false) }
                     onNodeWithText(localizedStringResource(SimpleperfViewerRes.sp_target_refresh, language))
                         .assertExists()
                     selectorDescriptions.forEach { description ->
@@ -167,8 +151,6 @@ class CpuProfilerProcessSelectionLayoutTest {
                             onNodeWithContentDescription(description).fetchSemanticsNode().boundsInRoot,
                         )
                     }
-                    onNodeWithContentDescription(selectorDescriptions[3]).performClick()
-                    onNodeWithText("RenderThread").assertExists()
                 }
             }
         }
@@ -178,8 +160,6 @@ class CpuProfilerProcessSelectionLayoutTest {
         listOf(
             SimpleperfViewerRes.sp_target_device_selector,
             SimpleperfViewerRes.sp_target_app_selector,
-            SimpleperfViewerRes.sp_target_process_selector,
-            SimpleperfViewerRes.sp_target_thread_selector,
         ).map { localizedStringResource(it, language) }
 
     private fun processSelectionActions(state: MutableState<DeviceTargetState>) =

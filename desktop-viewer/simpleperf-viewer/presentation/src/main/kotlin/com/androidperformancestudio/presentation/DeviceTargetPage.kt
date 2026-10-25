@@ -39,16 +39,12 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.CapabilityStatus
-import com.androidperformancestudio.application.CaptureTarget
 import com.androidperformancestudio.application.DeviceOption
 import com.androidperformancestudio.application.DeviceSelection
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.PackageOption
-import com.androidperformancestudio.application.ProcessOption
-import com.androidperformancestudio.application.applicationProcesses
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.DeviceDropdownSelector
@@ -89,7 +85,6 @@ internal fun DeviceTargetPage(
     val style = currentSimpleperfViewerColors(darkTheme)
     val captureActive = captureState.isCaptureActive()
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
-    val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
     val titleBarHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
     LaunchedEffect(titleBarHost, titleBarHost?.selectedDeviceSerial, state.devices, state.selectedSerial) {
         if (titleBarHost != null) {
@@ -159,8 +154,6 @@ internal fun DeviceTargetPage(
             val targetsInTitleBar = LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null
             val deviceModifier =
                 if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(DEVICE_SELECTOR_WEIGHT)
-            val processModifier =
-                if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(PROCESS_SELECTOR_WEIGHT)
             TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
                 SimpleperfLocalization(language) {
                     DeviceSelector(
@@ -191,30 +184,8 @@ internal fun DeviceTargetPage(
                 null,
             )
             HeaderSpacer()
-            TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
-                SimpleperfLocalization(language) {
-                    // The title bar lists the device's application processes so a target can be
-                    // chosen without first picking an application; native services are excluded.
-                    ProcessSelector(
-                        state.selectedProcessId,
-                        state.selection?.applicationProcesses().orEmpty(),
-                        actions.onSelectProcess,
-                        style,
-                        processModifier,
-                        !captureActive && !state.isLoading,
-                    )
-                }
-            }
-            if (!targetsInTitleBar) HeaderSpacer()
-            ThreadSelector(
-                selectedThreadId,
-                state.threadsForSelectedProcess,
-                actions.onSelectThread,
-                style,
-                Modifier.weight(THREAD_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
+            // The fixed title bar owns the device and application-process targets; this page header
+            // only keeps the page-level application selector and the capture actions.
             ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading, targetReady)
             HeaderSpacer()
             Box(Modifier.testTag("cpu-toolbar-import")) {
@@ -394,63 +365,6 @@ private fun AppSelector(
         displayTextOverride = displayTextOverride,
         selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_app_selector, language),
         colors = style,
-        fillWidth = true,
-        menuModifier = selectorMenuModifier(),
-    )
-}
-
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun ProcessSelector(
-    selectedPid: Int?,
-    processes: List<ProcessOption>,
-    onSelect: (Int) -> Unit,
-    style: ViewerColors,
-    modifier: Modifier,
-    enabled: Boolean,
-) {
-    val language = currentSimpleperfLanguage()
-    DropdownSelector(
-        items = processes,
-        searchable = true,
-        searchLanguage = language,
-        itemSearchText = { "${it.name} ${it.pid} ${it.user}" },
-        selectedItem = processes.firstOrNull { it.pid == selectedPid },
-        onItemSelected = { onSelect(it.pid) },
-        itemLabel = ProcessOption::name,
-        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_process, language),
-        modifier = modifier,
-        enabled = enabled,
-        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_process_selector, language),
-        colors = style,
-        itemSecondary = { "PID ${it.pid} · ${it.user}" },
-        fillWidth = true,
-        menuModifier = selectorMenuModifier(),
-    )
-}
-
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun ThreadSelector(
-    selectedTid: Int?,
-    threads: List<ThreadOption>,
-    onSelect: (ThreadOption) -> Unit,
-    style: ViewerColors,
-    modifier: Modifier,
-    enabled: Boolean,
-) {
-    val language = currentSimpleperfLanguage()
-    DropdownSelector(
-        items = threads,
-        selectedItem = threads.firstOrNull { it.tid == selectedTid },
-        onItemSelected = onSelect,
-        itemLabel = ThreadOption::name,
-        placeholder = localizedStringResource(SimpleperfViewerRes.sp_diagnostics_thread, language),
-        modifier = modifier,
-        enabled = enabled,
-        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_thread_selector, language),
-        colors = style,
-        itemSecondary = { "TID ${it.tid}" },
         fillWidth = true,
         menuModifier = selectorMenuModifier(),
     )
@@ -841,5 +755,4 @@ private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f
-private const val PROCESS_SELECTOR_WEIGHT = 1f
-private const val THREAD_SELECTOR_WEIGHT = 0.95f
+

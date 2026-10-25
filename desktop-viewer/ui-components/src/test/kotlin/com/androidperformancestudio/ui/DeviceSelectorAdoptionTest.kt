@@ -33,7 +33,6 @@ class DeviceSelectorAdoptionTest {
     fun `pages publish only real device and process selectors to the title bar`() {
         val processModules =
             setOf(
-                "simpleperf-viewer/presentation",
                 "simpleperf-viewer/method-recording-app",
                 "memory-profiler/presentation",
                 "frame-profiler/frame-app",
