@@ -46,7 +46,7 @@ internal class DesktopTargetBarSource(
 
     suspend fun loadProcesses(serial: String): List<TitleBarProcessOption>? = io {
         when (val result = monitor(adbExecutable()).refreshTargets(serial)) {
-            is StudioResult.Success -> result.value.toProcessOptions()
+            is StudioResult.Success -> result.value.applicationProcessOptions()
             is StudioResult.Failure -> null
         }
     }
@@ -64,21 +64,28 @@ internal class DesktopTargetBarSource(
             }
         }
 
-    private fun AdbTargetSnapshot.toProcessOptions(): List<TitleBarProcessOption> {
-        val packageNames = packages.map { it.packageName }
-        return processes.map { process ->
-            TitleBarProcessOption(
-                pid = process.pid,
-                name = process.name,
-                packageName = packageNames.firstOrNull { packageName -> process.name.belongsTo(packageName) },
-                user = process.user,
-            )
-        }
-    }
-
     internal companion object {
         /** How often the fixed title-bar device and process lists refresh themselves. */
         const val REFRESH_INTERVAL_MILLIS: Long = 3_000
+    }
+}
+
+/**
+ * Application processes offered by the fixed title-bar process selector.
+ * Platform and native services (no owning package) are excluded.
+ */
+internal fun AdbTargetSnapshot.applicationProcessOptions(): List<TitleBarProcessOption> {
+    val packageNames = packages.map { it.packageName }
+    return processes.mapNotNull { process ->
+        val owningPackage = packageNames.firstOrNull { packageName -> process.name.belongsTo(packageName) }
+        owningPackage?.let { packageName ->
+            TitleBarProcessOption(
+                pid = process.pid,
+                name = process.name,
+                packageName = packageName,
+                user = process.user,
+            )
+        }
     }
 }
 

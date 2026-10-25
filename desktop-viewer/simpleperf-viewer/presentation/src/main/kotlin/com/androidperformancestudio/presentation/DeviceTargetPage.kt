@@ -45,6 +45,7 @@ import com.androidperformancestudio.application.DeviceSelection
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.PackageOption
 import com.androidperformancestudio.application.ProcessOption
+import com.androidperformancestudio.application.applicationProcesses
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ThreadOption
@@ -192,11 +193,11 @@ internal fun DeviceTargetPage(
             HeaderSpacer()
             TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
                 SimpleperfLocalization(language) {
-                    // The title bar lists every process on the device so a target can be chosen
-                    // without first picking an application; the chosen app stays a separate filter.
+                    // The title bar lists the device's application processes so a target can be
+                    // chosen without first picking an application; native services are excluded.
                     ProcessSelector(
                         state.selectedProcessId,
-                        state.selection?.processes.orEmpty(),
+                        state.selection?.applicationProcesses().orEmpty(),
                         actions.onSelectProcess,
                         style,
                         processModifier,

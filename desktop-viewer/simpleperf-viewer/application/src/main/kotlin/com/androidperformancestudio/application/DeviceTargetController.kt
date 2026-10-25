@@ -508,6 +508,10 @@ internal fun DeviceSelection.packageForProcess(pid: Int): String? =
         packages.firstOrNull { process.belongsToPackage(it.packageName) }?.packageName
     }
 
+/** Processes that belong to an installed application rather than a platform/native service. */
+public fun DeviceSelection.applicationProcesses(): List<ProcessOption> =
+    processes.filter { process -> packages.any { process.belongsToPackage(it.packageName) } }
+
 private fun ProcessOption.belongsToPackage(packageName: String): Boolean {
     if (name == packageName) return true
     return name.startsWith("$packageName:")
