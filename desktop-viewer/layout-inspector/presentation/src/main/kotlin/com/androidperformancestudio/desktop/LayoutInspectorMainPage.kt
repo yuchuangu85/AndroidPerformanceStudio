@@ -148,6 +148,8 @@ import com.androidperformancestudio.compose.inspection.host.ComposeInspectionAut
 import com.androidperformancestudio.compose.inspection.host.ComposeInspectorArtifactResolver
 import com.androidperformancestudio.compose.inspection.host.ComposeLiveSession
 import com.androidperformancestudio.compose.inspection.host.PreparedComposeInspection
+import com.androidperformancestudio.compose.inspection.host.TargetProcessUnavailableException
+import com.androidperformancestudio.compose.inspection.host.lastTargetCrashReason
 import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeValue
@@ -280,6 +282,20 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val composeInjectionManager = remember {
         ComposeInjectionManager(composeProcessRunner, composeArtifactResolver)
     }
+    // A dead target is explained with the app's last crash instead of looking like an inspector bug.
+    val describeFullComposeFailure: suspend (Throwable) -> String = describe@{ error ->
+        if (error !is TargetProcessUnavailableException) {
+            return@describe error.message ?: error.javaClass.simpleName
+        }
+        val crash =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    composeProcessRunner.lastTargetCrashReason(error.serial, error.packageName)
+                }.getOrNull()
+            }
+        crash?.let { reason -> "Target app crashed: " + reason }
+            ?: (error.message ?: error.javaClass.simpleName)
+    }
     val composeCompilerReportParser = remember { ComposeCompilerReportParser() }
     var fullComposeEnabled by remember { mutableStateOf(false) }
     var hideSystemComposables by remember { mutableStateOf(DEFAULT_HIDE_SYSTEM_COMPOSABLES) }
@@ -289,6 +305,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var automaticComposePreflightAttempt by remember { mutableStateOf<String?>(null) }
     var automaticComposePreflightInProgress by remember { mutableStateOf(false) }
     var foregroundPackage by remember { mutableStateOf<String?>(null) }
+    var fullComposeRecoveryAttempts by remember { mutableStateOf(0) }
     val recompositionHeatTracker = remember { RecompositionHeatTracker() }
     var recompositionHeat by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     LaunchedEffect(state.composeInspection?.frame?.frameId) {
@@ -418,8 +435,19 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         // Complete Compose requires the verified AOSP runtime bundle. Native View and
                         // compatible Semantics capture must remain available when that bundle is absent,
                         // but the reason has to stay visible instead of degrading silently.
-                        val reason = "Full Compose inspection unavailable: " +
-                            (error.message ?: error.javaClass.simpleName)
+                        val baseReason = error.message ?: error.javaClass.simpleName
+                        val crash =
+                            if (baseReason.contains("not running")) {
+                                withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        composeProcessRunner.lastTargetCrashReason(serial, foreground)
+                                    }.getOrNull()
+                                }
+                            } else {
+                                null
+                            }
+                        val reason = "Full Compose inspection unavailable: " + baseReason +
+                            (crash?.let { " (last crash: " + it + ")" } ?: "")
                         System.err.println("[layout-inspector] " + reason)
                         store.noteComposeInspectionUnavailable(reason)
                         val recovery = composeFallbackRecovery()
@@ -436,6 +464,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, fullComposeEnabled, composeAuthorization) {
         prepareFullComposeForForeground()
+    }
+    LaunchedEffect(composeAuthorization) {
+        if (composeAuthorization != null) fullComposeRecoveryAttempts = 0
     }
 
     // The foreground app can change without any Layout Inspector state changing, so poll for it and
@@ -477,6 +508,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             var session: ConnectedDeviceSession? = null
             var fullSession: ComposeLiveSession? = null
             try {
+                if (fullComposeEnabled && composeAuthorization == null) {
+                    // Re-authorization is in flight after a target restart; wait for it instead of
+                    // reporting "not authorized" as an inspection failure.
+                    prepareFullComposeForForeground()
+                    delay(FOREGROUND_PACKAGE_POLL_MILLIS.milliseconds)
+                    continue
+                }
                 store.connecting()
                 state = store.state
                 if (fullComposeEnabled) {
@@ -549,7 +587,22 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                if (fullComposeEnabled) {
+                val failureReason = describeFullComposeFailure(error)
+                val recoverableTarget =
+                    error is TargetProcessUnavailableException &&
+                        fullComposeRecoveryAttempts < MAX_FULL_COMPOSE_RECOVERY_ATTEMPTS
+                if (fullComposeEnabled && recoverableTarget) {
+                    // The target app crashed or restarted: close the dead session, authorize the app
+                    // again and stay in full fidelity instead of degrading on the first loss.
+                    fullComposeRecoveryAttempts += 1
+                    val failedSession = fullSession
+                    fullSession = null
+                    composeSession = null
+                    withContext(NonCancellable + Dispatchers.IO) { failedSession?.close() }
+                    composeAuthorization = null
+                    prepareFullComposeForForeground()
+                    state = store.state
+                } else if (fullComposeEnabled) {
                     val failedSession = fullSession
                     fullSession = null
                     composeSession = null
@@ -560,11 +613,11 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     recompositionActive = recovery.recompositionActive
                     autoScanEnabled = recovery.autoScanEnabled
                     store.fallbackToCompatibleInspection(
-                        "Full Compose inspection failed: " + (error.message ?: error.javaClass.simpleName),
+                        "Full Compose inspection failed: " + failureReason,
                     )
                     state = store.state
                 } else {
-                    store.connectionFailed(error.message ?: error.javaClass.simpleName)
+                    store.connectionFailed(failureReason)
                     state = store.state
                     delay(RECONNECT_INTERVAL_MILLIS.milliseconds)
                 }
@@ -664,7 +717,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             throw error
         } catch (error: Throwable) {
             manualRefreshSession.invalidate()
-            val reason = "Full Compose inspection failed: " + (error.message ?: error.javaClass.simpleName)
+            val reason = "Full Compose inspection failed: " + describeFullComposeFailure(error)
             if (fullComposeEnabled) {
                 fullComposeEnabled = false
                 composeAuthorization = null
@@ -3961,6 +4014,7 @@ private fun FindingsResizeSeparator(onDrag: (Float) -> Unit) {
 
 private const val CAPTURE_INTERVAL_MILLIS = 1_000L
 private const val ACTIVE_COMPOSE_CAPTURE_INTERVAL_MILLIS = 200L
+private const val MAX_FULL_COMPOSE_RECOVERY_ATTEMPTS = 2
 private const val RECONNECT_INTERVAL_MILLIS = 1_000L
 private const val FOREGROUND_PACKAGE_POLL_MILLIS = 1_000L
 

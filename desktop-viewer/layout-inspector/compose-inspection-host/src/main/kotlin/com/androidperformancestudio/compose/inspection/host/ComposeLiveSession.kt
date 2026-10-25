@@ -20,6 +20,13 @@ data class ComposeLiveCapture(
     val screenshotPng: ByteArray?,
 )
 
+/** The injected target app died (for example because it crashed or restarted). */
+class TargetProcessUnavailableException(
+    val serial: String,
+    val packageName: String,
+    val pid: Int,
+) : IllegalStateException("Target Compose process is no longer available")
+
 class ComposeLiveSession private constructor(
     private val injection: InjectedComposeSession,
     private val protocol: AospInspectorProtocolClient,
@@ -31,7 +38,10 @@ class ComposeLiveSession private constructor(
     private var lastFrame: ComposeInspectionFrame? = null
 
     fun capture(hideSystemComposables: Boolean = true): ComposeLiveCapture {
-        check(!closed.get() && injection.isTargetAlive()) { "Target Compose process is no longer available" }
+        check(!closed.get()) { "Compose inspection session is closed" }
+        if (!injection.isTargetAlive()) {
+            throw TargetProcessUnavailableException(injection.serial, injection.packageName, injection.pid)
+        }
         val stableCapture = StableComposeFrameCapture(client).capture(injection.packageName)
         val views = stableCapture.views
         val compose = stableCapture.compose

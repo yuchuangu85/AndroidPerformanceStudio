@@ -140,6 +140,12 @@ object AdbCommandFactory {
         return devicePrefix(serial) + listOf("shell", "rm", "-f") + paths
     }
 
+    /** Reads the most recent device crash entries so a dying target app can be explained. */
+    fun readCrashLog(serial: String, maxLines: Int = 400): List<String> {
+        require(maxLines in 1..2_000) { "Unsafe crash log line count" }
+        return devicePrefix(serial) + listOf("shell", "logcat", "-d", "-b", "crash", "-t", maxLines.toString())
+    }
+
     fun attachAgent(serial: String, pid: Int, agentPath: String, options: String): List<String> {
         require(pid > 0)
         requireSafeRemotePath(agentPath)
