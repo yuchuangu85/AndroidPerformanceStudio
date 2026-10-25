@@ -154,6 +154,9 @@ internal fun DeviceTargetPage(
             val targetsInTitleBar = LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null
             val deviceModifier =
                 if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(DEVICE_SELECTOR_WEIGHT)
+            // The page-level application selector matches the fixed title-bar process control width.
+            val appModifier =
+                if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(APP_SELECTOR_WEIGHT)
             TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
                 SimpleperfLocalization(language) {
                     DeviceSelector(
@@ -179,13 +182,14 @@ internal fun DeviceTargetPage(
                     actions.onSelectPackage(packageName)
                 },
                 style,
-                Modifier.weight(APP_SELECTOR_WEIGHT),
+                appModifier,
                 !captureActive && !state.isLoading,
                 null,
             )
             HeaderSpacer()
             // The fixed title bar owns the device and application-process targets; this page header
             // only keeps the page-level application selector and the capture actions.
+            if (targetsInTitleBar) Spacer(Modifier.weight(1f))
             ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading, targetReady)
             HeaderSpacer()
             Box(Modifier.testTag("cpu-toolbar-import")) {

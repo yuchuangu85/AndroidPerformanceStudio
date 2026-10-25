@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -78,6 +79,11 @@ class CpuProfilerProcessSelectionLayoutTest {
                 )
             }
             waitForIdle()
+
+            // The page-level application selector must be as wide as the fixed title-bar process control.
+            val appWidth = onNodeWithContentDescription("应用选择器").fetchSemanticsNode().boundsInRoot.width
+            val processSlotWidth = onNodeWithTag("titlebar-process-slot").fetchSemanticsNode().boundsInRoot.width
+            assertEquals(processSlotWidth, appWidth)
 
             // Application processes outside the selected app remain selectable from the fixed title bar.
             onNodeWithContentDescription("进程选择器").performClick()
