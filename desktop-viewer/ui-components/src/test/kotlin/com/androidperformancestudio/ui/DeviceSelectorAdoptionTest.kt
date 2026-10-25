@@ -37,8 +37,6 @@ class DeviceSelectorAdoptionTest {
                 "simpleperf-viewer/method-recording-app",
                 "memory-profiler/presentation",
                 "frame-profiler/frame-app",
-                "startup-profiler/presentation",
-                "battery-profiler/battery-app",
             )
         devicePages.forEach { (module, page) ->
             val source = Files.readString(Path.of("..", module, "src/main/kotlin/com/androidperformancestudio", page))

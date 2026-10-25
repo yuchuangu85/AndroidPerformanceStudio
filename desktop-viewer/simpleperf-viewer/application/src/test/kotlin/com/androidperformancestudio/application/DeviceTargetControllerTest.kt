@@ -253,26 +253,62 @@ class DeviceTargetControllerTest {
         }
 
     @Test
-    fun `process selection is constrained to the previously selected app`() =
+    fun `device-wide process list selects a process that belongs to no selected app`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
             controller.selectDevice("serial-1")
             controller.selectPackage("com.example.camera")
 
+            // The app filter still narrows the app-scoped list, but the picker keeps every process.
             assertEquals(
                 listOf(321),
                 controller.state.value.processesForSelectedPackage
                     .map(ProcessOption::pid),
             )
+            assertEquals(
+                listOf(321, 654),
+                controller.state.value.selection
+                    ?.processes
+                    ?.map(ProcessOption::pid),
+            )
 
             controller.selectProcess(654)
 
-            assertIs<CaptureTarget.App>(controller.state.value.selectedTarget)
-            assertEquals("com.example.camera", controller.state.value.selectedPackageName)
-            assertTrue(
+            val target = controller.state.value.selectedTarget
+            assertIs<CaptureTarget.Process>(target)
+            assertEquals(654, target.pid)
+            assertEquals("surfaceflinger", target.name)
+            assertEquals(
+                SimpleperfTarget.Process(654, appPackage = null),
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.target,
+            )
+        }
+
+    @Test
+    fun `selects a device-wide process before any application is chosen`() =
+        runBlocking {
+            val controller = DeviceTargetController(FakeDeviceTargetGateway())
+            controller.refreshDevices()
+            assertNull(controller.state.value.selectedPackageName)
+
+            controller.selectProcess(321)
+
+            val target = controller.state.value.selectedTarget
+            assertIs<CaptureTarget.Process>(target)
+            assertEquals(321, target.pid)
+            assertEquals(
+                SimpleperfTarget.Process(321, appPackage = "com.example.camera"),
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.target,
+            )
+            assertEquals(
+                listOf(321, 333),
                 controller.state.value.threads
-                    .isEmpty(),
+                    .map(ThreadOption::tid),
             )
         }
 

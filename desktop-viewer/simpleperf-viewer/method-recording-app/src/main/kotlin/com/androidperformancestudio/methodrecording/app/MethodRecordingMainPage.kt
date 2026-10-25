@@ -57,6 +57,7 @@ import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.PageMenu
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetHost
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
 import com.androidperformancestudio.ui.TitleBarTargetWidth
@@ -66,6 +67,50 @@ import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.nio.file.Path
+
+/** Follows the application-wide device and process target owned by the fixed title bar. */
+@Composable
+@Suppress("FunctionName", "FunctionNaming", "ktlint:standard:function-naming")
+private fun MethodRecordingTargetSync(
+    controller: MethodRecordingController,
+    state: MethodRecordingState,
+    titleBarHost: TitleBarTargetHost?,
+) {
+    LaunchedEffect(
+        titleBarHost,
+        titleBarHost?.selectedDeviceSerial,
+        state.devices,
+        state.selectedSerial,
+    ) {
+        if (titleBarHost != null && !state.isLoading) {
+            val desired = titleBarHost.selectedDeviceSerial
+            val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
+            if (desired == null && selectedDevice != null) {
+                titleBarHost.chooseDevice(selectedDevice.serial, selectedDevice.name)
+            } else if (
+                desired != null &&
+                desired != state.selectedSerial &&
+                state.devices.any { it.serial == desired }
+            ) {
+                controller.selectDevice(desired)
+            }
+        }
+    }
+    LaunchedEffect(
+        titleBarHost,
+        titleBarHost?.selectedProcessPid,
+        state.processes,
+        state.selectedPid,
+        state.selectedSerial,
+    ) {
+        if (titleBarHost != null && !state.isLoading && titleBarHost.deviceReady(state.selectedSerial)) {
+            val desired = titleBarHost.selectedProcessPid
+            if (desired != null && desired != state.selectedPid && state.processes.any { it.pid == desired }) {
+                controller.selectProcess(desired)
+            }
+        }
+    }
+}
 
 /** The CPU Method Recording workspace: capture/import an ART `.trace` and analyze it. */
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -90,6 +135,12 @@ fun FrameWindowScope.MethodRecordingMainPage(
     LaunchedEffect(initialTraceFile) {
         initialTraceFile?.let { file -> controller.importTrace(file) }
     }
+    // The fixed title bar owns the application-wide device and process target; follow it here.
+    MethodRecordingTargetSync(
+        controller = controller,
+        state = state,
+        titleBarHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current },
+    )
 
     ActivePageMenu(PageMenu(onOpen = { showTraceFileDialog = true }, openEnabled = !state.isLoading))
 

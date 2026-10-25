@@ -22,7 +22,7 @@ import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 
-@Suppress("CyclomaticComplexMethod", "ComplexCondition", "MaxLineLength")
+@Suppress("CyclomaticComplexMethod", "ComplexCondition", "LongMethod", "MaxLineLength")
 @Composable
 public fun MemoryProfilerToolbarSelectors(
     state: MemoryProfilerState,
@@ -47,14 +47,14 @@ public fun MemoryProfilerToolbarSelectors(
             }
         }
     }
-    LaunchedEffect(host, host?.selectedPackageName, state.processes, state.selectedProcessId, state.selectedDeviceSerial) {
+    LaunchedEffect(host, host?.selectedProcessPid, state.processes, state.selectedProcessId, state.selectedDeviceSerial) {
         if (host != null && host.deviceReady(state.selectedDeviceSerial)) {
             val selected = state.processes.firstOrNull { it.pid == state.selectedProcessId }
-            val desired = host.selectedPackageName
+            val desired = host.selectedProcessPid
             if (desired == null && selected != null) {
-                host.choosePackage(selected.packageName)
-            } else if (desired != null && selected?.packageName != desired) {
-                state.processes.firstOrNull { it.packageName == desired }?.let { onSelectProcess(it.pid) }
+                host.chooseProcess(selected.pid, selected.name, selected.packageName)
+            } else if (desired != null && desired != state.selectedProcessId && state.processes.any { it.pid == desired }) {
+                onSelectProcess(desired)
             }
         }
     }

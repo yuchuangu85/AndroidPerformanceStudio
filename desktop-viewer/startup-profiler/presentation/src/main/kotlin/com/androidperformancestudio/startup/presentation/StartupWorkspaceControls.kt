@@ -219,30 +219,28 @@ public fun StartupTargetSelectors(
         )
     }
     if (!inTitleBar) HeaderSpacer()
-    TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
-        DropdownSelector(
-            items = state.targets,
-            searchable = true,
-            searchLanguage = language,
-            selectedItem = selectedTarget,
-            onItemSelected = {
-                targetHost?.choosePackage(it.packageName)
-                actions.onSelectTarget(it.componentName)
-            },
-            itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-            selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-            itemSecondary = { it.componentName },
-            placeholder = localizedStringResource(if (inTitleBar) Res.string.process else Res.string.application, language),
-            selectorDescription = localizedStringResource(if (inTitleBar) Res.string.process else Res.string.application, language),
-            modifier = Modifier.width(if (inTitleBar) TitleBarTargetWidth else 220.dp).testTag("startup-target"),
-            fillWidth = true,
-            enabled =
-                !state.isRunning &&
-                    state.selectedDeviceSerial != null &&
-                    (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
-            displayTextOverride = targetHost?.selectedPackageName,
-        )
-    }
+    // The title bar owns the application-wide process target; the startup component target stays here.
+    DropdownSelector(
+        items = state.targets,
+        searchable = true,
+        searchLanguage = language,
+        selectedItem = selectedTarget,
+        onItemSelected = {
+            targetHost?.choosePackage(it.packageName)
+            actions.onSelectTarget(it.componentName)
+        },
+        itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
+        selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
+        itemSecondary = { it.componentName },
+        placeholder = localizedStringResource(Res.string.application, language),
+        selectorDescription = localizedStringResource(Res.string.application, language),
+        modifier = Modifier.width(220.dp).testTag("startup-target"),
+        fillWidth = true,
+        enabled =
+            !state.isRunning &&
+                state.selectedDeviceSerial != null &&
+                (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
+    )
 }
 
 @Composable

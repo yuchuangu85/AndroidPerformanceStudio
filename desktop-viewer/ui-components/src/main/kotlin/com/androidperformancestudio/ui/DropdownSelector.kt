@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui_components.generated.resources.Res
 import com.androidperformancestudio.ui_components.generated.resources.icon_expand
 import com.androidperformancestudio.ui_components.generated.resources.no_matching_options
+import com.androidperformancestudio.ui_components.generated.resources.no_options_available
 import com.androidperformancestudio.ui_components.generated.resources.search_options
 import org.jetbrains.compose.resources.painterResource
 import kotlin.plus
@@ -89,7 +90,16 @@ public fun <T> DropdownSelector(
     val displayText = displayTextOverride ?: selectedItem?.let(selectedItemLabel) ?: placeholder
     val controlTextSize = controlFontSize ?: ViewerTypography.secondary.fontSize
     val menuTextSize = menuFontSize ?: ViewerTypography.bodyCompact.fontSize
-    val canExpand = enabled && (items.isNotEmpty() || onPlaceholderSelected != null || onControlClick != null)
+    val canExpand =
+        dropdownCanExpand(
+            enabled = enabled,
+            hasItems = items.isNotEmpty(),
+            searchable = searchable,
+            hasPlaceholderAction = onPlaceholderSelected != null,
+            hasControlClick = onControlClick != null,
+        )
+    val emptyOptionsMessage =
+        if (searchQuery.isBlank()) Res.string.no_options_available else Res.string.no_matching_options
     val shape = RoundedCornerShape(4.dp)
     Box(modifier = modifier) {
         Row(
@@ -166,7 +176,7 @@ public fun <T> DropdownSelector(
             }
             if (searchable && filteredItems.isEmpty()) {
                 Text(
-                    text = localizedStringResource(Res.string.no_matching_options, searchLanguage),
+                    text = localizedStringResource(emptyOptionsMessage, searchLanguage),
                     color = colors.secondaryText,
                     fontSize = menuTextSize,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -190,6 +200,18 @@ public fun <T> DropdownSelector(
         }
     }
 }
+
+/**
+ * Searchable app/process lists can be empty while their target loads. They still open so the menu can
+ * explain that there is nothing to pick, instead of a click appearing to do nothing.
+ */
+private fun dropdownCanExpand(
+    enabled: Boolean,
+    hasItems: Boolean,
+    searchable: Boolean,
+    hasPlaceholderAction: Boolean,
+    hasControlClick: Boolean,
+): Boolean = enabled && (hasItems || searchable || hasPlaceholderAction || hasControlClick)
 
 /** Case-insensitive substring matching for optional dropdown search; preserves item order. */
 internal fun <T> filterDropdownItems(

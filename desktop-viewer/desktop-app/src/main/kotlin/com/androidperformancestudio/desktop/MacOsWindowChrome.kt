@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.TitleBarTargetControlsWidth
 import com.androidperformancestudio.ui.ViewerTypography
 import java.util.Locale
 import javax.swing.RootPaneContainer
@@ -105,7 +106,7 @@ internal fun MacOsTitleBar(
                     modifier = Modifier.weight(1f),
                 )
                 // Keep selectors in the content area, away from the native window controls.
-                Box(Modifier.widthIn(max = 484.dp).clipToBounds()) { targetControls() }
+                Box(Modifier.widthIn(max = TitleBarTargetControlsWidth).clipToBounds()) { targetControls() }
             }
         }
         Box(

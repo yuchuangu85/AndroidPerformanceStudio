@@ -120,12 +120,14 @@ class StartupProfilerWorkspaceTest {
             }
 
             waitForIdle()
-            onNodeWithText("com.unavailable").assertIsDisplayed()
+            // The fixed title bar no longer hosts an application selector; the page keeps its own
+            // component target visible while the unmatched shared package keeps capture disabled.
+            onNodeWithTag("startup-target").assertExists()
             onNodeWithTag("startup-start-stop").assertIsNotEnabled()
         }
 
     @Test
-    fun `device and application targets occupy ordered title bar dropdown slots`() {
+    fun `device target stays in the title bar and the application target renders inline`() {
         val controls =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt"),
@@ -135,14 +137,12 @@ class StartupProfilerWorkspaceTest {
                 .substringAfter("public fun StartupTargetSelectors(")
                 .substringBefore("internal fun StartupScenarioControls(")
         assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
-        assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
-        assertTrue(selectors.indexOf("TitleBarTargetSlot.DEVICE") < selectors.indexOf("TitleBarTargetSlot.PROCESS"))
+        assertTrue(!selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
         assertTrue(selectors.contains("DeviceDropdownSelector("))
         assertTrue(selectors.contains("DropdownSelector("))
         assertTrue(selectors.contains("targetHost?.choosePackage(it.packageName)"))
         assertTrue(selectors.contains("actions.onSelectTarget(it.componentName)"))
-        assertTrue(selectors.contains("displayTextOverride = targetHost?.selectedPackageName"))
-        assertTrue(selectors.contains("selectorDescription = localizedStringResource(if (inTitleBar) Res.string.process"))
+        assertTrue(selectors.contains("Res.string.application"))
         assertTrue(selectors.contains("if (!inTitleBar) HeaderSpacer()"))
     }
 

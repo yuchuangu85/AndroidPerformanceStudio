@@ -7,6 +7,7 @@
     <string name="settings">设置</string>
     <string name="search_options">搜索选项</string>
     <string name="no_matching_options">没有匹配的选项</string>
+    <string name="no_options_available">暂无可选项</string>
     <string name="device_selector_placeholder">设备</string>
     <string name="device_selector_description">设备选择器</string>
     <string name="device_selector_automatic">自动选择设备</string>

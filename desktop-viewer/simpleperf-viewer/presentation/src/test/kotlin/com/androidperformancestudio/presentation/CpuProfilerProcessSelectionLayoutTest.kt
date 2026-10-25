@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -29,11 +28,13 @@ import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.capture.SimpleperfTarget
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarDeviceOption
+import com.androidperformancestudio.ui.TitleBarProcessOption
 import com.androidperformancestudio.ui.TitleBarTargetControls
+import com.androidperformancestudio.ui.TitleBarTargetHost
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.rememberTitleBarTargetHost
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -43,15 +44,15 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class CpuProfilerProcessSelectionLayoutTest {
     @Test
-    fun `hosted CPU process selector lives in title bar and selects the real pid`() =
+    fun `hosted CPU title bar lists every device process and selects one outside the app`() =
         runDesktopComposeUiTest(width = 1280, height = 760) {
             val state = mutableStateOf(readyState())
+            val host = TitleBarTargetHost()
             setContent {
                 ViewerTheme(darkTheme = false) {
-                    val host = rememberTitleBarTargetHost()
                     CompositionLocalProvider(LocalTitleBarTargetHost provides host) {
                         Column {
-                            TitleBarTargetControls(host)
+                            TitleBarTargetControls(host, UiLanguage.SIMPLIFIED_CHINESE)
                             Box(Modifier.weight(1f)) {
                                 HomeScreen(
                                     state = state.value,
@@ -68,34 +69,43 @@ class CpuProfilerProcessSelectionLayoutTest {
                 }
             }
 
+            runOnIdle {
+                host.updateDevices(listOf(TitleBarDeviceOption("serial-1", "Pixel 8")))
+                host.updateProcesses(
+                    listOf(
+                        TitleBarProcessOption(PROCESS_ID, PROCESS_NAME, PACKAGE_NAME, "u0_a1"),
+                        TitleBarProcessOption(NATIVE_PROCESS_ID, NATIVE_PROCESS_NAME, null, "root"),
+                    ),
+                )
+            }
             waitForIdle()
-            val process = onNodeWithContentDescription("进程选择器")
-            val slot = onNodeWithTag("titlebar-process-slot").fetchSemanticsNode().boundsInRoot
-            assertTrue(process.fetchSemanticsNode().boundsInRoot.top < slot.bottom)
-            onNodeWithContentDescription("应用选择器").assertExists()
-            process.performClick()
-            onNodeWithText(PROCESS_NAME).performClick()
-            assertEquals(PROCESS_ID, state.value.selectedProcessId)
+
+            // The fixed title bar lists every device process, including ones outside the selected app.
+            onNodeWithContentDescription("进程选择器").performClick()
+            onNodeWithText("${NATIVE_PROCESS_NAME} (${NATIVE_PROCESS_ID})").performClick()
+            waitForIdle()
+            assertEquals(NATIVE_PROCESS_ID, state.value.selectedProcessId)
         }
 
     @Test
-    fun `title bar second target is the real process while app filter stays in CPU toolbar`() {
+    fun `CPU title bar second target is the device-wide process selector`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/presentation/DeviceTargetPage.kt"))
         assertTrue(source.contains("TitleBarRefreshOrInline(enabled = enabled && !state.isLoading, onRefresh = actions.onRefresh)"))
-        val appSlot =
+        val titleBarSlot =
             source
                 .substringAfter("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {")
                 .substringBefore("if (!targetsInTitleBar) HeaderSpacer()")
-        assertTrue(appSlot.contains("ProcessSelector("))
-        assertTrue(appSlot.contains("actions.onSelectProcess"))
-        assertTrue(appSlot.contains("SimpleperfLocalization(language)"))
-        assertTrue(!appSlot.contains("AppSelector("))
-        val remainingToolbar =
+        assertTrue(titleBarSlot.contains("ProcessSelector("))
+        assertTrue(titleBarSlot.contains("state.selection?.processes.orEmpty()"))
+        assertTrue(titleBarSlot.contains("actions.onSelectProcess"))
+        assertTrue(titleBarSlot.contains("SimpleperfLocalization(language)"))
+        assertTrue(!titleBarSlot.contains("AppSelector("))
+        val appSelectorInToolbar =
             source
                 .substringAfter("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {")
                 .substringBefore("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {")
-        assertTrue(remainingToolbar.contains("AppSelector("))
-        assertTrue(remainingToolbar.contains("actions.onSelectPackage"))
+        assertTrue(appSelectorInToolbar.contains("AppSelector("))
+        assertTrue(appSelectorInToolbar.contains("actions.onSelectPackage"))
     }
 
     @Test
@@ -229,7 +239,11 @@ class CpuProfilerProcessSelectionLayoutTest {
                             emptyList(),
                         ),
                     packages = listOf(PackageOption(PACKAGE_NAME)),
-                    processes = listOf(ProcessOption(PROCESS_ID, PROCESS_NAME, "u0_a1")),
+                    processes =
+                        listOf(
+                            ProcessOption(PROCESS_ID, PROCESS_NAME, "u0_a1"),
+                            ProcessOption(NATIVE_PROCESS_ID, NATIVE_PROCESS_NAME, "root"),
+                        ),
                 ),
         )
 
@@ -237,5 +251,7 @@ class CpuProfilerProcessSelectionLayoutTest {
         const val PACKAGE_NAME = "com.example.demo"
         const val PROCESS_NAME = "$PACKAGE_NAME:worker"
         const val PROCESS_ID = 42
+        const val NATIVE_PROCESS_NAME = "surfaceflinger"
+        const val NATIVE_PROCESS_ID = 654
     }
 }

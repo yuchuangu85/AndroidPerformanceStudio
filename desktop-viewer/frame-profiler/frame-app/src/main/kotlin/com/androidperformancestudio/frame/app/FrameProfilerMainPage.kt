@@ -135,13 +135,13 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             }
         }
     }
-    LaunchedEffect(titleBarHost, titleBarHost?.selectedPackageName, state.processes, state.selectedProcessId, state.selectedDeviceSerial) {
+    LaunchedEffect(titleBarHost, titleBarHost?.selectedProcessPid, state.processes, state.selectedProcessId, state.selectedDeviceSerial) {
         if (titleBarHost != null && titleBarHost.deviceReady(state.selectedDeviceSerial)) {
-            val desired = titleBarHost.selectedPackageName
+            val desired = titleBarHost.selectedProcessPid
             if (desired == null && selectedProcess != null) {
-                titleBarHost.choosePackage(selectedProcess.packageName)
-            } else if (desired != null && selectedProcess?.packageName != desired && !state.isCapturing) {
-                state.processes.firstOrNull { it.packageName == desired }?.let { controller.selectProcess(it.pid) }
+                titleBarHost.chooseProcess(selectedProcess.pid, selectedProcess.name, selectedProcess.packageName)
+            } else if (desired != null && desired != state.selectedProcessId && !state.isCapturing && state.processes.any { it.pid == desired }) {
+                controller.selectProcess(desired)
             }
         }
     }

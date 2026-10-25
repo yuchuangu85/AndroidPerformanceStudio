@@ -5,16 +5,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -23,48 +19,112 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-/** The two target controls that can be moved into the macOS window title strip. */
+/** The two application-wide target controls shown in the macOS window title strip. */
 public enum class TitleBarTargetSlot {
     DEVICE,
     PROCESS,
 }
 
-/** Identical control width on every page, including pages without a process target. */
+/** Identical control width for both title-bar targets. */
 public val TitleBarTargetWidth = 200.dp
 
-internal data class TitleBarTargetRegistration(
-    val owner: Any,
-    val content: State<@Composable () -> Unit>,
+/** Combined width of the fixed title-bar device and process controls, including their gap. */
+public val TitleBarTargetControlsWidth = TitleBarTargetWidth * 2 + 8.dp
+
+/** Device entry shown by the fixed title-bar device selector. */
+public data class TitleBarDeviceOption(
+    val serial: String,
+    val label: String,
+    val online: Boolean = true,
 )
 
-internal data class TitleBarRefreshRegistration(
-    val owner: Any,
-    val enabled: State<Boolean>,
-    val onRefresh: State<() -> Unit>,
+/** Process entry shown by the fixed title-bar process selector. */
+public data class TitleBarProcessOption(
+    val pid: Int,
+    val name: String,
+    val packageName: String? = null,
+    val user: String = "",
 )
 
-/** Active page-owned controls; retained inactive pages cannot replace the visible page's targets. */
+/**
+ * Application-wide device and process target rendered in the macOS window title strip.
+ *
+ * The shell refreshes [devices] and [processes] on a timer, so both title-bar controls stay in
+ * place while the active page changes. Pages read the shared selection and follow it in their own
+ * controllers; they no longer publish replacement title-bar controls.
+ */
 @Stable
-public class TitleBarTargetHost internal constructor() {
-    private val registrations = mutableStateMapOf<TitleBarTargetSlot, TitleBarTargetRegistration>()
-    internal var refreshRegistration: TitleBarRefreshRegistration? by mutableStateOf(null)
+public class TitleBarTargetHost {
+    public var devices: List<TitleBarDeviceOption> by mutableStateOf(emptyList())
+        private set
+    public var processes: List<TitleBarProcessOption> by mutableStateOf(emptyList())
         private set
 
     public var selectedDeviceSerial: String? by mutableStateOf(null)
         private set
     public var selectedDeviceLabel: String? by mutableStateOf(null)
         private set
+    public var selectedProcessPid: Int? by mutableStateOf(null)
+        private set
+    public var selectedProcessName: String? by mutableStateOf(null)
+        private set
     public var selectedPackageName: String? by mutableStateOf(null)
         private set
 
-    public val hasSelection: Boolean
-        get() = selectedDeviceSerial != null || selectedPackageName != null
+    /** Replaces the discovered devices, keeping the selected device while it is still connected. */
+    public fun updateDevices(discovered: List<TitleBarDeviceOption>) {
+        devices = discovered
+        val selected = discovered.firstOrNull { it.serial == selectedDeviceSerial }
+        when {
+            selected == null -> {
+                val automatic = discovered.filter(TitleBarDeviceOption::online).singleOrNull()
+                if (automatic != null) selectDevice(automatic.serial) else clearDevice()
+            }
+            !selected.online -> clearDevice()
+            else -> selectedDeviceLabel = selected.label
+        }
+    }
 
-    public val hasTargets: Boolean
-        get() = registrations.isNotEmpty()
+    /** Replaces the discovered processes of the selected device, dropping a selection that disappeared. */
+    public fun updateProcesses(discovered: List<TitleBarProcessOption>) {
+        processes = discovered
+        val selected = discovered.firstOrNull { it.pid == selectedProcessPid }
+        if (selected == null) {
+            selectedProcessPid = null
+            selectedProcessName = null
+        } else {
+            selectedPackageName = selected.packageName
+        }
+    }
 
+    /** Selects a connected device; a device change invalidates the previously selected process. */
+    public fun selectDevice(serial: String) {
+        val device = devices.firstOrNull { it.serial == serial }
+        if (selectedDeviceSerial != serial) {
+            selectedProcessPid = null
+            selectedProcessName = null
+            selectedPackageName = null
+            processes = emptyList()
+        }
+        selectedDeviceSerial = serial
+        selectedDeviceLabel = device?.label ?: serial
+    }
+
+    /** Selects one of the discovered processes. */
+    public fun selectProcess(pid: Int) {
+        val process = processes.firstOrNull { it.pid == pid } ?: return
+        selectedProcessPid = pid
+        selectedProcessName = process.name
+        selectedPackageName = process.packageName
+    }
+
+    /** Pages mirror the device they adopt so the fixed control keeps showing the real target. */
     public fun chooseDevice(serial: String, label: String) {
-        if (selectedDeviceSerial != serial) selectedPackageName = null
+        if (selectedDeviceSerial != serial) {
+            selectedProcessPid = null
+            selectedProcessName = null
+            selectedPackageName = null
+        }
         selectedDeviceSerial = serial
         selectedDeviceLabel = label
     }
@@ -72,10 +132,21 @@ public class TitleBarTargetHost internal constructor() {
     public fun clearDevice() {
         selectedDeviceSerial = null
         selectedDeviceLabel = null
+        selectedProcessPid = null
+        selectedProcessName = null
         selectedPackageName = null
+        processes = emptyList()
     }
 
-    public fun choosePackage(packageName: String) {
+    /** Pages mirror the process they adopt; the title-bar selection stays the shared target. */
+    public fun chooseProcess(pid: Int, name: String, packageName: String?) {
+        selectedProcessPid = pid
+        selectedProcessName = name
+        selectedPackageName = packageName
+    }
+
+    /** Pages mirror a page-level application filter; the title bar does not show an app selector. */
+    public fun choosePackage(packageName: String?) {
         selectedPackageName = packageName
     }
 
@@ -83,31 +154,6 @@ public class TitleBarTargetHost internal constructor() {
 
     public fun packageReady(packageName: String?): Boolean =
         selectedPackageName == null || selectedPackageName == packageName
-
-    internal fun register(
-        slot: TitleBarTargetSlot,
-        owner: Any,
-        content: State<@Composable () -> Unit>,
-    ) {
-        registrations[slot] = TitleBarTargetRegistration(owner, content)
-    }
-
-    internal fun unregister(
-        slot: TitleBarTargetSlot,
-        owner: Any,
-    ) {
-        if (registrations[slot]?.owner === owner) registrations.remove(slot)
-    }
-
-    internal fun registration(slot: TitleBarTargetSlot): TitleBarTargetRegistration? = registrations[slot]
-
-    internal fun registerRefresh(registration: TitleBarRefreshRegistration) {
-        refreshRegistration = registration
-    }
-
-    internal fun unregisterRefresh(owner: Any) {
-        if (refreshRegistration?.owner === owner) refreshRegistration = null
-    }
 }
 
 @Composable
@@ -117,62 +163,38 @@ public fun rememberTitleBarTargetHost(): TitleBarTargetHost = remember { TitleBa
 public val LocalTitleBarTargetHost = staticCompositionLocalOf<TitleBarTargetHost?> { null }
 
 /**
- * Publishes one existing selector to the title bar, or renders it unchanged at the call site.
- * The caller owns device/process state and callbacks in both modes.
+ * Keeps a page-level device selector inside the page body. The hosted title bar owns the device and
+ * process targets app-wide, so a page must not publish a competing control into the title strip.
  */
 @Composable
-@Suppress("FunctionName")
+@Suppress("FunctionName", "UnusedParameter")
 public fun TitleBarTargetOrInline(
     slot: TitleBarTargetSlot,
     content: @Composable () -> Unit,
 ) {
-    val active = LocalWindowMenuBarActive.current
-    val host = if (active) LocalTitleBarTargetHost.current else null
-    if (host == null) {
-        content()
-        return
-    }
-
-    val owner = remember { Any() }
-    val currentContent = rememberUpdatedState(content)
-    DisposableEffect(host, slot, owner) {
-        host.register(slot, owner, currentContent)
-        onDispose { host.unregister(slot, owner) }
-    }
+    if (LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null) return
+    content()
 }
 
-/** Moves a page's device/target refresh action to the title bar while keeping its original inline UI elsewhere. */
+/** The shell refreshes the targets automatically; the hosted title bar has no manual refresh action. */
 @Composable
-@Suppress("FunctionName")
+@Suppress("FunctionName", "UnusedParameter")
 public fun TitleBarRefreshOrInline(
     enabled: Boolean,
     onRefresh: () -> Unit,
     inline: @Composable () -> Unit,
 ) {
-    val host = if (LocalWindowMenuBarActive.current) LocalTitleBarTargetHost.current else null
-    if (host == null) {
-        inline()
-        return
-    }
-
-    val owner = remember { Any() }
-    val currentEnabled = rememberUpdatedState(enabled)
-    val currentRefresh = rememberUpdatedState(onRefresh)
-    DisposableEffect(host, owner) {
-        host.registerRefresh(TitleBarRefreshRegistration(owner, currentEnabled, currentRefresh))
-        onDispose { host.unregisterRefresh(owner) }
-    }
+    if (LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null) return
+    inline()
 }
 
-/** Keeps both slots in place while rendering selectors supplied by the visible page. */
+/** Renders the fixed application-wide device and process selectors of the title bar. */
 @Composable
 @Suppress("FunctionName")
 public fun TitleBarTargetControls(
     host: TitleBarTargetHost,
     language: UiLanguage = UiLanguage.ENGLISH,
 ) {
-    val device = host.registration(TitleBarTargetSlot.DEVICE)
-    val process = host.registration(TitleBarTargetSlot.PROCESS)
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -185,20 +207,17 @@ public fun TitleBarTargetControls(
                     .testTag("titlebar-device-slot"),
             contentAlignment = Alignment.CenterEnd,
         ) {
-            if (device != null) {
-                key(device.owner) { device.content.value() }
-            } else {
-                DeviceDropdownSelector(
-                    language = language,
-                    items = emptyList<String>(),
-                    selectedItem = host.selectedDeviceLabel,
-                    onItemSelected = {},
-                    itemLabel = { it },
-                    modifier = Modifier.width(TitleBarTargetWidth),
-                    fillWidth = true,
-                    enabled = false,
-                )
-            }
+            DeviceDropdownSelector(
+                language = language,
+                items = host.devices,
+                selectedItem = host.devices.firstOrNull { it.serial == host.selectedDeviceSerial },
+                onItemSelected = { device -> host.selectDevice(device.serial) },
+                itemLabel = TitleBarDeviceOption::label,
+                itemSecondary = { device -> if (device.online) null else offlineLabel(language) },
+                itemEnabled = TitleBarDeviceOption::online,
+                modifier = Modifier.width(TitleBarTargetWidth),
+                fillWidth = true,
+            )
         }
         Box(
             modifier =
@@ -208,40 +227,26 @@ public fun TitleBarTargetControls(
                     .testTag("titlebar-process-slot"),
             contentAlignment = Alignment.CenterEnd,
         ) {
-            if (process != null) {
-                key(process.owner) { process.content.value() }
-            } else {
-                DropdownSelector(
-                    items = emptyList<String>(),
-                    selectedItem = host.selectedPackageName,
-                    onItemSelected = {},
-                    itemLabel = { it },
-                    placeholder = if (language == UiLanguage.SIMPLIFIED_CHINESE) "进程" else "Process",
-                    modifier = Modifier.width(TitleBarTargetWidth),
-                    fillWidth = true,
-                    enabled = false,
-                )
-            }
+            DropdownSelector(
+                items = host.processes,
+                selectedItem = host.processes.firstOrNull { it.pid == host.selectedProcessPid },
+                onItemSelected = { process -> host.selectProcess(process.pid) },
+                itemLabel = { process -> "${process.name} (${process.pid})" },
+                selectedItemLabel = TitleBarProcessOption::name,
+                placeholder = if (language == UiLanguage.SIMPLIFIED_CHINESE) "进程" else "Process",
+                itemSecondary = { process -> "PID ${process.pid} · ${process.user}" },
+                selectorDescription = if (language == UiLanguage.SIMPLIFIED_CHINESE) "进程选择器" else "Process selector",
+                searchable = true,
+                searchLanguage = language,
+                itemSearchText = { process -> "${process.name} ${process.pid} ${process.user}" },
+                modifier = Modifier.width(TitleBarTargetWidth),
+                fillWidth = true,
+                enabled = host.selectedDeviceSerial != null,
+                menuModifier = Modifier.widthIn(min = 240.dp, max = 380.dp).heightIn(max = 360.dp),
+            )
         }
-        TitleBarRefreshControl(host.refreshRegistration, language)
     }
 }
 
-@Composable
-@Suppress("FunctionName")
-private fun TitleBarRefreshControl(
-    refresh: TitleBarRefreshRegistration?,
-    language: UiLanguage,
-) {
-    Box(
-        modifier = Modifier.width(68.dp).testTag("titlebar-refresh-slot"),
-        contentAlignment = Alignment.CenterEnd,
-    ) {
-        ProfilerCompactButton(
-            text = if (language == UiLanguage.SIMPLIFIED_CHINESE) "刷新" else "Refresh",
-            onClick = { refresh?.onRefresh?.value?.invoke() },
-            enabled = refresh?.enabled?.value == true,
-            modifier = Modifier.width(68.dp),
-        )
-    }
-}
+private fun offlineLabel(language: UiLanguage): String =
+    if (language == UiLanguage.SIMPLIFIED_CHINESE) "离线" else "Offline"

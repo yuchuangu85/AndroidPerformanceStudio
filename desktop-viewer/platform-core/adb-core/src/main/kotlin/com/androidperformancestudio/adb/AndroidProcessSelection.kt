@@ -67,6 +67,14 @@ public class AndroidProcessSelection<P>(
         return true
     }
 
+    /** Clears the choice while keeping the device and its discovered processes. */
+    @Synchronized
+    public fun clearProcess() {
+        val previous = current
+        if (previous.selectedPid == null) return
+        publish(previous.copy(selectedPid = null))
+    }
+
     private fun publish(next: AndroidProcessSelectionSnapshot<P>) {
         if (next == current) return
         current = next

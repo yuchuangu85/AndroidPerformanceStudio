@@ -162,6 +162,28 @@ class DropdownSelectorTest {
         }
 
     @Test
+    fun `empty searchable dropdown opens with a no-options hint instead of ignoring the click`() =
+        runDesktopComposeUiTest {
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    DropdownSelector(
+                        items = emptyList<String>(),
+                        selectedItem = null,
+                        onItemSelected = {},
+                        itemLabel = { it },
+                        placeholder = "Process",
+                        selectorDescription = "Process selector",
+                        searchable = true,
+                    )
+                }
+            }
+
+            onNodeWithContentDescription("Process selector").performClick()
+            onNodeWithTag("dropdown-selector-search").assertExists()
+            onNodeWithText("No options available yet").assertExists()
+        }
+
+    @Test
     fun `filter handles case whitespace and preserves source order`() {
         val items = listOf("com.example.Camera", "com.sample.Maps", "org.example.Music")
         assertEquals(listOf("com.example.Camera", "org.example.Music"), filterDropdownItems(items, "  ExAmPlE ") { it })

@@ -22,18 +22,15 @@ class BatteryProfilerWorkspaceSourceTest {
         )
 
     @Test
-    fun `device and app uid selectors publish ordered title bar dropdowns with shared refresh`() {
+    fun `device target stays in the title bar and the app uid target renders inline`() {
         val toolbar = source.headerToolbar()
         assertTrue(toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
-        assertTrue(toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
-        assertTrue(toolbar.indexOf("TitleBarTargetSlot.DEVICE") < toolbar.indexOf("TitleBarTargetSlot.PROCESS"))
+        assertTrue(!toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
         assertTrue(toolbar.contains("DeviceDropdownSelector("))
         assertTrue(toolbar.contains("items = state.targets"))
         assertTrue(toolbar.contains("targetHost?.choosePackage(it.packageName)"))
         assertTrue(toolbar.contains("controller.selectTarget(it.packageName)"))
-        assertTrue(toolbar.contains("displayTextOverride = targetHost?.selectedPackageName"))
-        assertTrue(toolbar.contains("selectorDescription =\n"))
-        assertTrue(toolbar.contains("if (inTitleBar) Res.string.process else Res.string.app_uid"))
+        assertTrue(toolbar.contains("Res.string.app_uid"))
         assertTrue(toolbar.contains("if (!inTitleBar) HeaderSpacer()"))
         assertTrue(toolbar.contains("TitleBarRefreshOrInline("))
         assertTrue(toolbar.contains("controller.refreshDevices()"))

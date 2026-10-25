@@ -72,6 +72,7 @@ import java.util.Locale
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -143,6 +144,30 @@ fun FrameWindowScope.DesktopAppMainPage(
     val pageMenuHost = rememberPageMenuHost()
     val titleBarTargetHost = rememberTitleBarTargetHost()
     val canEmbedTitleBarTargets = MacOsWindowChrome.embedsTitleBar()
+    val targetBarSource = remember(applicationSettings.androidSdkPath) {
+        DesktopTargetBarSource(applicationSettings.androidSdkPath)
+    }
+    // The fixed title-bar device/process controls discover their own lists; there is no refresh action.
+    LaunchedEffect(targetBarSource, titleBarTargetHost, canEmbedTitleBarTargets) {
+        if (!canEmbedTitleBarTargets) return@LaunchedEffect
+        while (true) {
+            val devices = targetBarSource.loadDevices()
+            if (devices != null) titleBarTargetHost.updateDevices(devices)
+            val serial = titleBarTargetHost.selectedDeviceSerial
+            if (serial != null) {
+                val processes = targetBarSource.loadProcesses(serial)
+                if (processes != null && titleBarTargetHost.selectedDeviceSerial == serial) {
+                    titleBarTargetHost.updateProcesses(processes)
+                }
+            }
+            delay(DesktopTargetBarSource.REFRESH_INTERVAL_MILLIS)
+        }
+    }
+    LaunchedEffect(targetBarSource, titleBarTargetHost, titleBarTargetHost.selectedDeviceSerial) {
+        val serial = titleBarTargetHost.selectedDeviceSerial ?: return@LaunchedEffect
+        val processes = targetBarSource.loadProcesses(serial) ?: return@LaunchedEffect
+        if (titleBarTargetHost.selectedDeviceSerial == serial) titleBarTargetHost.updateProcesses(processes)
+    }
     WindowMenuBar(
         host = pageMenuHost,
         chrome =

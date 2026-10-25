@@ -201,7 +201,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     actions = actions,
                     language = language,
                 )
-                if (LocalTitleBarTargetHost.current == null) HeaderSpacer()
+                HeaderSpacer()
                 TitleBarRefreshOrInline(
                     enabled = !state.isRunning && !state.isRefreshing,
                     onRefresh = actions.onRefresh,

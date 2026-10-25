@@ -124,9 +124,30 @@ internal fun DeviceTargetPage(
             }
         }
     }
+    // The title bar owns one process target app-wide; follow it whenever the page can resolve the pid.
+    LaunchedEffect(
+        titleBarHost,
+        titleBarHost?.selectedProcessPid,
+        state.selection?.processes,
+        state.selectedProcessId,
+        state.selectedSerial,
+    ) {
+        if (titleBarHost != null && titleBarHost.deviceReady(state.selectedSerial)) {
+            val desired = titleBarHost.selectedProcessPid
+            if (
+                desired != null &&
+                desired != state.selectedProcessId &&
+                state.selection?.processes.orEmpty().any { it.pid == desired }
+            ) {
+                actions.onSelectProcess(desired)
+            }
+        }
+    }
+    // A selected process carries its own application context, so the page-level app filter
+    // cannot block capture once the fixed title bar has picked a process.
     val targetReady =
         titleBarHost?.deviceReady(state.selectedSerial) != false &&
-            titleBarHost?.packageReady(state.selectedPackageName) != false
+            (state.selectedProcessId != null || titleBarHost?.packageReady(state.selectedPackageName) != false)
     Column(Modifier.fillMaxSize().background(style.workspace)) {
         HeaderToolbar(
             language = currentSimpleperfLanguage(),
@@ -171,19 +192,15 @@ internal fun DeviceTargetPage(
             HeaderSpacer()
             TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
                 SimpleperfLocalization(language) {
+                    // The title bar lists every process on the device so a target can be chosen
+                    // without first picking an application; the chosen app stays a separate filter.
                     ProcessSelector(
                         state.selectedProcessId,
-                        state.processesForSelectedPackage,
-                        { pid ->
-                            state.selectedPackageName?.let { titleBarHost?.choosePackage(it) }
-                            actions.onSelectProcess(pid)
-                        },
+                        state.selection?.processes.orEmpty(),
+                        actions.onSelectProcess,
                         style,
                         processModifier,
                         !captureActive && !state.isLoading,
-                        titleBarHost?.selectedPackageName?.takeIf {
-                            titleBarHost.packageReady(state.selectedPackageName) == false
-                        },
                     )
                 }
             }
@@ -390,7 +407,6 @@ private fun ProcessSelector(
     style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
-    displayTextOverride: String?,
 ) {
     val language = currentSimpleperfLanguage()
     DropdownSelector(
@@ -404,7 +420,6 @@ private fun ProcessSelector(
         placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_process, language),
         modifier = modifier,
         enabled = enabled,
-        displayTextOverride = displayTextOverride,
         selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_process_selector, language),
         colors = style,
         itemSecondary = { "PID ${it.pid} · ${it.user}" },

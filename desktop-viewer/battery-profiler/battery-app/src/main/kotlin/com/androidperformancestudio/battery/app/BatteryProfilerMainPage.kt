@@ -273,40 +273,34 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                         )
                     }
                     if (!inTitleBar) HeaderSpacer()
-                    TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
-                        DropdownSelector(
-                            items = state.targets,
-                            searchable = true,
-                            searchLanguage = language,
-                            selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
-                            onItemSelected = {
-                                targetHost?.choosePackage(it.packageName)
-                                controller.selectTarget(it.packageName)
-                            },
-                            itemLabel = {
-                                localizedStringResource(
-                                    if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                    language,
-                                    it.packageName,
-                                    it.uid,
-                                )
-                            },
-                            placeholder = localizedStringResource(if (inTitleBar) Res.string.process else Res.string.app_uid, language),
-                            selectorDescription =
-                                localizedStringResource(
-                                    if (inTitleBar) Res.string.process else Res.string.app_uid,
-                                    language,
-                                ),
-                            enabled =
-                                !state.isRunning &&
-                                    state.selectedDeviceSerial != null &&
-                                    (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
-                            modifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier,
-                            fillWidth = inTitleBar,
-                            displayTextOverride = targetHost?.selectedPackageName,
-                        )
-                    }
-                    if (!inTitleBar) HeaderSpacer()
+                    // The title bar owns the application-wide process target; the battery app/UID target stays here.
+                    DropdownSelector(
+                        items = state.targets,
+                        searchable = true,
+                        searchLanguage = language,
+                        selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
+                        onItemSelected = {
+                            targetHost?.choosePackage(it.packageName)
+                            controller.selectTarget(it.packageName)
+                        },
+                        itemLabel = {
+                            localizedStringResource(
+                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
+                                language,
+                                it.packageName,
+                                it.uid,
+                            )
+                        },
+                        placeholder = localizedStringResource(Res.string.app_uid, language),
+                        selectorDescription = localizedStringResource(Res.string.app_uid, language),
+                        enabled =
+                            !state.isRunning &&
+                                state.selectedDeviceSerial != null &&
+                                (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
+                        modifier = Modifier,
+                        fillWidth = false,
+                    )
+                    HeaderSpacer()
                     TitleBarRefreshOrInline(
                         enabled = !state.isRunning && !state.isRefreshing,
                         onRefresh = { scope.launch { controller.refreshDevices() } },

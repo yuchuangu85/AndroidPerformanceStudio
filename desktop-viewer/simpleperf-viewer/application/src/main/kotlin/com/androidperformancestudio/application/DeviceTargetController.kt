@@ -274,10 +274,10 @@ class DeviceTargetController(
         if (!sameDevice) processSelection.selectDevice(serial)
         val result = gateway.loadSelection(serial)
         if (mutableState.value.selectedSerial != serial) return
-        mutableState.value =
-            when (result) {
-                is StudioResult.Success -> {
-                    processSelection.selectDevice(serial)
+        when (result) {
+            is StudioResult.Success -> {
+                processSelection.selectDevice(serial)
+                mutableState.value =
                     mutableState.value.copy(
                         selectedSerial = serial,
                         selection = result.value,
@@ -287,9 +287,12 @@ class DeviceTargetController(
                         threads = emptyList(),
                         isLoading = false,
                     )
-                }
-                is StudioResult.Failure -> mutableState.value.copy(isLoading = false, error = result.error)
+                // The process picker is device-wide: expose every process without requiring an app first.
+                processSelection.updateProcesses(serial, result.value.processes)
             }
+            is StudioResult.Failure ->
+                mutableState.value = mutableState.value.copy(isLoading = false, error = result.error)
+        }
     }
 
     fun updateSearch(query: String) {
@@ -307,35 +310,52 @@ class DeviceTargetController(
                 threads = emptyList(),
             )
         mutableState.value = selected.withDefaultCaptureSetup()
-        selected.selectedSerial?.let { serial ->
-            processSelection.updateProcesses(serial, selected.processesForSelectedPackage)
+        val serial = selected.selectedSerial
+        val selection = selected.selection
+        if (serial != null && selection != null) {
+            syncProcessChoices(serial, selection)
+            processSelection.clearProcess()
         }
     }
 
     suspend fun selectProcess(pid: Int) {
         val current = mutableState.value
         val serial = current.selectedSerial
-        val packageName = current.selectedPackageName
-        if (serial == null || packageName == null || !processSelection.selectProcess(pid)) return
-        val process = processSelection.snapshot.processes.first { it.pid == pid }
-        mutableState.value =
-            mutableState.value
-                .copy(
-                    selectedTarget = CaptureTarget.Process(process.pid, process.name),
-                    captureSetup = null,
-                    threads = emptyList(),
-                    isLoading = true,
-                    error = null,
-                ).withDefaultCaptureSetup()
-        val result = gateway.loadThreads(serial, pid)
-        val latest = mutableState.value
-        if (latest.selectedPackageName == packageName && latest.selectedProcessId == pid) {
+        val selection = current.selection
+        val process = selection?.processes?.firstOrNull { it.pid == pid }
+        if (serial == null || selection == null || process == null) return
+        syncProcessChoices(serial, selection)
+        if (processSelection.selectProcess(pid)) {
             mutableState.value =
-                when (result) {
-                    is StudioResult.Success -> latest.copy(threads = result.value, isLoading = false)
-                    is StudioResult.Failure -> latest.copy(isLoading = false, error = result.error)
-                }
+                mutableState.value
+                    .copy(
+                        selectedTarget = CaptureTarget.Process(process.pid, process.name),
+                        captureSetup = null,
+                        threads = emptyList(),
+                        isLoading = true,
+                        error = null,
+                    ).withDefaultCaptureSetup()
+            val result = gateway.loadThreads(serial, pid)
+            val latest = mutableState.value
+            if (latest.selectedProcessId == pid) {
+                mutableState.value =
+                    when (result) {
+                        is StudioResult.Success -> latest.copy(threads = result.value, isLoading = false)
+                        is StudioResult.Failure -> latest.copy(isLoading = false, error = result.error)
+                    }
+            }
         }
+    }
+
+    /** Keeps the picker's discovery list aligned with the device-wide process list of the loaded selection. */
+    private fun syncProcessChoices(
+        serial: String,
+        selection: DeviceSelection,
+    ) {
+        val snapshot = processSelection.snapshot
+        if (snapshot.serial == serial && snapshot.processes == selection.processes) return
+        processSelection.selectDevice(serial)
+        processSelection.updateProcesses(serial, selection.processes)
     }
 
     fun selectThread(thread: ThreadOption) {
@@ -462,7 +482,7 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
     if (selectedSerial == null) {
         return null
     }
-    return selectedTarget?.toSimpleperfTarget(selectedPackageName)?.let { target ->
+    return selectedTarget?.toSimpleperfTarget(selection)?.let { target ->
         CaptureSetup(
             template = template,
             parameters = template.create(target),
@@ -473,11 +493,19 @@ private fun DeviceTargetState.createCaptureSetup(template: SamplingTemplate): Ca
 private fun DeviceTargetState.withDefaultCaptureSetup(): DeviceTargetState =
     copy(captureSetup = createCaptureSetup(SamplingTemplate.APP_CPU_BASIC))
 
-private fun CaptureTarget.toSimpleperfTarget(selectedPackageName: String?): SimpleperfTarget =
+private fun CaptureTarget.toSimpleperfTarget(selection: DeviceSelection?): SimpleperfTarget =
     when (this) {
         is CaptureTarget.App -> SimpleperfTarget.App(packageName)
-        is CaptureTarget.Process -> SimpleperfTarget.Process(pid, selectedPackageName)
-        is CaptureTarget.Thread -> SimpleperfTarget.Thread(tid, selectedPackageName)
+        // The process picker is device-wide, so a process keeps its own application context
+        // even when the application filter currently shows a different app.
+        is CaptureTarget.Process -> SimpleperfTarget.Process(pid, selection?.packageForProcess(pid))
+        is CaptureTarget.Thread -> SimpleperfTarget.Thread(tid, selection?.packageForProcess(pid))
+    }
+
+/** Owning application package of a live process, or null for processes that belong to no app. */
+internal fun DeviceSelection.packageForProcess(pid: Int): String? =
+    processes.firstOrNull { it.pid == pid }?.let { process ->
+        packages.firstOrNull { process.belongsToPackage(it.packageName) }?.packageName
     }
 
 private fun ProcessOption.belongsToPackage(packageName: String): Boolean {

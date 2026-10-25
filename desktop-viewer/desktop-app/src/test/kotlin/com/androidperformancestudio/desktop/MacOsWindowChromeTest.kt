@@ -63,12 +63,26 @@ class MacOsWindowChromeTest {
         val page = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"))
 
         assertTrue(chrome.contains("modifier = Modifier.fillMaxWidth().padding(start = 80.dp, end = 12.dp)"))
-        assertTrue(chrome.contains("Box(Modifier.widthIn(max = 484.dp).clipToBounds()) { targetControls() }"))
+        assertTrue(
+            chrome.contains("Box(Modifier.widthIn(max = TitleBarTargetControlsWidth).clipToBounds()) { targetControls() }"),
+        )
         assertTrue(page.contains("LocalTitleBarTargetHost provides"))
         assertTrue(page.contains("titleBarTargetHost.takeIf { canEmbedTitleBarTargets && active }"))
         assertTrue(page.contains("displayScale = 1f"))
         assertTrue(page.contains("TitleBarTargetControls(titleBarTargetHost, language)"))
         assertTrue(page.contains("targetControls = {"))
+    }
+
+    @Test
+    fun `fixed title bar targets refresh themselves without a manual action`() {
+        val chrome = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/MacOsWindowChrome.kt"))
+        val page = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"))
+
+        assertTrue(!chrome.contains("TitleBarRefreshControl"))
+        assertTrue(page.contains("DesktopTargetBarSource(applicationSettings.androidSdkPath)"))
+        assertTrue(page.contains("titleBarTargetHost.updateDevices(devices)"))
+        assertTrue(page.contains("titleBarTargetHost.updateProcesses(processes)"))
+        assertTrue(page.contains("DesktopTargetBarSource.REFRESH_INTERVAL_MILLIS"))
     }
 
     @Test
