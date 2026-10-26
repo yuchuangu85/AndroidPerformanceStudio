@@ -191,13 +191,23 @@ internal fun MemoryObjectInspector(
         }
         SelectionContainer {
             Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    detail.className,
-                    fontWeight = FontWeight.SemiBold,
-                    style = ViewerTypography.bodyCompact,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (detail.objectId in MemoryProfilerPresenter.leakObjectIds(state)) {
+                        MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-inspector-warning"))
+                    }
+                    Text(
+                        detail.className,
+                        Modifier.weight(1f),
+                        fontWeight = FontWeight.SemiBold,
+                        style = ViewerTypography.bodyCompact,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     "ID 0x${java.lang.Long.toHexString(detail.objectId)}",
                     color = MaterialTheme.colorScheme.primary,

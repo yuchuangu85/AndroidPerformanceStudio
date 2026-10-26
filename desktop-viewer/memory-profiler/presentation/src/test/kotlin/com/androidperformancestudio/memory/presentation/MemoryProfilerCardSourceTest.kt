@@ -8,26 +8,14 @@ import kotlin.test.assertTrue
 
 class MemoryProfilerCardSourceTest {
     @Test
-    fun `metrics findings and bitmap cards use shared surfaces without duplicate drawing`() {
-        mapOf(
-            "MemoryProfilerScreen.kt" to
-                listOf(
-                    "LeakSuspectsPhaseTwo",
-                    "ActivityLeakSection",
-                    "NativeHeapSummarySection",
-                    "HeapDiffSection",
-                    "BitmapSection",
-                ),
-            "MemoryProfilerBitmapDumpPage.kt" to listOf("BitmapSummaryMetricCard", "BitmapDumpImageCard"),
-        ).forEach { (file, functions) ->
-            val source = source(file)
-            assertTrue(source.contains("import com.androidperformancestudio.ui.studio.StudioCard"))
-            functions.forEach { name ->
-                val body = functionSource(source, name)
-                assertTrue(body.contains("StudioCard("), "$name must use the shared card")
-                assertFalse(body.contains(".background("), "$name must not draw a duplicate background")
-                assertFalse(body.contains(".border("), "$name must not draw a duplicate border")
-            }
+    fun `overview metrics and bitmap cards use shared surfaces without duplicate drawing`() {
+        val bitmapSource = source("MemoryProfilerBitmapDumpPage.kt")
+        assertTrue(bitmapSource.contains("import com.androidperformancestudio.ui.studio.StudioCard"))
+        listOf("BitmapSummaryMetricCard", "BitmapDumpImageCard").forEach { name ->
+            val body = functionSource(bitmapSource, name)
+            assertTrue(body.contains("StudioCard("), "$name must use the shared card")
+            assertFalse(body.contains(".background("), "$name must not draw a duplicate background")
+            assertFalse(body.contains(".border("), "$name must not draw a duplicate border")
         }
         val metric = functionSource(source("MemoryProfilerScreen.kt"), "MetricCard")
         assertTrue(metric.contains("StudioMetricCard("))
@@ -35,6 +23,8 @@ class MemoryProfilerCardSourceTest {
         assertTrue(metric.contains("value = value"))
         assertTrue(metric.contains("modifier = modifier"))
         assertFalse(metric.contains(".padding("))
+        assertFalse(metric.contains(".background("))
+        assertFalse(metric.contains(".border("))
     }
 
     @Test
@@ -57,14 +47,7 @@ class MemoryProfilerCardSourceTest {
     }
 
     @Test
-    fun `leak suspect expansion and image sizing remain on the original content`() {
-        val suspects = functionSource(source("MemoryProfilerScreen.kt"), "LeakSuspectsPhaseTwo")
-        assertTrue(suspects.contains("StudioCard("))
-        assertTrue(suspects.contains(".clickable { expanded = !expanded }"))
-        assertTrue(suspects.contains("remember(suspect)"))
-        assertTrue(suspects.contains("if (expanded)"))
-        assertTrue(suspects.contains("suspect.referenceChain.forEachIndexed"))
-
+    fun `standalone bitmap cards preserve image sizing and unavailable file fallback`() {
         val bitmapSource = source("MemoryProfilerBitmapDumpPage.kt")
         val metrics = functionSource(bitmapSource, "BitmapSummaryMetricCard")
         assertTrue(metrics.contains(".width(150.dp)"))

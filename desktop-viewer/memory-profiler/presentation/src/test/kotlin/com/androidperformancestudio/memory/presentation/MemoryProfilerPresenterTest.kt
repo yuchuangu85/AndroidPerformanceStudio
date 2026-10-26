@@ -3,12 +3,113 @@ package com.androidperformancestudio.memory.presentation
 import com.androidperformancestudio.memory.model.BitmapInstanceStats
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.LeakCanaryLeak
+import com.androidperformancestudio.memory.model.LeakCanaryReport
+import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.LeakSuspect
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class MemoryProfilerPresenterTest {
+    @Test
+    fun `default HPROF columns match the Android Studio heap class table`() {
+        assertEquals(
+            setOf(
+                MemoryClassifierColumn.TOTAL_COUNT,
+                MemoryClassifierColumn.NATIVE_SIZE,
+                MemoryClassifierColumn.SHALLOW_SIZE,
+                MemoryClassifierColumn.RETAINED_SIZE,
+            ),
+            MemoryProfilerState().visibleClassifierColumns,
+        )
+    }
+
+    @Test
+    fun `Shark leak classes are marked in the class list issue set`() {
+        val state =
+            MemoryProfilerState(
+                leakCanaryReport =
+                    LeakCanaryReport(
+                        status = LeakCanaryStatus.COMPLETED,
+                        applicationLeaks =
+                            listOf(
+                                LeakCanaryLeak(
+                                    signature = "signature",
+                                    shortDescription = "retained object",
+                                    leakingClassName = "com.example.RetainedActivity",
+                                ),
+                            ),
+                    ),
+            )
+
+        assertEquals(setOf("com.example.RetainedActivity"), MemoryProfilerPresenter.leakClassNames(state))
+    }
+
+    @Test
+    fun `leak warning matches deobfuscated class rows when analysis uses the obfuscated name`() {
+        val state =
+            MemoryProfilerState(
+                classes =
+                    listOf(
+                        ClassStats(
+                            className = "com.example.MainActivity",
+                            obfuscatedClassName = "a.b",
+                        ),
+                    ),
+                heapBaseClasses =
+                    listOf(
+                        ClassStats(
+                            className = "com.example.MainActivity",
+                            obfuscatedClassName = "a.b",
+                        ),
+                    ),
+                leakSuspects = listOf(LeakSuspect("a.b", "destroyed Activity remains reachable")),
+            )
+
+        assertTrue("com.example.MainActivity" in MemoryProfilerPresenter.leakClassNames(state))
+    }
+
+    @Test
+    fun `mapped lifecycle candidates use the same names for filtering counting and warnings`() {
+        val mappedClass = ClassStats("sample.Screen", instanceCount = 2, obfuscatedClassName = "a.b")
+        val state =
+            MemoryProfilerState(
+                classes = listOf(mappedClass),
+                heapBaseClasses = listOf(mappedClass),
+                lifecycleLeakObjects = listOf(MemoryLifecycleLeakObject(1, "a.b", "App")),
+                heapFilter = "App",
+                leakFilter = MemoryLeakFilter.ACTIVITY_FRAGMENT_LEAK,
+            )
+
+        val presented = MemoryProfilerPresenter.present(state)
+        assertEquals(listOf("sample.Screen"), presented.displayedClasses.map { it.className })
+        assertEquals(1, presented.classListSummary.leakCount)
+        assertTrue("sample.Screen" in MemoryProfilerPresenter.leakClassNames(presented))
+    }
+
+    @Test
+    fun `leak object IDs are preserved for instance row warning markers`() {
+        val state =
+            MemoryProfilerState(
+                lifecycleLeakObjects = listOf(MemoryLifecycleLeakObject(7L, "sample.Activity", "App")),
+                leakCanaryReport =
+                    LeakCanaryReport(
+                        applicationLeaks =
+                            listOf(
+                                LeakCanaryLeak(
+                                    signature = "signature",
+                                    shortDescription = "retained object",
+                                    leakingClassName = "sample.Other",
+                                    leakingObjectId = 9L,
+                                ),
+                            ),
+                    ),
+            )
+
+        assertEquals(setOf(7L, 9L), MemoryProfilerPresenter.leakObjectIds(state))
+    }
+
     @Test
     fun `count sort is descending and stable by class name`() {
         val sorted = MemoryProfilerPresenter.sortClasses(sampleClasses(), MemoryHistogramSort.Count)

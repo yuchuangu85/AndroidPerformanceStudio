@@ -3,6 +3,7 @@
 package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.MemoryHeapNames
 
 public object MemoryProfilerPresenter {
     @Suppress("ktlint:standard:function-expression-body")
@@ -12,21 +13,69 @@ public object MemoryProfilerPresenter {
         val activityFragmentLeakClasses = activityFragmentLeakClassNames(input)
         val duplicateClasses = duplicateBitmapClasses(input)
         val displayed = buildDisplayedClasses(input, leakClasses, activityFragmentLeakClasses, duplicateClasses)
+        val leakIds = leakObjectIds(input)
         return input.copy(
             classes = sortedAll,
             displayedClasses = displayed,
+            selectedClassInstances = input.selectedClassInstances.map { it.copy(isLeakWarning = it.objectId in leakIds) },
             classListSummary = buildSummary(input, displayed, duplicateClasses),
-            classifierRows =
-                buildClassifierRows(
-                    displayed,
-                    input.arrangeBy,
-                    input.classifierSortColumn,
-                    input.classifierSortDirection,
-                ),
+            classifierRows = buildHeapClassifierRows(input, displayed),
         )
     }
 
-    /** Builds the same hierarchical classifier shape used by Android Studio. */
+    private fun buildHeapClassifierRows(
+        input: MemoryProfilerState,
+        displayed: List<ClassStats>,
+    ): List<MemoryClassifierRow> {
+        val heaps =
+            if (input.heapFilter != null) {
+                mapOf(input.heapFilter to input.heapBaseClasses)
+            } else {
+                input.perHeapClasses
+            }
+        if (heaps.isEmpty()) {
+            return buildClassifierRows(displayed, input.arrangeBy, input.classifierSortColumn, input.classifierSortDirection)
+        }
+        val orderedHeaps = MemoryHeapNames.ordered.filter { it in heaps } + (heaps.keys - MemoryHeapNames.ordered.toSet()).sorted()
+        val roots =
+            orderedHeaps.map { heap ->
+                val scoped = input.copy(heapFilter = heap, heapBaseClasses = heaps.getValue(heap))
+                val classes =
+                    buildDisplayedClasses(
+                        scoped,
+                        leakClassNames(scoped),
+                        activityFragmentLeakClassNames(scoped),
+                        duplicateBitmapClasses(scoped),
+                    )
+                val summary = buildSummary(scoped, classes, duplicateBitmapClasses(scoped))
+                MemoryClassifierRow(
+                    id = "heap:$heap",
+                    label = "$heap heap",
+                    heapName = heap,
+                    heapNames = setOf(heap),
+                    totalCount = summary.totalCount.toLong(),
+                    shallowSize = summary.totalShallowSize,
+                    nativeSize = summary.totalNativeSize,
+                    retainedNativeSize = summary.totalRetainedNativeSize,
+                    retainedSize = summary.totalRetainedSize,
+                    children =
+                        buildClassifierRows(classes, input.arrangeBy, input.classifierSortColumn, input.classifierSortDirection)
+                            .map { it.inHeap(heap) },
+                )
+            }
+        return sortRows(roots, input.classifierSortColumn, input.classifierSortDirection)
+    }
+
+    private fun MemoryClassifierRow.inHeap(heap: String): MemoryClassifierRow =
+        copy(
+            id = "heap:$heap/$id",
+            depth = depth + 1,
+            heapName = heap,
+            heapNames = setOf(heap),
+            children = children.map { it.inHeap(heap) },
+        )
+
+    /** Class/package grouping inside a single heap; heap boundaries are preserved by the caller. */
     public fun buildClassifierRows(
         classes: List<ClassStats>,
         arrangeBy: MemoryArrangeBy,
@@ -78,7 +127,7 @@ public object MemoryProfilerPresenter {
     ): MemoryClassifierRow =
         MemoryClassifierRow(
             id = "class:${stats.className}",
-            label = stats.displayClassName,
+            label = classifierClassLabel(stats),
             className = stats.className,
             moduleName = stats.moduleName,
             allocations = stats.allocations,
@@ -150,21 +199,32 @@ public object MemoryProfilerPresenter {
             }
         val valueComparator =
             when (column) {
-                MemoryClassifierColumn.NAME -> compareValues { it.label.lowercase() }
+                MemoryClassifierColumn.NAME -> compareValues { it.className?.substringAfterLast('.') ?: it.label }
                 MemoryClassifierColumn.MODULE_NAME -> compareValues { it.moduleName?.lowercase() }
                 MemoryClassifierColumn.ALLOCATIONS -> compareValues { it.allocations }
                 MemoryClassifierColumn.DEALLOCATIONS -> compareValues { it.deallocations }
                 MemoryClassifierColumn.TOTAL_COUNT -> compareValues { it.totalCount }
                 MemoryClassifierColumn.NATIVE_SIZE -> compareValues { it.nativeSize }
                 MemoryClassifierColumn.SHALLOW_SIZE -> compareValues { it.shallowSize }
-                MemoryClassifierColumn.RETAINED_NATIVE_SIZE -> compareValues { it.retainedNativeSize }
-                MemoryClassifierColumn.RETAINED_SIZE -> compareValues { it.retainedSize }
+                // Studio compares unavailable retained metrics as zero without changing their display value.
+                MemoryClassifierColumn.RETAINED_NATIVE_SIZE -> compareValues { it.retainedNativeSize ?: 0L }
+                MemoryClassifierColumn.RETAINED_SIZE -> compareValues { it.retainedSize ?: 0L }
                 MemoryClassifierColumn.ALLOCATIONS_SIZE -> compareValues { it.allocationsSize }
                 MemoryClassifierColumn.DEALLOCATIONS_SIZE -> compareValues { it.deallocationsSize }
                 MemoryClassifierColumn.SHALLOW_SIZE_CHANGE -> compareValues { it.shallowSizeChange }
             }
-        return rows.sortedWith(valueComparator.thenBy { it.label.lowercase() })
+        return rows.sortedWith(valueComparator)
     }
+
+    private fun classifierClassLabel(stats: ClassStats): String =
+        buildString {
+            append(stats.className.substringAfterLast('.'))
+            stats.className
+                .substringBeforeLast('.', "")
+                .takeIf { it.isNotEmpty() }
+                ?.let { append(" ($it)") }
+            stats.obfuscatedClassName?.let { append(" [$it]") }
+        }
 
     private fun packagePath(className: String): List<String> {
         val segments = className.split('.')
@@ -190,19 +250,49 @@ public object MemoryProfilerPresenter {
                 )
         }
 
-    /** Class names flagged as leaks (leak suspects or Activity leaks). */
+    /** Class warnings include both HPROF names and the mapped names shown in the class table. */
     public fun leakClassNames(input: MemoryProfilerState): Set<String> =
+        withClassNameAliases(
+            input,
+            buildSet {
+                input.leakSuspects.forEach { add(it.className) }
+                input.activityLeaks.forEach { add(it.className) }
+                input.lifecycleLeakObjects.forEach { add(it.className) }
+                input.leakCanaryReport.applicationLeaks.forEach { add(it.leakingClassName) }
+                input.leakCanaryReport.libraryLeaks.forEach { add(it.leakingClassName) }
+            },
+        )
+
+    /** Original snapshot-local object IDs that should carry a leak warning in instance lists. */
+    public fun leakObjectIds(input: MemoryProfilerState): Set<Long> =
         buildSet {
-            input.leakSuspects.forEach { add(it.className) }
-            input.activityLeaks.forEach { add(it.className) }
-            input.lifecycleLeakObjects.forEach { add(it.className) }
+            input.lifecycleLeakObjects.forEach { add(it.objectId) }
+            input.leakCanaryReport.applicationLeaks.forEach { it.leakingObjectId?.let(::add) }
+            input.leakCanaryReport.libraryLeaks.forEach { it.leakingObjectId?.let(::add) }
         }
 
     private fun activityFragmentLeakClassNames(input: MemoryProfilerState): Set<String> =
+        withClassNameAliases(
+            input,
+            buildSet {
+                input.activityLeaks.forEach { add(it.className) }
+                input.leakSuspects.filter { it.activityOrFragmentLeak }.forEach { add(it.className) }
+                input.lifecycleLeakObjects.forEach { add(it.className) }
+            },
+        )
+
+    private fun withClassNameAliases(
+        input: MemoryProfilerState,
+        names: Set<String>,
+    ): Set<String> =
         buildSet {
-            input.activityLeaks.forEach { add(it.className) }
-            input.leakSuspects.filter { it.activityOrFragmentLeak }.forEach { add(it.className) }
-            input.lifecycleLeakObjects.forEach { add(it.className) }
+            addAll(names)
+            (input.classes.asSequence() + input.heapBaseClasses.asSequence()).forEach { stats ->
+                if (stats.className in names || stats.obfuscatedClassName in names) {
+                    add(stats.className)
+                    stats.obfuscatedClassName?.let(::add)
+                }
+            }
         }
 
     /** Bitmap classes sharing Perfetto storage identity, or dimensions when that identity is absent. */
@@ -245,7 +335,7 @@ public object MemoryProfilerPresenter {
         displayed: List<ClassStats>,
         duplicateClasses: Set<String>,
     ): MemoryClassListSummary {
-        val displayedNames = displayed.mapTo(hashSetOf()) { it.className }
+        val displayedNames = displayed.flatMapTo(hashSetOf()) { listOfNotNull(it.className, it.obfuscatedClassName) }
         val knownNativeSizes = displayed.mapNotNull(ClassStats::nativeSize)
         val knownReachableShallowSizes = displayed.mapNotNull(ClassStats::reachableShallowSize)
         val knownReachableNativeSizes = displayed.mapNotNull(ClassStats::reachableNativeSize)

@@ -34,7 +34,6 @@ class MemoryWorkspaceStyleTest {
         assertTrue(source.contains("MemoryProfilerBitmapDumpPage("))
         assertTrue(source.contains("MemoryProfilerNativeHeapPage("))
         assertTrue(source.contains("MemoryProfilerLeakCanaryPage("))
-        assertTrue(source.contains(".clickable { expanded = !expanded }"))
     }
 
     @Test
@@ -55,12 +54,13 @@ class MemoryWorkspaceStyleTest {
                 .substringBefore("private fun BitmapDumpSummaryMetrics(")
         assertTrue(gallery.contains(".padding(StudioTokens.workspacePadding)"))
         assertTrue(bitmap.contains("contentSpacing = 4.dp"))
-        val suspects =
+        val overview =
             source("MemoryProfilerScreen.kt")
-                .substringAfter("private fun LeakSuspectsPhaseTwo(")
-                .substringBefore("private fun ActivityLeakSection(")
-        assertFalse(suspects.contains(".padding("), "Finding cards must align with the surrounding dashboard cards")
-        assertTrue(suspects.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+                .substringAfter("private fun Overview(")
+                .substringBefore("private fun MetricCard(")
+        assertFalse(overview.contains(".padding("), "Overview metrics must align with the surrounding histogram")
+        assertTrue(overview.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(overview.contains("Modifier.fillMaxWidth()"))
     }
 
     @Test

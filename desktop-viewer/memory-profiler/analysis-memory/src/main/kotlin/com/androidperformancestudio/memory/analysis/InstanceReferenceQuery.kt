@@ -85,6 +85,9 @@ class InstanceReferenceQuery(
     /** Class-table group for an object; a CLASS_DUMP is grouped by the class it represents. */
     fun groupingClassNameOf(objectId: Long): String? = classNameOf(objectId)
 
+    /** Snapshot-local heap identity, including CLASS_DUMP objects and arrays. */
+    fun heapNameOf(objectId: Long): String? = heapByObjectId[objectId]
+
     /**
      * Instances and arrays of [className], ordered by object id with 1-based row indexes.
      * When [heapName] is non-null only objects of that heap are returned, keeping the instance

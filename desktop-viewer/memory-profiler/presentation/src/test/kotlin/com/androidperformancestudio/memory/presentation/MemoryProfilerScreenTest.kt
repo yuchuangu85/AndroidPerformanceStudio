@@ -2,15 +2,19 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.BitmapDumpImage
 import com.androidperformancestudio.memory.model.BitmapDumpSession
@@ -29,8 +33,11 @@ import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import java.awt.image.BufferedImage
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -80,7 +87,7 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `loaded heap shows overview histogram and phase two analysis sections`() =
+    fun `loaded overview keeps heap metrics and the class histogram aligned`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
             setContent {
                 MemoryProfilerScreen(
@@ -97,9 +104,6 @@ class MemoryProfilerScreenTest {
             onNodeWithText("byte[]").assertExists()
             onNodeWithText("Retained").assertExists()
             onAllNodesWithText("Unavailable")[0].assertExists()
-            onNodeWithText("Leak Suspects").assertExists()
-            onNodeWithText("No leak suspects detected.").assertExists()
-
             val histogramBounds = onNodeWithTag("memory-profiler-class-histogram").fetchSemanticsNode().boundsInRoot
             val histogramTitleBounds =
                 onNodeWithText("Class histogram", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
@@ -153,6 +157,51 @@ class MemoryProfilerScreenTest {
             onAllNodesWithText("Application leaks")[0].assertExists()
             onAllNodesWithText("com.example.MainActivity")[0].assertExists()
             onNodeWithText("Leak trace").assertExists()
+            assertTrue(onAllNodesWithContentDescription("Leak Suspects").fetchSemanticsNodes().size >= 3)
+        }
+    }
+
+    @Test
+    fun `class list defaults to heap dump columns instead of allocation recording columns`() {
+        runDesktopComposeUiTest(width = 1200, height = 800) {
+            setContent {
+                MemoryProfilerScreen(
+                    state =
+                        MemoryProfilerState(
+                            viewMode = MemoryProfilerViewMode.ClassList,
+                            classes =
+                                listOf(
+                                    ClassStats(
+                                        className = "com.example.MainActivity",
+                                        obfuscatedClassName = "a.b",
+                                    ),
+                                ),
+                            heapBaseClasses =
+                                listOf(
+                                    ClassStats(
+                                        className = "com.example.MainActivity",
+                                        obfuscatedClassName = "a.b",
+                                    ),
+                                ),
+                            leakSuspects = listOf(LeakSuspect("a.b", "destroyed Activity remains reachable")),
+                            classifierRows =
+                                listOf(
+                                    MemoryClassifierRow(
+                                        id = "class:com.example.Item",
+                                        label = "com.example.Item",
+                                        className = "com.example.Item",
+                                        totalCount = 1,
+                                    ),
+                                ),
+                        ),
+                    actions = MemoryProfilerActions(),
+                )
+            }
+
+            onNodeWithText("Instances").assertExists()
+            onNodeWithText("Allocations").assertDoesNotExist()
+            onNodeWithText("Deallocations").assertDoesNotExist()
+            onNodeWithContentDescription("Leak Suspects").assertExists()
         }
     }
 
@@ -257,54 +306,31 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `leak suspect confidence renders a literal percent sign`() =
+    fun `overview histogram keeps class highlighting interactive`() =
         runDesktopComposeUiTest(width = 1000, height = 700) {
+            var state by mutableStateOf(loadedState())
+            val highlighted = mutableListOf<String>()
             setContent {
                 MemoryProfilerScreen(
-                    state =
-                        loadedState().copy(
-                            leakSuspects =
-                                listOf(
-                                    LeakSuspect(
-                                        className = "com.example.LeakingActivity",
-                                        reason = "Retained by singleton",
-                                        retainedSize = 2L * 1024L,
-                                        confidence = 0.85f,
-                                    ),
-                                ),
+                    state = state,
+                    actions =
+                        MemoryProfilerActions(
+                            onHighlightClass = {
+                                highlighted += it
+                                state = state.copy(highlightedClassName = it)
+                            },
                         ),
-                    actions = MemoryProfilerActions(),
                 )
             }
 
-            onNodeWithText("retained 2.0 KB · confidence 85%").assertExists()
-        }
+            onNodeWithText("java.lang.String").performClick()
+            onNodeWithText("byte[]").performClick()
 
-    @Test
-    fun `leak suspect card expands and collapses its reference chain`() =
-        runDesktopComposeUiTest(width = 1000, height = 700) {
-            setContent {
-                MemoryProfilerScreen(
-                    state =
-                        loadedState().copy(
-                            leakSuspects =
-                                listOf(
-                                    LeakSuspect(
-                                        className = "com.example.LeakingActivity",
-                                        reason = "Retained by singleton",
-                                        referenceChain = listOf(ObjectReference("owner", 42L, "com.example.Singleton")),
-                                    ),
-                                ),
-                        ),
-                    actions = MemoryProfilerActions(),
-                )
-            }
-
-            onNodeWithText("owner", substring = true).assertDoesNotExist()
-            onNodeWithText("Retained by singleton", substring = true).performScrollTo().performClick()
-            onNodeWithText("owner", substring = true).assertExists()
-            onNodeWithText("Retained by singleton", substring = true).performScrollTo().performClick()
-            onNodeWithText("owner", substring = true).assertDoesNotExist()
+            assertEquals(listOf("java.lang.String", "byte[]"), highlighted)
+            assertEquals("byte[]", state.highlightedClassName)
+            assertEquals(MemoryProfilerViewMode.Dashboard, state.viewMode)
+            onNodeWithText("Overview").assertExists()
+            onNodeWithTag("memory-profiler-class-histogram").assertExists()
         }
 
     @Test
@@ -393,22 +419,65 @@ class MemoryProfilerScreenTest {
         }
 
     @Test
-    fun `loaded profiler workspace renders a desktop screenshot with footer and analysis content`() =
-        runDesktopComposeUiTest(width = 1200, height = 800) {
-            setContent {
-                MemoryProfilerScreen(
-                    state = loadedState(),
-                    actions = MemoryProfilerActions(),
-                )
-            }
+    fun `overview captures desktop and narrow layouts in both languages and themes`() {
+        listOf(1280, 900).forEach { width ->
+            listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+                listOf(false, true).forEach { dark ->
+                    runDesktopComposeUiTest(width = width, height = 720) {
+                        setContent {
+                            ViewerTheme(darkTheme = dark) {
+                                MemoryProfilerScreen(
+                                    state = loadedState(),
+                                    actions = MemoryProfilerActions(),
+                                    language = language,
+                                )
+                            }
+                        }
 
-            val screenshot = onRoot().captureToImage()
-            assertEquals(1200, screenshot.width)
-            assertEquals(800, screenshot.height)
-            onNodeWithTag("memory-profiler-status-bar").assertExists()
-            onNodeWithText("Overview").assertExists()
-            onNodeWithText("Class histogram").assertExists()
+                        onNodeWithText(if (language == UiLanguage.ENGLISH) "Overview" else "概览").assertExists()
+                        onNodeWithText(if (language == UiLanguage.ENGLISH) "Class histogram" else "类直方图").assertExists()
+                        onNodeWithText("java.lang.String").assertExists()
+                        val root = onRoot().fetchSemanticsNode().boundsInRoot
+                        val histogram = onNodeWithTag("memory-profiler-class-histogram").fetchSemanticsNode().boundsInRoot
+                        val footer = onNodeWithTag("memory-profiler-status-bar").fetchSemanticsNode().boundsInRoot
+                        assertTrue(histogram.left >= root.left)
+                        assertTrue(histogram.right <= root.right)
+                        assertTrue(histogram.bottom <= footer.top)
+                        assertEquals(root.bottom, footer.bottom)
+
+                        val screenshot = onRoot().captureToImage()
+                        assertEquals(width, screenshot.width)
+                        assertEquals(720, screenshot.height)
+                        val pixels = screenshot.toPixelMap()
+                        assertTrue(
+                            (50 until 660 step 50)
+                                .flatMap { y -> (50 until width step 50).map { x -> pixels[x, y] } }
+                                .distinct()
+                                .size > 3,
+                        )
+                        val output =
+                            Path.of(
+                                "build/screenshots/memory-overview-$width-${language.name}-${if (dark) "dark" else "light"}.png",
+                            )
+                        Files.createDirectories(output.parent)
+                        val bitmap = BufferedImage(screenshot.width, screenshot.height, BufferedImage.TYPE_INT_ARGB)
+                        for (y in 0 until screenshot.height) {
+                            for (x in 0 until screenshot.width) {
+                                val color = pixels[x, y]
+                                bitmap.setRGB(
+                                    x,
+                                    y,
+                                    ((color.alpha * 255).toInt() shl 24) or ((color.red * 255).toInt() shl 16) or
+                                        ((color.green * 255).toInt() shl 8) or (color.blue * 255).toInt(),
+                                )
+                            }
+                        }
+                        assertTrue(ImageIO.write(bitmap, "png", output.toFile()))
+                    }
+                }
+            }
         }
+    }
 
     @Test
     fun `dominator view renders retained rows and opens selected objects`() =

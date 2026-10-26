@@ -25,8 +25,6 @@
     <string name="memory_reachable">可达</string>
     <string name="memory_not_reachable">从已记录的强引用根不可达</string>
     <string name="memory_depth">深度</string>
-    <string name="memory_columns">显示列</string>
-    <string name="memory_allocation_unavailable">分配 / 释放：不适用于 HPROF</string>
     <string name="memory_ordinal">%1$d / %2$d</string>
     <string name="memory_export">导出</string>
     <string name="memory_export_report">调查报告</string>
@@ -35,5 +33,4 @@
     <string name="memory_export_diff">类级比较 CSV</string>
     <string name="memory_export_object">对象调查 JSON</string>
     <string name="memory_mapping">混淆映射</string>
-    <string name="memory_leaks_bitmaps">泄漏与位图</string>
 </resources>

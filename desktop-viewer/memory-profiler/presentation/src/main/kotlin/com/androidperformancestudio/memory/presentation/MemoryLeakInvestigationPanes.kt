@@ -46,6 +46,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.leak
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_retained_instance
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_search_findings
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_reference
+import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_trace
 import com.androidperformancestudio.memory.presentation.generated.resources.leaking
 import com.androidperformancestudio.memory.presentation.generated.resources.library_leaks
@@ -60,7 +61,6 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioSearchField
-import com.androidperformancestudio.ui_components.generated.resources.ic_nav_memory_profiler
 import com.androidperformancestudio.ui_components.generated.resources.ic_stat_attention
 import org.jetbrains.compose.resources.painterResource
 import com.androidperformancestudio.ui_components.generated.resources.Res as UiRes
@@ -152,10 +152,10 @@ internal fun MemoryLeakFindingsPane(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                painterResource(UiRes.drawable.ic_nav_memory_profiler),
-                                contentDescription = null,
+                                painterResource(UiRes.drawable.ic_stat_attention),
+                                contentDescription = localizedStringResource(Res.string.leak_suspects, language),
                                 modifier = Modifier.size(14.dp),
-                                tint = colors.accent,
+                                tint = colors.warning,
                             )
                             Text(
                                 leak.leakingClassName,
@@ -220,7 +220,13 @@ internal fun MemoryLeakPathPane(
                         style = ViewerTypography.subsectionTitle,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(leak.leakingClassName, style = ViewerTypography.bodyCompact, color = colors.primaryText)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MemoryLeakWarningIcon(language)
+                        Text(leak.leakingClassName, style = ViewerTypography.bodyCompact, color = colors.primaryText)
+                    }
                     leak.leakingObjectId?.let { id ->
                         ProfilerCompactButton(
                             text = leakObjectId(id),
@@ -286,6 +292,7 @@ private fun LeakPathNode(
 ) {
     val colors = LocalViewerColors.current
     val selected = element.objectId != null && element.objectId == selectedObjectId
+    val leaking = element.leakingStatus.equals("LEAKING", ignoreCase = true)
     Column(Modifier.fillMaxWidth().padding(start = 8.dp)) {
         Column(
             Modifier
@@ -296,7 +303,17 @@ private fun LeakPathNode(
                 .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            Text(element.className, style = ViewerTypography.bodyCompact, color = colors.primaryText)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (leaking) MemoryLeakWarningIcon(language)
+                Text(
+                    element.className,
+                    style = ViewerTypography.bodyCompact,
+                    color = if (leaking) colors.error else colors.primaryText,
+                )
+            }
             Text(
                 element.objectId?.let(::leakObjectId) ?: localizedStringResource(
                     Res.string.leak_object_unavailable,

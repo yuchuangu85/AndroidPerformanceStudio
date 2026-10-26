@@ -25,8 +25,6 @@
     <string name="memory_reachable">Reachable</string>
     <string name="memory_not_reachable">Not reachable from recorded strong roots</string>
     <string name="memory_depth">Depth</string>
-    <string name="memory_columns">Columns</string>
-    <string name="memory_allocation_unavailable">Allocation / deallocation: not applicable to HPROF</string>
     <string name="memory_ordinal">%1$d of %2$d</string>
     <string name="memory_export">Export</string>
     <string name="memory_export_report">Investigation report</string>
@@ -35,5 +33,4 @@
     <string name="memory_export_diff">Class comparison CSV</string>
     <string name="memory_export_object">Object investigation JSON</string>
     <string name="memory_mapping">Mapping</string>
-    <string name="memory_leaks_bitmaps">Leaks &amp; Bitmaps</string>
 </resources>

@@ -276,3 +276,32 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Keep live Agent start/stop and live events explicitly separate from offline snapshot evidence. Opening the leak view must not start device monitoring implicitly.
 - Preserve findings per open snapshot. Loading, cancellation, recoverable failure/retry, no candidates, and no retained paths have distinct states. Missing metrics and identities remain unavailable.
 - Keep all panes reachable at narrow widths through horizontal scrolling or explicit pane selection. Validate 1280x720 and 900x720, English/Chinese and light/dark, object navigation, and analysis state controls with Compose tests and inspected screenshots. Real Android dump coverage, runtime monitoring, and native packaged-app acceptance are separate gates.
+
+## Heap Classifier Hierarchy (2026-10-26)
+
+- The main class table below the Leaks summary retains `App heap`, `Image heap`, and `Zygote heap` parent rows. A single-heap filter keeps that heap parent; All displays each available heap separately.
+- All initially shows collapsed heap roots so every heap is visible; a single-heap selection initially expands its class tree. Expanding a heap header does not materialize every instance in that heap.
+- Build each heap subtree from its own histogram. A class present in multiple heaps has independent counts, sizes, row identities, and instance navigation; never repeat all-heap totals beneath each heap.
+- Match the locally installed Android Studio heap-dump classifier: first-open sorting is Retained Size descending; the current column comparator applies to heap roots and to siblings within each heap. Name sorting is case-sensitive by simple class name, with package names displayed separately in parentheses. Equal keys retain their existing order. Unknown retained metrics remain unavailable, rather than summing overlapping class dominator sizes.
+- Selecting a heap, group, class, or original object preserves the exact heap scope for instance queries, including All mode. Keep existing search, issue filters, warnings, snapshot guards, and horizontal scrolling.
+- Verify App/All switching, sibling sorting, same-name classes across heaps, grouped navigation, and leak markers with focused tests and the real HPROF fixture. This is the main heap class table, not the separate Shark findings list.
+
+## Memory Overview Scope (2026-10-26)
+
+- Rename the previous Leaks & Bitmaps dashboard to Overview / 概览. Retain only heap overview metrics and the class histogram; remove its leak suspects, Activity leaks, Bitmap, Native Heap, and Diff summaries entirely.
+- Keep Classes, Dominators, Diff, Memory Leaks, Bitmaps, Native Heap, and ART Samples as independent investigation views. The overview removal does not delete analysis results, class-list warnings, capture commands, exports, or offline/live leak workflows.
+- Remove the top-level Compare shortcut because Diff already owns navigation. Preserve the Diff page's before/after snapshot selection and its actual Compare command; Mapping remains a toolbar action.
+- Lock the reduced Overview with populated analysis data, both languages/themes, and narrow/desktop layouts. Verify that dedicated investigation pages remain reachable and functional.
+
+## Memory Capture And Analysis Groups (2026-10-26)
+
+- Keep Capture and Analysis commands on one compact toolbar row, separated by 8dp of whitespace, without rendering group titles. Reuse shared header height, button styles, typography, and theme colors without changing command behavior.
+- Capture contains target selectors/refresh when needed, Dump Heap, Capture Native Heap, Record ART Samples, Dump Bitmaps, and the Agent setup action. Agent injection configures capture prerequisites; it does not start monitoring or analyze a snapshot.
+- Analysis contains the existing primary view selector, Bitmaps, Native Heap, ART Samples, Memory Leaks, and Mapping. Preserve each view's selected/disabled state and the explicit analysis/monitoring actions inside the leak page. Do not restore the removed Compare shortcut.
+- Keep the combined command row horizontally scrollable at narrow widths. Verify the 8dp group gap, absence of labels, localized command text, geometry, disabled states, and callbacks in light/dark screenshots and tests.
+
+## Classes Without Filters Pane (2026-10-26)
+
+- Remove the Classes view's left Filters pane, including its column toggles and saved-filter controls. Expand the class and instance tables into that space without an empty placeholder.
+- Preserve the primary heap/scope/issue/arrangement/search bar, sorting, object inspector, and narrow-width scrolling. Dominators and Diff retain their search Filters panes.
+- Verify empty and populated Classes layouts in both languages, with primary-filter callbacks and object navigation unchanged.

@@ -9,7 +9,7 @@
     <string name="recording_sampled_art_allocations">Recording sampled ART allocations for %1$s…</string>
     <string name="sampled_art_capture_failed">ART allocation sampling failed</string>
     <string name="bitmap_dump_view">Bitmaps</string>
-    <string name="dashboard_view">Leaks &amp; Bitmaps</string>
+    <string name="dashboard_view">Overview</string>
     <string name="class_list_view">Classes</string>
     <string name="dominators_view">Dominators</string>
     <string name="file">File</string>

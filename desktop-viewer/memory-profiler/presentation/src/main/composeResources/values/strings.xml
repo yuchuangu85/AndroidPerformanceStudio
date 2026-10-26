@@ -11,10 +11,6 @@
     <string name="retained">Retained</string>
     <string name="leak_suspects">Leak Suspects</string>
     <string name="lifecycle_leaks">Leaks</string>
-    <string name="no_leak_suspects_detected">No leak suspects detected.</string>
-    <string name="heap_diff">Heap diff</string>
-    <string name="no_class_changes_between_the_latest_two_heap_dumps">No class changes between the latest two heap dumps.</string>
-    <string name="bitmap_analysis">Bitmap analysis</string>
     <string name="device_selector">Device selector</string>
     <string name="process_selector">Process selector</string>
     <string name="process">Process</string>
@@ -72,18 +68,7 @@
     <string name="snapshot_artifact">Artifact %1$s · %2$s · %3$s capabilities</string>
     <string name="snapshot_limitation">Limitation %1$s: %2$s</string>
     <string name="snapshot_artifact_warning">Artifact warning: %1$s</string>
-    <string name="leak_suspect_title">%1$s %2$s: %3$s</string>
-    <string name="leak_suspect_summary">retained %1$s · confidence %2$s%%</string>
-    <string name="reference_chain_entry">%1$s↳ %2$s → %3$s</string>
-    <string name="heap_diff_entry">%1$s: %2$s → %3$s (%4$s) · %5$s B</string>
-    <string name="bitmap_entry">#%1$s %2$s×%3$s · %4$s</string>
-    <string name="activity_leaks">Activity leaks</string>
-    <string name="activity_leak_entry">%1$s · %2$s live · %3$s destroyed · retained %4$s</string>
-    <string name="no_activity_leaks_detected">No Activity leaks detected.</string>
-    <string name="manual_verification">requires manual verification</string>
     <string name="mapping_loaded_note">mapping.txt loaded — class names deobfuscated</string>
-    <string name="bitmap_estimated_pixel_memory">estimated pixel memory %1$s (W×H×4B)</string>
-    <string name="bitmap_java_native_memory">java %1$s · native %2$s</string>
     <string name="native_heap">Native heap</string>
     <string name="art_sampled_trace_source">Java/Kotlin allocation samples · Perfetto ART</string>
     <string name="art_sampled_evidence_boundary">Sampled ART allocations only, not Studio Full tracking. Deallocation and GC events and object class names are unavailable; trace file size is not an allocation metric.</string>
@@ -97,7 +82,6 @@
     <string name="art_sampled_analysis_unavailable">ART sample analysis unavailable: %1$s. The raw trace is retained.</string>
     <string name="art_sampled_analysis_failed">ART sample analysis failed: %1$s. The raw trace is retained.</string>
     <string name="native_heap_view">Native Heap</string>
-    <string name="open_native_heap">Open Native Heap</string>
     <string name="native_heap_capture_loading">Capturing native heap…</string>
     <string name="native_heap_no_allocations">No native allocations were parsed.</string>
     <string name="no_native_heap_trace">No native heap trace captured yet.</string>

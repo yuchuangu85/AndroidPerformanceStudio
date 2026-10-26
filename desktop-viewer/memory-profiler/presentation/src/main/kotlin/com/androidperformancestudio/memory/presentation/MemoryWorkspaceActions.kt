@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
-import com.androidperformancestudio.memory.presentation.generated.resources.memory_compare
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_mapping
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -21,7 +20,6 @@ public fun MemoryWorkspaceActions(
     state: MemoryProfilerState,
     language: UiLanguage,
     onMapping: () -> Unit,
-    onCompare: () -> Unit,
 ) {
     Row(
         modifier = Modifier.testTag("memory-workspace-actions"),
@@ -33,12 +31,6 @@ public fun MemoryWorkspaceActions(
             onMapping,
             enabled =
                 state.snapshotSummary != null && !state.isDumping,
-        )
-        ProfilerCompactButton(
-            localizedStringResource(Res.string.memory_compare, language),
-            onCompare,
-            enabled = state.snapshotSummaries.size >= 2 && !state.isDumping,
-            selected = state.viewMode == MemoryProfilerViewMode.Diff,
         )
     }
 }

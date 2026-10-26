@@ -61,20 +61,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.androidperformancestudio.memory.model.ActivityLeakEntry
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapSummary
-import com.androidperformancestudio.memory.model.NativeHeapAnalysis
-import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_evidence
 import com.androidperformancestudio.memory.presentation.generated.resources.activity
-import com.androidperformancestudio.memory.presentation.generated.resources.activity_leak_entry
-import com.androidperformancestudio.memory.presentation.generated.resources.activity_leaks
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_analysis
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_entry
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_estimated_pixel_memory
-import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_java_native_memory
 import com.androidperformancestudio.memory.presentation.generated.resources.class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.class_name
 import com.androidperformancestudio.memory.presentation.generated.resources.classes
@@ -83,27 +74,12 @@ import com.androidperformancestudio.memory.presentation.generated.resources.clea
 import com.androidperformancestudio.memory.presentation.generated.resources.count
 import com.androidperformancestudio.memory.presentation.generated.resources.count_value
 import com.androidperformancestudio.memory.presentation.generated.resources.dominator_tree
-import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff
-import com.androidperformancestudio.memory.presentation.generated.resources.heap_diff_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_size
 import com.androidperformancestudio.memory.presentation.generated.resources.import_or_dump_an_hprof_file_to_show_class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.in_progress
-import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_summary
-import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_title
-import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
-import com.androidperformancestudio.memory.presentation.generated.resources.manual_verification
 import com.androidperformancestudio.memory.presentation.generated.resources.mapping_loaded_note
-import com.androidperformancestudio.memory.presentation.generated.resources.native_heap
-import com.androidperformancestudio.memory.presentation.generated.resources.open_native_heap
-import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_total
-import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_trace_summary
-import com.androidperformancestudio.memory.presentation.generated.resources.no_activity_leaks_detected
-import com.androidperformancestudio.memory.presentation.generated.resources.no_class_changes_between_the_latest_two_heap_dumps
-import com.androidperformancestudio.memory.presentation.generated.resources.no_leak_suspects_detected
-import com.androidperformancestudio.memory.presentation.generated.resources.no_native_heap_trace
 import com.androidperformancestudio.memory.presentation.generated.resources.objects
 import com.androidperformancestudio.memory.presentation.generated.resources.overview
-import com.androidperformancestudio.memory.presentation.generated.resources.reference_chain_entry
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_artifact
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_artifact_warning
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_evidence_title
@@ -114,7 +90,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.unav
 import com.androidperformancestudio.memory.presentation.generated.resources.warning
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.studio.StudioCard
 import com.androidperformancestudio.ui.studio.StudioMetricCard
 import com.androidperformancestudio.ui.studio.StudioTokens
 
@@ -308,16 +283,6 @@ public fun MemoryProfilerScreen(
                         highlightedClassName = presentedState.highlightedClassName,
                         language = language,
                     )
-                    LeakSuspectsPhaseTwo(presentedState, language)
-                    ActivityLeakSection(presentedState.activityLeaks, language)
-                    NativeHeapSummarySection(
-                        trace = presentedState.nativeHeapTrace,
-                        analysis = presentedState.nativeHeapAnalysis,
-                        language = language,
-                        onOpen = { actions.onChangeViewMode(MemoryProfilerViewMode.NativeHeap) },
-                    )
-                    HeapDiffSection(presentedState.heapDiff, language)
-                    BitmapSection(presentedState.bitmapInstances, language)
                 }
                 }
             }
@@ -726,242 +691,3 @@ private fun HistogramRow(
         )
     }
 }
-
-@Composable
-private fun LeakSuspectsPhaseTwo(
-    state: MemoryProfilerState,
-    language: UiLanguage,
-) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
-    ) {
-        Text(localizedStringResource(Res.string.leak_suspects, language), fontWeight = FontWeight.Bold)
-        if (state.leakSuspects.isEmpty()) {
-            Text(localizedStringResource(Res.string.no_leak_suspects_detected, language))
-        } else {
-            state.leakSuspects.forEach { suspect ->
-                var expanded by remember(suspect) { mutableStateOf(false) }
-                StudioCard(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { expanded = !expanded },
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    borderColor = LocalViewerColors.current.transparent,
-                    contentPadding = 6.dp,
-                    contentSpacing = 2.dp,
-                ) {
-                    Text(
-                        localizedStringResource(
-                            Res.string.leak_suspect_title,
-                            language,
-                            if (expanded) "▾" else "▸",
-                            suspect.className,
-                            suspect.reason,
-                        ),
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        buildString {
-                            append(
-                                localizedStringResource(
-                                    Res.string.leak_suspect_summary,
-                                    language,
-                                    suspect.retainedSize?.let(::formatBytes) ?: "—",
-                                    (suspect.confidence * 100).toInt(),
-                                ),
-                            )
-                            if (suspect.requiresManualVerification) {
-                                append(" · ")
-                                append(localizedStringResource(Res.string.manual_verification, language))
-                            }
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (expanded) {
-                        suspect.referenceChain.forEachIndexed { index, reference ->
-                            Text(
-                                localizedStringResource(
-                                    Res.string.reference_chain_entry,
-                                    language,
-                                    "  ".repeat(index),
-                                    reference.fieldName,
-                                    reference.targetClassName.ifBlank { reference.targetObjectId.toString() },
-                                ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActivityLeakSection(
-    leaks: List<ActivityLeakEntry>,
-    language: UiLanguage,
-) {
-    StudioCard(
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        borderColor = LocalViewerColors.current.transparent,
-        contentSpacing = 3.dp,
-    ) {
-        Text(localizedStringResource(Res.string.activity_leaks, language), fontWeight = FontWeight.Bold)
-        if (leaks.isEmpty()) {
-            Text(localizedStringResource(Res.string.no_activity_leaks_detected, language))
-        } else {
-            leaks.take(10).forEach { entry ->
-                Text(
-                    localizedStringResource(
-                        Res.string.activity_leak_entry,
-                        language,
-                        entry.className,
-                        integer(entry.liveInstanceCount),
-                        integer(entry.destroyedInstanceCount),
-                        entry.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language),
-                    ),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NativeHeapSummarySection(
-    trace: NativeHeapTrace?,
-    analysis: NativeHeapAnalysis,
-    language: UiLanguage,
-    onOpen: () -> Unit,
-) {
-    StudioCard(
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        borderColor = LocalViewerColors.current.transparent,
-        contentSpacing = 4.dp,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(localizedStringResource(Res.string.native_heap, language), fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_native_heap, language),
-                enabled = trace != null,
-                onClick = onOpen,
-            )
-        }
-        if (trace == null) {
-            Text(localizedStringResource(Res.string.no_native_heap_trace, language), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            Text(
-                localizedStringResource(
-                    Res.string.native_heap_trace_summary,
-                    language,
-                    trace.fileName,
-                    formatBytes(trace.fileSizeBytes),
-                    trace.deviceSdkApiLevel?.toString() ?: "?",
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                localizedStringResource(
-                    Res.string.native_heap_total,
-                    language,
-                    formatBytes(analysis.totalAllocatedBytes),
-                    formatBytes(analysis.totalFreedBytes),
-                    integer(analysis.sampleCount),
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun HeapDiffSection(
-    diff: com.androidperformancestudio.memory.model.HeapDiff?,
-    language: UiLanguage,
-) {
-    if (diff == null) return
-    val changedEntries = diff.entries.filter { it.countDelta != 0 || it.shallowSizeDelta != 0L }
-    StudioCard(
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        borderColor = LocalViewerColors.current.transparent,
-        contentSpacing = 3.dp,
-    ) {
-        Text(localizedStringResource(Res.string.heap_diff, language), fontWeight = FontWeight.Bold)
-        if (changedEntries.isEmpty()) {
-            Text(localizedStringResource(Res.string.no_class_changes_between_the_latest_two_heap_dumps, language))
-        } else {
-            changedEntries.take(10).forEach { entry ->
-                Text(
-                    localizedStringResource(
-                        Res.string.heap_diff_entry,
-                        language,
-                        entry.className,
-                        entry.beforeCount,
-                        entry.afterCount,
-                        entry.countDelta.withSign(),
-                        entry.shallowSizeDelta.withSign(),
-                    ),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BitmapSection(
-    bitmaps: List<com.androidperformancestudio.memory.model.BitmapInstanceStats>,
-    language: UiLanguage,
-) {
-    if (bitmaps.isEmpty()) return
-    StudioCard(
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        borderColor = LocalViewerColors.current.transparent,
-        contentSpacing = 3.dp,
-    ) {
-        Text(localizedStringResource(Res.string.bitmap_analysis, language), fontWeight = FontWeight.Bold)
-        bitmaps.take(8).forEach { bitmap ->
-            Text(
-                localizedStringResource(
-                    Res.string.bitmap_entry,
-                    language,
-                    bitmap.objectId,
-                    bitmap.width ?: "?",
-                    bitmap.height ?: "?",
-                    formatBytes(bitmap.retainedSize),
-                ),
-            )
-            bitmap.estimatedPixelBytes?.let { estimated ->
-                Text(
-                    localizedStringResource(Res.string.bitmap_estimated_pixel_memory, language, formatBytes(estimated)),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                )
-                val nativeSize = bitmap.nativeSizeBytes
-                if (bitmap.javaSizeBytes > 0L && nativeSize != null) {
-                    Text(
-                        localizedStringResource(
-                            Res.string.bitmap_java_native_memory,
-                            language,
-                            formatBytes(bitmap.javaSizeBytes),
-                            formatBytes(nativeSize),
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = ViewerTypography.bodyCompact.fontSize,
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun Int.withSign(): String = if (this >= 0) "+$this" else toString()
-
-private fun Long.withSign(): String = if (this >= 0) "+$this" else toString()

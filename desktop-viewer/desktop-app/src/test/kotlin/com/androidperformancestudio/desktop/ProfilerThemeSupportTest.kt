@@ -59,8 +59,26 @@ class ProfilerThemeSupportTest {
     fun `profiler workspaces retain the compact inspector toolbar boundary`() {
         profilerWorkspaceSources().forEach { source ->
             val content = Files.readString(source)
-            assertTrue(content.contains("HeaderToolbar("), "$source must use the shared header toolbar")
+            assertTrue(
+                content.contains("HeaderToolbar(") || content.contains("MemoryProfilerToolbar("),
+                "$source must use the shared header toolbar",
+            )
         }
+    }
+
+    @Test
+    fun `memory capture and analysis groups retain the shared toolbar chrome`() {
+        val groups =
+            Files.readString(
+                Path.of(
+                    "../memory-profiler/presentation/src/main/kotlin/" +
+                        "com/androidperformancestudio/memory/presentation/MemoryProfilerToolbar.kt",
+                ),
+            )
+        assertTrue(groups.contains("import com.androidperformancestudio.ui.HeaderToolbar"))
+        assertTrue(groups.contains("HeaderToolbar("))
+        assertTrue(groups.contains("onNavigateHome = onNavigateHome"))
+        assertFalse(groups.contains("ViewerTheme("))
     }
 
     @Test
@@ -131,7 +149,8 @@ class ProfilerThemeSupportTest {
         profilerHomeButtonConsumers().forEach { source ->
             val content = Files.readString(source)
             assertTrue(
-                content.contains("HomeButton(") || content.contains("HeaderToolbar("),
+                content.contains("HomeButton(") || content.contains("HeaderToolbar(") ||
+                    content.contains("MemoryProfilerToolbar("),
                 "$source must use the shared home button",
             )
         }

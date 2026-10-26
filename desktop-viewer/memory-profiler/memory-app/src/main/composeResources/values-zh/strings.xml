@@ -9,7 +9,7 @@
     <string name="recording_sampled_art_allocations">正在录制 %1$s 的 ART 分配采样…</string>
     <string name="sampled_art_capture_failed">ART 分配采样失败</string>
     <string name="bitmap_dump_view">Bitmap</string>
-    <string name="dashboard_view">泄漏与位图</string>
+    <string name="dashboard_view">概览</string>
     <string name="class_list_view">类列表</string>
     <string name="dominators_view">支配树</string>
     <string name="file">文件</string>

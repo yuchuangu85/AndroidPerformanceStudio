@@ -76,8 +76,6 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_filters
-import com.androidperformancestudio.memory.presentation.generated.resources.memory_columns
-import com.androidperformancestudio.memory.presentation.generated.resources.memory_allocation_unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_fragment_leak
 import com.androidperformancestudio.memory.presentation.generated.resources.all_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.all_heaps
@@ -115,6 +113,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.impo
 import com.androidperformancestudio.memory.presentation.generated.resources.instance
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_details
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_list
+import com.androidperformancestudio.memory.presentation.generated.resources.instances
 import com.androidperformancestudio.memory.presentation.generated.resources.next_array_page
 import com.androidperformancestudio.memory.presentation.generated.resources.no_object_fields
 import com.androidperformancestudio.memory.presentation.generated.resources.previous_array_page
@@ -144,7 +143,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.save
 import com.androidperformancestudio.memory.presentation.generated.resources.saved_filters
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow_size_change
 import com.androidperformancestudio.memory.presentation.generated.resources.system_classes
-import com.androidperformancestudio.memory.presentation.generated.resources.total_count
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.unpin_object
 import com.androidperformancestudio.ui.DropdownSelector
@@ -220,6 +218,8 @@ public fun MemoryProfilerClassListPane(
                                             language = language,
                                             listState = classifierListState,
                                             modifier = Modifier.fillMaxSize(),
+                                            expandHeapRoots = state.heapFilter != null,
+                                            expansionKey = state.activeSnapshotId,
                                         )
                                     }
                                 }
@@ -267,6 +267,7 @@ public fun MemoryProfilerClassListPane(
                 Column(Modifier.weight(1f)) {
                     InstanceListTitle(
                         className = state.selectedClassifierLabel ?: state.selectedClassName,
+                        isLeak = state.selectedClassName?.let { it in leakClasses } == true,
                         language = language,
                     )
                     HorizontalDivider()
@@ -326,44 +327,12 @@ internal fun MemoryFiltersPane(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(localizedStringResource(Res.string.memory_filters, language), fontWeight = FontWeight.SemiBold)
-        if (state.viewMode != MemoryProfilerViewMode.ClassList) {
-            com.androidperformancestudio.ui.ProfilerCompactTextField(
-                label = "", value = state.searchText, onValueChange = actions.onSearchChange,
-                placeholder = localizedStringResource(Res.string.filter_classes, language), modifier = Modifier.fillMaxWidth(),
-            )
-            FilterCheckbox(localizedStringResource(Res.string.match_case, language), state.matchCase, actions.onMatchCaseChange)
-            FilterCheckbox(localizedStringResource(Res.string.regex, language), state.useRegex, actions.onUseRegexChange)
-            return@Column
-        }
-        Text(localizedStringResource(Res.string.memory_columns, language), style = ViewerTypography.secondary)
-        listOf(
-            MemoryClassifierColumn.NATIVE_SIZE to Res.string.native_size,
-            MemoryClassifierColumn.SHALLOW_SIZE to Res.string.shallow,
-            MemoryClassifierColumn.RETAINED_NATIVE_SIZE to Res.string.retained_native_size,
-            MemoryClassifierColumn.RETAINED_SIZE to Res.string.retained,
-        ).forEach { (column, label) ->
-            FilterCheckbox(localizedStringResource(label, language), column in state.visibleClassifierColumns) {
-                actions.onToggleClassifierColumn(column)
-            }
-        }
-        HorizontalDivider()
-        DropdownSelector(
-            items = state.savedFilterPresets,
-            selectedItem = state.savedFilterPresets.firstOrNull { it.id == state.activeFilterPresetId },
-            onItemSelected = actions.onApplyFilterPreset, itemLabel = { it.label },
-            placeholder = localizedStringResource(Res.string.saved_filters, language), fillWidth = true,
+        com.androidperformancestudio.ui.ProfilerCompactTextField(
+            label = "", value = state.searchText, onValueChange = actions.onSearchChange,
+            placeholder = localizedStringResource(Res.string.filter_classes, language), modifier = Modifier.fillMaxWidth(),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            ProfilerCompactButton(localizedStringResource(Res.string.save_filter, language), actions.onSaveFilterPreset)
-            ProfilerCompactButton(
-                localizedStringResource(Res.string.delete_filter, language), actions.onDeleteFilterPreset,
-                enabled = state.activeFilterPresetId != null,
-            )
-        }
-        Text(
-            localizedStringResource(Res.string.memory_allocation_unavailable, language),
-            color = MaterialTheme.colorScheme.onSurfaceVariant, style = ViewerTypography.secondary,
-        )
+        FilterCheckbox(localizedStringResource(Res.string.match_case, language), state.matchCase, actions.onMatchCaseChange)
+        FilterCheckbox(localizedStringResource(Res.string.regex, language), state.useRegex, actions.onUseRegexChange)
     }
 }
 
@@ -374,6 +343,7 @@ internal fun MemoryClassesPane(
     language: UiLanguage,
     modifier: Modifier = Modifier,
 ) {
+    val leakClasses = MemoryProfilerPresenter.leakClassNames(state)
     val columns =
         state.visibleClassifierColumns.intersect(
             setOf(
@@ -385,6 +355,7 @@ internal fun MemoryClassesPane(
         ) + MemoryClassifierColumn.TOTAL_COUNT
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
+    val showHeapColumn = state.perHeapClasses.isEmpty() && state.heapFilter == null
     Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         StudioCard(
             modifier = Modifier.fillMaxWidth().weight(0.62f).testTag("memory-classes-card"),
@@ -392,18 +363,19 @@ internal fun MemoryClassesPane(
             contentSpacing = 0.dp,
         ) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
-                val tableWidth = maxOf(maxWidth, (260 + (columns.size + 1) * 104).dp)
+                val tableWidth = maxOf(maxWidth, (260 + (columns.size + if (showHeapColumn) 1 else 0) * 104).dp)
                 Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
                     Column(Modifier.horizontalScroll(scroll).requiredWidth(tableWidth).fillMaxHeight()) {
                         ClassTableHeader(
                             language, state.arrangeBy, state.classifierSortColumn, state.classifierSortDirection,
-                            columns, actions.onClassifierSort, Modifier.height(32.dp), showHeap = true,
+                            columns, actions.onClassifierSort, Modifier.height(32.dp), showHeap = showHeapColumn,
                         )
                         HorizontalDivider()
                         ClassTable(
                             state.classifierRows, state.selectedClassifierId, MemoryProfilerPresenter.leakClassNames(state),
                             MemoryProfilerPresenter.duplicateBitmapClasses(state), columns, actions.onSelectClassifier, language,
-                            listState, Modifier.fillMaxWidth().weight(1f), showHeap = true,
+                            listState, Modifier.fillMaxWidth().weight(1f), showHeap = showHeapColumn,
+                            expandHeapRoots = state.heapFilter != null, expansionKey = state.activeSnapshotId,
                         )
                     }
                 }
@@ -422,7 +394,11 @@ internal fun MemoryClassesPane(
             contentPadding = 0.dp,
             contentSpacing = 0.dp,
         ) {
-            InstanceListTitle(state.selectedClassifierLabel ?: state.selectedClassName, language)
+            InstanceListTitle(
+                className = state.selectedClassifierLabel ?: state.selectedClassName,
+                isLeak = state.selectedClassName?.let { it in leakClasses } == true,
+                language = language,
+            )
             HorizontalDivider()
             BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
                 val tableWidth = maxOf(maxWidth, 650.dp)
@@ -664,7 +640,7 @@ private fun ClassTableHeader(
             MemoryClassifierColumn.MODULE_NAME to localizedStringResource(Res.string.module_name, language),
             MemoryClassifierColumn.ALLOCATIONS to localizedStringResource(Res.string.allocations, language),
             MemoryClassifierColumn.DEALLOCATIONS to localizedStringResource(Res.string.deallocations, language),
-            MemoryClassifierColumn.TOTAL_COUNT to localizedStringResource(Res.string.total_count, language),
+            MemoryClassifierColumn.TOTAL_COUNT to localizedStringResource(Res.string.instances, language),
             MemoryClassifierColumn.NATIVE_SIZE to localizedStringResource(Res.string.native_size, language),
             MemoryClassifierColumn.SHALLOW_SIZE to localizedStringResource(Res.string.shallow, language),
             MemoryClassifierColumn.RETAINED_NATIVE_SIZE to localizedStringResource(Res.string.retained_native_size, language),
@@ -712,17 +688,21 @@ private fun ClassTable(
     listState: LazyListState,
     modifier: Modifier,
     showHeap: Boolean = false,
+    expandHeapRoots: Boolean = true,
+    expansionKey: String? = null,
 ) {
     if (rows.isEmpty()) {
         EmptyPaneHint(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language), modifier)
     } else {
-        val expanded = remember { mutableStateMapOf<String, Boolean>() }
+        val expanded = remember(expandHeapRoots, expansionKey) { mutableStateMapOf<String, Boolean>() }
+        fun isExpanded(row: MemoryClassifierRow): Boolean =
+            expanded[row.id] ?: (row.heapName == null || row.depth != 0 || expandHeapRoots)
         val visibleRows =
             buildList {
                 fun appendRows(nodes: List<MemoryClassifierRow>) {
                     nodes.forEach { row ->
                         add(row)
-                        if (row.children.isNotEmpty() && expanded[row.id] != false) appendRows(row.children)
+                        if (row.children.isNotEmpty() && isExpanded(row)) appendRows(row.children)
                     }
                 }
                 appendRows(rows)
@@ -732,20 +712,24 @@ private fun ClassTable(
                 ClassifierTableRow(
                     row = row,
                     selected = row.id == selectedClassifierId,
-                    isLeak = row.className?.let { it in leakClasses } == true,
+                    isLeak = row.containsLeakClass(leakClasses),
                     isDuplicateBitmap = row.className?.let { it in duplicateClasses } == true,
                     depth = row.depth,
                     rowIndex = index,
                     visibleColumns = visibleColumns,
                     onSelectClassifier = onSelectClassifier,
-                    expanded = expanded[row.id] != false,
-                    onToggle = { expanded[row.id] = !(expanded[row.id] ?: true) },
+                    expanded = isExpanded(row),
+                    onToggle = { expanded[row.id] = !isExpanded(row) },
                     showHeap = showHeap,
+                    language = language,
                 )
             }
         }
     }
 }
+
+private fun MemoryClassifierRow.containsLeakClass(leakClasses: Set<String>): Boolean =
+    className in leakClasses || children.any { it.containsLeakClass(leakClasses) }
 
 @Composable
 @Suppress("CyclomaticComplexMethod")
@@ -761,7 +745,9 @@ private fun ClassifierTableRow(
     expanded: Boolean,
     onToggle: () -> Unit,
     showHeap: Boolean = false,
+    language: UiLanguage,
 ) {
+    val isHeap = row.heapName != null && row.depth == 0
     val background =
         when {
             selected -> MaterialTheme.colorScheme.primaryContainer
@@ -775,7 +761,8 @@ private fun ClassifierTableRow(
             .fillMaxWidth()
             .height(30.dp)
             .background(background, RoundedCornerShape(3.dp))
-            .clickable { onSelectClassifier(row) }
+            .testTag("memory-classifier-row-${row.id}")
+            .clickable { if (isHeap) onToggle() else onSelectClassifier(row) }
             .padding(
                 start =
                     (
@@ -788,22 +775,26 @@ private fun ClassifierTableRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            if (row.isLeaf) {
+            if (row.children.isEmpty()) {
                 ""
             } else if (expanded) {
                 "▾"
             } else {
                 "▸"
             },
-            Modifier.width(14.dp).clickable(enabled = !row.isLeaf, onClick = onToggle),
+            Modifier.width(14.dp).testTag("memory-classifier-toggle-${row.id}")
+                .clickable(enabled = row.children.isNotEmpty(), onClick = onToggle),
             fontSize = ViewerTypography.bodyCompact.fontSize,
+            fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
         )
+        if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-classifier-leak-warning-${row.id}"))
         Text(
             row.label,
             Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             fontSize = ViewerTypography.bodyCompact.fontSize,
+            fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
         )
         if (MemoryClassifierColumn.MODULE_NAME in visibleColumns) classifierCell(row.moduleName)
         if (MemoryClassifierColumn.ALLOCATIONS in visibleColumns) classifierCell(row.allocations?.let(::integer))
@@ -848,18 +839,27 @@ private fun RowScope.classifierCell(value: String?) {
 @Composable
 private fun InstanceListTitle(
     className: String?,
+    isLeak: Boolean,
     language: UiLanguage,
 ) {
-    Text(
-        text =
-            if (className != null) {
-                "${localizedStringResource(Res.string.instance_list, language)} — $className"
-            } else {
-                localizedStringResource(Res.string.instance_list, language)
-            },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-        fontWeight = FontWeight.Bold,
-    )
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-class-warning"))
+        Text(
+            text =
+                if (className != null) {
+                    "${localizedStringResource(Res.string.instance_list, language)} — $className"
+                } else {
+                    localizedStringResource(Res.string.instance_list, language)
+                },
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
@@ -958,6 +958,9 @@ private fun InstanceTableRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (row.isLeakWarning) {
+                MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-warning-${row.objectId}"))
+            }
             Text(
                 text = "${if (selected) "▾" else "▸"} #${row.index}",
                 modifier = Modifier.weight(1f),

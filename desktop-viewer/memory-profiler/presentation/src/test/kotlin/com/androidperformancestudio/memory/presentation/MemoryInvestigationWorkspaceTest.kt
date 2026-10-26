@@ -167,7 +167,33 @@ class MemoryInvestigationWorkspaceTest {
     }
 
     @Test
-    fun `analysis sections have separate aligned cards with compact gaps`() {
+    fun `empty class workspace omits filters and retains its tables and inspector`() {
+        listOf(1280, 900).forEach { width ->
+            listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+                runDesktopComposeUiTest(width = width, height = 720) {
+                    setContent {
+                        ViewerTheme(darkTheme = language == UiLanguage.SIMPLIFIED_CHINESE) {
+                            MemoryProfilerScreen(
+                                MemoryProfilerState(viewMode = MemoryProfilerViewMode.ClassList),
+                                MemoryProfilerActions(),
+                                language,
+                            )
+                        }
+                    }
+                    onNodeWithTag("memory-filters-card").assertDoesNotExist()
+                    onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Filters" else "筛选器").assertDoesNotExist()
+                    onNodeWithTag("memory-primary-filter-bar").assertExists()
+                    onNodeWithTag("memory-classes-card").assertExists()
+                    onNodeWithTag("memory-instances-card").assertExists()
+                    onNodeWithTag("memory-inspector-card").performScrollTo().assertExists()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `class workspace removes the filters pane and fills its space with aligned analysis cards`() {
         listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
             listOf(false, true).forEach { dark ->
                 runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -184,17 +210,26 @@ class MemoryInvestigationWorkspaceTest {
                         assertEquals(4f, right.left - left.right)
                     }
                     val distribution = onNodeWithTag("memory-distribution-card").fetchSemanticsNode().boundsInRoot
-                    val filters = onNodeWithTag("memory-filters-card").fetchSemanticsNode().boundsInRoot
+                    onNodeWithTag("memory-filters-card").assertDoesNotExist()
+                    onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Filters" else "筛选器").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Columns" else "显示列").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Saved filters" else "已保存筛选器")
+                        .assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Save filter" else "保存筛选器")
+                        .assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Delete filter" else "删除筛选器")
+                        .assertDoesNotExist()
                     val classes = onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot
                     val instances = onNodeWithTag("memory-instances-card").fetchSemanticsNode().boundsInRoot
                     val inspector = onNodeWithTag("memory-inspector-card").fetchSemanticsNode().boundsInRoot
                     assertEquals(4f, metrics.first().left)
                     assertEquals(1276f, metrics.last().right)
                     assertEquals(4f, distribution.top - metrics.first().bottom)
-                    assertTrue(filters.top >= distribution.bottom + 4f)
-                    assertEquals(filters.top, classes.top)
+                    assertTrue(classes.top >= distribution.bottom + 4f)
                     assertEquals(classes.top, inspector.top)
-                    assertEquals(4f, classes.left - filters.right)
+                    assertEquals(distribution.left, classes.left)
+                    assertEquals(distribution.right, inspector.right)
                     assertEquals(4f, inspector.left - classes.right)
                     assertEquals(4f, instances.top - classes.bottom)
                     assertEquals(instances.bottom, inspector.bottom)
@@ -215,8 +250,9 @@ class MemoryInvestigationWorkspaceTest {
             val inspector = onNodeWithTag("memory-inspector-card").fetchSemanticsNode().boundsInRoot
             assertTrue(inspector.width > 0f)
             assertTrue(inspector.right <= onRoot().fetchSemanticsNode().boundsInRoot.right)
-            onNodeWithTag("memory-filters-card").performScrollTo()
-            assertTrue(onNodeWithTag("memory-filters-card").fetchSemanticsNode().boundsInRoot.left >= 0f)
+            onNodeWithTag("memory-classes-card").performScrollTo()
+            assertTrue(onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot.left >= 0f)
+            onNodeWithTag("memory-filters-card").assertDoesNotExist()
             onNodeWithTag("memory-profiler-status-bar").assertExists()
         }
 
@@ -305,7 +341,7 @@ class MemoryInvestigationWorkspaceTest {
         }
 
     @Test
-    fun `workspace keeps mapping and compare without file action buttons`() {
+    fun `workspace keeps only mapping even with two snapshots and no file action buttons`() {
         listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
             runDesktopComposeUiTest(width = 1280, height = 160) {
                 val state =
@@ -313,7 +349,6 @@ class MemoryInvestigationWorkspaceTest {
                         it.copy(snapshotSummaries = it.snapshotSummaries + HeapSnapshotSummary("before.hprof"))
                     }
                 var mappingClicks = 0
-                var compareClicks = 0
                 setContent {
                     ViewerTheme(darkTheme = false) {
                         Column {
@@ -327,7 +362,6 @@ class MemoryInvestigationWorkspaceTest {
                                     state = state,
                                     language = language,
                                     onMapping = { mappingClicks++ },
-                                    onCompare = { compareClicks++ },
                                 )
                             }
                             MemoryProfilerSnapshotTabs(state, {}, {}, language)
@@ -339,17 +373,19 @@ class MemoryInvestigationWorkspaceTest {
                 onNodeWithContentDescription(if (language == UiLanguage.ENGLISH) "Import snapshot" else "导入快照")
                     .assertDoesNotExist()
                 onNodeWithText(if (language == UiLanguage.ENGLISH) "Export" else "导出").assertDoesNotExist()
+                onNodeWithText("Compare").assertDoesNotExist()
+                onNodeWithText("比较").assertDoesNotExist()
+                onNodeWithContentDescription("Compare").assertDoesNotExist()
+                onNodeWithContentDescription("比较").assertDoesNotExist()
                 val actions = onNodeWithTag("memory-workspace-actions").fetchSemanticsNode().boundsInRoot
-                val compare =
-                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Compare" else "比较")
+                val mapping =
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Mapping" else "混淆映射")
                         .fetchSemanticsNode()
                         .boundsInRoot
-                assertEquals(actions.right, compare.right)
-                assertEquals(onRoot().fetchSemanticsNode().boundsInRoot.right - 10f, compare.right)
+                assertEquals(actions.right, mapping.right)
+                assertEquals(onRoot().fetchSemanticsNode().boundsInRoot.right - 10f, mapping.right)
                 onNodeWithText(if (language == UiLanguage.ENGLISH) "Mapping" else "混淆映射").performClick()
-                onNodeWithText(if (language == UiLanguage.ENGLISH) "Compare" else "比较").performClick()
                 assertEquals(1, mappingClicks)
-                assertEquals(1, compareClicks)
                 onNodeWithText("heap-after.hprof").assertExists()
                 onNodeWithText("before.hprof").assertExists()
             }
@@ -357,7 +393,7 @@ class MemoryInvestigationWorkspaceTest {
     }
 
     @Test
-    fun `default workspace has filters virtualized classes and separate object inspector`() =
+    fun `default workspace keeps primary filters virtualized classes and separate object inspector`() =
         runDesktopComposeUiTest(width = 1440, height = 860) {
             var state by mutableStateOf(fixture())
             val selected = mutableListOf<Long>()
@@ -373,9 +409,10 @@ class MemoryInvestigationWorkspaceTest {
                 }
             }
             onNodeWithTag("memory-investigation-workspace").assertExists()
-            val filters = onNodeWithTag("memory-workspace-filters").fetchSemanticsNode().boundsInRoot
+            onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
+            val classes = onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot
             val inspector = onNodeWithTag("memory-object-inspector").fetchSemanticsNode().boundsInRoot
-            assertTrue(filters.right < inspector.left)
+            assertTrue(classes.right < inspector.left)
             assertTrue(inspector.right <= onRoot().fetchSemanticsNode().boundsInRoot.right)
             onNodeWithText("Match case").performClick()
             assertTrue(state.matchCase)
@@ -449,7 +486,7 @@ class MemoryInvestigationWorkspaceTest {
                                     onNavigateSettings = null,
                                 ) {
                                     Spacer(Modifier.weight(1f))
-                                    MemoryWorkspaceActions(fixture(), language, {}, {})
+                                    MemoryWorkspaceActions(fixture(), language, {})
                                 }
                                 MemoryProfilerSnapshotTabs(fixture(), {}, {}, language)
                                 MemoryProfilerScreen(fixture(), MemoryProfilerActions(), language, Modifier.weight(1f))

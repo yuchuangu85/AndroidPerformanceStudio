@@ -26,7 +26,7 @@ class MemoryProfilerWorkspaceSourceTest {
         val leakButton =
             workspace
                 .substringAfter("text = localizedStringResource(Res.string.memory_leaks_view, language)")
-                .substringBefore("text = localizedStringResource(Res.string.inject_leak_canary_agent, language)")
+                .substringBefore("MemoryWorkspaceActions(")
         assertTrue(leakButton.contains("state.snapshotSummary != null ||"))
         assertTrue(leakButton.contains("onClick = { controller.changeViewMode(MemoryProfilerViewMode.LeakCanary) }"))
         assertFalse(leakButton.contains("monitorLiveLeakCanary"))
@@ -85,7 +85,7 @@ class MemoryProfilerWorkspaceSourceTest {
 
     @Test
     fun `workspace toolbar uses shared compact chrome`() {
-        assertTrue(workspace.contains("HeaderToolbar("))
+        assertTrue(workspace.contains("MemoryProfilerToolbar("))
         assertTrue(workspace.contains("TitleBarRefreshOrInline("))
         assertTrue(workspace.contains("onRefresh = { scope.launch { controller.refreshDevices() } }"))
         assertFalse(workspace.contains("ProfilerMacOsToolbar"))
@@ -96,27 +96,30 @@ class MemoryProfilerWorkspaceSourceTest {
     }
 
     @Test
-    fun `device and process selectors share the top toolbar row with home`() {
-        val toolbar =
-            workspace
-                .substringAfter("HeaderToolbar(")
-                .substringBefore("        }\n        HorizontalDivider")
-
-        val home = toolbar.indexOf("onNavigateHome = onBack")
-        val selectors = toolbar.indexOf("MemoryProfilerToolbarSelectors(")
-        val refresh = toolbar.indexOf("ProfilerCompactButton(")
-        val navigationScroll = toolbar.indexOf(".horizontalScroll(rememberScrollState())")
-        val dumpHeap = toolbar.indexOf("MemoryProfilerDumpHeapButton(")
-
-        assertTrue(home >= 0)
-        assertTrue(selectors > home)
+    fun `capture group preserves target selection refresh and capture callbacks`() {
+        val capture = workspace.substringAfter("captureContent = {").substringBefore("analysisContent = {")
+        assertTrue(workspace.contains("onNavigateHome = onBack"))
+        val selectors = capture.indexOf("MemoryProfilerToolbarSelectors(")
+        val refresh = capture.indexOf("TitleBarRefreshOrInline(")
+        assertTrue(selectors >= 0)
         assertTrue(refresh > selectors)
-        assertTrue(navigationScroll > refresh)
-        assertTrue(dumpHeap > navigationScroll)
-        assertTrue(toolbar.contains("onSelectDevice = { serial ->"))
-        assertTrue(toolbar.contains("onSelectProcess = controller::selectProcess"))
-        assertEquals(1, Regex("SegmentedSelector\\(").findAll(toolbar).count())
-        val primaryViewSelector = toolbar.substringAfter("SegmentedSelector(").substringBefore("ProfilerCompactButton(")
+        assertTrue(capture.contains("onSelectDevice = { serial ->"))
+        assertTrue(capture.contains("onSelectProcess = controller::selectProcess"))
+        assertTrue(capture.contains("onDumpHeap = {"))
+        assertTrue(capture.contains("controller.changeViewMode(MemoryProfilerViewMode.ClassList)"))
+        assertTrue(capture.contains("onDumpBitmaps = {"))
+        assertTrue(capture.contains("controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)"))
+        assertTrue(capture.contains("onCaptureNativeHeap = {"))
+        assertTrue(capture.contains("controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)"))
+        assertTrue(capture.contains("controller.captureSampledArtAllocations()"))
+    }
+
+    @Test
+    fun `analysis group keeps the primary view selector and specialized views`() {
+        val analysis = workspace.substringAfter("analysisContent = {").substringBefore("MemoryProfilerSnapshotTabs(")
+        assertEquals(1, Regex("SegmentedSelector\\(").findAll(analysis).count())
+        val primaryViewSelector =
+            analysis.substringAfter("SegmentedSelector(").substringBefore("ProfilerCompactButton(")
         val primaryViewModes =
             workspace
                 .substringAfter("private val MEMORY_PROFILER_PRIMARY_VIEW_MODES =")
@@ -127,57 +130,60 @@ class MemoryProfilerWorkspaceSourceTest {
         assertTrue(primaryViewSelector.contains("items = MEMORY_PROFILER_PRIMARY_VIEW_MODES"))
         assertTrue(primaryViewSelector.contains("selectedItem = state.viewMode.takeIf"))
         assertTrue(primaryViewSelector.contains("style = SegmentedSelectorStyle.COMPACT_OUTLINED"))
-        assertTrue(toolbar.contains("onDumpHeap = {"))
-        assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.ClassList)"))
-        assertTrue(toolbar.contains("onDumpBitmaps = {"))
-        assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.BitmapDump)"))
-        assertTrue(toolbar.contains("onCaptureNativeHeap = {"))
-        assertTrue(toolbar.contains("controller.changeViewMode(MemoryProfilerViewMode.NativeHeap)"))
-        assertTrue(toolbar.contains("Res.string.native_heap_view"))
+        assertTrue(primaryViewModes.contains("MemoryProfilerViewMode.Diff"))
+        assertTrue(analysis.contains("Res.string.native_heap_view"))
     }
 
     @Test
-    fun `all toolbar actions after refresh belong to the horizontal scroll region`() {
-        val toolbar =
-            workspace
-                .substringAfter("HeaderToolbar(")
-                .substringBefore("        }\n        HorizontalDivider")
-        val refresh = toolbar.indexOf("Res.string.refresh_devices")
-        val scroll = toolbar.indexOf(".horizontalScroll(rememberScrollState())")
-        val scrollingActions =
-            toolbar
-                .substringAfter(".horizontalScroll(rememberScrollState()),")
-                .substringBefore("\n            }\n")
-
-        assertTrue(refresh >= 0 && scroll > refresh)
-        assertEquals(1, Regex("horizontalScroll\\(").findAll(toolbar).count())
+    fun `capture and analysis commands belong to separate toolbar groups`() {
+        assertEquals(1, Regex("MemoryProfilerToolbar\\(").findAll(workspace).count())
+        val capture = workspace.substringAfter("captureContent = {").substringBefore("analysisContent = {")
+        val analysis = workspace.substringAfter("analysisContent = {").substringBefore("MemoryProfilerSnapshotTabs(")
         listOf(
             "SegmentedSelector(",
             "Res.string.bitmap_dump_view",
             "Res.string.native_heap_view",
             "Res.string.sampled_art_view",
             "Res.string.memory_leaks_view",
-            "Res.string.inject_leak_canary_agent",
+            "MemoryWorkspaceActions(",
+        ).forEach { action ->
+            assertTrue(analysis.contains(action), "$action belongs to Analysis")
+            assertFalse(capture.contains(action), "$action must not appear in Capture")
+        }
+        listOf(
             "MemoryProfilerDumpHeapButton(",
             "MemoryProfilerCaptureNativeHeapButton(",
             "Res.string.record_sampled_art",
             "MemoryProfilerDumpBitmapsButton(",
-            "MemoryWorkspaceActions(",
-        ).forEach { action -> assertTrue(scrollingActions.contains(action), "$action must scroll with the toolbar") }
+            "Res.string.inject_leak_canary_agent",
+        ).forEach { action ->
+            assertTrue(capture.contains(action), "$action belongs to Capture")
+            assertFalse(analysis.contains(action), "$action must not appear in Analysis")
+        }
     }
 
     @Test
-    fun `mapping and compare are the final actions in the top toolbar`() {
+    fun `mapping is the final toolbar action without a duplicate Compare entry`() {
         val toolbar =
             workspace
-                .substringAfter("HeaderToolbar(")
-                .substringBefore("        }\n        HorizontalDivider")
+                .substringAfter("analysisContent = {")
+                .substringBefore("MemoryProfilerSnapshotTabs(")
         val actions = toolbar.indexOf("MemoryWorkspaceActions(")
-        assertTrue(actions > toolbar.indexOf("MemoryProfilerDumpBitmapsButton("))
+        assertTrue(actions > toolbar.indexOf("Res.string.memory_leaks_view"))
         assertTrue(toolbar.substring(actions).contains("onMapping = { showMappingFileDialog = true }"))
-        val compareAction = "onCompare = { controller.changeViewMode(MemoryProfilerViewMode.Diff) }"
-        assertTrue(toolbar.substring(actions).contains(compareAction))
+        assertFalse(toolbar.substring(actions).contains("onCompare ="))
         assertEquals(1, Regex("MemoryWorkspaceActions\\(").findAll(workspace).count())
+    }
+
+    @Test
+    fun `overview mode no longer has the overlapping leaks and bitmaps label`() {
+        val resources = Path.of("src/main/composeResources")
+        val english = Files.readString(resources.resolve("values/strings.xml"))
+        val chinese = Files.readString(resources.resolve("values-zh/strings.xml"))
+        assertTrue(english.contains("<string name=\"dashboard_view\">Overview</string>"))
+        assertTrue(chinese.contains("<string name=\"dashboard_view\">概览</string>"))
+        assertFalse(english.contains("Leaks &amp; Bitmaps"))
+        assertFalse(chinese.contains("泄漏与位图"))
     }
 
     @Test

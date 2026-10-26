@@ -50,6 +50,7 @@ import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.NativeHeapAnalysis
 import com.androidperformancestudio.memory.model.NativeHeapTrace
+import com.androidperformancestudio.memory.presentation.DEFAULT_MEMORY_CLASSIFIER_COLUMNS
 import com.androidperformancestudio.memory.presentation.MemoryArrangeBy
 import com.androidperformancestudio.memory.presentation.MemoryClassScope
 import com.androidperformancestudio.memory.presentation.MemoryClassifierColumn
@@ -350,8 +351,8 @@ internal class MemoryProfilerController(
     var loadedBitmapDump: LoadedBitmapDump? = null
         private set
 
-    var recentSessions: List<MemorySessionMetadata> = emptyList()
-        private set
+    private val mutableRecentSessions = MutableStateFlow<List<MemorySessionMetadata>>(emptyList())
+    val recentSessions: StateFlow<List<MemorySessionMetadata>> = mutableRecentSessions.asStateFlow()
 
     private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedHeap>()
     private var previousBitmapDump: LoadedBitmapDump? = null
@@ -557,6 +558,7 @@ internal class MemoryProfilerController(
                             .HeapSummary(),
                     classes = emptyList(),
                     heapBaseClasses = emptyList(),
+                    perHeapClasses = emptyMap(),
                     displayedClasses = emptyList(),
                     classifierRows = emptyList(),
                     heapDiff = null,
@@ -622,7 +624,7 @@ internal class MemoryProfilerController(
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = className,
-                selectedClassifierId = "class:$className",
+                selectedClassifierId = classifierClassId(className, mutableState.value.heapFilter),
                 selectedClassifierLabel = className,
                 selectedClassInstances = instances,
                 selectedInstanceDetail = null,
@@ -638,7 +640,7 @@ internal class MemoryProfilerController(
             classNames
                 .flatMap { className ->
                     instanceQuery
-                        ?.instancesOf(className, heapName = mutableState.value.heapFilter)
+                        ?.instancesOf(className, heapName = row.heapName ?: mutableState.value.heapFilter)
                         .orEmpty()
                 }.sortedBy { it.objectId }
                 .map { it.toPresentation() }
@@ -650,7 +652,7 @@ internal class MemoryProfilerController(
         querySelection(
             compute = { query, heapFilter ->
                 classNames
-                    .flatMap { className -> query.instancesOf(className, heapFilter) }
+                    .flatMap { className -> query.instancesOf(className, row.heapName ?: heapFilter) }
                     .sortedBy { it.objectId }
                     .map { it.toPresentation() }
             },
@@ -753,14 +755,15 @@ internal class MemoryProfilerController(
                 ?: return
         val groupingClassName = instanceQuery?.groupingClassNameOf(objectId) ?: detail.className
         val current = mutableState.value
+        val heapName = instanceQuery?.heapNameOf(objectId) ?: current.heapFilter
         val instances =
             instanceQuery
-                ?.instancesOf(groupingClassName, heapName = current.heapFilter)
+                ?.instancesOf(groupingClassName, heapName = heapName)
                 .orEmpty()
                 .map { it.toPresentation() }
         publishInstanceSelection(
             objectId,
-            InstanceSelection(detail, groupingClassName, instances),
+            InstanceSelection(detail, groupingClassName, instances, heapName),
             appendToHistory,
             historyIndex,
         )
@@ -780,10 +783,12 @@ internal class MemoryProfilerController(
                     ?.toPresentation(arrayStart = boundedStart)
                     ?.let { detail ->
                         val groupingClassName = query.groupingClassNameOf(objectId) ?: detail.className
+                        val heapName = query.heapNameOf(objectId) ?: heapFilter
                         InstanceSelection(
                             detail,
                             groupingClassName,
-                            query.instancesOf(groupingClassName, heapFilter).map { it.toPresentation() },
+                            query.instancesOf(groupingClassName, heapName).map { it.toPresentation() },
+                            heapName,
                         )
                     }
             },
@@ -815,7 +820,7 @@ internal class MemoryProfilerController(
         mutableState.value =
             current.copy(
                 selectedClassName = selection.groupingClassName,
-                selectedClassifierId = "class:${selection.groupingClassName}",
+                selectedClassifierId = classifierClassId(selection.groupingClassName, selection.heapName),
                 selectedClassifierLabel = selection.groupingClassName,
                 selectedClassInstances = selection.instances,
                 selectedInstanceDetail = selection.detail,
@@ -828,6 +833,7 @@ internal class MemoryProfilerController(
         val detail: MemoryInstanceDetail,
         val groupingClassName: String,
         val instances: List<MemoryInstanceRow>,
+        val heapName: String?,
     )
 
     private data class SelectionRequest(
@@ -1579,7 +1585,7 @@ internal class MemoryProfilerController(
     suspend fun refreshSessions() {
         when (val result = backend.listSessions()) {
             is MemoryBackendResult.Failure -> Unit
-            is MemoryBackendResult.Success -> recentSessions = result.value
+            is MemoryBackendResult.Success -> mutableRecentSessions.value = result.value
         }
     }
 
@@ -1728,7 +1734,7 @@ internal class MemoryProfilerController(
                         visibleClassifierColumns =
                             result.value.uiSettings.visibleColumns
                                 .mapNotNull { name -> runCatching { MemoryClassifierColumn.valueOf(name) }.getOrNull() }
-                                .ifEmpty { MemoryClassifierColumn.entries.toSet() }
+                                .ifEmpty { DEFAULT_MEMORY_CLASSIFIER_COLUMNS }
                                 .toSet(),
                         error = null,
                         warning = result.value.warning,
@@ -1774,12 +1780,13 @@ internal class MemoryProfilerController(
                         availableHeaps = result.value.availableHeaps,
                         heapFilter = null,
                         heapBaseClasses = result.value.histogram.classes,
+                        perHeapClasses = result.value.perHeapClasses,
                         classScope = MemoryClassScope.ALL,
                         leakFilter = MemoryLeakFilter.NONE,
                         arrangeBy = MemoryArrangeBy.CLASS,
                         availableArrangeBy = classifierGroupings(result.value.histogram.classes),
-                        classifierSortColumn = MemoryClassifierColumn.NAME,
-                        classifierSortDirection = MemorySortDirection.ASCENDING,
+                        classifierSortColumn = MemoryClassifierColumn.RETAINED_SIZE,
+                        classifierSortDirection = MemorySortDirection.DESCENDING,
                         searchText = "",
                         matchCase = false,
                         useRegex = false,
@@ -1945,7 +1952,12 @@ internal class MemoryProfilerController(
             )
     }
 
-    private fun MemoryClassifierRow.classNames(): List<String> = className?.let(::listOf) ?: children.flatMap { it.classNames() }
+    private fun classifierClassId(
+        className: String,
+        heapName: String?,
+    ): String = if (heapName == null) "class:$className" else "heap:$heapName/class:$className"
+
+    private fun MemoryClassifierRow.classNames(): List<String> = className?.let(::listOf) ?: children.flatMap { it.classNames() }.distinct()
 
     private fun InstanceQueryRow.toPresentation(): MemoryInstanceRow =
         MemoryInstanceRow(

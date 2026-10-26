@@ -46,6 +46,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.reta
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -88,17 +89,19 @@ internal fun MemoryInvestigationWorkspace(
                     .requiredWidth(contentWidth),
                 horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
-                StudioCard(
-                    modifier = Modifier.width(190.dp).fillMaxHeight().testTag("memory-filters-card"),
-                    contentPadding = 0.dp,
-                    contentSpacing = 0.dp,
-                ) {
-                    MemoryFiltersPane(
-                        state,
-                        actions,
-                        language,
-                        Modifier.fillMaxSize().testTag("memory-workspace-filters"),
-                    )
+                if (state.viewMode != MemoryProfilerViewMode.ClassList) {
+                    StudioCard(
+                        modifier = Modifier.width(190.dp).fillMaxHeight().testTag("memory-filters-card"),
+                        contentPadding = 0.dp,
+                        contentSpacing = 0.dp,
+                    ) {
+                        MemoryFiltersPane(
+                            state,
+                            actions,
+                            language,
+                            Modifier.fillMaxSize().testTag("memory-workspace-filters"),
+                        )
+                    }
                 }
                 if (state.viewMode == MemoryProfilerViewMode.ClassList) {
                     content(Modifier.weight(1f).fillMaxHeight())
@@ -167,21 +170,45 @@ private fun MemorySnapshotSummary(
             horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             cards.forEachIndexed { index, (label, value) ->
+                val hasLeakWarning =
+                    loaded &&
+                        when (label) {
+                            Res.string.lifecycle_leaks -> state.classListSummary.leakCount > 0
+                            Res.string.leak_suspects -> state.leakSuspects.isNotEmpty()
+                            else -> false
+                        }
                 StudioCard(
                     modifier = Modifier.weight(1f).testTag("memory-metric-card-$index"),
                     contentPadding = 4.dp,
                     contentSpacing = 0.dp,
                 ) {
-                    Text(
-                        localizedStringResource(label, language),
-                        style = ViewerTypography.secondary,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (hasLeakWarning) {
+                            MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-summary-warning"))
+                        }
+                        Text(
+                            localizedStringResource(label, language),
+                            Modifier.weight(1f),
+                            style = ViewerTypography.secondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
                         value,
                         fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.titleLarge,
+                        color =
+                            if (hasLeakWarning) {
+                                LocalViewerColors.current.warning
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

@@ -11,10 +11,6 @@
     <string name="retained">保留大小</string>
     <string name="leak_suspects">泄漏疑点</string>
     <string name="lifecycle_leaks">泄漏</string>
-    <string name="no_leak_suspects_detected">未检测到泄漏疑点。</string>
-    <string name="heap_diff">堆对比</string>
-    <string name="no_class_changes_between_the_latest_two_heap_dumps">最近两次堆转储之间没有类变化。</string>
-    <string name="bitmap_analysis">Bitmap 分析</string>
     <string name="device_selector">设备选择器</string>
     <string name="process_selector">进程选择器</string>
     <string name="process">进程</string>
@@ -72,18 +68,7 @@
     <string name="snapshot_artifact">证据产物 %1$s · %2$s · %3$s 项能力</string>
     <string name="snapshot_limitation">局限性 %1$s：%2$s</string>
     <string name="snapshot_artifact_warning">证据产物警告：%1$s</string>
-    <string name="leak_suspect_title">%1$s %2$s: %3$s</string>
-    <string name="leak_suspect_summary">保留大小 %1$s · 置信度 %2$s%%</string>
-    <string name="reference_chain_entry">%1$s↳ %2$s → %3$s</string>
-    <string name="heap_diff_entry">%1$s: %2$s → %3$s (%4$s) · %5$s B</string>
-    <string name="bitmap_entry">#%1$s %2$s×%3$s · %4$s</string>
-    <string name="activity_leaks">Activity 泄漏</string>
-    <string name="activity_leak_entry">%1$s · 存活 %2$s · 已销毁 %3$s · 保留大小 %4$s</string>
-    <string name="no_activity_leaks_detected">未检测到 Activity 泄漏。</string>
-    <string name="manual_verification">需要人工确认</string>
     <string name="mapping_loaded_note">已加载 mapping.txt — 类名已反混淆</string>
-    <string name="bitmap_estimated_pixel_memory">预估像素内存 %1$s（宽×高×4B）</string>
-    <string name="bitmap_java_native_memory">java %1$s · native %2$s</string>
     <string name="native_heap">Native 堆</string>
     <string name="art_sampled_trace_source">Java/Kotlin 分配采样 · Perfetto ART</string>
     <string name="art_sampled_evidence_boundary">仅显示 ART 分配采样，并非 Studio Full 追踪。释放与 GC 事件及对象类名不可用；轨迹文件大小不等于分配量。</string>
@@ -97,7 +82,6 @@
     <string name="art_sampled_analysis_unavailable">ART 采样分析不可用：%1$s。已保留原始轨迹。</string>
     <string name="art_sampled_analysis_failed">ART 采样分析失败：%1$s。已保留原始轨迹。</string>
     <string name="native_heap_view">Native 堆</string>
-    <string name="open_native_heap">查看 Native 堆</string>
     <string name="native_heap_capture_loading">正在抓取 Native 堆…</string>
     <string name="native_heap_no_allocations">未解析到 Native 分配记录。</string>
     <string name="no_native_heap_trace">尚未抓取 Native 堆 trace。</string>

@@ -18,7 +18,7 @@ import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.model.ObjectReference
 
 public enum class MemoryProfilerViewMode {
-    /** Current dashboard: overview cards, leak suspects, native summary, and bitmaps. */
+    /** Heap overview metrics and class histogram; dedicated analysis views own their details. */
     Dashboard,
 
     /** Android Studio-style class list → instance → reference drill-down. */
@@ -81,6 +81,15 @@ public enum class MemoryClassifierColumn {
     SHALLOW_SIZE_CHANGE,
 }
 
+/** Default columns for an HPROF class table; allocation metrics are unavailable without a recording. */
+public val DEFAULT_MEMORY_CLASSIFIER_COLUMNS: Set<MemoryClassifierColumn> =
+    setOf(
+        MemoryClassifierColumn.TOTAL_COUNT,
+        MemoryClassifierColumn.NATIVE_SIZE,
+        MemoryClassifierColumn.SHALLOW_SIZE,
+        MemoryClassifierColumn.RETAINED_SIZE,
+    )
+
 public enum class MemorySortDirection { ASCENDING, DESCENDING }
 
 /** One node in the classifier tree shown by the class list. Leaf nodes represent classes. */
@@ -102,8 +111,10 @@ public data class MemoryClassifierRow(
     val depth: Int = 0,
     val children: List<MemoryClassifierRow> = emptyList(),
     val heapNames: Set<String> = emptySet(),
+    /** Exact heap scope shared by this row and its descendants; null when unavailable. */
+    val heapName: String? = null,
 ) {
-    val isLeaf: Boolean get() = children.isEmpty()
+    val isLeaf: Boolean get() = className != null
 }
 
 /** One row of the instance list shown when a class is selected in [MemoryProfilerViewMode.ClassList]. */
@@ -117,6 +128,8 @@ public data class MemoryInstanceRow(
     /** Estimated native footprint of this instance (Bitmap pixel buffer); null when unknown. */
     val nativeSize: Long? = null,
     val shallowSizeKnown: Boolean = true,
+    /** True when this object is one of the snapshot-local leak candidates. */
+    val isLeakWarning: Boolean = false,
 )
 
 public data class MemoryDominatorRow(
@@ -290,15 +303,17 @@ public data class MemoryProfilerState(
     val activeFilterPresetId: String? = null,
     /** Base class table for the current [heapFilter] (null = all heaps), before scope/leak/search filters. */
     val heapBaseClasses: List<ClassStats> = emptyList(),
+    /** Independent per-heap histograms; never split all-heap totals using class-name membership. */
+    val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
     /** Class rows shown in the class-list table after all filters are applied. */
     val displayedClasses: List<ClassStats> = emptyList(),
     /** Summary metrics derived from [displayedClasses] by the presenter. */
     val classListSummary: MemoryClassListSummary = MemoryClassListSummary(),
     /** Classifier tree; unlike [displayedClasses] this preserves package/callstack hierarchy. */
     val classifierRows: List<MemoryClassifierRow> = emptyList(),
-    val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.NAME,
-    val classifierSortDirection: MemorySortDirection = MemorySortDirection.ASCENDING,
-    val visibleClassifierColumns: Set<MemoryClassifierColumn> = MemoryClassifierColumn.entries.toSet(),
+    val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.RETAINED_SIZE,
+    val classifierSortDirection: MemorySortDirection = MemorySortDirection.DESCENDING,
+    val visibleClassifierColumns: Set<MemoryClassifierColumn> = DEFAULT_MEMORY_CLASSIFIER_COLUMNS,
 )
 
 public data class MemoryDeviceOption(

@@ -6,6 +6,7 @@ import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.analysis.ArtSampledAllocationAnalysis
 import com.androidperformancestudio.memory.analysis.ArtSampledCallSite
+import com.androidperformancestudio.memory.analysis.MemoryHistogramAnalyzer
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
@@ -19,14 +20,18 @@ import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
+import com.androidperformancestudio.memory.presentation.MemoryClassifierColumn
 import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
+import com.androidperformancestudio.memory.presentation.MemoryProfilerPresenter
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import com.androidperformancestudio.memory.presentation.MemorySampledArtAnalysis
 import com.androidperformancestudio.memory.presentation.MemorySampledArtOrigin
 import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
+import com.androidperformancestudio.memory.presentation.MemorySortDirection
+import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -761,6 +766,180 @@ class MemoryProfilerControllerTest {
         }
 
     @Test
+    fun `all heaps retain independent classifier trees and App filtering retains its heap parent`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
+            assertTrue(
+                controller.state.value.perHeapClasses
+                    .isEmpty(),
+            )
+            controller.importHprof(Path.of("shared-heaps.hprof"))
+
+            val defaults = MemoryProfilerPresenter.present(controller.state.value)
+            assertEquals(MemoryClassifierColumn.RETAINED_SIZE, defaults.classifierSortColumn)
+            assertEquals(MemorySortDirection.DESCENDING, defaults.classifierSortDirection)
+            assertEquals(
+                defaults.classifierRows.sortedWith(compareByDescending { it.retainedSize }),
+                defaults.classifierRows,
+            )
+            defaults.classifierRows.forEach { parent ->
+                assertEquals(parent.children.sortedWith(compareByDescending { it.retainedSize }), parent.children)
+            }
+
+            controller.sortClassifier(MemoryClassifierColumn.NAME)
+            val all = MemoryProfilerPresenter.present(controller.state.value)
+            assertEquals(MemoryClassifierColumn.NAME, all.classifierSortColumn)
+            assertEquals(MemorySortDirection.ASCENDING, all.classifierSortDirection)
+            assertNull(all.heapFilter)
+            assertEquals(setOf("App", "Image", "Zygote"), all.perHeapClasses.keys)
+            assertEquals(listOf("heap:App", "heap:Image", "heap:Zygote"), all.classifierRows.map { it.id })
+            all.classifierRows.forEach { parent ->
+                assertEquals("${parent.heapName} heap", parent.label)
+                assertNull(parent.className)
+                assertEquals(0, parent.depth)
+                assertTrue(parent.children.isNotEmpty())
+                parent.children.forEach { child ->
+                    assertEquals(parent.heapName, child.heapName)
+                    assertEquals("${parent.id}/class:${child.className}", child.id)
+                    assertEquals(1, child.depth)
+                }
+            }
+            val app = all.classifierRows.single { it.heapName == "App" }
+            val zygote = all.classifierRows.single { it.heapName == "Zygote" }
+            assertEquals(
+                listOf("com.example.Other", "com.example.Shared"),
+                app.children.map { it.className },
+            )
+            assertEquals(listOf("Other (com.example)", "Shared (com.example)"), app.children.map { it.label })
+            assertEquals(2L, app.children.single { it.className == "com.example.Shared" }.totalCount)
+            assertEquals(4L, zygote.children.single { it.className == "com.example.Shared" }.totalCount)
+
+            controller.changeHeapFilter("App")
+            val filtered = MemoryProfilerPresenter.present(controller.state.value)
+            assertEquals(listOf(app), filtered.classifierRows)
+            assertEquals(all.perHeapClasses, filtered.perHeapClasses)
+
+            controller.changeHeapFilter(null)
+            assertEquals(all.classifierRows, MemoryProfilerPresenter.present(controller.state.value).classifierRows)
+        }
+
+    @Test
+    fun `classifier class rows and heap parents select only their own heap in All mode`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
+            controller.importHprof(Path.of("shared-heaps.hprof"))
+            val parents = MemoryProfilerPresenter.present(controller.state.value).classifierRows
+            listOf("App", "Zygote").forEach { heapName ->
+                val parent = parents.single { it.heapName == heapName }
+                val child = parent.children.single { it.className == "com.example.Shared" }
+                listOf(child, parent).forEach { row ->
+                    controller.selectClassifier(row)
+                    val state = controller.state.value
+                    val expectedIds =
+                        when {
+                            heapName == "Zygote" -> listOf(3L, 4L, 5L, 100L)
+                            row.className != null -> listOf(1L, 2L)
+                            else -> listOf(1L, 2L, 6L, 101L)
+                        }
+                    assertNull(state.heapFilter)
+                    assertEquals(row.id, state.selectedClassifierId)
+                    assertEquals(row.label, state.selectedClassifierLabel)
+                    assertEquals(row.className, state.selectedClassName)
+                    assertEquals(expectedIds, state.selectedClassInstances.map { it.objectId })
+                }
+            }
+        }
+
+    @Test
+    fun `async classifier class rows and heap parents select only their own heap in All mode`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
+            controller.importHprof(Path.of("shared-heaps.hprof"))
+            val parents = MemoryProfilerPresenter.present(controller.state.value).classifierRows
+            listOf("App", "Zygote").forEach { heapName ->
+                val parent = parents.single { it.heapName == heapName }
+                val child = parent.children.single { it.className == "com.example.Shared" }
+                listOf(child, parent).forEach { row ->
+                    controller.selectClassifierAsync(row)
+                    val state = controller.state.value
+                    val expectedIds =
+                        when {
+                            heapName == "Zygote" -> listOf(3L, 4L, 5L, 100L)
+                            row.className != null -> listOf(1L, 2L)
+                            else -> listOf(1L, 2L, 6L, 101L)
+                        }
+                    assertNull(state.heapFilter)
+                    assertEquals(row.id, state.selectedClassifierId)
+                    assertEquals(row.label, state.selectedClassifierLabel)
+                    assertEquals(row.className, state.selectedClassName)
+                    assertEquals(expectedIds, state.selectedClassInstances.map { it.objectId })
+                    assertFalse(state.isSelectionLoading)
+                }
+            }
+        }
+
+    @Test
+    fun `instance selection and history keep the original object heap in All mode`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
+            controller.importHprof(Path.of("shared-heaps.hprof"))
+
+            controller.selectInstance(1)
+            assertSharedClassInstanceSelection(controller, 1, "App", listOf(1L, 2L))
+            controller.selectInstance(3)
+            assertSharedClassInstanceSelection(controller, 3, "Zygote", listOf(3L, 4L, 5L, 100L))
+            controller.navigateInstanceBack()
+            assertSharedClassInstanceSelection(controller, 1, "App", listOf(1L, 2L))
+            controller.navigateInstanceForward()
+            assertSharedClassInstanceSelection(controller, 3, "Zygote", listOf(3L, 4L, 5L, 100L))
+
+            controller.selectInstance(100)
+            assertSharedClassInstanceSelection(controller, 100, "Zygote", listOf(3L, 4L, 5L, 100L))
+            assertEquals("java.lang.Class", assertNotNull(controller.state.value.selectedInstanceDetail).className)
+            assertEquals(listOf(1L, 3L, 100L), controller.state.value.instanceHistory)
+            assertEquals(2, controller.state.value.instanceHistoryIndex)
+        }
+
+    @Test
+    fun `async instance selection and history keep the original object heap in All mode`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
+            controller.importHprof(Path.of("shared-heaps.hprof"))
+
+            controller.selectInstanceAsync(1)
+            assertSharedClassInstanceSelection(controller, 1, "App", listOf(1L, 2L))
+            controller.selectInstanceAsync(3)
+            assertSharedClassInstanceSelection(controller, 3, "Zygote", listOf(3L, 4L, 5L, 100L))
+            controller.navigateInstanceBackAsync()
+            assertSharedClassInstanceSelection(controller, 1, "App", listOf(1L, 2L))
+            controller.navigateInstanceForwardAsync()
+            assertSharedClassInstanceSelection(controller, 3, "Zygote", listOf(3L, 4L, 5L, 100L))
+
+            controller.selectInstanceAsync(100)
+            assertSharedClassInstanceSelection(controller, 100, "Zygote", listOf(3L, 4L, 5L, 100L))
+            assertEquals("java.lang.Class", assertNotNull(controller.state.value.selectedInstanceDetail).className)
+            assertEquals(listOf(1L, 3L, 100L), controller.state.value.instanceHistory)
+            assertEquals(2, controller.state.value.instanceHistoryIndex)
+            assertFalse(controller.state.value.isSelectionLoading)
+        }
+
+    @Test
+    fun `closing the final snapshot clears populated per-heap histograms and classifier trees`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
+            controller.importHprof(Path.of("shared-heaps.hprof"))
+            assertEquals(setOf("App", "Image", "Zygote"), controller.state.value.perHeapClasses.keys)
+
+            controller.closeSnapshot("shared-heaps.hprof")
+
+            assertTrue(
+                controller.state.value.perHeapClasses
+                    .isEmpty(),
+            )
+            assertTrue(MemoryProfilerPresenter.present(controller.state.value).classifierRows.isEmpty())
+        }
+
+    @Test
     fun `second heap load exposes diff and layout inspector class highlight`() =
         runTest {
             val controller = MemoryProfilerController(FakeBackend())
@@ -807,6 +986,70 @@ class MemoryProfilerControllerTest {
             assertTrue(backend.events.count { it.startsWith("captureBitmaps") } == 2)
         }
 
+    @Test
+    fun `refreshing sessions publishes the result to observers`() =
+        runTest {
+            val session =
+                MemorySessionMetadata(
+                    sessionId = "session-1",
+                    packageName = "com.example.app",
+                    deviceSerial = "device",
+                    capturedAt = Instant.EPOCH,
+                    rawHprofFile = Path.of("session-1.hprof"),
+                )
+            val backend = FakeBackend().apply { sessions = listOf(session) }
+            val controller = MemoryProfilerController(backend)
+
+            controller.refreshSessions()
+
+            assertEquals(listOf(session), controller.recentSessions.value)
+        }
+
+    private fun sharedClassHeap(): HeapDump =
+        HeapDump(
+            classes =
+                listOf(
+                    HeapClass(100, "com.example.Shared", 8),
+                    HeapClass(101, "com.example.Other", 16),
+                    HeapClass(102, "java.lang.Class", 16),
+                ),
+            instances =
+                listOf(
+                    HeapInstance(1, 100, "com.example.Shared", 8),
+                    HeapInstance(2, 100, "com.example.Shared", 8),
+                    HeapInstance(3, 100, "com.example.Shared", 8),
+                    HeapInstance(4, 100, "com.example.Shared", 8),
+                    HeapInstance(5, 100, "com.example.Shared", 8),
+                    HeapInstance(6, 101, "com.example.Other", 16),
+                ),
+            heapByObjectId =
+                mapOf(
+                    1L to "App",
+                    2L to "App",
+                    3L to "Zygote",
+                    4L to "Zygote",
+                    5L to "Zygote",
+                    6L to "App",
+                    100L to "Zygote",
+                    101L to "App",
+                    102L to "Image",
+                ),
+        )
+
+    private fun assertSharedClassInstanceSelection(
+        controller: MemoryProfilerController,
+        objectId: Long,
+        heapName: String,
+        expectedIds: List<Long>,
+    ) {
+        val state = controller.state.value
+        assertNull(state.heapFilter)
+        assertEquals("com.example.Shared", state.selectedClassName)
+        assertEquals("heap:$heapName/class:com.example.Shared", state.selectedClassifierId)
+        assertEquals(objectId, assertNotNull(state.selectedInstanceDetail).objectId)
+        assertEquals(expectedIds, state.selectedClassInstances.map { it.objectId })
+    }
+
     private class FakeBackend(
         private val blockingImport: String? = null,
         private val importFails: Boolean = false,
@@ -829,6 +1072,7 @@ class MemoryProfilerControllerTest {
             )
         var failDevices = false
         var failSampledArtImport = false
+        var sessions: List<MemorySessionMetadata> = emptyList()
         var heapOverride: HeapDump? = null
         var analysisStarted: CompletableDeferred<Unit>? = null
         var analysisRelease: CompletableDeferred<Unit>? = null
@@ -841,6 +1085,8 @@ class MemoryProfilerControllerTest {
             if (failDevices) return MemoryBackendResult.Failure("ADB failed", "Offline device")
             return MemoryBackendResult.Success(listOf(MemoryDeviceOption("serial-1", "Pixel")))
         }
+
+        override suspend fun listSessions() = MemoryBackendResult.Success(sessions)
 
         override suspend fun analyzeLeaks(
             snapshot: LoadedHeap,
@@ -1015,10 +1261,19 @@ class MemoryProfilerControllerTest {
                             ),
                     ),
                 histogram =
-                    HeapHistogram(
+                    heapOverride?.let { MemoryHistogramAnalyzer().histogram(it) } ?: HeapHistogram(
                         summary = HeapSummary(objectCount = 3, classCount = 1, shallowSize = 24),
                         classes = listOf(ClassStats("com.example.Item", 3, 24, retainedSize = null)),
                     ),
+                availableHeaps = heapOverride?.let { MemoryHistogramAnalyzer().heapNamesOf(it) }.orEmpty(),
+                perHeapClasses =
+                    heapOverride
+                        ?.let { heap ->
+                            val analyzer = MemoryHistogramAnalyzer()
+                            analyzer.heapNamesOf(heap).associateWith { heapName ->
+                                analyzer.histogram(heap, heapName = heapName).classes
+                            }
+                        }.orEmpty(),
                 warning = "conversion warning",
                 cleanupWarning = "cleanup warning",
             )
