@@ -1,6 +1,5 @@
 <resources>
     <string name="memory_filters">筛选器</string>
-    <string name="memory_inspector">对象检查器</string>
     <string name="memory_distribution">堆分布</string>
     <string name="memory_composition">最大类 · 浅层大小</string>
     <string name="memory_compare_a">快照 A</string>
@@ -19,9 +18,9 @@
     <string name="memory_add_snapshot">导入快照</string>
     <string name="memory_evidence">证据与警告</string>
     <string name="memory_no_snapshot">没有快照</string>
-    <string name="memory_inbound">入向引用</string>
-    <string name="memory_roots">GC Root 路径</string>
     <string name="memory_root_unavailable">没有可用的强引用 GC Root 路径</string>
+    <string name="show_nearest_gc_root_only">仅显示最近的 GC Root</string>
+    <string name="memory_reference_column">引用对象</string>
     <string name="memory_reachable">可达</string>
     <string name="memory_not_reachable">从已记录的强引用根不可达</string>
     <string name="memory_depth">深度</string>

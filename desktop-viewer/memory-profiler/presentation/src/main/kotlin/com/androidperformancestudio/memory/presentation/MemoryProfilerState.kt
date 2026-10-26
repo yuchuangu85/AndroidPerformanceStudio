@@ -187,6 +187,8 @@ public data class MemoryInstanceField(
     val displayValue: String,
     val targetObjectId: Long?,
     val targetClassName: String?,
+    /** Shortest strong-root distance of the referring object; null if unavailable. */
+    val depth: Int? = null,
 )
 
 public data class MemoryFilterPreset(

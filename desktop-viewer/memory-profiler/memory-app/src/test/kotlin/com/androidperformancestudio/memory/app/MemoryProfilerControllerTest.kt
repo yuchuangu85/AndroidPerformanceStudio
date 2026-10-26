@@ -14,12 +14,15 @@ import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapInstance
+import com.androidperformancestudio.memory.model.HeapRoot
+import com.androidperformancestudio.memory.model.HeapRootKind
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.LeakCanaryLeak
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
+import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.presentation.MemoryClassifierColumn
 import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
@@ -53,6 +56,33 @@ private typealias TargetListener = AndroidTargetListener
 private typealias TargetSubscription = AndroidTargetSubscription
 
 class MemoryProfilerControllerTest {
+    @Test
+    fun `instance selection publishes referring object depths for nearest root filtering`() =
+        runTest {
+            val heap =
+                HeapDump(
+                    instances =
+                        listOf(
+                            HeapInstance(1, 100, "sample.Root", 8, references = listOf(ObjectReference("child", 2))),
+                            HeapInstance(2, 101, "sample.Item", 8, references = listOf(ObjectReference("self", 2))),
+                            HeapInstance(3, 102, "sample.Orphan", 8, references = listOf(ObjectReference("owner", 2))),
+                        ),
+                    gcRoots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+                )
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = heap })
+            controller.importHprof(Path.of("nearest-root.hprof"))
+
+            controller.selectInstanceAsync(2)
+
+            val detail = assertNotNull(controller.state.value.selectedInstanceDetail)
+            assertEquals(1, detail.depth)
+            assertEquals(
+                mapOf("child" to 0, "self" to 1, "owner" to null),
+                detail.references.associate { it.name to it.depth },
+            )
+            controller.close()
+        }
+
     @Test
     fun `class-object selection keeps its represented class group and physical detail type`() =
         runTest {

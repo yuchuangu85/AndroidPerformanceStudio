@@ -111,6 +111,29 @@ class InstanceReferenceQueryTest {
     }
 
     @Test
+    fun `inbound reference depths distinguish nearer roots peers and unreachable sources`() {
+        val cyclic =
+            heap.copy(
+                instances =
+                    heap.instances.map { obj ->
+                        when (obj.objectId) {
+                            2L -> obj.copy(references = obj.references + ref("self", 2))
+                            3L -> obj.copy(references = obj.references + ref("back", 2))
+                            4L -> obj.copy(references = listOf(ref("orphan", 2)))
+                            else -> obj
+                        }
+                    },
+            )
+        val detail = assertNotNull(InstanceReferenceQuery(cyclic).detailOf(2))
+
+        assertEquals(1, detail.depth)
+        assertEquals(
+            mapOf("child" to 0, "[0]" to 1, "self" to 1, "back" to 2, "orphan" to null),
+            detail.references.associate { it.name to it.depth },
+        )
+    }
+
+    @Test
     fun `inbound references are rendered and sorted when an object is inspected`() {
         val query =
             InstanceReferenceQuery(

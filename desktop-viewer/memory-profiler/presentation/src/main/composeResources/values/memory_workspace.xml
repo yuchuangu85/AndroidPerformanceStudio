@@ -1,6 +1,5 @@
 <resources>
     <string name="memory_filters">Filters</string>
-    <string name="memory_inspector">Object Inspector</string>
     <string name="memory_distribution">Heap distribution</string>
     <string name="memory_composition">Largest classes · shallow size</string>
     <string name="memory_compare_a">Snapshot A</string>
@@ -19,9 +18,9 @@
     <string name="memory_add_snapshot">Import snapshot</string>
     <string name="memory_evidence">Evidence &amp; warnings</string>
     <string name="memory_no_snapshot">No snapshot</string>
-    <string name="memory_inbound">Inbound references</string>
-    <string name="memory_roots">GC Root path</string>
     <string name="memory_root_unavailable">No strong GC Root path available</string>
+    <string name="show_nearest_gc_root_only">Show nearest GC root only</string>
+    <string name="memory_reference_column">Reference</string>
     <string name="memory_reachable">Reachable</string>
     <string name="memory_not_reachable">Not reachable from recorded strong roots</string>
     <string name="memory_depth">Depth</string>

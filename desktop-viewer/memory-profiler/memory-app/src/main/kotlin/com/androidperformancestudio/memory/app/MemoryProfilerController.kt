@@ -2024,6 +2024,7 @@ internal class MemoryProfilerController(
                         displayValue = reference.displayValue,
                         targetObjectId = reference.targetObjectId,
                         targetClassName = reference.targetClassName,
+                        depth = reference.depth,
                     )
                 },
             shallowSizeKnown = shallowSizeKnown,

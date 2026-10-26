@@ -28,6 +28,8 @@ data class FieldValue(
     val displayValue: String,
     val targetObjectId: Long?,
     val targetClassName: String?,
+    /** Shortest strong-root distance of the source object for an inbound reference. */
+    val depth: Int? = null,
 )
 
 /** Full detail view of one heap object (instance or array). */
@@ -252,6 +254,7 @@ class InstanceReferenceQuery(
                     displayValue = renderSourceReference(sourceId),
                     targetObjectId = sourceId,
                     targetClassName = classNameOf(sourceId),
+                    depth = navigator.depthOf(sourceId),
                 )
         }
         return values.sortedWith(compareBy({ it.targetClassName }, { it.targetObjectId }, { it.name }))

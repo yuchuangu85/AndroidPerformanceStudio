@@ -38,7 +38,7 @@ class MemoryObjectEvidenceTest {
 
             onAllNodesWithText("Unavailable")[0].assertExists()
             onNodeWithText("4.0 KB").assertExists()
-            onNodeWithText("Object Inspector").assertExists()
+            onNodeWithText("Instance Details").assertExists()
             onNodeWithText("No fields in this parsed object").assertExists()
         }
 }

@@ -595,9 +595,9 @@ class MemoryProfilerScreenTest {
             }
 
             onNodeWithText("com.example.Child #2", useUnmergedTree = true).performClick()
-            onNodeWithText("Inbound references").performClick()
+            onNodeWithText("References").performClick()
             onNodeWithText("com.example.Owner #3", useUnmergedTree = true).performClick()
-            onNodeWithText("GC Root path").performClick()
+            onNodeWithText("Show nearest GC root only").performClick()
             onNodeWithText("1. com.example.RootKeeper", useUnmergedTree = true).performClick()
             onNodeWithContentDescription("Back").assertExists()
             onNodeWithContentDescription("Forward").assertExists()

@@ -305,3 +305,11 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Remove the Classes view's left Filters pane, including its column toggles and saved-filter controls. Expand the class and instance tables into that space without an empty placeholder.
 - Preserve the primary heap/scope/issue/arrangement/search bar, sorting, object inspector, and narrow-width scrolling. Dominators and Diff retain their search Filters panes.
 - Verify empty and populated Classes layouts in both languages, with primary-filter callbacks and object navigation unchanged.
+
+## Instance List And Details (2026-10-26)
+
+- Keep the Instance List flat: fixed-height selectable rows, without disclosure arrows or inline GC-root paths. Selection updates the right-hand Instance Details pane using the original snapshot-local object ID.
+- Instance Details has only Fields and References tabs. Fields shows the selected object's field values and preserves object navigation and array pagination. References owns the unchecked-by-default Show nearest GC root only checkbox, incoming references, and shortest strong GC-root path.
+- Match the installed Android Studio nearest-root predicate: include incoming references whose source has a known root distance strictly less than the inspected object's distance. Do not treat unknown depth as zero or simply replace the reference list with a single path.
+- Preserve the chosen tab and checkbox across object navigation within one snapshot, reset on snapshot changes, and keep history, pinning, copy ID, leak warnings, and unavailable-data states. Both class-list entry points use the same details component.
+- Cover row selection without expansion, Fields/References switching, nearest-reference filtering, unavailable roots, array pagination, and snapshot-local state in Compose and query/controller regressions. Keep native-window acceptance separate from rendered screenshot checks.

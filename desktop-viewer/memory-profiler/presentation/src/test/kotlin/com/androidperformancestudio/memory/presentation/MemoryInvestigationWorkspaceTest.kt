@@ -101,7 +101,7 @@ class MemoryInvestigationWorkspaceTest {
                     val firstHeader = onNode(hasText(instanceLabel) and inInstances).fetchSemanticsNode().boundsInRoot
                     val lastHeader = onNode(hasText(retainedLabel) and inInstances).fetchSemanticsNode().boundsInRoot
                     val row =
-                        onNode(hasText("▾ #1") and inInstances, useUnmergedTree = true).fetchSemanticsNode()
+                        onNode(hasText("#1") and inInstances, useUnmergedTree = true).fetchSemanticsNode()
                     assertEquals(card.left + 8f, firstHeader.left, 0.6f)
                     assertEquals(card.right - 8f, lastHeader.right, 0.6f)
                     assertEquals(firstHeader.left, row.boundsInRoot.left, 0.6f)
@@ -132,7 +132,7 @@ class MemoryInvestigationWorkspaceTest {
             val lastHeader = onNode(hasText("Retained") and inInstances)
             lastHeader.performScrollTo()
             assertTrue(lastHeader.fetchSemanticsNode().boundsInRoot.right <= card.right)
-            val row = onNode(hasText("▾ #1") and inInstances, useUnmergedTree = true)
+            val row = onNode(hasText("#1") and inInstances, useUnmergedTree = true)
             row.performScrollTo().performClick()
             assertEquals(42L, selected)
         }
@@ -417,9 +417,9 @@ class MemoryInvestigationWorkspaceTest {
             onNodeWithText("Match case").performClick()
             assertTrue(state.matchCase)
             onNodeWithText("sample.Child #2", useUnmergedTree = true).performClick()
-            onNodeWithText("Inbound references").performClick()
+            onNodeWithText("References").performClick()
             onNodeWithText("sample.Owner #3", useUnmergedTree = true).performClick()
-            onNodeWithText("GC Root path").performClick()
+            onNodeWithText("Show nearest GC root only").performClick()
             onNodeWithText("1. sample.Root", useUnmergedTree = true).performClick()
             assertEquals(listOf(2L, 3L, 4L), selected)
         }

@@ -53,6 +53,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -73,7 +74,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_filters
 import com.androidperformancestudio.memory.presentation.generated.resources.activity_fragment_leak
@@ -85,66 +85,45 @@ import com.androidperformancestudio.memory.presentation.generated.resources.allo
 import com.androidperformancestudio.memory.presentation.generated.resources.allocations
 import com.androidperformancestudio.memory.presentation.generated.resources.allocations_size
 import com.androidperformancestudio.memory.presentation.generated.resources.arrange_by
-import com.androidperformancestudio.memory.presentation.generated.resources.array_elements
-import com.androidperformancestudio.memory.presentation.generated.resources.array_page_range
-import com.androidperformancestudio.memory.presentation.generated.resources.array_values_unavailable
-import com.androidperformancestudio.memory.presentation.generated.resources.back
-import com.androidperformancestudio.memory.presentation.generated.resources.forward
 import com.androidperformancestudio.memory.presentation.generated.resources.callstack_name
 import com.androidperformancestudio.memory.presentation.generated.resources.callstack_option
 import com.androidperformancestudio.memory.presentation.generated.resources.class_name
 import com.androidperformancestudio.memory.presentation.generated.resources.class_option
 import com.androidperformancestudio.memory.presentation.generated.resources.class_scope
 import com.androidperformancestudio.memory.presentation.generated.resources.classes
-import com.androidperformancestudio.memory.presentation.generated.resources.copy_object_id
 import com.androidperformancestudio.memory.presentation.generated.resources.count
 import com.androidperformancestudio.memory.presentation.generated.resources.deallocations
 import com.androidperformancestudio.memory.presentation.generated.resources.deallocations_size
 import com.androidperformancestudio.memory.presentation.generated.resources.delete_filter
 import com.androidperformancestudio.memory.presentation.generated.resources.depth
-import com.androidperformancestudio.memory.presentation.generated.resources.estimated_native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.duplicate_bitmaps
 import com.androidperformancestudio.memory.presentation.generated.resources.duplicates_summary
-import com.androidperformancestudio.memory.presentation.generated.resources.fields
 import com.androidperformancestudio.memory.presentation.generated.resources.filter_by
 import com.androidperformancestudio.memory.presentation.generated.resources.filter_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.heap
 import com.androidperformancestudio.memory.presentation.generated.resources.import_or_dump_an_hprof_file_to_show_class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.instance
-import com.androidperformancestudio.memory.presentation.generated.resources.instance_details
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_list
 import com.androidperformancestudio.memory.presentation.generated.resources.instances
-import com.androidperformancestudio.memory.presentation.generated.resources.next_array_page
-import com.androidperformancestudio.memory.presentation.generated.resources.no_object_fields
-import com.androidperformancestudio.memory.presentation.generated.resources.previous_array_page
 import com.androidperformancestudio.memory.presentation.generated.resources.leaks_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.match_case
 import com.androidperformancestudio.memory.presentation.generated.resources.module_name
 import com.androidperformancestudio.memory.presentation.generated.resources.native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.no_instances_for_class
-import com.androidperformancestudio.memory.presentation.generated.resources.no_references
 import com.androidperformancestudio.memory.presentation.generated.resources.none
 import com.androidperformancestudio.memory.presentation.generated.resources.package_name
 import com.androidperformancestudio.memory.presentation.generated.resources.package_option
-import com.androidperformancestudio.memory.presentation.generated.resources.pin_object
-import com.androidperformancestudio.memory.presentation.generated.resources.pinned_objects
 import com.androidperformancestudio.memory.presentation.generated.resources.project_classes
-import com.androidperformancestudio.memory.presentation.generated.resources.reference_chain
-import com.androidperformancestudio.memory.presentation.generated.resources.references
 import com.androidperformancestudio.memory.presentation.generated.resources.regex
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_native_size
-import com.androidperformancestudio.memory.presentation.generated.resources.root_reachability
-import com.androidperformancestudio.memory.presentation.generated.resources.root_reachability_unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.select_a_class_to_view_its_instances
-import com.androidperformancestudio.memory.presentation.generated.resources.select_an_instance_to_view_details
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.save_filter
 import com.androidperformancestudio.memory.presentation.generated.resources.saved_filters
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow_size_change
 import com.androidperformancestudio.memory.presentation.generated.resources.system_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
-import com.androidperformancestudio.memory.presentation.generated.resources.unpin_object
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -277,37 +256,14 @@ public fun MemoryProfilerClassListPane(
                             InstanceTable(
                                 className = state.selectedClassifierLabel ?: state.selectedClassName,
                                 instances = state.selectedClassInstances,
-                                selectedDetail = state.selectedInstanceDetail,
+                                selectedObjectId = state.selectedInstanceDetail?.objectId,
                                 onSelectInstance = actions.onSelectInstance,
                                 language = language,
                                 modifier = Modifier.fillMaxWidth().weight(1f),
                             )
                         }
                         VerticalDivider()
-                        val detail = state.selectedInstanceDetail
-                        if (detail != null) {
-                            InstanceDetailPane(
-                                detail = detail,
-                                language = language,
-                                modifier = Modifier.weight(1.2f),
-                                canNavigateBack = state.instanceHistoryIndex > 0,
-                                canNavigateForward =
-                                    state.instanceHistoryIndex in 0 until (state.instanceHistory.lastIndex),
-                                isPinned = detail.objectId in state.pinnedInstanceIds,
-                                pinnedInstanceIds = state.pinnedInstanceIds.toList(),
-                                onNavigateBack = actions.onNavigateInstanceBack,
-                                onNavigateForward = actions.onNavigateInstanceForward,
-                                onTogglePinned = { actions.onTogglePinnedInstance(detail.objectId) },
-                                onCopyObjectId = actions.onCopyObjectId,
-                                onFollowObject = actions.onSelectInstance,
-                                onLoadArrayRange = actions.onLoadArrayRange,
-                            )
-                        } else {
-                            EmptyPaneHint(
-                                text = localizedStringResource(Res.string.select_an_instance_to_view_details, language),
-                                modifier = Modifier.weight(1.2f),
-                            )
-                        }
+                        MemoryObjectInspector(state, actions, language, Modifier.weight(1.2f).fillMaxHeight())
                     }
                 }
             }
@@ -406,7 +362,8 @@ internal fun MemoryClassesPane(
                     InstanceTableHeader(language)
                     InstanceTable(
                         state.selectedClassifierLabel ?: state.selectedClassName, state.selectedClassInstances,
-                        state.selectedInstanceDetail, actions.onSelectInstance, language, Modifier.fillMaxWidth().weight(1f),
+                        state.selectedInstanceDetail?.objectId,
+                        actions.onSelectInstance, language, Modifier.fillMaxWidth().weight(1f),
                     )
                 }
             }
@@ -905,7 +862,7 @@ private fun InstanceTableHeader(language: UiLanguage) {
 private fun InstanceTable(
     className: String?,
     instances: List<MemoryInstanceRow>,
-    selectedDetail: MemoryInstanceDetail?,
+    selectedObjectId: Long?,
     onSelectInstance: (Long) -> Unit,
     language: UiLanguage,
     modifier: Modifier,
@@ -918,12 +875,11 @@ private fun InstanceTable(
         else ->
             LazyColumn(modifier) {
                 itemsIndexed(instances, key = { _, row -> row.objectId }) { index, row ->
-                    val selected = row.objectId == selectedDetail?.objectId
+                    val selected = row.objectId == selectedObjectId
                     InstanceTableRow(
                         row = row,
                         rowIndex = index,
                         selected = selected,
-                        chain = selectedDetail?.takeIf { it.objectId == row.objectId }?.referenceChain,
                         onClick = { onSelectInstance(row.objectId) },
                         language = language,
                     )
@@ -937,7 +893,6 @@ private fun InstanceTableRow(
     row: MemoryInstanceRow,
     rowIndex: Int,
     selected: Boolean,
-    chain: List<ObjectReference>?,
     onClick: () -> Unit,
     language: UiLanguage,
 ) {
@@ -953,7 +908,8 @@ private fun InstanceTableRow(
                         else -> MaterialTheme.colorScheme.surface
                     },
                     RoundedCornerShape(3.dp),
-                ).clickable(onClick = onClick)
+                ).testTag("memory-instance-row-${row.objectId}")
+                .selectable(selected = selected, onClick = onClick)
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -962,7 +918,7 @@ private fun InstanceTableRow(
                 MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-warning-${row.objectId}"))
             }
             Text(
-                text = "${if (selected) "▾" else "▸"} #${row.index}",
+                text = "#${row.index}",
                 modifier = Modifier.weight(1f),
                 fontSize = ViewerTypography.bodyCompact.fontSize,
                 maxLines = 1,
@@ -984,252 +940,6 @@ private fun InstanceTableRow(
                 modifier = Modifier.width(112.dp),
                 fontSize = ViewerTypography.bodyCompact.fontSize,
             )
-        }
-        if (selected && !chain.isNullOrEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(start = 24.dp, bottom = 4.dp, top = 2.dp)) {
-                chain.forEach { reference ->
-                    Text(
-                        text =
-                            buildString {
-                                append("↳ ")
-                                append(reference.fieldName)
-                                if (reference.targetClassName.isNotBlank()) {
-                                    append(" → ")
-                                    append(reference.targetClassName)
-                                }
-                            },
-                        fontSize = ViewerTypography.secondary.fontSize,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-@Suppress("CyclomaticComplexMethod")
-private fun InstanceDetailPane(
-    detail: MemoryInstanceDetail,
-    language: UiLanguage,
-    modifier: Modifier,
-    canNavigateBack: Boolean,
-    canNavigateForward: Boolean,
-    isPinned: Boolean,
-    pinnedInstanceIds: List<Long>,
-    onNavigateBack: () -> Unit,
-    onNavigateForward: () -> Unit,
-    onTogglePinned: () -> Unit,
-    onCopyObjectId: (Long) -> Unit,
-    onFollowObject: (Long) -> Unit,
-    onLoadArrayRange: (Long, Int) -> Unit,
-) {
-    Column(modifier.padding(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.back, language),
-                enabled = canNavigateBack,
-                onClick = onNavigateBack,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.forward, language),
-                enabled = canNavigateForward,
-                onClick = onNavigateForward,
-            )
-            Spacer(Modifier.weight(1f))
-            ProfilerCompactButton(
-                text = localizedStringResource(if (isPinned) Res.string.unpin_object else Res.string.pin_object, language),
-                selected = isPinned,
-                onClick = onTogglePinned,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.copy_object_id, language),
-                onClick = { onCopyObjectId(detail.objectId) },
-            )
-        }
-        if (pinnedInstanceIds.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    localizedStringResource(Res.string.pinned_objects, language),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = ViewerTypography.secondary.fontSize,
-                )
-                pinnedInstanceIds.forEach { objectId ->
-                    ProfilerCompactButton(
-                        text = "0x${java.lang.Long.toHexString(objectId)}",
-                        selected = objectId == detail.objectId,
-                        onClick = { onFollowObject(objectId) },
-                    )
-                }
-            }
-        }
-        Text(
-            text = "${localizedStringResource(Res.string.instance_details, language)} — ${detail.className}",
-            fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.body.fontSize,
-        )
-        Text(
-            text = "ID 0x${java.lang.Long.toHexString(detail.objectId)}",
-            fontSize = ViewerTypography.secondary.fontSize,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text =
-                detail.depth?.let { localizedStringResource(Res.string.root_reachability, language, integer(it)) }
-                    ?: localizedStringResource(Res.string.root_reachability_unavailable, language),
-            fontSize = ViewerTypography.secondary.fontSize,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        val unavailable = localizedStringResource(Res.string.unavailable, language)
-        val shallowSize = if (detail.shallowSizeKnown) formatBytes(detail.shallowSize) else unavailable
-        val retainedSize = detail.retainedSize?.let(::formatBytes) ?: unavailable
-        val nativeSize = detail.nativeSize?.let(::formatBytes) ?: unavailable
-        Text(
-            text =
-                "${localizedStringResource(Res.string.shallow, language)} $shallowSize · " +
-                    "${localizedStringResource(Res.string.retained, language)} $retainedSize · " +
-                    "${localizedStringResource(Res.string.estimated_native_size, language)} $nativeSize",
-            fontSize = ViewerTypography.secondary.fontSize,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-        Row(Modifier.fillMaxWidth().weight(1f)) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    localizedStringResource(Res.string.fields, language),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                )
-                if (detail.isArray && detail.elementCount != null && detail.fields.isNotEmpty()) {
-                    Text(
-                        localizedStringResource(
-                            Res.string.array_page_range,
-                            language,
-                            integer(detail.arrayStart + 1),
-                            integer(detail.arrayStart + detail.fields.size),
-                            integer(detail.elementCount),
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = ViewerTypography.secondary.fontSize,
-                    )
-                }
-                if (detail.fields.isEmpty()) {
-                    Text(
-                        text =
-                            detail.elementCount?.let {
-                                if (it > 0) {
-                                    localizedStringResource(Res.string.array_values_unavailable, language)
-                                } else {
-                                    localizedStringResource(Res.string.array_elements, language, integer(it))
-                                }
-                            }
-                                ?: localizedStringResource(Res.string.no_object_fields, language),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = ViewerTypography.secondary.fontSize,
-                    )
-                } else {
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
-                        items(detail.fields) { field ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
-                                Text(
-                                    text = field.name,
-                                    modifier = Modifier.width(110.dp),
-                                    fontSize = ViewerTypography.secondary.fontSize,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = field.displayValue,
-                                    modifier =
-                                        Modifier
-                                            .weight(1f)
-                                            .clickable(enabled = field.targetObjectId != null) {
-                                                field.targetObjectId?.let(onFollowObject)
-                                            },
-                                    color =
-                                        if (field.targetObjectId != null) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurface
-                                        },
-                                    fontSize = ViewerTypography.secondary.fontSize,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                    if (detail.isArray) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            detail.previousArrayPageStart()?.let { previousStart ->
-                                ProfilerCompactButton(
-                                    text = localizedStringResource(Res.string.previous_array_page, language),
-                                    onClick = { onLoadArrayRange(detail.objectId, previousStart) },
-                                )
-                            }
-                            detail.nextArrayPageStart()?.let { nextStart ->
-                                ProfilerCompactButton(
-                                    text = localizedStringResource(Res.string.next_array_page, language),
-                                    onClick = { onLoadArrayRange(detail.objectId, nextStart) },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            VerticalDivider(Modifier.padding(horizontal = 6.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    localizedStringResource(Res.string.references, language),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                )
-                if (detail.references.isEmpty()) {
-                    Text(
-                        text = localizedStringResource(Res.string.no_references, language),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = ViewerTypography.secondary.fontSize,
-                    )
-                } else {
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f).padding(top = 2.dp)) {
-                        items(detail.references) { reference ->
-                            Text(
-                                text = "${reference.name} ← ${reference.displayValue}",
-                                modifier = Modifier.clickable { reference.targetObjectId?.let(onFollowObject) },
-                                fontSize = ViewerTypography.secondary.fontSize,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-                Text(
-                    localizedStringResource(Res.string.reference_chain, language),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = ViewerTypography.bodyCompact.fontSize,
-                )
-                detail.referenceChain.forEach { reference ->
-                    Text(
-                        text = "↳ ${reference.fieldName} → ${reference.targetClassName}",
-                        modifier = Modifier.clickable { onFollowObject(reference.targetObjectId) },
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = ViewerTypography.secondary.fontSize,
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 }
