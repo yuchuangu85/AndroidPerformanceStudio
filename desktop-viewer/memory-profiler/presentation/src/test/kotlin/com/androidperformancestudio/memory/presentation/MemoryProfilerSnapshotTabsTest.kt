@@ -1,14 +1,20 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertHeightIsEqualTo
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
+import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.model.HeapCapability
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTheme
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.test.Test
@@ -42,6 +48,52 @@ class MemoryProfilerSnapshotTabsTest {
         assertFalse(evidence.closeLabel.contains("/private/app-data"))
         assertTrue(first.tabEvidence(UiLanguage.SIMPLIFIED_CHINESE).counts.contains("18 类"))
         assertEquals("Source: Unavailable", HeapSnapshotSummary(id = "unknown").tabEvidence(UiLanguage.ENGLISH).source)
+    }
+
+    @Test
+    fun `snapshot strip is compact in both locales and themes with scrollable independent actions`() {
+        listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+            listOf(false, true).forEach { dark ->
+                runDesktopComposeUiTest(width = 360, height = 100) {
+                    val selected = mutableListOf<String>()
+                    val closed = mutableListOf<String>()
+                    val longName = first.copy(id = "snapshot-with-a-long-capture-name-that-remains-on-one-line.hprof")
+                    val second = HeapSnapshotSummary(id = "snapshot-8")
+                    setContent {
+                        ViewerTheme(darkTheme = dark) {
+                            MemoryProfilerSnapshotTabs(
+                                MemoryProfilerState(
+                                    snapshotSummaries = listOf(longName, second),
+                                    activeSnapshotId = longName.id,
+                                ),
+                                onSelectSnapshot = { selected += it },
+                                onCloseSnapshot = { closed += it },
+                                language = language,
+                            )
+                        }
+                    }
+                    onNodeWithTag("memory-snapshot-tabs").assertHeightIsEqualTo(32.dp)
+                    val firstTab = onNodeWithTag("memory-snapshot-tab-${longName.id}")
+                    firstTab
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .assertHeightIsEqualTo(28.dp)
+                        .assertIsSelected()
+                    val secondTab = onNodeWithTag("memory-snapshot-tab-${second.id}")
+                    secondTab
+                        .performScrollTo()
+                        .assertIsDisplayed()
+                        .assertHeightIsEqualTo(28.dp)
+                        .performClick()
+                    firstTab.performScrollTo()
+                    onNodeWithContentDescription(longName.tabEvidence(language).closeLabel)
+                        .assertHeightIsEqualTo(28.dp)
+                        .performClick()
+                    assertEquals(listOf(second.id), selected)
+                    assertEquals(listOf(longName.id), closed)
+                }
+            }
+        }
     }
 
     @Test

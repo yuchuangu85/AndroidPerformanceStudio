@@ -523,10 +523,11 @@ class MemoryProfilerScreenTest {
 
     @Test
     @Suppress("LongMethod")
-    fun `class list follows clickable references and exposes instance navigation controls`() =
+    fun `class list expands references inline and exposes explicit instance navigation controls`() =
         runDesktopComposeUiTest(width = 1200, height = 800) {
             val followed = mutableListOf<Long>()
-            var pinCount = 0
+            val expanded = mutableListOf<Pair<Long, Int>>()
+            var closedCount = 0
             setContent {
                 MemoryProfilerScreen(
                     state =
@@ -589,22 +590,24 @@ class MemoryProfilerScreenTest {
                     actions =
                         MemoryProfilerActions(
                             onSelectInstance = { followed += it },
-                            onTogglePinnedInstance = { pinCount++ },
+                            onLoadInspectorObject = { id, start -> expanded += id to start },
+                            onClearInstanceSelection = { closedCount++ },
                         ),
                 )
             }
 
-            onNodeWithText("com.example.Child #2", useUnmergedTree = true).performClick()
+            onNodeWithTag("memory-inspector-row-0").performClick()
             onNodeWithText("References").performClick()
-            onNodeWithText("com.example.Owner #3", useUnmergedTree = true).performClick()
+            onNodeWithTag("memory-inspector-row-0").performClick()
             onNodeWithText("Show nearest GC root only").performClick()
-            onNodeWithText("1. com.example.RootKeeper", useUnmergedTree = true).performClick()
-            onNodeWithContentDescription("Back").assertExists()
-            onNodeWithContentDescription("Forward").assertExists()
-            onNodeWithText("Pin object").performClick()
+            onNodeWithTag("memory-inspector-reference-root").assertExists()
+            onNodeWithContentDescription("Back").assertDoesNotExist()
+            onNodeWithContentDescription("Forward").assertDoesNotExist()
+            onNodeWithTag("memory-inspector-close").performClick()
 
-            assertEquals(listOf(2L, 3L, 4L), followed)
-            assertEquals(1, pinCount)
+            assertTrue(followed.isEmpty())
+            assertEquals(listOf(2L to 0, 3L to 0), expanded)
+            assertEquals(1, closedCount)
         }
 
     private fun missingBitmapGridState(): MemoryProfilerState =

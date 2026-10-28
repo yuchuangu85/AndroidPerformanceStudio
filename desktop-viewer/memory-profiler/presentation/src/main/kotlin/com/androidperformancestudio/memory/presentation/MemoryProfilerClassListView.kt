@@ -19,14 +19,15 @@ package com.androidperformancestudio.memory.presentation
 
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerTypography
-import com.androidperformancestudio.ui.studio.StudioCard
-import com.androidperformancestudio.ui.studio.StudioTokens
 
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -63,16 +64,35 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_filters
@@ -103,6 +123,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.filt
 import com.androidperformancestudio.memory.presentation.generated.resources.heap
 import com.androidperformancestudio.memory.presentation.generated.resources.import_or_dump_an_hprof_file_to_show_class_histogram
 import com.androidperformancestudio.memory.presentation.generated.resources.instance
+import com.androidperformancestudio.memory.presentation.generated.resources.instance_details
 import com.androidperformancestudio.memory.presentation.generated.resources.instance_list
 import com.androidperformancestudio.memory.presentation.generated.resources.instances
 import com.androidperformancestudio.memory.presentation.generated.resources.leaks_summary
@@ -128,6 +149,7 @@ import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
+import java.awt.Cursor
 
 /**
  * Android Studio-style heap class list, rendered as a stacked layout:
@@ -176,7 +198,10 @@ public fun MemoryProfilerClassListPane(
                                     .fillMaxSize()
                                     .horizontalScroll(classifierHorizontalScrollState),
                             ) {
-                                Column(Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxHeight()) {
+                                Column(
+                                    Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxHeight()
+                                        .memoryTableGrid(classifierColumnWidths(state.visibleClassifierColumns, false)),
+                                ) {
                                     ClassTableHeader(
                                         language,
                                         state.arrangeBy,
@@ -250,21 +275,7 @@ public fun MemoryProfilerClassListPane(
                         language = language,
                     )
                     HorizontalDivider()
-                    Row(Modifier.fillMaxWidth().weight(1f)) {
-                        Column(Modifier.weight(1f)) {
-                            InstanceTableHeader(language)
-                            InstanceTable(
-                                className = state.selectedClassifierLabel ?: state.selectedClassName,
-                                instances = state.selectedClassInstances,
-                                selectedObjectId = state.selectedInstanceDetail?.objectId,
-                                onSelectInstance = actions.onSelectInstance,
-                                language = language,
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                            )
-                        }
-                        VerticalDivider()
-                        MemoryObjectInspector(state, actions, language, Modifier.weight(1.2f).fillMaxHeight())
-                    }
+                    InstanceListContent(state, actions, language, Modifier.fillMaxWidth().weight(1f))
                 }
             }
         }
@@ -312,62 +323,120 @@ internal fun MemoryClassesPane(
     val scroll = rememberScrollState()
     val listState = rememberLazyListState()
     val showHeapColumn = state.perHeapClasses.isEmpty() && state.heapFilter == null
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
-        StudioCard(
-            modifier = Modifier.fillMaxWidth().weight(0.62f).testTag("memory-classes-card"),
-            contentPadding = 0.dp,
-            contentSpacing = 0.dp,
-        ) {
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val tableWidth = maxOf(maxWidth, (260 + (columns.size + if (showHeapColumn) 1 else 0) * 104).dp)
-                Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
-                    Column(Modifier.horizontalScroll(scroll).requiredWidth(tableWidth).fillMaxHeight()) {
-                        ClassTableHeader(
-                            language, state.arrangeBy, state.classifierSortColumn, state.classifierSortDirection,
-                            columns, actions.onClassifierSort, Modifier.height(32.dp), showHeap = showHeapColumn,
-                        )
-                        HorizontalDivider()
-                        ClassTable(
-                            state.classifierRows, state.selectedClassifierId, MemoryProfilerPresenter.leakClassNames(state),
-                            MemoryProfilerPresenter.duplicateBitmapClasses(state), columns, actions.onSelectClassifier, language,
-                            listState, Modifier.fillMaxWidth().weight(1f), showHeap = showHeapColumn,
-                            expandHeapRoots = state.heapFilter != null, expansionKey = state.activeSnapshotId,
-                        )
+    val classesFraction = remember { mutableStateOf(INITIAL_CLASS_PANE_FRACTION) }
+    BoxWithConstraints(modifier) {
+        val paneHeight = (maxHeight - CLASS_INSTANCE_SPLITTER_HEIGHT).coerceAtLeast(0.dp)
+        val minimumScale = minOf(1f, paneHeight / 280.dp)
+        val minimumClassesHeight = 100.dp * minimumScale
+        val minimumInstancesHeight = 180.dp * minimumScale
+        val minimumFraction = if (paneHeight > 0.dp) minimumClassesHeight / paneHeight else 0f
+        val maximumFraction =
+            if (paneHeight > 0.dp) (1f - minimumInstancesHeight / paneHeight).coerceAtLeast(minimumFraction) else 1f
+        val fraction = classesFraction.value.coerceIn(minimumFraction, maximumFraction)
+        Column(Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(paneHeight * fraction).testTag("memory-classes-card"),
+            ) {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val tableWidth = maxOf(maxWidth - 10.dp, (260 + (columns.size + if (showHeapColumn) 1 else 0) * 104).dp)
+                    Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
+                        Column(
+                            Modifier.horizontalScroll(scroll).requiredWidth(tableWidth).fillMaxHeight()
+                                .memoryTableGrid(classifierColumnWidths(columns, showHeapColumn))
+                                .testTag("memory-classifier-table"),
+                        ) {
+                            ClassTableHeader(
+                                language, state.arrangeBy, state.classifierSortColumn, state.classifierSortDirection,
+                                columns, actions.onClassifierSort, Modifier.height(CLASSIFIER_HEADER_HEIGHT), showHeap = showHeapColumn,
+                            )
+                            HorizontalDivider()
+                            ClassTable(
+                                state.classifierRows, state.selectedClassifierId, MemoryProfilerPresenter.leakClassNames(state),
+                                MemoryProfilerPresenter.duplicateBitmapClasses(state), columns, actions.onSelectClassifier, language,
+                                listState, Modifier.fillMaxWidth().weight(1f), showHeap = showHeapColumn,
+                                expandHeapRoots = state.heapFilter != null, expansionKey = state.activeSnapshotId,
+                            )
+                        }
                     }
-                }
-                HorizontalScrollbar(
-                    rememberScrollbarAdapter(scroll),
-                    Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
-                )
-                VerticalScrollbar(
-                    rememberScrollbarAdapter(listState),
-                    Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = 32.dp, bottom = 10.dp),
-                )
-            }
-        }
-        StudioCard(
-            modifier = Modifier.fillMaxWidth().weight(0.38f).testTag("memory-instances-card"),
-            contentPadding = 0.dp,
-            contentSpacing = 0.dp,
-        ) {
-            InstanceListTitle(
-                className = state.selectedClassifierLabel ?: state.selectedClassName,
-                isLeak = state.selectedClassName?.let { it in leakClasses } == true,
-                language = language,
-            )
-            HorizontalDivider()
-            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                val tableWidth = maxOf(maxWidth, 650.dp)
-                Column(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()).requiredWidth(tableWidth)) {
-                    InstanceTableHeader(language)
-                    InstanceTable(
-                        state.selectedClassifierLabel ?: state.selectedClassName, state.selectedClassInstances,
-                        state.selectedInstanceDetail?.objectId,
-                        actions.onSelectInstance, language, Modifier.fillMaxWidth().weight(1f),
+                    HorizontalScrollbar(
+                        rememberScrollbarAdapter(scroll),
+                        Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
+                    )
+                    VerticalScrollbar(
+                        rememberScrollbarAdapter(listState),
+                        Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = 10.dp),
                     )
                 }
             }
+            ClassInstanceHeightDivider(classesFraction, paneHeight, minimumFraction, maximumFraction, language)
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("memory-instances-card"),
+            ) {
+                InstanceListTitle(
+                    className = state.selectedClassifierLabel ?: state.selectedClassName,
+                    isLeak = state.selectedClassName?.let { it in leakClasses } == true,
+                    language = language,
+                )
+                HorizontalDivider()
+                InstanceListContent(state, actions, language, Modifier.fillMaxWidth().weight(1f))
+            }
         }
+    }
+}
+
+@Composable
+private fun ClassInstanceHeightDivider(
+    classesFraction: MutableState<Float>,
+    paneHeight: Dp,
+    minimumFraction: Float,
+    maximumFraction: Float,
+    language: UiLanguage,
+) {
+    val density = LocalDensity.current
+    val paneHeightPx = with(density) { paneHeight.toPx() }
+    val fraction = classesFraction.value.coerceIn(minimumFraction, maximumFraction)
+    val splitterLabel =
+        localizedStringResource(Res.string.classes, language) + " / " +
+            localizedStringResource(Res.string.instance_list, language)
+    Box(
+        Modifier.fillMaxWidth().height(CLASS_INSTANCE_SPLITTER_HEIGHT)
+            .testTag("memory-class-instance-divider")
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+            .pointerInput(paneHeightPx) {
+                detectVerticalDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (paneHeightPx > 0f) {
+                        classesFraction.value =
+                            (classesFraction.value.coerceIn(minimumFraction, maximumFraction) + dragAmount / paneHeightPx)
+                                .coerceIn(minimumFraction, maximumFraction)
+                    }
+                }
+            }.semantics {
+                contentDescription = splitterLabel
+                progressBarRangeInfo = ProgressBarRangeInfo(fraction, minimumFraction..maximumFraction)
+                setProgress { target ->
+                    classesFraction.value = target.coerceIn(minimumFraction, maximumFraction)
+                    true
+                }
+            }.onKeyEvent { event ->
+                val direction =
+                    when (event.key) {
+                        Key.DirectionUp -> -1
+                        Key.DirectionDown -> 1
+                        else -> 0
+                    }
+                if (event.type == KeyEventType.KeyDown && direction != 0 && paneHeightPx > 0f) {
+                    val step = with(density) { 16.dp.toPx() } / paneHeightPx
+                    val current = classesFraction.value.coerceIn(minimumFraction, maximumFraction)
+                    classesFraction.value = (current + direction * step).coerceIn(minimumFraction, maximumFraction)
+                    true
+                } else {
+                    false
+                }
+            }.focusable(),
+        contentAlignment = Alignment.Center,
+    ) {
+        HorizontalDivider(Modifier.testTag("memory-class-instance-divider-line"))
     }
 }
 
@@ -394,7 +463,7 @@ private fun FilterBar(
                 Modifier
                     .fillMaxWidth()
                     .horizontalScroll(scroll)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -584,14 +653,16 @@ private fun ClassTableHeader(
     showHeap: Boolean = false,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             headerTitle(firstColumnLabel(arrangeBy, language), MemoryClassifierColumn.NAME, sortColumn, sortDirection),
-            Modifier.weight(1f).clickable { onSort(MemoryClassifierColumn.NAME) },
+            Modifier.weight(1f).clickable { onSort(MemoryClassifierColumn.NAME) }.padding(horizontal = 8.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         listOf(
             MemoryClassifierColumn.MODULE_NAME to localizedStringResource(Res.string.module_name, language),
@@ -610,17 +681,21 @@ private fun ClassTableHeader(
         ).filter { (column, _) -> column in visibleColumns }.forEach { (column, title) ->
             Text(
                 headerTitle(title, column, sortColumn, sortDirection),
-                Modifier.width(96.dp).clickable {
+                Modifier.width(CLASSIFIER_METRIC_WIDTH).testTag("memory-classifier-header-${column.name}").clickable {
                     onSort(column)
-                },
+                }.padding(horizontal = 8.dp),
                 fontWeight = FontWeight.Bold,
-                fontSize = ViewerTypography.bodyCompact.fontSize,
+                style = ViewerTypography.bodyCompact,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
             )
         }
         if (showHeap) {
             Text(
-                localizedStringResource(Res.string.heap, language), Modifier.width(96.dp),
-                fontWeight = FontWeight.Bold, fontSize = ViewerTypography.bodyCompact.fontSize,
+                localizedStringResource(Res.string.heap, language), Modifier.width(CLASSIFIER_METRIC_WIDTH).padding(horizontal = 8.dp),
+                fontWeight = FontWeight.Bold, style = ViewerTypography.bodyCompact,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -652,8 +727,7 @@ private fun ClassTable(
         EmptyPaneHint(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language), modifier)
     } else {
         val expanded = remember(expandHeapRoots, expansionKey) { mutableStateMapOf<String, Boolean>() }
-        fun isExpanded(row: MemoryClassifierRow): Boolean =
-            expanded[row.id] ?: (row.heapName == null || row.depth != 0 || expandHeapRoots)
+        fun isExpanded(row: MemoryClassifierRow): Boolean = expanded[row.id] ?: (row.heapName == null || row.depth != 0 || expandHeapRoots)
         val visibleRows =
             buildList {
                 fun appendRows(nodes: List<MemoryClassifierRow>) {
@@ -716,43 +790,40 @@ private fun ClassifierTableRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(30.dp)
-            .background(background, RoundedCornerShape(3.dp))
+            .height(memoryTableRowHeight())
+            .background(background)
             .testTag("memory-classifier-row-${row.id}")
-            .clickable { if (isHeap) onToggle() else onSelectClassifier(row) }
-            .padding(
-                start =
-                    (
-                        8 +
-                            depth * 16
-                    ).dp,
-                end = 8.dp,
-            ),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .clickable { if (isHeap) onToggle() else onSelectClassifier(row) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            if (row.children.isEmpty()) {
-                ""
-            } else if (expanded) {
-                "▾"
-            } else {
-                "▸"
-            },
-            Modifier.width(14.dp).testTag("memory-classifier-toggle-${row.id}")
-                .clickable(enabled = row.children.isNotEmpty(), onClick = onToggle),
-            fontSize = ViewerTypography.bodyCompact.fontSize,
-            fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
-        )
-        if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-classifier-leak-warning-${row.id}"))
-        Text(
-            row.label,
-            Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
-            fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
-        )
+        Row(
+            Modifier.weight(1f).padding(start = (8 + depth * 16).dp, end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (row.children.isEmpty()) {
+                    ""
+                } else if (expanded) {
+                    "▾"
+                } else {
+                    "▸"
+                },
+                Modifier.width(14.dp).testTag("memory-classifier-toggle-${row.id}")
+                    .clickable(enabled = row.children.isNotEmpty(), onClick = onToggle),
+                style = ViewerTypography.bodyCompact,
+                fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-classifier-leak-warning-${row.id}"))
+            Text(
+                row.label,
+                Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = ViewerTypography.bodyCompact,
+                fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
         if (MemoryClassifierColumn.MODULE_NAME in visibleColumns) classifierCell(row.moduleName)
         if (MemoryClassifierColumn.ALLOCATIONS in visibleColumns) classifierCell(row.allocations?.let(::integer))
         if (MemoryClassifierColumn.DEALLOCATIONS in visibleColumns) classifierCell(row.deallocations?.let(::integer))
@@ -786,8 +857,9 @@ private fun ClassifierTableRow(
 private fun RowScope.classifierCell(value: String?) {
     Text(
         value ?: "—",
-        Modifier.width(96.dp),
-        fontSize = ViewerTypography.bodyCompact.fontSize,
+        Modifier.width(CLASSIFIER_METRIC_WIDTH).padding(horizontal = 8.dp),
+        style = ViewerTypography.bodyCompact,
+        textAlign = TextAlign.End,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
@@ -822,38 +894,171 @@ private fun InstanceListTitle(
 @Composable
 private fun InstanceTableHeader(language: UiLanguage) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            Modifier.fillMaxWidth().height(CLASSIFIER_HEADER_HEIGHT)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             localizedStringResource(Res.string.instance, language),
-            Modifier.weight(1f),
+            Modifier.weight(1f).padding(horizontal = 8.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             localizedStringResource(Res.string.depth, language),
-            Modifier.width(52.dp),
+            Modifier.width(INSTANCE_COLUMN_WIDTHS[0]).padding(horizontal = 8.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
         )
         Text(
             localizedStringResource(Res.string.native_size, language),
-            Modifier.width(96.dp),
+            Modifier.width(INSTANCE_COLUMN_WIDTHS[1]).padding(horizontal = 8.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
         )
         Text(
             localizedStringResource(Res.string.shallow, language),
-            Modifier.width(88.dp),
+            Modifier.width(INSTANCE_COLUMN_WIDTHS[2]).padding(horizontal = 8.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
         )
         Text(
             localizedStringResource(Res.string.retained, language),
-            Modifier.width(112.dp),
+            Modifier.width(INSTANCE_COLUMN_WIDTHS[3]).padding(horizontal = 8.dp),
             fontWeight = FontWeight.Bold,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
+@Composable
+private fun InstanceListContent(
+    state: MemoryProfilerState,
+    actions: MemoryProfilerActions,
+    language: UiLanguage,
+    modifier: Modifier = Modifier,
+) {
+    val tableFraction = remember { mutableStateOf(INITIAL_INSTANCE_PANE_FRACTION) }
+    val splitterLabel =
+        localizedStringResource(Res.string.instance, language) + " / " +
+            localizedStringResource(Res.string.instance_details, language)
+    BoxWithConstraints(modifier) {
+        val density = LocalDensity.current
+        if (!hasInspectorContent(state.selectedInstanceDetail)) {
+            Row(Modifier.fillMaxSize().testTag("memory-instance-list-content")) {
+                BoxWithConstraints(Modifier.fillMaxSize().testTag("memory-instance-list-table-pane")) {
+                    InstanceTableContent(state, actions, language, maxOf(maxWidth, INSTANCE_TABLE_MIN_WIDTH))
+                }
+            }
+            return@BoxWithConstraints
+        }
+        val paneWidth = (maxWidth - INSTANCE_SPLITTER_WIDTH).coerceAtLeast(0.dp)
+        val paneWidthPx = with(density) { paneWidth.toPx() }
+        val minimumTableWidth = minOf(280.dp, paneWidth / 2)
+        val minimumDetailsWidth = minOf(260.dp, paneWidth / 2)
+        val minimumFraction = if (paneWidth > 0.dp) minimumTableWidth / paneWidth else 0f
+        val maximumFraction = if (paneWidth > 0.dp) 1f - minimumDetailsWidth / paneWidth else 1f
+        val fraction = tableFraction.value.coerceIn(minimumFraction, maximumFraction)
+        Row(Modifier.fillMaxSize().testTag("memory-instance-list-content")) {
+            BoxWithConstraints(
+                Modifier.width(paneWidth * fraction).fillMaxHeight().testTag("memory-instance-list-table-pane"),
+            ) {
+                InstanceTableContent(state, actions, language, maxOf(maxWidth, INSTANCE_TABLE_MIN_WIDTH))
+            }
+            Box(
+                Modifier.width(INSTANCE_SPLITTER_WIDTH).fillMaxHeight()
+                    .testTag("memory-instance-list-resizer")
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                    .pointerInput(paneWidthPx) {
+                        detectHorizontalDragGestures { change, dragAmount ->
+                            change.consume()
+                            if (paneWidthPx > 0f) {
+                                tableFraction.value =
+                                    (tableFraction.value.coerceIn(minimumFraction, maximumFraction) + dragAmount / paneWidthPx)
+                                        .coerceIn(minimumFraction, maximumFraction)
+                            }
+                        }
+                    }.semantics {
+                        contentDescription = splitterLabel
+                        progressBarRangeInfo = ProgressBarRangeInfo(fraction, minimumFraction..maximumFraction)
+                        setProgress { target ->
+                            tableFraction.value = target.coerceIn(minimumFraction, maximumFraction)
+                            true
+                        }
+                    }.onKeyEvent { event ->
+                        val direction =
+                            when (event.key) {
+                                Key.DirectionLeft -> -1
+                                Key.DirectionRight -> 1
+                                else -> 0
+                            }
+                        if (event.type == KeyEventType.KeyDown && direction != 0 && paneWidthPx > 0f) {
+                            val step = with(density) { 16.dp.toPx() } / paneWidthPx
+                            tableFraction.value = (fraction + direction * step).coerceIn(minimumFraction, maximumFraction)
+                            true
+                        } else {
+                            false
+                        }
+                    }.focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                VerticalDivider(Modifier.fillMaxHeight())
+            }
+            Box(Modifier.weight(1f).fillMaxHeight().testTag("memory-inspector-card")) {
+                MemoryObjectInspector(state, actions, language, Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstanceTableContent(
+    state: MemoryProfilerState,
+    actions: MemoryProfilerActions,
+    language: UiLanguage,
+    tableWidth: Dp,
+) {
+    val horizontalScroll = rememberScrollState()
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxSize().padding(bottom = 10.dp, end = 10.dp)
+                .horizontalScroll(horizontalScroll).requiredWidth(tableWidth - 10.dp)
+                .memoryTableGrid(INSTANCE_COLUMN_WIDTHS).testTag("memory-instance-table"),
+        ) {
+            InstanceTableHeader(language)
+            InstanceTable(
+                className = state.selectedClassifierLabel ?: state.selectedClassName,
+                instances = state.selectedClassInstances,
+                selectedObjectId = state.selectedInstanceDetail?.objectId,
+                onSelectInstance = actions.onSelectInstance,
+                language = language,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                listState = listState,
+            )
+        }
+        HorizontalScrollbar(
+            rememberScrollbarAdapter(horizontalScroll),
+            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
+        )
+        VerticalScrollbar(
+            rememberScrollbarAdapter(listState),
+            Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = 10.dp),
         )
     }
 }
@@ -866,6 +1071,7 @@ private fun InstanceTable(
     onSelectInstance: (Long) -> Unit,
     language: UiLanguage,
     modifier: Modifier,
+    listState: LazyListState,
 ) {
     when {
         className == null ->
@@ -873,13 +1079,14 @@ private fun InstanceTable(
         instances.isEmpty() ->
             EmptyPaneHint(localizedStringResource(Res.string.no_instances_for_class, language), modifier)
         else ->
-            LazyColumn(modifier) {
+            LazyColumn(modifier, state = listState) {
                 itemsIndexed(instances, key = { _, row -> row.objectId }) { index, row ->
                     val selected = row.objectId == selectedObjectId
                     InstanceTableRow(
                         row = row,
                         rowIndex = index,
                         selected = selected,
+                        className = row.className,
                         onClick = { onSelectInstance(row.objectId) },
                         language = language,
                     )
@@ -893,6 +1100,7 @@ private fun InstanceTableRow(
     row: MemoryInstanceRow,
     rowIndex: Int,
     selected: Boolean,
+    className: String?,
     onClick: () -> Unit,
     language: UiLanguage,
 ) {
@@ -900,45 +1108,62 @@ private fun InstanceTableRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(memoryTableRowHeight())
                 .background(
                     when {
                         selected -> MaterialTheme.colorScheme.primaryContainer
                         rowIndex % 2 == 0 -> MaterialTheme.colorScheme.surfaceContainerLow
                         else -> MaterialTheme.colorScheme.surface
                     },
-                    RoundedCornerShape(3.dp),
                 ).testTag("memory-instance-row-${row.objectId}")
-                .selectable(selected = selected, onClick = onClick)
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .selectable(selected = selected, onClick = onClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (row.isLeakWarning) {
-                MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-warning-${row.objectId}"))
+            Row(
+                Modifier.weight(1f).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (row.isLeakWarning) {
+                    MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-warning-${row.objectId}"))
+                }
+                Text(
+                    text = instanceTableLabel(row.objectId, className, row.representedClassName),
+                    modifier = Modifier.weight(1f).testTag("memory-instance-name-${row.objectId}"),
+                    style = ViewerTypography.bodyCompact,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Text(
-                text = "#${row.index}",
-                modifier = Modifier.weight(1f),
-                fontSize = ViewerTypography.bodyCompact.fontSize,
+                text = row.depth?.toString() ?: localizedStringResource(Res.string.unavailable, language),
+                Modifier.width(INSTANCE_COLUMN_WIDTHS[0]).padding(horizontal = 8.dp),
+                style = ViewerTypography.bodyCompact,
+                textAlign = TextAlign.End,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = row.depth?.toString() ?: localizedStringResource(Res.string.unavailable, language),
-                Modifier.width(52.dp),
-                fontSize = ViewerTypography.bodyCompact.fontSize,
+                row.nativeSize?.let(::formatBytes) ?: "—",
+                Modifier.width(INSTANCE_COLUMN_WIDTHS[1]).padding(horizontal = 8.dp),
+                style = ViewerTypography.bodyCompact, textAlign = TextAlign.End,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Text(row.nativeSize?.let(::formatBytes) ?: "—", Modifier.width(96.dp), fontSize = ViewerTypography.bodyCompact.fontSize)
             Text(
                 if (row.shallowSizeKnown) formatBytes(row.shallowSize) else localizedStringResource(Res.string.unavailable, language),
-                Modifier.width(88.dp),
-                fontSize = ViewerTypography.bodyCompact.fontSize,
+                Modifier.width(INSTANCE_COLUMN_WIDTHS[2]).padding(horizontal = 8.dp),
+                style = ViewerTypography.bodyCompact,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = row.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language),
-                modifier = Modifier.width(112.dp),
-                fontSize = ViewerTypography.bodyCompact.fontSize,
+                modifier = Modifier.width(INSTANCE_COLUMN_WIDTHS[3]).padding(horizontal = 8.dp),
+                style = ViewerTypography.bodyCompact,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -1001,8 +1226,46 @@ private fun firstColumnLabel(
     }
 
 private val CLASSIFIER_HEADER_HEIGHT = 24.dp
+private val CLASSIFIER_METRIC_WIDTH = 104.dp
 private val CLASSIFIER_TABLE_WIDTH = 1_580.dp
+private val INSTANCE_TABLE_MIN_WIDTH = 650.dp
+private val INSTANCE_SPLITTER_WIDTH = 7.dp
+private val CLASS_INSTANCE_SPLITTER_HEIGHT = 7.dp
+private val INSTANCE_COLUMN_WIDTHS = listOf(60.dp, 104.dp, 96.dp, 120.dp)
+
+@Composable
+private fun memoryTableRowHeight(): Dp = with(LocalDensity.current) { ViewerTypography.bodyCompact.lineHeight.toDp() } + 4.dp
+
+private fun classifierColumnWidths(
+    columns: Set<MemoryClassifierColumn>,
+    showHeap: Boolean,
+): List<Dp> = List(columns.count { it != MemoryClassifierColumn.NAME } + if (showHeap) 1 else 0) { CLASSIFIER_METRIC_WIDTH }
+
+@Composable
+private fun Modifier.memoryTableGrid(columnWidths: List<Dp>): Modifier {
+    val color = MaterialTheme.colorScheme.outlineVariant
+    return drawWithContent {
+        drawContent()
+        var x = size.width
+        columnWidths.asReversed().forEach { width ->
+            x -= width.toPx()
+            drawRect(color, topLeft = Offset(kotlin.math.floor(x), 0f), size = Size(1.dp.toPx(), size.height))
+        }
+    }
+}
+
+internal fun instanceTableLabel(
+    objectId: Long,
+    className: String?,
+    representedClassName: String? = null,
+): String {
+    val identity = "$objectId (0x${java.lang.Long.toHexString(objectId)})"
+    representedClassName?.let { return "${it.substringAfterLast('.')} (class)@$identity" }
+    return className?.takeIf { it.isNotBlank() }?.substringAfterLast('.')?.let { "$it@$identity" } ?: identity
+}
 
 private const val INITIAL_LEFT_PANE_FRACTION = 0.535f
+private const val INITIAL_CLASS_PANE_FRACTION = 0.5f
+private const val INITIAL_INSTANCE_PANE_FRACTION = 0.62f
 private const val MIN_LEFT_PANE_FRACTION = 0.25f
 private const val MAX_LEFT_PANE_FRACTION = 0.72f

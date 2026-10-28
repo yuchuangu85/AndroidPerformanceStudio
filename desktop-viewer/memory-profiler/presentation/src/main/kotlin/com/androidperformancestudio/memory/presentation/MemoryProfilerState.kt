@@ -10,6 +10,7 @@ import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.HeapValueKind
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakSuspect
@@ -130,6 +131,10 @@ public data class MemoryInstanceRow(
     val shallowSizeKnown: Boolean = true,
     /** True when this object is one of the snapshot-local leak candidates. */
     val isLeakWarning: Boolean = false,
+    /** Runtime type of this object, independent of the selected classifier label. */
+    val className: String? = null,
+    /** Represented type for a java.lang.Class object, distinct from its runtime type. */
+    val representedClassName: String? = null,
 )
 
 public data class MemoryDominatorRow(
@@ -187,8 +192,16 @@ public data class MemoryInstanceField(
     val displayValue: String,
     val targetObjectId: Long?,
     val targetClassName: String?,
-    /** Shortest strong-root distance of the referring object; null if unavailable. */
+    /** Primitive owner depth, object target depth, or referring object depth; null if unavailable. */
     val depth: Int? = null,
+    val valueKind: HeapValueKind = HeapValueKind.UNKNOWN,
+    val shallowSize: Long? = null,
+    val retainedSize: Long? = null,
+    val nativeSize: Long? = null,
+    val retainedNativeSize: Long? = null,
+    val representedClassName: String? = null,
+    val stringPreview: String? = null,
+    val childCount: Int? = null,
 )
 
 public data class MemoryFilterPreset(
@@ -240,7 +253,26 @@ public data class MemoryInstanceDetail(
     val references: List<MemoryInstanceField> = emptyList(),
     val shallowSizeKnown: Boolean = true,
     val nativeSize: Long? = null,
+    val valueKind: HeapValueKind = HeapValueKind.UNKNOWN,
+    val representedClassName: String? = null,
+    val stringPreview: String? = null,
+    val retainedNativeSize: Long? = null,
 )
+
+public data class MemoryInspectorObjectKey(
+    val objectId: Long,
+    val arrayStart: Int = 0,
+)
+
+public sealed interface MemoryInspectorObjectState {
+    public data object Loading : MemoryInspectorObjectState
+
+    public data object Unavailable : MemoryInspectorObjectState
+
+    public data class Loaded(
+        val detail: MemoryInstanceDetail,
+    ) : MemoryInspectorObjectState
+}
 
 public data class MemoryProfilerState(
     val devices: List<MemoryDeviceOption> = emptyList(),
@@ -316,6 +348,7 @@ public data class MemoryProfilerState(
     val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.RETAINED_SIZE,
     val classifierSortDirection: MemorySortDirection = MemorySortDirection.DESCENDING,
     val visibleClassifierColumns: Set<MemoryClassifierColumn> = DEFAULT_MEMORY_CLASSIFIER_COLUMNS,
+    val inspectorObjects: Map<MemoryInspectorObjectKey, MemoryInspectorObjectState> = emptyMap(),
 )
 
 public data class MemoryDeviceOption(
@@ -373,4 +406,6 @@ public data class MemoryProfilerActions(
     val onAnalyzeLeaks: () -> Unit = {},
     val onStartLiveLeakMonitoring: () -> Unit = {},
     val onStopLiveLeakMonitoring: () -> Unit = {},
+    val onLoadInspectorObject: (Long, Int) -> Unit = { _, _ -> },
+    val onClearInstanceSelection: () -> Unit = {},
 )

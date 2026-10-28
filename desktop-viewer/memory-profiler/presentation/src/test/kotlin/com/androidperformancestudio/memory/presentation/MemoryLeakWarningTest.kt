@@ -41,7 +41,6 @@ class MemoryLeakWarningTest {
                         "memory-classifier-leak-warning-class:sample.Screen",
                         "memory-leak-instance-class-warning",
                         "memory-leak-instance-warning-1",
-                        "memory-leak-inspector-warning",
                     ).forEach { tag ->
                         val icon =
                             onNode(
@@ -53,6 +52,7 @@ class MemoryLeakWarningTest {
                             (0 until pixels.height).flatMap { y -> (0 until pixels.width).map { x -> pixels[x, y] } }
                         assertTrue(colors.distinct().size > 1, "$tag is blank")
                     }
+                    onNodeWithTag("memory-leak-inspector-warning", useUnmergedTree = true).assertDoesNotExist()
                 }
             }
         }

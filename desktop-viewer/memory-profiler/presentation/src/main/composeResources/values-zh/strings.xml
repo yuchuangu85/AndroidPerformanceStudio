@@ -114,6 +114,17 @@
     <string name="follow_reference">跟随引用</string>
     <string name="reference_chain">引用链</string>
     <string name="fields">字段</string>
+    <string name="memory_value_column">值</string>
+    <string name="memory_inspector_loading">正在加载...</string>
+    <string name="memory_inspector_cycle">循环引用</string>
+    <string name="memory_inspector_depth_limit">已达到最大展开深度</string>
+    <string name="memory_inspector_expanded">已展开</string>
+    <string name="memory_inspector_collapsed">已收起</string>
+    <string name="memory_inspector_close">关闭实例详情</string>
+    <string name="memory_inspector_go_to_instance">转到实例</string>
+    <string name="memory_inspector_more">点击显示接下来 %1$s 项...</string>
+    <string name="memory_inspector_shallow_size">浅堆大小</string>
+    <string name="memory_inspector_retained_size">保留大小</string>
     <string name="array_elements">%1$s 个元素</string>
     <string name="array_page_range">第 %1$s–%2$s 项，共 %3$s 项</string>
     <string name="array_values_unavailable">当前解析证据中没有可查看的数组值</string>

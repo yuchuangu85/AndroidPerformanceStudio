@@ -7,9 +7,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -18,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -94,18 +98,19 @@ class MemoryInvestigationWorkspaceTest {
                             MemoryProfilerScreen(fixture(), MemoryProfilerActions(), language)
                         }
                     }
-                    val card = onNodeWithTag("memory-instances-card").fetchSemanticsNode().boundsInRoot
-                    val inInstances = hasAnyAncestor(hasTestTag("memory-instances-card"))
+                    val table = onNodeWithTag("memory-instance-list-table-pane").fetchSemanticsNode().boundsInRoot
+                    val inInstances = hasAnyAncestor(hasTestTag("memory-instance-list-table-pane"))
                     val instanceLabel = if (language == UiLanguage.ENGLISH) "Instance" else "实例"
                     val retainedLabel = if (language == UiLanguage.ENGLISH) "Retained" else "保留大小"
                     val firstHeader = onNode(hasText(instanceLabel) and inInstances).fetchSemanticsNode().boundsInRoot
                     val lastHeader = onNode(hasText(retainedLabel) and inInstances).fetchSemanticsNode().boundsInRoot
                     val row =
-                        onNode(hasText("#1") and inInstances, useUnmergedTree = true).fetchSemanticsNode()
-                    assertEquals(card.left + 8f, firstHeader.left, 0.6f)
-                    assertEquals(card.right - 8f, lastHeader.right, 0.6f)
+                        onNodeWithTag("memory-instance-name-42", useUnmergedTree = true).fetchSemanticsNode()
+                    assertEquals(table.left + 8f, firstHeader.left, 0.6f)
+                    assertEquals(table.right - 18f, lastHeader.right, 0.6f)
                     assertEquals(firstHeader.left, row.boundsInRoot.left, 0.6f)
-                    assertEquals(28f, row.parent!!.boundsInRoot.height, 0.6f)
+                    val rowBounds = onNodeWithTag("memory-instance-row-42").fetchSemanticsNode().boundsInRoot
+                    assertEquals(20f, rowBounds.height, 0.6f)
                 }
             }
         }
@@ -125,15 +130,19 @@ class MemoryInvestigationWorkspaceTest {
                     )
                 }
             }
-            val card = onNodeWithTag("memory-instances-card").fetchSemanticsNode().boundsInRoot
-            val inInstances = hasAnyAncestor(hasTestTag("memory-instances-card"))
+            val table = onNodeWithTag("memory-instance-list-table-pane").fetchSemanticsNode().boundsInRoot
+            val inInstances = hasAnyAncestor(hasTestTag("memory-instance-list-table-pane"))
             val firstHeader = onNode(hasText("Instance") and inInstances)
-            assertEquals(card.left + 8f, firstHeader.fetchSemanticsNode().boundsInRoot.left, 0.6f)
+            assertEquals(table.left + 8f, firstHeader.fetchSemanticsNode().boundsInRoot.left, 0.6f)
             val lastHeader = onNode(hasText("Retained") and inInstances)
             lastHeader.performScrollTo()
-            assertTrue(lastHeader.fetchSemanticsNode().boundsInRoot.right <= card.right)
-            val row = onNode(hasText("#1") and inInstances, useUnmergedTree = true)
-            row.performScrollTo().performClick()
+            assertTrue(lastHeader.fetchSemanticsNode().boundsInRoot.right <= table.right)
+            firstHeader.performScrollTo()
+            val row = onNodeWithTag("memory-instance-name-42", useUnmergedTree = true)
+            row.assertIsDisplayed()
+            val rowBounds = row.fetchSemanticsNode().boundsInRoot
+            val rowY = rowBounds.center.y - table.top
+            onNodeWithTag("memory-instance-list-table-pane").performMouseInput { click(Offset(16f, rowY)) }
             assertEquals(42L, selected)
         }
 
@@ -149,6 +158,7 @@ class MemoryInvestigationWorkspaceTest {
                         }
                     }
                     onNodeWithTag("memory-analysis-card").assertExists()
+                    onNodeWithTag("memory-class-analysis-card").assertDoesNotExist()
                     onNodeWithTag("memory-filters-card").assertExists()
                     onNodeWithTag("memory-inspector-card").assertExists()
                     onNodeWithTag("memory-classes-card").assertDoesNotExist()
@@ -184,16 +194,17 @@ class MemoryInvestigationWorkspaceTest {
                     onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
                     onNodeWithText(if (language == UiLanguage.ENGLISH) "Filters" else "筛选器").assertDoesNotExist()
                     onNodeWithTag("memory-primary-filter-bar").assertExists()
+                    onNodeWithTag("memory-class-analysis-card").assertExists()
                     onNodeWithTag("memory-classes-card").assertExists()
                     onNodeWithTag("memory-instances-card").assertExists()
-                    onNodeWithTag("memory-inspector-card").performScrollTo().assertExists()
+                    onNodeWithTag("memory-inspector-card").assertDoesNotExist()
                 }
             }
         }
     }
 
     @Test
-    fun `class workspace removes the filters pane and fills its space with aligned analysis cards`() {
+    fun `class workspace combines classes and instance details without filters or an exterior gap`() {
         listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
             listOf(false, true).forEach { dark ->
                 runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -223,15 +234,24 @@ class MemoryInvestigationWorkspaceTest {
                     val classes = onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot
                     val instances = onNodeWithTag("memory-instances-card").fetchSemanticsNode().boundsInRoot
                     val inspector = onNodeWithTag("memory-inspector-card").fetchSemanticsNode().boundsInRoot
+                    val divider = onNodeWithTag("memory-class-instance-divider").fetchSemanticsNode().boundsInRoot
                     assertEquals(4f, metrics.first().left)
                     assertEquals(1276f, metrics.last().right)
                     assertEquals(4f, distribution.top - metrics.first().bottom)
                     assertTrue(classes.top >= distribution.bottom + 4f)
-                    assertEquals(classes.top, inspector.top)
                     assertEquals(distribution.left, classes.left)
-                    assertEquals(distribution.right, inspector.right)
-                    assertEquals(4f, inspector.left - classes.right)
-                    assertEquals(4f, instances.top - classes.bottom)
+                    assertEquals(distribution.right, classes.right)
+                    assertEquals(distribution.left, instances.left)
+                    assertEquals(distribution.right, instances.right)
+                    assertTrue(inspector.top > instances.top)
+                    assertTrue(inspector.left > instances.left)
+                    assertEquals(instances.right, inspector.right)
+                    assertEquals(classes.bottom, divider.top)
+                    assertEquals(7f, divider.height)
+                    val line = onNodeWithTag("memory-class-instance-divider-line").fetchSemanticsNode().boundsInRoot
+                    assertEquals(1f, line.height)
+                    assertEquals(divider.center.y, line.center.y, 0.6f)
+                    assertEquals(divider.bottom, instances.top)
                     assertEquals(instances.bottom, inspector.bottom)
                 }
             }
@@ -393,16 +413,18 @@ class MemoryInvestigationWorkspaceTest {
     }
 
     @Test
-    fun `default workspace keeps primary filters virtualized classes and separate object inspector`() =
+    fun `default workspace keeps filters classes and nested instance details navigation`() =
         runDesktopComposeUiTest(width = 1440, height = 860) {
             var state by mutableStateOf(fixture())
             val selected = mutableListOf<Long>()
+            val expanded = mutableListOf<Pair<Long, Int>>()
             setContent {
                 ViewerTheme(darkTheme = true) {
                     MemoryProfilerScreen(
                         state,
                         MemoryProfilerActions(
                             onSelectInstance = { selected += it },
+                            onLoadInspectorObject = { id, start -> expanded += id to start },
                             onMatchCaseChange = { state = state.copy(matchCase = it) },
                         ),
                     )
@@ -412,16 +434,19 @@ class MemoryInvestigationWorkspaceTest {
             onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
             val classes = onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot
             val inspector = onNodeWithTag("memory-object-inspector").fetchSemanticsNode().boundsInRoot
-            assertTrue(classes.right < inspector.left)
+            assertTrue(classes.bottom < inspector.top)
+            assertEquals(classes.right, inspector.right)
             assertTrue(inspector.right <= onRoot().fetchSemanticsNode().boundsInRoot.right)
             onNodeWithText("Match case").performClick()
             assertTrue(state.matchCase)
-            onNodeWithText("sample.Child #2", useUnmergedTree = true).performClick()
+            onNodeWithTag("memory-inspector-row-0").performClick()
             onNodeWithText("References").performClick()
-            onNodeWithText("sample.Owner #3", useUnmergedTree = true).performClick()
+            onNodeWithTag("memory-inspector-row-0").performClick()
             onNodeWithText("Show nearest GC root only").performClick()
-            onNodeWithText("1. sample.Root", useUnmergedTree = true).performClick()
-            assertEquals(listOf(2L, 3L, 4L), selected)
+            onNodeWithTag("memory-inspector-reference-root").assertExists()
+            assertTrue(selected.isEmpty())
+            assertEquals(listOf(2L to 0, 3L to 0), expanded)
+            assertEquals(42L, state.selectedInstanceDetail?.objectId)
         }
 
     @Test
@@ -469,6 +494,7 @@ class MemoryInvestigationWorkspaceTest {
         }
 
     @Test
+    @Suppress("LongMethod")
     fun `workspace captures desktop layouts in both languages and themes`() {
         listOf(
             Triple(1440, UiLanguage.ENGLISH, 860),
@@ -493,13 +519,14 @@ class MemoryInvestigationWorkspaceTest {
                             }
                         }
                     }
+                    waitForIdle()
                     val image = onRoot().captureToImage()
                     assertEquals(width, image.width)
                     val pixels = image.toPixelMap()
                     assertTrue(
-                        (50 until height - 60 step 50)
+                        (16 until height - 60 step 16)
                             .flatMap { y ->
-                                (50 until width step 50).map { x -> pixels[x, y] }
+                                (16 until width step 16).map { x -> pixels[x, y] }
                             }.distinct()
                             .size >
                             3,
@@ -578,7 +605,8 @@ class MemoryInvestigationWorkspaceTest {
             selectedClassifierId = "class:android.graphics.Bitmap",
             availableHeaps = listOf("App", "Zygote"),
             selectedClassName = "android.graphics.Bitmap",
-            selectedClassInstances = listOf(MemoryInstanceRow(42, 1, 48, 4096, 3, true)),
+            selectedClassInstances =
+                listOf(MemoryInstanceRow(42, 1, 48, 4096, 3, true, className = "android.graphics.Bitmap")),
             selectedInstanceDetail =
                 MemoryInstanceDetail(
                     42,

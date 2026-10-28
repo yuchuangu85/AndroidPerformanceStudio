@@ -8,6 +8,7 @@ import com.androidperformancestudio.memory.model.HeapField
 import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObjectArray
 import com.androidperformancestudio.memory.model.HeapPrimitiveArray
+import com.androidperformancestudio.memory.model.HeapPrimitiveArrayValueSource
 import com.androidperformancestudio.memory.model.HeapRoot
 import com.androidperformancestudio.memory.model.HeapRootKind
 import com.androidperformancestudio.memory.model.MemoryHeapNames
@@ -15,10 +16,13 @@ import com.androidperformancestudio.memory.model.MemoryWarning
 import com.androidperformancestudio.memory.model.ObjectReference
 import com.androidperformancestudio.memory.model.PrimitiveType
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.Locale
 import kotlin.math.max
 
@@ -30,15 +34,25 @@ class HprofParser {
     fun parse(
         path: Path,
         onProgress: (Int) -> Unit = {},
-    ): HeapDump =
-        FileChannel.open(path, StandardOpenOption.READ).use { channel ->
-            parseStreaming(channel, path, onProgress)
+    ): HeapDump {
+        val backing = FilePrimitiveArrayBacking(path.toAbsolutePath().normalize())
+        return FileChannel.open(backing.path, StandardOpenOption.READ).use { channel ->
+            if (channel.size() != backing.size || !backing.isCurrent()) {
+                throw HprofParseException("HPROF file changed before parsing")
+            }
+            val heap = parseStreaming(channel, path, onProgress, backing)
+            if (channel.size() != backing.size || !backing.isCurrent()) {
+                throw HprofParseException("HPROF file changed while parsing")
+            }
+            heap
         }
+    }
 
+    /** [bytes] is shared by lazy array values and must remain unchanged while the heap is in use. */
     fun parse(
         bytes: ByteArray,
         rawHprofFile: Path? = null,
-    ): HeapDump = parse(ByteBuffer.wrap(bytes), rawHprofFile, {})
+    ): HeapDump = parse(ByteBuffer.wrap(bytes).asReadOnlyBuffer(), rawHprofFile, {})
 
     private fun parse(
         buffer: ByteBuffer,
@@ -52,7 +66,7 @@ class HprofParser {
             throw HprofParseException("Unsupported HPROF id size $idSize")
         }
         val timestamp = reader.readLong()
-        val state = ParserState(idSize = idSize)
+        val state = ParserState(idSize = idSize, primitiveArrayBacking = BufferPrimitiveArrayBacking(buffer))
         onProgress(0)
 
         while (reader.hasRemaining()) {
@@ -76,6 +90,7 @@ class HprofParser {
         channel: FileChannel,
         rawHprofFile: Path,
         onProgress: (Int) -> Unit,
+        backing: FilePrimitiveArrayBacking,
     ): HeapDump {
         val fileSize = channel.size()
         val header = readStreamHeader(channel)
@@ -84,7 +99,7 @@ class HprofParser {
             throw HprofParseException("Unsupported HPROF id size $idSize")
         }
         val timestamp = readStreamLong(channel)
-        val state = ParserState(idSize = idSize)
+        val state = ParserState(idSize = idSize, primitiveArrayBacking = backing)
         onProgress(0)
         while (channel.position() < fileSize) {
             val recordOffset = channel.position()
@@ -104,7 +119,7 @@ class HprofParser {
                 } else {
                     channel.map(FileChannel.MapMode.READ_ONLY, payloadStart, length.toLong())
                 }
-            parseRecord(tag, HprofReader(payload, state.idSize), state, recordOffset)
+            parseRecord(tag, HprofReader(payload, state.idSize, backingOffset = payloadStart), state, recordOffset)
             channel.position(payloadStart + length)
             onProgress(((channel.position().toDouble() / fileSize) * 100.0).toInt().coerceIn(0, 100))
         }
@@ -447,9 +462,18 @@ class HprofParser {
         reader.skip(Int.SIZE_BYTES)
         val elementCount = reader.readInt()
         val primitiveType = PrimitiveType.fromHprofType(reader.readUnsignedByte())
-        if (hasData) {
-            reader.skipRepeated(elementCount, primitiveType.byteWidth)
-        }
+        val valueSource =
+            if (hasData) {
+                val payloadOffset = reader.absolutePosition
+                reader.skipRepeated(elementCount, primitiveType.byteWidth)
+                if (primitiveType.byteWidth > 0) {
+                    HprofPrimitiveArrayValueSource(state.primitiveArrayBacking, payloadOffset, elementCount, primitiveType)
+                } else {
+                    null
+                }
+            } else {
+                null
+            }
         state.heapByObjectId[objectId] = state.currentHeap
         state.primitiveArrays +=
             HeapPrimitiveArray(
@@ -459,6 +483,7 @@ class HprofParser {
                 shallowSize =
                     primitiveArrayHeaderBytes(primitiveType, state.idSize) +
                         (elementCount.toLong() * primitiveType.byteWidth),
+                valueSource = valueSource,
             )
     }
 
@@ -474,6 +499,7 @@ class HprofParser {
 
     private data class ParserState(
         val idSize: Int,
+        val primitiveArrayBacking: PrimitiveArrayBacking,
         val stringsById: MutableMap<Long, String> = linkedMapOf(),
         val classNameStringIdByObjectId: MutableMap<Long, Long> = linkedMapOf(),
         val classesById: MutableMap<Long, HeapClass> = linkedMapOf(),
@@ -626,17 +652,137 @@ class HprofParser {
     }
 }
 
+private interface PrimitiveArrayBacking {
+    fun read(
+        offset: Long,
+        byteCount: Int,
+    ): ByteBuffer?
+}
+
+private fun isValidPrimitiveArrayRange(
+    start: Long,
+    count: Int,
+    size: Long,
+): Boolean = start >= 0L && count >= 0 && start <= size - count
+
+private class BufferPrimitiveArrayBacking(
+    private val bytes: ByteBuffer,
+) : PrimitiveArrayBacking {
+    override fun read(
+        offset: Long,
+        byteCount: Int,
+    ): ByteBuffer? {
+        if (!isValidPrimitiveArrayRange(offset, byteCount, bytes.limit().toLong())) return null
+        return bytes
+            .duplicate()
+            .position(offset.toInt())
+            .limit(offset.toInt() + byteCount)
+            .slice()
+            .asReadOnlyBuffer()
+    }
+}
+
+/** Shared identity only: lazy values never retain the parser's mapped records or an open channel. */
+private class FilePrimitiveArrayBacking(
+    val path: Path,
+) : PrimitiveArrayBacking {
+    private val identity = Files.readAttributes(path, BasicFileAttributes::class.java)
+    val size: Long = identity.size()
+
+    fun isCurrent(): Boolean =
+        try {
+            val current = Files.readAttributes(path, BasicFileAttributes::class.java)
+            current.isRegularFile &&
+                current.size() == size &&
+                current.lastModifiedTime() == identity.lastModifiedTime() &&
+                current.fileKey() == identity.fileKey()
+        } catch (_: IOException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+
+    override fun read(
+        offset: Long,
+        byteCount: Int,
+    ): ByteBuffer? {
+        if (!isValidPrimitiveArrayRange(offset, byteCount, size) || !isCurrent()) return null
+        return try {
+            FileChannel.open(path, StandardOpenOption.READ).use { channel ->
+                readCurrentFile(channel, offset, byteCount)
+            }
+        } catch (_: IOException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
+    }
+
+    private fun readCurrentFile(
+        channel: FileChannel,
+        offset: Long,
+        byteCount: Int,
+    ): ByteBuffer? {
+        if (channel.size() != size || !isCurrent()) return null
+        val bytes = ByteBuffer.allocate(byteCount)
+        val complete = readFully(channel, bytes, offset)
+        return bytes.takeIf { complete && channel.size() == size && isCurrent() }?.flip()
+    }
+
+    private fun readFully(
+        channel: FileChannel,
+        bytes: ByteBuffer,
+        offset: Long,
+    ): Boolean {
+        var readOffset = offset
+        while (bytes.hasRemaining()) {
+            val read = channel.read(bytes, readOffset)
+            if (read <= 0) return false
+            readOffset += read
+        }
+        return true
+    }
+}
+
+private class HprofPrimitiveArrayValueSource(
+    private val backing: PrimitiveArrayBacking,
+    private val payloadOffset: Long,
+    private val elementCount: Int,
+    private val type: PrimitiveType,
+) : HeapPrimitiveArrayValueSource {
+    override fun read(
+        start: Int,
+        count: Int,
+    ): LongArray? {
+        if (!isValidPrimitiveArrayRange(start.toLong(), count, elementCount.toLong()) ||
+            count > HeapPrimitiveArrayValueSource.MAX_READ_ELEMENTS ||
+            type.byteWidth <= 0
+        ) {
+            return null
+        }
+        val offset = payloadOffset + start.toLong() * type.byteWidth
+        return backing.read(offset, count * type.byteWidth)?.let { bytes ->
+            val reader = HprofReader(bytes)
+            LongArray(count) { reader.readValue(type) }
+        }
+    }
+}
+
 private class HprofReader(
     private val bytes: ByteBuffer,
     private val idSize: Int = 0,
     private val start: Int = 0,
     private val limit: Int = bytes.limit(),
+    private val backingOffset: Long = 0L,
 ) {
     var position: Int = start
         private set
 
     val relativePosition: Int
         get() = position - start
+
+    val absolutePosition: Long
+        get() = backingOffset + position
 
     fun hasRemaining(): Boolean = position < limit
 
@@ -727,7 +873,7 @@ private class HprofReader(
         idSize: Int,
     ): HprofReader {
         requireAvailable(count)
-        val subReader = HprofReader(bytes, idSize, start = position, limit = position + count)
+        val subReader = HprofReader(bytes, idSize, start = position, limit = position + count, backingOffset = backingOffset)
         position += count
         return subReader
     }

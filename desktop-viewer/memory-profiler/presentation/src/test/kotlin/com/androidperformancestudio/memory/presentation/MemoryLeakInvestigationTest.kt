@@ -120,9 +120,10 @@ class MemoryLeakInvestigationTest {
         }
 
     @Test
-    fun `finding path and inspector navigation use raw object identity not class lookup`() =
+    fun `findings navigate by identity while inspector contents only expand inline`() =
         runDesktopComposeUiTest(width = 1440, height = 860) {
             val selected = mutableListOf<Long>()
+            val expanded = mutableListOf<Pair<Long, Int>>()
             val classLookups = mutableListOf<String>()
             val copied = mutableListOf<Long>()
             val pinned = mutableListOf<Long>()
@@ -133,6 +134,7 @@ class MemoryLeakInvestigationTest {
                     memoryLeakFixture().copy(instanceHistory = listOf(11L, 0x303L, 22L), instanceHistoryIndex = 1),
                     MemoryProfilerActions(
                         onSelectInstance = { selected += it },
+                        onLoadInspectorObject = { id, start -> expanded += id to start },
                         onSelectClass = { classLookups += it },
                         onCopyObjectId = { copied += it },
                         onTogglePinnedInstance = { pinned += it },
@@ -151,16 +153,17 @@ class MemoryLeakInvestigationTest {
             assertEquals(emptyList(), classLookups)
             onNodeWithTag("memory-leak-suspect-edge-1").assertExists()
             onNodeWithText("mDestroyed = true").assertExists()
-            onNodeWithText("owner").performClick()
-            assertEquals(0x505L, selected.last())
-            onNodeWithContentDescription("Copy object ID").performClick()
-            onNodeWithText("Pin object").performClick()
-            onNodeWithContentDescription("Back").performClick()
-            onNodeWithContentDescription("Forward").performClick()
-            assertEquals(listOf(0x303L), copied)
-            assertEquals(listOf(0x303L), pinned)
-            assertEquals(1, back)
-            assertEquals(1, forward)
+            onNodeWithTag("memory-inspector-row-0").performClick()
+            assertEquals(0x202L, selected.last())
+            assertEquals(listOf(0x505L to 0), expanded)
+            onNodeWithContentDescription("Copy object ID").assertDoesNotExist()
+            onNodeWithText("Pin object").assertDoesNotExist()
+            onNodeWithContentDescription("Back").assertDoesNotExist()
+            onNodeWithContentDescription("Forward").assertDoesNotExist()
+            assertTrue(copied.isEmpty())
+            assertTrue(pinned.isEmpty())
+            assertEquals(0, back)
+            assertEquals(0, forward)
         }
 
     @Test

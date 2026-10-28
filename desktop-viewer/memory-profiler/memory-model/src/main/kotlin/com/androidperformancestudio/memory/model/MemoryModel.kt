@@ -161,6 +161,16 @@ data class ObjectReference(
     val targetClassName: String = HeapClass.UNKNOWN_CLASS_NAME,
 )
 
+enum class HeapValueKind {
+    OBJECT,
+    CLASS,
+    ARRAY,
+    STRING,
+    PRIMITIVE,
+    NULL,
+    UNKNOWN,
+}
+
 data class HeapObjectFieldEvidence(
     val name: String,
     val displayValue: String,
@@ -237,12 +247,32 @@ data class HeapObjectArray(
             }
 }
 
+/**
+ * Bounded access to raw HPROF values: unsigned 8/16-bit values, sign-extended 32-bit values,
+ * and raw 64-bit values. Floating-point values are returned as bits, not converted numbers.
+ */
+interface HeapPrimitiveArrayValueSource {
+    /**
+     * Returns up to [MAX_READ_ELEMENTS] values, or null for invalid ranges or unavailable evidence.
+     * An empty range is valid at any position from zero through the array length, inclusive.
+     */
+    fun read(
+        start: Int,
+        count: Int,
+    ): LongArray?
+
+    companion object {
+        const val MAX_READ_ELEMENTS = 4096
+    }
+}
+
 data class HeapPrimitiveArray(
     override val objectId: Long,
     val primitiveType: PrimitiveType = PrimitiveType.UNKNOWN,
     val elementCount: Int = 0,
     override val shallowSize: Long = 0L,
     override val shallowSizeKnown: Boolean = true,
+    val valueSource: HeapPrimitiveArrayValueSource? = null,
 ) : HeapObject {
     override val className: String = primitiveType.arrayClassName
 }

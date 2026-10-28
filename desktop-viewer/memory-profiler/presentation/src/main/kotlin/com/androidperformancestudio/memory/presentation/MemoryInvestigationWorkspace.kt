@@ -78,41 +78,65 @@ internal fun MemoryInvestigationWorkspace(
                 MemoryHeapDistribution(state, language)
             }
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val scroll = rememberScrollState()
-            val contentWidth = maxOf(maxWidth, 1120.dp)
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 10.dp)
-                    .horizontalScroll(scroll)
-                    .requiredWidth(contentWidth),
-                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+        if (state.viewMode == MemoryProfilerViewMode.ClassList) {
+            StudioCard(
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("memory-class-analysis-card"),
+                contentPadding = 0.dp,
+                contentSpacing = 0.dp,
             ) {
-                if (state.viewMode != MemoryProfilerViewMode.ClassList) {
-                    StudioCard(
-                        modifier = Modifier.width(190.dp).fillMaxHeight().testTag("memory-filters-card"),
-                        contentPadding = 0.dp,
-                        contentSpacing = 0.dp,
-                    ) {
-                        MemoryFiltersPane(
-                            state,
-                            actions,
-                            language,
-                            Modifier.fillMaxSize().testTag("memory-workspace-filters"),
-                        )
-                    }
+                MemoryInvestigationContent(state, actions, language, Modifier.fillMaxSize(), content)
+            }
+        } else {
+            MemoryInvestigationContent(state, actions, language, Modifier.fillMaxWidth().weight(1f), content)
+        }
+    }
+}
+
+@Composable
+private fun MemoryInvestigationContent(
+    state: MemoryProfilerState,
+    actions: MemoryProfilerActions,
+    language: UiLanguage,
+    modifier: Modifier,
+    content: @Composable (Modifier) -> Unit,
+) {
+    BoxWithConstraints(modifier) {
+        val scroll = rememberScrollState()
+        val classList = state.viewMode == MemoryProfilerViewMode.ClassList
+        val minimumWidth = if (classList) 650.dp else 1120.dp
+        val contentWidth = maxOf(maxWidth, minimumWidth)
+        val scrollbarInset = if (classList && contentWidth <= maxWidth) 0.dp else 10.dp
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(bottom = scrollbarInset)
+                .horizontalScroll(scroll)
+                .requiredWidth(contentWidth),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+        ) {
+            if (!classList) {
+                StudioCard(
+                    modifier = Modifier.width(190.dp).fillMaxHeight().testTag("memory-filters-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    MemoryFiltersPane(
+                        state,
+                        actions,
+                        language,
+                        Modifier.fillMaxSize().testTag("memory-workspace-filters"),
+                    )
                 }
-                if (state.viewMode == MemoryProfilerViewMode.ClassList) {
-                    content(Modifier.weight(1f).fillMaxHeight())
-                } else {
-                    StudioCard(
-                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("memory-analysis-card"),
-                        contentPadding = 0.dp,
-                        contentSpacing = 0.dp,
-                    ) {
-                        content(Modifier.fillMaxSize())
-                    }
+            }
+            if (classList) {
+                content(Modifier.weight(1f).fillMaxHeight())
+            } else {
+                StudioCard(
+                    modifier = Modifier.weight(1f).fillMaxHeight().testTag("memory-analysis-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    content(Modifier.fillMaxSize())
                 }
                 StudioCard(
                     modifier = Modifier.width(330.dp).fillMaxHeight().testTag("memory-inspector-card"),
@@ -122,7 +146,12 @@ internal fun MemoryInvestigationWorkspace(
                     MemoryObjectInspector(state, actions, language, Modifier.fillMaxSize())
                 }
             }
-            HorizontalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.BottomStart).fillMaxWidth())
+        }
+        if (scrollbarInset > 0.dp) {
+            HorizontalScrollbar(
+                rememberScrollbarAdapter(scroll),
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().testTag("memory-analysis-horizontal-scrollbar"),
+            )
         }
     }
 }

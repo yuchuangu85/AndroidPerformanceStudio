@@ -309,7 +309,63 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 ## Instance List And Details (2026-10-26)
 
 - Keep the Instance List flat: fixed-height selectable rows, without disclosure arrows or inline GC-root paths. Selection updates the right-hand Instance Details pane using the original snapshot-local object ID.
-- Instance Details has only Fields and References tabs. Fields shows the selected object's field values and preserves object navigation and array pagination. References owns the unchecked-by-default Show nearest GC root only checkbox, incoming references, and shortest strong GC-root path.
+- Instance Details conditionally exposes Fields and References tabs when their data is available. Fields shows the selected object's field values with inline object expansion and cumulative array batches. References owns the unchecked-by-default Show nearest GC root only checkbox and incoming-reference tree, with no separate GC-root path section.
 - Match the installed Android Studio nearest-root predicate: include incoming references whose source has a known root distance strictly less than the inspected object's distance. Do not treat unknown depth as zero or simply replace the reference list with a single path.
-- Preserve the chosen tab and checkbox across object navigation within one snapshot, reset on snapshot changes, and keep history, pinning, copy ID, leak warnings, and unavailable-data states. Both class-list entry points use the same details component.
+- Keep nearest-root checkbox state within a snapshot and reset on snapshot changes. New object selections start on the first available tab. Both class-list entry points use the same details component; native details parity supersedes the former custom history, pinning, identity, and information strips.
 - Cover row selection without expansion, Fields/References switching, nearest-reference filtering, unavailable roots, array pagination, and snapshot-local state in Compose and query/controller regressions. Keep native-window acceptance separate from rendered screenshot checks.
+
+## Memory Heap Table Density (2026-10-27)
+
+- Use the installed Android Studio 2026.2.3 profiler as the behavioral reference: classifier and instance tables enable vertical column lines with zero intercell spacing, and row height is font height plus 4dp. In Compose, use the shared compact 16sp line height plus 4dp, respecting font scale; keep headers at 24dp.
+- Draw continuous theme-owned column dividers through headers, rows, selections, and unused table space. Indent only the class-name cell so heap/package depth and warning icons cannot shift numeric columns. Keep rows square and numbers right aligned.
+- Instance names carry the actual runtime class from the query, including grouped selections and arrays, plus the original object ID in decimal and hexadecimal. Class objects additionally carry their represented type for the Studio-style `(class)` label, without changing their runtime type. Never substitute a package or heap label for an object's class. Retain independently scrollable instance tables in both entry points.
+- Keep Instance Details compact with Fields/References immediately below its native-style title. Metrics are aligned table columns instead of the former facts strip and information popover. Preserve snapshot-local identity, unknown-value semantics, reference filtering, and cumulative array expansion.
+- Validate separator pixels and geometry, compact row height, grouped runtime names, narrow-width scrolling, field/reference navigation, and English/Chinese light/dark rendering. Local Compose rendering is not native Studio pixel-comparison acceptance.
+
+## Instance List Split Layout (2026-10-27)
+
+- In Classes, place the full-width class table above one full-width Instance List region. Under its shared title, arrange the Instance table on the left and Instance Details on the right; do not keep a full-height inspector beside the class table or nest decorative cards.
+- Share the same instance/details split between the active workspace and the legacy class-list entry point. Start the left pane at 62 percent and use a 7dp vertical drag target with a horizontal-resize cursor. Support keyboard arrows and accessibility adjustment, and retain the ratio across object selection and recomposition.
+- Reserve 280dp for the instance viewport and 260dp for details when space permits; fit the bounds to the available width on smaller surfaces. The Classes workspace now adapts down to 650dp instead of reserving the former 1120dp three-column width; tables retain their own horizontal scrolling. Window resizing must not produce negative widths or hide either pane.
+- Give the stacked class and instance regions equal remaining height so the lower details table has usable space. Dominators and Diff keep their existing full-height inspector layout. Verify drag directions, width bounds, locale/theme changes, narrow reachability, selection, and detail navigation.
+
+## Instance Details Inline Expansion (2026-10-27)
+
+- Clicking object-valued fields or incoming references only expands or collapses that branch in Instance Details. Never route these content clicks through instance selection, class selection, table replacement, or navigation history. The Instance List remains the owner of selected root identity; the native context-menu Go to Instance command is an explicit navigation action.
+- Load nested object details on demand through a separate snapshot-bound query. Loading, missing objects, and empty fields or references are distinct states. Clear loaded inspector objects when the selected root or snapshot changes, and discard late results that no longer belong to the active inspection.
+- Keep branch identity path-local, including repeated objects and array pages. Fields expands fields; References expands inbound references and applies the nearest-root predicate against each expanded object's depth. Render visible entries in the existing lazy list, stop ancestor cycles with a clear marker, and bound expansion depth to 32.
+- Primitive and null values have no expansion action. Nested arrays page locally without selecting the array or changing the outer Instance List. Preserve dense rows, column alignment, tooltips, the resizable split, and the selected root's own array pagination.
+- Verify multi-level expansion/collapse, shared targets on different branches, cycles, unavailable data, nested array paging, root/snapshot reset, and stale asynchronous completions. Assert that content clicks leave class, instance rows, selected object, history, and split width unchanged.
+
+## Compact Snapshot Strip (2026-10-27)
+
+- Reduce the Snapshots row from 42dp to a 32dp minimum and each snapshot tab from 40dp to a 28dp minimum. Use shared compact typography and allow taller text at increased font scales instead of clipping it.
+- Preserve the existing 28dp close target, snapshot selection and independent close callbacks, evidence tooltip/accessibility text, one-line ellipsis, and narrow-window horizontal scrolling.
+
+## Unified Heap Analysis Card (2026-10-27)
+
+- Combine the Classes table and Instance List into one shared StudioCard. Keep both sections unframed, with one full-width horizontal divider between them; preserve the equal-height split and the instance/details drag handle.
+- Keep the common card 4dp below the preceding region and 4dp above the status bar. Do not reserve an empty outer scrollbar strip when the workspace fits its viewport.
+- When a very narrow workspace needs horizontal scrolling, reserve the scrollbar inside the shared card so its outside bottom spacing remains unchanged. Dominators and Diff keep their existing card and scrollbar layouts.
+- Verify a single shared frame, divider geometry, equal top/bottom spacing, empty and loaded data, narrow scrolling, both locales/themes, instance selection, and inline details expansion.
+
+## Resizable Class And Instance Heights (2026-10-27)
+
+- Make the horizontal Classes/Instance List divider draggable. Keep a centered 1dp visual line inside a 7dp hit target with a vertical-resize cursor, keyboard up/down adjustment, and accessibility progress semantics.
+- Start with equal upper/lower heights and retain the user's ratio across instance selection, recomposition, and window resizing. Keep the height ratio independent of the left/right instance/details ratio and inline expansion state.
+- Reserve at least 100dp for Classes and 180dp for Instance List when space permits; fit both bounds to smaller windows without negative dimensions. Keep the shared card and its existing 4dp exterior spacing unchanged.
+- Verify pointer drags in both directions, minimum bounds, keyboard adjustment, resize restoration, instance selection, inline expansion, and independent horizontal resizing in both languages and themes.
+
+## Compact Heap Filter Padding (2026-10-27)
+
+- Halve the All heaps filter row's vertical padding from 6dp to 3dp per side. Preserve control heights, 8dp horizontal padding/gaps, all filter callbacks, and the workspace's existing 4dp exterior spacing. At the default scale the row becomes 38dp high instead of 44dp.
+
+## Native Instance Details (2026-10-28)
+
+- Use the locally installed Android Studio 2026.2.3 profiler as the reference. Show `Instance Details - SimpleType@decimal (0xhex)` and a close control; remove the custom facts, provenance, pin, copy, and history strips from this pane. Closing clears instance selection only, preserves the class and instance rows, and restores their full width. Hide the details pane and splitter when no inspectable fields or references exist.
+- Match the native tree-table columns: Instance, Depth, optional Native Size, Shallow Size, optional Retained Native Size, Retained Size. Use raw grouped byte counts, `-` for unavailable evidence, continuous column dividers, resizable widths, and font line height plus 4dp rows. Fields defaults to descending retained size; References defaults to ascending depth. Apply sorting to expanded siblings too.
+- Fields hides its root and formats rows as `field = {SimpleType}`, `count = 7`, `next = null`, and `{String} "preview"`; array elements use bare indices. Group incoming references by source object and label them `fieldA, fieldB in Owner@decimal (0xhex)` or `Index 0, 3 in Foo[]@decimal (0xhex)`. References shows the selected root, initially expanded.
+- The unchecked-by-default nearest-root control recursively retains sources with known depth strictly less than their parent's depth and expands the first decreasing-depth path when enabled. Do not fabricate paths or allocation/deallocation tabs for HPROF.
+- Expand fields cumulatively in 100-row batches using an inline Click to see next N action; no Previous/Next pager or selection change. Read primitive-array values lazily in bounded batches, keep NODATA unavailable, and show bounded String previews from recorded primitive payloads without eagerly copying the whole heap.
+- Field metrics belong to the target object; inbound metrics belong to the source. Primitive rows use their encoded byte width and parent depth, null rows have zero sizes, and missing retained-native values remain unknown. Keep the existing ancestor-cycle and depth-32 guards as an explicit safety difference from native repeated wrappers.
+- Verify data decoding, labels, metric provenance, sorting, resize bounds, close behavior, cumulative expansion, async snapshot guards, and ordinary-click versus explicit navigation semantics. Render English/Chinese light/dark and narrow layouts; these checks do not claim native-window pixel equality or packaged-app acceptance.

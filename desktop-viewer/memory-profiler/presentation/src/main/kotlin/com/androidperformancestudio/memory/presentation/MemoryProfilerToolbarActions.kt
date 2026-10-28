@@ -26,7 +26,8 @@ public fun MemoryProfilerDumpHeapButton(
                 language,
             ),
         enabled =
-            targetReady && !state.isDumping &&
+            targetReady &&
+                !state.isDumping &&
                 state.selectedDeviceSerial != null &&
                 state.selectedProcessId != null,
         onClick = onDumpHeap,
@@ -43,7 +44,8 @@ public fun MemoryProfilerCaptureNativeHeapButton(
     ProfilerCompactButton(
         text = localizedStringResource(Res.string.capture_native_heap, language),
         enabled =
-            targetReady && !state.isDumping &&
+            targetReady &&
+                !state.isDumping &&
                 state.selectedDeviceSerial != null &&
                 state.selectedProcessId != null,
         onClick = onCaptureNativeHeap,
@@ -60,7 +62,8 @@ public fun MemoryProfilerDumpBitmapsButton(
     ProfilerCompactButton(
         text = localizedStringResource(Res.string.dump_bitmaps, language),
         enabled =
-            targetReady && !state.isDumping &&
+            targetReady &&
+                !state.isDumping &&
                 state.selectedDeviceSerial != null &&
                 state.selectedProcessId != null &&
                 state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.supportsBitmapDump == true,

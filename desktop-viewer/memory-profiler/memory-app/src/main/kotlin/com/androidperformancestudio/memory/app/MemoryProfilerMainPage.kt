@@ -441,6 +441,10 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     onToggleClassifierColumn = controller::toggleClassifierColumn,
                     onClassifierSort = controller::sortClassifier,
                     onSelectClassifier = { row -> scope.launch { controller.selectClassifierAsync(row) } },
+                    onLoadInspectorObject = { objectId, start ->
+                        scope.launch { controller.loadInspectorObjectAsync(objectId, start) }
+                    },
+                    onClearInstanceSelection = controller::clearInstanceSelection,
                 ),
             language = language,
             modifier = Modifier.weight(1f),

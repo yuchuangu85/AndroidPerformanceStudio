@@ -11,7 +11,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -40,6 +41,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.snap
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.unknown_snapshot
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import java.time.Instant
 
@@ -58,7 +60,8 @@ public fun MemoryProfilerSnapshotTabs(
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface)
                 .horizontalScroll(rememberScrollState())
-                .height(42.dp)
+                .heightIn(min = 32.dp)
+                .testTag("memory-snapshot-tabs")
                 .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -66,6 +69,7 @@ public fun MemoryProfilerSnapshotTabs(
         Text(
             localizedStringResource(Res.string.snapshots, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = ViewerTypography.bodyCompact,
         )
         state.snapshotSummaries.forEach { snapshot ->
             SnapshotTabCard(
@@ -99,7 +103,8 @@ private fun SnapshotTabCard(
             modifier =
                 Modifier
                     .widthIn(min = 120.dp, max = 260.dp)
-                    .height(40.dp)
+                    .heightIn(min = 28.dp)
+                    .testTag("memory-snapshot-tab-${snapshot.id}")
                     .clip(shape)
                     .background(containerColor)
                     .border(1.dp, MaterialTheme.colorScheme.outline, shape)
@@ -114,6 +119,7 @@ private fun SnapshotTabCard(
                 evidence.name,
                 modifier = Modifier.weight(1f),
                 fontWeight = FontWeight.SemiBold,
+                style = ViewerTypography.bodyCompact,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -1,9 +1,12 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,7 +33,7 @@ class MemoryArrayNavigationTest {
     }
 
     @Test
-    fun `array inspector shows absolute range and navigates in both directions`() =
+    fun `array inspector cumulatively reveals fields before requesting the next page`() =
         runDesktopComposeUiTest(width = 1200, height = 800) {
             val loadedRanges = mutableListOf<Pair<Long, Int>>()
             setContent {
@@ -41,14 +44,19 @@ class MemoryArrayNavigationTest {
                             selectedClassName = "example.Array[]",
                             selectedInstanceDetail = arrayDetail(start = 200, count = 450, visible = 200),
                         ),
-                    actions = MemoryProfilerActions(onLoadArrayRange = { id, start -> loadedRanges += id to start }),
+                    actions =
+                        MemoryProfilerActions(onLoadInspectorObject = { id, start -> loadedRanges += id to start }),
                 )
             }
 
-            onNodeWithText("Elements 201–400 of 450").assertExists()
-            onNodeWithContentDescription("Previous elements").performClick()
-            onNodeWithContentDescription("Next elements").performClick()
-            assertEquals(listOf(1L to 0, 1L to 400), loadedRanges)
+            val content = onNodeWithTag("memory-inspector-content")
+            content.performScrollToNode(hasTestTag("memory-inspector-row-more"))
+            onNodeWithTag("memory-inspector-row-more").performClick()
+            assertEquals(emptyList(), loadedRanges)
+            content.performScrollToNode(hasTestTag("memory-inspector-row-more"))
+            onNodeWithTag("memory-inspector-row-more").performClick()
+            assertEquals(listOf(1L to 400), loadedRanges)
+            onNodeWithContentDescription("Previous elements").assertDoesNotExist()
         }
 
     @Test

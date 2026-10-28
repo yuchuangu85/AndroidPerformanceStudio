@@ -114,6 +114,17 @@
     <string name="follow_reference">Follow reference</string>
     <string name="reference_chain">Reference chain</string>
     <string name="fields">Fields</string>
+    <string name="memory_value_column">Value</string>
+    <string name="memory_inspector_loading">Loading...</string>
+    <string name="memory_inspector_cycle">Circular reference</string>
+    <string name="memory_inspector_depth_limit">Maximum expansion depth reached</string>
+    <string name="memory_inspector_expanded">Expanded</string>
+    <string name="memory_inspector_collapsed">Collapsed</string>
+    <string name="memory_inspector_close">Close Instance Details</string>
+    <string name="memory_inspector_go_to_instance">Go to Instance</string>
+    <string name="memory_inspector_more">Click to see next %1$s...</string>
+    <string name="memory_inspector_shallow_size">Shallow Size</string>
+    <string name="memory_inspector_retained_size">Retained Size</string>
     <string name="array_elements">%1$s elements</string>
     <string name="array_page_range">Elements %1$s–%2$s of %3$s</string>
     <string name="array_values_unavailable">Array values are unavailable in this parsed evidence</string>

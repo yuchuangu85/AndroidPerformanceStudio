@@ -7,6 +7,7 @@ import com.androidperformancestudio.adb.AndroidDeviceInfosResult
 import com.androidperformancestudio.adb.AndroidProcessSelection
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
+import com.androidperformancestudio.memory.analysis.FieldValue
 import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
 import com.androidperformancestudio.memory.analysis.InstanceQueryDetail
 import com.androidperformancestudio.memory.analysis.InstanceQueryRow
@@ -58,6 +59,8 @@ import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryFilterPreset
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
+import com.androidperformancestudio.memory.presentation.MemoryInspectorObjectKey
+import com.androidperformancestudio.memory.presentation.MemoryInspectorObjectState
 import com.androidperformancestudio.memory.presentation.MemoryInstanceDetail
 import com.androidperformancestudio.memory.presentation.MemoryInstanceField
 import com.androidperformancestudio.memory.presentation.MemoryInstanceRow
@@ -338,6 +341,7 @@ internal class MemoryProfilerController(
     private var previousLeakReport: LeakCanaryReport? = null
     private val selectionMutex = Mutex()
     private var selectionGeneration = 0L
+    private var inspectorGeneration = 0L
 
     val state: StateFlow<MemoryProfilerState> = mutableState.asStateFlow()
 
@@ -422,6 +426,7 @@ internal class MemoryProfilerController(
 
     fun close() {
         invalidateSelection()
+        resetInspectorObjects()
         activeOperationJob?.cancel()
         stopLiveLeakCanary()
         processSelectionSubscription.close()
@@ -535,6 +540,7 @@ internal class MemoryProfilerController(
             mutableState.value = current.copy(snapshotSummaries = remaining, heapDiff = diff)
             return
         }
+        resetInspectorObjects()
         val nextSnapshot = remaining.lastOrNull()
         if (nextSnapshot == null) {
             loadedHeap = null
@@ -549,6 +555,7 @@ internal class MemoryProfilerController(
                     selectedClassifierLabel = null,
                     selectedClassInstances = emptyList(),
                     selectedInstanceDetail = null,
+                    inspectorObjects = emptyMap(),
                     dominatorRows = emptyList(),
                     instanceHistory = emptyList(),
                     instanceHistoryIndex = -1,
@@ -576,7 +583,7 @@ internal class MemoryProfilerController(
                     leakCanaryReport = LeakCanaryReport(),
                 )
         } else {
-            mutableState.value = current.copy(snapshotSummaries = remaining)
+            mutableState.value = mutableState.value.copy(snapshotSummaries = remaining)
             selectSnapshot(nextSnapshot.id)
         }
     }
@@ -621,6 +628,7 @@ internal class MemoryProfilerController(
         className: String,
         instances: List<MemoryInstanceRow>,
     ) {
+        resetInspectorObjects()
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = className,
@@ -664,6 +672,7 @@ internal class MemoryProfilerController(
         row: MemoryClassifierRow,
         instances: List<MemoryInstanceRow>,
     ) {
+        resetInspectorObjects()
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = row.className,
@@ -684,6 +693,12 @@ internal class MemoryProfilerController(
         selectInstanceAsync(objectId, appendToHistory = true)
     }
 
+    fun clearInstanceSelection() {
+        invalidateSelection()
+        resetInspectorObjects()
+        mutableState.value = mutableState.value.copy(selectedInstanceDetail = null)
+    }
+
     fun loadArrayRange(
         objectId: Long,
         arrayStart: Int,
@@ -700,6 +715,107 @@ internal class MemoryProfilerController(
         arrayStart: Int,
     ) {
         selectInstanceAsync(objectId, appendToHistory = false, arrayStart = arrayStart)
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    fun loadInspectorObject(
+        objectId: Long,
+        arrayStart: Int = 0,
+    ) {
+        val request = beginInspectorObjectLoad(objectId, arrayStart) ?: return
+        try {
+            publishInspectorObject(request, inspectorObjectDetail(request))
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            publishInspectorObject(request, null)
+        } finally {
+            clearInspectorObjectLoading(request)
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun loadInspectorObjectAsync(
+        objectId: Long,
+        arrayStart: Int = 0,
+    ) {
+        val request = beginInspectorObjectLoad(objectId, arrayStart) ?: return
+        try {
+            val detail =
+                selectionMutex.withLock {
+                    if (!inspectorRequestIsCurrent(request)) return@withLock null
+                    withContext(selectionDispatcher) { inspectorObjectDetail(request) }
+                }
+            publishInspectorObject(request, detail)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            publishInspectorObject(request, null)
+        } finally {
+            clearInspectorObjectLoading(request)
+        }
+    }
+
+    private data class InspectorObjectRequest(
+        val key: MemoryInspectorObjectKey,
+        val query: InstanceReferenceQuery,
+        val snapshotId: String?,
+        val rootObjectId: Long,
+        val generation: Long,
+    )
+
+    private fun beginInspectorObjectLoad(
+        objectId: Long,
+        arrayStart: Int,
+    ): InspectorObjectRequest? {
+        val current = mutableState.value
+        val query = instanceQuery ?: return null
+        val rootObjectId = current.selectedInstanceDetail?.objectId ?: return null
+        val key = MemoryInspectorObjectKey(objectId, arrayStart.coerceAtLeast(0))
+        when (current.inspectorObjects[key]) {
+            MemoryInspectorObjectState.Loading, is MemoryInspectorObjectState.Loaded -> return null
+            else -> Unit
+        }
+        val request = InspectorObjectRequest(key, query, current.activeSnapshotId, rootObjectId, inspectorGeneration)
+        mutableState.value =
+            current.copy(inspectorObjects = current.inspectorObjects + (key to MemoryInspectorObjectState.Loading))
+        return request
+    }
+
+    private fun inspectorObjectDetail(request: InspectorObjectRequest): MemoryInstanceDetail? =
+        request.query
+            .detailOf(request.key.objectId, arrayStart = request.key.arrayStart)
+            ?.toPresentation(arrayStart = request.key.arrayStart)
+
+    private fun inspectorRequestIsCurrent(request: InspectorObjectRequest): Boolean =
+        inspectorGeneration == request.generation &&
+            instanceQuery === request.query &&
+            mutableState.value.activeSnapshotId == request.snapshotId &&
+            mutableState.value.selectedInstanceDetail?.objectId == request.rootObjectId
+
+    private fun publishInspectorObject(
+        request: InspectorObjectRequest,
+        detail: MemoryInstanceDetail?,
+    ) {
+        if (!inspectorRequestIsCurrent(request)) return
+        val result = detail?.let { MemoryInspectorObjectState.Loaded(it) } ?: MemoryInspectorObjectState.Unavailable
+        val current = mutableState.value
+        mutableState.value = current.copy(inspectorObjects = current.inspectorObjects + (request.key to result))
+    }
+
+    private fun clearInspectorObjectLoading(request: InspectorObjectRequest) {
+        if (!inspectorRequestIsCurrent(request)) return
+        val current = mutableState.value
+        if (current.inspectorObjects[request.key] == MemoryInspectorObjectState.Loading) {
+            mutableState.value = current.copy(inspectorObjects = current.inspectorObjects - request.key)
+        }
+    }
+
+    private fun resetInspectorObjects() {
+        inspectorGeneration++
+        if (mutableState.value.inspectorObjects.isNotEmpty()) {
+            mutableState.value = mutableState.value.copy(inspectorObjects = emptyMap())
+        }
     }
 
     fun navigateInstanceBack() {
@@ -806,6 +922,7 @@ internal class MemoryProfilerController(
         appendToHistory: Boolean,
         historyIndex: Int?,
     ) {
+        if (mutableState.value.selectedInstanceDetail?.objectId != objectId) resetInspectorObjects()
         val current = mutableState.value
         val nextHistory =
             if (appendToHistory) {
@@ -893,6 +1010,7 @@ internal class MemoryProfilerController(
     /** Switches the base class table between all heaps and a single [heap] (null = all heaps). */
     fun changeHeapFilter(heap: String?) {
         invalidateSelection()
+        resetInspectorObjects()
         val base =
             when (heap) {
                 null -> loadedHeap?.histogram?.classes.orEmpty()
@@ -969,6 +1087,7 @@ internal class MemoryProfilerController(
     fun applyFilterPreset(preset: MemoryFilterPreset) {
         if (preset !in mutableState.value.savedFilterPresets) return
         invalidateSelection()
+        resetInspectorObjects()
         val base =
             when (preset.heapFilter) {
                 null -> loadedHeap?.histogram?.classes.orEmpty()
@@ -1678,6 +1797,7 @@ internal class MemoryProfilerController(
             is MemoryBackendResult.Failure -> showFailure(result)
             is MemoryBackendResult.Success -> {
                 activeOperationJob = null
+                resetInspectorObjects()
                 val previous = loadedHeap
                 loadedHeap = result.value
                 instanceQuery = result.value.investigationIndex.query
@@ -1969,6 +2089,8 @@ internal class MemoryProfilerController(
             reachable = reachable,
             nativeSize = nativeSize,
             shallowSizeKnown = shallowSizeKnown,
+            className = className,
+            representedClassName = representedClassName,
         )
 
     private fun InstanceQueryDetail.toEvidence(): HeapObjectInvestigation =
@@ -2007,27 +2129,31 @@ internal class MemoryProfilerController(
             elementCount = elementCount,
             arrayStart = arrayStart,
             arrayPageSize = arrayPageSize,
-            fields =
-                fields.map { field ->
-                    MemoryInstanceField(
-                        name = field.name,
-                        displayValue = field.displayValue,
-                        targetObjectId = field.targetObjectId,
-                        targetClassName = field.targetClassName,
-                    )
-                },
+            fields = fields.map { it.toPresentation() },
             referenceChain = referenceChain,
-            references =
-                references.map { reference ->
-                    MemoryInstanceField(
-                        name = reference.name,
-                        displayValue = reference.displayValue,
-                        targetObjectId = reference.targetObjectId,
-                        targetClassName = reference.targetClassName,
-                        depth = reference.depth,
-                    )
-                },
+            references = references.map { it.toPresentation() },
             shallowSizeKnown = shallowSizeKnown,
             nativeSize = nativeSize,
+            valueKind = valueKind,
+            representedClassName = representedClassName,
+            stringPreview = stringPreview,
+            retainedNativeSize = retainedNativeSize,
+        )
+
+    private fun FieldValue.toPresentation(): MemoryInstanceField =
+        MemoryInstanceField(
+            name = name,
+            displayValue = displayValue,
+            targetObjectId = targetObjectId,
+            targetClassName = targetClassName,
+            depth = depth,
+            valueKind = valueKind,
+            shallowSize = shallowSize,
+            retainedSize = retainedSize,
+            nativeSize = nativeSize,
+            retainedNativeSize = retainedNativeSize,
+            representedClassName = representedClassName,
+            stringPreview = stringPreview,
+            childCount = childCount,
         )
 }

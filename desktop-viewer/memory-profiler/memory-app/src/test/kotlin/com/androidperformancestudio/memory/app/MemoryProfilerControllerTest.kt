@@ -12,21 +12,31 @@ import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapField
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapInstance
+import com.androidperformancestudio.memory.model.HeapObjectArray
+import com.androidperformancestudio.memory.model.HeapPrimitiveArray
+import com.androidperformancestudio.memory.model.HeapPrimitiveArrayValueSource
 import com.androidperformancestudio.memory.model.HeapRoot
 import com.androidperformancestudio.memory.model.HeapRootKind
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.HeapValueKind
 import com.androidperformancestudio.memory.model.LeakCanaryLeak
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.ObjectReference
+import com.androidperformancestudio.memory.model.PrimitiveType
 import com.androidperformancestudio.memory.presentation.MemoryClassifierColumn
 import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryDeviceOption
 import com.androidperformancestudio.memory.presentation.MemoryHistogramSort
+import com.androidperformancestudio.memory.presentation.MemoryInspectorObjectKey
+import com.androidperformancestudio.memory.presentation.MemoryInspectorObjectState
+import com.androidperformancestudio.memory.presentation.MemoryInstanceField
+import com.androidperformancestudio.memory.presentation.MemoryInstanceRow
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
 import com.androidperformancestudio.memory.presentation.MemoryProfilerPresenter
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
@@ -35,6 +45,7 @@ import com.androidperformancestudio.memory.presentation.MemorySampledArtOrigin
 import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
 import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -56,6 +67,610 @@ private typealias TargetListener = AndroidTargetListener
 private typealias TargetSubscription = AndroidTargetSubscription
 
 class MemoryProfilerControllerTest {
+    @Test
+    fun `appended presentation field metadata preserves legacy positional constructors`() {
+        val field = MemoryInstanceField("value", "7", null, null, 2)
+
+        assertEquals(HeapValueKind.UNKNOWN, field.valueKind)
+        assertNull(field.shallowSize)
+        assertNull(field.retainedSize)
+        assertNull(field.nativeSize)
+        assertNull(field.retainedNativeSize)
+        assertNull(field.representedClassName)
+        assertNull(field.stringPreview)
+        assertNull(field.childCount)
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `query types field metrics previews and represented classes propagate to selected and cached details`() =
+        runTest {
+            val stringValues = "ok".map { it.code.toLong() }.toLongArray()
+            val source =
+                object : HeapPrimitiveArrayValueSource {
+                    override fun read(
+                        start: Int,
+                        count: Int,
+                    ): LongArray = stringValues.copyOfRange(start, start + count)
+                }
+            val heap =
+                HeapDump(
+                    classes =
+                        listOf(
+                            HeapClass(10, "java.lang.Class", 32),
+                            HeapClass(
+                                100,
+                                "sample.Root",
+                                instanceFields =
+                                    listOf(
+                                        HeapField("child", PrimitiveType.OBJECT),
+                                        HeapField("count", PrimitiveType.INT),
+                                        HeapField("type", PrimitiveType.OBJECT),
+                                        HeapField("title", PrimitiveType.OBJECT),
+                                    ),
+                            ),
+                            HeapClass(101, "sample.Child"),
+                        ),
+                    instances =
+                        listOf(
+                            HeapInstance(
+                                1,
+                                100,
+                                "sample.Root",
+                                16,
+                                references =
+                                    listOf(
+                                        ObjectReference("child", 2),
+                                        ObjectReference("type", 101),
+                                        ObjectReference("title", 3),
+                                    ),
+                                primitiveFields = mapOf("count" to 7L),
+                                nativeSizeBytes = 128,
+                            ),
+                            HeapInstance(2, 101, "sample.Child", 8, nativeSizeBytes = 64),
+                            HeapInstance(
+                                3,
+                                102,
+                                "java.lang.String",
+                                8,
+                                references = listOf(ObjectReference("value", 4)),
+                            ),
+                        ),
+                    primitiveArrays = listOf(HeapPrimitiveArray(4, PrimitiveType.CHAR, 2, valueSource = source)),
+                    gcRoots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+                    objectRetainedSizes = mapOf(1L to 160L, 2L to 80L),
+                )
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = heap })
+            controller.importHprof(Path.of("typed.hprof"))
+            controller.selectInstance(1)
+
+            val detail = assertNotNull(controller.state.value.selectedInstanceDetail)
+            assertEquals(HeapValueKind.OBJECT, detail.valueKind)
+            val fields = detail.fields.associateBy { it.name }
+            val child = fields.getValue("child")
+            assertEquals(HeapValueKind.OBJECT, child.valueKind)
+            assertEquals(1, child.depth)
+            assertEquals(8L, child.shallowSize)
+            assertEquals(80L, child.retainedSize)
+            assertEquals(64L, child.nativeSize)
+            assertEquals(0, child.childCount)
+            assertNull(child.retainedNativeSize)
+            val primitive = fields.getValue("count")
+            assertEquals(HeapValueKind.PRIMITIVE, primitive.valueKind)
+            assertEquals(0, primitive.depth)
+            assertEquals(4L, primitive.shallowSize)
+            assertEquals(4L, primitive.retainedSize)
+            assertEquals(0L, primitive.nativeSize)
+            assertNull(primitive.retainedNativeSize)
+            assertEquals(HeapValueKind.CLASS, fields.getValue("type").valueKind)
+            assertEquals("java.lang.Class", fields.getValue("type").targetClassName)
+            assertEquals("sample.Child", fields.getValue("type").representedClassName)
+            assertEquals(HeapValueKind.STRING, fields.getValue("title").valueKind)
+            assertEquals("\"ok\"", fields.getValue("title").stringPreview)
+
+            controller.loadInspectorObject(2)
+            val cachedState = controller.state.value.inspectorObjects[MemoryInspectorObjectKey(2)]
+            val cached = cachedState as MemoryInspectorObjectState.Loaded
+            val reference = cached.detail.references.single()
+            assertEquals(HeapValueKind.OBJECT, reference.valueKind)
+            assertEquals(0, reference.depth)
+            assertEquals(16L, reference.shallowSize)
+            assertEquals(160L, reference.retainedSize)
+            assertEquals(128L, reference.nativeSize)
+            assertNull(reference.retainedNativeSize)
+
+            controller.selectInstance(101)
+            val classDetail = assertNotNull(controller.state.value.selectedInstanceDetail)
+            assertEquals(HeapValueKind.CLASS, classDetail.valueKind)
+            assertEquals("sample.Child", classDetail.representedClassName)
+            assertNull(classDetail.retainedNativeSize)
+            controller.selectInstance(3)
+            val stringDetail = assertNotNull(controller.state.value.selectedInstanceDetail)
+            assertEquals(HeapValueKind.STRING, stringDetail.valueKind)
+            assertEquals("\"ok\"", stringDetail.stringPreview)
+            controller.close()
+        }
+
+    @Test
+    fun `clearing instance selection preserves class list pins history filters and snapshot`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = inspectorHeap() })
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            controller.selectInstance(2)
+            controller.navigateInstanceBack()
+            controller.togglePinnedInstance(2)
+            controller.loadInspectorObject(2)
+            val before = controller.state.value
+            assertTrue(before.inspectorObjects.isNotEmpty())
+
+            controller.clearInstanceSelection()
+
+            val cleared =
+                before.copy(selectedInstanceDetail = null, inspectorObjects = emptyMap(), isSelectionLoading = false)
+            assertEquals(cleared, controller.state.value)
+            controller.clearInstanceSelection()
+            controller.loadInspectorObject(2)
+            assertEquals(cleared, controller.state.value)
+            controller.close()
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `close invalidates pending instance selection and inspector completion without changing class scope`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap() },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            controller.togglePinnedInstance(1)
+            val before = controller.state.value
+            val inspector = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            val selecting = launch(start = CoroutineStart.UNDISPATCHED) { controller.selectInstanceAsync(2) }
+            assertTrue(controller.state.value.isSelectionLoading)
+
+            controller.clearInstanceSelection()
+            val cleared = before.copy(selectedInstanceDetail = null)
+            assertEquals(cleared, controller.state.value)
+            runCurrent()
+            inspector.join()
+            selecting.join()
+
+            assertEquals(cleared, controller.state.value)
+            controller.close()
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `close and reopen of the same root rejects an earlier inspector request`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap() },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val stale = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+
+            controller.clearInstanceSelection()
+            controller.selectInstance(1)
+            val reopened = controller.state.value
+            runCurrent()
+            stale.join()
+
+            assertEquals(reopened, controller.state.value)
+            assertTrue(
+                controller.state.value.inspectorObjects
+                    .isEmpty(),
+            )
+            controller.close()
+        }
+
+    @Test
+    fun `inspector objects and array pages never change selection tables history pins or loading`() =
+        runTest {
+            for (async in listOf(false, true)) {
+                val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = inspectorHeap() })
+                controller.importHprof(Path.of("inspector.hprof"))
+                controller.selectInstance(1)
+                controller.selectInstance(2)
+                controller.navigateInstanceBack()
+                controller.togglePinnedInstance(2)
+                val selected = controller.state.value
+
+                for ((objectId, start) in listOf(2L to 0, 3L to 0, 3L to 200, 999L to 0, 3L to -1)) {
+                    if (async) {
+                        controller.loadInspectorObjectAsync(objectId, start)
+                    } else {
+                        controller.loadInspectorObject(objectId, start)
+                    }
+                    assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+                }
+
+                val objects = controller.state.value.inspectorObjects
+                val child = objects[MemoryInspectorObjectKey(2)] as MemoryInspectorObjectState.Loaded
+                val childFields = child.detail.fields
+                val rootReference = child.detail.references.single { it.name == "child" }
+                assertEquals("sample.Child", child.detail.className)
+                assertEquals("7", childFields.first().displayValue)
+                assertEquals(1, child.detail.depth)
+                assertEquals(0, rootReference.depth)
+                val firstPage = objects[MemoryInspectorObjectKey(3)] as MemoryInspectorObjectState.Loaded
+                val nextPage = objects[MemoryInspectorObjectKey(3, 200)] as MemoryInspectorObjectState.Loaded
+                val firstFields = firstPage.detail.fields
+                val nextFields = nextPage.detail.fields
+                assertEquals(450, firstPage.detail.elementCount)
+                assertEquals(200, firstPage.detail.fields.size)
+                assertEquals("[0]", firstFields.first().name)
+                assertEquals("[200]", nextFields.first().name)
+                assertEquals(200, nextPage.detail.arrayStart)
+                assertEquals(2L, nextFields.first().targetObjectId)
+                assertEquals(MemoryInspectorObjectState.Unavailable, objects[MemoryInspectorObjectKey(999)])
+                assertEquals(4, objects.size)
+                controller.close()
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `inspector loading and loaded keys suppress duplicate detail queries`() =
+        runTest {
+            val fields = InspectorFields()
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap(fields) },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val selected = controller.state.value
+            val key = MemoryInspectorObjectKey(2)
+
+            val loading = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            assertEquals(MemoryInspectorObjectState.Loading, controller.state.value.inspectorObjects[key])
+            assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+            controller.loadInspectorObject(2)
+            controller.loadInspectorObjectAsync(2)
+            assertEquals(0, fields.reads)
+
+            runCurrent()
+            loading.join()
+            assertEquals(1, fields.reads)
+            val loaded = controller.state.value.inspectorObjects[key]
+            assertTrue(loaded is MemoryInspectorObjectState.Loaded)
+            controller.loadInspectorObject(2)
+            controller.loadInspectorObjectAsync(2)
+            assertEquals(1, fields.reads)
+            assertEquals(loaded, controller.state.value.inspectorObjects[key])
+            assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+            controller.close()
+        }
+
+    @Test
+    fun `inspector failures are unavailable without poisoning selection and can retry`() =
+        runTest {
+            for (async in listOf(false, true)) {
+                val fields = InspectorFields()
+                val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = inspectorHeap(fields) })
+                controller.importHprof(Path.of("inspector.hprof"))
+                controller.selectInstance(1)
+                val selected = controller.state.value
+                fields.failure = IllegalStateException("Unavailable object detail")
+
+                if (async) controller.loadInspectorObjectAsync(2) else controller.loadInspectorObject(2)
+
+                assertEquals(
+                    MemoryInspectorObjectState.Unavailable,
+                    controller.state.value.inspectorObjects[MemoryInspectorObjectKey(2)],
+                )
+                assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+                fields.failure = null
+                if (async) controller.loadInspectorObjectAsync(2) else controller.loadInspectorObject(2)
+                assertTrue(
+                    controller.state.value.inspectorObjects[MemoryInspectorObjectKey(2)] is
+                        MemoryInspectorObjectState.Loaded,
+                )
+                assertEquals(2, fields.reads)
+                assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+                controller.close()
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `inspector cancellation clears loading both on worker and while waiting for selection mutex`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap() },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val selected = controller.state.value
+
+            val loading = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            val waiting = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(3) }
+            assertEquals(2, controller.state.value.inspectorObjects.size)
+            loading.cancel()
+            waiting.cancel()
+            runCurrent()
+            loading.join()
+            waiting.join()
+            assertEquals(selected, controller.state.value)
+
+            val retried = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            runCurrent()
+            retried.join()
+            assertTrue(
+                controller.state.value.inspectorObjects[MemoryInspectorObjectKey(2)] is
+                    MemoryInspectorObjectState.Loaded,
+            )
+            assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+            controller.close()
+        }
+
+    @Test
+    fun `query cancellation never leaves inspector loading or changes selected object`() =
+        runTest {
+            val fields = InspectorFields()
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = inspectorHeap(fields) })
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val selected = controller.state.value
+            fields.failure = CancellationException("Cancelled detail")
+
+            for (async in listOf(false, true)) {
+                val cancelled =
+                    launch {
+                        if (async) controller.loadInspectorObjectAsync(2) else controller.loadInspectorObject(2)
+                    }
+                cancelled.join()
+                assertTrue(cancelled.isCancelled)
+                assertEquals(selected, controller.state.value)
+            }
+            controller.close()
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `inspector loading never invalidates a pending main selection or changes its loading flag`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap() },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val selection = launch(start = CoroutineStart.UNDISPATCHED) { controller.selectClassAsync("sample.Child") }
+            val selecting = controller.state.value
+            assertTrue(selecting.isSelectionLoading)
+            val inspector = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            assertEquals(selecting, controller.state.value.copy(inspectorObjects = emptyMap()))
+
+            runCurrent()
+            selection.join()
+            inspector.join()
+
+            assertEquals("sample.Child", controller.state.value.selectedClassName)
+            val selectedRows = controller.state.value.selectedClassInstances
+            assertEquals(listOf(2L), selectedRows.map { it.objectId })
+            assertNull(controller.state.value.selectedInstanceDetail)
+            assertFalse(controller.state.value.isSelectionLoading)
+            assertTrue(
+                controller.state.value.inspectorObjects
+                    .isEmpty(),
+            )
+            controller.close()
+        }
+
+    @Test
+    fun `inspector cache resets with every root class classifier heap and preset reset`() =
+        runTest {
+            val resets =
+                listOf("root", "async root", "class", "async class", "classifier", "async classifier", "heap", "preset")
+            for (reset in resets) {
+                val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = inspectorHeap() })
+                controller.importHprof(Path.of("inspector.hprof"))
+                controller.selectInstance(1)
+                controller.loadInspectorObject(2)
+                assertTrue(
+                    controller.state.value.inspectorObjects
+                        .isNotEmpty(),
+                )
+                val row = MemoryClassifierRow("child", "Child", className = "sample.Child")
+
+                when (reset) {
+                    "root" -> controller.selectInstance(2)
+                    "async root" -> controller.selectInstanceAsync(2)
+                    "class" -> controller.selectClass("sample.Root")
+                    "async class" -> controller.selectClassAsync("sample.Root")
+                    "classifier" -> controller.selectClassifier(row)
+                    "async classifier" -> controller.selectClassifierAsync(row)
+                    "heap" -> controller.changeHeapFilter("App")
+                    "preset" -> {
+                        controller.saveFilterPreset()
+                        val presets = controller.state.value.savedFilterPresets
+                        controller.applyFilterPreset(presets.single())
+                    }
+                }
+                assertTrue(
+                    controller.state.value.inspectorObjects
+                        .isEmpty(),
+                    reset,
+                )
+                controller.close()
+            }
+        }
+
+    @Test
+    fun `selected root array pagination preserves inspector cache`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = inspectorHeap() })
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(3)
+            controller.loadInspectorObject(2)
+            val cache = controller.state.value.inspectorObjects
+            val history = controller.state.value.instanceHistory
+
+            controller.loadArrayRange(3, 200)
+            assertEquals(cache, controller.state.value.inspectorObjects)
+            val firstDetail = controller.state.value.selectedInstanceDetail
+            assertEquals(200, firstDetail?.arrayStart)
+            controller.loadArrayRangeAsync(3, 400)
+            assertEquals(cache, controller.state.value.inspectorObjects)
+            val nextDetail = controller.state.value.selectedInstanceDetail
+            assertEquals(400, nextDetail?.arrayStart)
+            assertEquals(history, controller.state.value.instanceHistory)
+            controller.close()
+        }
+
+    @Test
+    fun `snapshot replacement and final close clear cached objects despite reused ids`() =
+        runTest {
+            val backend = FakeBackend().apply { heapOverride = inspectorHeap() }
+            val controller = MemoryProfilerController(backend)
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            controller.loadInspectorObject(2)
+            val oldQuery = controller.instanceQuery
+
+            backend.heapOverride = inspectorHeap(mapOf("value" to 99L))
+            controller.importHprof(Path.of("inspector.hprof"))
+            assertTrue(
+                controller.state.value.inspectorObjects
+                    .isEmpty(),
+            )
+            assertTrue(oldQuery !== controller.instanceQuery)
+            controller.selectInstance(1)
+            controller.loadInspectorObjectAsync(2)
+            val loaded = controller.state.value.inspectorObjects[MemoryInspectorObjectKey(2)]
+            assertTrue(loaded is MemoryInspectorObjectState.Loaded)
+            val loadedFields = loaded.detail.fields
+            assertEquals("99", loadedFields.first().displayValue)
+
+            controller.closeSnapshot("inspector.hprof")
+            assertTrue(
+                controller.state.value.inspectorObjects
+                    .isEmpty(),
+            )
+            controller.loadInspectorObject(2)
+            controller.loadInspectorObjectAsync(2)
+            assertTrue(
+                controller.state.value.inspectorObjects
+                    .isEmpty(),
+            )
+            controller.close()
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `stale inspector completion is discarded after switching away and back to the same root id`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap() },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val stale = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            controller.selectInstance(2)
+            controller.selectInstance(1)
+            val selected = controller.state.value
+            val fresh = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(3) }
+
+            runCurrent()
+            stale.join()
+            fresh.join()
+
+            assertEquals(setOf(MemoryInspectorObjectKey(3)), controller.state.value.inspectorObjects.keys)
+            val cache = controller.state.value.inspectorObjects
+            assertTrue(cache.values.single() is MemoryInspectorObjectState.Loaded)
+            assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+            controller.close()
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `stale inspector completion is discarded after a snapshot round trip reuses query and root ids`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend().apply { heapOverride = inspectorHeap() },
+                    selectionDispatcher = worker,
+                )
+            controller.importHprof(Path.of("before.hprof"))
+            controller.importHprof(Path.of("after.hprof"))
+            controller.selectSnapshot("before.hprof")
+            controller.selectInstance(1)
+            val originalQuery = controller.instanceQuery
+            val stale = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            controller.selectSnapshot("after.hprof")
+            controller.selectInstance(1)
+            controller.selectSnapshot("before.hprof")
+            controller.selectInstance(1)
+            assertTrue(originalQuery === controller.instanceQuery)
+            val selected = controller.state.value
+
+            runCurrent()
+            stale.join()
+
+            assertEquals(selected, controller.state.value)
+            controller.close()
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `stale inspector cleanup cannot replace a new load when snapshot and object ids are reused`() =
+        runTest {
+            val worker = StandardTestDispatcher(testScheduler)
+            val backend = FakeBackend().apply { heapOverride = inspectorHeap() }
+            val controller = MemoryProfilerController(backend, selectionDispatcher = worker)
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val stale = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            backend.heapOverride = inspectorHeap(mapOf("value" to 99L))
+            controller.importHprof(Path.of("inspector.hprof"))
+            controller.selectInstance(1)
+            val selected = controller.state.value
+            val fresh = launch(start = CoroutineStart.UNDISPATCHED) { controller.loadInspectorObjectAsync(2) }
+            stale.cancel()
+
+            runCurrent()
+            stale.join()
+            fresh.join()
+
+            val loaded = controller.state.value.inspectorObjects[MemoryInspectorObjectKey(2)]
+            assertTrue(loaded is MemoryInspectorObjectState.Loaded)
+            val loadedFields = loaded.detail.fields
+            assertEquals("99", loadedFields.first().displayValue)
+            assertEquals(selected, controller.state.value.copy(inspectorObjects = emptyMap()))
+            controller.close()
+        }
+
+    @Test
+    fun `instance row keeps legacy positional constructor compatible`() {
+        val row = MemoryInstanceRow(1, 2, 10, null, null, false, 64, false, true)
+
+        assertNull(row.className)
+        assertEquals(64L, row.nativeSize)
+        assertFalse(row.shallowSizeKnown)
+        assertTrue(row.isLeakWarning)
+    }
+
     @Test
     fun `instance selection publishes referring object depths for nearest root filtering`() =
         runTest {
@@ -98,6 +713,24 @@ class MemoryProfilerControllerTest {
                 controller.state.value.selectedClassInstances
                     .map { it.objectId }
             assertEquals(listOf(1L, 101L), classRows)
+            val expectedClassNames = listOf("com.example.Item", "java.lang.Class")
+            assertEquals(
+                expectedClassNames,
+                controller.state.value.selectedClassInstances
+                    .map { it.className },
+            )
+
+            controller.selectClassAsync("com.example.Item")
+            assertEquals(
+                classRows,
+                controller.state.value.selectedClassInstances
+                    .map { it.objectId },
+            )
+            assertEquals(
+                expectedClassNames,
+                controller.state.value.selectedClassInstances
+                    .map { it.className },
+            )
 
             controller.selectInstance(101)
             assertEquals("com.example.Item", controller.state.value.selectedClassName)
@@ -109,6 +742,11 @@ class MemoryProfilerControllerTest {
                 controller.state.value.selectedClassInstances
                     .map { it.objectId }
             assertEquals(listOf(1L, 101L), selectedRows)
+            assertEquals(
+                expectedClassNames,
+                controller.state.value.selectedClassInstances
+                    .map { it.className },
+            )
 
             controller.selectInstanceAsync(101)
             assertEquals("com.example.Item", controller.state.value.selectedClassName)
@@ -116,6 +754,44 @@ class MemoryProfilerControllerTest {
                 controller.state.value.selectedInstanceDetail
                     ?.className
             assertEquals("java.lang.Class", asyncDetailClassName)
+            assertEquals(
+                expectedClassNames,
+                controller.state.value.selectedClassInstances
+                    .map { it.className },
+            )
+            controller.close()
+        }
+
+    @Test
+    fun `class selection propagates object and primitive array runtime types`() =
+        runTest {
+            val heap =
+                HeapDump(
+                    objectArrays =
+                        listOf(
+                            HeapObjectArray(9, 100, "com.example.Item[]", 0),
+                            HeapObjectArray(7, 100, "com.example.Item[]", 0),
+                        ),
+                    primitiveArrays =
+                        listOf(
+                            HeapPrimitiveArray(5, PrimitiveType.INT, 2, 8),
+                            HeapPrimitiveArray(3, PrimitiveType.INT, 1, 4),
+                        ),
+                )
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = heap })
+            controller.importHprof(Path.of("array-types.hprof"))
+
+            mapOf("com.example.Item[]" to listOf(7L, 9L), "int[]" to listOf(3L, 5L)).forEach { (className, objectIds) ->
+                controller.selectClass(className)
+                val rows = controller.state.value.selectedClassInstances
+                assertEquals(objectIds, rows.map { it.objectId })
+                assertEquals(listOf(1, 2), rows.map { it.index })
+                assertEquals(listOf(className, className), rows.map { it.className })
+
+                controller.selectClassAsync(className)
+                assertEquals(rows, controller.state.value.selectedClassInstances)
+            }
+            controller.close()
         }
 
     @Test
@@ -766,7 +1442,7 @@ class MemoryProfilerControllerTest {
     @Test
     fun `selecting a classifier set shows instances from all descendant classes`() =
         runTest {
-            val controller = MemoryProfilerController(FakeBackend())
+            val controller = MemoryProfilerController(FakeBackend().apply { heapOverride = sharedClassHeap() })
             controller.importHprof(Path.of("heap.hprof"))
 
             assertTrue(
@@ -775,24 +1451,44 @@ class MemoryProfilerControllerTest {
                     ?.isAfter(Instant.EPOCH) == true,
             )
 
-            controller.selectClassifier(
+            val classifier =
                 MemoryClassifierRow(
                     id = "group:com.example",
                     label = "com.example",
                     children =
                         listOf(
                             MemoryClassifierRow(
-                                id = "class:com.example.Item",
-                                label = "Item",
-                                className = "com.example.Item",
+                                id = "class:com.example.Other",
+                                label = "Other",
+                                className = "com.example.Other",
+                            ),
+                            MemoryClassifierRow(
+                                id = "class:com.example.Shared",
+                                label = "Shared",
+                                className = "com.example.Shared",
                             ),
                         ),
-                ),
-            )
+                )
+            controller.selectClassifier(classifier)
 
             assertEquals("group:com.example", controller.state.value.selectedClassifierId)
             assertEquals("com.example", controller.state.value.selectedClassifierLabel)
-            assertEquals(3, controller.state.value.selectedClassInstances.size)
+            assertNull(controller.state.value.selectedClassName)
+            val rows = controller.state.value.selectedClassInstances
+            assertEquals(listOf(1L, 2L, 3L, 4L, 5L, 6L, 100L, 101L), rows.map { it.objectId })
+            assertEquals(listOf(1, 2, 3, 4, 5, 1, 6, 2), rows.map { it.index })
+            assertEquals(
+                List(5) { "com.example.Shared" } + listOf("com.example.Other", "java.lang.Class", "java.lang.Class"),
+                rows.map { it.className },
+            )
+            assertEquals(
+                List(6) { null } + listOf("com.example.Shared", "com.example.Other"),
+                rows.map { it.representedClassName },
+            )
+
+            controller.selectClassifierAsync(classifier)
+            assertEquals(rows, controller.state.value.selectedClassInstances)
+            controller.close()
         }
 
     @Test
@@ -876,6 +1572,16 @@ class MemoryProfilerControllerTest {
                     assertEquals(row.label, state.selectedClassifierLabel)
                     assertEquals(row.className, state.selectedClassName)
                     assertEquals(expectedIds, state.selectedClassInstances.map { it.objectId })
+                    assertEquals(
+                        expectedIds.map { objectId ->
+                            when (objectId) {
+                                6L -> "com.example.Other"
+                                100L, 101L -> "java.lang.Class"
+                                else -> "com.example.Shared"
+                            }
+                        },
+                        state.selectedClassInstances.map { it.className },
+                    )
                 }
             }
         }
@@ -903,6 +1609,16 @@ class MemoryProfilerControllerTest {
                     assertEquals(row.label, state.selectedClassifierLabel)
                     assertEquals(row.className, state.selectedClassName)
                     assertEquals(expectedIds, state.selectedClassInstances.map { it.objectId })
+                    assertEquals(
+                        expectedIds.map { objectId ->
+                            when (objectId) {
+                                6L -> "com.example.Other"
+                                100L, 101L -> "java.lang.Class"
+                                else -> "com.example.Shared"
+                            }
+                        },
+                        state.selectedClassInstances.map { it.className },
+                    )
                     assertFalse(state.isSelectionLoading)
                 }
             }
@@ -1034,6 +1750,43 @@ class MemoryProfilerControllerTest {
 
             assertEquals(listOf(session), controller.recentSessions.value)
         }
+
+    private fun inspectorHeap(childFields: Map<String, Long> = mapOf("value" to 7L)): HeapDump =
+        HeapDump(
+            instances =
+                listOf(
+                    HeapInstance(
+                        1,
+                        100,
+                        "sample.Root",
+                        8,
+                        references = listOf(ObjectReference("child", 2), ObjectReference("items", 3)),
+                    ),
+                    HeapInstance(
+                        2,
+                        101,
+                        "sample.Child",
+                        8,
+                        primitiveFields = childFields,
+                        references = listOf(ObjectReference("root", 1)),
+                    ),
+                ),
+            objectArrays = listOf(HeapObjectArray(3, 102, "sample.Child[]", 450, elementIds = List(450) { 2L })),
+            gcRoots = listOf(HeapRoot(1, HeapRootKind.JNI_GLOBAL)),
+            heapByObjectId = mapOf(1L to "App", 2L to "Zygote", 3L to "Zygote"),
+        )
+
+    private class InspectorFields : Map<String, Long> by mapOf("value" to 7L) {
+        var reads = 0
+        var failure: Exception? = null
+
+        override val entries: Set<Map.Entry<String, Long>>
+            get() {
+                reads++
+                failure?.let { throw it }
+                return mapOf("value" to 7L).entries
+            }
+    }
 
     private fun sharedClassHeap(): HeapDump =
         HeapDump(

@@ -4,9 +4,11 @@ import com.androidperformancestudio.memory.model.HeapClass
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObjectArray
+import com.androidperformancestudio.memory.model.HeapPrimitiveArray
 import com.androidperformancestudio.memory.model.HeapRoot
 import com.androidperformancestudio.memory.model.HeapRootKind
 import com.androidperformancestudio.memory.model.ObjectReference
+import com.androidperformancestudio.memory.model.PrimitiveType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -51,6 +53,15 @@ class InstanceReferenceQueryTest {
     private val query = InstanceReferenceQuery(heap)
 
     @Test
+    fun `instance row keeps legacy positional constructor compatible`() {
+        val row = InstanceQueryRow(1, 2, 10, null, null, false, 64, false)
+
+        assertNull(row.className)
+        assertEquals(64L, row.nativeSize)
+        assertFalse(row.shallowSizeKnown)
+    }
+
+    @Test
     fun `instance list reports index shallow retained and depth per class`() {
         val rows = query.instancesOf("com.example.Widget")
 
@@ -63,6 +74,7 @@ class InstanceReferenceQueryTest {
         assertEquals(2, rows[1].index)
         assertEquals(3L, rows[1].objectId)
         assertEquals(2, rows[1].depth)
+        assertEquals(listOf("com.example.Widget", "com.example.Widget"), rows.map { it.className })
     }
 
     @Test
@@ -73,6 +85,31 @@ class InstanceReferenceQueryTest {
         assertEquals(5L, rows[0].objectId)
         assertEquals(1, rows[0].depth)
         assertEquals(20, rows[0].shallowSize)
+        assertEquals("com.example.Widget[]", rows[0].className)
+    }
+
+    @Test
+    fun `primitive array rows keep runtime type heap scope and object id ordering`() {
+        val query =
+            InstanceReferenceQuery(
+                HeapDump(
+                    primitiveArrays =
+                        listOf(
+                            HeapPrimitiveArray(9, PrimitiveType.INT, 2, 8),
+                            HeapPrimitiveArray(7, PrimitiveType.INT, 1, 4),
+                            HeapPrimitiveArray(8, PrimitiveType.BYTE, 1, 1),
+                        ),
+                    heapByObjectId = mapOf(7L to "App", 8L to "App", 9L to "Image"),
+                ),
+            )
+
+        val rows = query.instancesOf("int[]")
+        assertEquals(listOf(7L, 9L), rows.map { it.objectId })
+        assertEquals(listOf(1, 2), rows.map { it.index })
+        assertEquals(listOf("int[]", "int[]"), rows.map { it.className })
+        val imageRows = query.instancesOf("int[]", heapName = "Image")
+        assertEquals(listOf(rows.last().copy(index = 1)), imageRows)
+        assertEquals("byte[]", query.instancesOf("byte[]").single().className)
     }
 
     @Test
@@ -107,7 +144,7 @@ class InstanceReferenceQueryTest {
         assertEquals("com.example.Widget", detail?.fields?.get(2)?.targetClassName)
         assertEquals(2, detail?.referenceChain?.size)
         assertEquals("GC Root (JNI_GLOBAL)", detail?.referenceChain?.first()?.fieldName)
-        assertEquals(setOf("child", "[0]"), detail?.references?.map { it.name }?.toSet())
+        assertEquals(setOf("child", "Index 0"), detail?.references?.map { it.name }?.toSet())
     }
 
     @Test
@@ -128,7 +165,7 @@ class InstanceReferenceQueryTest {
 
         assertEquals(1, detail.depth)
         assertEquals(
-            mapOf("child" to 0, "[0]" to 1, "self" to 1, "back" to 2, "orphan" to null),
+            mapOf("child" to 0, "Index 0" to 1, "self" to 1, "back" to 2, "orphan" to null),
             detail.references.associate { it.name to it.depth },
         )
     }
@@ -149,8 +186,8 @@ class InstanceReferenceQueryTest {
 
         val references = assertNotNull(query.detailOf(2)).references
 
-        assertEquals(listOf("middle", "first", "last"), references.map { it.name })
-        assertEquals(listOf("ASource @0x1", "ZSource @0x3", "ZSource @0x3"), references.map { it.displayValue })
+        assertEquals(listOf("middle", "last, first"), references.map { it.name })
+        assertEquals(listOf("ASource @0x1", "ZSource @0x3"), references.map { it.displayValue })
     }
 
     @Test
@@ -277,11 +314,28 @@ class InstanceReferenceQueryTest {
 
         val classRows = query.instancesOf("java.lang.Class")
         assertEquals(listOf(10L), classRows.map { it.objectId })
+        assertEquals("java.lang.Class", classRows.single().className)
+        assertEquals("java.lang.Class", classRows.single().representedClassName)
         val itemRows = query.instancesOf("com.example.Item", heapName = "App")
         assertEquals(listOf(11L, 21L), itemRows.map { it.objectId })
         assertEquals(listOf(1, 2), itemRows.map { it.index })
         assertEquals(listOf(32L, 10L), itemRows.map { it.shallowSize })
+        assertEquals(listOf("java.lang.Class", "com.example.Item"), itemRows.map { it.className })
+        assertEquals(listOf("com.example.Item", null), itemRows.map { it.representedClassName })
         assertEquals("java.lang.Class", query.detailOf(11)?.className)
+    }
+
+    @Test
+    fun `class dump runtime type is known even without Class size metadata`() {
+        val query = InstanceReferenceQuery(HeapDump(classes = listOf(HeapClass(11, "com.example.Item"))))
+
+        val row = query.instancesOf("com.example.Item").single()
+
+        assertEquals(11L, row.objectId)
+        assertEquals(1, row.index)
+        assertEquals("java.lang.Class", row.className)
+        assertEquals("com.example.Item", row.representedClassName)
+        assertFalse(row.shallowSizeKnown)
     }
 
     @Test
@@ -345,7 +399,7 @@ class InstanceReferenceQueryTest {
                 ),
             )
 
-        assertEquals(listOf("[20000]", "[49999]"), query.detailOf(2)?.references?.map { it.name })
+        assertEquals(listOf("Index 20000, 49999"), query.detailOf(2)?.references?.map { it.name })
     }
 
     private fun instance(

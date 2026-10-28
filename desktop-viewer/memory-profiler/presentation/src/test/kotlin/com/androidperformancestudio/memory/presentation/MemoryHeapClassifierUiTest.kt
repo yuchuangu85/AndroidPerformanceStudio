@@ -68,8 +68,8 @@ class MemoryHeapClassifierUiTest {
                                     .fetchSemanticsNode()
                                     .boundsInRoot
                             }
-                        assertEquals(30f, roots[1].top - roots[0].top)
-                        assertEquals(30f, roots[2].top - roots[1].top)
+                        assertEquals(20f, roots[1].top - roots[0].top)
+                        assertEquals(20f, roots[2].top - roots[1].top)
                         saveCapture(onRoot().captureToImage(), "memory-heap-groups-$width-${language.name}-$dark")
                         onNodeWithContentDescription(if (language == UiLanguage.ENGLISH) "Heap" else "堆").performClick()
                         onNodeWithText("App").performClick()
