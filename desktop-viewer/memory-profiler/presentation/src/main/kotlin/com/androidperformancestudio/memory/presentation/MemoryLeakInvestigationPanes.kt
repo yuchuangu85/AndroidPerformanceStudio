@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -20,7 +19,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,7 +44,6 @@ import com.androidperformancestudio.memory.presentation.generated.resources.leak
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_retained_instance
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_search_findings
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspect_reference
-import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_trace
 import com.androidperformancestudio.memory.presentation.generated.resources.leaking
 import com.androidperformancestudio.memory.presentation.generated.resources.library_leaks
@@ -61,9 +58,6 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioSearchField
-import com.androidperformancestudio.ui_components.generated.resources.ic_stat_attention
-import org.jetbrains.compose.resources.painterResource
-import com.androidperformancestudio.ui_components.generated.resources.Res as UiRes
 
 internal enum class MemoryLeakScope { ALL, APPLICATION, LIBRARY }
 
@@ -148,22 +142,22 @@ internal fun MemoryLeakFindingsPane(
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         Row(
+                            Modifier.fillMaxWidth().testTag("memory-leak-finding-title-${finding.index}"),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                painterResource(UiRes.drawable.ic_stat_attention),
-                                contentDescription = localizedStringResource(Res.string.leak_suspects, language),
-                                modifier = Modifier.size(14.dp),
-                                tint = colors.warning,
-                            )
                             Text(
                                 leak.leakingClassName,
+                                Modifier.weight(1f).testTag("memory-leak-finding-name-${finding.index}"),
                                 style = ViewerTypography.bodyCompact,
                                 fontWeight = FontWeight.SemiBold,
                                 color = colors.primaryText,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
+                            )
+                            MemoryLeakWarningIcon(
+                                language,
+                                Modifier.testTag("memory-leak-finding-warning-${finding.index}"),
                             )
                         }
                         Text(
@@ -221,11 +215,19 @@ internal fun MemoryLeakPathPane(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Row(
+                        Modifier.fillMaxWidth().testTag("memory-leak-retained-class"),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        MemoryLeakWarningIcon(language)
-                        Text(leak.leakingClassName, style = ViewerTypography.bodyCompact, color = colors.primaryText)
+                        Text(
+                            leak.leakingClassName,
+                            Modifier.weight(1f, fill = false).testTag("memory-leak-retained-class-name"),
+                            style = ViewerTypography.bodyCompact,
+                            color = colors.primaryText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-retained-class-warning"))
                     }
                     leak.leakingObjectId?.let { id ->
                         ProfilerCompactButton(
@@ -304,15 +306,21 @@ private fun LeakPathNode(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Row(
+                Modifier.fillMaxWidth().testTag("memory-leak-path-title-$index"),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (leaking) MemoryLeakWarningIcon(language)
                 Text(
                     element.className,
+                    Modifier.weight(1f).testTag("memory-leak-path-name-$index"),
                     style = ViewerTypography.bodyCompact,
                     color = if (leaking) colors.error else colors.primaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                if (leaking) {
+                    MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-path-warning-$index"))
+                }
             }
             Text(
                 element.objectId?.let(::leakObjectId) ?: localizedStringResource(
@@ -375,20 +383,16 @@ private fun LeakPathReference(
             .padding(start = 16.dp, top = 4.dp, bottom = 6.dp)
             .testTag("memory-leak-path-edge-$index"),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (element.isSuspect) {
-            Icon(
-                painterResource(UiRes.drawable.ic_stat_attention),
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = colors.warning,
-            )
-        }
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(
                 listOfNotNull(element.referenceName, element.referenceType?.let { "[$it]" }).joinToString(" "),
+                Modifier.testTag("memory-leak-path-edge-name-$index"),
                 style = ViewerTypography.bodyCompact,
                 color = if (element.isSuspect) colors.warning else colors.secondaryText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             if (element.isSuspect) {
                 Text(
@@ -398,6 +402,9 @@ private fun LeakPathReference(
                     color = colors.warning,
                 )
             }
+        }
+        if (element.isSuspect) {
+            MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-path-edge-warning-$index"))
         }
     }
 }

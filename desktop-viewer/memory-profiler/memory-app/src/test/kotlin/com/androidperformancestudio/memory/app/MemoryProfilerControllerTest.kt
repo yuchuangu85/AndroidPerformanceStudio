@@ -7,6 +7,8 @@ import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.analysis.ArtSampledAllocationAnalysis
 import com.androidperformancestudio.memory.analysis.ArtSampledCallSite
 import com.androidperformancestudio.memory.analysis.MemoryHistogramAnalyzer
+import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.importing
 import com.androidperformancestudio.memory.model.BitmapDumpSession
 import com.androidperformancestudio.memory.model.BitmapDumpSummary
 import com.androidperformancestudio.memory.model.ClassStats
@@ -45,6 +47,8 @@ import com.androidperformancestudio.memory.presentation.MemorySampledArtOrigin
 import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
 import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -61,12 +65,76 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 private typealias TargetListener = AndroidTargetListener
 private typealias TargetSubscription = AndroidTargetSubscription
 
 class MemoryProfilerControllerTest {
+    @Test
+    fun `language changes preserve loaded snapshots query selection and cached inspector evidence`() =
+        runTest {
+            val backend = FakeBackend().apply { heapOverride = inspectorHeap() }
+            val controller = MemoryProfilerController(backend)
+            controller.refreshDevices()
+            controller.importHprof(Path.of("before.hprof"))
+            controller.importHprof(Path.of("after.hprof"))
+            controller.selectInstance(1)
+            controller.loadInspectorObject(2)
+            controller.togglePinnedInstance(1)
+            controller.changeSearchText("Target")
+            val state = controller.state.value
+            val heap = controller.loadedHeap
+            val query = controller.instanceQuery
+            val events = backend.events.toList()
+
+            listOf(UiLanguage.SIMPLIFIED_CHINESE, UiLanguage.SIMPLIFIED_CHINESE, UiLanguage.ENGLISH).forEach {
+                controller.changeLanguage(it)
+                assertSame(state, controller.state.value)
+                assertSame(heap, controller.loadedHeap)
+                assertSame(query, controller.instanceQuery)
+                assertEquals(events, backend.events)
+            }
+            assertEquals(listOf(UiLanguage.SIMPLIFIED_CHINESE, UiLanguage.ENGLISH), backend.languageChanges)
+            assertEquals(2, controller.state.value.snapshotSummaries.size)
+            controller.selectSnapshot("before.hprof")
+            assertEquals("before.hprof", controller.state.value.activeSnapshotId)
+            controller.close()
+        }
+
+    @Test
+    fun `language changes preserve pending imports and localize new operation messages`() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val controller =
+                MemoryProfilerController(
+                    FakeBackend(blockingImport = "pending.hprof", importStarted = started, importRelease = release),
+                )
+            controller.importHprof(Path.of("before.hprof"))
+            controller.changeLanguage(UiLanguage.SIMPLIFIED_CHINESE)
+            val importing =
+                launch(start = CoroutineStart.UNDISPATCHED) { controller.importHprof(Path.of("pending.hprof")) }
+            started.await()
+            val state = controller.state.value
+            assertEquals(
+                localizedStringResource(Res.string.importing, UiLanguage.SIMPLIFIED_CHINESE, Path.of("pending.hprof")),
+                state.operationMessage,
+            )
+
+            controller.changeLanguage(UiLanguage.ENGLISH)
+            assertSame(state, controller.state.value)
+            assertTrue(importing.isActive)
+            assertTrue(state.isDumping)
+            release.complete(Unit)
+            importing.join()
+            assertFalse(importing.isCancelled)
+            assertEquals("pending.hprof", controller.state.value.activeSnapshotId)
+            assertEquals(2, controller.state.value.snapshotSummaries.size)
+            controller.close()
+        }
+
     @Test
     fun `appended presentation field metadata preserves legacy positional constructors`() {
         val field = MemoryInstanceField("value", "7", null, null, 2)
@@ -1842,6 +1910,7 @@ class MemoryProfilerControllerTest {
         private val importRelease: CompletableDeferred<Unit>? = null,
     ) : MemoryProfilerBackend {
         val events = mutableListOf<String>()
+        val languageChanges = mutableListOf<UiLanguage>()
         var failAnalysis = false
         var sampledArtProcessing: SampledArtProcessingResult =
             SampledArtProcessingResult.Success(
@@ -1860,6 +1929,10 @@ class MemoryProfilerControllerTest {
         var analysisStarted: CompletableDeferred<Unit>? = null
         var analysisRelease: CompletableDeferred<Unit>? = null
         private val noOpTargetSubscription = TargetSubscription {}
+
+        override fun changeLanguage(language: UiLanguage) {
+            languageChanges += language
+        }
 
         override fun registerTargetListener(listener: TargetListener): TargetSubscription = noOpTargetSubscription
 

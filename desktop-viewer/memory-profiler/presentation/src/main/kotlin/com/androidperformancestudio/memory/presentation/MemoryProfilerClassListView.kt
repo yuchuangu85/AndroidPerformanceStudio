@@ -187,11 +187,16 @@ public fun MemoryProfilerClassListPane(
                             hoverColor = LocalViewerColors.current.accent,
                         )
                     val scrollbarThickness = scrollbarStyle.thickness
+                    val nameViewportRight =
+                        memoryTableViewportRight(
+                            availableWidth * leftPaneFraction.value - scrollbarThickness, classifierHorizontalScrollState,
+                        )
                     Box(Modifier.fillMaxWidth().weight(1f)) {
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .padding(end = scrollbarThickness, bottom = scrollbarThickness),
+                                .padding(end = scrollbarThickness, bottom = scrollbarThickness)
+                                .testTag("memory-classifier-viewport"),
                         ) {
                             Column(
                                 Modifier
@@ -200,7 +205,8 @@ public fun MemoryProfilerClassListPane(
                             ) {
                                 Column(
                                     Modifier.requiredWidth(CLASSIFIER_TABLE_WIDTH).fillMaxHeight()
-                                        .memoryTableGrid(classifierColumnWidths(state.visibleClassifierColumns, false)),
+                                        .memoryTableGrid(classifierColumnWidths(state.visibleClassifierColumns, false))
+                                        .testTag("memory-classifier-table"),
                                 ) {
                                     ClassTableHeader(
                                         language,
@@ -224,6 +230,7 @@ public fun MemoryProfilerClassListPane(
                                             modifier = Modifier.fillMaxSize(),
                                             expandHeapRoots = state.heapFilter != null,
                                             expansionKey = state.activeSnapshotId,
+                                            nameViewportRight = nameViewportRight,
                                         )
                                     }
                                 }
@@ -339,7 +346,12 @@ internal fun MemoryClassesPane(
             ) {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val tableWidth = maxOf(maxWidth - 10.dp, (260 + (columns.size + if (showHeapColumn) 1 else 0) * 104).dp)
-                    Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
+                    val nameViewportRight = memoryTableViewportRight(maxWidth - 10.dp, scroll)
+                    val scrollbarInset = if (tableWidth > maxWidth - 10.dp) LocalScrollbarStyle.current.thickness else 0.dp
+                    Box(
+                        Modifier.fillMaxSize().padding(end = 10.dp, bottom = scrollbarInset)
+                            .testTag("memory-classifier-viewport"),
+                    ) {
                         Column(
                             Modifier.horizontalScroll(scroll).requiredWidth(tableWidth).fillMaxHeight()
                                 .memoryTableGrid(classifierColumnWidths(columns, showHeapColumn))
@@ -355,16 +367,21 @@ internal fun MemoryClassesPane(
                                 MemoryProfilerPresenter.duplicateBitmapClasses(state), columns, actions.onSelectClassifier, language,
                                 listState, Modifier.fillMaxWidth().weight(1f), showHeap = showHeapColumn,
                                 expandHeapRoots = state.heapFilter != null, expansionKey = state.activeSnapshotId,
+                                nameViewportRight = nameViewportRight,
                             )
                         }
                     }
-                    HorizontalScrollbar(
-                        rememberScrollbarAdapter(scroll),
-                        Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
-                    )
+                    if (scrollbarInset > 0.dp) {
+                        HorizontalScrollbar(
+                            rememberScrollbarAdapter(scroll),
+                            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp)
+                                .testTag("memory-classifier-horizontal-scrollbar"),
+                        )
+                    }
                     VerticalScrollbar(
                         rememberScrollbarAdapter(listState),
-                        Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = 10.dp),
+                        Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                            .padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = scrollbarInset),
                     )
                 }
             }
@@ -463,7 +480,7 @@ private fun FilterBar(
                 Modifier
                     .fillMaxWidth()
                     .horizontalScroll(scroll)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -653,7 +670,8 @@ private fun ClassTableHeader(
     showHeap: Boolean = false,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        modifier =
+            modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -722,6 +740,7 @@ private fun ClassTable(
     showHeap: Boolean = false,
     expandHeapRoots: Boolean = true,
     expansionKey: String? = null,
+    nameViewportRight: Dp = Dp.Infinity,
 ) {
     if (rows.isEmpty()) {
         EmptyPaneHint(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language), modifier)
@@ -753,6 +772,7 @@ private fun ClassTable(
                     onToggle = { expanded[row.id] = !isExpanded(row) },
                     showHeap = showHeap,
                     language = language,
+                    nameViewportRight = nameViewportRight,
                 )
             }
         }
@@ -777,6 +797,7 @@ private fun ClassifierTableRow(
     onToggle: () -> Unit,
     showHeap: Boolean = false,
     language: UiLanguage,
+    nameViewportRight: Dp = Dp.Infinity,
 ) {
     val isHeap = row.heapName != null && row.depth == 0
     val background =
@@ -788,41 +809,46 @@ private fun ClassifierTableRow(
             else -> MaterialTheme.colorScheme.surface
         }
     Row(
-        Modifier
-            .fillMaxWidth()
-            .height(memoryTableRowHeight())
-            .background(background)
-            .testTag("memory-classifier-row-${row.id}")
-            .clickable { if (isHeap) onToggle() else onSelectClassifier(row) },
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(memoryTableRowHeight())
+                .background(background)
+                .testTag("memory-classifier-row-${row.id}")
+                .clickable { if (isHeap) onToggle() else onSelectClassifier(row) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.weight(1f).padding(start = (8 + depth * 16).dp, end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        MemoryTableNameCell(
+            isLeak, nameViewportRight, "memory-classifier-leak-warning-${row.id}", language,
+            Modifier.weight(1f).fillMaxHeight().testTag("memory-classifier-name-cell-${row.id}"),
         ) {
-            Text(
-                if (row.children.isEmpty()) {
-                    ""
-                } else if (expanded) {
-                    "▾"
-                } else {
-                    "▸"
-                },
-                Modifier.width(14.dp).testTag("memory-classifier-toggle-${row.id}")
-                    .clickable(enabled = row.children.isNotEmpty(), onClick = onToggle),
-                style = ViewerTypography.bodyCompact,
-                fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
-            )
-            if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-classifier-leak-warning-${row.id}"))
-            Text(
-                row.label,
-                Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = ViewerTypography.bodyCompact,
-                fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
-            )
+            Row(
+                Modifier.weight(1f).padding(start = (8 + depth * 16).dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (row.children.isEmpty()) {
+                        ""
+                    } else if (expanded) {
+                        "▾"
+                    } else {
+                        "▸"
+                    },
+                    Modifier.width(14.dp).testTag("memory-classifier-toggle-${row.id}")
+                        .clickable(enabled = row.children.isNotEmpty(), onClick = onToggle),
+                    style = ViewerTypography.bodyCompact,
+                    fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
+                )
+                Text(
+                    row.label,
+                    Modifier.weight(1f).testTag("memory-classifier-name-${row.id}"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = ViewerTypography.bodyCompact,
+                    fontWeight = if (isHeap) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
         }
         if (MemoryClassifierColumn.MODULE_NAME in visibleColumns) classifierCell(row.moduleName)
         if (MemoryClassifierColumn.ALLOCATIONS in visibleColumns) classifierCell(row.allocations?.let(::integer))
@@ -876,7 +902,6 @@ private fun InstanceListTitle(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-class-warning"))
         Text(
             text =
                 if (className != null) {
@@ -885,9 +910,11 @@ private fun InstanceListTitle(
                     localizedStringResource(Res.string.instance_list, language)
                 },
             fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f, fill = false).testTag("memory-instance-list-title-text"),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-class-warning"))
     }
 }
 
@@ -1035,7 +1062,8 @@ private fun InstanceTableContent(
 ) {
     val horizontalScroll = rememberScrollState()
     val listState = rememberLazyListState()
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val nameViewportRight = memoryTableViewportRight(maxWidth - 10.dp, horizontalScroll)
         Column(
             Modifier.fillMaxSize().padding(bottom = 10.dp, end = 10.dp)
                 .horizontalScroll(horizontalScroll).requiredWidth(tableWidth - 10.dp)
@@ -1050,6 +1078,7 @@ private fun InstanceTableContent(
                 language = language,
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 listState = listState,
+                nameViewportRight = nameViewportRight,
             )
         }
         HorizontalScrollbar(
@@ -1072,6 +1101,7 @@ private fun InstanceTable(
     language: UiLanguage,
     modifier: Modifier,
     listState: LazyListState,
+    nameViewportRight: Dp = Dp.Infinity,
 ) {
     when {
         className == null ->
@@ -1089,6 +1119,7 @@ private fun InstanceTable(
                         className = row.className,
                         onClick = { onSelectInstance(row.objectId) },
                         language = language,
+                        nameViewportRight = nameViewportRight,
                     )
                 }
             }
@@ -1103,33 +1134,31 @@ private fun InstanceTableRow(
     className: String?,
     onClick: () -> Unit,
     language: UiLanguage,
+    nameViewportRight: Dp = Dp.Infinity,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .height(memoryTableRowHeight())
-                .background(
-                    when {
-                        selected -> MaterialTheme.colorScheme.primaryContainer
-                        rowIndex % 2 == 0 -> MaterialTheme.colorScheme.surfaceContainerLow
-                        else -> MaterialTheme.colorScheme.surface
-                    },
-                ).testTag("memory-instance-row-${row.objectId}")
-                .selectable(selected = selected, onClick = onClick),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(memoryTableRowHeight())
+                    .background(
+                        when {
+                            selected -> MaterialTheme.colorScheme.primaryContainer
+                            rowIndex % 2 == 0 -> MaterialTheme.colorScheme.surfaceContainerLow
+                            else -> MaterialTheme.colorScheme.surface
+                        },
+                    ).testTag("memory-instance-row-${row.objectId}")
+                    .selectable(selected = selected, onClick = onClick),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier.weight(1f).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            MemoryTableNameCell(
+                row.isLeakWarning, nameViewportRight, "memory-leak-instance-warning-${row.objectId}", language,
+                Modifier.weight(1f).fillMaxHeight().testTag("memory-instance-name-cell-${row.objectId}"),
             ) {
-                if (row.isLeakWarning) {
-                    MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-warning-${row.objectId}"))
-                }
                 Text(
                     text = instanceTableLabel(row.objectId, className, row.representedClassName),
-                    modifier = Modifier.weight(1f).testTag("memory-instance-name-${row.objectId}"),
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).testTag("memory-instance-name-${row.objectId}"),
                     style = ViewerTypography.bodyCompact,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

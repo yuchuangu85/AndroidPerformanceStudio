@@ -91,7 +91,7 @@ internal fun MemoryObjectInspector(
             if (hasInspectorFields(detail)) add(false)
             if (detail.references.isNotEmpty()) add(true)
         }
-    var references by remember(snapshotKey, detail.objectId) { mutableStateOf(tabs.first()) }
+    var references by remember(snapshotKey) { mutableStateOf(tabs.first()) }
     val referenceTab = if (references in tabs) references else tabs.first()
     var nearestOnly by remember(snapshotKey) { mutableStateOf(false) }
     var autoExpand by remember(snapshotKey, detail.objectId) { mutableStateOf(nearestOnly) }

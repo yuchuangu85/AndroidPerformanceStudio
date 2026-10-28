@@ -5,12 +5,16 @@ import com.androidperformancestudio.adb.AndroidPackage
 import com.androidperformancestudio.adb.AndroidProcess
 import com.androidperformancestudio.memory.capture.AndroidSdkHprofConvLocator
 import com.androidperformancestudio.memory.capture.MemoryHeapDumpCaptureSession
+import com.androidperformancestudio.memory.memory_app.generated.resources.Res
+import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_found
+import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_readable
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
 import com.androidperformancestudio.memory.presentation.MemoryProcessOption
+import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import com.androidperformancestudio.platform.adb.AdbBinaryResult
 import com.androidperformancestudio.platform.adb.AdbClient
 import com.androidperformancestudio.platform.adb.AdbCommandFailedException
@@ -21,6 +25,8 @@ import com.androidperformancestudio.platform.toolchain.HostCapturedText
 import com.androidperformancestudio.platform.toolchain.HostCommandOutput
 import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
+import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.localizedStringResource
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.RandomAccessFile
@@ -34,6 +40,8 @@ import kotlin.test.assertContains
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -199,6 +207,71 @@ class DesktopMemoryProfilerBackendTest {
             assertSame(first.investigationIndex, second.investigationIndex)
             assertEquals(first.sourceFileDigest, second.sourceFileDigest)
             assertEquals(100, progress)
+        }
+
+    @Test
+    @Suppress("LongMethod")
+    fun `language changes localize new errors without discarding imported heap mapping or sessions`() =
+        kotlinx.coroutines.test.runTest {
+            val root = createTempDirectory("memory-language-switch")
+            val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
+            val mapping = root.resolve("mapping.txt")
+            Files.writeString(mapping, "com.example.OriginalSample -> com.example.Sample:\n")
+            val backend =
+                DesktopMemoryProfilerBackend(
+                    dataRoot = root,
+                    adbLocator = { null },
+                    language = UiLanguage.ENGLISH,
+                    hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
+                )
+            assertNull(assertIs<MemoryBackendResult.Success<LoadedHeap?>>(backend.importMapping(mapping)).value)
+            val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source)).value
+            assertNotNull(loaded.mapping)
+            assertNotNull(loaded.mappingDigest)
+            assertTrue(loaded.histogram.classes.any { it.className == "com.example.OriginalSample" })
+            val sessions = backend.listSessions()
+            val session = assertIs<MemoryBackendResult.Success<List<MemorySessionMetadata>>>(sessions).value.single()
+            assertEquals(loaded.heapDump.id, session.sessionId)
+            assertEquals(mapping, session.mappingFile)
+            assertEquals(loaded.mappingDigest, session.mappingDigest)
+            val missing = root.resolve("missing.hprof")
+            val englishFailure = assertIs<MemoryBackendResult.Failure>(backend.importHprof(missing))
+            assertEquals("HPROF file not found", englishFailure.title)
+            assertEquals("missing.hprof is not a readable regular file.", englishFailure.detail)
+
+            for (language in listOf(UiLanguage.SIMPLIFIED_CHINESE, UiLanguage.ENGLISH)) {
+                backend.changeLanguage(language)
+
+                val failure = assertIs<MemoryBackendResult.Failure>(backend.importHprof(missing))
+                assertEquals(localizedStringResource(Res.string.hprof_file_not_found, language), failure.title)
+                assertEquals(
+                    localizedStringResource(Res.string.hprof_file_not_readable, language, missing.fileName),
+                    failure.detail,
+                )
+                if (language == UiLanguage.SIMPLIFIED_CHINESE) {
+                    assertNotEquals(englishFailure.title, failure.title)
+                    assertNotEquals(englishFailure.detail, failure.detail)
+                } else {
+                    assertEquals(englishFailure, failure)
+                }
+
+                val report = assertIs<MemoryBackendResult.Success<LeakCanaryReport>>(backend.analyzeLeaks()).value
+                assertEquals(LeakCanaryStatus.NO_CANDIDATES, report.status)
+                val reimported = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source)).value
+                assertSame(loaded.heapDump, reimported.heapDump)
+                assertSame(loaded.investigationIndex, reimported.investigationIndex)
+                assertSame(loaded.mapping, reimported.mapping)
+                assertEquals(loaded.mappingDigest, reimported.mappingDigest)
+                assertEquals(
+                    listOf(session),
+                    assertIs<MemoryBackendResult.Success<List<MemorySessionMetadata>>>(backend.listSessions()).value,
+                )
+            }
+
+            val restored = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.loadSession(session)).value
+            assertEquals(loaded.heapDump.id, restored.heapDump.id)
+            assertEquals(loaded.histogram.classes, restored.histogram.classes)
+            assertEquals(loaded.mappingDigest, restored.mappingDigest)
         }
 
     @Test

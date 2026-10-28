@@ -142,6 +142,8 @@ internal sealed interface MemoryBackendResult<out T> {
 
 @Suppress("TooManyFunctions")
 internal interface MemoryProfilerBackend {
+    fun changeLanguage(language: UiLanguage) = Unit
+
     fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription
 
     suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>>
@@ -332,7 +334,7 @@ private const val MAX_SNAPSHOT_HISTORY = 8
 @Suppress("TooManyFunctions", "LargeClass")
 internal class MemoryProfilerController(
     private val backend: MemoryProfilerBackend,
-    private val language: UiLanguage = UiLanguage.ENGLISH,
+    @Volatile private var language: UiLanguage = UiLanguage.ENGLISH,
     private val selectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val mutableState = MutableStateFlow(MemoryProfilerState())
@@ -423,6 +425,12 @@ internal class MemoryProfilerController(
                 }
             },
         )
+
+    fun changeLanguage(language: UiLanguage) {
+        if (this.language == language) return
+        backend.changeLanguage(language)
+        this.language = language
+    }
 
     fun close() {
         invalidateSelection()

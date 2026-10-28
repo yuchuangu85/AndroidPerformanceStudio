@@ -22,6 +22,15 @@ class MemoryProfilerWorkspaceSourceTest {
         )
 
     @Test
+    fun `language updates reuse the composition owned controller instead of recreating the workspace`() {
+        val lifecycle = workspace.substringAfter("val controller =").substringBefore("val state by")
+        assertTrue(lifecycle.contains("remember {"))
+        assertFalse(lifecycle.contains("remember(language)"))
+        assertTrue(lifecycle.contains("SideEffect { controller.changeLanguage(language) }"))
+        assertTrue(lifecycle.contains("DisposableEffect(controller) { onDispose(controller::close) }"))
+    }
+
+    @Test
     fun `leak view is accessible offline and monitoring requires its own explicit action`() {
         val leakButton =
             workspace

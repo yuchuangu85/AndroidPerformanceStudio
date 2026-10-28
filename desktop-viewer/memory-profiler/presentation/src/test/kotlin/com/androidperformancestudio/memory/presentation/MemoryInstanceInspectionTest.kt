@@ -53,10 +53,47 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class MemoryInstanceInspectionTest {
     @Test
+    fun `switching language preserves the snapshot selected instance reference tab and expanded fields`() =
+        runDesktopComposeUiTest(width = 1280, height = 800) {
+            var language by mutableStateOf(UiLanguage.ENGLISH)
+            val child = detail(142L).copy(fields = listOf(value("count", "7")))
+            val harness = InspectorHarness(fixture(), listOf(child))
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    MemoryProfilerScreen(harness.state, harness.actions, language)
+                }
+            }
+            visibleTag(ROW).performClick()
+            assertRowName("$ROW-child-0", "count = 7")
+            inspectorTab(labels(language).references).performClick()
+            rootFilterLabel(labels(language)).performClick()
+            val before = harness.state
+            val paneWidth = onNodeWithTag("memory-instance-list-table-pane").fetchSemanticsNode().boundsInRoot.width
+
+            listOf(UiLanguage.SIMPLIFIED_CHINESE, UiLanguage.ENGLISH).forEach { nextLanguage ->
+                runOnIdle { language = nextLanguage }
+                val copy = labels(nextLanguage)
+                assertTitle(detail(42L), copy)
+                assertTabs(copy, fields = true, references = true, fieldsSelected = false)
+                rootFilter().assertIsOn()
+                assertRowName(REFERENCE_ROOT, "Target@42 (0x2a)")
+                onNodeWithTag("memory-instance-row-42").assertIsSelected()
+                onNodeWithTag("memory-classifier-row-class:sample.Target").assertIsDisplayed()
+                val currentWidth =
+                    onNodeWithTag("memory-instance-list-table-pane").fetchSemanticsNode().boundsInRoot.width
+                assertEquals(paneWidth, currentWidth, 0.6f)
+                runOnIdle { assertEquals(before, harness.state) }
+            }
+            inspectorTab(labels(language).fields).performClick()
+            assertRowName("$ROW-child-0", "count = 7")
+            runOnIdle { harness.assertNoNavigation() }
+        }
+
+    @Test
     fun `active instance list stays flat and selects the native details root`() = assertEntrySelection(legacy = false)
 
     @Test
-    fun `legacy instance list shares native selection tab reset and conditional details visibility`() {
+    fun `legacy instance list preserves the chosen detail tab and conditional details visibility`() {
         assertEntrySelection(legacy = true)
     }
 
@@ -78,6 +115,10 @@ class MemoryInstanceInspectionTest {
             assertTabs(copy, fields = true, references = false, fieldsSelected = true)
             rootFilter().assertDoesNotExist()
             assertRowName(ROW, "child43 = {Child}")
+
+            runOnIdle { harness.state = harness.state.copy(selectedInstanceDetail = detail(43L)) }
+            assertTabs(copy, fields = true, references = true, fieldsSelected = false)
+            assertRowName(REFERENCE_ROOT, "Target@43 (0x2b)")
 
             val referencesOnly = detail(44L).copy(className = "sample.Owner", fields = emptyList())
             runOnIdle { harness.state = harness.state.copy(selectedInstanceDetail = referencesOnly) }
@@ -420,16 +461,8 @@ class MemoryInstanceInspectionTest {
                 assertRowName(ROW, "child$id = {Child}")
                 onNodeWithTag(REFERENCE_ROOT).assertDoesNotExist()
             }
-            inspectorTab(copy.references).performClick()
-            rootFilterLabel(copy).performClick()
-            onNodeWithTag("memory-instance-row-43").performClick()
-            assertTabs(copy, fields = true, references = true, fieldsSelected = true)
-            inspectorTab(copy.references).performClick()
-            rootFilter().assertIsOn()
-            assertRowName(REFERENCE_ROOT, "Target@43 (0x2b)")
-            assertRowName(ROW, "target43 in Root@4 (0x4)")
-            onNodeWithTag("memory-inspector-row-1").assertDoesNotExist()
-            runOnIdle { assertEquals(listOf(42L, 43L, 43L, 42L, 43L), selectedIds) }
+            assertDetailTabRetention(copy)
+            runOnIdle { assertEquals(listOf(42L, 43L, 43L, 42L, 43L, 42L, 43L, 42L, 43L), selectedIds) }
 
             val empty = detail(43L).copy(fields = emptyList(), references = emptyList())
             runOnIdle { state = state.copy(selectedInstanceDetail = empty) }
@@ -445,6 +478,26 @@ class MemoryInstanceInspectionTest {
             assertDetailsVisibility(visible = false)
             onNodeWithTag("memory-instance-row-43").assertIsNotSelected()
         }
+
+    private fun DesktopComposeUiTest.assertDetailTabRetention(copy: InspectorLabels) {
+        inspectorTab(copy.references).performClick()
+        rootFilterLabel(copy).performClick()
+        listOf(43L, 42L, 43L).forEach { id ->
+            onNodeWithTag("memory-instance-row-$id").performClick().assertIsSelected()
+            assertTitle(detail(id), copy)
+            assertTabs(copy, fields = true, references = true, fieldsSelected = false)
+            rootFilter().assertIsOn()
+            assertRowName(REFERENCE_ROOT, "Target@$id (0x${id.toString(16)})")
+            assertRowName(ROW, "target$id in Root@4 (0x4)")
+            onNodeWithTag("memory-inspector-row-1").assertDoesNotExist()
+        }
+        inspectorTab(copy.fields).performClick()
+        listOf(42L, 43L).forEach { id ->
+            onNodeWithTag("memory-instance-row-$id").performClick().assertIsSelected()
+            assertTabs(copy, fields = true, references = true, fieldsSelected = true)
+            assertRowName(ROW, "child$id = {Child}")
+        }
+    }
 
     private fun DesktopComposeUiTest.assertArrayReadMore(
         harness: InspectorHarness,

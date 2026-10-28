@@ -41,8 +41,6 @@ class MemoryInspectorNearestRootTest {
                 assertEquals(listOf(MemoryInspectorObjectKey(142)), harness.requests)
                 harness.replaceRoot(detail(43, 2, reference(143, 1)))
             }
-            onNodeWithTag(FILTER).assertDoesNotExist()
-            selectReferences()
             onNodeWithTag(FILTER).assertIsOn()
             onNodeWithTag("memory-inspector-reference-root-name", useUnmergedTree = true)
                 .assertTextEquals("Object43@43 (0x2b)")

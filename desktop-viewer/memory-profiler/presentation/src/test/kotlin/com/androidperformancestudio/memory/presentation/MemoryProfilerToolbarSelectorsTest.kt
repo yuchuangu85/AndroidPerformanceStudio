@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class MemoryProfilerToolbarSelectorsTest {
     @Test
-    fun `heap filter row halves vertical padding without shrinking its controls`() {
+    fun `heap filter row removes vertical padding without shrinking its controls`() {
         listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
             runDesktopComposeUiTest(width = 900, height = 120) {
                 setContent {
@@ -33,10 +33,10 @@ class MemoryProfilerToolbarSelectorsTest {
                 val search = onNodeWithTag("memory-workspace-search").fetchSemanticsNode().boundsInRoot
                 val heapLabel = if (language == UiLanguage.ENGLISH) "Heap" else "堆"
                 val heap = onNodeWithContentDescription(heapLabel).fetchSemanticsNode().boundsInRoot
-                assertEquals(38f, row.height, 0.6f)
+                assertEquals(32f, row.height, 0.6f)
                 assertEquals(32f, search.height, 0.6f)
-                assertEquals(3f, search.top - row.top, 0.6f)
-                assertEquals(3f, row.bottom - search.bottom, 0.6f)
+                assertEquals(0f, search.top - row.top, 0.6f)
+                assertEquals(0f, row.bottom - search.bottom, 0.6f)
                 assertEquals(search.center.y, heap.center.y, 0.6f)
             }
         }

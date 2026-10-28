@@ -212,21 +212,21 @@ private fun MemorySnapshotSummary(
                     contentSpacing = 0.dp,
                 ) {
                     Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier.fillMaxWidth().testTag("memory-metric-label-row-$index"),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (hasLeakWarning) {
-                            MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-summary-warning"))
-                        }
                         Text(
                             localizedStringResource(label, language),
-                            Modifier.weight(1f),
+                            Modifier.weight(1f, fill = false).testTag("memory-metric-label-$index"),
                             style = ViewerTypography.secondary,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (hasLeakWarning) {
+                            MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-summary-warning"))
+                        }
                     }
                     Text(
                         value,

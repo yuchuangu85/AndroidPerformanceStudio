@@ -311,13 +311,14 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Keep the Instance List flat: fixed-height selectable rows, without disclosure arrows or inline GC-root paths. Selection updates the right-hand Instance Details pane using the original snapshot-local object ID.
 - Instance Details conditionally exposes Fields and References tabs when their data is available. Fields shows the selected object's field values with inline object expansion and cumulative array batches. References owns the unchecked-by-default Show nearest GC root only checkbox and incoming-reference tree, with no separate GC-root path section.
 - Match the installed Android Studio nearest-root predicate: include incoming references whose source has a known root distance strictly less than the inspected object's distance. Do not treat unknown depth as zero or simply replace the reference list with a single path.
-- Keep nearest-root checkbox state within a snapshot and reset on snapshot changes. New object selections start on the first available tab. Both class-list entry points use the same details component; native details parity supersedes the former custom history, pinning, identity, and information strips.
+- Keep the chosen Fields/References tab and nearest-root checkbox state within a snapshot when selecting another instance; reset on snapshot changes. If the chosen tab is unavailable for an object, show its first available tab without overwriting the preference. Tree expansion and row selection remain object-local. Both class-list entry points use the same details component; native details parity supersedes the former custom history, pinning, identity, and information strips.
 - Cover row selection without expansion, Fields/References switching, nearest-reference filtering, unavailable roots, array pagination, and snapshot-local state in Compose and query/controller regressions. Keep native-window acceptance separate from rendered screenshot checks.
 
 ## Memory Heap Table Density (2026-10-27)
 
 - Use the installed Android Studio 2026.2.3 profiler as the behavioral reference: classifier and instance tables enable vertical column lines with zero intercell spacing, and row height is font height plus 4dp. In Compose, use the shared compact 16sp line height plus 4dp, respecting font scale; keep headers at 24dp.
 - Draw continuous theme-owned column dividers through headers, rows, selections, and unused table space. Indent only the class-name cell so heap/package depth and warning icons cannot shift numeric columns. Keep rows square and numbers right aligned.
+- Reserve bottom space in the Classes table only when its columns actually overflow horizontally, using the scrollbar's actual thickness. Otherwise extend the table to the Classes/Instance List height divider without a blank scrollbar gutter. Preserve the existing vertical scrollbar lane and draggable divider hit area.
 - Instance names carry the actual runtime class from the query, including grouped selections and arrays, plus the original object ID in decimal and hexadecimal. Class objects additionally carry their represented type for the Studio-style `(class)` label, without changing their runtime type. Never substitute a package or heap label for an object's class. Retain independently scrollable instance tables in both entry points.
 - Keep Instance Details compact with Fields/References immediately below its native-style title. Metrics are aligned table columns instead of the former facts strip and information popover. Preserve snapshot-local identity, unknown-value semantics, reference filtering, and cumulative array expansion.
 - Validate separator pixels and geometry, compact row height, grouped runtime names, narrow-width scrolling, field/reference navigation, and English/Chinese light/dark rendering. Local Compose rendering is not native Studio pixel-comparison acceptance.
@@ -359,6 +360,7 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 ## Compact Heap Filter Padding (2026-10-27)
 
 - Halve the All heaps filter row's vertical padding from 6dp to 3dp per side. Preserve control heights, 8dp horizontal padding/gaps, all filter callbacks, and the workspace's existing 4dp exterior spacing. At the default scale the row becomes 38dp high instead of 44dp.
+- Follow-up (2026-10-28): remove the remaining 3dp top/bottom padding from the All heaps / All classes row. The row is now 32dp high at the default scale; retain control sizes, horizontal spacing, scrolling, callbacks, and surrounding workspace spacing.
 
 ## Native Instance Details (2026-10-28)
 
@@ -369,3 +371,14 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Expand fields cumulatively in 100-row batches using an inline Click to see next N action; no Previous/Next pager or selection change. Read primitive-array values lazily in bounded batches, keep NODATA unavailable, and show bounded String previews from recorded primitive payloads without eagerly copying the whole heap.
 - Field metrics belong to the target object; inbound metrics belong to the source. Primitive rows use their encoded byte width and parent depth, null rows have zero sizes, and missing retained-native values remain unknown. Keep the existing ancestor-cycle and depth-32 guards as an explicit safety difference from native repeated wrappers.
 - Verify data decoding, labels, metric provenance, sorting, resize bounds, close behavior, cumulative expansion, async snapshot guards, and ordinary-click versus explicit navigation semantics. Render English/Chinese light/dark and narrow layouts; these checks do not claim native-window pixel equality or packaged-app acceptance.
+
+## Memory Language Changes (2026-10-28)
+
+- Changing the UI language must not recreate the Memory controller or backend, reload imported artifacts, clear snapshots or analysis, change the selected class/instance or filters, or close active device/agent subscriptions. Preserve the details tab, expanded branches, cached evidence, and split sizes while updating UI labels.
+- Update the controller/backend language in place for subsequent localized messages. Preserve existing evidence and in-flight imports, captures, and analyses; normal page disposal remains responsible for cancelling work and closing subscriptions.
+
+## Trailing Leak Warnings (2026-10-28)
+
+- Place warning icons after leak labels and retained-instance titles, keeping short labels and icons adjacent. Give long labels bounded text space with ellipsis so the fixed-size warning remains visible.
+- In class and instance tables, place warnings at the trailing edge of the Class Name / Instance cell, before numeric columns, not at the end of the whole table. Reserve icon space inside the name cell so long text ellipsizes without hiding the warning. If a wide name column is only partially visible, keep its icon within the visible part of that same column. Do not add a table-wide warning column or alter metric widths. Dedicated leak findings retain their row-end markers.
+- Preserve 20dp table rows, sorting, selection, grouping/expansion, column alignment, tooltips/accessibility, and existing warning-evidence rules. Cover long names, narrow panes, horizontal scrolling, both entry points, and English/Chinese light/dark rendering.

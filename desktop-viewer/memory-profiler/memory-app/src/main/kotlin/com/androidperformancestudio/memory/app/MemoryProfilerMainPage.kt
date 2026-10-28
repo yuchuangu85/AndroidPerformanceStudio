@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -94,10 +95,11 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     initialImportIsJavaHeap: Boolean = false,
 ) {
     val controller =
-        remember(language) {
+        remember {
             MemoryProfilerController(DesktopMemoryProfilerBackend(language = language), language = language)
         }
     DisposableEffect(controller) { onDispose(controller::close) }
+    SideEffect { controller.changeLanguage(language) }
     val state by controller.state.collectAsState()
     val recentSessions by controller.recentSessions.collectAsState()
     val titleBarHost = LocalTitleBarTargetHost.current

@@ -105,7 +105,7 @@ internal class DesktopMemoryProfilerBackend(
     private val targetMonitorProvider: (Path) -> AndroidTargetMonitor = AndroidTargetMonitors::shared,
     private val captureSessionFactory: (Path) -> MemoryHeapDumpCaptureSession = ::MemoryHeapDumpCaptureSession,
     private val bitmapCaptureSessionFactory: (Path) -> BitmapHeapDumpCaptureSession = ::BitmapHeapDumpCaptureSession,
-    private val language: UiLanguage = UiLanguage.ENGLISH,
+    @Volatile private var language: UiLanguage = UiLanguage.ENGLISH,
     private val nativeHeapArtifactAnalyzer: NativeHeapArtifactAnalyzer = PerfettoNativeHeapArtifactAnalyzer(),
     private val javaHeapArtifactAnalyzer: JavaHeapArtifactAnalyzer = PerfettoJavaHeapArtifactAnalyzer(),
     private val sampledArtArtifactAnalyzer: SampledArtArtifactAnalyzer = PerfettoSampledArtArtifactAnalyzer(),
@@ -130,6 +130,10 @@ internal class DesktopMemoryProfilerBackend(
     private var leakCanaryConnection: LeakCanaryAgentConnection? = null
     private var leakCanaryCursor: Long = 0L
     private var leakCanaryEvents: List<LeakCanaryLiveEvent> = emptyList()
+
+    override fun changeLanguage(language: UiLanguage) {
+        this.language = language
+    }
 
     override fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription {
         val monitor = adbLocator()?.let(targetMonitorProvider) ?: return AndroidTargetSubscription {}
