@@ -125,11 +125,13 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
           MANUAL: ${{ needs.resolve.outputs.manual }}
           TAG_EXISTS: ${{ needs.resolve.outputs.tag_exists }}
+          CHECKOUT_REF: ${{ needs.resolve.outputs.checkout_ref }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$TAG" \
               --draft \
+              --target "$CHECKOUT_REF" \
               --title "AndroidPerfermanceStudio $VERSION" \
               --repo "$GITHUB_REPOSITORY"
           elif [[ "$TAG_EXISTS" == "true" ]]; then

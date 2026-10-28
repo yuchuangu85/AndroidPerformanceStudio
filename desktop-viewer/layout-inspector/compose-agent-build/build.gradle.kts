@@ -64,19 +64,23 @@ fun androidSdkDir(): File =
 
 fun numericVersion(name: String): Double = name.substringAfterLast('-').toDoubleOrNull() ?: 0.0
 
-val androidJar: File =
+// Desktop packaging configures this module but does not build the Android agents. Resolve SDK
+// inputs only when an agent task actually consumes them, not while configuring unrelated builds.
+val androidJar = providers.provider {
     File(androidSdkDir(), "platforms").listFiles().orEmpty()
         .filter { it.isDirectory && File(it, "android.jar").isFile }
         .maxByOrNull { numericVersion(it.name) }
         ?.let { File(it, "android.jar") }
         ?: error("No Android platform with android.jar under " + androidSdkDir() + "/platforms")
+}
 
-val d8Tool: File =
+val d8Tool = providers.provider {
     File(androidSdkDir(), "build-tools").listFiles().orEmpty()
         .filter { it.isDirectory && File(it, "d8").isFile }
         .maxByOrNull { numericVersion(it.name) }
         ?.let { File(it, "d8") }
         ?: error("No d8 under " + androidSdkDir() + "/build-tools")
+}
 
 fun runTool(command: List<String>, directory: File? = null) {
     val builder = ProcessBuilder(command).redirectErrorStream(true)
@@ -321,11 +325,11 @@ fun registerDexTask(name: String, jar: Any, outputDir: Any) =
             val inputJar = (jar as Provider<*>).get() as org.gradle.api.file.RegularFile
             runTool(
                 listOf(
-                    d8Tool.absolutePath,
+                    d8Tool.get().absolutePath,
                     "--min-api",
                     "29",
                     "--lib",
-                    androidJar.absolutePath,
+                    androidJar.get().absolutePath,
                     "--output",
                     dir.absolutePath,
                     inputJar.asFile.absolutePath,
@@ -405,24 +409,27 @@ packageViewInspectorJar.configure { dependsOn(dexViewInspector) }
 
 val supportedAbis = listOf("armeabi-v7a", "arm64-v8a", "x86_64")
 
-val ndkDir: File =
+val ndkDir = providers.provider {
     File(androidSdkDir(), "ndk").listFiles().orEmpty()
         .filter { it.isDirectory && File(it, "build/cmake/android.toolchain.cmake").isFile }
         .maxByOrNull { numericVersion(it.name) }
         ?: error("No Android NDK under " + androidSdkDir() + "/ndk")
+}
 
-val cmakeBinDir: File =
+val cmakeBinDir = providers.provider {
     File(androidSdkDir(), "cmake").listFiles().orEmpty()
         .filter { it.isDirectory && File(it, "bin/cmake").isFile && File(it, "bin/ninja").isFile }
         .maxByOrNull { numericVersion(it.name) }
         ?.let { File(it, "bin") }
         ?: error("No SDK CMake with ninja under " + androidSdkDir() + "/cmake")
+}
 
-val llvmStrip: File =
-    File(ndkDir, "toolchains/llvm/prebuilt").listFiles().orEmpty()
+val llvmStrip = providers.provider {
+    File(ndkDir.get(), "toolchains/llvm/prebuilt").listFiles().orEmpty()
         .map { File(it, "bin/llvm-strip") }
         .firstOrNull { it.isFile }
-        ?: error("No llvm-strip under " + ndkDir + "/toolchains/llvm/prebuilt")
+        ?: error("No llvm-strip under " + ndkDir.get() + "/toolchains/llvm/prebuilt")
+}
 
 val stagedNativeSourcesDir = layout.buildDirectory.dir("agent-native-src")
 val nativeAgentDir = layout.buildDirectory.dir("agent-native")
@@ -470,8 +477,8 @@ val buildAgentNative =
             val stagedDir = staged.get().asFile
             val outputDir = output.get().asFile
             outputDir.deleteRecursively()
-            val cmake = File(cmakeBinDir, "cmake").absolutePath
-            val ninja = File(cmakeBinDir, "ninja").absolutePath
+            val cmake = File(cmakeBinDir.get(), "cmake").absolutePath
+            val ninja = File(cmakeBinDir.get(), "ninja").absolutePath
             for (abi in supportedAbis) {
                 val buildDir = File(outputDir, "build-" + abi)
                 val abiDir = File(outputDir, abi)
@@ -485,7 +492,7 @@ val buildAgentNative =
                         "-G", "Ninja",
                         "-DCMAKE_MAKE_PROGRAM=" + ninja,
                         "-DCMAKE_TOOLCHAIN_FILE=" +
-                            File(ndkDir, "build/cmake/android.toolchain.cmake").absolutePath,
+                            File(ndkDir.get(), "build/cmake/android.toolchain.cmake").absolutePath,
                         "-DANDROID_ABI=" + abi,
                         "-DANDROID_PLATFORM=android-29",
                         "-DCMAKE_BUILD_TYPE=Release",
@@ -501,7 +508,7 @@ val buildAgentNative =
                 val target = File(abiDir, "lib_ui_inspector_agent.so")
                 produced.copyTo(target, overwrite = true)
                 // The upstream Bazel target ships the stripped binary.
-                runTool(listOf(llvmStrip.absolutePath, "--strip-unneeded", target.absolutePath))
+                runTool(listOf(llvmStrip.get().absolutePath, "--strip-unneeded", target.absolutePath))
             }
         }
     }
