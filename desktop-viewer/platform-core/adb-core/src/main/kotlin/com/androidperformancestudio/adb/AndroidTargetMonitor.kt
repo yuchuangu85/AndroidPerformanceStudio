@@ -305,7 +305,7 @@ private fun StudioResult<AdbTargetSnapshot>.processes(): StudioResult<List<Andro
         is StudioResult.Success -> StudioResult.Success(value.processes)
     }
 
-/** A process that belongs to a debuggable or profileable application package. */
+/** A running process matched to an installed application package. */
 public data class AndroidApplicationProcess(
     val pid: Int,
     val name: String,
@@ -314,21 +314,24 @@ public data class AndroidApplicationProcess(
 )
 
 /**
- * Matches running main and secondary processes to packages that shell tooling can profile.
- *
- * Keeping this rule here prevents each profiler from inventing a different selection policy.
+ * Matches running main and secondary processes to installed packages, regardless of profiling flags.
  */
-public fun AdbTargetSnapshot.profileableOrDebuggableProcesses(): List<AndroidApplicationProcess> {
-    val eligiblePackages =
-        packages
-            .filter { it.debuggable || it.profileableByShell }
-            .map { it.packageName }
+public fun AdbTargetSnapshot.applicationProcesses(): List<AndroidApplicationProcess> {
+    val packageNames = packages.map { it.packageName }
     return processes
         .mapNotNull { process ->
             val packageName =
-                eligiblePackages.firstOrNull { candidate ->
+                packageNames.firstOrNull { candidate ->
                     process.name == candidate || process.name.startsWith("$candidate:")
                 } ?: return@mapNotNull null
             AndroidApplicationProcess(process.pid, process.name, process.user, packageName)
         }.sortedWith(compareBy<AndroidApplicationProcess> { it.name }.thenBy { it.pid })
 }
+
+/**
+ * Matches running main and secondary processes to packages that shell tooling can profile.
+ *
+ * Keeping this rule here prevents each profiler from inventing a different selection policy.
+ */
+public fun AdbTargetSnapshot.profileableOrDebuggableProcesses(): List<AndroidApplicationProcess> =
+    copy(packages = packages.filter { it.debuggable || it.profileableByShell }).applicationProcesses()

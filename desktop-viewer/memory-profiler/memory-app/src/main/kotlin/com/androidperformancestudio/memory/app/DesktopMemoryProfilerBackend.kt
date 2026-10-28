@@ -8,8 +8,8 @@ import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetMonitor
 import com.androidperformancestudio.adb.AndroidTargetMonitors
 import com.androidperformancestudio.adb.AndroidTargetSubscription
+import com.androidperformancestudio.adb.applicationProcesses
 import com.androidperformancestudio.adb.defaultAdbExecutable
-import com.androidperformancestudio.adb.profileableOrDebuggableProcesses
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalysisRequest
 import com.androidperformancestudio.memory.analysis.BitmapDumpAnalyzer
 import com.androidperformancestudio.memory.analysis.HeapGraphToHeapDump
@@ -1443,7 +1443,9 @@ internal class DesktopMemoryProfilerBackend(
 
 internal fun defaultMemoryDataRoot(): Path = Path.of(System.getProperty("user.home"), ".android-performance-studio", "memory-profiler")
 
+// Package flags alone do not establish heap-dump permission, especially on debug system builds.
+// Offer application-owned processes and let am dumpheap enforce the actual device permissions.
 internal fun AdbTargetSnapshot.heapDumpableProcesses(): List<MemoryProcessOption> =
-    profileableOrDebuggableProcesses().map { process ->
+    applicationProcesses().map { process ->
         MemoryProcessOption(process.pid, process.name, process.packageName)
     }

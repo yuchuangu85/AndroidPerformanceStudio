@@ -86,10 +86,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     val targetHost = LocalTitleBarTargetHost.current
-    val selectedPackage = state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.packageName
-    val selectionReady =
-        targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
-            targetHost?.packageReady(selectedPackage) != false
+    val selectionReady = targetHost?.deviceReady(state.selectedDeviceSerial) != false
 
     LaunchedEffect(controller) { controller.refreshDevices() }
 

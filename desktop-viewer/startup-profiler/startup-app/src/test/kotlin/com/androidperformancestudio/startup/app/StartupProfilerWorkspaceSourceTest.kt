@@ -123,6 +123,12 @@ class StartupProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `startup launch and compilation confirmation do not require a matching running process`() {
+        assertFalse(source.contains("packageReady("))
+        assertTrue(source.contains("targetHost?.deviceReady(state.selectedDeviceSerial)"))
+    }
+
+    @Test
     fun `file dialogs keep asynchronous controller operations and guarded local trace navigation`() {
         assertTrue(source.contains("chooseOpenFile("))
         assertTrue(source.contains("acceptAllFiles = false"))

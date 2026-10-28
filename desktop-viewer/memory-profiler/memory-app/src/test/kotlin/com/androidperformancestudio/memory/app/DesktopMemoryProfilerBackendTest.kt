@@ -378,7 +378,7 @@ class DesktopMemoryProfilerBackendTest {
         }
 
     @Test
-    fun `profileable by shell processes remain selectable for heap dumps`() {
+    fun `application process selection does not require debug or profileable flags`() {
         val snapshot =
             AdbTargetSnapshot(
                 packages =
@@ -386,12 +386,16 @@ class DesktopMemoryProfilerBackendTest {
                         AndroidPackage("com.example.debug", debuggable = true),
                         AndroidPackage("com.example.profileable", profileableByShell = true),
                         AndroidPackage("com.example.hidden"),
+                        AndroidPackage("com.android.systemui"),
                     ),
                 processes =
                     listOf(
                         AndroidProcess(10, 1, "u0_a10", "com.example.debug"),
                         AndroidProcess(11, 1, "u0_a11", "com.example.profileable:worker"),
                         AndroidProcess(12, 1, "u0_a12", "com.example.hidden"),
+                        AndroidProcess(2821, 1, "u0_a100", "com.android.systemui"),
+                        AndroidProcess(13, 1, "system", "surfaceflinger"),
+                        AndroidProcess(14, 1, "u0_a14", "com.example.hidden.other"),
                     ),
             )
 
@@ -399,7 +403,9 @@ class DesktopMemoryProfilerBackendTest {
 
         assertEquals(
             listOf(
+                MemoryProcessOption(2821, "com.android.systemui", "com.android.systemui"),
                 MemoryProcessOption(10, "com.example.debug", "com.example.debug"),
+                MemoryProcessOption(12, "com.example.hidden", "com.example.hidden"),
                 MemoryProcessOption(11, "com.example.profileable:worker", "com.example.profileable"),
             ),
             processes,

@@ -59,7 +59,6 @@ import com.androidperformancestudio.startup.presentation.generated.resources.hot
 import com.androidperformancestudio.startup.presentation.generated.resources.iterations
 import com.androidperformancestudio.startup.presentation.generated.resources.perfetto_capture
 import com.androidperformancestudio.startup.presentation.generated.resources.practical_threshold
-import com.androidperformancestudio.startup.presentation.generated.resources.process
 import com.androidperformancestudio.startup.presentation.generated.resources.profile_artifact_hint
 import com.androidperformancestudio.startup.presentation.generated.resources.profile_baseline_plugin
 import com.androidperformancestudio.startup.presentation.generated.resources.profile_build_variant
@@ -190,14 +189,12 @@ public fun StartupTargetSelectors(
         state.targets,
         state.isRunning,
     ) {
-        if (targetHost == null || state.isRunning || !targetHost.deviceReady(state.selectedDeviceSerial)) return@LaunchedEffect
-        val sharedPackage = targetHost.selectedPackageName
-        if (sharedPackage == null) {
-            selectedTarget?.let { targetHost.choosePackage(it.packageName) }
-        } else if (selectedTarget?.packageName != sharedPackage) {
-            state.targets.firstOrNull { it.packageName == sharedPackage }?.let {
-                actions.onSelectTarget(it.componentName)
-            }
+        if (targetHost == null || state.isRunning || selectedTarget != null) return@LaunchedEffect
+        if (!targetHost.deviceReady(state.selectedDeviceSerial)) return@LaunchedEffect
+        // A running process can suggest the initial app, but the launch activity is page-owned.
+        val sharedPackage = targetHost.selectedPackageName ?: return@LaunchedEffect
+        state.targets.firstOrNull { it.packageName == sharedPackage }?.let {
+            actions.onSelectTarget(it.componentName)
         }
     }
     TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
@@ -226,7 +223,6 @@ public fun StartupTargetSelectors(
         searchLanguage = language,
         selectedItem = selectedTarget,
         onItemSelected = {
-            targetHost?.choosePackage(it.packageName)
             actions.onSelectTarget(it.componentName)
         },
         itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
@@ -251,10 +247,7 @@ internal fun StartupScenarioControls(
 ) {
     val config = state.config
     val targetHost = LocalTitleBarTargetHost.current
-    val selectedPackage = state.targets.firstOrNull { it.componentName == state.selectedComponentName }?.packageName
-    val targetReady =
-        targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
-            targetHost?.packageReady(selectedPackage) != false
+    val targetReady = targetHost?.deviceReady(state.selectedDeviceSerial) != false
     StudioPanel(
         modifier = Modifier.fillMaxWidth().testTag("startup-scenario"),
         contentPadding = StudioTokens.compactContentPadding,

@@ -54,7 +54,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class StartupProfilerWorkspaceTest {
     @Test
-    fun `startup restores shared device and application package before enabling capture`() =
+    fun `startup uses a shared launchable package as the initial target on the shared device`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
             val state =
                 mutableStateOf(
@@ -66,7 +66,6 @@ class StartupProfilerWorkspaceTest {
                                 StartupTarget("com.old", "com.old/.Main", true),
                                 StartupTarget("com.shared", "com.shared/.Main", true),
                             ),
-                        selectedComponentName = "com.old/.Main",
                     ),
                 )
             setContent {
@@ -95,14 +94,15 @@ class StartupProfilerWorkspaceTest {
         }
 
     @Test
-    fun `startup keeps unmatched shared package visible and capture disabled`() =
+    fun `startup can launch its selected activity while an unrelated system process is selected`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
+            var started = false
             setContent {
                 ViewerTheme(darkTheme = true) {
                     val host = rememberTitleBarTargetHost()
                     LaunchedEffect(host) {
                         host.chooseDevice("phone", "Phone")
-                        host.choosePackage("com.unavailable")
+                        host.choosePackage("com.android.systemui")
                     }
                     CompositionLocalProvider(LocalTitleBarTargetHost provides host) {
                         val state =
@@ -114,16 +114,19 @@ class StartupProfilerWorkspaceTest {
                             )
                         Row { StartupTargetSelectors(state, StartupProfilerActions(), UiLanguage.ENGLISH) }
                         TitleBarTargetControls(host)
-                        StartupScenarioControls(state, StartupProfilerActions(), UiLanguage.ENGLISH)
+                        StartupScenarioControls(
+                            state,
+                            StartupProfilerActions(onStartStop = { started = true }),
+                            UiLanguage.ENGLISH,
+                        )
                     }
                 }
             }
 
             waitForIdle()
-            // The fixed title bar no longer hosts an application selector; the page keeps its own
-            // component target visible while the unmatched shared package keeps capture disabled.
             onNodeWithTag("startup-target").assertExists()
-            onNodeWithTag("startup-start-stop").assertIsNotEnabled()
+            onNodeWithTag("startup-start-stop").assertIsEnabled().performClick()
+            assertTrue(started)
         }
 
     @Test
@@ -140,7 +143,7 @@ class StartupProfilerWorkspaceTest {
         assertTrue(!selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
         assertTrue(selectors.contains("DeviceDropdownSelector("))
         assertTrue(selectors.contains("DropdownSelector("))
-        assertTrue(selectors.contains("targetHost?.choosePackage(it.packageName)"))
+        assertTrue(!selectors.contains("targetHost?.choosePackage("))
         assertTrue(selectors.contains("actions.onSelectTarget(it.componentName)"))
         assertTrue(selectors.contains("Res.string.application"))
         assertTrue(selectors.contains("if (!inTitleBar) HeaderSpacer()"))

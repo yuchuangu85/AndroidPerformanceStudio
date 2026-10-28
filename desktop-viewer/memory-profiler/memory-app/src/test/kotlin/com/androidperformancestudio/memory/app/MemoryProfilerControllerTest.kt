@@ -2,6 +2,9 @@
 
 package com.androidperformancestudio.memory.app
 
+import com.androidperformancestudio.adb.AdbTargetSnapshot
+import com.androidperformancestudio.adb.AndroidPackage
+import com.androidperformancestudio.adb.AndroidProcess
 import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.analysis.ArtSampledAllocationAnalysis
@@ -47,6 +50,7 @@ import com.androidperformancestudio.memory.presentation.MemorySampledArtOrigin
 import com.androidperformancestudio.memory.presentation.MemorySampledArtTrace
 import com.androidperformancestudio.memory.presentation.MemorySortDirection
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
+import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
@@ -1358,6 +1362,42 @@ class MemoryProfilerControllerTest {
         }
 
     @Test
+    fun `system ui remains selected across shared process refresh and can request a heap dump`() =
+        runTest {
+            val backend = FakeBackend()
+            val controller = MemoryProfilerController(backend)
+            controller.refreshDevices()
+            val snapshot =
+                StudioResult.Success(
+                    AdbTargetSnapshot(
+                        packages = listOf(AndroidPackage("com.android.systemui")),
+                        processes = listOf(AndroidProcess(2821, 1, "u0_a100", "com.android.systemui")),
+                    ),
+                )
+            val listener = assertNotNull(backend.targetListener)
+
+            listener.onTargetSnapshot("serial-1", snapshot)
+            controller.selectProcess(2821)
+            listener.onTargetSnapshot("serial-1", snapshot)
+
+            assertEquals(2821, controller.state.value.selectedProcessId)
+            assertEquals(
+                "com.android.systemui",
+                controller.state.value.processes
+                    .single()
+                    .packageName,
+            )
+            controller.dumpHeap()
+            assertEquals("capture:serial-1:2821", backend.events.last())
+            assertNull(controller.state.value.error)
+
+            listener.onTargetSnapshot("serial-1", StudioResult.Success(AdbTargetSnapshot(emptyList(), emptyList())))
+            assertNull(controller.state.value.selectedProcessId)
+            controller.close()
+            assertNull(backend.targetListener)
+        }
+
+    @Test
     fun `saves and restores a complete class-list filter preset`() =
         runTest {
             val controller = MemoryProfilerController(FakeBackend())
@@ -1928,13 +1968,16 @@ class MemoryProfilerControllerTest {
         var heapOverride: HeapDump? = null
         var analysisStarted: CompletableDeferred<Unit>? = null
         var analysisRelease: CompletableDeferred<Unit>? = null
-        private val noOpTargetSubscription = TargetSubscription {}
+        var targetListener: TargetListener? = null
 
         override fun changeLanguage(language: UiLanguage) {
             languageChanges += language
         }
 
-        override fun registerTargetListener(listener: TargetListener): TargetSubscription = noOpTargetSubscription
+        override fun registerTargetListener(listener: TargetListener): TargetSubscription {
+            targetListener = listener
+            return TargetSubscription { targetListener = null }
+        }
 
         override suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>> {
             events += "listDevices"
