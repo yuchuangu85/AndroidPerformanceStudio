@@ -401,3 +401,23 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Remove the app-shell global status bar and its permanent 28dp reservation. Navigation and retained workspace content extend to the window's bottom edge; do not replace the removed bar with a spacer. Destination and artifact identity remain in existing navigation/workspace surfaces.
 - Memory shows its own compact footer only during an operation, instance query, error, or nonblank warning/cleanup warning. Blank messages do not reserve height. Running captures/imports still expose Cancel even before a progress message arrives; errors retain Retry. Keep horizontal scrolling and selectable/copyable status text.
 - When Memory's footer is hidden, analysis content ends 4dp above the page bottom. When feedback appears, the same 4dp gap applies above that footer. Showing/hiding feedback must not clear snapshots, selection, details tabs, expansion, or splitter ratios. Other profilers' feature-owned feedback is not removed with the global shell bar.
+
+## CPU Stack Chart Bounds (2026-10-28)
+
+- The standalone Stack Chart has no track-label column, so its plot starts at the content's left edge instead of reserving the timeline's 150dp label gutter. Keep the timeline's real labels unchanged.
+- Drawing, block semantics, hit testing, and range dragging share the same plot bounds. Preserve the time viewport and genuine intervals without samples, along with row gaps, labels, selection, zoom, and scrolling.
+
+## Perfetto Frame Timeline Colors (2026-10-28)
+
+- Color frame bars by the authoritative FrameTimeline `jank_tag`, not duration-based `JankSeverity`: No Jank uses green `#4CAF50`; Buffer Stuffing and SurfaceFlinger Stuffing use light green `#C0D588`; Self Jank uses red `#FF5722`; Other Jank uses yellow `#FFEB3B`; Dropped Frame uses blue `#03A9F4`. These are Perfetto's base colors in `third_party/perfetto/ui/src/plugins/dev.perfetto.Frames/actual_frames_track.ts` and remain the same in light and dark themes.
+- Preserve `jank_tag` and `present_type` in the existing persisted frame state tags. Do not override a known tag with dropped presentation, elapsed duration, or the jank of a correlated SurfaceFlinger frame. Missing actual evidence stays unknown; pure stuffing is high latency, not deadline-jank attribution.
+- Keep unsupported or insufficiently attributed frames neutral. Legacy Perfetto records can retain exact known normal/stuffing labels, but deadline misses and capture sample loss alone must not fabricate self-jank, SurfaceFlinger responsibility, or dropped-frame evidence.
+- Place the localized color legend on an independently wrapping row below the timeline header. Keep navigation, frame selection, hover, zoom, axes, duration-based summaries, and the separately explained deadline-miss cluster caps intact.
+
+## Unified Resizable Frame Analysis (2026-10-28)
+
+- Keep the summary metrics outside one shared analysis card. Inside it, place the frame timeline above the deadline-miss intervals, problem frames, and single-frame details columns, with attribution and warnings below. Internal sections are unframed; retain their compact 8dp content padding without nested cards or exterior card gaps.
+- Use horizontal splitters to adjust timeline/body and body/attribution heights, and vertical splitters for the three analysis columns. Draw a centered 1dp divider inside a 7dp pointer target, with directional resize cursors, keyboard arrow steps, and accessibility progress adjustment.
+- Remember split proportions across frame selection, filtering, language, data updates, and temporary window constraints. Apply minimum sizes only to rendered geometry; hiding attribution removes its divider and reserved space without discarding its saved proportion.
+- The timeline plot and axes fill the resized timeline region. Keep the time/duration mapping, Perfetto colors, frame selection, filtering, hover, evidence actions, and previous/next controls unchanged. Lists, detail properties, layout preview, and attribution keep independent scrolling; compact previews retain usable content height instead of painting into their titles.
+- The single card fills the remaining page with the standard 4dp bottom margin. When minimum sizes do not fit, make its interior vertically reachable and the three-column body horizontally reachable; do not create negative widths or allow section contents to paint across dividers.

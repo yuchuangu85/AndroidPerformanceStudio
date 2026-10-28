@@ -13,6 +13,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -37,12 +38,24 @@ class FrameClusterPresentationTest {
         val source =
             Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/frame/presentation/FrameProfilerScreen.kt"))
         val clusterUi = source.substringAfter("private fun ClusterList(").substringBefore("private fun Long?.formatMillis")
+        val clusterList = clusterUi.substringBefore("private fun ProblemFramesTable(")
+        val problemTable =
+            source.substringAfter("private fun ProblemFramesTable(").substringBefore("private fun ClusterRow(")
 
-        assertTrue(clusterUi.contains("StudioDataTable("))
+        listOf(clusterList, problemTable).forEach { pane ->
+            assertFalse(pane.contains("StudioDataTable("))
+            assertFalse(pane.contains("StudioPanel("))
+            assertFalse(pane.contains("StudioCard("))
+            assertTrue(pane.contains("StudioPanelHeader("))
+            assertTrue(pane.contains("modifier.padding(StudioTokens.compactContentPadding)"))
+            assertTrue(pane.contains("LazyColumn("))
+        }
         assertTrue(clusterUi.contains("cluster.deadlineMissFrameIds.size"))
         assertTrue(clusterUi.contains("cluster.dominantReportedStage"))
         assertTrue(clusterUi.contains("onSelectFrame"))
         assertTrue(clusterUi.contains(".selectable("))
+        assertTrue(clusterList.contains("analysis.clusterTargetFrameId(cluster)"))
+        assertTrue(clusterUi.contains("onClick = { onSelectFrame(targetFrameId) }"))
         assertEquals("Frame Range", localizedStringResource(Res.string.cluster_range, UiLanguage.ENGLISH))
         assertEquals("帧范围", localizedStringResource(Res.string.cluster_range, UiLanguage.SIMPLIFIED_CHINESE))
     }
@@ -55,7 +68,10 @@ class FrameClusterPresentationTest {
 
         assertTrue(detailUi.contains("onOpenTrace?.let { openTrace ->"))
         assertTrue(detailUi.contains("openTrace(frame.sample)"))
-        assertEquals("在 Perfetto 中打开 Trace", localizedStringResource(Res.string.open_trace_in_perfetto, UiLanguage.SIMPLIFIED_CHINESE))
+        assertEquals(
+            "在 Perfetto 中打开 Trace",
+            localizedStringResource(Res.string.open_trace_in_perfetto, UiLanguage.SIMPLIFIED_CHINESE),
+        )
     }
 
     private fun sample(

@@ -89,7 +89,7 @@ internal fun StackChartCanvas(
     val rowHeightPx = firefoxStyle.rowHeightPx
     val clampedScrollDepth = stackChartScrollDepth(snapshot.maxDepth, heightPixels, rowHeightPx, scrollDepth)
     val visible = remember(snapshot, visibleViewport) { StackChartPresenter.visibleBlocks(snapshot.blocks, visibleViewport) }
-    val plotLeftPx = with(density) { FIREFOX_TIMELINE_LABEL_WIDTH.toPx() }
+    val plotLeftPx = 0f
     val plotRightMarginPx = with(density) { FIREFOX_LOCAL_TRACK_MARGIN.toPx() }
     val textStyle = TextStyle(fontSize = with(density) { firefoxStyle.labelFontSizePx.toSp() })
 

@@ -4,8 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.DesktopComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,6 +16,9 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -53,7 +59,7 @@ class FrameProfilerAcceptanceTest {
         }
 
     @Test
-    fun `short native content viewport retains usable panes with visible attribution and warnings`() =
+    fun `short native content viewport keeps panes attribution and warnings reachable by scrolling`() =
         runDesktopComposeUiTest(width = 1064, height = 600) {
             val analysis =
                 FrameJankAnalyzer().analyze(
@@ -73,13 +79,17 @@ class FrameProfilerAcceptanceTest {
                 }
             }
 
+            onNodeWithTag("frame-workspace-context").performScrollTo().assertIsDisplayed()
             onNodeWithTag("frame-attribution-entry-4").performScrollTo().assertIsDisplayed()
-            onNodeWithTag("frame-attribution-toggle").assertDoesNotExist()
-            onNodeWithTag("frame-detail-panel").performScrollTo()
-            listOf("frame-clusters-panel", "frame-problems-panel", "frame-detail-panel").forEach { tag ->
-                onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(96.dp)
+            listOf("Fixture warning one", "Fixture warning two", "Fixture warning three").forEach { warning ->
+                onNodeWithText(warning).performScrollTo().assertIsDisplayed()
             }
-            onNodeWithTag("frame-selected-budget").assertIsDisplayed()
+            onNodeWithTag("frame-attribution-toggle").assertDoesNotExist()
+            onNodeWithTag("frame-workspace-body").performScrollTo().assertIsDisplayed()
+            listOf("frame-clusters-panel", "frame-problems-panel", "frame-detail-panel").forEach { tag ->
+                onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(96.dp)
+            }
+            onNodeWithTag("frame-selected-budget").performScrollTo().assertIsDisplayed()
         }
 
     @Test
@@ -96,11 +106,12 @@ class FrameProfilerAcceptanceTest {
                 }
             }
 
-            onNodeWithTag("frame-detail-panel").performScrollTo()
+            onNodeWithTag("frame-workspace-timeline").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("frame-workspace-body").performScrollTo().assertIsDisplayed()
             listOf("frame-clusters-panel", "frame-problems-panel", "frame-detail-panel").forEach { tag ->
-                onNodeWithTag(tag).assertIsDisplayed().assertHeightIsAtLeast(96.dp)
+                onNodeWithTag(tag).performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(96.dp)
             }
-            onNodeWithTag("frame-selected-budget").assertIsDisplayed()
+            onNodeWithTag("frame-selected-budget").performScrollTo().assertIsDisplayed()
         }
 
     @Test
@@ -114,10 +125,13 @@ class FrameProfilerAcceptanceTest {
                 }
             }
 
+            assertUnifiedCardPanes()
             onNodeWithTag("frame-metric-frames").assertIsDisplayed()
             onNodeWithTag("frame-timeline-panel").assertIsDisplayed()
             onNodeWithTag("frame-source-filter").assertIsDisplayed()
             onNodeWithTag("frame-context-panel").assertDoesNotExist()
+            onNodeWithTag("frame-workspace-context").assertDoesNotExist()
+            onNodeWithTag("frame-context-height-resizer").assertDoesNotExist()
             onNodeWithTag("frame-clusters-panel").assertIsDisplayed()
             onNodeWithTag("frame-problems-panel").assertIsDisplayed()
             onNodeWithTag("frame-detail-panel").assertIsDisplayed()
@@ -129,15 +143,19 @@ class FrameProfilerAcceptanceTest {
             assertTrue(emptyFilterBounds.bottom < emptyTimelineBounds.bottom)
             assertTrue(emptyTimelineBounds.bottom < emptyClusterBounds.top)
 
-            repeat(2) { index ->
-                if (index == 1) runOnIdle { state = state.copy(analysis = analysis, importedFileName = "capture.txt") }
-            }
+            runOnIdle { state = state.copy(analysis = analysis, importedFileName = "capture.txt") }
             onNodeWithTag("frame-timeline-canvas").assertIsDisplayed()
+            assertUnifiedCardPanes()
             val sourceFilterBounds = onNodeWithTag("frame-source-filter").fetchSemanticsNode().boundsInRoot
             val timelineBounds = onNodeWithTag("frame-timeline-panel").fetchSemanticsNode().boundsInRoot
             val clusterBounds = onNodeWithTag("frame-clusters-panel").fetchSemanticsNode().boundsInRoot
             val detailBounds = onNodeWithTag("frame-detail-panel").fetchSemanticsNode().boundsInRoot
-            onNodeWithTag("frame-context-panel").assertIsDisplayed()
+            onNodeWithTag("frame-context-panel")
+                .assertIsDisplayed()
+                .assert(hasAnyAncestor(hasTestTag("frame-analysis-card")))
+            onNodeWithTag("frame-workspace-context")
+                .assert(hasAnyAncestor(hasTestTag("frame-analysis-card")))
+            onNodeWithTag("frame-context-height-resizer").assertHeightIsEqualTo(7.dp)
             val contextBounds = onNodeWithTag("frame-context-panel").fetchSemanticsNode().boundsInRoot
             val timelineRangeBounds = onNodeWithTag("frame-timeline-range").fetchSemanticsNode().boundsInRoot
             val timelineTitleBounds = onNodeWithText("Frame Timeline").fetchSemanticsNode().boundsInRoot
@@ -146,11 +164,28 @@ class FrameProfilerAcceptanceTest {
             assertTrue(sourceFilterBounds.bottom < timelineRangeBounds.top)
             assertTrue(timelineBounds.bottom < clusterBounds.top)
             assertTrue(clusterBounds.bottom > detailBounds.top)
-            assertTrue(detailBounds.bottom < contextBounds.top)
+            assertEquals(7f, contextBounds.top - detailBounds.bottom, 0.1f)
             listOf("frame-clusters-panel", "frame-problems-panel", "frame-detail-panel").forEach { tag ->
                 onNodeWithTag(tag).assertExists()
             }
         }
+
+    private fun DesktopComposeUiTest.assertUnifiedCardPanes() {
+        onAllNodesWithTag("frame-analysis-card").assertCountEquals(1)
+        listOf(
+            "frame-timeline-panel",
+            "frame-clusters-panel",
+            "frame-problems-panel",
+            "frame-detail-panel",
+            "frame-workspace-timeline",
+            "frame-workspace-body",
+            "frame-workspace-clusters",
+            "frame-workspace-problems",
+            "frame-workspace-details",
+        ).forEach { tag ->
+            onNodeWithTag(tag).assert(hasAnyAncestor(hasTestTag("frame-analysis-card")))
+        }
+    }
 
     @Test
     fun `timeline uses compact eight dp padding and a labeled duration scale`() =
@@ -174,10 +209,11 @@ class FrameProfilerAcceptanceTest {
             val detailBounds = onNodeWithTag("frame-detail-panel").fetchSemanticsNode().boundsInRoot
             assertEquals(4f, timelineBounds.left)
             assertEquals(1276f, timelineBounds.right)
-            assertEquals(4f, panelBounds.top - timelineBounds.bottom)
-            assertEquals(4f, problemsBounds.left - panelBounds.right)
-            assertEquals(4f, detailBounds.left - problemsBounds.right)
-            assertEquals(8f, titleBounds.left - panelBounds.left)
+            assertEquals(7f, panelBounds.top - timelineBounds.bottom, 0.1f)
+            assertEquals(7f, problemsBounds.left - panelBounds.right, 0.1f)
+            assertEquals(7f, detailBounds.left - problemsBounds.right, 0.1f)
+            assertEquals(8f, titleBounds.left - timelineBounds.left, 0.1f)
+            onNodeWithTag("frame-timeline-height-resizer").assertHeightIsEqualTo(7.dp)
             onNodeWithText("Frame time (ms)").assertExists()
             onNodeWithTag("frame-timeline-duration-axis")
                 .assertContentDescriptionEquals("0 ms, 16 ms, 32 ms, 48 ms, 64 ms")
@@ -224,10 +260,10 @@ class FrameProfilerAcceptanceTest {
             assertEquals(4f, filterLabelBounds.left - sourceBounds.right, 0.1f)
             assertTrue(kotlin.math.abs(titleBounds.center.y - sourceBounds.center.y) < 4f)
             assertTrue(kotlin.math.abs(titleBounds.center.y - resultFilterBounds.center.y) < 4f)
-            val controlLabels = listOf("Previous", "Next", "Zoom in", "Zoom out", "Within budget", "Jank", "Jank cluster")
+            val controlLabels = listOf("Previous", "Next", "Zoom in", "Zoom out")
             val controlBounds = controlLabels.map { onNodeWithText(it).fetchSemanticsNode().boundsInRoot }
             val controlCenters = controlBounds.map { it.center.y }
-            assertTrue(controlCenters.max() - controlCenters.min() < 1f, "Navigation controls and legend must share a row")
+            assertTrue(controlCenters.max() - controlCenters.min() < 1f, "Navigation controls must share a row")
             assertTrue(
                 kotlin.math.abs(titleBounds.center.y - controlCenters.average()) < 4f,
                 "Timeline heading and controls must share a row",

@@ -1,9 +1,12 @@
 package com.androidperformancestudio.presentation
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportTab
@@ -15,9 +18,73 @@ import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import com.androidperformancestudio.storage.PanelProjection
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class StackChartComposeUiTest {
+    @Test
+    fun `stack blocks fill the report content edge with and without details`() {
+        listOf(900, 1280).forEach { width ->
+            listOf(false, true).forEach { detailsVisible ->
+                runDesktopComposeUiTest(width = width, height = 800) {
+                    val state =
+                        stackChartReportState().let {
+                            it.copy(workspace = it.workspace.copy(detailsVisible = detailsVisible))
+                        }
+                    setContent { ReportPage(state, goldenActions()) }
+
+                    val content = onNodeWithTag("report-content").fetchSemanticsNode().boundsInRoot
+                    val canvas = onNodeWithTag("stack-chart-canvas").fetchSemanticsNode().boundsInRoot
+                    val firstBlock = onNodeWithTag("stack-block-block-1").fetchSemanticsNode().boundsInRoot
+                    assertEquals(content.left, canvas.left)
+                    assertEquals(canvas.left, firstBlock.left)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `left edge clicks and full width range drags use the visible plot coordinates`() =
+        runDesktopComposeUiTest(width = 365, height = 64) {
+            var selected: StackChartBlockId? = null
+            var committed: Pair<Long, Long>? = null
+            val report = requireNotNull(stackChartReportState().lastReadyReport)
+            val snapshot = (report.stackChart as PanelProjection.Ready).value
+            setContent {
+                StackChartCanvas(
+                    snapshot = snapshot,
+                    viewport = StackChartViewport(0, 10_001),
+                    selectedBlockId = null,
+                    onSelect = { selected = it },
+                    onCommitRange = { start, end -> committed = start to end },
+                )
+            }
+
+            val canvas = onNodeWithTag("stack-chart-canvas")
+            canvas.performMouseInput { click(Offset(4f, 8f)) }
+            assertEquals(StackChartBlockId("block-1"), selected)
+            canvas.performMouseInput { click(Offset(262f, 8f)) }
+            assertEquals(StackChartBlockId("block-2"), selected)
+            canvas.performMouseInput { click(Offset(364f, 8f)) }
+            assertEquals(null, selected)
+
+            canvas.performMouseInput {
+                moveTo(Offset(0f, 40f))
+                press()
+                moveTo(Offset(4f, 40f))
+                moveTo(Offset(175f, 40f))
+                moveTo(Offset(350f, 40f))
+                release()
+            }
+            val range = assertNotNull(committed)
+            assertTrue(
+                range.first in 0L..200L,
+                "A drag starting at the plot's left edge must start near the viewport start",
+            )
+            assertEquals(10_001L, range.second)
+        }
+
     @Test
     fun `selecting a visible block dispatches its stable identity`() =
         runDesktopComposeUiTest(width = 1200, height = 800) {
