@@ -176,7 +176,7 @@
     <string name="no_references">无入向引用。</string>
     <string name="leaks_summary">%1$s 个泄漏</string>
     <string name="duplicates_summary">%1$s 个重复</string>
-    <string name="memory_leaks">内存泄漏</string>
+    <string name="memory_leaks">泄漏分析</string>
     <string name="leak_offline_analysis">离线堆分析</string>
     <string name="leak_analyze">分析</string>
     <string name="leak_retry_analysis">重试</string>
@@ -205,7 +205,7 @@
     <string name="leak_live_failed">失败</string>
     <string name="leak_live_evidence">Agent 事件，不属于离线堆证据，也不包含 HPROF 对象 ID。</string>
     <string name="memory_leaks_detail">由 Shark 驱动的 LeakCanary 兼容分析</string>
-    <string name="memory_leaks_no_heap">请先加载 HPROF 快照，再分析内存泄漏。</string>
+    <string name="memory_leaks_no_heap">请先加载 HPROF 快照，再进行泄漏分析。</string>
     <string name="memory_leaks_not_run">当前数据源未运行泄漏分析。</string>
     <string name="memory_leaks_no_candidates">未识别出可供 Shark 分析的泄漏候选。</string>
     <string name="memory_leaks_no_findings">Shark 未发现泄漏引用链。</string>
@@ -226,7 +226,7 @@
     <string name="shark_status_no_candidates">没有可供 Shark 分析的候选</string>
     <string name="shark_status_not_run">Shark 分析不可用</string>
     <string name="shark_status_failed">Shark 分析失败</string>
-    <string name="analyzing_memory_leaks">正在分析内存泄漏…</string>
+    <string name="analyzing_memory_leaks">正在进行泄漏分析…</string>
     <string name="live_monitoring">实时监听</string>
     <string name="live_monitoring_not_available">实时监听需要目标 debug App 集成 LeakCanary bridge AAR。</string>
     <string name="live_events">实时事件</string>

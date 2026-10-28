@@ -24,12 +24,16 @@ import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.LocalScrollbarStyle
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,7 +43,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -112,7 +118,8 @@ public fun MemoryProfilerScreen(
             if (presentedState.snapshotSummary != null || presentedState.artifact != null || presentedState.mappingLoaded) {
                 Row(
                     Modifier.fillMaxWidth().clickable { evidenceExpanded = !evidenceExpanded }
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 6.dp),
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 12.dp, vertical = 6.dp)
+                        .testTag("memory-profiler-evidence-toggle"),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -266,24 +273,24 @@ public fun MemoryProfilerScreen(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 MemoryProfilerViewMode.Dashboard -> {
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(StudioTokens.workspacePadding)
-                            .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
-                ) {
-                    Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
-                    Histogram(
-                        classes = presentedState.classes,
-                        sort = presentedState.sort,
-                        actions = actions,
-                        highlightedClassName = presentedState.highlightedClassName,
-                        language = language,
-                    )
-                }
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(StudioTokens.workspacePadding),
+                        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+                    ) {
+                        Overview(summary = presentedState.summary, activityCount = presentedState.activityCount, language = language)
+                        Histogram(
+                            classes = presentedState.classes,
+                            sort = presentedState.sort,
+                            actions = actions,
+                            highlightedClassName = presentedState.highlightedClassName,
+                            language = language,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        )
+                    }
                 }
             }
             MemoryProfilerStatusBar(
@@ -344,7 +351,7 @@ private fun MemoryProfilerDominatorPane(
         }
     }
     Column(
-        modifier = modifier.padding(8.dp),
+        modifier = modifier.padding(start = 8.dp, top = 8.dp, end = 8.dp).testTag("memory-dominator-tree-content"),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(localizedStringResource(Res.string.dominator_tree, language), fontWeight = FontWeight.Bold)
@@ -359,7 +366,7 @@ private fun MemoryProfilerDominatorPane(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(Modifier.fillMaxWidth().weight(1f).testTag("memory-dominator-list")) {
                 itemsIndexed(visibleRows, key = { _, row -> row.objectId }) { index, row ->
                     val hasChildren = parentIds.binarySearch(row.objectId) >= 0
                     val isExpanded = expanded[row.objectId] == true
@@ -367,6 +374,7 @@ private fun MemoryProfilerDominatorPane(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
+                                .testTag("memory-dominator-tree-row-${row.objectId}")
                                 .background(
                                     if (index % 2 == 0) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
                                     RoundedCornerShape(3.dp),
@@ -411,6 +419,11 @@ private fun MemoryProfilerStatusBar(
     actions: MemoryProfilerActions,
     language: UiLanguage,
 ) {
+    val operationMessage = state.operationMessage?.takeIf { it.isNotBlank() }
+    val showOperation = state.isDumping || operationMessage != null
+    val hasTask = showOperation || state.isSelectionLoading
+    val hasProblem = state.error != null || !state.cleanupWarning.isNullOrBlank() || !state.warning.isNullOrBlank()
+    if (!hasTask && !hasProblem) return
     val colors = LocalViewerColors.current
     var hasStatus = false
     SelectionContainer {
@@ -430,22 +443,30 @@ private fun MemoryProfilerStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            state.operationMessage?.let { message ->
+            if (showOperation) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                 )
-                Text(
-                    text = state.loadPhase.name,
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    maxLines = 1,
-                )
-                MemoryProfilerStatusMessage(
-                    label = localizedStringResource(Res.string.in_progress, language),
-                    message = message,
-                    messageColor = colors.secondaryText,
-                )
+                if (operationMessage != null) {
+                    Text(
+                        text = state.loadPhase.name,
+                        color = colors.mutedText,
+                        fontSize = ViewerTypography.label.fontSize,
+                        maxLines = 1,
+                    )
+                    MemoryProfilerStatusMessage(
+                        label = localizedStringResource(Res.string.in_progress, language),
+                        message = operationMessage,
+                        messageColor = colors.secondaryText,
+                    )
+                } else {
+                    Text(
+                        localizedStringResource(Res.string.in_progress, language),
+                        color = colors.secondaryText,
+                        style = ViewerTypography.secondary,
+                    )
+                }
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.cancel, language),
                     onClick = actions.onCancelOperation,
@@ -478,7 +499,7 @@ private fun MemoryProfilerStatusBar(
                 )
                 hasStatus = true
             }
-            state.cleanupWarning?.let { warning ->
+            state.cleanupWarning?.takeIf { it.isNotBlank() }?.let { warning ->
                 if (hasStatus) MemoryProfilerStatusDivider()
                 MemoryProfilerStatusMessage(
                     label = localizedStringResource(Res.string.cleanup_warning, language),
@@ -487,7 +508,7 @@ private fun MemoryProfilerStatusBar(
                 )
                 hasStatus = true
             }
-            state.warning?.let { warning ->
+            state.warning?.takeIf { it.isNotBlank() }?.let { warning ->
                 if (hasStatus) MemoryProfilerStatusDivider()
                 MemoryProfilerStatusMessage(
                     label = localizedStringResource(Res.string.warning, language),
@@ -542,7 +563,10 @@ private fun Overview(
     activityCount: Int,
     language: UiLanguage,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
+    Column(
+        modifier = Modifier.testTag("memory-profiler-overview-metrics"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+    ) {
         Text(localizedStringResource(Res.string.overview, language), fontWeight = FontWeight.Bold)
         Row(
             horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
@@ -570,37 +594,60 @@ private fun MetricCard(
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun Histogram(
     classes: List<ClassStats>,
     sort: MemoryHistogramSort,
     actions: MemoryProfilerActions,
     highlightedClassName: String?,
     language: UiLanguage,
+    modifier: Modifier,
 ) {
+    val listState = rememberLazyListState()
+    val scrollbarStyle = LocalScrollbarStyle.current
     Column(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(300.dp)
+            modifier
                 .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(4.dp))
                 .testTag("memory-profiler-class-histogram"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(localizedStringResource(Res.string.class_histogram, language), fontWeight = FontWeight.Bold)
+        Text(
+            localizedStringResource(Res.string.class_histogram, language),
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.testTag("memory-profiler-histogram-title"),
+        )
         HistogramHeader(sort, actions, language)
         if (classes.isEmpty()) {
-            Text(localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language))
+            Text(
+                localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language),
+                modifier = Modifier.testTag("memory-profiler-histogram-empty"),
+            )
         } else {
-            LazyColumn(Modifier.fillMaxWidth()) {
-                itemsIndexed(classes, key = { _, stats -> stats.className }) { index, stats ->
-                    HistogramRow(
-                        stats = stats,
-                        rowIndex = index,
-                        highlighted = stats.className == highlightedClassName,
-                        onClick = { actions.onHighlightClass(stats.className) },
-                        language = language,
-                    )
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    modifier =
+                        Modifier.fillMaxSize().padding(end = scrollbarStyle.thickness)
+                            .testTag("memory-profiler-histogram-list"),
+                    state = listState,
+                ) {
+                    itemsIndexed(classes, key = { _, stats -> stats.className }) { index, stats ->
+                        HistogramRow(
+                            stats = stats,
+                            rowIndex = index,
+                            highlighted = stats.className == highlightedClassName,
+                            onClick = { actions.onHighlightClass(stats.className) },
+                            language = language,
+                        )
+                    }
                 }
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(listState),
+                    modifier =
+                        Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                            .testTag("memory-profiler-histogram-scrollbar"),
+                    style = scrollbarStyle,
+                )
             }
         }
     }
@@ -616,6 +663,8 @@ private fun HistogramHeader(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .padding(end = LocalScrollbarStyle.current.thickness)
+                .testTag("memory-profiler-histogram-header")
                 .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -664,7 +713,8 @@ private fun HistogramRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .height(memoryTableRowHeight())
+            .testTag("memory-profiler-histogram-row-${stats.className}")
             .background(
                 when {
                     highlighted -> MaterialTheme.colorScheme.primaryContainer
@@ -680,14 +730,30 @@ private fun HistogramRow(
         Text(
             text = stats.displayClassName,
             modifier = Modifier.weight(1f),
+            style = ViewerTypography.bodyCompact,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(integer(stats.instanceCount), Modifier.width(96.dp))
-        Text(formatBytes(stats.shallowSize), Modifier.width(112.dp))
+        Text(
+            integer(stats.instanceCount),
+            Modifier.width(96.dp),
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            formatBytes(stats.shallowSize),
+            Modifier.width(112.dp),
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
         Text(
             text = stats.retainedSize?.let(::formatBytes) ?: localizedStringResource(Res.string.unavailable, language),
             modifier = Modifier.width(140.dp),
+            style = ViewerTypography.bodyCompact,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

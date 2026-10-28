@@ -3,6 +3,7 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -71,6 +72,7 @@ import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
+@Suppress("CyclomaticComplexMethod")
 public fun MemoryProfilerLeakCanaryPage(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
@@ -122,12 +124,14 @@ public fun MemoryProfilerLeakCanaryPage(
         BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).testTag("memory-leak-workspace")) {
             val scroll = rememberScrollState()
             val contentWidth = maxOf(maxWidth, 1120.dp)
+            val scrollbarInset = if (contentWidth > maxWidth) LocalScrollbarStyle.current.thickness else 0.dp
             Row(
                 Modifier
                     .fillMaxSize()
-                    .padding(bottom = 12.dp)
+                    .padding(bottom = scrollbarInset)
                     .horizontalScroll(scroll)
-                    .requiredWidth(contentWidth),
+                    .requiredWidth(contentWidth)
+                    .testTag("memory-leak-panes"),
             ) {
                 MemoryLeakFindingsPane(
                     findings = visible,
@@ -170,14 +174,16 @@ public fun MemoryProfilerLeakCanaryPage(
                     modifier = Modifier.width(330.dp).fillMaxHeight().background(colors.panel),
                 )
             }
-            HorizontalScrollbar(
-                adapter = rememberScrollbarAdapter(scroll),
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .testTag("memory-leak-horizontal-scrollbar"),
-            )
+            if (scrollbarInset > 0.dp) {
+                HorizontalScrollbar(
+                    adapter = rememberScrollbarAdapter(scroll),
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .testTag("memory-leak-horizontal-scrollbar"),
+                )
+            }
         }
     }
 }

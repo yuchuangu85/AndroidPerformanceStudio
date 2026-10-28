@@ -176,7 +176,7 @@
     <string name="no_references">No inbound references.</string>
     <string name="leaks_summary">%1$s leaks</string>
     <string name="duplicates_summary">%1$s duplicates</string>
-    <string name="memory_leaks">Memory leaks</string>
+    <string name="memory_leaks">Leak Analysis</string>
     <string name="leak_offline_analysis">Offline heap analysis</string>
     <string name="leak_analyze">Analyze</string>
     <string name="leak_retry_analysis">Retry</string>
@@ -205,7 +205,7 @@
     <string name="leak_live_failed">Failed</string>
     <string name="leak_live_evidence">Agent events, not offline heap evidence. No HPROF object IDs.</string>
     <string name="memory_leaks_detail">LeakCanary-compatible analysis powered by Shark</string>
-    <string name="memory_leaks_no_heap">Load an HPROF snapshot to analyze memory leaks.</string>
+    <string name="memory_leaks_no_heap">Load an HPROF snapshot to run leak analysis.</string>
     <string name="memory_leaks_not_run">Leak analysis was not run for this source.</string>
     <string name="memory_leaks_no_candidates">No leak candidates were identified for Shark analysis.</string>
     <string name="memory_leaks_no_findings">No Shark leak traces found.</string>
@@ -226,7 +226,7 @@
     <string name="shark_status_no_candidates">No candidates for Shark</string>
     <string name="shark_status_not_run">Shark analysis unavailable</string>
     <string name="shark_status_failed">Shark analysis failed</string>
-    <string name="analyzing_memory_leaks">Analyzing memory leaks…</string>
+    <string name="analyzing_memory_leaks">Analyzing leaks…</string>
     <string name="live_monitoring">Live monitoring</string>
     <string name="live_monitoring_not_available">Live monitoring requires the LeakCanary bridge AAR in the target debug app.</string>
     <string name="live_events">Live events</string>

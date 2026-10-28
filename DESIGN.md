@@ -317,6 +317,7 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 ## Memory Heap Table Density (2026-10-27)
 
 - Use the installed Android Studio 2026.2.3 profiler as the behavioral reference: classifier and instance tables enable vertical column lines with zero intercell spacing, and row height is font height plus 4dp. In Compose, use the shared compact 16sp line height plus 4dp, respecting font scale; keep headers at 24dp.
+- Overview histogram items use the same row-height helper and compact text style as the Classes table: 20dp at default font scale, growing with text size. Do not retain an independent 32dp item height; keep row contents single-line and vertically centered.
 - Draw continuous theme-owned column dividers through headers, rows, selections, and unused table space. Indent only the class-name cell so heap/package depth and warning icons cannot shift numeric columns. Keep rows square and numbers right aligned.
 - Reserve bottom space in the Classes table only when its columns actually overflow horizontally, using the scrollbar's actual thickness. Otherwise extend the table to the Classes/Instance List height divider without a blank scrollbar gutter. Preserve the existing vertical scrollbar lane and draggable divider hit area.
 - Instance names carry the actual runtime class from the query, including grouped selections and arrays, plus the original object ID in decimal and hexadecimal. Class objects additionally carry their represented type for the Studio-style `(class)` label, without changing their runtime type. Never substitute a package or heap label for an object's class. Retain independently scrollable instance tables in both entry points.
@@ -382,3 +383,21 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Place warning icons after leak labels and retained-instance titles, keeping short labels and icons adjacent. Give long labels bounded text space with ellipsis so the fixed-size warning remains visible.
 - In class and instance tables, place warnings at the trailing edge of the Class Name / Instance cell, before numeric columns, not at the end of the whole table. Reserve icon space inside the name cell so long text ellipsizes without hiding the warning. If a wide name column is only partially visible, keep its icon within the visible part of that same column. Do not add a table-wide warning column or alter metric widths. Dedicated leak findings retain their row-end markers.
 - Preserve 20dp table rows, sorting, selection, grouping/expansion, column alignment, tooltips/accessibility, and existing warning-evidence rules. Cover long names, narrow panes, horizontal scrolling, both entry points, and English/Chinese light/dark rendering.
+
+## Filled Memory Analysis Workspaces (2026-10-28)
+
+- Overview's class histogram fills the available height beneath its metrics, with a 4dp gap above the status bar. Keep its title and sort headers outside the independently scrolling rows; do not cap the table at 300dp or scroll the whole overview to reveal the table.
+- In Dominators, keep Filters in a separate full-height pane and combine the dominator tree and Instance Details into one zero-padding StudioCard with an unframed split interior. All panes share a bottom edge, 4dp above the status bar when the workspace fits; do not reserve a hidden horizontal-scrollbar strip.
+- Start the tree/details ratio at 62 percent. Use a centered 1dp vertical divider in a 7dp drag target, horizontal-resize cursor, keyboard left/right steps, and accessibility progress. Reserve at least 260dp per pane when space permits, and retain the user's ratio across selection, search, language, and window-size changes. Keep very narrow layouts horizontally reachable without negative widths.
+- Let the dominator list and details table use their full pane height. Reserve scrollbar height only for real horizontal overflow, not as permanent bottom padding. Preserve tree expansion, object identity, field/reference behavior, filtering, and overview sorting/highlighting.
+
+## Leak Analysis Naming And Spacing (2026-10-28)
+
+- Name the Memory toolbar entry and report page Leak Analysis / 泄漏分析. Keep the existing internal view/resource identifiers and analysis behavior; this is not a change to candidate detection or evidence semantics.
+- Match other Memory workspaces' 4dp bottom exterior spacing above the status bar. Findings, reference paths, and Instance Details fill the available height; reserve the actual horizontal scrollbar height only when the workspace is narrower than its content.
+
+## Status Feedback Visibility (2026-10-28)
+
+- Remove the app-shell global status bar and its permanent 28dp reservation. Navigation and retained workspace content extend to the window's bottom edge; do not replace the removed bar with a spacer. Destination and artifact identity remain in existing navigation/workspace surfaces.
+- Memory shows its own compact footer only during an operation, instance query, error, or nonblank warning/cleanup warning. Blank messages do not reserve height. Running captures/imports still expose Cancel even before a progress message arrives; errors retain Retry. Keep horizontal scrolling and selectable/copyable status text.
+- When Memory's footer is hidden, analysis content ends 4dp above the page bottom. When feedback appears, the same 4dp gap applies above that footer. Showing/hiding feedback must not clear snapshots, selection, details tabs, expansion, or splitter ratios. Other profilers' feature-owned feedback is not removed with the global shell bar.

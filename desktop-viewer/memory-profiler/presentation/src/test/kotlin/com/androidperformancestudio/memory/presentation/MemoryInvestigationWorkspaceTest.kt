@@ -157,7 +157,13 @@ class MemoryInvestigationWorkspaceTest {
                             MemoryProfilerScreen(state, MemoryProfilerActions())
                         }
                     }
-                    onNodeWithTag("memory-analysis-card").assertExists()
+                    val analysisTag =
+                        if (mode == MemoryProfilerViewMode.Dominators) {
+                            "memory-dominator-analysis-card"
+                        } else {
+                            "memory-analysis-card"
+                        }
+                    onNodeWithTag(analysisTag).assertExists()
                     onNodeWithTag("memory-class-analysis-card").assertDoesNotExist()
                     onNodeWithTag("memory-filters-card").assertExists()
                     onNodeWithTag("memory-inspector-card").assertExists()
@@ -167,10 +173,11 @@ class MemoryInvestigationWorkspaceTest {
                     } else {
                         onNodeWithTag("memory-distribution-card").assertDoesNotExist()
                     }
-                    val analysis = onNodeWithTag("memory-analysis-card").fetchSemanticsNode().boundsInRoot
-                    val footer = onNodeWithTag("memory-profiler-status-bar").fetchSemanticsNode().boundsInRoot
+                    val analysis = onNodeWithTag(analysisTag).fetchSemanticsNode().boundsInRoot
+                    val root = onRoot().fetchSemanticsNode().boundsInRoot
+                    onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
                     assertTrue(analysis.height > 0f)
-                    assertTrue(analysis.bottom < footer.top)
+                    assertEquals(4f, root.bottom - analysis.bottom, 0.6f)
                 }
             }
         }
@@ -273,7 +280,9 @@ class MemoryInvestigationWorkspaceTest {
             onNodeWithTag("memory-classes-card").performScrollTo()
             assertTrue(onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot.left >= 0f)
             onNodeWithTag("memory-filters-card").assertDoesNotExist()
-            onNodeWithTag("memory-profiler-status-bar").assertExists()
+            onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
+            val analysis = onNodeWithTag("memory-class-analysis-card").fetchSemanticsNode().boundsInRoot
+            assertEquals(4f, onRoot().fetchSemanticsNode().boundsInRoot.bottom - analysis.bottom, 0.6f)
         }
 
     @Test
@@ -549,8 +558,11 @@ class MemoryInvestigationWorkspaceTest {
                         }
                     }
                     ImageIO.write(bitmap, "png", output.toFile())
-                    val footer = onNodeWithTag("memory-profiler-status-bar").fetchSemanticsNode().boundsInRoot
-                    assertEquals(height.toFloat(), footer.bottom)
+                    val root = onRoot().fetchSemanticsNode().boundsInRoot
+                    val analysis = onNodeWithTag("memory-class-analysis-card").fetchSemanticsNode().boundsInRoot
+                    onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
+                    assertEquals(height.toFloat(), root.bottom)
+                    assertEquals(4f, root.bottom - analysis.bottom, 0.6f)
                 }
             }
         }

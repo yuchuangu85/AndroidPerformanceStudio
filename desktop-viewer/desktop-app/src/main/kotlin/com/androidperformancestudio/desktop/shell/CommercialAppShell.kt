@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -52,6 +51,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -60,10 +60,8 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.desktop.AppDestination
 import com.androidperformancestudio.desktop.AppNavigator
 import com.androidperformancestudio.desktop.navigationLabelResource
-import com.androidperformancestudio.desktop.titleResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.command_palette
-import com.androidperformancestudio.desktop_app.generated.resources.no_active_artifact
 import com.androidperformancestudio.desktop_app.generated.resources.no_matching_commands
 import com.androidperformancestudio.desktop_app.generated.resources.search_commands
 import com.androidperformancestudio.desktop_app.generated.resources.settings
@@ -71,8 +69,6 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.studio.StudioStatusChip
-import com.androidperformancestudio.ui.studio.StudioStatusTone
 import com.androidperformancestudio.ui.studio.StudioSearchField
 import com.androidperformancestudio.ui.studio.StudioTokens
 import org.jetbrains.compose.resources.DrawableResource
@@ -86,13 +82,6 @@ internal fun navigationRailCollapsedFor(availableWidthDp: Int): Boolean =
 internal fun resolvedNavigationRailCollapsed(availableWidthDp: Int, userCollapsed: Boolean?): Boolean =
     userCollapsed ?: navigationRailCollapsedFor(availableWidthDp)
 
-internal data class WorkspaceContext(
-    val deviceLabel: String? = null,
-    val packageName: String? = null,
-    val processName: String? = null,
-    val artifactLabel: String? = null,
-)
-
 private data class StudioNavigationItem(
     val destination: AppDestination,
     val label: String,
@@ -100,8 +89,8 @@ private data class StudioNavigationItem(
 )
 
 /**
- * Phase-2 shell chrome. It intentionally projects only app navigation and read-only context; all
- * feature state remains in the retained destination composed by [content].
+ * Shell chrome owns app navigation; feature state and task feedback remain in the retained
+ * destination composed by [content].
  */
 @Composable
 internal fun CommercialAppShell(
@@ -109,7 +98,6 @@ internal fun CommercialAppShell(
     language: UiLanguage,
     navigationRailCollapsed: Boolean,
     modifier: Modifier = Modifier,
-    workspaceContext: WorkspaceContext = WorkspaceContext(),
     content: @Composable BoxScope.() -> Unit,
 ) {
     var showCommandPalette by remember { mutableStateOf(false) }
@@ -118,7 +106,6 @@ internal fun CommercialAppShell(
         shellFocusRequester.requestFocus()
     }
     val colors = LocalViewerColors.current
-    val destinationTitle = localizedStringResource(navigator.destination.titleResource, language)
     val commandPaletteLabel = localizedStringResource(Res.string.command_palette, language)
     val settingsLabel = localizedStringResource(Res.string.settings, language)
     val navigationItems =
@@ -183,26 +170,19 @@ internal fun CommercialAppShell(
                 .focusable(),
     ) {
         val collapsed = resolvedNavigationRailCollapsed(maxWidth.value.toInt(), navigationRailCollapsed)
-        Column(modifier = Modifier.fillMaxSize().background(colors.toolbar)) {
-            Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                StudioNavigationRail(
-                    items = navigationItems,
-                    selectedDestination = navigator.destination,
-                    collapsed = collapsed,
-                    settingsLabel = settingsLabel,
-                    settingsSelected = navigator.destination == AppDestination.SETTINGS,
-                    onDestinationSelected = navigator::open,
-                    onOpenSettings = { navigator.open(AppDestination.SETTINGS) },
-                )
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    content()
-                }
-            }
-            StudioStatusBar(
-                destinationTitle = destinationTitle,
-                workspaceContext = workspaceContext,
-                noActiveArtifactLabel = localizedStringResource(Res.string.no_active_artifact, language),
+        Row(modifier = Modifier.fillMaxSize().background(colors.toolbar)) {
+            StudioNavigationRail(
+                items = navigationItems,
+                selectedDestination = navigator.destination,
+                collapsed = collapsed,
+                settingsLabel = settingsLabel,
+                settingsSelected = navigator.destination == AppDestination.SETTINGS,
+                onDestinationSelected = navigator::open,
+                onOpenSettings = { navigator.open(AppDestination.SETTINGS) },
             )
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                content()
+            }
         }
     }
 
@@ -239,6 +219,7 @@ private fun StudioNavigationRail(
             Modifier
                 .fillMaxHeight()
                 .width(width)
+                .testTag("studio-navigation-rail")
                 .background(colors.toolbar)
                 .border(width = StudioTokens.borderWidth, color = colors.border)
                 .padding(StudioTokens.compactContentPadding),
@@ -371,42 +352,6 @@ private fun RailTooltip(label: String) {
             lineHeight = ViewerTypography.secondary.lineHeight,
             maxLines = 1,
         )
-    }
-}
-
-@Composable
-private fun StudioStatusBar(
-    destinationTitle: String,
-    workspaceContext: WorkspaceContext,
-    noActiveArtifactLabel: String,
-) {
-    val colors = LocalViewerColors.current
-    SelectionContainer {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(StudioTokens.globalStatusBarHeight)
-                    .background(colors.toolbar)
-                    .border(width = StudioTokens.borderWidth, color = colors.border)
-                    .padding(horizontal = StudioTokens.compactContentPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
-        ) {
-            Text(
-                text = destinationTitle,
-                color = colors.secondaryText,
-                fontSize = ViewerTypography.label.fontSize,
-                lineHeight = ViewerTypography.label.lineHeight,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.weight(1f))
-            StudioStatusChip(
-                label = workspaceContext.artifactLabel ?: noActiveArtifactLabel,
-                tone = if (workspaceContext.artifactLabel == null) StudioStatusTone.NEUTRAL else StudioStatusTone.INFO,
-            )
-        }
     }
 }
 

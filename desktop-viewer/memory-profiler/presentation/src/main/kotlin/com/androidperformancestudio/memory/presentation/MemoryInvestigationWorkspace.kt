@@ -3,6 +3,7 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -100,12 +101,16 @@ private fun MemoryInvestigationContent(
     modifier: Modifier,
     content: @Composable (Modifier) -> Unit,
 ) {
+    if (state.viewMode == MemoryProfilerViewMode.Dominators) {
+        MemoryDominatorWorkspace(state, actions, language, modifier, content)
+        return
+    }
     BoxWithConstraints(modifier) {
         val scroll = rememberScrollState()
         val classList = state.viewMode == MemoryProfilerViewMode.ClassList
         val minimumWidth = if (classList) 650.dp else 1120.dp
         val contentWidth = maxOf(maxWidth, minimumWidth)
-        val scrollbarInset = if (classList && contentWidth <= maxWidth) 0.dp else 10.dp
+        val scrollbarInset = if (contentWidth > maxWidth) LocalScrollbarStyle.current.thickness else 0.dp
         Row(
             Modifier
                 .fillMaxSize()

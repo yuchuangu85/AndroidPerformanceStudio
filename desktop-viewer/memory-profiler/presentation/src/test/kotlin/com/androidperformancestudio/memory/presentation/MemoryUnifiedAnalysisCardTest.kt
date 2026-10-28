@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.ClassStats
@@ -39,9 +40,10 @@ class MemoryUnifiedAnalysisCardTest {
                 val card = onNodeWithTag("memory-class-analysis-card").fetchSemanticsNode().boundsInRoot
                 val previousTag = if (loaded) "memory-distribution-card" else "memory-snapshot-summary"
                 val previous = onNodeWithTag(previousTag).fetchSemanticsNode().boundsInRoot
-                val footer = onNodeWithTag("memory-profiler-status-bar").fetchSemanticsNode().boundsInRoot
+                val root = onRoot().fetchSemanticsNode().boundsInRoot
+                onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
                 assertEquals(4f, card.top - previous.bottom, 0.6f)
-                assertEquals(4f, footer.top - card.bottom, 0.6f)
+                assertEquals(4f, root.bottom - card.bottom, 0.6f)
                 assertEquals(4f, card.left, 0.6f)
                 assertEquals(width - 4f, card.right, 0.6f)
                 val inCard = hasAnyAncestor(hasTestTag("memory-class-analysis-card"))

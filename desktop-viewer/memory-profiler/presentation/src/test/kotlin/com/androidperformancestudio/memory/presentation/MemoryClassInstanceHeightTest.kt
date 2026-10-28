@@ -17,6 +17,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
@@ -148,7 +149,8 @@ class MemoryClassInstanceHeightTest {
             assertEquals(tableWidth, bounds("memory-instance-list-table-pane").width, 1f)
             assertEquals(frame, bounds("memory-class-analysis-card"))
             assertEquals(4f, frame.top - bounds("memory-distribution-card").bottom, 0.6f)
-            assertEquals(4f, bounds("memory-profiler-status-bar").top - frame.bottom, 0.6f)
+            onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
+            assertEquals(4f, onRoot().fetchSemanticsNode().boundsInRoot.bottom - frame.bottom, 0.6f)
             val resizedHeight = bounds(CLASSES).height
             onNodeWithTag("memory-instance-row-43").performClick().assertIsSelected()
             assertEquals(resizedHeight, bounds(CLASSES).height, 1f)

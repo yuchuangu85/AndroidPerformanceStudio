@@ -6,6 +6,7 @@ package com.androidperformancestudio.memory.presentation
 import androidx.compose.foundation.ContextMenuArea
 import androidx.compose.foundation.ContextMenuItem
 import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
@@ -98,6 +99,7 @@ import java.awt.Cursor
 import com.androidperformancestudio.ui_components.generated.resources.Res as UiRes
 
 @Composable
+@Suppress("CyclomaticComplexMethod")
 internal fun MemoryInspectorTable(
     state: MemoryProfilerState,
     actions: MemoryProfilerActions,
@@ -127,7 +129,9 @@ internal fun MemoryInspectorTable(
                 overrides[column] ?: (minimum + extra * (column.preferredWidth.value / preferredTotal))
             }
         val tableWidth = widths.fold(0.dp, Dp::plus)
-        Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = 10.dp)) {
+        val horizontalOverflow = with(density) { tableWidth.roundToPx() > (maxWidth - 10.dp).roundToPx() }
+        val scrollbarInset = if (horizontalOverflow) LocalScrollbarStyle.current.thickness else 0.dp
+        Box(Modifier.fillMaxSize().padding(end = 10.dp, bottom = scrollbarInset)) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -234,15 +238,18 @@ internal fun MemoryInspectorTable(
             Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .padding(top = 24.dp, bottom = 10.dp),
+                .padding(top = 24.dp, bottom = scrollbarInset),
         )
-        HorizontalScrollbar(
-            rememberScrollbarAdapter(horizontal),
-            Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(end = 10.dp),
-        )
+        if (scrollbarInset > 0.dp) {
+            HorizontalScrollbar(
+                rememberScrollbarAdapter(horizontal),
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(end = 10.dp)
+                    .testTag("memory-inspector-horizontal-scrollbar"),
+            )
+        }
     }
 }
 

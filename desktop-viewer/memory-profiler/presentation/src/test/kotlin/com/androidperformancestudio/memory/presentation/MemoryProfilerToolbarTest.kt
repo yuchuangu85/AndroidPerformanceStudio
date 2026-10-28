@@ -237,7 +237,7 @@ private fun ToolbarFixture(
             ProfilerCompactButton(if (english) "Bitmaps" else "Bitmap", { onAction("bitmap-view") })
             ProfilerCompactButton(if (english) "Native Heap" else "Native 堆", { onAction("native-view") })
             ProfilerCompactButton(if (english) "ART Samples" else "ART 采样", { onAction("art-view") })
-            ProfilerCompactButton(if (english) "Memory Leaks" else "内存泄漏", { onAction("leaks") })
+            ProfilerCompactButton(if (english) "Leak Analysis" else "泄漏分析", { onAction("leaks") })
             ProfilerCompactButton(
                 "Mapping",
                 { onAction("mapping") },

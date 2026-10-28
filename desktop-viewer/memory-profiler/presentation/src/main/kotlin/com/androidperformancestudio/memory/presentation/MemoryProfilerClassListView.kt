@@ -1263,7 +1263,7 @@ private val CLASS_INSTANCE_SPLITTER_HEIGHT = 7.dp
 private val INSTANCE_COLUMN_WIDTHS = listOf(60.dp, 104.dp, 96.dp, 120.dp)
 
 @Composable
-private fun memoryTableRowHeight(): Dp = with(LocalDensity.current) { ViewerTypography.bodyCompact.lineHeight.toDp() } + 4.dp
+internal fun memoryTableRowHeight(): Dp = with(LocalDensity.current) { ViewerTypography.bodyCompact.lineHeight.toDp() } + 4.dp
 
 private fun classifierColumnWidths(
     columns: Set<MemoryClassifierColumn>,

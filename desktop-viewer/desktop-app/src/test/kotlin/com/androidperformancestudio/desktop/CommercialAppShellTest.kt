@@ -1,7 +1,6 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.desktop.shell.NAVIGATION_COLLAPSE_BREAKPOINT_DP
-import com.androidperformancestudio.desktop.shell.WorkspaceContext
 import com.androidperformancestudio.desktop.shell.navigationIconResource
 import com.androidperformancestudio.desktop.shell.navigationRailCollapsedFor
 import com.androidperformancestudio.desktop.shell.resolvedNavigationRailCollapsed
@@ -15,10 +14,9 @@ import org.junit.jupiter.api.Test
 
 class CommercialAppShellTest {
     @Test
-    fun `global and feature status bars keep text selection scoped to their footer`() {
+    fun `feature status bars keep text selection scoped to their footer`() {
         val footers =
             mapOf(
-                "src/main/kotlin/com/androidperformancestudio/desktop/shell/CommercialAppShell.kt" to "StudioStatusBar",
                 "../layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt" to
                     "LayoutInspectorStatusBar",
                 "../perfetto-viewer/perfetto-app/src/main/kotlin/com/androidperformancestudio/perfetto/app/PerfettoMainPage.kt" to
@@ -194,6 +192,10 @@ class CommercialAppShellTest {
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/desktop/shell/CommercialAppShell.kt"),
             )
+        val desktopMain =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"),
+            )
 
         assertNotEquals(AppDestination.HOME.titleResource, AppDestination.HOME.navigationLabelResource)
         assertEquals(
@@ -201,7 +203,9 @@ class CommercialAppShellTest {
             AppDestination.LAYOUT_INSPECTOR.navigationLabelResource,
         )
         assertTrue(shell.contains("it.navigationLabelResource"))
-        assertTrue(shell.contains("navigator.destination.titleResource"))
+        assertTrue(
+            desktopMain.contains("windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)"),
+        )
     }
 
     @Test
@@ -234,22 +238,6 @@ class CommercialAppShellTest {
     }
 
     @Test
-    fun `workspace context is a read only shell projection`() {
-        val context =
-            WorkspaceContext(
-                deviceLabel = "Pixel 9",
-                packageName = "com.example.app",
-                processName = "com.example.app:worker",
-                artifactLabel = "baseline.perfetto-trace",
-            )
-
-        assertEquals("Pixel 9", context.deviceLabel)
-        assertEquals("com.example.app", context.packageName)
-        assertEquals("com.example.app:worker", context.processName)
-        assertEquals("baseline.perfetto-trace", context.artifactLabel)
-    }
-
-    @Test
     fun `hidden retained destinations block keyboard while shell handles global shortcuts first`() {
         val sourceRoot = Path.of("src/main/kotlin/com/androidperformancestudio/desktop")
         val desktopMain = Files.readString(sourceRoot.resolve("DesktopAppMainPage.kt"))
@@ -278,7 +266,10 @@ class CommercialAppShellTest {
         assertTrue(shell.contains("settingsSelected"))
         assertTrue(shell.contains("onClick = onOpenSettings"))
         assertTrue(shell.contains("height(StudioTokens.borderWidth)"))
-        assertTrue(shell.contains("StudioStatusBar("))
+        assertFalse(shell.contains("StudioStatusBar"))
+        assertFalse(shell.contains("globalStatusBarHeight"))
+        assertFalse(shell.contains("no_active_artifact"))
+        assertFalse(shell.contains("WorkspaceContext"))
         assertTrue(shell.contains("StudioCommandPalette("))
         assertTrue(shell.contains("navigator::open"))
         assertFalse(shell.contains("UniversalProfilerModel"))

@@ -70,7 +70,7 @@ class MemoryLeakInvestigationTest {
             var analyzed = 0
             setContent { MemoryProfilerScreen(state, MemoryProfilerActions(onAnalyzeLeaks = { analyzed++ })) }
             onNodeWithTag("memory-leak-analyze").assertIsNotEnabled()
-            onNodeWithText("Load an HPROF snapshot to analyze memory leaks.").assertExists()
+            onNodeWithText("Load an HPROF snapshot to run leak analysis.").assertExists()
             runOnIdle { state = state.copy(snapshotSummary = HeapSnapshotSummary("heap")) }
             onNodeWithText("Leak analysis was not run for this source.").assertExists()
             onNodeWithTag("memory-leak-analyze").assertIsEnabled()
