@@ -32,9 +32,10 @@ class SettingsDialogStyleTest {
     }
 
     @Test
-    fun `settings typography creates clear hierarchy`() {
-        assertTrue(ViewerTypography.pageTitle.fontSize > ViewerTypography.sectionTitle.fontSize)
+    fun `settings typography uses the shared three level hierarchy`() {
+        assertEquals(ViewerTypography.pageTitle.fontSize, ViewerTypography.sectionTitle.fontSize)
         assertTrue(ViewerTypography.sectionTitle.fontSize > ViewerTypography.bodyCompact.fontSize)
+        assertTrue(ViewerTypography.bodyCompact.fontSize > ViewerTypography.secondary.fontSize)
     }
 
     @Test

@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-10-25
+- Last refreshed: 2026-10-29
 - Primary product surfaces:
   - Compose Desktop 主入口与打包：`desktop-viewer/desktop-app`
   - Layout Inspector 功能 UI：`desktop-viewer/layout-inspector/presentation`
@@ -90,7 +90,9 @@
   - 隐藏按钮使用低强调色；hover 时提高边框/文字对比。
   - Canvas 中默认不绘制隐藏节点边框；如未来加入“显示隐藏层级边框”，使用虚线或低透明 warning 色。
 - Typography:
-  - 沿用层级树 monospace 小字号，避免破坏当前 16dp 高密度行。
+  - 所有自有桌面界面的字号只允许三档，统一定义在 `desktop-viewer/ui-components/src/main/kotlin/com/androidperformancestudio/ui/ViewerTheme.kt` 的 `ViewerTypography`：标题、卡片标题和关键数值 16sp；正文、普通控件和小节标题 13sp；辅助说明、状态、密集表格和图表标签 11sp。
+  - 沿用现有语义角色和适合各位置的行高，不通过增加字号建立新层级；同档标题使用字重、间距区分。层级树保留 monospace 和 16dp 高密度行。
+  - Material3 的全部默认文字样式（含 display）以及自有 Canvas、浏览器错误页均复用公共三档；第三方 Perfetto/Firefox viewer 的内部 UI 和设备采集截图不在自有主题控制范围内。
   - 行内状态短文案：`Hide` / `Show`，中文 `隐藏` / `显示`。
 - Spacing/layout rhythm:
   - 层级行保持 16dp 高度；隐藏按钮宽度控制在 28–36dp，避免挤压类名。

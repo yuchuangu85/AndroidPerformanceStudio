@@ -102,7 +102,8 @@ class FlameGraphPaletteTest {
 
         assertEquals(16f, standard.rowHeightPx)
         assertEquals(32f, retina.rowHeightPx)
-        assertEquals(20f, retina.labelFontSizePx)
+        assertEquals(11f, standard.labelFontSizePx)
+        assertEquals(22f, retina.labelFontSizePx)
         assertEquals(6f, retina.labelStartOffsetPx)
         assertEquals(22f, retina.labelBaselineOffsetPx)
         assertEquals(standard.categoryStyles, retina.categoryStyles)

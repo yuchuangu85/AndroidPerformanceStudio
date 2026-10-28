@@ -99,26 +99,35 @@ public object ViewerDimensions {
 
 /**
  * The single desktop viewer text hierarchy. UI code selects a semantic role instead of owning sizes.
+ *
+ * Titles and key metrics use 16sp, body text and regular controls use 13sp, and supporting text,
+ * dense tables and chart labels use 11sp. Semantic roles retain their layout-specific line heights.
  */
 public object ViewerTypography {
-    public val flameGraphLabelPixels: Float = 10f
-    public val homeHero: TextStyle = TextStyle(fontSize = 30.sp, lineHeight = 36.sp)
-    public val pageTitle: TextStyle = TextStyle(fontSize = 18.sp, lineHeight = 22.sp)
-    public val workspaceTitle: TextStyle = TextStyle(fontSize = 18.sp, lineHeight = 28.sp)
-    public val workspaceSubtitle: TextStyle = TextStyle(fontSize = 12.sp, lineHeight = 18.sp)
-    public val sectionTitle: TextStyle = TextStyle(fontSize = 16.sp, lineHeight = 20.sp)
-    public val cardTitle: TextStyle = TextStyle(fontSize = 15.sp, lineHeight = 19.sp)
-    public val subsectionTitle: TextStyle = TextStyle(fontSize = 13.sp, lineHeight = 17.sp)
-    public val lead: TextStyle = TextStyle(fontSize = 14.sp, lineHeight = 19.sp)
-    public val body: TextStyle = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
-    public val bodyMedium: TextStyle = TextStyle(fontSize = 12.sp, lineHeight = 17.sp)
-    public val bodyCompact: TextStyle = TextStyle(fontSize = 12.sp, lineHeight = 16.sp)
-    public val secondary: TextStyle = TextStyle(fontSize = 11.sp, lineHeight = 15.sp)
-    public val label: TextStyle = TextStyle(fontSize = 10.sp, lineHeight = 14.sp)
-    public val dense: TextStyle = TextStyle(fontSize = 9.sp, lineHeight = 11.sp)
-    public val micro: TextStyle = TextStyle(fontSize = 8.sp, lineHeight = 10.sp)
-    public val metric: TextStyle = TextStyle(fontSize = 17.sp, lineHeight = 21.sp)
-    public val icon: TextStyle = TextStyle(fontSize = 20.sp, lineHeight = 20.sp)
+    private val titleSize = 16.sp
+    private val bodySize = 13.sp
+    private val supportingSize = 11.sp
+
+    public val homeHero: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 22.sp)
+    public val pageTitle: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 22.sp)
+    public val workspaceTitle: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 28.sp)
+    public val workspaceSubtitle: TextStyle = TextStyle(fontSize = supportingSize, lineHeight = 18.sp)
+    public val sectionTitle: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 20.sp)
+    public val cardTitle: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 19.sp)
+    public val subsectionTitle: TextStyle = TextStyle(fontSize = bodySize, lineHeight = 17.sp)
+    public val lead: TextStyle = TextStyle(fontSize = bodySize, lineHeight = 19.sp)
+    public val body: TextStyle = TextStyle(fontSize = bodySize, lineHeight = 18.sp)
+    public val bodyMedium: TextStyle = TextStyle(fontSize = bodySize, lineHeight = 17.sp)
+    public val bodyCompact: TextStyle = TextStyle(fontSize = bodySize, lineHeight = 16.sp)
+    public val secondary: TextStyle = TextStyle(fontSize = supportingSize, lineHeight = 15.sp)
+    public val label: TextStyle = TextStyle(fontSize = supportingSize, lineHeight = 14.sp)
+    public val dense: TextStyle = TextStyle(fontSize = supportingSize, lineHeight = 14.sp)
+    public val micro: TextStyle = TextStyle(fontSize = supportingSize, lineHeight = 14.sp)
+    public val metric: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 21.sp)
+    public val icon: TextStyle = TextStyle(fontSize = titleSize, lineHeight = 20.sp)
+
+    /** CSS-pixel charts scale this shared supporting size by their device pixel ratio. */
+    public val flameGraphLabelPixels: Float = supportingSize.value
 }
 
 /** Theme-owned choices for the persisted application accent preference. */
@@ -142,7 +151,10 @@ public object ViewerDocumentTheme {
     public const val raisedSurface: String = "#222"
     public const val imageSurface: String = "#333"
     public const val systemFontFamily: String = "system-ui"
-    public const val errorFontSize: String = "18px"
+    public val titleFontSize: String = "${ViewerTypography.pageTitle.fontSize.value.toInt()}px"
+    public val bodyFontSize: String = "${ViewerTypography.body.fontSize.value.toInt()}px"
+    public val supportingFontSize: String = "${ViewerTypography.secondary.fontSize.value.toInt()}px"
+    public val errorFontSize: String = titleFontSize
 }
 
 @Immutable
@@ -231,6 +243,9 @@ public object ViewerVisualizationColors {
 
 private val ViewerMaterialTypography =
     Typography(
+        displayLarge = ViewerTypography.homeHero,
+        displayMedium = ViewerTypography.pageTitle,
+        displaySmall = ViewerTypography.sectionTitle,
         headlineLarge = ViewerTypography.homeHero,
         headlineMedium = ViewerTypography.pageTitle,
         headlineSmall = ViewerTypography.sectionTitle,
