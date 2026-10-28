@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.platform.perfetto.TraceQuerySchema
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -110,11 +111,24 @@ class ReleaseWorkflowTest {
         val installer = Files.readString(Path.of("../../scripts/install-trace-processor.sh"))
         val manifest = Files.readString(Path.of("../platform-perfetto/trace-processor-manifest.json"))
 
+        assertTrue(installer.contains("version=\"${TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION}\""))
+        assertTrue(installer.contains("manifest[\"version\"] != \"${TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION}\""))
         assertTrue(installer.contains("entry[\"url\"]"))
         assertTrue(installer.contains("curl --fail --location --retry 3"))
         assertTrue(installer.contains("actual_checksum"))
         assertTrue(installer.contains("--version"))
         assertTrue(!installer.contains("get.perfetto.dev"))
-        assertTrue(manifest.contains("perfetto-luci-artifacts/v57.2"))
+        assertTrue(manifest.contains("perfetto-luci-artifacts/v59.1"))
+    }
+
+    @Test
+    fun `Perfetto UI download uses the processor pin and builds cannot reuse an old bundle`() {
+        val script = Files.readString(Path.of("../../scripts/build-perfetto-ui.sh"))
+
+        assertTrue(script.contains("perfetto_version=\"${TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION}\""))
+        assertTrue(script.contains("releases/download/${'$'}perfetto_version/perfetto-ui.zip"))
+        assertTrue(!script.contains("if [[ -f \"${'$'}perfetto_path/out/ui/dist/index.html\" ]]"))
+        assertTrue(script.contains("ui/build --out out --no-wasm --no-depscheck"))
+        assertTrue(script.contains("ui/build --out out)"))
     }
 }

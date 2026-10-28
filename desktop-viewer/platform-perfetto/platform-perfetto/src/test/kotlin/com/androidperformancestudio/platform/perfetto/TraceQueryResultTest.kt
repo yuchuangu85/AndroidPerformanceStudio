@@ -6,6 +6,14 @@ import kotlin.test.assertNull
 
 public class TraceQueryResultTest {
     @Test
+    public fun `legacy feature schema factory follows the migrated processor pin`() {
+        val id = TraceColumn.long("id")
+
+        assertEquals("v59.1", TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION)
+        assertEquals(TraceQuerySchema.v59_1(id), TraceQuerySchema.v57_2(id))
+    }
+
+    @Test
     public fun `ignores trace processor leading blank lines`() {
         val result = TraceQueryResult.parse("\n\n\"name\"\n\"surfaceflinger_layer\"\n")
         assertEquals(listOf("name"), result.columns)

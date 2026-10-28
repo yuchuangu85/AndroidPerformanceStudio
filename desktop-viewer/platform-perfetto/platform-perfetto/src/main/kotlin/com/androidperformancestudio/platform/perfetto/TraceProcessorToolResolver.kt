@@ -27,7 +27,7 @@ public data class TraceProcessorManifest(
     }
 
     public companion object {
-        public fun pinnedV57_2(): TraceProcessorManifest =
+        public fun pinnedV59_1(): TraceProcessorManifest =
             TraceProcessorManifest(loadPinnedManifest())
 
         private fun loadPinnedManifest(): Map<HostPlatform, String> {
@@ -59,7 +59,7 @@ public data class TraceProcessorManifest(
 
 public class TraceProcessorToolResolver(
     private val platformDetector: HostPlatformDetector = SystemHostPlatformDetector(),
-    private val manifest: TraceProcessorManifest = TraceProcessorManifest.pinnedV57_2(),
+    private val manifest: TraceProcessorManifest = TraceProcessorManifest.pinnedV59_1(),
     private val applicationResourcesPath: Path? =
         System.getProperty(COMPOSE_APPLICATION_RESOURCES_PROPERTY)?.takeIf(String::isNotBlank)?.let(Path::of),
     private val installedToolsPath: Path =

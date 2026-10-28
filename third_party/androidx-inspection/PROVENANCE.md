@@ -6,14 +6,22 @@ Google Maven or Maven Central** — Android Studio ships it as an internal prebu
 so APS vendors the Java API subset it needs and builds it here instead of copying a Studio artifact.
 
 - Upstream: `platform/frameworks/support`, subdirectory `inspection/inspection`
-- Revision: `b2dcba37aea417626ed77a230e961f405d893c4c` (branch `androidx-main` at vendoring time)
-- Archive: `https://android.googlesource.com/platform/frameworks/support/+archive/b2dcba37aea417626ed77a230e961f405d893c4c/inspection/inspection.tar.gz`
-- Archive SHA-256: `1198000aaa82e026d20cc812a0761f5d6721a9ffe26314e01ab2cde7d1e8ab8b`
+- Revision: `4da03982d44f5a668172df67c920114ceca6dc2b` (branch `androidx-main`, verified 2026-10-28)
+- Commit time: `2026-10-28T11:49:43Z`
+- Upstream subtree tree: `a0eecdea404c2070a607e1d1f3b05dcaadf73fcd`
+- Archive: `https://android.googlesource.com/platform/frameworks/support/+archive/4da03982d44f5a668172df67c920114ceca6dc2b/inspection/inspection.tar.gz`
+- Archive SHA-256: `87c388d1ee338d846e13f13b48366a549fc1540e9835dc6bf54bcd1338739c69` (downloaded 2026-10-28)
 - License: Apache License 2.0; original per-file notices are preserved.
 
 `src/main/java/androidx/inspection/` is an unmodified copy of that archive's Java sources. The
 upstream module also carries native sources (`src/main/native`) and a Robolectric/androidTest suite
 that APS does not vendor yet.
+
+The eight Java sources and `README-AOSP.md` (upstream `README.md`) are byte-identical to the previous
+snapshot at `b2dcba37aea417626ed77a230e961f405d893c4c`; this refresh changes only the provenance pin.
+Gitiles regenerates tar metadata when serving an archive, so the SHA-256 above identifies the
+download used for this refresh, not a promise that later archive downloads have identical bytes.
+The immutable commit and subtree tree identify the upstream source independently of that packaging.
 
 ## Why only the Java API is vendored
 

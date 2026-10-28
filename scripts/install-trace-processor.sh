@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-version="v57.2"
+version="v59.1"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checksum_manifest="$repository_root/desktop-viewer/platform-perfetto/trace-processor-manifest.json"
 install_dir="${PERFETTO_TOOLS_DIR:-$HOME/.android-performance-studio/tools/perfetto/$version}"
@@ -29,7 +29,7 @@ host_key="$host_os-$host_arch"
 IFS=$'\t' read -r download_url expected_checksum < <(python3 - "$checksum_manifest" "$host_key" <<'PY'
 import json, sys
 manifest = json.load(open(sys.argv[1], encoding="utf-8"))
-if manifest["version"] != "v57.2":
+if manifest["version"] != "v59.1":
     raise SystemExit(f"unexpected Trace Processor manifest version: {manifest['version']}")
 entry = manifest["artifacts"].get(sys.argv[2])
 if entry is None:

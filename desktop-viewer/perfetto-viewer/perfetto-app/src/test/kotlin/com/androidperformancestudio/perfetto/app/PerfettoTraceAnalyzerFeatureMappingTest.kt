@@ -62,7 +62,7 @@ class PerfettoTraceAnalyzerFeatureMappingTest {
         assertEquals(listOf("1000", "5", "0", "main", "—", "S"), table.rows.first())
         assertEquals(listOf(1000L, null), table.rowTimestampsNanos)
         assertEquals(query.sql, table.sql)
-        assertEquals("v57.2", table.schemaVersion)
+        assertEquals("v59.1", table.schemaVersion)
 
         val aggregate = PerfettoDiagnostics.all.first { it.id == "frame_jank" }
         val aggregateTable =

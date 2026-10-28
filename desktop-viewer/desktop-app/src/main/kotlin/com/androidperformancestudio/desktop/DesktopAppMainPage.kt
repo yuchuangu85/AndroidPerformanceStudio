@@ -174,10 +174,7 @@ fun FrameWindowScope.DesktopAppMainPage(
             WindowMenuChrome(
                 language = language,
                 globalOpenItems =
-                    listOf(
-                        MenuCommand(localizedStringResource(Res.string.open_trace_file, language), onClick = openTraceFile),
-                        MenuCommand(localizedStringResource(Res.string.analyze_hprof, language), onClick = analyzeHprof),
-                    ),
+                    homeArtifactMenuCommands(navigator.destination, language, openTraceFile, analyzeHprof),
                 // macOS reaches Settings through the application menu (ApplicationSettingsMenuInstaller).
                 onOpenSettings = { openSettings(SettingsPage.GENERAL) }.takeUnless { MenuShortcuts.isMacOs },
                 helpItems =
@@ -595,6 +592,21 @@ fun FrameWindowScope.DesktopAppMainPage(
         }
     }
 }
+
+internal fun homeArtifactMenuCommands(
+    destination: AppDestination,
+    language: UiLanguage,
+    onOpenTraceFile: () -> Unit,
+    onAnalyzeHprof: () -> Unit,
+): List<MenuCommand> =
+    if (destination == AppDestination.HOME) {
+        listOf(
+            MenuCommand(localizedStringResource(Res.string.open_trace_file, language), onClick = onOpenTraceFile),
+            MenuCommand(localizedStringResource(Res.string.analyze_hprof, language), onClick = onAnalyzeHprof),
+        )
+    } else {
+        emptyList()
+    }
 
 private fun chooseHomeArtifact(
     parent: java.awt.Window,

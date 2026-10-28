@@ -16,7 +16,7 @@ plugins {
 //
 // The two vendored upstream snapshots stay byte-for-byte unmodified:
 //   third_party/aosp-ui-inspector    platform/tools/base@b126135... ui-inspector subtree
-//   third_party/androidx-inspection  platform/frameworks/support@b2dcba37... inspection/inspection
+//   third_party/androidx-inspection  platform/frameworks/support@4da03982... inspection/inspection
 //
 // The only APS adaptation is staged into build/agent-src: the AOSP snapshot compiles against
 // Android Studio's shaded protobuf, while APS builds the same protos with the public runtime.
@@ -554,7 +554,7 @@ val composeAgentBundle =
                     appendLine("# Compose inspection agent jars")
                     appendLine()
                     appendLine("- AOSP tools/base commit: `b1261356012800c0a93d18f03b060024e8162c2f`")
-                    appendLine("- AndroidX frameworks/support commit: `b2dcba37aea417626ed77a230e961f405d893c4c`")
+                    appendLine("- AndroidX frameworks/support commit: `4da03982d44f5a668172df67c920114ceca6dc2b`")
                     appendLine("- AOSP tools/dexter (slicer) commit: `d992a222ec28b56efa29f9104db060379298049c`")
                     appendLine("- Built by: `:layout-inspector:compose-agent-build`")
                     appendLine()

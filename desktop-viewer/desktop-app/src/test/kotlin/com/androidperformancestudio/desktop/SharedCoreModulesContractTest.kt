@@ -200,7 +200,7 @@ class SharedCoreModulesContractTest {
         listOf("macos-x64", "macos-arm64", "linux-x64", "linux-arm64", "windows-x64").forEach { host ->
             assertTrue(manifest.contains("\"$host\""), "Manifest missing $host")
         }
-        assertTrue(manifest.contains("\"version\": \"v57.2\""))
+        assertTrue(manifest.contains("\"version\": \"v59.1\""))
         assertTrue(packaging.contains("JsonSlurper().parse(manifestFile)"))
         assertFalse(packaging.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))
         assertFalse(resolver.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))

@@ -12,7 +12,9 @@ import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import com.androidperformancestudio.platform.toolchain.HostProcessRunner
 import com.androidperformancestudio.platform.toolchain.HostProcessTextResult
 import com.androidperformancestudio.platform.toolchain.RunningHostProcess
+import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -32,7 +34,7 @@ class TraceProcessorToolResolverTest {
                 HostPlatform(HostOperatingSystem.WINDOWS, CpuArchitecture.X64),
             )
 
-        assertEquals(expected, TraceProcessorManifest.pinnedV57_2().checksums.keys)
+        assertEquals(expected, TraceProcessorManifest.pinnedV59_1().checksums.keys)
     }
 
     @Test
@@ -134,13 +136,69 @@ class TraceProcessorToolResolverTest {
                     applicationResourcesPath = null,
                     installedToolsPath = Files.createTempDirectory("no-installed-tool"),
                     configuredOverride = binary,
-                    processRunner = VersionRunner("Perfetto Trace Processor v57.2"),
+                    processRunner = VersionRunner("Perfetto Trace Processor v59.1"),
                 ).resolve()
 
             val tool = assertIs<StudioResult.Success<TraceProcessorTool>>(result).value
             assertEquals(ArtifactFileEvidence.sha256(binary).value, tool.sha256)
-            assertEquals("v57.2", tool.version)
+            assertEquals("v59.1", tool.version)
         }
+
+    @Test
+    fun `rejects the previous pinned version as an explicit override`() =
+        runBlocking {
+            val binary = Files.createTempFile("previous-trace-processor", "")
+            binary.toFile().setExecutable(true)
+            val result =
+                TraceProcessorToolResolver(
+                    manifest = TraceProcessorManifest(emptyMap()),
+                    configuredOverride = binary,
+                    processRunner = VersionRunner("Perfetto Trace Processor v57.2"),
+                ).resolve()
+
+            assertEquals("TRACE_PROCESSOR_INCOMPATIBLE", assertIs<StudioResult.Failure>(result).error.code)
+        }
+
+    @Test
+    fun `native binary matches the release checksum and passes the real version probe`() =
+        runBlocking {
+            val binary = findInstalledTraceProcessor() ?: return@runBlocking
+            val platform = assertIs<StudioResult.Success<HostPlatform>>(SystemHostPlatformDetector().detect()).value
+            val expectedChecksum = TraceProcessorManifest.pinnedV59_1().checksums.getValue(platform)
+            val installed =
+                TraceProcessorToolResolver(
+                    applicationResourcesPath = null,
+                    installedToolsPath = binary.parent,
+                    configuredOverride = null,
+                ).resolve()
+            val override =
+                TraceProcessorToolResolver(
+                    applicationResourcesPath = null,
+                    installedToolsPath = binary.parent,
+                    configuredOverride = binary,
+                ).resolve()
+
+            val installedTool = assertIs<StudioResult.Success<TraceProcessorTool>>(installed).value
+            val overrideTool = assertIs<StudioResult.Success<TraceProcessorTool>>(override).value
+            assertEquals("v59.1", installedTool.version)
+            assertEquals(expectedChecksum, installedTool.sha256)
+            assertEquals(installedTool, overrideTool)
+        }
+
+    private fun findInstalledTraceProcessor(): Path? {
+        val binary = if (System.getProperty("os.name").contains("Windows", ignoreCase = true)) {
+            "trace_processor_shell.exe"
+        } else {
+            "trace_processor_shell"
+        }
+        var current: Path? = Path.of(System.getProperty("user.dir")).toAbsolutePath()
+        repeat(6) {
+            val candidate = current?.resolve("build/perfetto-tools/$binary")
+            if (candidate != null && Files.isExecutable(candidate)) return candidate
+            current = current?.parent
+        }
+        return null
+    }
 
     private class VersionRunner(
         private val version: String,

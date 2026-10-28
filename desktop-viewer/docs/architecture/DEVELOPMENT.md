@@ -45,7 +45,7 @@ bounded Clock Mappings, requested/available Capabilities, Artifact Completeness,
 Feature-specific HTTP calls, frame samples, heap graphs, method timelines, and battery snapshot deltas remain
 in their existing domain models.
 
-Perfetto-backed adapters use `platform-perfetto` with Trace Processor `v57.2`. A packaged or installed binary
+Perfetto-backed adapters use `platform-perfetto` with Trace Processor `v59.1`. A packaged or installed binary
 must match the host checksum in `platform-perfetto/trace-processor-manifest.json`; an explicit override must
 report the same version. There is no `PATH` fallback. Install the development binary with:
 

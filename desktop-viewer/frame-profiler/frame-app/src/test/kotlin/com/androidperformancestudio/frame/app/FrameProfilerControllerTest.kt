@@ -16,6 +16,7 @@ import com.androidperformancestudio.frame.presentation.FrameDeviceOption
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProcessOption
 import com.androidperformancestudio.platform.perfetto.TraceProcessorTool
+import com.androidperformancestudio.platform.perfetto.TraceQuerySchema
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.Path
@@ -313,7 +314,7 @@ class FrameProfilerControllerTest {
                     tool =
                         TraceProcessorTool(
                             path = Path.of("trace_processor_shell"),
-                            version = "v57.2",
+                            version = TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION,
                             sha256 = "a".repeat(64),
                         ),
                 )
