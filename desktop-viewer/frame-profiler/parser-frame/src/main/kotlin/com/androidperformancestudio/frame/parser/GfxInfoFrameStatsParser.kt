@@ -17,6 +17,7 @@ public class GfxInfoFrameStatsParser {
         text: String,
         sessionId: String,
         packageName: String? = null,
+        warnOnEmptyFrames: Boolean = true,
     ): FrameStatsParseResult {
         val parsed = mutableListOf<FrameSample>()
         val warnings = mutableListOf<String>()
@@ -36,11 +37,11 @@ public class GfxInfoFrameStatsParser {
                     if (!inProfileData) header = null
                 }
                 inProfileData && line.startsWith("Flags,") -> {
-                    header = line.split(',').map(String::trim)
+                    header = line.split(',').map(String::trim).dropLastWhile(String::isEmpty)
                     foundHeader = true
                 }
                 inProfileData && header != null && line.isFrameDataRow() -> {
-                    val columns = line.split(',').map(String::trim)
+                    val columns = line.frameColumns(header.size)
                     if (columns.size != header.size) {
                         malformedRows += 1
                     } else {
@@ -59,13 +60,19 @@ public class GfxInfoFrameStatsParser {
 
         if (!foundHeader) warnings += "No gfxinfo framestats header was found."
         if (malformedRows > 0) warnings += "$malformedRows malformed frame row(s) were skipped."
-        if (parsed.isEmpty() && foundHeader) warnings += "The framestats section did not contain usable frames."
+        if (warnOnEmptyFrames && parsed.isEmpty() && foundHeader) {
+            warnings += "The framestats section did not contain usable frames."
+        }
         if (unknownColumns.isNotEmpty()) {
             warnings += "Preserved unsupported framestats column(s): ${unknownColumns.joinToString()}."
         }
 
         val inferred = fillInferredExpectedDurations(parsed)
-        if (inferred.mapNotNull(FrameSample::expectedDurationNs).distinctNear().size > 1) {
+        val inferredIntervals =
+            inferred
+                .filter { it.expectedDurationSource == ExpectedDurationSource.INFERRED_VSYNC }
+                .mapNotNull(FrameSample::expectedDurationNs)
+        if (inferredIntervals.distinctNear().size > 1) {
             warnings += "Multiple frame intervals were observed; legacy frame budgets were inferred per frame."
         }
         return FrameStatsParseResult(
@@ -96,7 +103,7 @@ public class GfxInfoFrameStatsParser {
         val unknownStates =
             header
                 .asSequence()
-                .filterNot(KNOWN_COLUMNS::contains)
+                .filter { it !in KNOWN_COLUMNS || it in METADATA_COLUMNS }
                 .mapNotNull { name -> values[name]?.let { value -> name to value.toString() } }
                 .associate { (name, value) -> "gfxinfo.column.$name" to value }
 
@@ -112,6 +119,7 @@ public class GfxInfoFrameStatsParser {
             presentNs = present,
             expectedDurationNs = expected?.first,
             expectedDurationSource = expected?.second ?: ExpectedDurationSource.UNKNOWN,
+            frameTimelineVsyncId = values["FrameTimelineVsyncId"].positive(),
             totalDurationNs = positiveDifference(completed ?: present, intendedVsync),
             stages =
                 FrameStages(
@@ -165,6 +173,17 @@ public class GfxInfoFrameStatsParser {
 
     private fun validRefreshInterval(value: Long): Boolean = value in MIN_REFRESH_INTERVAL_NS..MAX_REFRESH_INTERVAL_NS
 
+    private fun String.frameColumns(expectedSize: Int): List<String> =
+        split(',')
+            .map(String::trim)
+            .let { columns ->
+                if (columns.size > expectedSize && columns.drop(expectedSize).all(String::isEmpty)) {
+                    columns.take(expectedSize)
+                } else {
+                    columns
+                }
+            }
+
     private fun String.isFrameDataRow(): Boolean = substringBefore(',').toLongOrNull() != null
 
     private fun Long?.positive(): Long? = this?.takeIf { it > 0L }
@@ -185,11 +204,20 @@ public class GfxInfoFrameStatsParser {
         const val MIN_REFRESH_INTERVAL_NS = 4_000_000L
         const val MAX_REFRESH_INTERVAL_NS = 50_000_000L
         const val REFRESH_INTERVAL_TOLERANCE_DIVISOR = 20
+        val METADATA_COLUMNS =
+            setOf(
+                "FrameTimelineVsyncId",
+                "InputEventId",
+                "FrameStartTime",
+                "CommandSubmissionCompleted",
+            )
         val KNOWN_COLUMNS =
             setOf(
                 "Flags",
+                "FrameTimelineVsyncId",
                 "IntendedVsync",
                 "Vsync",
+                "InputEventId",
                 "OldestInputEvent",
                 "NewestInputEvent",
                 "HandleInputStart",
@@ -198,6 +226,7 @@ public class GfxInfoFrameStatsParser {
                 "DrawStart",
                 "FrameDeadline",
                 "FrameInterval",
+                "FrameStartTime",
                 "SyncQueued",
                 "SyncStart",
                 "IssueDrawCommandsStart",
@@ -208,6 +237,7 @@ public class GfxInfoFrameStatsParser {
                 "DisplayPresentTime",
                 "DequeueBufferDuration",
                 "QueueBufferDuration",
+                "CommandSubmissionCompleted",
             )
     }
 }

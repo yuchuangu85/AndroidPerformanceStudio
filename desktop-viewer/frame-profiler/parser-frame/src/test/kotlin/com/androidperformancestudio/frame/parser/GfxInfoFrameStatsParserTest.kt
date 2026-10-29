@@ -76,7 +76,134 @@ class GfxInfoFrameStatsParserTest {
         assertTrue(result.warnings.any { it.contains("FutureStage") })
     }
 
+    @Test
+    fun `parses modern device columns with trailing separators without unsupported warnings`() {
+        val result = parser.parse(MODERN_FRAMESTATS, "modern")
+
+        assertTrue(result.warnings.isEmpty(), result.warnings.toString())
+        assertEquals(2, result.frames.size)
+        val first = result.frames.first()
+        assertEquals(477300L, first.frameTimelineVsyncId)
+        assertEquals(24_132_507L, first.expectedDurationNs)
+        assertEquals(ExpectedDurationSource.PLATFORM_DEADLINE, first.expectedDurationSource)
+        assertEquals(13_826_484L, first.totalDurationNs)
+        assertEquals("477300", first.states["gfxinfo.column.FrameTimelineVsyncId"])
+        assertEquals("975831300", first.states["gfxinfo.column.InputEventId"])
+        assertEquals("8373159", first.states["gfxinfo.column.FrameStartTime"])
+        assertEquals("104583071253309", first.states["gfxinfo.column.CommandSubmissionCompleted"])
+        assertEquals(null, first.platformJank)
+    }
+
+    @Test
+    fun `accepts trailing separators independently on headers and rows`() {
+        listOf(false, true).forEach { headerSeparator ->
+            listOf(false, true).forEach { rowSeparator ->
+                val text =
+                    """
+                    ---PROFILEDATA---
+                    Flags,IntendedVsync,FrameCompleted${if (headerSeparator) "," else ""}
+                    0,100000000,110000000${if (rowSeparator) "," else ""}
+                    ---PROFILEDATA---
+                    """.trimIndent()
+                val result = parser.parse(text, "separators")
+
+                assertEquals(1, result.frames.size)
+                assertTrue(result.warnings.isEmpty(), result.warnings.toString())
+            }
+        }
+    }
+
+    @Test
+    fun `keeps an empty named last column without treating it as a missing field`() {
+        val result =
+            parser.parse(
+                """
+                ---PROFILEDATA---
+                Flags,IntendedVsync,FrameCompleted,CommandSubmissionCompleted,
+                0,100000000,110000000,,
+                ---PROFILEDATA---
+                """.trimIndent(),
+                "empty-column",
+            )
+
+        assertEquals(1, result.frames.size)
+        assertTrue(result.warnings.isEmpty(), result.warnings.toString())
+    }
+
+    @Test
+    fun `still preserves and warns about unknown columns with trailing separators`() {
+        val result =
+            parser.parse(
+                """
+                ---PROFILEDATA---
+                Flags,IntendedVsync,FrameCompleted,FutureStage,
+                0,100000000,110000000,7,
+                ---PROFILEDATA---
+                """.trimIndent(),
+                "future",
+            )
+
+        assertEquals("7", result.frames.single().states["gfxinfo.column.FutureStage"])
+        assertEquals(listOf("Preserved unsupported framestats column(s): FutureStage."), result.warnings)
+    }
+
+    @Test
+    fun `retains malformed row warnings when suppressing empty snapshot warnings`() {
+        val result =
+            parser.parse(
+                """
+                ---PROFILEDATA---
+                Flags,IntendedVsync,FrameCompleted,
+                0,100000000
+                0,100000000,110000000,7,
+                ---PROFILEDATA---
+                """.trimIndent(),
+                "malformed",
+                warnOnEmptyFrames = false,
+            )
+
+        assertTrue(result.frames.isEmpty())
+        assertEquals(listOf("2 malformed frame row(s) were skipped."), result.warnings)
+    }
+
+    @Test
+    fun `empty imports retain the warning while live snapshots can suppress it`() {
+        val text = "---PROFILEDATA---\nFlags,IntendedVsync,FrameCompleted,\n---PROFILEDATA---"
+
+        assertEquals(
+            listOf("The framestats section did not contain usable frames."),
+            parser.parse(text, "import").warnings,
+        )
+        assertTrue(parser.parse(text, "live", warnOnEmptyFrames = false).warnings.isEmpty())
+        assertEquals(
+            listOf("No gfxinfo framestats header was found."),
+            parser.parse("invalid", "live", warnOnEmptyFrames = false).warnings,
+        )
+    }
+
+    @Test
+    fun `explicit frame interval changes are not described as legacy inference`() {
+        val result =
+            parser.parse(
+                MULTI_WINDOW_FRAMESTATS.replace("16666667,210000000", "8333333,210000000"),
+                "explicit",
+            )
+
+        assertEquals(listOf(16_666_667L, 8_333_333L), result.frames.map { it.expectedDurationNs })
+        assertTrue(result.frames.all { it.expectedDurationSource == ExpectedDurationSource.FRAME_INTERVAL })
+        assertFalse(result.warnings.any { it.contains("legacy frame budgets") })
+    }
+
     private companion object {
+        val MODERN_FRAMESTATS =
+            """
+            ---PROFILEDATA---
+            Flags,FrameTimelineVsyncId,IntendedVsync,Vsync,InputEventId,HandleInputStart,AnimationStart,PerformTraversalsStart,DrawStart,FrameDeadline,FrameInterval,FrameStartTime,SyncQueued,SyncStart,IssueDrawCommandsStart,SwapBuffers,FrameCompleted,DequeueBufferDuration,QueueBufferDuration,GpuCompleted,SwapBuffersCompleted,DisplayPresentTime,CommandSubmissionCompleted,
+            0,477300,104583059254518,104583059254518,975831300,104583064459771,104583067407848,104583067413002,104583070297694,104583083387025,104583064449386,8373159,104583070469925,104583070543156,104583070723540,104583071253309,104583073081002,19384,221923,104583073081002,104583071906232,104583082254848,104583071253309,
+            0,477315,104583067638732,104583067638732,530497226,104583073060771,104583074875463,104583074876694,104583074956463,104583091760184,104583072699771,8374588,104583075110848,104583075177079,104583075347540,104583075921079,104583077835540,20231,468616,104583077835540,104583077273617,104583090604079,104583075921079,
+            ---PROFILEDATA---
+            """.trimIndent()
+
         val FRAMESTATS_WITH_DEADLINE =
             """
             ---PROFILEDATA---

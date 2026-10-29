@@ -130,6 +130,158 @@ class FrameProfilerControllerTest {
             assertFalse(controller.state.value.isCapturing)
             assertEquals(1, capture.stopCalls)
             assertEquals(FrameOperationStatus.CaptureStopped(2), controller.state.value.operationStatus)
+            assertEquals(listOf("start warning", "poll warning"), controller.state.value.warnings)
+        }
+
+    @Test
+    fun `empty polls before frames and during idle do not leave warnings on a valid capture`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-online-idle")
+            val process = FrameProcessOption(pid = 321, name = "dev.example.app", packageName = "dev.example.app")
+            val capture =
+                FakeOnlineFrameCapture(
+                    packageName = process.packageName,
+                    batches =
+                        ArrayDeque(
+                            listOf(
+                                GfxInfoPollBatch(emptyList()),
+                                GfxInfoPollBatch(listOf(frame(0, 10_000_000L))),
+                                GfxInfoPollBatch(emptyList()),
+                            ),
+                        ),
+                    startWarnings = emptyList(),
+                )
+            val controller =
+                FrameProfilerController(
+                    onlineBackend = FakeFrameOnlineBackend(process, capture),
+                    databaseFile = directory.resolve("frames.db"),
+                )
+            controller.refreshDevices()
+            controller.startOnlineCapture()
+
+            controller.pollOnlineCapture()
+            assertTrue(controller.state.value.isCapturing)
+            assertNull(controller.state.value.analysis)
+            assertTrue(
+                controller.state.value.warnings
+                    .isEmpty(),
+            )
+
+            controller.pollOnlineCapture()
+            assertEquals(1, assertNotNull(controller.state.value.analysis).summary.totalFrames)
+            assertTrue(
+                controller.state.value.warnings
+                    .isEmpty(),
+            )
+
+            controller.pollOnlineCapture()
+            assertEquals(1, assertNotNull(controller.state.value.analysis).summary.totalFrames)
+            assertTrue(
+                controller.state.value.warnings
+                    .isEmpty(),
+            )
+
+            controller.stopOnlineCapture()
+            assertFalse(controller.state.value.isCapturing)
+            assertEquals(FrameOperationStatus.CaptureStopped(1), controller.state.value.operationStatus)
+            assertTrue(
+                controller.state.value.warnings
+                    .isEmpty(),
+            )
+            assertNull(controller.state.value.errorMessage)
+        }
+
+    @Test
+    fun `entirely empty capture warns only when stopped without an error`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-online-empty")
+            val process = FrameProcessOption(pid = 321, name = "dev.example.app", packageName = "dev.example.app")
+            val capture =
+                FakeOnlineFrameCapture(
+                    packageName = process.packageName,
+                    batches = ArrayDeque(listOf(GfxInfoPollBatch(emptyList()), GfxInfoPollBatch(emptyList()))),
+                    startWarnings = emptyList(),
+                )
+            val controller =
+                FrameProfilerController(
+                    onlineBackend = FakeFrameOnlineBackend(process, capture),
+                    databaseFile = directory.resolve("frames.db"),
+                )
+            controller.refreshDevices()
+            controller.startOnlineCapture()
+
+            repeat(2) {
+                controller.pollOnlineCapture()
+                assertTrue(controller.state.value.isCapturing)
+                assertNull(controller.state.value.analysis)
+                assertTrue(
+                    controller.state.value.warnings
+                        .isEmpty(),
+                )
+            }
+
+            controller.stopOnlineCapture()
+
+            val state = controller.state.value
+            assertFalse(state.isCapturing)
+            assertNull(state.analysis)
+            assertNull(state.errorMessage)
+            assertEquals(1, capture.stopCalls)
+            assertEquals(FrameOperationStatus.CaptureStopped(0), state.operationStatus)
+            assertEquals(listOf("No frame samples were collected during the capture interval."), state.warnings)
+        }
+
+    @Test
+    fun `empty capture stopped with a failure retains the actual error without a no frame warning`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-online-empty-failure")
+            val process = FrameProcessOption(pid = 321, name = "dev.example.app", packageName = "dev.example.app")
+            val capture =
+                FakeOnlineFrameCapture(
+                    packageName = process.packageName,
+                    batches = ArrayDeque(listOf(GfxInfoPollBatch(emptyList()))),
+                    startWarnings = emptyList(),
+                )
+            val controller =
+                FrameProfilerController(
+                    onlineBackend = FakeFrameOnlineBackend(process, capture),
+                    databaseFile = directory.resolve("frames.db"),
+                )
+            controller.refreshDevices()
+            controller.startOnlineCapture()
+            controller.pollOnlineCapture()
+
+            controller.stopOnlineCapture(errorMessage = "ADB polling failed")
+
+            val state = controller.state.value
+            assertFalse(state.isCapturing)
+            assertNull(state.analysis)
+            assertEquals("ADB polling failed", state.errorMessage)
+            assertTrue(state.warnings.isEmpty())
+            assertEquals(1, capture.stopCalls)
+            assertEquals(FrameOperationStatus.CaptureStopped(0), state.operationStatus)
+        }
+
+    @Test
+    fun `stopping without an active capture does not warn about missing frames`() =
+        runBlocking {
+            val directory = createTempDirectory("frame-controller-online-inactive")
+            val process = FrameProcessOption(pid = 321, name = "dev.example.app", packageName = "dev.example.app")
+            val capture = FakeOnlineFrameCapture(process.packageName, ArrayDeque())
+            val controller =
+                FrameProfilerController(
+                    onlineBackend = FakeFrameOnlineBackend(process, capture),
+                    databaseFile = directory.resolve("frames.db"),
+                )
+
+            controller.stopOnlineCapture()
+
+            val state = controller.state.value
+            assertFalse(state.isCapturing)
+            assertNull(state.analysis)
+            assertNull(state.errorMessage)
+            assertTrue(state.warnings.isEmpty())
+            assertEquals(0, capture.stopCalls)
         }
 
     @Test
@@ -249,6 +401,7 @@ class FrameProfilerControllerTest {
     private class FakeOnlineFrameCapture(
         packageName: String,
         private val batches: ArrayDeque<GfxInfoPollBatch>,
+        private val startWarnings: List<String> = listOf("start warning"),
     ) : OnlineFrameCapture {
         var startCalls: Int = 0
             private set
@@ -266,7 +419,7 @@ class FrameProfilerControllerTest {
 
         override suspend fun start(): List<String> {
             startCalls += 1
-            return listOf("start warning")
+            return startWarnings
         }
 
         override suspend fun poll(): GfxInfoPollBatch = batches.removeFirst()
