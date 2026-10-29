@@ -10,6 +10,7 @@
 - `0020`–`0021`：分析范围与结构化、可版本化的 AI 结果。
 - `0031`–`0034`：Winscope 的原生 Compose 工作区与可选浏览器查看器路径（已被 `0035` 取代）。
 - `0035`：移除 Winscope 工作区与上游查看器 submodule：删除 `third_party/aosp-winscope`、`desktop-viewer/winscope` 复合构建、浏览器查看器打包与页面入口。
+- `0036`：独立 AI Business Layer、主 Agent、子 Agent、Skill、外部扩展和沙箱脚本运行时（提案）。
 
 总体方案见
 [`../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)。

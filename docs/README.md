@@ -11,6 +11,7 @@
 ### 需求记录
 
 - [`TODO.md`](TODO.md) — 当前未完成的规划、延期能力、开放决策与发布门禁。
+- [`ai/README.md`](ai/README.md) — AI 分析、源码工作区和 AI 对话窗口的统一规划入口。
 - [`../desktop-viewer/docs/requirements/`](../desktop-viewer/docs/requirements/) — Desktop Viewer 延后需求和路线记录。
 - [`../desktop-viewer/simpleperf-viewer/docs/requirements/`](../desktop-viewer/simpleperf-viewer/docs/requirements/) — Simpleperf 产品需求、开发计划、兼容矩阵和跟踪表。
 
@@ -20,6 +21,9 @@
 - [`../CONTEXT.md`](../CONTEXT.md) — AI 分析与源码定位领域语言。
 - [`design/layoutinspectorv2-pro-comparison.md`](design/layoutinspectorv2-pro-comparison.md) — Layout Inspector 方案比较和设计依据。
 - [`design/2026-09-17-memory-profiler-hprof-viewer-design.md`](design/2026-09-17-memory-profiler-hprof-viewer-design.md) — Android Studio 风格离线 HPROF Viewer 的能力边界、交互、实现阶段与验收设计。
+- [`ai/architecture.md`](ai/architecture.md) — AI 跨模块接口、证据边界和对话窗口契约。
+- [`ai/conversation-window.md`](ai/conversation-window.md) — 绑定 Analysis Session 的 AI 对话窗口设计。
+- [`ai/roadmap.md`](ai/roadmap.md) — AI 当前能力、缺口和分阶段验收顺序。
 - [`../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md) — AI 分析、源码工作区与可信源码定位总体设计。
 - [`../desktop-viewer/docs/design/`](../desktop-viewer/docs/design/) — Desktop Viewer、Layout Inspector 和架构变更设计。
 - [`../desktop-viewer/simpleperf-viewer/docs/design/`](../desktop-viewer/simpleperf-viewer/docs/design/) — Simpleperf 产品、技术栈和 UI 设计。
