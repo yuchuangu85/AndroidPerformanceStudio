@@ -11,6 +11,7 @@
 
 - [`design/product-design.md`](design/product-design.md) — 产品与交互设计。
 - [`design/technology-stack-research.md`](design/technology-stack-research.md) — 技术栈调研和 ADR。
+- [`design/2026-10-29-stack-chart-performance-optimization-plan.md`](design/2026-10-29-stack-chart-performance-optimization-plan.md) — Stack Chart 大数据性能优化方案，**未实现**。
 - `design/*-design.md` — Native Profiler、采集配置和 Firefox 交互对齐设计。
 
 ## Records
