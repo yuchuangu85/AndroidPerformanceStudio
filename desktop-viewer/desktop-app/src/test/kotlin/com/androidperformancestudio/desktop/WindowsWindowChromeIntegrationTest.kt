@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.GraphicsEnvironment
@@ -40,6 +41,14 @@ import javax.swing.SwingUtilities
 
 @OptIn(ExperimentalTestApi::class)
 class WindowsWindowChromeIntegrationTest {
+    @BeforeEach
+    fun requireDesktopEnvironment() {
+        if (System.getenv("APS_REQUIRE_JBR_CHROME").toBoolean()) {
+            assertFalse(GraphicsEnvironment.isHeadless(), "Required JBR smoke test needs a desktop")
+        }
+        assumeFalse(GraphicsEnvironment.isHeadless(), "Native window integration tests need a desktop")
+    }
+
     @Test
     fun `hosted menus retain live actions checkboxes language and accelerators`() =
         runDesktopComposeUiTest {

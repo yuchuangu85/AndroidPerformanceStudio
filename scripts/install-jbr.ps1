@@ -53,13 +53,13 @@ try {
 
     $extracted = Join-Path $temporary 'extracted'
     Expand-Archive -LiteralPath $archive -DestinationPath $extracted
-    $home = Join-Path $extracted $artifact.archiveRoot
+    $jdkHome = Join-Path $extracted $artifact.archiveRoot
     foreach ($relative in @('release', 'bin/java.exe', 'bin/javac.exe', 'bin/jlink.exe', 'bin/jpackage.exe', 'jmods/java.desktop.jmod')) {
-        if (!(Test-Path -LiteralPath (Join-Path $home $relative) -PathType Leaf)) {
+        if (!(Test-Path -LiteralPath (Join-Path $jdkHome $relative) -PathType Leaf)) {
             throw "Pinned JBRSDK is missing $relative."
         }
     }
-    $release = Get-Content -LiteralPath (Join-Path $home 'release') -Raw | ConvertFrom-StringData
+    $release = Get-Content -LiteralPath (Join-Path $jdkHome 'release') -Raw | ConvertFrom-StringData
     foreach ($key in @('JAVA_VERSION', 'JAVA_RUNTIME_VERSION', 'IMPLEMENTOR', 'IMPLEMENTOR_VERSION', 'OS_NAME', 'OS_ARCH')) {
         if (!$release.ContainsKey($key) -or $release[$key].Trim('"') -cne $artifact.release[$key]) {
             throw "JBRSDK release identity mismatch for $key."
@@ -70,7 +70,7 @@ try {
     }
 
     # Check the downloaded executable, never java.exe from PATH or JAVA_HOME.
-    $settings = & (Join-Path $home 'bin/java.exe') -XshowSettings:properties -version 2>&1 | Out-String
+    $settings = & (Join-Path $jdkHome 'bin/java.exe') -XshowSettings:properties -version 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         throw "Pinned JBRSDK java.exe failed: $settings"
     }
@@ -83,11 +83,11 @@ try {
     if ($properties['java.vendor'] -cne $artifact.release.IMPLEMENTOR -or
         $properties['java.runtime.version'] -cne $artifact.release.JAVA_RUNTIME_VERSION -or
         $properties['os.arch'] -ne 'amd64' -or !$properties['java.home'] -or
-        [IO.Path]::GetFullPath($properties['java.home']) -ine [IO.Path]::GetFullPath($home)) {
+        [IO.Path]::GetFullPath($properties['java.home']) -ine [IO.Path]::GetFullPath($jdkHome)) {
         throw "JBRSDK runtime identity mismatch: $settings"
     }
 
-    Move-Item -LiteralPath $home -Destination $destinationPath
+    Move-Item -LiteralPath $jdkHome -Destination $destinationPath
     if ($env:GITHUB_ENV) {
         Add-Content -LiteralPath $env:GITHUB_ENV -Value "APS_JBR_HOME=$destinationPath" -Encoding utf8
     }
