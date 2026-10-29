@@ -3,6 +3,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import groovy.json.JsonSlurper
 import java.security.MessageDigest
 import java.util.HexFormat
+import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -17,6 +19,8 @@ val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/per
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
+val composeAgentBundle =
+    rootProject.layout.projectDirectory.dir("layout-inspector/compose-agent-build/build/compose-agent-bundle")
 val profilerAppResources = layout.buildDirectory.dir("generated/profiler-app-resources")
 val traceProcessorManifestFile = rootProject.layout.projectDirectory.file("platform-perfetto/trace-processor-manifest.json")
 val prepareProfilerAppResources =
@@ -38,6 +42,9 @@ val prepareProfilerAppResources =
         }
         from(userDocumentationChinese) {
             into("docs-user-zh")
+        }
+        from(composeAgentBundle) {
+            into("compose-agent-bundle")
         }
         into(profilerAppResources.map { resources -> resources.dir("common") })
     }
@@ -129,8 +136,48 @@ val verifyPackagedTraceProcessor =
         }
     }
 
+// The Android agent bundle is host-independent. Release CI builds it once on Linux x64 and
+// downloads it for each desktop target; packaging must never silently omit inspection support.
+val verifyPackagedComposeAgentBundle =
+    tasks.register("verifyPackagedComposeAgentBundle") {
+        inputs.dir(composeAgentBundle)
+        val bundleDirectory = composeAgentBundle.asFile
+        doLast {
+            check(bundleDirectory.isDirectory) {
+                "Compose agent bundle is missing. Build :layout-inspector:compose-agent-build:verifyComposeAgentBundle first."
+            }
+            val root = bundleDirectory.toPath().toRealPath()
+            val manifest = Properties().apply {
+                root.resolve("manifest.properties").toFile().inputStream().use { load(it) }
+            }
+            val artifacts = linkedMapOf(
+                "service.sha256" to "lib_ui_inspector_service.jar",
+                "payload.sha256" to "lib_ui_inspector_payload.jar",
+                "view.sha256" to "view-inspector.jar",
+            )
+            listOf("armeabi-v7a", "arm64-v8a", "x86_64").forEach { abi ->
+                artifacts["agent.$abi.sha256"] = "agent/$abi/lib_ui_inspector_agent.so"
+            }
+            artifacts.forEach { (key, relative) ->
+                val path = root.resolve(relative).toRealPath()
+                val file = path.toFile()
+                check(path.startsWith(root) && file.isFile && file.length() > 0) {
+                    "Missing or invalid Compose agent bundle file: $relative"
+                }
+                val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
+                check(actual == manifest.getProperty(key)) { "Compose agent checksum mismatch: $relative" }
+                if (relative.endsWith(".jar")) {
+                    ZipFile(file).use { zip ->
+                        check(zip.getEntry("classes.dex") != null) { "Compose agent jar is not dexed: $relative" }
+                    }
+                }
+            }
+        }
+    }
+
 prepareProfilerAppResources.configure {
     dependsOn(verifyPackagedTraceProcessor)
+    dependsOn(verifyPackagedComposeAgentBundle)
 }
 
 require(targetArch == "x64" || targetArch == "arm64") {

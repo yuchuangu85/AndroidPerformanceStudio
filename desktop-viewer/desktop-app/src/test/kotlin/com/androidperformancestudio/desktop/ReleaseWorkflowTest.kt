@@ -39,8 +39,6 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("./scripts/firefox-profiler.sh all"))
         assertTrue(workflow.contains("./scripts/build-perfetto-ui.sh download"))
         assertTrue(workflow.contains("./scripts/install-trace-processor.sh"))
-        assertTrue(!workflow.contains("actions/upload-artifact"))
-        assertTrue(!workflow.contains("actions/download-artifact"))
         assertTrue(workflow.contains("package-windows:"))
         assertTrue(workflow.contains("runs-on: windows-latest"))
         assertTrue(workflow.contains(":desktop-app:packageMsi"))
@@ -59,7 +57,7 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("runs-on: ubuntu-latest"))
         assertTrue(workflow.contains(":desktop-app:packageDeb"))
         assertTrue(workflow.contains(":desktop-app:packageRpm"))
-        assertTrue(workflow.contains("needs: [resolve, test, prepare-release]"))
+        assertTrue(workflow.contains("needs: [resolve, test, prepare-release, build-compose-agent]"))
         assertTrue(
             workflow.contains(
                 "needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]",
@@ -102,8 +100,51 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("uses: actions/setup-java@v5"))
         assertTrue(workflow.contains("java-version: \"21\""))
         assertTrue(workflow.contains("cache: gradle"))
-        assertTrue(!workflow.contains("uses: actions/upload-artifact"))
-        assertTrue(!workflow.contains("uses: actions/download-artifact"))
+        assertTrue(workflow.contains("uses: actions/upload-artifact@v7"))
+        assertTrue(workflow.contains("uses: actions/download-artifact@v8"))
+    }
+
+    @Test
+    fun `verified Compose runtime is built once and included in every native package`() {
+        val workflow = Files.readString(workflowPath)
+        val agent = workflowJob(workflow, "build-compose-agent")
+
+        assertTrue(agent.contains("needs: [resolve, test]"))
+        assertTrue(agent.contains("runs-on: ubuntu-24.04"))
+        assertTrue(agent.contains("ref: ${'$'}{{ needs.resolve.outputs.checkout_ref }}"))
+        assertTrue(agent.contains("java-version: \"21\""))
+        assertTrue(agent.contains("sdk_root=\"${'$'}RUNNER_TEMP/compose-agent-sdk\""))
+        assertTrue(agent.contains("--sdk_root=\"${'$'}sdk_root\" --install"))
+        listOf("platforms;android-35", "build-tools;35.0.0", "ndk;27.1.12297006", "cmake;3.22.1").forEach {
+            assertTrue(agent.contains("\"$it\""), "The Compose runtime must pin $it")
+        }
+        assertTrue(agent.contains("ANDROID_HOME=${'$'}sdk_root"))
+        assertTrue(agent.contains("ANDROID_SDK_ROOT=${'$'}sdk_root"))
+        val verify = agent.indexOf(":layout-inspector:compose-agent-build:verifyComposeAgentBundle")
+        val upload = agent.indexOf("uses: actions/upload-artifact@v7")
+        assertTrue(verify >= 0 && upload > verify, "Only a verified bundle may be shared with packaging jobs")
+        assertTrue(agent.contains("--no-configuration-cache --no-daemon"))
+        assertTrue(agent.contains("if-no-files-found: error"))
+        assertTrue(agent.contains("name: compose-agent-bundle"))
+
+        listOf("package-windows", "package-macos", "package-linux").forEach { name ->
+            val packaging = workflowJob(workflow, name)
+            assertTrue(packaging.contains("needs: [resolve, test, prepare-release, build-compose-agent]"))
+            assertTrue(packaging.contains("uses: actions/download-artifact@v8"))
+            assertTrue(packaging.contains("name: compose-agent-bundle"))
+            assertTrue(
+                packaging.contains(
+                    "path: desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle",
+                ),
+            )
+            assertTrue(packaging.contains("digest-mismatch: error"))
+            assertTrue(packaging.indexOf("uses: actions/download-artifact@v8") < packaging.indexOf(":desktop-app:package"))
+            assertTrue(!packaging.contains("sdkmanager"), "Android tools are needed only by the shared bundle producer")
+            assertTrue(packaging.contains("gh release upload"), "Installers must still upload directly to the release")
+        }
+        assertTrue(Regex("uses: actions/upload-artifact@").findAll(workflow).count() == 1)
+        assertTrue(Regex("uses: actions/download-artifact@").findAll(workflow).count() == 3)
+        assertTrue(!workflowJob(workflow, "publish").contains("compose-agent-bundle"))
     }
 
     @Test
@@ -131,4 +172,10 @@ class ReleaseWorkflowTest {
         assertTrue(script.contains("ui/build --out out --no-wasm --no-depscheck"))
         assertTrue(script.contains("ui/build --out out)"))
     }
+
+    private fun workflowJob(workflow: String, name: String): String =
+        requireNotNull(
+            Regex("(?ms)^  ${Regex.escape(name)}:\\n(.*?)(?=^  [a-z][a-z0-9-]*:\\n|\\z)")
+                .find(workflow),
+        ) { "Missing release job: $name" }.groupValues[1]
 }

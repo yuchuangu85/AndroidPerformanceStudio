@@ -63,11 +63,30 @@ report the same version. There is no `PATH` fallback. Install the development bi
 ./gradlew :layout-inspector:samples:android-view-app:assembleDebug
 
 # Desktop app image for this OS
+# Build the host-independent Android inspection runtime first (requires an Android SDK/NDK).
+./gradlew :layout-inspector:compose-agent-build:verifyComposeAgentBundle --no-configuration-cache
 ./gradlew :desktop-app:createDistributable
 
 # Full local verification
 ./gradlew clean test assemble
 ```
+
+## Compose inspection runtime in desktop packages
+
+Complete Compose inspection needs the verified `compose-agent-bundle`, not only the version-specific
+Compose inspector downloaded at runtime. Desktop packaging copies this bundle into application
+resources and checks all three device ABIs, the dexed JARs, and their manifest checksums. Packaging
+fails if any required runtime file is missing or corrupt.
+
+Release CI builds the runtime once on Linux x64 using a pinned Android SDK/NDK toolchain, transfers
+it as an internal Actions artifact, and includes the same bundle in every native installer. Windows
+and Linux arm64 packaging do not need their own Android SDK. Ordinary desktop configuration remains
+SDK-independent; explicitly building the inspection agent still requires the toolchain.
+
+The installed application resolves `compose-agent-bundle` from `compose.application.resources.dir`
+before considering development working-directory paths. Explicit `agentperf.compose.agent.bundle`
+or `APC_COMPOSE_AGENT_BUNDLE` configuration remains authoritative. Do not install a bundle at
+`/compose-agent-bundle` to work around a missing packaged resource.
 
 ## Security invariants
 
