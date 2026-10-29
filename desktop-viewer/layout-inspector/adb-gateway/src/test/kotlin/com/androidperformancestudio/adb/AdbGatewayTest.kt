@@ -47,6 +47,21 @@ class AdbGatewayTest {
     }
 
     @Test
+    fun `builds device time and pid scoped agent logcat commands`() {
+        assertEquals(
+            listOf("-s", "device", "shell", "date", "+\"%m-%d %H:%M:%S.000\""),
+            AdbCommandFactory.readDeviceTime("device"),
+        )
+        assertEquals(
+            listOf(
+                "-s", "device", "shell", "logcat", "-d", "-t", "'10-29 19:00:00.000'",
+                "--pid=1234", "*:E",
+            ),
+            AdbCommandFactory.readAgentLogcat("device", 1234, "10-29 19:00:00.000"),
+        )
+    }
+
+    @Test
     fun `builds a visible window hierarchy command for runtime view classes`() {
         assertEquals(
             listOf(

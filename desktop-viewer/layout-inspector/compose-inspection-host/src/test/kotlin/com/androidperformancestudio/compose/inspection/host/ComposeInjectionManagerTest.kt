@@ -11,6 +11,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -114,6 +115,50 @@ class ComposeInjectionManagerTest {
             .filter { it.contains("run-as") && it.contains("rm") && it.contains("-rf") }
             .map(List<String>::last)
         assertEquals(listOf(agentPath, servicePath, payloadPath, privateDirectory), removedPaths.takeLast(4))
+    }
+
+    @Test
+    fun `attach reports agent bootstrap errors before socket timeout`() {
+        val bundle = createBundle(tempDir.resolve("bundle-with-logcat-error"))
+        val commands = mutableListOf<List<String>>()
+        val runner = ProcessRunner { arguments ->
+            commands += arguments
+            when {
+                arguments.takeLast(2) == listOf("getprop", "ro.build.version.sdk") -> ProcessResult(0, "35\n", "")
+                arguments.takeLast(2) == listOf("getprop", "ro.product.cpu.abi") -> ProcessResult(0, "arm64-v8a\n", "")
+                arguments.contains("pwd") -> ProcessResult(0, "/data/user/0/dev.sample\n", "")
+                arguments.contains("pidof") -> ProcessResult(0, "1234\n", "")
+                arguments.takeLast(2) == listOf("cat", "/proc/net/unix") ->
+                    ProcessResult(0, "Num RefCount Protocol Flags Type St Inode Path\n", "")
+                arguments.contains("pm") -> ProcessResult(0, "package:/data/app/~~abc==/dev.sample/base.apk\n", "")
+                arguments.contains("pull") -> {
+                    Files.write(Path.of(arguments.last()), apkWithComposeVersion("1.11.4"))
+                    ProcessResult(0, "1 file pulled", "")
+                }
+                arguments.contains("logcat") -> ProcessResult(
+                    0,
+                    "10-29 19:00:01.100 1234 1234 E studio.ui-inspector.native: Failed to find InspectorService initialize method\n" +
+                        "10-29 19:00:01.100 1234 1234 E nativeloader: dlopen failed: library \"lib_ui_inspector_agent.so\" not found\n",
+                    "",
+                )
+                else -> ProcessResult(0, "", "")
+            }
+        }
+        val manager = ComposeInjectionManager(processRunner = runner, sleeper = {})
+        val prepared = manager.preflight("device", "dev.sample", bundle)
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            manager.attach(
+                prepared,
+                ComposeInspectionAuthorization.authorize(prepared.preflight),
+                InspectorSessionToken.parse("b".repeat(64)),
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("Failed to attach Compose inspector agent"))
+        assertTrue(error.message.orEmpty().contains("Failed to find InspectorService initialize method"))
+        assertTrue(error.message.orEmpty().contains("nativeloader: dlopen failed"))
+        assertTrue(commands.any { it.contains("logcat") })
     }
 
     private fun createBundle(root: Path): Path {

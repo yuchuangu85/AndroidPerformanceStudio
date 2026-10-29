@@ -88,6 +88,21 @@ object AdbCommandFactory {
     fun readUnixSockets(serial: String): List<String> =
         devicePrefix(serial) + listOf("shell", "cat", "/proc/net/unix")
 
+    fun readDeviceTime(serial: String): List<String> =
+        devicePrefix(serial) + listOf("shell", "date", "+\"%m-%d %H:%M:%S.000\"")
+
+    fun readAgentLogcat(serial: String, pid: Int, since: String? = null): List<String> {
+        require(pid > 0)
+        since?.let {
+            require(it.isNotBlank() && !it.contains('\n') && !it.contains('\r') && !it.contains('\'')) {
+                "Unsafe logcat timestamp"
+            }
+        }
+        return devicePrefix(serial) + listOf("shell", "logcat", "-d") +
+            since?.let { listOf("-t", "'$it'") }.orEmpty() +
+            listOf("--pid=$pid", "*:E")
+    }
+
     fun push(serial: String, localPath: String, remotePath: String): List<String> {
         require(localPath.isNotBlank())
         requireSafeRemotePath(remotePath)

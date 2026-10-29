@@ -180,8 +180,9 @@ class ComposeInjectionManager(
             }
             checked(AdbCommandFactory.removeRemote(target.serial, stagedFiles))
             val options = "${privateFiles[1]};${privateFiles[2]};${target.pid};${token.value}"
+            val attachStartedAt = deviceTime(target.serial)
             checked(AdbCommandFactory.attachAgent(target.serial, target.pid, privateFiles[0], options))
-            waitForSocket(target.serial, target.pid)
+            waitForSocket(target.serial, target.pid, attachStartedAt)
             val port = portAllocator()
             checked(AdbCommandFactory.forward(target.serial, port, socketName(target.pid)))
             return InjectedComposeSession(
@@ -214,16 +215,37 @@ class ComposeInjectionManager(
         }
     }
 
-    private fun waitForSocket(serial: String, pid: Int) {
+    private fun waitForSocket(serial: String, pid: Int, attachStartedAt: String?) {
         val expected = "@${socketName(pid)}"
         repeat(10) { attempt ->
             if (checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains(expected)) return
+            if (attempt >= 2) {
+                readAgentErrorFromLogcat(serial, pid, attachStartedAt)?.let { agentError ->
+                    error("Failed to attach Compose inspector agent. Device logcat:\n$agentError")
+                }
+            }
             sleeper((100L shl attempt.coerceAtMost(3)))
         }
         error(
             "Timed out waiting for Compose inspector agent socket for PID $pid; check device logcat for " +
                 "ActivityThread or nativeloader attach errors",
         )
+    }
+
+    private fun deviceTime(serial: String): String? =
+        runCatching { checked(AdbCommandFactory.readDeviceTime(serial)).stdout.trim() }
+            .getOrNull()
+            ?.takeIf(String::isNotEmpty)
+
+    private fun readAgentErrorFromLogcat(serial: String, pid: Int, since: String?): String? {
+        val output = runCatching {
+            checked(AdbCommandFactory.readAgentLogcat(serial, pid, since)).stdout.trim()
+        }.getOrNull().orEmpty()
+        if (output.isEmpty()) return null
+        return output.lineSequence()
+            .filter { line -> AGENT_LOG_TAGS.any(line::contains) }
+            .joinToString("\n")
+            .takeIf(String::isNotEmpty)
     }
 
     private fun checked(arguments: List<String>): ProcessResult = processRunner.run(arguments).also { result ->
@@ -242,6 +264,7 @@ class ComposeInjectionManager(
         const val SOCKET_RELEASE_INTERVAL_MILLIS = 250L
         const val MAX_VERSION_BYTES = 256
         const val COMPOSE_VERSION_ENTRY = "META-INF/androidx.compose.ui_ui.version"
+        val AGENT_LOG_TAGS = listOf("studio.ui-inspector", "nativeloader", "ActivityThread")
         val COMPOSE_VERSION_PATTERN = Regex("[0-9A-Za-z._+-]+")
     }
 }

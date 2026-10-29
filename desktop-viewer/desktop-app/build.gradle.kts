@@ -28,6 +28,7 @@ val prepareProfilerAppResources =
         exclude("**/.DS_Store")
         inputs.file(firefoxProfilerDist.file("index.html"))
         inputs.file(perfettoUiDist.file("index.html"))
+        inputs.file(traceProcessorManifestFile)
         inputs.dir(userDocumentationEnglish)
         inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
@@ -57,15 +58,25 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
     tasks
         .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
         .configureEach {
+            inputs.file(traceProcessorManifestFile)
             doLast {
                 val packagedBinaries =
                     outputs.files.asFileTree
                         .matching { include("**/resources/perfetto-tools/trace_processor_shell") }
                         .files
                 check(packagedBinaries.isNotEmpty()) { "Packaged Trace Processor is missing from the distributable" }
+                val manifest = JsonSlurper().parse(traceProcessorManifestFile.asFile) as Map<*, *>
+                val artifacts = checkNotNull(manifest["artifacts"]) as Map<*, *>
+                val expected = checkNotNull((artifacts["$targetOs-$targetArch"] as? Map<*, *>)?.get("sha256")) {
+                    "No pinned Trace Processor checksum for $targetOs-$targetArch"
+                }.toString()
                 packagedBinaries.forEach { binary ->
                     check(binary.canExecute() || binary.setExecutable(true, false)) {
                         "Unable to make the packaged Trace Processor executable: $binary"
+                    }
+                    val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary.readBytes()))
+                    check(actual == expected) {
+                        "Packaged Trace Processor checksum mismatch for $targetOs-$targetArch: $binary"
                     }
                 }
             }
