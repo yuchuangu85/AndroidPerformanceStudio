@@ -26,8 +26,9 @@ class DetailsPaneCategoryWiringTest {
     fun `manual Compose refresh falls back and shows why`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"))
         assertTrue(source.contains("captureCompatibleFallback"))
-        assertTrue(source.contains("manualRefreshSession.capture(selectedDeviceSerial)"))
-        assertTrue(source.contains("store.noteComposeInspectionUnavailable(reason)"))
+        assertTrue(source.contains("manualRefreshSession.capture(target.serial)"))
+        assertTrue(source.contains("composeInspectionWarning = reason"))
+        assertTrue(source.contains("ComposeInspectionWarningBanner(reason, uiLanguage)"))
         assertTrue(source.contains("state.composeInspectionWarning?.let"))
         assertTrue(source.contains("Res.string.compose_inspection_unavailable"))
     }

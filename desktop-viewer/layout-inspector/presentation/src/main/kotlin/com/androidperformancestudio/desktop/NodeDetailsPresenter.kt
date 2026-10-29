@@ -370,26 +370,95 @@ internal object NodeDetailsPresenter {
     ): DetailSectionModel? = takeIf { it.isNotEmpty() }?.let {
         DetailSectionModel(
             localizedStringResource(title, language),
-            flatMap { value -> value.rows() },
+            displayRows(language),
         )
     }
 
-    private fun ComposeValue.rows(prefix: String = name): List<DetailRowModel> =
-        listOf(
-            DetailRowModel(
-                prefix,
-                buildString {
-                    append(type)
-                    value?.let { append(" · ").append(it) }
-                    if (truncated) append(" · <truncated>")
-                    originalSize?.let { append(" · size=").append(it) }
-                },
-                if (truncated) DetailTone.INFO else DetailTone.NORMAL,
-                reference,
-            ),
-        ) + elements.flatMapIndexed { index, child ->
-            child.rows("$prefix.${child.name.ifBlank { index.toString() }}")
+    /** Bounds the display projection only; the captured values and expandable references stay intact. */
+    private fun List<ComposeValue>.displayRows(language: UiLanguage): List<DetailRowModel> {
+        val rows = ArrayList<DetailRowModel>()
+        val pending = ArrayDeque<ComposeValueCursor>()
+        pending.addLast(ComposeValueCursor(this, prefix = null, depth = 0))
+        var displayLimited = false
+        while (pending.isNotEmpty() && rows.size < MAX_COMPOSE_VALUE_ROWS) {
+            val cursor = pending.last()
+            if (cursor.index >= cursor.values.size) {
+                pending.removeLast()
+                continue
+            }
+            val index = cursor.index++
+            val value = cursor.values[index]
+            val segment = if (cursor.prefix == null) value.name else value.name.ifBlank { index.toString() }
+            // Limit each input before concatenation so an oversized captured name cannot produce
+            // another oversized path allocation for every descendant.
+            val fullLabel = if (cursor.prefix == null) {
+                segment.take(MAX_COMPOSE_VALUE_LABEL_LENGTH)
+            } else {
+                cursor.prefix + "." + segment.take(MAX_COMPOSE_VALUE_LABEL_LENGTH)
+            }
+            val labelLimited = segment.length > MAX_COMPOSE_VALUE_LABEL_LENGTH ||
+                fullLabel.length > MAX_COMPOSE_VALUE_LABEL_LENGTH
+            val label = if (labelLimited) {
+                fullLabel.take(MAX_COMPOSE_VALUE_LABEL_LENGTH - 1) + "…"
+            } else {
+                fullLabel
+            }
+            var textLimited = false
+            val text = buildString {
+                fun appendDisplayText(text: String) {
+                    val available = MAX_COMPOSE_VALUE_TEXT_LENGTH - length
+                    append(text, 0, text.length.coerceAtMost(available))
+                    if (text.length > available) textLimited = true
+                }
+                appendDisplayText(value.type)
+                value.value?.let {
+                    appendDisplayText(" · ")
+                    appendDisplayText(it)
+                }
+                if (value.truncated) appendDisplayText(" · <truncated>")
+                value.originalSize?.let {
+                    appendDisplayText(" · size=")
+                    appendDisplayText(it.toString())
+                }
+                if (textLimited && isNotEmpty()) setCharAt(length - 1, '…')
+            }
+            rows.add(
+                DetailRowModel(
+                    label,
+                    text,
+                    if (value.truncated || labelLimited || textLimited) DetailTone.INFO else DetailTone.NORMAL,
+                    value.reference,
+                ),
+            )
+            displayLimited = displayLimited || labelLimited || textLimited
+            if (value.elements.isNotEmpty()) {
+                if (cursor.depth + 1 >= MAX_COMPOSE_VALUE_DEPTH) {
+                    displayLimited = true
+                } else {
+                    // Store a cursor, not all children: omitted wide subtrees are never enumerated.
+                    pending.addLast(ComposeValueCursor(value.elements, label, cursor.depth + 1))
+                }
+            }
         }
+        while (pending.isNotEmpty() && pending.last().index >= pending.last().values.size) pending.removeLast()
+        if (displayLimited || pending.isNotEmpty()) {
+            rows.add(
+                DetailRowModel(
+                    localizedStringResource(Res.string.detail_label_partial_display, language),
+                    localizedStringResource(Res.string.detail_value_compose_partial_display, language),
+                    DetailTone.INFO,
+                ),
+            )
+        }
+        return rows
+    }
+
+    private class ComposeValueCursor(
+        val values: List<ComposeValue>,
+        val prefix: String?,
+        val depth: Int,
+        var index: Int = 0,
+    )
 
     private fun rawPropertiesSection(
         node: UiNode,
@@ -543,4 +612,8 @@ internal object NodeDetailsPresenter {
     private const val COMPLEXITY_DEPTH_WARNING = 10
     private const val DESCENDANT_WARNING = 50
     private const val COMPOSE_INSPECTION_ID_PREFIX = "compose-inspection:"
+    private const val MAX_COMPOSE_VALUE_ROWS = 512
+    private const val MAX_COMPOSE_VALUE_DEPTH = 16
+    private const val MAX_COMPOSE_VALUE_LABEL_LENGTH = 512
+    private const val MAX_COMPOSE_VALUE_TEXT_LENGTH = 4_096
 }

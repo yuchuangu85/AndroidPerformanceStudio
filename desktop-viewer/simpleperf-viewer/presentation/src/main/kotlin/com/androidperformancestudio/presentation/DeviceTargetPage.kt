@@ -39,6 +39,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.CapabilityStatus
+import com.androidperformancestudio.application.CaptureTarget
 import com.androidperformancestudio.application.DeviceOption
 import com.androidperformancestudio.application.DeviceSelection
 import com.androidperformancestudio.application.DeviceTargetState
@@ -47,12 +48,15 @@ import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.ActiveTitleBarTarget
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
+import com.androidperformancestudio.ui.TitleBarPageTarget
+import com.androidperformancestudio.ui.TitleBarPageTargetOption
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
@@ -98,52 +102,59 @@ internal fun DeviceTargetPage(
     }
     LaunchedEffect(
         titleBarHost,
+        titleBarHost?.selectedDeviceSerial,
         titleBarHost?.selectedPackageName,
+        titleBarHost?.selectedProcessPid,
         state.selection?.packages,
+        state.selection?.serial,
         state.selectedPackageName,
+        state.selectedTarget,
         state.selectedSerial,
+        state.isLoading,
+        captureActive,
     ) {
-        if (titleBarHost != null && titleBarHost.deviceReady(state.selectedSerial)) {
+        if (titleBarHost != null &&
+            titleBarHost.selectedDeviceSerial == state.selectedSerial &&
+            state.selection?.serial == state.selectedSerial &&
+            !state.isLoading &&
+            !captureActive
+        ) {
             val desired = titleBarHost.selectedPackageName
             val selectedPackageName = state.selectedPackageName
-            if (desired == null && selectedPackageName != null) {
-                titleBarHost.choosePackage(selectedPackageName)
-            } else if (
-                desired != null &&
-                desired != state.selectedPackageName &&
+            val packages =
                 state.selection
                     ?.packages
                     .orEmpty()
-                    .any { it.packageName == desired }
-            ) {
-                actions.onSelectPackage(desired)
+                    .map(PackageOption::packageName)
+            if (desired != null && desired in packages) {
+                titleBarHost.choosePackage(desired, clearProcess = true)
+                if (desired != selectedPackageName || state.selectedTarget !is CaptureTarget.App) {
+                    actions.onSelectPackage(desired)
+                }
+            } else if (selectedPackageName != null && selectedPackageName in packages) {
+                titleBarHost.choosePackage(selectedPackageName, clearProcess = true)
             }
         }
     }
-    // The title bar owns one process target app-wide; follow it whenever the page can resolve the pid.
-    LaunchedEffect(
-        titleBarHost,
-        titleBarHost?.selectedProcessPid,
-        state.selection?.processes,
-        state.selectedProcessId,
-        state.selectedSerial,
-    ) {
-        if (titleBarHost != null && titleBarHost.deviceReady(state.selectedSerial)) {
-            val desired = titleBarHost.selectedProcessPid
-            if (
-                desired != null &&
-                desired != state.selectedProcessId &&
-                state.selection?.processes.orEmpty().any { it.pid == desired }
-            ) {
-                actions.onSelectProcess(desired)
-            }
-        }
-    }
-    // A selected process carries its own application context, so the page-level app filter
-    // cannot block capture once the fixed title bar has picked a process.
+    ActiveTitleBarTarget(
+        TitleBarPageTarget(
+            serial = state.selectedSerial,
+            options =
+                state.selection
+                    ?.packages
+                    .orEmpty()
+                    .map { TitleBarPageTargetOption(it.packageName) },
+            selectedId = state.selectedPackageName,
+            enabled = !captureActive && !state.isLoading && state.selection?.serial == state.selectedSerial,
+            onSelectTarget = { packageName ->
+                titleBarHost?.choosePackage(packageName, clearProcess = true)
+                actions.onSelectPackage(packageName)
+            },
+        ),
+    )
     val targetReady =
         titleBarHost?.deviceReady(state.selectedSerial) != false &&
-            (state.selectedProcessId != null || titleBarHost?.packageReady(state.selectedPackageName) != false)
+            titleBarHost?.packageReady(state.selectedPackageName) != false
     Column(Modifier.fillMaxSize().background(style.workspace)) {
         HeaderToolbar(
             language = currentSimpleperfLanguage(),
@@ -154,7 +165,6 @@ internal fun DeviceTargetPage(
             val targetsInTitleBar = LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null
             val deviceModifier =
                 if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(DEVICE_SELECTOR_WEIGHT)
-            // The page-level application selector matches the fixed title-bar process control width.
             val appModifier =
                 if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(APP_SELECTOR_WEIGHT)
             TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
@@ -174,21 +184,19 @@ internal fun DeviceTargetPage(
                 }
             }
             if (!targetsInTitleBar) HeaderSpacer()
-            AppSelector(
-                state.selectedPackageName,
-                state.selection?.packages.orEmpty(),
-                { packageName ->
-                    titleBarHost?.choosePackage(packageName)
-                    actions.onSelectPackage(packageName)
-                },
-                style,
-                appModifier,
-                !captureActive && !state.isLoading,
-                null,
-            )
+            TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+                AppSelector(
+                    state.selectedPackageName,
+                    state.selection?.packages.orEmpty(),
+                    { packageName -> actions.onSelectPackage(packageName) },
+                    style,
+                    appModifier,
+                    !captureActive && !state.isLoading,
+                    null,
+                )
+            }
             HeaderSpacer()
-            // The fixed title bar owns the device and application-process targets; this page header
-            // only keeps the page-level application selector and the capture actions.
+            // Hosted targets live in the title bar; standalone windows keep their inline selectors.
             if (targetsInTitleBar) Spacer(Modifier.weight(1f))
             ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading, targetReady)
             HeaderSpacer()
@@ -759,4 +767,3 @@ private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f
-

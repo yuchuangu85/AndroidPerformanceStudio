@@ -19,11 +19,36 @@ import com.androidperformancestudio.protocol.EdgeInsets
 import com.androidperformancestudio.protocol.ViewAttributes
 import com.androidperformancestudio.protocol.WindowSnapshot
 import com.androidperformancestudio.protocol.ViewNode
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class InspectorPresenterTest {
+    @Test
+    fun `screen presentation is reused for hover only and invalidated for selection language and capture`() {
+        val store = InspectorStore().apply { load(SampleSnapshots.dashboard) }
+        val cache = InspectorPresentationCache()
+        val original = cache.present(store.state, UiLanguage.ENGLISH)
+
+        store.setHoveredNode("title")
+        assertSame(original, cache.present(store.state, UiLanguage.ENGLISH))
+        store.setHoveredNode("cards")
+        assertSame(original, cache.present(store.state, UiLanguage.ENGLISH))
+
+        store.selectNode("title")
+        val selected = cache.present(store.state, UiLanguage.ENGLISH)
+        assertNotSame(original, selected)
+        assertEquals("title", selected.details.id)
+        val chinese = cache.present(store.state, UiLanguage.SIMPLIFIED_CHINESE)
+        assertNotSame(selected, chinese)
+        assertSame(chinese, cache.present(store.state, UiLanguage.SIMPLIFIED_CHINESE))
+
+        store.load(SampleSnapshots.dashboard.copy(capturedAtEpochMillis = 99))
+        assertNotSame(chinese, cache.present(store.state, UiLanguage.SIMPLIFIED_CHINESE))
+    }
+
     @Test
     fun `flattens tree rows in depth first display order`() {
         val store = InspectorStore().apply { load(SampleSnapshots.dashboard) }

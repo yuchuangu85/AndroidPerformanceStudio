@@ -47,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.battery.battery_app.generated.resources.Res
-import com.androidperformancestudio.battery.battery_app.generated.resources.app_uid
 import com.androidperformancestudio.battery.battery_app.generated.resources.battery_energy_profiler
 import com.androidperformancestudio.battery.battery_app.generated.resources.battery_historian
 import com.androidperformancestudio.battery.battery_app.generated.resources.bugreports_may_contain_accounts_ssids_app_lists_logs_and_device
@@ -66,11 +65,8 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.impo
 import com.androidperformancestudio.battery.battery_app.generated.resources.interactive
 import com.androidperformancestudio.battery.battery_app.generated.resources.launch_app_automatically
 import com.androidperformancestudio.battery.battery_app.generated.resources.low_frequency_online
-import com.androidperformancestudio.battery.battery_app.generated.resources.package_uid
-import com.androidperformancestudio.battery.battery_app.generated.resources.package_uid_shared
 import com.androidperformancestudio.battery.battery_app.generated.resources.polling
 import com.androidperformancestudio.battery.battery_app.generated.resources.polling_value
-import com.androidperformancestudio.battery.battery_app.generated.resources.process
 import com.androidperformancestudio.battery.battery_app.generated.resources.refresh
 import com.androidperformancestudio.battery.battery_app.generated.resources.repeated
 import com.androidperformancestudio.battery.battery_app.generated.resources.reset
@@ -94,6 +90,7 @@ import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
@@ -119,7 +116,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
     val controller = remember(language) { BatteryProfilerController(language = language) }
     val state by controller.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val targetHost = LocalTitleBarTargetHost.current
+    val targetHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
     val selectionReady =
         targetHost?.deviceReady(state.selectedDeviceSerial) != false &&
             targetHost?.packageReady(state.selectedPackageName) != false
@@ -151,23 +148,6 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
         } else if (pendingSharedDevice != sharedSerial && state.devices.any { it.serial == sharedSerial && it.online }) {
             pendingSharedDevice = sharedSerial
             controller.selectDevice(sharedSerial)
-        }
-    }
-    LaunchedEffect(
-        targetHost,
-        targetHost?.selectedPackageName,
-        targetHost?.selectedDeviceSerial,
-        state.selectedDeviceSerial,
-        state.selectedPackageName,
-        state.targets,
-        state.isRunning,
-    ) {
-        if (targetHost == null || state.isRunning || !targetHost.deviceReady(state.selectedDeviceSerial)) return@LaunchedEffect
-        val sharedPackage = targetHost.selectedPackageName
-        if (sharedPackage == null) {
-            state.selectedPackageName?.let(targetHost::choosePackage)
-        } else if (sharedPackage != state.selectedPackageName && state.targets.any { it.packageName == sharedPackage }) {
-            controller.selectTarget(sharedPackage)
         }
     }
     LaunchedEffect(state.isInteractiveActive, state.config.mode, state.config.pollingIntervalSeconds) {
@@ -273,32 +253,10 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
                         )
                     }
                     if (!inTitleBar) HeaderSpacer()
-                    // The title bar owns the application-wide process target; the battery app/UID target stays here.
-                    DropdownSelector(
-                        items = state.targets,
-                        searchable = true,
-                        searchLanguage = language,
-                        selectedItem = state.targets.firstOrNull { it.packageName == state.selectedPackageName },
-                        onItemSelected = {
-                            targetHost?.choosePackage(it.packageName)
-                            controller.selectTarget(it.packageName)
-                        },
-                        itemLabel = {
-                            localizedStringResource(
-                                if (it.sharedUid) Res.string.package_uid_shared else Res.string.package_uid,
-                                language,
-                                it.packageName,
-                                it.uid,
-                            )
-                        },
-                        placeholder = localizedStringResource(Res.string.app_uid, language),
-                        selectorDescription = localizedStringResource(Res.string.app_uid, language),
-                        enabled =
-                            !state.isRunning &&
-                                state.selectedDeviceSerial != null &&
-                                (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
-                        modifier = Modifier,
-                        fillWidth = false,
+                    BatteryAppUidSelector(
+                        state = state,
+                        onSelectTarget = controller::selectTarget,
+                        language = language,
                     )
                     HeaderSpacer()
                     TitleBarRefreshOrInline(

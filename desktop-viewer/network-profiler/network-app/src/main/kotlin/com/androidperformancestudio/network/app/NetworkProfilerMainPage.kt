@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,7 +21,6 @@ import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.network.analysis.NetworkAnalyzer
-import com.androidperformancestudio.network.capture.ActiveNetworkCapture
 import com.androidperformancestudio.network.capture.NetworkAgentCapture
 import com.androidperformancestudio.network.export.NetworkExporter
 import com.androidperformancestudio.network.har.HarParser
@@ -32,24 +32,22 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.TitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 public fun FrameWindowScope.NetworkProfilerMainPage(
@@ -61,9 +59,14 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
     val capture = remember { NetworkAgentCapture() }
     val scope = rememberCoroutineScope()
     val db = remember { Path.of(System.getProperty("user.home"), ".android-performance-studio", "network", "network.db") }
-    var active by remember { mutableStateOf<ActiveNetworkCapture?>(null) }
     var pollJob by remember { mutableStateOf<Job?>(null) }
+    var stopRequested by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf(NetworkProfilerState()) }
+    val targetHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
+
+    LaunchedEffect(targetHost, targetHost?.selectedDeviceSerial, targetHost?.selectedPackageName, state.capturing) {
+        state = state.withTitleBarTarget(targetHost)
+    }
 
     fun complete(result: com.androidperformancestudio.network.model.NetworkCaptureResult, message: String, artifact: CaptureArtifact) {
         val summary = analyzer.summarize(result.calls)
@@ -77,27 +80,42 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
     }
 
     fun start() {
-        pollJob = scope.launch(Dispatchers.IO) {
-            runCatching { capture.start(state.deviceSerial, state.packageName) }.onSuccess { session ->
-                withContext(Dispatchers.Main) {
-                    active = session
-                    state = state.copy(capturing = true, message = localizedStringResource(Res.string.agent_session_started, language), error = null)
-                }
-                while (isActive) {
-                    delay(750.milliseconds)
-                    runCatching { capture.poll(session) }.onSuccess { events -> withContext(Dispatchers.Main) { state = state.copy(liveEventCount = state.liveEventCount + events.size, message = localizedStringResource(Res.string.captured_raw_events, language, state.liveEventCount + events.size)) } }.onFailure { cancel("poll failed", it) }
-                }
-            }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
+        if (state.capturing || !state.canCaptureWith(targetHost)) return
+        val serial = state.deviceSerial
+        val packageName = state.packageName
+        stopRequested = false
+        state = state.copy(capturing = true, liveEventCount = 0, message = null, error = null)
+        pollJob = scope.launch {
+            runNetworkCaptureSession(
+                start = { capture.start(serial, packageName) },
+                poll = { session -> capture.poll(session).size },
+                stop = capture::stop,
+                publishResult = { stopRequested },
+                callbacks = NetworkCaptureCallbacks(
+                    onStarted = {
+                        state = state.copy(message = localizedStringResource(Res.string.agent_session_started, language), error = null)
+                    },
+                    onEvents = { count ->
+                        val total = state.liveEventCount + count
+                        state = state.copy(liveEventCount = total, message = localizedStringResource(Res.string.captured_raw_events, language, total))
+                    },
+                    onCompleted = { result ->
+                        complete(result, localizedStringResource(Res.string.capture_completed, language, result.calls.size), NetworkArtifactFactory().agent(result))
+                    },
+                    onFailure = { error -> state = state.copy(error = error.message ?: error.javaClass.simpleName) },
+                    onFinished = {
+                        pollJob = null
+                        state = state.copy(capturing = false)
+                    },
+                ),
+            )
         }
     }
 
     fun stop() {
-        val session = active ?: return
-        scope.launch(Dispatchers.IO) {
-            pollJob?.cancelAndJoin()
-            runCatching { capture.stop(session) }.onSuccess { result -> withContext(Dispatchers.Main) { complete(result, localizedStringResource(Res.string.capture_completed, language, result.calls.size), NetworkArtifactFactory().agent(result)) } }.onFailure { withContext(Dispatchers.Main) { state = state.copy(capturing = false, error = it.message) } }
-            withContext(Dispatchers.Main) { active = null }
-        }
+        if (stopRequested) return
+        stopRequested = true
+        pollJob?.cancel()
     }
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
@@ -130,22 +148,26 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                     }
                 },
             )
-            HeaderSpacer()
-            ProfilerCompactTextField(
-                label = localizedStringResource(Res.string.device_serial, language),
-                value = state.deviceSerial,
-                onValueChange = { state = state.copy(deviceSerial = it) },
-                enabled = !state.capturing,
-                modifier = Modifier.width(180.dp),
-            )
-            HeaderSpacer()
-            ProfilerCompactTextField(
-                label = localizedStringResource(Res.string.`package`, language),
-                value = state.packageName,
-                onValueChange = { state = state.copy(packageName = it) },
-                enabled = !state.capturing,
-                modifier = Modifier.width(240.dp),
-            )
+            TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                HeaderSpacer()
+                ProfilerCompactTextField(
+                    label = localizedStringResource(Res.string.device_serial, language),
+                    value = state.deviceSerial,
+                    onValueChange = { state = state.copy(deviceSerial = it) },
+                    enabled = !state.capturing,
+                    modifier = Modifier.width(180.dp),
+                )
+            }
+            TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+                HeaderSpacer()
+                ProfilerCompactTextField(
+                    label = localizedStringResource(Res.string.`package`, language),
+                    value = state.packageName,
+                    onValueChange = { state = state.copy(packageName = it) },
+                    enabled = !state.capturing,
+                    modifier = Modifier.width(240.dp),
+                )
+            }
             HeaderSpacer()
             ProfilerCompactButton(
                 text =
@@ -154,7 +176,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                     } else {
                         localizedStringResource(Res.string.live_capture, language)
                     },
-                enabled = state.deviceSerial.isNotBlank() && state.packageName.isNotBlank(),
+                enabled = state.canCaptureWith(targetHost),
                 onClick = { if (state.capturing) stop() else start() },
             )
             HeaderSpacer()
@@ -211,4 +233,16 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
     }
+}
+
+internal fun NetworkProfilerState.withTitleBarTarget(host: TitleBarTargetHost?): NetworkProfilerState {
+    if (host == null || capturing) return this
+    return copy(deviceSerial = host.selectedDeviceSerial.orEmpty(), packageName = host.selectedPackageName.orEmpty())
+}
+
+internal fun NetworkProfilerState.canCaptureWith(host: TitleBarTargetHost?): Boolean {
+    if (capturing) return true
+    return deviceSerial.isNotBlank() &&
+        packageName.isNotBlank() &&
+        (host == null || (host.selectedDeviceSerial == deviceSerial && host.selectedPackageName == packageName))
 }

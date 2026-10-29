@@ -3,14 +3,17 @@ package com.androidperformancestudio.compose.inspection.host
 import com.androidperformancestudio.adb.AdbCommandFactory
 import com.androidperformancestudio.adb.ProcessRunner
 import com.androidperformancestudio.compose.inspection.ComposableDetail
+import com.androidperformancestudio.compose.inspection.ComposableNode
 import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
 import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.compose.inspection.ComposeInspectionFrame
 import com.androidperformancestudio.compose.inspection.ComposeInspectionProjection
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeValue
-import com.androidperformancestudio.protocol.AgentCapabilities
+import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.protocol.effectiveWindows
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -43,16 +46,9 @@ class ComposeLiveSession private constructor(
             throw TargetProcessUnavailableException(injection.serial, injection.packageName, injection.pid)
         }
         val stableCapture = StableComposeFrameCapture(client).capture(injection.packageName)
-        val views = stableCapture.views
         val compose = stableCapture.compose
+        val snapshot = stableCapture.projectSnapshot(hideSystemComposables)
         lastFrame = compose
-        val snapshot = ComposeInspectionProjection.mergeInto(
-            snapshot = views.snapshot.copy(
-                capabilities = views.snapshot.capabilities.copy(composeSemantics = true),
-            ),
-            frame = compose,
-            hideSystemComposables = hideSystemComposables,
-        )
         return ComposeLiveCapture(
             snapshot = snapshot,
             composeInspection = ComposeInspectionDocument(
@@ -183,6 +179,45 @@ class ComposeLiveSession private constructor(
             }
         }
     }
+}
+
+internal fun StableComposeCapture.projectSnapshot(hideSystemComposables: Boolean): LayoutSnapshot {
+    val snapshot = ComposeInspectionProjection.mergeInto(
+        snapshot = views.snapshot.copy(
+            capabilities = views.snapshot.capabilities.copy(composeSemantics = true),
+        ),
+        frame = compose,
+        hideSystemComposables = hideSystemComposables,
+    )
+    val pending = ArrayDeque<UiNode>()
+    val projectedIds = mutableSetOf<String>()
+    pending.addAll(snapshot.effectiveWindows.map { it.root })
+    while (pending.isNotEmpty()) {
+        val node = pending.removeFirst()
+        if (node is ComposeNode) projectedIds.add(node.id)
+        pending.addAll(node.children)
+    }
+    if (projectedIds.isNotEmpty()) {
+        val expectedIds = mutableSetOf<String>()
+        val composables = ArrayDeque<ComposableNode>()
+        composables.addAll(compose.roots.flatMap { it.nodes })
+        while (composables.isNotEmpty()) {
+            val node = composables.removeFirst()
+            if (!hideSystemComposables || !node.systemCreated) expectedIds.add("compose-inspection:" + node.id)
+            composables.addAll(node.children)
+        }
+        val missing = expectedIds - projectedIds
+        check(missing.isEmpty()) {
+            "Compose tree unavailable after projection; Composable nodes " + missing.take(10) +
+                " were not merged into the captured windows. Keep the target screen visible and retry capture."
+        }
+        return snapshot
+    }
+    error(
+        "Compose tree unavailable after projection; no Compose nodes remain in the captured windows. " +
+            "Keep the target Compose screen visible and retry capture" +
+            if (hideSystemComposables) ", or show system composables." else ".",
+    )
 }
 
 private fun com.androidperformancestudio.compose.inspection.ComposableNode.contains(target: Long): Boolean =

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.StartupProfileSource
 import com.androidperformancestudio.startup.model.StartupRun
+import com.androidperformancestudio.startup.model.StartupTarget
 import com.androidperformancestudio.startup.model.StartupType
 import com.androidperformancestudio.startup.presentation.generated.resources.Res
 import com.androidperformancestudio.startup.presentation.generated.resources.application
@@ -74,13 +75,18 @@ import com.androidperformancestudio.startup.presentation.generated.resources.sta
 import com.androidperformancestudio.startup.presentation.generated.resources.stop_analysis
 import com.androidperformancestudio.startup.presentation.generated.resources.warm_start_description
 import com.androidperformancestudio.startup.presentation.generated.resources.warmup_runs
+import com.androidperformancestudio.ui.ActiveTitleBarTarget
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerCompactTextField
+import com.androidperformancestudio.ui.TitleBarPageTarget
+import com.androidperformancestudio.ui.TitleBarPageTargetOption
+import com.androidperformancestudio.ui.TitleBarTargetHost
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
 import com.androidperformancestudio.ui.TitleBarTargetWidth
@@ -161,9 +167,10 @@ public fun StartupTargetSelectors(
     actions: StartupProfilerActions,
     language: UiLanguage,
 ) {
-    val targetHost = LocalTitleBarTargetHost.current
+    val targetHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
     val inTitleBar = targetHost != null
     val selectedTarget = state.targets.firstOrNull { it.componentName == state.selectedComponentName }
+    val targetEnabled = !state.isRunning && !state.isRefreshing && state.selectedDeviceSerial != null
     val pendingSharedDevice = remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(targetHost, targetHost?.selectedDeviceSerial, state.selectedDeviceSerial, state.devices, state.isRunning) {
@@ -188,15 +195,20 @@ public fun StartupTargetSelectors(
         state.selectedComponentName,
         state.targets,
         state.isRunning,
+        state.isRefreshing,
+        targetHost?.selectedProcessPid,
     ) {
-        if (targetHost == null || state.isRunning || selectedTarget != null) return@LaunchedEffect
-        if (!targetHost.deviceReady(state.selectedDeviceSerial)) return@LaunchedEffect
-        // A running process can suggest the initial app, but the launch activity is page-owned.
-        val sharedPackage = targetHost.selectedPackageName ?: return@LaunchedEffect
-        state.targets.firstOrNull { it.packageName == sharedPackage }?.let {
-            actions.onSelectTarget(it.componentName)
-        }
+        syncStartupComponent(targetHost, state, actions.onSelectTarget)
     }
+    ActiveTitleBarTarget(
+        TitleBarPageTarget(
+            serial = state.selectedDeviceSerial,
+            options = state.targets.map { TitleBarPageTargetOption(it.componentName, it.selectorLabel(), it.componentName) },
+            selectedId = state.selectedComponentName,
+            enabled = targetEnabled,
+            onSelectTarget = actions.onSelectTarget,
+        ),
+    )
     TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
         DeviceDropdownSelector(
             language = language,
@@ -216,27 +228,45 @@ public fun StartupTargetSelectors(
         )
     }
     if (!inTitleBar) HeaderSpacer()
-    // The title bar owns the application-wide process target; the startup component target stays here.
-    DropdownSelector(
-        items = state.targets,
-        searchable = true,
-        searchLanguage = language,
-        selectedItem = selectedTarget,
-        onItemSelected = {
-            actions.onSelectTarget(it.componentName)
-        },
-        itemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-        selectedItemLabel = { "${it.packageName} / ${it.componentName.substringAfter('/')}" },
-        itemSecondary = { it.componentName },
-        placeholder = localizedStringResource(Res.string.application, language),
-        selectorDescription = localizedStringResource(Res.string.application, language),
-        modifier = Modifier.width(220.dp).testTag("startup-target"),
-        fillWidth = true,
-        enabled =
-            !state.isRunning &&
-                state.selectedDeviceSerial != null &&
-                (targetHost?.deviceReady(state.selectedDeviceSerial) != false),
-    )
+    TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+        DropdownSelector(
+            items = state.targets,
+            searchable = true,
+            searchLanguage = language,
+            selectedItem = selectedTarget,
+            onItemSelected = { actions.onSelectTarget(it.componentName) },
+            itemLabel = StartupTarget::selectorLabel,
+            selectedItemLabel = StartupTarget::selectorLabel,
+            itemSecondary = { it.componentName },
+            placeholder = localizedStringResource(Res.string.application, language),
+            selectorDescription = localizedStringResource(Res.string.application, language),
+            modifier = Modifier.width(220.dp).testTag("startup-target"),
+            fillWidth = true,
+            enabled = targetEnabled,
+        )
+    }
+}
+
+private fun StartupTarget.selectorLabel(): String = "$packageName / ${componentName.substringAfter('/')}"
+
+private fun syncStartupComponent(
+    host: TitleBarTargetHost?,
+    state: StartupProfilerState,
+    onSelectTarget: (String) -> Unit,
+) {
+    if (host == null || state.isRunning || state.isRefreshing) return
+    if (host.selectedDeviceSerial != state.selectedDeviceSerial || state.selectedDeviceSerial == null) return
+    val selectedTarget = state.targets.firstOrNull { it.componentName == state.selectedComponentName }
+    if (selectedTarget != null) {
+        // The exact activity remains page-owned; periodic process discovery must not replace it.
+        host.choosePackage(selectedTarget.packageName, clearProcess = true)
+    } else {
+        // A running process can suggest the initial app only before an explicit activity is chosen.
+        val sharedPackage = host.selectedPackageName
+        state.targets.firstOrNull { it.packageName == sharedPackage }?.let {
+            onSelectTarget(it.componentName)
+        }
+    }
 }
 
 @Composable

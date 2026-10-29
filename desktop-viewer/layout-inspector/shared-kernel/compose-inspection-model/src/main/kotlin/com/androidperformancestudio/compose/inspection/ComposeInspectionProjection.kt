@@ -9,8 +9,9 @@ import com.androidperformancestudio.protocol.effectiveWindows
 
 object ComposeInspectionProjection {
     fun project(frame: ComposeInspectionFrame, hideSystemComposables: Boolean = true): List<ComposeNode> =
-        frame.roots.flatMap { root -> root.nodes.flatMap { it.project(hideSystemComposables, emptyMap()) } }
-            .filterIsInstance<ComposeNode>()
+        frame.roots.flatMap { root ->
+            root.nodes.flatMap { it.project(hideSystemComposables, emptyMap(), emptyMap(), mutableSetOf()) }
+        }.filterIsInstance<ComposeNode>()
 
     fun mergeInto(
         snapshot: LayoutSnapshot,
@@ -24,7 +25,7 @@ object ComposeInspectionProjection {
             .mapNotNull { node -> node.numericViewId()?.let { it to node } }
             .toMap()
         val windows = snapshot.effectiveWindows.map { window ->
-            window.copy(root = window.root.mergeCompose(rootsByViewId, viewsById, hideSystemComposables))
+            window.copy(root = window.root.mergeCompose(rootsByViewId, viewsById, hideSystemComposables, mutableSetOf()))
         }
         return snapshot.copy(
             root = windows.firstOrNull { it.id == snapshot.defaultWindowId }?.root
@@ -36,10 +37,12 @@ object ComposeInspectionProjection {
 
     private fun ComposableNode.project(
         hideSystem: Boolean,
+        rootsByViewId: Map<Long, ComposableRoot>,
         viewsById: Map<Long, ViewNode>,
+        activeViewIds: MutableSet<Long>,
     ): List<UiNode> {
-        val projectedChildren = children.flatMap { it.project(hideSystem, viewsById) } +
-            listOfNotNull(hostedViewId?.let(viewsById::get))
+        val projectedChildren = children.flatMap { it.project(hideSystem, rootsByViewId, viewsById, activeViewIds) } +
+            listOfNotNull(hostedViewId?.let(viewsById::get)?.mergeCompose(rootsByViewId, viewsById, hideSystem, activeViewIds))
         if (hideSystem && systemCreated) return projectedChildren
         return listOf(
             ComposeNode(
@@ -55,19 +58,29 @@ object ComposeInspectionProjection {
         rootsByViewId: Map<Long, ComposableRoot>,
         viewsById: Map<Long, ViewNode>,
         hideSystem: Boolean,
+        activeViewIds: MutableSet<Long>,
     ): UiNode {
         val numericId = (this as? ViewNode)?.numericViewId()
-        val composeRoot = numericId?.let(rootsByViewId::get)
-        val replacedChildren = if (composeRoot != null) {
-            val skipped = composeRoot.viewsToSkip.toSet()
-            composeRoot.nodes.flatMap { it.project(hideSystem, viewsById) } +
-                children.filterNot { child -> (child as? ViewNode)?.numericViewId() in skipped }
-        } else {
-            children.map { it.mergeCompose(rootsByViewId, viewsById, hideSystem) }
+        // Hosted views may point back to any native ancestor, not just another Compose host.
+        if (numericId != null) {
+            require(activeViewIds.add(numericId)) { "Cyclic Compose hosted view reference to view $numericId" }
         }
-        return when (this) {
-            is ViewNode -> copy(children = replacedChildren)
-            is ComposeNode -> copy(children = replacedChildren)
+        return try {
+            val composeRoot = numericId?.let(rootsByViewId::get)
+            val replacedChildren = if (composeRoot != null) {
+                val skipped = composeRoot.viewsToSkip.toSet()
+                composeRoot.nodes.flatMap { it.project(hideSystem, rootsByViewId, viewsById, activeViewIds) } +
+                    children.filterNot { child -> (child as? ViewNode)?.numericViewId() in skipped }
+                        .map { it.mergeCompose(rootsByViewId, viewsById, hideSystem, activeViewIds) }
+            } else {
+                children.map { it.mergeCompose(rootsByViewId, viewsById, hideSystem, activeViewIds) }
+            }
+            when (this) {
+                is ViewNode -> copy(children = replacedChildren)
+                is ComposeNode -> copy(children = replacedChildren)
+            }
+        } finally {
+            if (numericId != null) activeViewIds.remove(numericId)
         }
     }
 

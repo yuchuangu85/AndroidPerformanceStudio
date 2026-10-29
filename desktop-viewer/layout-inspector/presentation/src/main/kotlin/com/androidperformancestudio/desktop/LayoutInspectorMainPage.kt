@@ -196,7 +196,7 @@ internal const val DEFAULT_HIDE_SYSTEM_COMPOSABLES: Boolean = false
 internal const val COMPOSE_NODE_ID_PREFIX = "compose-inspection:"
 
 /**
- * Identity of one automatic full-Compose preparation attempt.
+ * Identity of a foreground target that still needs full-Compose preparation.
  *
  * The foreground package is part of the key. Bringing a different app to the front has to retry
  * preflight instead of reusing the previous attempt: a native View app that fails the Compose
@@ -282,6 +282,21 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val composeInjectionManager = remember {
         ComposeInjectionManager(composeProcessRunner, composeArtifactResolver)
     }
+    val composePreparation = remember(composeInjectionManager) {
+        ComposePreparationCoordinator(
+            prepare = { serial, packageName ->
+                withContext(Dispatchers.IO) {
+                    composeInjectionManager.preflight(
+                        serial,
+                        packageName,
+                        resolveComposeAgentBundle(),
+                        explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
+                            ?.takeIf(String::isNotBlank)?.let(Path::of),
+                    )
+                }
+            },
+        )
+    }
     // A dead target is explained with the app's last crash instead of looking like an inspector bug.
     val describeFullComposeFailure: suspend (Throwable) -> String = describe@{ error ->
         if (error !is TargetProcessUnavailableException) {
@@ -289,7 +304,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
         val crash =
             withContext(Dispatchers.IO) {
-                runCatching {
+                runInspectorCatching {
                     composeProcessRunner.lastTargetCrashReason(error.serial, error.packageName)
                 }.getOrNull()
             }
@@ -302,9 +317,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var composeAuthorization by remember { mutableStateOf<AuthorizedComposeTarget?>(null) }
     var composeSession by remember { mutableStateOf<ComposeLiveSession?>(null) }
     var recompositionActive by remember { mutableStateOf(false) }
-    var automaticComposePreflightAttempt by remember { mutableStateOf<String?>(null) }
-    var automaticComposePreflightInProgress by remember { mutableStateOf(false) }
-    var foregroundPackage by remember { mutableStateOf<String?>(null) }
+    var composeUnavailableReason by remember { mutableStateOf<String?>(null) }
+    var composeExpected by remember { mutableStateOf(false) }
+    var composePreparationTarget by remember { mutableStateOf<InspectorCaptureTarget?>(null) }
     var fullComposeRecoveryAttempts by remember { mutableStateOf(0) }
     val recompositionHeatTracker = remember { RecompositionHeatTracker() }
     var recompositionHeat by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
@@ -360,7 +375,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     LaunchedEffect(deviceListRefreshRequest) {
         val devices = withContext(Dispatchers.IO) {
-            runCatching { deviceClient.listAuthorizedDeviceInfos() }.getOrDefault(emptyList())
+            runInspectorCatching { deviceClient.listAuthorizedDeviceInfos() }.getOrDefault(emptyList())
         }
         availableDevices = devices
         selectedDeviceSerial =
@@ -387,86 +402,92 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
     }
 
-    val prepareFullComposeForForeground: () -> Unit = prepare@{
-        if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return@prepare
-        val serial = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial ?: return@prepare
-        if (automaticComposePreflightInProgress) return@prepare
-        automaticComposePreflightInProgress = true
-        coroutineScope.launch {
-            try {
-                val foreground = withContext(Dispatchers.IO) {
-                    runCatching { deviceClient.foregroundPackageName(serial) }.getOrNull()
-                }?.takeIf(String::isNotBlank) ?: return@launch
-                val authorizedPackage = composeAuthorization?.prepared?.preflight?.packageName
-                val key = automaticComposePreflightKey(
-                    serial = serial,
-                    packageName = foreground,
-                    mode = captureTargetMode,
-                    authorizedPackage = authorizedPackage,
-                ) ?: return@launch
-                if (automaticComposePreflightAttempt == key) return@launch
-                automaticComposePreflightAttempt = key
-                // A different foreground app invalidates the previous target. Reusing it would
-                // attach one app's session while another app owns the screen, so the captured tree
-                // would not describe the screen.
-                if (authorizedPackage != null && authorizedPackage != foreground) {
-                    composeSession = null
-                    composeAuthorization = null
-                    fullComposeEnabled = false
-                    recompositionActive = false
-                }
-                val prepared = runCatching {
-                    withContext(Dispatchers.IO) {
-                        val bundleRoot = resolveComposeAgentBundle()
-                        composeInjectionManager.preflight(serial, foreground, bundleRoot)
-                    }
-                }
-                prepared.fold(
-                    onSuccess = { target ->
-                        composeAuthorization = AuthorizedComposeTarget(
-                            target,
-                            ComposeInspectionAuthorization.authorize(target.preflight),
-                        )
-                        // The scan mode stays whatever the user selected: full fidelity now works from
-                        // either mode, so activation must not switch the user to live capture.
-                        fullComposeEnabled = true
-                    },
-                    onFailure = { error ->
-                        // Complete Compose requires the verified AOSP runtime bundle. Native View and
-                        // compatible Semantics capture must remain available when that bundle is absent,
-                        // but the reason has to stay visible instead of degrading silently.
-                        val baseReason = error.message ?: error.javaClass.simpleName
-                        val crash =
-                            if (baseReason.contains("not running")) {
-                                withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        composeProcessRunner.lastTargetCrashReason(serial, foreground)
-                                    }.getOrNull()
-                                }
-                            } else {
-                                null
-                            }
-                        val reason = "Full Compose inspection unavailable: " + baseReason +
-                            (crash?.let { " (last crash: " + it + ")" } ?: "")
-                        System.err.println("[layout-inspector] " + reason)
-                        store.noteComposeInspectionUnavailable(reason)
-                        val recovery = composeFallbackRecovery()
-                        fullComposeEnabled = recovery.fullComposeEnabled
-                        composeAuthorization = null
-                        recompositionActive = recovery.recompositionActive
-                    },
-                )
-            } finally {
-                automaticComposePreflightInProgress = false
+    fun selectedCaptureSerial(): String? = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial
+
+    suspend fun currentCaptureTarget(): InspectorCaptureTarget {
+        val serial = checkNotNull(selectedCaptureSerial()) { "No Android device selected" }
+        val mode = captureTargetMode
+        val packageName = if (mode == CaptureTargetMode.SYSTEM_UI) SYSTEM_UI_PACKAGE_NAME else {
+            withContext(Dispatchers.IO) { deviceClient.foregroundPackageName(serial) }
+        }
+        return InspectorCaptureTarget(serial, packageName, mode)
+    }
+
+    suspend fun isCaptureTargetCurrent(target: InspectorCaptureTarget): Boolean {
+        val foreground = if (target.mode == CaptureTargetMode.SYSTEM_UI) SYSTEM_UI_PACKAGE_NAME else {
+            withContext(Dispatchers.IO) {
+                runInspectorCatching { deviceClient.foregroundPackageName(target.serial) }.getOrNull()
             }
+        }
+        return target.matches(selectedCaptureSerial(), foreground, captureTargetMode) &&
+            titleBarTargets?.deviceReady(target.serial) != false
+    }
+
+    suspend fun verifyCaptureTarget(target: InspectorCaptureTarget, snapshotPackageName: String? = target.packageName) {
+        if (!target.acceptsSnapshot(snapshotPackageName) || !isCaptureTargetCurrent(target)) {
+            throw InspectorCaptureTargetChangedException()
         }
     }
 
-    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, fullComposeEnabled, composeAuthorization) {
-        prepareFullComposeForForeground()
+    suspend fun prepareFullComposeForForeground(
+        forceRetry: Boolean = false,
+        target: InspectorCaptureTarget? = null,
+    ): Boolean {
+        if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return false
+        val requested = target ?: runInspectorCatching { currentCaptureTarget() }.getOrNull() ?: return false
+        if (composePreparationTarget != requested) {
+            composePreparationTarget = requested
+            composePreparation.invalidate()
+            composeSession = null
+            composeAuthorization = null
+            fullComposeEnabled = false
+            recompositionActive = false
+            fullComposeRecoveryAttempts = 0
+            composeUnavailableReason = null
+            composeExpected = false
+        }
+        if (requested.mode != CaptureTargetMode.FOREGROUND_APP) return false
+        val authorized = composeAuthorization?.prepared?.preflight
+        val sameTarget = automaticComposePreflightKey(
+            serial = requested.serial,
+            packageName = requested.packageName,
+            mode = requested.mode,
+            authorizedPackage = authorized?.takeIf { it.serial == requested.serial }?.packageName,
+        ) == null
+        if (sameTarget && fullComposeEnabled && !forceRetry) return true
+        if (!forceRetry && fullComposeRecoveryAttempts >= MAX_FULL_COMPOSE_RECOVERY_ATTEMPTS) return false
+        val prepared = composePreparation.prepareForCapture(requested.serial, requested.packageName, forceRetry) ?: return false
+        if (!isCaptureTargetCurrent(requested)) return false
+        return prepared.fold(
+            onSuccess = { ready ->
+                composeAuthorization = AuthorizedComposeTarget(ready, ComposeInspectionAuthorization.authorize(ready.preflight))
+                fullComposeEnabled = true
+                composeUnavailableReason = null
+                composeExpected = true
+                if (forceRetry) fullComposeRecoveryAttempts = 0
+                true
+            },
+            onFailure = { error ->
+                val baseReason = error.message ?: error.javaClass.simpleName
+                val reason = "Full Compose inspection unavailable for " + requested.packageName + ": " + baseReason
+                if (composeUnavailableReason != reason) System.err.println("[layout-inspector] " + reason)
+                composeUnavailableReason = reason
+                store.state.snapshot?.takeIf { it.packageName == requested.packageName }?.let { snapshot ->
+                    composeCaptureWarning(snapshot, reason, composeExpected)?.let { warning ->
+                        store.noteComposeInspectionUnavailable(warning)
+                        state = store.state
+                    }
+                }
+                fullComposeEnabled = false
+                composeAuthorization = null
+                recompositionActive = false
+                false
+            },
+        )
     }
-    LaunchedEffect(composeAuthorization) {
-        if (composeAuthorization != null) fullComposeRecoveryAttempts = 0
+
+    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, fullComposeEnabled, composeAuthorization) {
+        if (!manualRefreshInProgress) prepareFullComposeForForeground()
     }
 
     // The foreground app can change without any Layout Inspector state changing, so poll for it and
@@ -476,14 +497,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, titleBarTargets?.selectedDeviceSerial) {
         if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return@LaunchedEffect
         val serial = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial ?: return@LaunchedEffect
-        foregroundPackage = null
         while (currentCoroutineContext().isActive) {
             val foreground = withContext(Dispatchers.IO) {
-                runCatching { deviceClient.foregroundPackageName(serial) }.getOrNull()
+                runInspectorCatching { deviceClient.foregroundPackageName(serial) }.getOrNull()
             }?.takeIf(String::isNotBlank)
-            if (foreground != null && foreground != foregroundPackage) {
-                foregroundPackage = foreground
-                prepareFullComposeForForeground()
+            if (foreground != null) {
+                if (!manualRefreshInProgress) {
+                    prepareFullComposeForForeground(target = InspectorCaptureTarget(serial, foreground, captureTargetMode))
+                }
             }
             delay(FOREGROUND_PACKAGE_POLL_MILLIS.milliseconds)
         }
@@ -508,13 +529,11 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             var session: ConnectedDeviceSession? = null
             var fullSession: ComposeLiveSession? = null
             try {
-                if (fullComposeEnabled && composeAuthorization == null) {
-                    // Re-authorization is in flight after a target restart; wait for it instead of
-                    // reporting "not authorized" as an inspection failure.
-                    prepareFullComposeForForeground()
-                    delay(FOREGROUND_PACKAGE_POLL_MILLIS.milliseconds)
-                    continue
+                val target = currentCaptureTarget()
+                if (composeAuthorization == null) {
+                    prepareFullComposeForForeground(target = target)
                 }
+                verifyCaptureTarget(target)
                 store.connecting()
                 state = store.state
                 if (fullComposeEnabled) {
@@ -538,11 +557,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         val capture = withContext(Dispatchers.IO) {
                             fullSession.capture(hideSystemComposables)
                         }
+                        verifyCaptureTarget(target, capture.snapshot.packageName)
                         store.loadCapture(
                             snapshot = capture.snapshot,
                             screenshotPng = checkNotNull(capture.screenshotPng) { "ADB screenshot failed" },
                             composeInspection = capture.composeInspection,
                         )
+                        fullComposeRecoveryAttempts = 0
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
                         state = store.state
@@ -572,10 +593,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     val snapshot = timer.measure("decodeSnapshot") {
                         protocolCodec.decodeSnapshot(frame.snapshotJson)
                     }
+                    verifyCaptureTarget(target, snapshot.packageName)
                     timer.measure("publishCapture") {
                         store.loadCapture(
                             snapshot = snapshot,
                             screenshotPng = frame.screenshotPng,
+                            composeInspectionWarning = composeCaptureWarning(snapshot, composeUnavailableReason, composeExpected),
                         )
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
@@ -586,7 +609,16 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 }
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: Throwable) {
+            } catch (_: InspectorCaptureTargetChangedException) {
+                composePreparation.invalidate()
+                composeAuthorization = null
+                fullComposeEnabled = false
+                composeUnavailableReason = null
+                composeExpected = false
+                fullComposeRecoveryAttempts = 0
+                store.disconnected()
+                state = store.state
+            } catch (error: Exception) {
                 val failureReason = describeFullComposeFailure(error)
                 val recoverableTarget =
                     error is TargetProcessUnavailableException &&
@@ -600,6 +632,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     composeSession = null
                     withContext(NonCancellable + Dispatchers.IO) { failedSession?.close() }
                     composeAuthorization = null
+                    fullComposeEnabled = false
+                    composePreparation.invalidate()
+                    composeUnavailableReason = "Full Compose inspection failed: " + failureReason
+                    store.fallbackToCompatibleInspection(composeUnavailableReason)
                     prepareFullComposeForForeground()
                     state = store.state
                 } else if (fullComposeEnabled) {
@@ -608,13 +644,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     composeSession = null
                     withContext(NonCancellable + Dispatchers.IO) { failedSession?.close() }
                     val recovery = composeFallbackRecovery()
+                    fullComposeRecoveryAttempts += 1
+                    composePreparation.invalidate()
                     composeAuthorization = null
                     fullComposeEnabled = recovery.fullComposeEnabled
                     recompositionActive = recovery.recompositionActive
                     autoScanEnabled = recovery.autoScanEnabled
-                    store.fallbackToCompatibleInspection(
-                        "Full Compose inspection failed: " + failureReason,
-                    )
+                    composeUnavailableReason = "Full Compose inspection failed: " + failureReason
+                    store.fallbackToCompatibleInspection(composeUnavailableReason)
                     state = store.state
                 } else {
                     store.connectionFailed(failureReason)
@@ -638,8 +675,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         if (document.frame.details.containsKey(nodeId)) return@LaunchedEffect
         val node = document.frame.roots.asSequence().flatMap { it.nodes.asSequence() }
             .firstNotNullOfOrNull { it.findComposeNode(nodeId) } ?: return@LaunchedEffect
-        val detail = withContext(Dispatchers.IO) {
-            composeSession?.loadDetail(nodeId, node.anchorHash)
+        val detail = runInspectorCatching {
+            withContext(Dispatchers.IO) { composeSession?.loadDetail(nodeId, node.anchorHash) }
+        }.getOrElse { error ->
+            if (store.state.composeInspection?.frame?.frameId == document.frame.frameId) {
+                store.noteComposeInspectionUnavailable("Compose detail unavailable: " + (error.message ?: error.javaClass.simpleName))
+                state = store.state
+            }
+            null
         } ?: return@LaunchedEffect
         if (store.loadComposeDetail(document.frame.frameId, detail)) state = store.state
     }
@@ -655,9 +698,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
         val timer = RefreshTimer("manual", refreshTimingSink)
         manualRefreshInProgress = true
+        var requestedTarget: InspectorCaptureTarget? = null
         try {
             store.connecting()
             state = store.state
+            val target = currentCaptureTarget()
+            requestedTarget = target
+            prepareFullComposeForForeground(forceRetry = true, target = target)
+            verifyCaptureTarget(target)
             if (fullComposeEnabled) {
                 // Full fidelity has its own pipeline: the attached session is the only producer of
                 // frames, so a manual refresh runs it once for a single frame instead of leaving the
@@ -682,12 +730,14 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         }
                     }
                 }
+                verifyCaptureTarget(target, capture.snapshot.packageName)
                 timer.measure("publishCapture") {
                     store.loadCapture(
                         snapshot = capture.snapshot,
                         screenshotPng = checkNotNull(capture.screenshotPng) { "ADB screenshot failed" },
                         composeInspection = capture.composeInspection,
                     )
+                    fullComposeRecoveryAttempts = 0
                     importedRawArtifacts = null
                     hiddenLayerState = HiddenLayerState()
                     state = store.state
@@ -697,16 +747,18 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
             val frame = withContext(Dispatchers.IO) {
                 timer.measure("captureForegroundApp") {
-                    manualRefreshSession.capture(selectedDeviceSerial)
+                    manualRefreshSession.capture(target.serial)
                 }
             }
             val snapshot = timer.measure("decodeSnapshot") {
                 protocolCodec.decodeSnapshot(frame.snapshotJson)
             }
+            verifyCaptureTarget(target, snapshot.packageName)
             timer.measure("publishCapture") {
                 store.loadCapture(
                     snapshot = snapshot,
                     screenshotPng = frame.screenshotPng,
+                    composeInspectionWarning = composeCaptureWarning(snapshot, composeUnavailableReason, composeExpected),
                 )
                 importedRawArtifacts = null
                 hiddenLayerState = HiddenLayerState()
@@ -715,34 +767,50 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
         } catch (error: CancellationException) {
             throw error
-        } catch (error: Throwable) {
+        } catch (error: InspectorCaptureTargetChangedException) {
+            manualRefreshSession.invalidate()
+            composePreparation.invalidate()
+            composeAuthorization = null
+            fullComposeEnabled = false
+            composeUnavailableReason = null
+            composeExpected = false
+            store.connectionFailed(checkNotNull(error.message))
+            state = store.state
+        } catch (error: Exception) {
             manualRefreshSession.invalidate()
             val reason = "Full Compose inspection failed: " + describeFullComposeFailure(error)
             if (fullComposeEnabled) {
                 fullComposeEnabled = false
                 composeAuthorization = null
                 recompositionActive = false
+                composePreparation.invalidate()
+                composeUnavailableReason = reason
                 try {
+                    val target = checkNotNull(requestedTarget)
+                    verifyCaptureTarget(target)
                     val frame = withContext(Dispatchers.IO) {
                         timer.measure("captureCompatibleFallback") {
-                            manualRefreshSession.capture(selectedDeviceSerial)
+                            manualRefreshSession.capture(target.serial)
                         }
                     }
                     val snapshot = timer.measure("decodeFallbackSnapshot") {
                         protocolCodec.decodeSnapshot(frame.snapshotJson)
                     }
+                    verifyCaptureTarget(target, snapshot.packageName)
                     timer.measure("publishFallbackCapture") {
                         store.loadCapture(
                             snapshot = snapshot,
                             screenshotPng = frame.screenshotPng,
+                            composeInspectionWarning = reason,
                         )
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
-                        store.noteComposeInspectionUnavailable(reason)
                         state = store.state
                         aiAnalysisUiState = AiAnalysisUiState.Idle
                     }
-                } catch (fallbackError: Throwable) {
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (fallbackError: Exception) {
                     store.connectionFailed(
                         "$reason; compatible inspection fallback failed: " +
                             (fallbackError.message ?: fallbackError.javaClass.simpleName),
@@ -819,7 +887,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     if (captureStatus == ConnectionStatus.ARCHIVE) {
                         preservedRawArtifacts
                     } else {
-                        runCatching {
+                        runInspectorCatching {
                             val zip = deviceClient.dumpVisibleWindowViews(selectedDeviceSerial)
                             CaptureRawArtifacts(
                                 zip = zip,
@@ -1030,6 +1098,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         prepareAiAnalysis(buildAiAnalysisInput(state.selectedNode) ?: return@runAiAnalysis)
     }
 
+    val presentationCache = remember { InspectorPresentationCache() }
+    val model = presentationCache.present(state, uiLanguage)
+
     val selectNode: (String) -> Unit = { id ->
         if (store.selectNode(id)) state = store.state
     }
@@ -1049,7 +1120,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     HierarchyNavigationDirection.DOWN
                 }
                 val rows = ViewDisplayProjection.hierarchyRows(
-                    rows = hierarchyIsolationState.rows(InspectorPresenter.present(state, uiLanguage).rows),
+                    rows = hierarchyIsolationState.rows(model.rows),
                     hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
                 )
                 hierarchyTreeState.adjacentNodeId(
@@ -1062,7 +1133,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 state.selectedNodeId?.let { selectedNodeId ->
                     hierarchyTreeState = hierarchyTreeState.toggleExpandable(
                         nodeId = selectedNodeId,
-                        rows = InspectorPresenter.present(state, uiLanguage).rows,
+                        rows = model.rows,
                     )
                 }
             }
@@ -1133,7 +1204,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
 
     CompositionLocalProvider(LocalLayoutInspectorLanguage provides uiLanguage) {
         val colors = LocalViewerColors.current
-        val model = InspectorPresenter.present(state, uiLanguage)
         Surface(
         color = colors.workspace,
         modifier = Modifier
@@ -1180,7 +1250,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                             composeAuthorization = null
                             fullComposeEnabled = false
                             recompositionActive = false
-                            automaticComposePreflightAttempt = null
+                            composePreparation.invalidate()
+                            composeUnavailableReason = null
+                            composeExpected = false
+                            fullComposeRecoveryAttempts = 0
                             selectedDeviceSerial = serial
                             deviceListRefreshRequest += 1
                         },
@@ -1204,7 +1277,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                             composeAuthorization = null
                             fullComposeEnabled = false
                             recompositionActive = false
-                            automaticComposePreflightAttempt = null
+                            composePreparation.invalidate()
+                            composeUnavailableReason = null
+                            composeExpected = false
+                            fullComposeRecoveryAttempts = 0
                             captureTargetMode = mode
                         }
                     },
@@ -1285,6 +1361,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     onClick = { performAction(ViewerAction.TOGGLE_DETAILS) },
                 )
             }
+            state.composeInspectionWarning?.let { reason ->
+                ComposeInspectionWarningBanner(reason, uiLanguage)
+            }
             correlationHint?.let { hint ->
                 CorrelationBanner(
                     hint = hint,
@@ -1308,7 +1387,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     showDetails = panelVisibility.showDetails,
                                 )
                         SideEffect {
-                            val rows = InspectorPresenter.present(state, uiLanguage).rows
+                            val rows = model.rows
                             val sanitizedHiddenLayerState = hiddenLayerState.sanitize(rows)
                             if (hiddenLayerState != sanitizedHiddenLayerState) {
                                 hiddenLayerState = sanitizedHiddenLayerState
@@ -1322,6 +1401,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                             if (panelVisibility.showHierarchy) {
                                 HierarchyPane(
                                     state = state,
+                                    model = model,
                                     treeState = hierarchyTreeState,
                                     viewDisplayOptions = viewDisplayOptions,
                                     hiddenLayerState = hiddenLayerState,
@@ -1333,12 +1413,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     onIsolate = { nodeId ->
                                         hierarchyIsolationState = hierarchyIsolationState.isolate(
                                             nodeId,
-                                            InspectorPresenter.present(state, uiLanguage).rows,
+                                            model.rows,
                                         )
                                     },
                                     onIsolateParent = {
                                         hierarchyIsolationState = hierarchyIsolationState.parent(
-                                            InspectorPresenter.present(state, uiLanguage).rows,
+                                            model.rows,
                                         )
                                     },
                                     onClearIsolation = { hierarchyIsolationState = hierarchyIsolationState.clear() },
@@ -1377,7 +1457,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 onSelectNode = { nodeId ->
                                     hierarchyTreeState = hierarchyTreeState.reveal(
                                         nodeId,
-                                        InspectorPresenter.present(state, uiLanguage).rows,
+                                        model.rows,
                                     )
                                     selectNode(nodeId)
                                 },
@@ -1396,6 +1476,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 }
                                 DetailsPane(
                                     state = state,
+                                    screenModel = model,
                                     modifier = Modifier
                                         .width(normalizedPaneWidths.properties.dp)
                                         .fillMaxHeight(),
@@ -1408,8 +1489,18 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                         val maxElements = ((current?.elements?.size ?: 0) * 2)
                                             .coerceAtLeast(50).coerceAtMost(10_000)
                                         coroutineScope.launch {
-                                            val expanded = withContext(Dispatchers.IO) {
-                                                composeSession?.loadParameterDetails(reference, 0, maxElements)
+                                            val expanded = runInspectorCatching {
+                                                withContext(Dispatchers.IO) {
+                                                    composeSession?.loadParameterDetails(reference, 0, maxElements)
+                                                }
+                                            }.getOrElse { error ->
+                                                if (store.state.composeInspection?.frame?.frameId == document.frame.frameId) {
+                                                    store.noteComposeInspectionUnavailable(
+                                                        "Compose parameter detail unavailable: " + (error.message ?: error.javaClass.simpleName),
+                                                    )
+                                                    state = store.state
+                                                }
+                                                null
                                             } ?: return@launch
                                             if (store.loadComposeParameterDetails(
                                                     document.frame.frameId,
@@ -1433,6 +1524,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         }
                         FindingsPane(
                             state = state,
+                            model = model,
                             panelHeightDp = normalizedFindingsHeight,
                             viewDisplayOptions = viewDisplayOptions,
                             onSelectNode = selectNode,
@@ -2104,6 +2196,7 @@ private fun PanelToggleButton(
 @Composable
 private fun HierarchyPane(
     state: InspectorState,
+    model: InspectorScreenModel,
     treeState: HierarchyTreeState,
     viewDisplayOptions: ViewDisplayOptions,
     hiddenLayerState: HiddenLayerState,
@@ -2121,7 +2214,6 @@ private fun HierarchyPane(
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    val model = InspectorPresenter.present(state, language)
     val scrollbarStyle = LocalScrollbarStyle.current.copy(
         unhoverColor = colors.mutedText.copy(alpha = 0.42f),
         hoverColor = colors.secondaryText.copy(alpha = 0.82f),
@@ -3136,7 +3228,7 @@ private fun CanvasModeToggle(
 private fun rememberScreenshot(bytes: ByteArray?): ImageBitmap? =
     remember(bytes) {
         bytes?.takeIf { it.isNotEmpty() }?.let { encoded ->
-            runCatching { Image.makeFromEncoded(encoded).toComposeImageBitmap() }.getOrNull()
+            runInspectorCatching { Image.makeFromEncoded(encoded).toComposeImageBitmap() }.getOrNull()
         }
     }
 
@@ -3147,10 +3239,13 @@ internal fun DetailsPane(
     onOpenMemoryProfiler: ((String) -> Unit)? = null,
     onOpenComposeSource: ((String, Int, Int) -> Unit)? = null,
     onLoadComposeParameter: ((ComposeParameterReference) -> Unit)? = null,
+    screenModel: InspectorScreenModel? = null,
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    val details = InspectorPresenter.present(state, language).details
+    val details = screenModel?.details ?: remember(state, language) {
+        InspectorPresenter.present(state, language).details
+    }
     val composeSource = state.selectedNodeId?.removePrefix(COMPOSE_NODE_ID_PREFIX)?.toLongOrNull()?.let { nodeId ->
         state.composeInspection?.frame?.roots?.firstNotNullOfOrNull { root ->
             root.nodes.firstNotNullOfOrNull { it.findComposeNode(nodeId) }
@@ -3418,6 +3513,7 @@ private fun com.androidperformancestudio.compose.inspection.ComposableDetail.fin
 @Composable
 private fun FindingsPane(
     state: InspectorState,
+    model: InspectorScreenModel,
     panelHeightDp: Float,
     viewDisplayOptions: ViewDisplayOptions,
     aiAnalysisUiState: AiAnalysisUiState,
@@ -3433,7 +3529,6 @@ private fun FindingsPane(
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
-    val model = InspectorPresenter.present(state, language)
     val findings = ViewDisplayProjection.findings(
         findings = model.findings,
         rows = model.rows,

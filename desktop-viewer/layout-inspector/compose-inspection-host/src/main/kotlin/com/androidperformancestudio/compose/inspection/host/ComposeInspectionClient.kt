@@ -34,7 +34,8 @@ internal class ComposeInspectionClient(
         return viewAdapter.convert(packageName, clock.millis(), response.dumpViewsResponse)
     }
 
-    override fun captureTree(rootViewIds: List<Long>): ComposeInspectionFrame {
+    override fun captureTree(rootViewIds: List<Long>, includeDetails: Boolean): ComposeInspectionFrame {
+        val detailBudget = adapter.newDetailBudget()
         val frames = rootViewIds.map { rootViewId ->
             val command = LayoutInspectorComposeProtocol.Command.newBuilder()
                 .setGetComposablesCommand(
@@ -42,7 +43,7 @@ internal class ComposeInspectionClient(
                         .setRootViewId(rootViewId)
                         .setSkipSystemComposables(false)
                         .setGeneration(generation)
-                        .setExtractAllParameters(true),
+                        .setExtractAllParameters(includeDetails),
                 )
                 .build()
             val response = composeResponse(command)
@@ -53,8 +54,10 @@ internal class ComposeInspectionClient(
                 tree = response.getComposablesResponse,
                 // Upstream serves parameters from the cache warmed by extractAllParameters, and the
                 // whole-tree query is the one that returns them.
-                parameters = requestAllParameters(rootViewId),
+                parameters = if (includeDetails) requestAllParameters(rootViewId) else null,
                 recompositionObservation = recompositionObservation,
+                detailBudget = detailBudget,
+                collectCoverage = includeDetails,
             )
         }
         generation += 1
@@ -66,6 +69,7 @@ internal class ComposeInspectionClient(
         )
         return first.copy(
             roots = frames.flatMap(ComposeInspectionFrame::roots),
+            details = frames.flatMap { it.details.entries }.associate { it.key to it.value },
             coverage = frames.flatMap(ComposeInspectionFrame::coverage),
             truncations = frames.flatMap(ComposeInspectionFrame::truncations),
             completeness = frames.maxOf(ComposeInspectionFrame::completeness),

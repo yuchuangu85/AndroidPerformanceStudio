@@ -88,6 +88,23 @@ data class InspectorScreenModel(
     val selectedWindowId: String?,
 )
 
+/** One shared projection per screen input; hover affects the preview, not this model. */
+internal class InspectorPresentationCache {
+    private var previousState: InspectorState? = null
+    private var previousLanguage: UiLanguage? = null
+    private var model: InspectorScreenModel? = null
+
+    fun present(state: InspectorState, language: UiLanguage): InspectorScreenModel {
+        val input = state.copy(hoveredNodeId = null)
+        if (previousState == input && previousLanguage == language) return checkNotNull(model)
+        return InspectorPresenter.present(input, language).also {
+            previousState = input
+            previousLanguage = language
+            model = it
+        }
+    }
+}
+
 internal object InspectorPresenter {
     private val authorizedDeviceCountError =
         Regex("""Expected exactly one authorized device, found (\d+)""")

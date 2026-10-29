@@ -22,15 +22,23 @@ class BatteryProfilerWorkspaceSourceTest {
         )
 
     @Test
-    fun `device target stays in the title bar and the app uid target renders inline`() {
+    fun `hosted App UID selector uses Process while standalone windows retain an inline fallback`() {
         val toolbar = source.headerToolbar()
         assertTrue(toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
-        assertTrue(!toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
         assertTrue(toolbar.contains("DeviceDropdownSelector("))
-        assertTrue(toolbar.contains("items = state.targets"))
-        assertTrue(toolbar.contains("targetHost?.choosePackage(it.packageName)"))
-        assertTrue(toolbar.contains("controller.selectTarget(it.packageName)"))
-        assertTrue(toolbar.contains("Res.string.app_uid"))
+        assertTrue(toolbar.contains("BatteryAppUidSelector("))
+        assertTrue(toolbar.contains("onSelectTarget = controller::selectTarget"))
+        assertFalse(toolbar.contains("items = state.targets"))
+        val selector =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/battery/app/BatteryAppUidSelector.kt"),
+            )
+        assertTrue(selector.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selector.contains("ActiveTitleBarTarget("))
+        assertTrue(selector.contains("items = state.targets"))
+        assertTrue(selector.contains("Res.string.app_uid"))
+        assertTrue(selector.contains("Res.string.package_uid_shared"))
+        assertTrue(selector.contains("clearProcess = true"))
         assertTrue(toolbar.contains("if (!inTitleBar) HeaderSpacer()"))
         assertTrue(toolbar.contains("TitleBarRefreshOrInline("))
         assertTrue(toolbar.contains("controller.refreshDevices()"))
@@ -80,10 +88,15 @@ class BatteryProfilerWorkspaceSourceTest {
 
     @Test
     fun `saved-session loading status is kept in the footer instead of the session list`() {
-        assertTrue(controllerSource.contains("operationMessage = localizedStringResource(Res.string.sessions_loading, language)"))
+        val loadingStatus = "operationMessage = localizedStringResource(Res.string.sessions_loading, language)"
+        assertTrue(controllerSource.contains(loadingStatus))
         assertFalse(sessionsPaneSource.contains("sessions_loading"))
         assertFalse(sessionsPaneSource.contains("if (state.isLoadingSession)"))
-        assertTrue(source.substring(source.indexOf("private fun BatteryProfilerStatusBar(")).contains("errorMessage ?: operationMessage"))
+        assertTrue(
+            source
+                .substring(source.indexOf("private fun BatteryProfilerStatusBar("))
+                .contains("errorMessage ?: operationMessage"),
+        )
     }
 
     @Test

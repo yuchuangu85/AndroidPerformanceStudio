@@ -32,7 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.AndroidTargetMonitors
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
@@ -133,11 +135,11 @@ import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
-import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
 import com.androidperformancestudio.ui.TitleBarTargetWidth
-import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -848,9 +850,11 @@ fun FrameWindowScope.PerfettoMainPage(
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            deviceRefreshError?.let {
+            deviceRefreshError?.let { error ->
                 Text(
-                    text = localizedStringResource(Res.string.device_refresh_failed, language),
+                    text =
+                        localizedStringResource(Res.string.device_refresh_failed, language) +
+                            "\n${error.code}: ${error.message}",
                     color = MaterialTheme.colorScheme.error,
                     fontSize = ViewerTypography.label.fontSize,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
@@ -1164,12 +1168,8 @@ private fun deviceDiscoveryFailure(
 
 internal fun defaultPerfettoAdbPath(
     androidSdkPath: Path?,
-    isWindows: Boolean = System.getProperty("os.name").contains("windows", ignoreCase = true),
-): String {
-    val executableName = if (isWindows) "adb.exe" else "adb"
-    val configuredExecutable = androidSdkPath?.resolve("platform-tools")?.resolve(executableName)
-    return configuredExecutable?.takeIf(Files::isRegularFile)?.toString() ?: "adb"
-}
+    resolveAdb: (AdbConfiguration) -> Path = ::defaultAdbCommandExecutable,
+): String = resolveAdb(AdbConfiguration(androidSdkPath = androidSdkPath)).toString()
 
 internal fun preferredDeviceSerial(
     selectedSerial: String?,

@@ -180,6 +180,8 @@
     <string name="detail_section_compose_source">COMPOSE 源码</string>
     <string name="detail_section_recomposition">重组统计</string>
     <string name="detail_section_compose_parameters">参数</string>
+    <string name="detail_label_partial_display">部分显示</string>
+    <string name="detail_value_compose_partial_display">为限制内存占用，此节仅部分显示；原始采集证据未删除。</string>
     <string name="detail_section_compose_modifiers">MODIFIER</string>
     <string name="detail_section_merged_semantics">合并 SEMANTICS</string>
     <string name="detail_section_unmerged_semantics">未合并 SEMANTICS</string>

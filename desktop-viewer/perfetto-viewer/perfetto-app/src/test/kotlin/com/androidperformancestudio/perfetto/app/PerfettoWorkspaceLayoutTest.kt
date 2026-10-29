@@ -88,8 +88,10 @@ class PerfettoWorkspaceLayoutTest {
 
     @Test
     fun `device selector and refresh move to title bar while retaining inline fallback`() {
-        val toolbar = source.substringAfter("private fun RowScope.PerfettoToolbarContent(")
-            .substringBefore("private fun DeviceSelector(")
+        val toolbar =
+            source
+                .substringAfter("private fun RowScope.PerfettoToolbarContent(")
+                .substringBefore("private fun DeviceSelector(")
         assertTrue(toolbar.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
         assertTrue(toolbar.contains("DeviceSelector("))
         assertTrue(toolbar.contains("PerfettoCompactTextField("))
@@ -110,6 +112,7 @@ class PerfettoWorkspaceLayoutTest {
         assertFalse(source.contains("getOrDefault(emptyList())"))
         assertTrue(source.contains("deviceRefreshInProgress"))
         assertTrue(source.contains("deviceRefreshError"))
+        assertTrue(source.contains("\${error.code}: \${error.message}"))
         assertTrue(source.contains("onRefreshDevices = { coroutineScope.launch { refreshDevices() }"))
     }
 

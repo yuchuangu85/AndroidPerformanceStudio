@@ -12,6 +12,7 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import java.time.Duration
+import java.util.concurrent.CancellationException
 import java.util.zip.ZipInputStream
 
 data class ResolvedComposeInspector(
@@ -71,9 +72,14 @@ class ComposeInspectorArtifactResolver(
             ?.let { return cache(it) }
         (enterpriseRepositories + googleRepository).forEach { repository ->
             val uri = repository.resolve(mavenRelativePath(coordinate, version))
-            runCatching { downloader(uri) }.getOrNull()?.let { bytes ->
-                return cache(resolveBytes(bytes, coordinate, version, uri.toString(), isAar = true))
+            val bytes = try {
+                downloader(uri)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return@forEach
             }
+            return cache(resolveBytes(bytes, coordinate, version, uri.toString(), isAar = true))
         }
         throw IllegalStateException("No exact Compose inspector found for ${coordinate.group}:${coordinate.artifact}:$version")
     }

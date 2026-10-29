@@ -12,9 +12,13 @@ import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.compose.inspection.CapabilityAvailability
 import com.androidperformancestudio.compose.inspection.ComposeCapability
+import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.LayoutSnapshot
+import com.androidperformancestudio.protocol.UiNode
+import com.androidperformancestudio.protocol.ViewNode
 import com.androidperformancestudio.protocol.effectiveDefaultWindowId
 import com.androidperformancestudio.protocol.effectiveWindows
+import java.util.IdentityHashMap
 
 data class ManualScreenshotTarget(
     val capturedAtEpochMillis: Long,
@@ -23,11 +27,20 @@ data class ManualScreenshotTarget(
 
 class InspectorStore(
     private val analyzer: LayoutAnalyzer = LayoutAnalyzer(),
+    private val timelineMemoryBudgetBytes: Long = 64L * 1024 * 1024,
 ) {
+    init {
+        require(timelineMemoryBudgetBytes > 0) { "Timeline memory budget must be positive" }
+    }
+
+    // Identity keys avoid recursively hashing whole snapshots and are pruned with the history.
+    private var timelineFrameEstimates = IdentityHashMap<TimelineFrame, Long>()
+
     var state: InspectorState = InspectorState()
         private set
 
     fun load(snapshot: LayoutSnapshot) {
+        timelineFrameEstimates.clear()
         state = inspectedState(
             snapshot = snapshot,
             screenshotPng = null,
@@ -84,16 +97,20 @@ class InspectorStore(
         snapshot: LayoutSnapshot,
         screenshotPng: ByteArray,
         composeInspection: ComposeInspectionDocument? = null,
+        composeInspectionWarning: String? = null,
     ) {
         val previousSnapshot = state.timelineFrames.lastOrNull()?.snapshot ?: state.snapshot
         val diff = previousSnapshot?.let { diffSnapshots(it, snapshot) }
         val nextIndex = (state.timelineFrames.lastOrNull()?.index ?: -1) + 1
-        val nextFrames = (state.timelineFrames + TimelineFrame(
-            index = nextIndex,
-            snapshot = snapshot,
-            screenshotPng = screenshotPng,
-            diffFromPrevious = diff,
-        )).takeLast(MAX_TIMELINE_FRAMES)
+        val nextFrames = retainTimelineFrames(
+            state.timelineFrames + TimelineFrame(
+                index = nextIndex,
+                snapshot = snapshot,
+                screenshotPng = screenshotPng,
+                diffFromPrevious = diff,
+            ),
+            currentFrameIndex = nextIndex,
+        )
         loadInspectedContent(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
@@ -102,6 +119,7 @@ class InspectorStore(
             timelineFrames = nextFrames,
             selectedTimelineFrameIndex = nextIndex,
             composeInspection = composeInspection,
+            composeInspectionWarning = composeInspectionWarning,
         )
     }
 
@@ -242,7 +260,7 @@ class InspectorStore(
         state = state.copy(
             snapshot = updatedSnapshot,
             screenshotPng = screenshotPng,
-            timelineFrames = updatedFrames,
+            timelineFrames = retainTimelineFrames(updatedFrames, target.timelineFrameIndex),
             aiAnalysis = null,
         )
         return true
@@ -260,13 +278,16 @@ class InspectorStore(
         val selectedTimelineFrameIndex = timelineFrames.lastOrNull {
             it.capturedAtEpochMillis == snapshot.capturedAtEpochMillis
         }?.index
-        val frames = timelineFrames.map { frame ->
-            if (frame.capturedAtEpochMillis == snapshot.capturedAtEpochMillis && frame.snapshot == null) {
-                frame.copy(snapshot = snapshot, screenshotPng = screenshotPng)
-            } else {
-                frame
-            }
-        }
+        val frames = retainTimelineFrames(
+            timelineFrames.map { frame ->
+                if (frame.capturedAtEpochMillis == snapshot.capturedAtEpochMillis && frame.snapshot == null) {
+                    frame.copy(snapshot = snapshot, screenshotPng = screenshotPng)
+                } else {
+                    frame
+                }
+            },
+            currentFrameIndex = selectedTimelineFrameIndex,
+        )
         loadInspectedContent(
             snapshot = snapshot,
             screenshotPng = screenshotPng,
@@ -381,7 +402,8 @@ class InspectorStore(
 
     fun removeTimelineFrame(index: Int): Boolean {
         val current = state
-        if (current.timelineFrames.none { it.index == index }) return false
+        val removedFrame = current.timelineFrames.firstOrNull { it.index == index } ?: return false
+        timelineFrameEstimates.remove(removedFrame)
 
         val remainingFrames = current.timelineFrames.filterNot { it.index == index }
         if (current.selectedTimelineFrameIndex != index) {
@@ -432,6 +454,112 @@ class InspectorStore(
 
     private companion object {
         const val MAX_TIMELINE_FRAMES = 50
+        const val ESTIMATED_NODE_OVERHEAD_BYTES = 512L
+    }
+
+    /**
+     * A conservative history estimate, not an exact JVM retained-size measurement. The current
+     * frame is never discarded, even when it alone exceeds the budget; capture limits must protect
+     * that separate case. Keep the newest remaining suffix without changing historical selection.
+     */
+    private fun retainTimelineFrames(
+        frames: List<TimelineFrame>,
+        currentFrameIndex: Int?,
+    ): List<TimelineFrame> {
+        val current = frames.firstOrNull { it.index == currentFrameIndex } ?: frames.lastOrNull()
+        val retainedEstimates = IdentityHashMap<TimelineFrame, Long>()
+        if (current != null) {
+            var retainedBytes = timelineFrameEstimates[current] ?: estimateTimelineFrameBytes(current)
+            retainedEstimates[current] = retainedBytes
+            for (frame in frames.asReversed()) {
+                if (frame === current) continue
+                if (retainedEstimates.size >= MAX_TIMELINE_FRAMES || retainedBytes > timelineMemoryBudgetBytes) break
+                val estimate = timelineFrameEstimates[frame] ?: estimateTimelineFrameBytes(frame)
+                if (estimate > timelineMemoryBudgetBytes - retainedBytes) break
+                retainedEstimates[frame] = estimate
+                retainedBytes += estimate
+            }
+        }
+        timelineFrameEstimates = retainedEstimates
+        return frames.filter(retainedEstimates::containsKey)
+    }
+
+    private fun estimateTimelineFrameBytes(frame: TimelineFrame): Long {
+        val estimateLimit = if (timelineMemoryBudgetBytes == Long.MAX_VALUE) Long.MAX_VALUE else timelineMemoryBudgetBytes + 1
+        var bytes = 128L
+        fun addBytes(count: Long) {
+            bytes += count.coerceAtMost((estimateLimit - bytes).coerceAtLeast(0))
+        }
+        fun addText(text: String?) {
+            if (text != null) addBytes(40L + text.length.toLong() * 2)
+        }
+        fun addProperties(properties: Map<String, String>) {
+            for ((key, value) in properties) {
+                addBytes(48)
+                addText(key)
+                addText(value)
+                if (bytes > timelineMemoryBudgetBytes) break
+            }
+        }
+        addBytes(frame.screenshotPng?.size?.toLong() ?: 0)
+        val snapshot = frame.snapshot
+        if (snapshot != null && bytes <= timelineMemoryBudgetBytes) {
+            addText(snapshot.packageName)
+            for (window in snapshot.windows) {
+                addBytes(128)
+                addText(window.id)
+                addText(window.title)
+                if (bytes > timelineMemoryBudgetBytes) break
+            }
+            // Iterator frames use O(depth) workspace, even for extremely wide trees. The snapshot
+            // root commonly aliases a window root, so do not count that same root twice.
+            val pending = ArrayDeque<Iterator<UiNode>>()
+            pending.addLast(snapshot.windows.asSequence().map { it.root }.filter { it !== snapshot.root }.iterator())
+            pending.addLast(listOf(snapshot.root).iterator())
+            while (pending.isNotEmpty() && bytes <= timelineMemoryBudgetBytes) {
+                val iterator = pending.last()
+                if (!iterator.hasNext()) {
+                    pending.removeLast()
+                    continue
+                }
+                val node = iterator.next()
+                addBytes(ESTIMATED_NODE_OVERHEAD_BYTES + node.children.size.toLong() * 8)
+                addText(node.id)
+                addText(node.className)
+                when (node) {
+                    is ViewNode -> {
+                        addText(node.resourceName)
+                        addText(node.text)
+                        with(node.attributes) {
+                            addText(visibility)
+                            addText(layoutParamsClass)
+                            addText(background)
+                            addText(backgroundColor)
+                            addText(foreground)
+                            addText(layerType)
+                            addText(contentDescription)
+                            addProperties(rawProperties)
+                        }
+                    }
+                    is ComposeNode -> {
+                        addText(node.text)
+                        addText(node.semanticsRole)
+                        addProperties(node.semanticProperties)
+                    }
+                }
+                if (node.children.isNotEmpty()) pending.addLast(node.children.iterator())
+            }
+        }
+        for (change in frame.diffFromPrevious?.changes.orEmpty()) {
+            if (bytes > timelineMemoryBudgetBytes) break
+            addBytes(128)
+            addText(change.windowId)
+            addText(change.nodeId)
+            addText(change.nodeKey)
+            addText(change.className)
+            change.changedProperties.forEach(::addText)
+        }
+        return bytes
     }
 
     fun setHoveredNode(nodeId: String?) {

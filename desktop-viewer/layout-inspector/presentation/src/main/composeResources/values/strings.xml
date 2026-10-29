@@ -180,6 +180,8 @@
     <string name="detail_section_compose_source">COMPOSE SOURCE</string>
     <string name="detail_section_recomposition">RECOMPOSITION</string>
     <string name="detail_section_compose_parameters">PARAMETERS</string>
+    <string name="detail_label_partial_display">Partial display</string>
+    <string name="detail_value_compose_partial_display">Only part of this section is displayed to limit memory use. Original captured evidence has not been deleted.</string>
     <string name="detail_section_compose_modifiers">MODIFIERS</string>
     <string name="detail_section_merged_semantics">MERGED SEMANTICS</string>
     <string name="detail_section_unmerged_semantics">UNMERGED SEMANTICS</string>

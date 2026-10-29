@@ -124,13 +124,14 @@ class StartupProfilerWorkspaceTest {
             }
 
             waitForIdle()
-            onNodeWithTag("startup-target").assertExists()
+            onNodeWithTag("startup-target").assertDoesNotExist()
+            onNodeWithText("com.local / .Main").assertExists()
             onNodeWithTag("startup-start-stop").assertIsEnabled().performClick()
             assertTrue(started)
         }
 
     @Test
-    fun `device target stays in the title bar and the application target renders inline`() {
+    fun `hosted device and component targets both use the title bar with inline fallbacks`() {
         val controls =
             Files.readString(
                 Path.of("src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt"),
@@ -140,10 +141,11 @@ class StartupProfilerWorkspaceTest {
                 .substringAfter("public fun StartupTargetSelectors(")
                 .substringBefore("internal fun StartupScenarioControls(")
         assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
-        assertTrue(!selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selectors.contains("ActiveTitleBarTarget("))
         assertTrue(selectors.contains("DeviceDropdownSelector("))
         assertTrue(selectors.contains("DropdownSelector("))
-        assertTrue(!selectors.contains("targetHost?.choosePackage("))
+        assertTrue(selectors.contains("clearProcess = true"))
         assertTrue(selectors.contains("actions.onSelectTarget(it.componentName)"))
         assertTrue(selectors.contains("Res.string.application"))
         assertTrue(selectors.contains("if (!inTitleBar) HeaderSpacer()"))

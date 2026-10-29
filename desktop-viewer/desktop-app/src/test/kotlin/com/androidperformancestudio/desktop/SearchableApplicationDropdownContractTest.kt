@@ -12,10 +12,11 @@ class SearchableApplicationDropdownContractTest {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
         val selectors =
             mapOf(
-                // CPU keeps only the application selector here; its process selector now lives in
-                // the fixed title bar, which is itself a searchable DropdownSelector.
+                // CPU publishes its app list into Process; standalone windows retain this fallback.
                 "simpleperf-viewer/presentation/src/main/kotlin/com/androidperformancestudio/presentation/DeviceTargetPage.kt" to
                     listOf("items = packages,"),
+                "ui-components/src/main/kotlin/com/androidperformancestudio/ui/WindowTitleBarTargets.kt" to
+                    listOf("items = target.options,"),
                 "frame-profiler/frame-app/src/main/kotlin/com/androidperformancestudio/frame/app/FrameProfilerMainPage.kt" to
                     listOf("items = state.processes,"),
                 "memory-profiler/presentation/src/main/kotlin/com/androidperformancestudio/memory/presentation/MemoryProfilerToolbarSelectors.kt" to
@@ -24,7 +25,7 @@ class SearchableApplicationDropdownContractTest {
                     listOf("items = state.processes,"),
                 "startup-profiler/presentation/src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt" to
                     listOf("items = state.targets,"),
-                "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryProfilerMainPage.kt" to
+                "battery-profiler/battery-app/src/main/kotlin/com/androidperformancestudio/battery/app/BatteryAppUidSelector.kt" to
                     listOf("items = state.targets,"),
             )
         selectors.forEach { (relativePath, itemExpressions) ->

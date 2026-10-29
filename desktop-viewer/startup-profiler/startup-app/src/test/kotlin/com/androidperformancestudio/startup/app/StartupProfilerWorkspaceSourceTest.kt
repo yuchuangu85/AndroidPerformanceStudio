@@ -42,7 +42,7 @@ class StartupProfilerWorkspaceSourceTest {
     }
 
     @Test
-    fun `target selectors lead the header with the device before the application`() {
+    fun `target selectors publish into the title bar and keep ordered standalone fallbacks`() {
         val toolbar = toolbarSource()
         val selectors = toolbar.indexOf("StartupTargetSelectors(")
         val firstAction = toolbar.indexOf("ProfilerCompactButton(")
@@ -62,6 +62,9 @@ class StartupProfilerWorkspaceSourceTest {
         val target = selectorsSource.indexOf("testTag(\"startup-target\")")
         assertTrue(device >= 0, "The header must expose the device selector")
         assertTrue(target > device, "Device must come before the application selector")
+        assertTrue(selectorsSource.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selectorsSource.contains("ActiveTitleBarTarget("))
+        assertTrue(selectorsSource.contains("selectedId = state.selectedComponentName"))
 
         val scenario = controls.substringAfter("internal fun StartupScenarioControls(")
         assertFalse(scenario.contains("testTag(\"startup-device\")"))
