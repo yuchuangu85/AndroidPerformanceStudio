@@ -217,6 +217,7 @@ fun FrameWindowScope.DesktopAppMainPage(
             darkTheme = darkTheme,
             accentColor = applicationSettings.themeColor,
         )
+    WindowsWindowChromeEffect(windowColors, darkTheme)
     Column(modifier = Modifier.fillMaxSize()) {
         MacOsTitleBar(
             title = windowTitle?.value ?: APP_DISPLAY_NAME,

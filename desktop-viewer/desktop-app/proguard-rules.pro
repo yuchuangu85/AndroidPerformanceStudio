@@ -6,3 +6,7 @@
 -dontwarn io.github.composefluent.component.FluentTextContextMenu
 -dontwarn org.sqlite.util.LoggerFactory$SLF4JLogger
 -dontwarn org.slf4j.**
+
+# JBR binds service interfaces and their methods by name and runtime annotations.
+-keep class com.jetbrains.** { *; }
+-keepattributes *Annotation*,InnerClasses,EnclosingMethod

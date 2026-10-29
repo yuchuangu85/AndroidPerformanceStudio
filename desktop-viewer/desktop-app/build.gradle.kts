@@ -226,6 +226,7 @@ dependencies {
     }
     implementation(libs.compose.components.resources)
     implementation(libs.compose.material3)
+    implementation(libs.jbr.api)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.compose.ui.test.junit4)

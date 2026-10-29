@@ -251,12 +251,32 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
+      - name: Install pinned Windows JBRSDK
+        shell: pwsh
+        run: ./scripts/install-jbr.ps1
+      - name: Test Windows title bar on the packaged JBRSDK
+        shell: pwsh
+        env:
+          APS_REQUIRE_JBR_CHROME: "true"
+        run: |
+          $env:JAVA_HOME = $env:APS_JBR_HOME
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:test `
+            "-Ptarget.javaHome=$env:APS_JBR_HOME" `
+            "-Porg.gradle.java.installations.paths=$env:APS_JBR_HOME" `
+            "-Porg.gradle.java.installations.auto-detect=false" `
+            "-Porg.gradle.java.installations.auto-download=false" `
+            --tests com.androidperformancestudio.desktop.JbrReleaseWorkflowTest `
+            --tests com.androidperformancestudio.desktop.WindowsWindowChromeTest `
+            --tests com.androidperformancestudio.desktop.WindowsWindowChromeIntegrationTest --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Windows JBRSDK title bar tests failed.' }
       - name: Build MSI and EXE
         shell: pwsh
         run: |
           $version = "${{ needs.resolve.outputs.version }}"
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" "-Ptarget.arch=x64" --no-daemon
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" "-Ptarget.arch=x64" --no-daemon
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" "-Ptarget.arch=x64" "-Ptarget.javaHome=$env:APS_JBR_HOME" --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Windows MSI packaging failed.' }
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" "-Ptarget.arch=x64" "-Ptarget.javaHome=$env:APS_JBR_HOME" --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Windows EXE packaging failed.' }
       - name: Prepare Windows assets
         shell: pwsh
         env:
