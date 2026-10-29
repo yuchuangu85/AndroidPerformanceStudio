@@ -3,11 +3,18 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.platform.perfetto.TraceQuerySchema
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 class ReleaseWorkflowTest {
     private val workflowPath = Path.of("../../.github/workflows/release.yml")
+
+    @TempDir
+    lateinit var directory: Path
 
     @Test
     fun `release workflow supports tag and manual releases`() {
@@ -145,6 +152,61 @@ class ReleaseWorkflowTest {
         assertTrue(Regex("uses: actions/upload-artifact@").findAll(workflow).count() == 1)
         assertTrue(Regex("uses: actions/download-artifact@").findAll(workflow).count() == 3)
         assertTrue(!workflowJob(workflow, "publish").contains("compose-agent-bundle"))
+    }
+
+    @Test
+    fun `Android build tools install when hosted SDK manager is not on PATH`() {
+        assumeFalse(System.getProperty("os.name").contains("Windows", ignoreCase = true))
+        val agent = workflowJob(Files.readString(workflowPath), "build-compose-agent")
+        val install =
+            agent.substringAfter("- name: Install pinned Android agent build tools")
+                .substringAfter("run: |\n")
+                .substringBefore("      - name:")
+                .trimIndent()
+        val sdk = directory.resolve("android-sdk")
+        val licenses = Files.createDirectories(sdk.resolve("licenses"))
+        Files.writeString(licenses.resolve("android-sdk-license"), "accepted-license")
+        val sdkmanager = sdk.resolve("cmdline-tools/latest/bin/sdkmanager")
+        Files.createDirectories(sdkmanager.parent)
+        Files.writeString(sdkmanager, "#!/bin/bash\nprintf '%s\\n' \"${'$'}@\" > \"${'$'}SDKMANAGER_LOG\"\n")
+        assertTrue(sdkmanager.toFile().setExecutable(true))
+        val bin = Files.createDirectories(directory.resolve("bin"))
+        listOf("mkdir", "cp").forEach { command ->
+            Files.createSymbolicLink(bin.resolve(command), Path.of("/bin/$command"))
+        }
+        val runner = directory.resolve("runner")
+        val githubEnv = directory.resolve("github-env")
+        val invocation = directory.resolve("sdkmanager-args")
+        val builder = ProcessBuilder("/bin/bash", "-c", install).redirectErrorStream(true)
+        builder.environment().putAll(
+            mapOf(
+                "PATH" to bin.toString(),
+                "ANDROID_HOME" to sdk.toString(),
+                "RUNNER_TEMP" to runner.toString(),
+                "GITHUB_ENV" to githubEnv.toString(),
+                "SDKMANAGER_LOG" to invocation.toString(),
+            ),
+        )
+        val process = builder.start()
+        val completed = process.waitFor(10, TimeUnit.SECONDS)
+        if (!completed) process.destroyForcibly()
+        assertTrue(completed, "Android build tools installation did not finish")
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        assertEquals(0, process.exitValue(), output)
+        val isolatedSdk = runner.resolve("compose-agent-sdk")
+        assertEquals(
+            listOf(
+                "--sdk_root=$isolatedSdk",
+                "--install",
+                "platforms;android-35",
+                "build-tools;35.0.0",
+                "ndk;27.1.12297006",
+                "cmake;3.22.1",
+            ),
+            Files.readAllLines(invocation),
+        )
+        assertEquals("accepted-license", Files.readString(isolatedSdk.resolve("licenses/android-sdk-license")))
+        assertEquals(listOf("ANDROID_HOME=$isolatedSdk", "ANDROID_SDK_ROOT=$isolatedSdk"), Files.readAllLines(githubEnv))
     }
 
     @Test

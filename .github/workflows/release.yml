@@ -135,7 +135,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager="$(command -v sdkmanager)"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(command -v sdkmanager)"
+          fi
           sdk_root="$RUNNER_TEMP/compose-agent-sdk"
           # Reuse the licenses already accepted by the hosted runner. An isolated SDK prevents
           # preinstalled platform, NDK or CMake versions from changing the selected toolchain.
