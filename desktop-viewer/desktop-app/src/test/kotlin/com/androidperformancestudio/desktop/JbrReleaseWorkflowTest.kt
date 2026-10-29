@@ -103,6 +103,25 @@ class JbrReleaseWorkflowTest {
     }
 
     @Test
+    fun `workflow jobs parse identically for LF and CRLF checkouts`() {
+        val lf = Files.readString(Path.of("../../.github/workflows/release.yml")).replace("\r\n", "\n")
+        val crlf = lf.replace("\n", "\r\n")
+        val jobs =
+            listOf(
+                "test",
+                "build-compose-agent",
+                "prepare-release",
+                "package-windows",
+                "package-macos",
+                "package-linux",
+                "publish",
+            )
+        jobs.forEach { job ->
+            assertEquals(workflowJob(lf, job), workflowJob(crlf, job).replace("\r\n", "\n"), job)
+        }
+    }
+
+    @Test
     fun `checksum failure never reuses an existing JDK or exports its home`() {
         val archive = Files.writeString(directory.resolve("bad.zip"), "not the pinned archive")
         val destination = Files.createDirectory(directory.resolve("existing-jdk"))
@@ -381,6 +400,6 @@ class JbrReleaseWorkflowTest {
         name: String,
     ): String =
         requireNotNull(
-            Regex("(?ms)^  ${Regex.escape(name)}:\\n(.*?)(?=^  [a-z][a-z0-9-]*:\\n|\\z)").find(workflow),
+            Regex("(?ms)^  ${Regex.escape(name)}:\\r?\\n(.*?)(?=^  [a-z][a-z0-9-]*:\\r?\\n|\\z)").find(workflow),
         ) { "Missing release job: $name" }.groupValues[1]
 }

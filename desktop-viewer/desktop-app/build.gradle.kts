@@ -54,35 +54,6 @@ tasks
     .matching { task -> task.name == "prepareAppResources" }
     .configureEach { dependsOn(prepareProfilerAppResources) }
 
-if (!System.getProperty("os.name").lowercase().contains("win")) {
-    tasks
-        .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
-        .configureEach {
-            inputs.file(traceProcessorManifestFile)
-            doLast {
-                val packagedBinaries =
-                    outputs.files.asFileTree
-                        .matching { include("**/resources/perfetto-tools/trace_processor_shell") }
-                        .files
-                check(packagedBinaries.isNotEmpty()) { "Packaged Trace Processor is missing from the distributable" }
-                val manifest = JsonSlurper().parse(traceProcessorManifestFile.asFile) as Map<*, *>
-                val artifacts = checkNotNull(manifest["artifacts"]) as Map<*, *>
-                val expected = checkNotNull((artifacts["$targetOs-$targetArch"] as? Map<*, *>)?.get("sha256")) {
-                    "No pinned Trace Processor checksum for $targetOs-$targetArch"
-                }.toString()
-                packagedBinaries.forEach { binary ->
-                    check(binary.canExecute() || binary.setExecutable(true, false)) {
-                        "Unable to make the packaged Trace Processor executable: $binary"
-                    }
-                    val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary.readBytes()))
-                    check(actual == expected) {
-                        "Packaged Trace Processor checksum mismatch for $targetOs-$targetArch: $binary"
-                    }
-                }
-            }
-        }
-}
-
 fun macOsPackageVersion(version: String): String {
     val numericComponents = version.split(".")
     val firstPositiveIndex =
@@ -122,6 +93,38 @@ val targetOs =
         hostOs.contains("linux") -> "linux"
         else -> error("Unsupported desktop host operating system: $hostOs")
     }
+
+if (targetOs != "windows") {
+    tasks
+        .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
+        .configureEach {
+            inputs.file(traceProcessorManifestFile)
+            // Task actions may capture values, but not the enclosing Gradle script.
+            val manifestFile = traceProcessorManifestFile.asFile
+            val hostKey = "$targetOs-$targetArch"
+            doLast {
+                val packagedBinaries =
+                    outputs.files.asFileTree
+                        .matching { include("**/resources/perfetto-tools/trace_processor_shell") }
+                        .files
+                check(packagedBinaries.isNotEmpty()) { "Packaged Trace Processor is missing from the distributable" }
+                val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
+                val artifacts = checkNotNull(manifest["artifacts"]) as Map<*, *>
+                val expected = checkNotNull((artifacts[hostKey] as? Map<*, *>)?.get("sha256")) {
+                    "No pinned Trace Processor checksum for $hostKey"
+                }.toString()
+                packagedBinaries.forEach { binary ->
+                    check(binary.canExecute() || binary.setExecutable(true, false)) {
+                        "Unable to make the packaged Trace Processor executable: $binary"
+                    }
+                    val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary.readBytes()))
+                    check(actual == expected) {
+                        "Packaged Trace Processor checksum mismatch for $hostKey: $binary"
+                    }
+                }
+            }
+        }
+}
 
 val verifyPackagedTraceProcessor =
     tasks.register("verifyPackagedTraceProcessor") {
