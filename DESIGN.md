@@ -293,6 +293,15 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - Selecting a heap, group, class, or original object preserves the exact heap scope for instance queries, including All mode. Keep existing search, issue filters, warnings, snapshot guards, and horizontal scrolling.
 - Verify App/All switching, sibling sorting, same-name classes across heaps, grouped navigation, and leak markers with focused tests and the real HPROF fixture. This is the main heap class table, not the separate Shark findings list.
 
+## HPROF Engine Selection (2026-10-30)
+
+- Settings > Configuration owns the persisted HPROF engine selector: Kotlin (Legacy) or Rust. Rust is the default as requested on 2026-10-30; an explicitly saved Legacy choice remains respected. A change affects subsequent loads, never silently replaces an open snapshot or discards its investigation state.
+- Retain the Kotlin parser/analyzer and their explicit selectable path. Rust owns its indexed graph in an isolated child process; snapshot evidence records the engine actually used. An unavailable selected engine is an explicit error, not an unreported fallback.
+- Rust instance lists use bounded pages with global counts, previous/next icon controls and stable object navigation. Retain the complete Legacy list behavior. Group queries preserve heap scope and class-local row ordinals across pages.
+- Rust dominator trees page root objects and immediate children independently. An unfetched branch is not a leaf; fetched empty children establish the leaf state. Class metadata remains in analysis while visible row membership matches Legacy.
+- Preserve typed fields, arrays, incoming-reference grouping, nearest-root semantics, findings, mapping, source-bound Shark and exports. Native/reachable HPROF class metrics are distinct from Native Heap capture and remain nullable when verification is unavailable.
+- Closing or evicting a snapshot closes only its engine and releases its immutable source leases. Keep original user artifacts and existing captures unchanged.
+
 ## Memory Overview Scope (2026-10-26)
 
 - Rename the previous Leaks & Bitmaps dashboard to Overview / 概览. Retain only heap overview metrics and the class histogram; remove its leak suspects, Activity leaks, Bitmap, Native Heap, and Diff summaries entirely.

@@ -393,6 +393,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                             AppDestination.MEMORY_PROFILER ->
                                 MemoryProfilerMainPage(
                                     language = language,
+                                    hprofEngine = applicationSettings.hprofEngine,
                                     highlightClassName = memoryHighlightClassName,
                                     initialImportFile = navigator.memoryImportFile,
                                     initialImportRequestId = navigator.memoryImportRequestId,

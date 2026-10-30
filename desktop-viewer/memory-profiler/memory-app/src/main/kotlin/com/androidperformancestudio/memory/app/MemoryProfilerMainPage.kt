@@ -37,6 +37,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.native
 import com.androidperformancestudio.memory.memory_app.generated.resources.record_sampled_art
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.memory_app.generated.resources.sampled_art_view
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
 import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNativeHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmapsButton
@@ -93,13 +94,18 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     initialImportFile: Path? = null,
     initialImportRequestId: Long = 0L,
     initialImportIsJavaHeap: Boolean = false,
+    hprofEngine: HprofEngine = HprofEngine.DEFAULT,
 ) {
     val controller =
         remember {
-            MemoryProfilerController(DesktopMemoryProfilerBackend(language = language), language = language)
+            MemoryProfilerController(
+                DesktopMemoryProfilerBackend(language = language, hprofEngine = hprofEngine),
+                language = language,
+            )
         }
     DisposableEffect(controller) { onDispose(controller::close) }
     SideEffect { controller.changeLanguage(language) }
+    LaunchedEffect(controller, hprofEngine) { controller.changeHprofEngine(hprofEngine) }
     val state by controller.state.collectAsState()
     val recentSessions by controller.recentSessions.collectAsState()
     val titleBarHost = LocalTitleBarTargetHost.current
@@ -134,8 +140,8 @@ fun FrameWindowScope.MemoryProfilerMainPage(
         remember(
             language,
             state.isDumping,
-            loaded?.heapDump?.rawHprofFile,
-            loaded?.heapDump?.convertedHprofFile,
+            loaded?.rawHprofFile,
+            loaded?.convertedHprofFile,
             loaded != null,
             state.selectedClassName != null,
             state.selectedInstanceDetail != null,
@@ -149,8 +155,8 @@ fun FrameWindowScope.MemoryProfilerMainPage(
             memoryProfilerFileMenuModel(
                 language = language,
                 importEnabled = !state.isDumping,
-                rawHprofExportEnabled = loaded?.heapDump?.rawHprofFile != null,
-                standardHprofExportEnabled = loaded?.heapDump?.convertedHprofFile != null,
+                rawHprofExportEnabled = loaded?.rawHprofFile != null,
+                standardHprofExportEnabled = loaded?.convertedHprofFile != null,
                 csvExportEnabled = loaded != null,
                 exportClassInstancesEnabled = loaded != null && state.selectedClassName != null,
                 exportObjectInvestigationEnabled = state.selectedInstanceDetail != null,
@@ -415,9 +421,14 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     },
                     onStopLiveLeakMonitoring = controller::stopLiveLeakCanary,
                     onHighlightClass = controller::highlightClass,
-                    onChangeViewMode = controller::changeViewMode,
+                    onChangeViewMode = { mode -> scope.launch { controller.changeViewModeAsync(mode) } },
                     onSelectClass = { className -> scope.launch { controller.selectClassAsync(className) } },
                     onSelectInstance = { objectId -> scope.launch { controller.selectInstanceAsync(objectId) } },
+                    onLoadInstancePage = { offset -> scope.launch { controller.loadInstancePageAsync(offset) } },
+                    onLoadDominatorPage = { offset -> scope.launch { controller.loadDominatorPageAsync(offset) } },
+                    onLoadDominatorChildren = { parent, offset ->
+                        scope.launch { controller.loadDominatorChildrenAsync(parent, offset) }
+                    },
                     onCopyObjectId = { objectId ->
                         Toolkit.getDefaultToolkit().systemClipboard.setContents(
                             StringSelection("0x${java.lang.Long.toHexString(objectId)}"),

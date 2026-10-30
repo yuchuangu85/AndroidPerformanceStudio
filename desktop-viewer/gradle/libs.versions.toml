@@ -70,6 +70,7 @@ aps-frame-app = { module = "com.androidperformancestudio.frame:frame-app", versi
 aps-gpu-integration-app = { module = "com.androidperformancestudio.gpu:gpu-integration-app", version.ref = "aps" }
 aps-analysis-memory = { module = "com.androidperformancestudio.memory:analysis-memory", version.ref = "aps" }
 aps-memory-app = { module = "com.androidperformancestudio.memory:memory-app", version.ref = "aps" }
+aps-memory-model = { module = "com.androidperformancestudio.memory:memory-model", version.ref = "aps" }
 aps-network-app = { module = "com.androidperformancestudio.network:network-app", version.ref = "aps" }
 aps-analysis-startup = { module = "com.androidperformancestudio.startup:analysis-startup", version.ref = "aps" }
 aps-startup-agent-protocol = { module = "com.androidperformancestudio.startup:startup-agent-protocol", version.ref = "aps" }

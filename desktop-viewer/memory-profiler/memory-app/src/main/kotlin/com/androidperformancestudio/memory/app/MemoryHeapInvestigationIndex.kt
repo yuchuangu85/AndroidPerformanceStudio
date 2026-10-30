@@ -9,6 +9,7 @@ internal class MemoryHeapInvestigationIndex(
     heapDump: HeapDump,
 ) {
     val query = InstanceReferenceQuery(heapDump)
+    internal var snapshotQuery: HeapSnapshotQuery? = null
     private val dominatorRows =
         lazy {
             // A large dump can have millions of objects. Reuse the query's object lookup and keep

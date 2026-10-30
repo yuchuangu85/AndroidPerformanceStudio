@@ -64,6 +64,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -112,6 +113,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.clas
 import com.androidperformancestudio.memory.presentation.generated.resources.class_scope
 import com.androidperformancestudio.memory.presentation.generated.resources.classes
 import com.androidperformancestudio.memory.presentation.generated.resources.count
+import com.androidperformancestudio.memory.presentation.generated.resources.count_value
 import com.androidperformancestudio.memory.presentation.generated.resources.deallocations
 import com.androidperformancestudio.memory.presentation.generated.resources.deallocations_size
 import com.androidperformancestudio.memory.presentation.generated.resources.delete_filter
@@ -278,6 +280,7 @@ public fun MemoryProfilerClassListPane(
                 Column(Modifier.weight(1f)) {
                     InstanceListTitle(
                         className = state.selectedClassifierLabel ?: state.selectedClassName,
+                        totalCount = maxOf(state.instanceTotalCount, state.selectedClassInstances.size),
                         isLeak = state.selectedClassName?.let { it in leakClasses } == true,
                         language = language,
                     )
@@ -391,6 +394,7 @@ internal fun MemoryClassesPane(
             ) {
                 InstanceListTitle(
                     className = state.selectedClassifierLabel ?: state.selectedClassName,
+                    totalCount = maxOf(state.instanceTotalCount, state.selectedClassInstances.size),
                     isLeak = state.selectedClassName?.let { it in leakClasses } == true,
                     language = language,
                 )
@@ -894,6 +898,7 @@ private fun RowScope.classifierCell(value: String?) {
 @Composable
 private fun InstanceListTitle(
     className: String?,
+    totalCount: Int,
     isLeak: Boolean,
     language: UiLanguage,
 ) {
@@ -915,6 +920,14 @@ private fun InstanceListTitle(
             overflow = TextOverflow.Ellipsis,
         )
         if (isLeak) MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-instance-class-warning"))
+        if (className != null) {
+            Text(
+                localizedStringResource(Res.string.count_value, language, totalCount),
+                Modifier.testTag("memory-instance-total-count"),
+                style = ViewerTypography.secondary,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -1062,33 +1075,50 @@ private fun InstanceTableContent(
 ) {
     val horizontalScroll = rememberScrollState()
     val listState = rememberLazyListState()
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val nameViewportRight = memoryTableViewportRight(maxWidth - 10.dp, horizontalScroll)
-        Column(
-            Modifier.fillMaxSize().padding(bottom = 10.dp, end = 10.dp)
-                .horizontalScroll(horizontalScroll).requiredWidth(tableWidth - 10.dp)
-                .memoryTableGrid(INSTANCE_COLUMN_WIDTHS).testTag("memory-instance-table"),
-        ) {
-            InstanceTableHeader(language)
-            InstanceTable(
-                className = state.selectedClassifierLabel ?: state.selectedClassName,
-                instances = state.selectedClassInstances,
-                selectedObjectId = state.selectedInstanceDetail?.objectId,
-                onSelectInstance = actions.onSelectInstance,
-                language = language,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                listState = listState,
-                nameViewportRight = nameViewportRight,
+    val page =
+        MemoryHeapPage(
+            state.instancePageOffset,
+            maxOf(state.instanceTotalCount, state.selectedClassInstances.size),
+            state.selectedClassInstances.size,
+            state.instancePageSize,
+        )
+    LaunchedEffect(state.instancePageOffset) { listState.scrollToItem(0) }
+    Column(Modifier.fillMaxSize()) {
+        if (page.isPaged) {
+            MemoryHeapPageControls(
+                page, language, "memory-instance-page", actions.onLoadInstancePage,
+                modifier = Modifier.padding(horizontal = 8.dp),
+                enabled = !state.isSelectionLoading && !state.isDumping,
             )
         }
-        HorizontalScrollbar(
-            rememberScrollbarAdapter(horizontalScroll),
-            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
-        )
-        VerticalScrollbar(
-            rememberScrollbarAdapter(listState),
-            Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = 10.dp),
-        )
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+            val nameViewportRight = memoryTableViewportRight(maxWidth - 10.dp, horizontalScroll)
+            Column(
+                Modifier.fillMaxSize().padding(bottom = 10.dp, end = 10.dp)
+                    .horizontalScroll(horizontalScroll).requiredWidth(tableWidth - 10.dp)
+                    .memoryTableGrid(INSTANCE_COLUMN_WIDTHS).testTag("memory-instance-table"),
+            ) {
+                InstanceTableHeader(language)
+                InstanceTable(
+                    className = state.selectedClassifierLabel ?: state.selectedClassName,
+                    instances = state.selectedClassInstances,
+                    selectedObjectId = state.selectedInstanceDetail?.objectId,
+                    onSelectInstance = actions.onSelectInstance,
+                    language = language,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    listState = listState,
+                    nameViewportRight = nameViewportRight,
+                )
+            }
+            HorizontalScrollbar(
+                rememberScrollbarAdapter(horizontalScroll),
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(end = 10.dp),
+            )
+            VerticalScrollbar(
+                rememberScrollbarAdapter(listState),
+                Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(top = CLASSIFIER_HEADER_HEIGHT, bottom = 10.dp),
+            )
+        }
     }
 }
 

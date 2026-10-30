@@ -67,6 +67,7 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -1518,7 +1519,7 @@ class MemoryProfilerControllerTest {
             controller.importHprof(Path.of("heap.hprof"))
 
             val index =
-                assertNotNull(controller.loadedHeap)
+                assertIs<LoadedHeap>(controller.loadedHeap)
                     .investigationIndex
             assertFalse(index.dominatorsInitialized)
             val initialRows = controller.state.value.dominatorRows
@@ -1988,10 +1989,10 @@ class MemoryProfilerControllerTest {
         override suspend fun listSessions() = MemoryBackendResult.Success(sessions)
 
         override suspend fun analyzeLeaks(
-            snapshot: LoadedHeap,
+            snapshot: LoadedSnapshot,
             onProgress: (Int) -> Unit,
         ): MemoryBackendResult<LeakCanaryReport> {
-            events += "analyze:${snapshot.heapDump.id}"
+            events += "analyze:${snapshot.id}"
             onProgress(35)
             analysisStarted?.complete(Unit)
             analysisRelease?.await()

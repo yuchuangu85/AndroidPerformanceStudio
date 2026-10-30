@@ -64,6 +64,7 @@
     <string name="snapshot_counts">类 %1$s · 对象 %2$s · 解析警告 %3$s</string>
     <string name="snapshot_provenance">记录时间 %1$s · 加载时间 %2$s · 文件大小 %3$s · 来源 SHA-256 %4$s</string>
     <string name="snapshot_mapping">Mapping SHA-256 %1$s · 分析版本 %2$s</string>
+    <string name="snapshot_engine">HPROF 引擎：%1$s</string>
     <string name="snapshot_capabilities">可用能力：%1$s</string>
     <string name="snapshot_artifact">证据产物 %1$s · %2$s · %3$s 项能力</string>
     <string name="snapshot_limitation">局限性 %1$s：%2$s</string>
@@ -98,6 +99,11 @@
     <string name="diff_view">差异</string>
     <string name="class_level_diff">类级别差异；不同快照之间不建立稳定对象身份。</string>
     <string name="dominator_tree">支配树</string>
+    <string name="memory_page_range">%1$s-%2$s / 共 %3$s</string>
+    <string name="memory_page_previous">上一页</string>
+    <string name="memory_page_next">下一页</string>
+    <string name="memory_dominator_expand">展开 %1$s 的子节点</string>
+    <string name="memory_dominator_collapse">折叠 %1$s 的子节点</string>
     <string name="class_list">类列表</string>
     <string name="filter_classes">过滤类</string>
     <string name="instances">实例</string>

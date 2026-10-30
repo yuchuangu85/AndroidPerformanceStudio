@@ -1,6 +1,9 @@
+import groovy.json.JsonSlurper
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import groovy.json.JsonSlurper
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.HexFormat
 import java.util.Properties
@@ -94,6 +97,139 @@ val targetOs =
         else -> error("Unsupported desktop host operating system: $hostOs")
     }
 
+val hprofEngineBinaryName = if (targetOs == "windows") "aps-hprof-engine.exe" else "aps-hprof-engine"
+val hprofEnginePrebuiltPath = providers.gradleProperty("apsHprofEngineBinary")
+val hprofEngineBinary =
+    hprofEnginePrebuiltPath.orNull?.let { rootProject.file(it) }
+        ?: rootProject.layout.projectDirectory
+            .file("memory-profiler/hprof-engine-rust/target/release/$hprofEngineBinaryName")
+            .asFile
+val hprofEngineResources = layout.buildDirectory.dir("generated/hprof-engine")
+val prepareHprofEngineResources =
+    tasks.register("prepareHprofEngineResources") {
+        group = "distribution"
+        description = "Validates the target Rust HPROF sidecar and stages it with its SHA-256 digest."
+        if (targetArch == hostArch && !hprofEnginePrebuiltPath.isPresent) {
+            dependsOn(gradle.includedBuild("memory-profiler").task(":memory-app:buildRustHprofEngine"))
+        }
+        inputs.file(hprofEngineBinary)
+        inputs.property("targetOs", targetOs)
+        inputs.property("targetArch", targetArch)
+        inputs.property("hostArch", hostArch)
+        inputs.property("prebuilt", hprofEnginePrebuiltPath.isPresent)
+        outputs.dir(hprofEngineResources)
+
+        val binary = hprofEngineBinary
+        val binaryName = hprofEngineBinaryName
+        val outputDirectory = hprofEngineResources.get().asFile
+        val operatingSystem = targetOs
+        val architecture = targetArch
+        val hostArchitecture = hostArch
+        val prebuilt = hprofEnginePrebuiltPath.isPresent
+        doFirst {
+            check(architecture == hostArchitecture || prebuilt) {
+                "Cross-architecture HPROF packaging ($hostArchitecture -> $architecture) requires " +
+                    "-PapsHprofEngineBinary=/path/to/$binaryName built for $operatingSystem-$architecture. " +
+                    "A host Rust binary cannot be used for this target."
+            }
+        }
+        doLast {
+            check(binary.isFile && binary.length() >= 64) {
+                "Rust HPROF sidecar is missing or invalid: $binary. Build :memory-profiler:memory-app:buildRustHprofEngine " +
+                    "for native packaging or supply -PapsHprofEngineBinary=/path/to/$binaryName for $operatingSystem-$architecture."
+            }
+            val actualArchitecture =
+                RandomAccessFile(binary, "r").use { input ->
+                    val header = ByteArray(64)
+                    input.readFully(header)
+                    val bytes = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+                    when (operatingSystem) {
+                        "macos" -> {
+                            check(bytes.getInt(0) == 0xfeedfacf.toInt()) { "Expected a 64-bit Mach-O HPROF binary: $binary" }
+                            when (bytes.getInt(4)) {
+                                0x01000007 -> "x64"
+                                0x0100000c -> "arm64"
+                                else -> error("Unsupported Mach-O HPROF architecture: $binary")
+                            }
+                        }
+                        "linux" -> {
+                            check(bytes.getInt(0) == 0x464c457f && header[4].toInt() == 2 && header[5].toInt() == 1) {
+                                "Expected a 64-bit little-endian ELF HPROF binary: $binary"
+                            }
+                            when (bytes.getShort(18).toInt() and 0xffff) {
+                                62 -> "x64"
+                                183 -> "arm64"
+                                else -> error("Unsupported ELF HPROF architecture: $binary")
+                            }
+                        }
+                        "windows" -> {
+                            check(bytes.getShort(0).toInt() == 0x5a4d) { "Expected a PE HPROF executable: $binary" }
+                            val peOffset = bytes.getInt(60).toLong() and 0xffffffffL
+                            check(peOffset >= 64 && peOffset <= input.length() - 6) { "Invalid HPROF PE header: $binary" }
+                            input.seek(peOffset)
+                            val peHeader = ByteArray(6)
+                            input.readFully(peHeader)
+                            val peBytes = ByteBuffer.wrap(peHeader).order(ByteOrder.LITTLE_ENDIAN)
+                            check(peBytes.getInt(0) == 0x00004550) { "Invalid HPROF PE signature: $binary" }
+                            when (peBytes.getShort(4).toInt() and 0xffff) {
+                                0x8664 -> "x64"
+                                0xaa64 -> "arm64"
+                                else -> error("Unsupported PE HPROF architecture: $binary")
+                            }
+                        }
+                        else -> error("Unsupported HPROF target operating system: $operatingSystem")
+                    }
+                }
+            check(actualArchitecture == architecture) {
+                "Rust HPROF sidecar architecture mismatch: $binary is $operatingSystem-$actualArchitecture, " +
+                    "but packaging requires $operatingSystem-$architecture. Supply the correct -PapsHprofEngineBinary."
+            }
+            check(outputDirectory.isDirectory || outputDirectory.mkdirs()) { "Unable to create HPROF resource directory: $outputDirectory" }
+            val stagedBinary = binary.copyTo(File(outputDirectory, binaryName), overwrite = true)
+            check(operatingSystem == "windows" || stagedBinary.canExecute() || stagedBinary.setExecutable(true, false)) {
+                "Unable to make the Rust HPROF sidecar executable: $stagedBinary"
+            }
+            val digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(stagedBinary.readBytes()))
+            File(outputDirectory, "$binaryName.sha256").writeText("$digest\n")
+        }
+    }
+
+prepareProfilerAppResources.configure {
+    dependsOn(prepareHprofEngineResources)
+    from(hprofEngineResources) {
+        include(hprofEngineBinaryName, "$hprofEngineBinaryName.sha256")
+        into("hprof-engine")
+    }
+}
+
+tasks
+    .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
+    .configureEach {
+        dependsOn(prepareHprofEngineResources)
+        val binaryName = hprofEngineBinaryName
+        val digestFile = hprofEngineResources.get().file("$binaryName.sha256").asFile
+        val windows = targetOs == "windows"
+        inputs.file(digestFile)
+        doLast {
+            val packagedBinaries =
+                outputs.files.asFileTree
+                    .matching { include("**/resources/hprof-engine/$binaryName") }
+                    .files
+            check(packagedBinaries.isNotEmpty()) { "Packaged Rust HPROF sidecar is missing from the distributable" }
+            val expected = digestFile.readText().trim()
+            packagedBinaries.forEach { binary ->
+                check(windows || binary.canExecute() || binary.setExecutable(true, false)) {
+                    "Unable to make the packaged Rust HPROF sidecar executable: $binary"
+                }
+                val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(binary.readBytes()))
+                val packagedDigest = File(binary.parentFile, "$binaryName.sha256")
+                check(actual == expected && packagedDigest.isFile && packagedDigest.readText().trim() == expected) {
+                    "Packaged Rust HPROF sidecar checksum mismatch or missing digest: $binary"
+                }
+            }
+        }
+    }
+
 if (targetOs != "windows") {
     tasks
         .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
@@ -110,9 +246,10 @@ if (targetOs != "windows") {
                 check(packagedBinaries.isNotEmpty()) { "Packaged Trace Processor is missing from the distributable" }
                 val manifest = JsonSlurper().parse(manifestFile) as Map<*, *>
                 val artifacts = checkNotNull(manifest["artifacts"]) as Map<*, *>
-                val expected = checkNotNull((artifacts[hostKey] as? Map<*, *>)?.get("sha256")) {
-                    "No pinned Trace Processor checksum for $hostKey"
-                }.toString()
+                val expected =
+                    checkNotNull((artifacts[hostKey] as? Map<*, *>)?.get("sha256")) {
+                        "No pinned Trace Processor checksum for $hostKey"
+                    }.toString()
                 packagedBinaries.forEach { binary ->
                     check(binary.canExecute() || binary.setExecutable(true, false)) {
                         "Unable to make the packaged Trace Processor executable: $binary"
@@ -143,9 +280,10 @@ val verifyPackagedTraceProcessor =
                 "Pinned Trace Processor $version is missing: $file. Run scripts/install-trace-processor.sh $hostKey."
             }
             val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
-            val expected = checkNotNull((artifacts[hostKey] as? Map<*, *>)?.get("sha256")) {
-                "No pinned Trace Processor checksum for $hostKey"
-            }.toString()
+            val expected =
+                checkNotNull((artifacts[hostKey] as? Map<*, *>)?.get("sha256")) {
+                    "No pinned Trace Processor checksum for $hostKey"
+                }.toString()
             check(actual == expected) { "Pinned Trace Processor checksum mismatch for $hostKey" }
         }
     }
@@ -161,14 +299,20 @@ val verifyPackagedComposeAgentBundle =
                 "Compose agent bundle is missing. Build :layout-inspector:compose-agent-build:verifyComposeAgentBundle first."
             }
             val root = bundleDirectory.toPath().toRealPath()
-            val manifest = Properties().apply {
-                root.resolve("manifest.properties").toFile().inputStream().use { load(it) }
-            }
-            val artifacts = linkedMapOf(
-                "service.sha256" to "lib_ui_inspector_service.jar",
-                "payload.sha256" to "lib_ui_inspector_payload.jar",
-                "view.sha256" to "view-inspector.jar",
-            )
+            val manifest =
+                Properties().apply {
+                    root
+                        .resolve("manifest.properties")
+                        .toFile()
+                        .inputStream()
+                        .use { load(it) }
+                }
+            val artifacts =
+                linkedMapOf(
+                    "service.sha256" to "lib_ui_inspector_service.jar",
+                    "payload.sha256" to "lib_ui_inspector_payload.jar",
+                    "view.sha256" to "view-inspector.jar",
+                )
             listOf("armeabi-v7a", "arm64-v8a", "x86_64").forEach { abi ->
                 artifacts["agent.$abi.sha256"] = "agent/$abi/lib_ui_inspector_agent.so"
             }
@@ -213,6 +357,7 @@ dependencies {
     implementation(libs.aps.method.recording.app)
     implementation(libs.aps.perfetto.app)
     implementation(libs.aps.memory.app)
+    implementation(libs.aps.memory.model)
     implementation(libs.aps.frame.app)
     implementation(libs.aps.startup.app)
     implementation(libs.aps.battery.app)
@@ -301,6 +446,8 @@ compose.desktop {
 // fail because the class loader is holding an obsolete JAR handle.
 tasks.withType<JavaExec>().configureEach {
     if (name == "run") {
+        dependsOn(prepareHprofEngineResources)
+        systemProperty("aps.hprofEngine.path", hprofEngineBinary.absolutePath)
         val developmentRuntimeClasspath = sourceSets["main"].runtimeClasspath
         doFirst {
             classpath = developmentRuntimeClasspath
@@ -320,7 +467,7 @@ tasks.matching { it.name == "proguardReleaseJars" }.configureEach {
             if (rootConfig.exists()) {
                 rootConfig.appendText(
                     "\n# Custom ProGuard rules - suppress known dependency warnings\n" +
-                        customRules.readText() + "\n"
+                        customRules.readText() + "\n",
                 )
             }
         }

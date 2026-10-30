@@ -87,6 +87,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
@@ -110,6 +113,9 @@ internal class DesktopMemoryProfilerBackend(
     private val javaHeapArtifactAnalyzer: JavaHeapArtifactAnalyzer = PerfettoJavaHeapArtifactAnalyzer(),
     private val sampledArtArtifactAnalyzer: SampledArtArtifactAnalyzer = PerfettoSampledArtArtifactAnalyzer(),
     private val hprofClassMetricsAnalyzer: HprofClassMetricsAnalyzer = TraceProcessorHprofClassMetricsAnalyzer(),
+    @Volatile private var hprofEngine: com.androidperformancestudio.memory.model.HprofEngine =
+        com.androidperformancestudio.memory.model.HprofEngine.DEFAULT,
+    private val rustExecutable: () -> Path = RustHprofExecutableLocator::resolve,
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val inputProbe = HprofInputProbe()
@@ -126,13 +132,18 @@ internal class DesktopMemoryProfilerBackend(
     private var mappingFile: Path? = null
     private var mappingDigest: String? = null
     private var lastLoadRequest: HeapLoadRequest? = null
-    private var lastLoadedHeap: LoadedHeap? = null
+    private var lastLoadedHeap: LoadedSnapshot? = null
+    private val snapshotLoadMutex = Mutex()
     private var leakCanaryConnection: LeakCanaryAgentConnection? = null
     private var leakCanaryCursor: Long = 0L
     private var leakCanaryEvents: List<LeakCanaryLiveEvent> = emptyList()
 
     override fun changeLanguage(language: UiLanguage) {
         this.language = language
+    }
+
+    override fun changeHprofEngine(engine: com.androidperformancestudio.memory.model.HprofEngine) {
+        hprofEngine = engine
     }
 
     override fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription {
@@ -181,70 +192,72 @@ internal class DesktopMemoryProfilerBackend(
     override suspend fun capture(
         serial: String,
         process: MemoryProcessOption,
-    ): MemoryBackendResult<LoadedHeap> {
+    ): MemoryBackendResult<LoadedSnapshot> {
         val adb = adbLocator() ?: return missingAdb()
         val sessionId = sessionId()
         val captureSession = captureSessionFactory(adb)
-        return when (
-            val result =
-                captureSession.capture(
-                    MemoryCaptureRequest(
-                        sessionId = sessionId,
-                        sessionRoot = dataRoot.resolve("sessions"),
-                        serial = serial,
-                        pid = process.pid,
-                        packageName = process.packageName,
-                    ),
-                )
-        ) {
-            is StudioResult.Failure -> result.toBackendFailure(localizedStringResource(Res.string.heap_dump_failed, language))
-            is StudioResult.Success -> {
-                val capture = result.value
-                val warning =
-                    capture.warnings
-                        .filterNot { it.code == "DEVICE_CLEANUP_FAILED" }
-                        .joinToString(separator = "\n", transform = { it.message })
-                        .ifBlank { null }
-                val cleanupWarning =
-                    capture.warnings
-                        .firstOrNull { it.code == "DEVICE_CLEANUP_FAILED" }
-                        ?.message
-                val identity =
-                    CapturedSessionIdentity(
-                        serial = serial,
-                        packageName = process.packageName,
-                        sessionId = sessionId,
-                        pid = process.pid,
+        return snapshotIo {
+            when (
+                val result =
+                    captureSession.capture(
+                        MemoryCaptureRequest(
+                            sessionId = sessionId,
+                            sessionRoot = dataRoot.resolve("sessions"),
+                            serial = serial,
+                            pid = process.pid,
+                            packageName = process.packageName,
+                        ),
                     )
-                val convertedFile = capture.convertedHprofFile
-                val conversionWarning =
+            ) {
+                is StudioResult.Failure -> result.toBackendFailure(localizedStringResource(Res.string.heap_dump_failed, language))
+                is StudioResult.Success -> {
+                    val capture = result.value
+                    val warning =
+                        capture.warnings
+                            .filterNot { it.code == "DEVICE_CLEANUP_FAILED" }
+                            .joinToString(separator = "\n", transform = { it.message })
+                            .ifBlank { null }
+                    val cleanupWarning =
+                        capture.warnings
+                            .firstOrNull { it.code == "DEVICE_CLEANUP_FAILED" }
+                            ?.message
+                    val identity =
+                        CapturedSessionIdentity(
+                            serial = serial,
+                            packageName = process.packageName,
+                            sessionId = sessionId,
+                            pid = process.pid,
+                        )
+                    val convertedFile = capture.convertedHprofFile
+                    val conversionWarning =
+                        if (convertedFile == null) {
+                            localizedStringResource(Res.string.hprof_conv_unavailable, language)
+                        } else {
+                            null
+                        }
+                    val effectiveWarning = listOfNotNull(warning, conversionWarning).joinToString("\n").ifBlank { null }
                     if (convertedFile == null) {
-                        localizedStringResource(Res.string.hprof_conv_unavailable, language)
+                        loadHeap(
+                            HeapLoadRequest(
+                                file = capture.rawHprofFile,
+                                rawFile = capture.rawHprofFile,
+                                warning = effectiveWarning,
+                                cleanupWarning = cleanupWarning,
+                                sessionMetadata = identity,
+                            ),
+                        )
                     } else {
-                        null
+                        loadHeap(
+                            HeapLoadRequest(
+                                file = convertedFile,
+                                rawFile = capture.rawHprofFile,
+                                convertedFile = convertedFile,
+                                warning = effectiveWarning,
+                                cleanupWarning = cleanupWarning,
+                                sessionMetadata = identity,
+                            ),
+                        )
                     }
-                val effectiveWarning = listOfNotNull(warning, conversionWarning).joinToString("\n").ifBlank { null }
-                if (convertedFile == null) {
-                    loadHeap(
-                        HeapLoadRequest(
-                            file = capture.rawHprofFile,
-                            rawFile = capture.rawHprofFile,
-                            warning = effectiveWarning,
-                            cleanupWarning = cleanupWarning,
-                            sessionMetadata = identity,
-                        ),
-                    )
-                } else {
-                    loadHeap(
-                        HeapLoadRequest(
-                            file = convertedFile,
-                            rawFile = capture.rawHprofFile,
-                            convertedFile = convertedFile,
-                            warning = effectiveWarning,
-                            cleanupWarning = cleanupWarning,
-                            sessionMetadata = identity,
-                        ),
-                    )
                 }
             }
         }
@@ -573,13 +586,13 @@ internal class DesktopMemoryProfilerBackend(
     }
 
     @Suppress("ktlint:standard:function-expression-body")
-    override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> = importHprof(file) {}
+    override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedSnapshot> = importHprof(file) {}
 
     override suspend fun importHprof(
         file: Path,
         onProgress: (Int) -> Unit,
-    ): MemoryBackendResult<LoadedHeap> =
-        withContext(Dispatchers.IO) {
+    ): MemoryBackendResult<LoadedSnapshot> =
+        snapshotIo {
             if (!Files.isRegularFile(file)) {
                 MemoryBackendResult.Failure(
                     localizedStringResource(Res.string.hprof_file_not_found, language),
@@ -680,12 +693,11 @@ internal class DesktopMemoryProfilerBackend(
     }
 
     override suspend fun analyzeLeaks(
-        snapshot: LoadedHeap,
+        snapshot: LoadedSnapshot,
         onProgress: (Int) -> Unit,
     ): MemoryBackendResult<LeakCanaryReport> =
         withContext(Dispatchers.IO) {
-            val heapDump = snapshot.heapDump
-            val hprofFile = heapDump.convertedHprofFile ?: heapDump.rawHprofFile
+            val hprofFile = snapshot.convertedHprofFile ?: snapshot.rawHprofFile
             if (hprofFile == null || !Files.isRegularFile(hprofFile)) {
                 return@withContext MemoryBackendResult.Failure(
                     "Leak analysis unavailable",
@@ -703,7 +715,11 @@ internal class DesktopMemoryProfilerBackend(
                     SharkLeakAnalyzer { progress ->
                         context.ensureActive()
                         onProgress(progress)
-                    }.analyze(heapDump, hprofFile)
+                    }.analyze(
+                        hprofFile = hprofFile,
+                        initialClassCount = snapshot.source.metadata.classCount,
+                        initialObjectCount = snapshot.source.metadata.instanceCount,
+                    )
                 context.ensureActive()
                 if (!sourceUnchanged()) return@withContext changedHeapSourceFailure()
                 MemoryBackendResult.Success(report)
@@ -723,13 +739,13 @@ internal class DesktopMemoryProfilerBackend(
             "The HPROF source no longer matches the loaded object graph. Re-import the snapshot before analysis.",
         )
 
-    override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> =
-        withContext(Dispatchers.IO) {
+    override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedSnapshot?> =
+        snapshotIo {
             val parsedMapping =
                 try {
                     ProguardMappingParser.parse(file)
                 } catch (exception: Exception) {
-                    return@withContext MemoryBackendResult.Failure(
+                    return@snapshotIo MemoryBackendResult.Failure(
                         localizedStringResource(Res.string.unable_to_load_mapping, language),
                         exception.message ?: exception::class.simpleName.orEmpty(),
                     )
@@ -776,8 +792,8 @@ internal class DesktopMemoryProfilerBackend(
         }
     }
 
-    override suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> =
-        withContext(Dispatchers.IO) {
+    override suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedSnapshot> =
+        snapshotIo {
             mappingFile = metadata.mappingFile?.takeIf(Files::isRegularFile)
             mapping =
                 mappingFile?.let { path ->
@@ -786,7 +802,7 @@ internal class DesktopMemoryProfilerBackend(
             mappingDigest = metadata.mappingDigest
             val file = metadata.convertedHprofFile ?: metadata.rawHprofFile
             if (!Files.isRegularFile(file)) {
-                return@withContext MemoryBackendResult.Failure(
+                return@snapshotIo MemoryBackendResult.Failure(
                     localizedStringResource(Res.string.hprof_file_not_found, language),
                     localizedStringResource(Res.string.hprof_file_not_readable, language, file.fileName),
                 )
@@ -889,7 +905,19 @@ internal class DesktopMemoryProfilerBackend(
     private suspend fun loadHeap(
         request: HeapLoadRequest,
         onProgress: (Int) -> Unit = {},
-    ): MemoryBackendResult<LoadedHeap> {
+    ): MemoryBackendResult<LoadedSnapshot> =
+        if (hprofEngine == com.androidperformancestudio.memory.model.HprofEngine.RUST) {
+            lastLoadRequest = request
+            loadRustHeap(request, onProgress)
+        } else {
+            loadLegacyHeap(request, onProgress)
+        }
+
+    @Suppress("CyclomaticComplexMethod")
+    private suspend fun loadLegacyHeap(
+        request: HeapLoadRequest,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LoadedSnapshot> {
         val previousRequest = lastLoadRequest
         lastLoadRequest = request
         val previousHeap = lastLoadedHeap
@@ -900,7 +928,7 @@ internal class DesktopMemoryProfilerBackend(
             val analysisSourceDigest = digestFile(request.file)
             // Re-importing the same unchanged source must not materialize another multi-gigabyte
             // graph while the previous snapshot is still retained by the workspace.
-            val reusable = reusableLoadedHeap(request, previousRequest, previousHeap, analysisSourceDigest)
+            val reusable = reusableLoadedHeap(request, previousRequest, previousHeap as? LoadedHeap, analysisSourceDigest)
             if (reusable != null) {
                 onProgress(100)
                 require(digestFile(request.file) == analysisSourceDigest) {
@@ -997,6 +1025,156 @@ internal class DesktopMemoryProfilerBackend(
         if (request.rawFile != request.file || request != previousRequest) return null
         return previousHeap?.takeIf {
             it.analysisSourceDigest == analysisSourceDigest && it.mapping === validatedMapping()
+        }
+    }
+
+    /** Keep ownership outside the dispatcher boundary so cancelled delivery cannot lose a sidecar. */
+    private suspend fun <T : LoadedSnapshot?> snapshotIo(load: suspend () -> MemoryBackendResult<T>): MemoryBackendResult<T> =
+        snapshotLoadMutex.withLock {
+            val previousHeap = lastLoadedHeap
+            val previousRequest = lastLoadRequest
+            val previousMapping = mapping
+            val previousMappingFile = mappingFile
+            val previousMappingDigest = mappingDigest
+            var acquired: LoadedSnapshot? = null
+            var delivered = false
+            var cancellation: CancellationException? = null
+            try {
+                val result =
+                    withContext(Dispatchers.IO) {
+                        load().also { loaded ->
+                            if (loaded is MemoryBackendResult.Success) acquired = loaded.value
+                        }
+                    }
+                if (result is MemoryBackendResult.Success) delivered = true
+                result
+            } catch (exception: CancellationException) {
+                cancellation = exception
+                throw exception
+            } finally {
+                if (!delivered) {
+                    try {
+                        val abandoned =
+                            acquired
+                                ?.takeIf { it.engine == com.androidperformancestudio.memory.model.HprofEngine.RUST && it !== previousHeap }
+                        closeHeapResources(listOfNotNull(abandoned), cancellation)
+                    } finally {
+                        lastLoadedHeap = previousHeap
+                        lastLoadRequest = previousRequest
+                        mapping = previousMapping
+                        mappingFile = previousMappingFile
+                        mappingDigest = previousMappingDigest
+                    }
+                }
+            }
+        }
+
+    @Suppress("CyclomaticComplexMethod")
+    private suspend fun loadRustHeap(
+        request: HeapLoadRequest,
+        onProgress: (Int) -> Unit,
+    ): MemoryBackendResult<LoadedSnapshot> {
+        val context = currentCoroutineContext()
+        var opened: RustHeapSnapshotSource? = null
+        val leases = mutableListOf<ManagedHprofSource.Lease>()
+        var transferred = false
+        var cancellation: CancellationException? = null
+        return try {
+            val executable = rustExecutable()
+            require(Files.isRegularFile(executable) && Files.isExecutable(executable)) {
+                "Rust HPROF executable is unavailable: $executable"
+            }
+            onProgress(1)
+            val managed = ManagedHprofSource(dataRoot.resolve("hprof-sources"))
+
+            fun acquire(path: Path): ManagedHprofSource.Lease = managed.acquire(path) { context.ensureActive() }.also { leases += it }
+            val analysisLease = acquire(request.file)
+            val analysisFile = analysisLease.path
+            val analysisDigest = analysisLease.digest
+            val rawLease = if (request.rawFile == request.file) analysisLease else acquire(request.rawFile)
+            val rawFile = rawLease.path
+            val rawDigest = rawLease.digest
+            val convertedFile =
+                request.convertedFile?.let { original ->
+                    if (original == request.file) analysisFile else acquire(original).path
+                }
+            val currentMapping = validatedMapping()
+            onProgress(10)
+            val source =
+                runInterruptible(Dispatchers.IO) {
+                    RustHeapSnapshotSource.open(executable, analysisFile, analysisDigest, currentMapping).also { opened = it }
+                }
+            context.ensureActive()
+            onProgress(65)
+            val histogram = runInterruptible(Dispatchers.IO) { source.histogram() }
+            val perHeap =
+                source.metadata.heaps.associateWith { heapName ->
+                    context.ensureActive()
+                    runInterruptible(Dispatchers.IO) { source.histogram(heapName).classes }
+                }
+            val findings = runInterruptible(Dispatchers.IO) { source.findings() }
+            val capturedAt = Instant.now()
+            var loaded =
+                RustLoadedSnapshot(
+                    id = request.sessionMetadata?.sessionId ?: request.file.fileName.toString(),
+                    rawHprofFile = rawFile,
+                    convertedHprofFile = convertedFile,
+                    capturedAt = capturedAt,
+                    source = source,
+                    findings = findings,
+                    histogram = histogram,
+                    warning =
+                        listOfNotNull(
+                            request.warning,
+                            invalidMappingWarning(currentMapping),
+                            source.metadata.warnings
+                                .joinToString("\n") { it.message }
+                                .ifBlank { null },
+                        ).joinToString("\n").ifBlank { null },
+                    cleanupWarning = request.cleanupWarning,
+                    mapping = currentMapping,
+                    availableHeaps = source.metadata.heaps,
+                    perHeapClasses = perHeap,
+                    uiSettings = request.sessionMetadata?.sessionId?.let(::loadWorkspaceSettings) ?: MemorySessionUiSettings(),
+                    sourceFileDigest = rawDigest,
+                    analysisSourceDigest = analysisDigest,
+                    mappingDigest = mappingDigest,
+                    sourceLeases = leases.toList(),
+                )
+            onProgress(80)
+            val metrics = hprofClassMetricsAnalyzer.analyze(analysisFile)
+            context.ensureActive()
+            if (metrics != null) loaded = enrichRustSnapshotMetrics(loaded, source, metrics, currentMapping)
+            require(ManagedHprofSource.sha256(analysisFile) { context.ensureActive() } == analysisDigest) {
+                "The HPROF source changed during Rust analysis"
+            }
+            request.sessionMetadata?.let { metadata ->
+                persistSession(
+                    metadata,
+                    capturedAt,
+                    request.rawFile,
+                    request.convertedFile,
+                    loaded.histogram.summary,
+                    mappingFile,
+                    mappingDigest,
+                )
+            }
+            onProgress(100)
+            lastLoadedHeap = loaded
+            opened = null
+            transferred = true
+            MemoryBackendResult.Success(loaded)
+        } catch (exception: CancellationException) {
+            cancellation = exception
+            throw exception
+        } catch (exception: Exception) {
+            MemoryBackendResult.Failure(
+                "Rust HPROF analysis failed",
+                exception.message ?: exception::class.simpleName.orEmpty(),
+            )
+        } finally {
+            val resources = listOfNotNull<AutoCloseable>(opened) + if (!transferred) leases else emptyList()
+            closeHeapResources(resources, cancellation)
         }
     }
 

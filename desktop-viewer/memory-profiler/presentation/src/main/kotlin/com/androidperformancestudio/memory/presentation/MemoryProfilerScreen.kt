@@ -208,35 +208,39 @@ public fun MemoryProfilerScreen(
                         when (presentedState.viewMode) {
                             MemoryProfilerViewMode.ClassList -> MemoryClassesPane(presentedState, actions, language, paneModifier)
                             MemoryProfilerViewMode.Dominators -> {
-                                val searchRegex =
-                                    remember(presentedState.searchText, presentedState.matchCase, presentedState.useRegex) {
-                                    runCatching {
-                                        Regex(presentedState.searchText, if (presentedState.matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE))
-                                    }.getOrNull()
-                                }
-                                val filtered =
-                                    remember(
-                                        presentedState.dominatorRows,
-                                        presentedState.searchText,
-                                        presentedState.matchCase,
-                                        presentedState.useRegex,
-                                    ) {
-                                        if (presentedState.searchText.isEmpty()) {
-                                            presentedState.dominatorRows
-                                        } else {
-                                            presentedState.dominatorRows.filter { row ->
-                                                if (presentedState.useRegex) {
-                                                    searchRegex?.containsMatchIn(row.className) == true
-                                                } else {
-                                                    row.className.contains(
-                                                        presentedState.searchText,
-                                                        ignoreCase = !presentedState.matchCase,
-                                                    )
+                                if (presentedState.remoteDominators) {
+                                    MemoryRemoteDominatorPane(presentedState, actions, language, paneModifier)
+                                } else {
+                                    val searchRegex =
+                                        remember(presentedState.searchText, presentedState.matchCase, presentedState.useRegex) {
+                                            runCatching {
+                                                Regex(presentedState.searchText, if (presentedState.matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE))
+                                            }.getOrNull()
+                                        }
+                                    val filtered =
+                                        remember(
+                                            presentedState.dominatorRows,
+                                            presentedState.searchText,
+                                            presentedState.matchCase,
+                                            presentedState.useRegex,
+                                        ) {
+                                            if (presentedState.searchText.isEmpty()) {
+                                                presentedState.dominatorRows
+                                            } else {
+                                                presentedState.dominatorRows.filter { row ->
+                                                    if (presentedState.useRegex) {
+                                                        searchRegex?.containsMatchIn(row.className) == true
+                                                    } else {
+                                                        row.className.contains(
+                                                            presentedState.searchText,
+                                                            ignoreCase = !presentedState.matchCase,
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                MemoryProfilerDominatorPane(filtered, actions, language, paneModifier)
+                                    MemoryProfilerDominatorPane(filtered, actions, language, paneModifier)
+                                }
                             }
                             else -> MemorySnapshotComparison(presentedState, actions, language, paneModifier)
                         }

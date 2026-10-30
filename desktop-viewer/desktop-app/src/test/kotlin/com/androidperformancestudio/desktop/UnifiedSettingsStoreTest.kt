@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
 import androidx.compose.ui.graphics.Color
@@ -21,6 +22,7 @@ class UnifiedSettingsStoreTest {
                 themeColor = ApplicationThemeColor.ROYAL_PURPLE.color,
                 language = ApplicationLanguagePreference.SIMPLIFIED_CHINESE,
                 androidSdkPath = "D:/Android/Sdk",
+                hprofEngine = HprofEngine.RUST,
             )
 
         assertTrue(store.save(settings))
@@ -31,7 +33,76 @@ class UnifiedSettingsStoreTest {
         assertEquals("simplified_chinese", values["application.language"])
         assertEquals("D:/Android/Sdk", values["application.androidSdkPath"])
         assertEquals("true", values["application.navigationRailCollapsed"])
+        assertEquals("rust", values["application.hprofEngine"])
         assertEquals(settings, store.load())
+    }
+
+    @Test
+    fun `hprof analysis defaults to Rust for fresh and existing profiles without a selection`() {
+        assertEquals(HprofEngine.RUST, HprofEngine.DEFAULT)
+        assertEquals(HprofEngine.RUST, HprofEngine.parse(null))
+        assertEquals(HprofEngine.RUST, ApplicationUiSettings().hprofEngine)
+        assertEquals(HprofEngine.RUST, ApplicationUiSettingsStore({ null }, { _, _ -> }).load().hprofEngine)
+
+        val values = mutableMapOf("application.theme" to "dark", "application.language" to "english")
+        val settings = ApplicationUiSettingsStore(values::get, values::set).load()
+
+        assertEquals(HprofEngine.RUST, settings.hprofEngine)
+        assertEquals(ApplicationThemePreference.DARK, settings.theme)
+        assertEquals(ApplicationLanguagePreference.ENGLISH, settings.language)
+        assertFalse(values.containsKey("application.hprofEngine"))
+    }
+
+    @Test
+    fun `both hprof engines round trip under the stable key without changing other preferences`() {
+        val values = mutableMapOf<String, String>()
+        var flushCount = 0
+        val store = ApplicationUiSettingsStore(values::get, values::set, flush = { flushCount += 1 })
+        val original =
+            ApplicationUiSettings(
+                theme = ApplicationThemePreference.DARK,
+                displayScale = ApplicationDisplayScale.PERCENT_125,
+                androidSdkPath = "D:/Android/Sdk",
+                navigationRailCollapsed = false,
+            )
+
+        listOf(HprofEngine.RUST to "rust", HprofEngine.LEGACY to "legacy").forEach { (engine, storedValue) ->
+            val settings = original.copy(hprofEngine = engine)
+
+            assertTrue(store.save(settings))
+            assertEquals(storedValue, values["application.hprofEngine"])
+            assertEquals(settings, ApplicationUiSettingsStore(values::get, values::set).load())
+        }
+        assertEquals(2, flushCount)
+    }
+
+    @Test
+    fun `unrecognized hprof engine preferences default to Rust without overwriting storage`() {
+        listOf("", "unknown", "future-engine").forEach { storedValue ->
+            val values = mutableMapOf("application.hprofEngine" to storedValue)
+            val store = ApplicationUiSettingsStore(values::get, values::set)
+
+            assertEquals(HprofEngine.RUST, store.load().hprofEngine)
+            assertEquals(storedValue, values["application.hprofEngine"])
+        }
+    }
+
+    @Test
+    fun `saved Legacy preference remains explicit after the default changes to Rust`() {
+        val values = mutableMapOf("application.hprofEngine" to "legacy")
+        val store = ApplicationUiSettingsStore(values::get, values::set)
+
+        assertEquals(HprofEngine.LEGACY, store.load().hprofEngine)
+        assertEquals("legacy", values["application.hprofEngine"])
+    }
+
+    @Test
+    fun `hprof engine storage parsing tolerates capitalization and surrounding whitespace`() {
+        listOf("RUST", "Rust", " rust ").forEach { storedValue ->
+            val values = mutableMapOf("application.hprofEngine" to storedValue)
+            assertEquals(HprofEngine.RUST, ApplicationUiSettingsStore(values::get, values::set).load().hprofEngine)
+        }
+        assertEquals(HprofEngine.LEGACY, HprofEngine.parse("LEGACY"))
     }
 
     @Test

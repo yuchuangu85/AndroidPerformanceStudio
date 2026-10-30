@@ -4,6 +4,7 @@ import com.androidperformancestudio.adb.AndroidTargetListener
 import com.androidperformancestudio.adb.AndroidTargetSubscription
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.presentation.MemoryClassifierColumn
 import com.androidperformancestudio.memory.presentation.MemoryClassifierRow
 import com.androidperformancestudio.memory.presentation.MemoryLeakFilter
@@ -33,7 +34,7 @@ class LocalHprofDrilldownTest {
             val root = createTempDirectory("aps-large-hprof-drilldown")
             try {
                 val importStarted = System.nanoTime()
-                val backend = DesktopMemoryProfilerBackend(root)
+                val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
                 val result = backend.importHprof(fixture)
                 val importMillis = elapsedMillis(importStarted)
                 val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(result)
@@ -100,7 +101,7 @@ class LocalHprofDrilldownTest {
         try {
             controller.importHprof(fixture)
             assertSame(loaded, controller.loadedHeap)
-            assertSame(loaded.investigationIndex.query, controller.instanceQuery)
+            assertSame(loaded.source.query, controller.instanceQuery)
             checkHeapClassifierGroups(controller, loaded)
             controller.changeHeapFilter("App")
             controller.changeLeakFilter(MemoryLeakFilter.ACTIVITY_FRAGMENT_LEAK)

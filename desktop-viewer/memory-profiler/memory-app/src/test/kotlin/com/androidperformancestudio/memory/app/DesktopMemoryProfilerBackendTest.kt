@@ -10,6 +10,7 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_
 import com.androidperformancestudio.memory.memory_app.generated.resources.hprof_file_not_readable
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakCanaryStatus
 import com.androidperformancestudio.memory.model.NativeHeapEvidenceSource
@@ -56,7 +57,10 @@ class DesktopMemoryProfilerBackendTest {
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
             val baseline =
                 assertIs<MemoryBackendResult.Success<LoadedHeap>>(
-                    DesktopMemoryProfilerBackend(root.resolve("baseline")).importHprof(source),
+                    DesktopMemoryProfilerBackend(
+                        root.resolve("baseline"),
+                        hprofEngine = HprofEngine.LEGACY,
+                    ).importHprof(source),
                 ).value
             val rows =
                 baseline.perHeapClasses.flatMap { (heapName, classes) ->
@@ -75,6 +79,7 @@ class DesktopMemoryProfilerBackendTest {
             val accepted =
                 DesktopMemoryProfilerBackend(
                     root.resolve("accepted"),
+                    hprofEngine = HprofEngine.LEGACY,
                     hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { rows },
                 ).importHprof(source)
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(accepted).value
@@ -86,6 +91,7 @@ class DesktopMemoryProfilerBackendTest {
             val mismatch =
                 DesktopMemoryProfilerBackend(
                     root.resolve("mismatch"),
+                    hprofEngine = HprofEngine.LEGACY,
                     hprofClassMetricsAnalyzer =
                         HprofClassMetricsAnalyzer {
                             rows.mapIndexed { index, row ->
@@ -111,7 +117,10 @@ class DesktopMemoryProfilerBackendTest {
             Files.writeString(mapping, "com.example.Sample -> a.b.A:\ncom.example.Sample -> a.b.B:\n")
             val raw =
                 assertIs<MemoryBackendResult.Success<LoadedHeap>>(
-                    DesktopMemoryProfilerBackend(root.resolve("raw")).importHprof(source),
+                    DesktopMemoryProfilerBackend(
+                        root.resolve("raw"),
+                        hprofEngine = HprofEngine.LEGACY,
+                    ).importHprof(source),
                 ).value
             val rows =
                 raw.perHeapClasses.flatMap { (heapName, classes) ->
@@ -130,6 +139,7 @@ class DesktopMemoryProfilerBackendTest {
             val acceptedBackend =
                 DesktopMemoryProfilerBackend(
                     root.resolve("accepted"),
+                    hprofEngine = HprofEngine.LEGACY,
                     hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { rows },
                 )
             assertIs<MemoryBackendResult.Success<LoadedHeap?>>(acceptedBackend.importMapping(mapping))
@@ -151,6 +161,7 @@ class DesktopMemoryProfilerBackendTest {
             val mismatchedBackend =
                 DesktopMemoryProfilerBackend(
                     root.resolve("mismatched"),
+                    hprofEngine = HprofEngine.LEGACY,
                     hprofClassMetricsAnalyzer =
                         HprofClassMetricsAnalyzer {
                             rows.mapIndexed { index, row ->
@@ -174,6 +185,7 @@ class DesktopMemoryProfilerBackendTest {
             val overflowBackend =
                 DesktopMemoryProfilerBackend(
                     root.resolve("overflow"),
+                    hprofEngine = HprofEngine.LEGACY,
                     hprofClassMetricsAnalyzer =
                         HprofClassMetricsAnalyzer {
                             rows.mapIndexed { index, row ->
@@ -196,7 +208,7 @@ class DesktopMemoryProfilerBackendTest {
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-reimport")
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             val first = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source)).value
             var progress = -1
 
@@ -220,6 +232,7 @@ class DesktopMemoryProfilerBackendTest {
             val backend =
                 DesktopMemoryProfilerBackend(
                     dataRoot = root,
+                    hprofEngine = HprofEngine.LEGACY,
                     adbLocator = { null },
                     language = UiLanguage.ENGLISH,
                     hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
@@ -279,7 +292,7 @@ class DesktopMemoryProfilerBackendTest {
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-reimport-changed")
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source))
             Files.writeString(source, "replaced heap")
 
@@ -291,7 +304,7 @@ class DesktopMemoryProfilerBackendTest {
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-selected-analysis")
             val importedFile = root.resolve("latest.hprof").also { Files.write(it, minimalStandardHprof()) }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(importedFile))
             val selected = HeapDump(id = "older-snapshot", rawHprofFile = root.resolve("deleted-older.hprof"))
 
@@ -306,7 +319,7 @@ class DesktopMemoryProfilerBackendTest {
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-changed-analysis")
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             val snapshot = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source)).value
             Files.writeString(source, "replaced heap")
 
@@ -322,7 +335,7 @@ class DesktopMemoryProfilerBackendTest {
             val root = createTempDirectory("memory-mutating-import")
             val stable = root.resolve("stable.hprof").also { Files.write(it, minimalStandardHprof()) }
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(stable))
             var replaced = false
 
@@ -344,7 +357,7 @@ class DesktopMemoryProfilerBackendTest {
         kotlinx.coroutines.test.runTest {
             val root = createTempDirectory("memory-mutating-analysis")
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             val snapshot = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source)).value
             var replaced = false
 
@@ -365,7 +378,7 @@ class DesktopMemoryProfilerBackendTest {
             val root = createTempDirectory("memory-converted-analysis")
             val source = root.resolve("snapshot.hprof").also { Files.write(it, minimalStandardHprof()) }
             val converted = Files.copy(source, root.resolve("converted.hprof"))
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(source)).value
             val snapshot = loaded.copy(heapDump = loaded.heapDump.copy(convertedHprofFile = converted))
             Files.writeString(source, "raw source changed but not used for analysis")
@@ -420,6 +433,7 @@ class DesktopMemoryProfilerBackendTest {
             val backend =
                 DesktopMemoryProfilerBackend(
                     dataRoot = root,
+                    hprofEngine = HprofEngine.LEGACY,
                     nativeHeapArtifactAnalyzer =
                         NativeHeapArtifactAnalyzer { _, _ ->
                             NativeHeapProcessingResult.Unavailable("TRACE_PROCESSOR_NOT_FOUND: install the pinned tool")
@@ -454,6 +468,7 @@ class DesktopMemoryProfilerBackendTest {
             val backend =
                 DesktopMemoryProfilerBackend(
                     dataRoot = root,
+                    hprofEngine = HprofEngine.LEGACY,
                     nativeHeapArtifactAnalyzer =
                         NativeHeapArtifactAnalyzer { _, _ ->
                             NativeHeapProcessingResult.Failure("TRACE_QUERY_FAILED: schema changed")
@@ -474,6 +489,7 @@ class DesktopMemoryProfilerBackendTest {
             val backend =
                 DesktopMemoryProfilerBackend(
                     dataRoot = root,
+                    hprofEngine = HprofEngine.LEGACY,
                     nativeHeapArtifactAnalyzer =
                         NativeHeapArtifactAnalyzer { _, _ ->
                             NativeHeapProcessingResult.Unavailable("TRACE_PROCESSOR_NOT_FOUND")
@@ -491,7 +507,7 @@ class DesktopMemoryProfilerBackendTest {
             val root = createTempDirectory("memory-backend")
             val hprof = root.resolve("minimal-standard.hprof")
             Files.write(hprof, minimalStandardHprof())
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
             val progress = mutableListOf<Int>()
 
             val result = backend.importHprof(hprof, progress::add)
@@ -552,7 +568,7 @@ class DesktopMemoryProfilerBackendTest {
             assertEquals(recordOffset + recordHeaderBytes + 20, hprofBytes.size)
             assertTrue(hprofBytes.size > 64 * 1024)
             Files.write(hprof, hprofBytes)
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
 
             val loaded = assertIs<MemoryBackendResult.Success<LoadedHeap>>(backend.importHprof(hprof)).value
 
@@ -571,7 +587,7 @@ class DesktopMemoryProfilerBackendTest {
             RandomAccessFile(hprof.toFile(), "rw").use { file ->
                 file.setLength(257L * 1024L * 1024L)
             }
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
 
             val result = backend.importHprof(hprof)
 
@@ -586,7 +602,7 @@ class DesktopMemoryProfilerBackendTest {
             val root = createTempDirectory("memory-warning-import")
             val hprof = root.resolve("unsupported-record.hprof")
             Files.write(hprof, hprofWithUnknownHeapRecord())
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
 
             val result = backend.importHprof(hprof)
 
@@ -602,7 +618,7 @@ class DesktopMemoryProfilerBackendTest {
             val root = createTempDirectory("memory-probe-warning-import")
             val hprof = root.resolve("without-heap-dump.hprof")
             Files.write(hprof, hprofWithoutHeapDump())
-            val backend = DesktopMemoryProfilerBackend(root)
+            val backend = DesktopMemoryProfilerBackend(root, hprofEngine = HprofEngine.LEGACY)
 
             val result = backend.importHprof(hprof)
 
@@ -663,6 +679,7 @@ class DesktopMemoryProfilerBackendTest {
     ): DesktopMemoryProfilerBackend =
         DesktopMemoryProfilerBackend(
             dataRoot = root,
+            hprofEngine = HprofEngine.LEGACY,
             adbLocator = { Path.of("adb") },
             captureSessionFactory = { adb ->
                 MemoryHeapDumpCaptureSession(

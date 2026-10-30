@@ -314,10 +314,24 @@ public data class MemoryProfilerState(
     val selectedClassifierId: String? = null,
     val selectedClassifierLabel: String? = null,
     val selectedClassInstances: List<MemoryInstanceRow> = emptyList(),
+    val instancePageOffset: Int = 0,
+    val instanceTotalCount: Int = 0,
+    val instancePageSize: Int = 500,
     val selectedInstanceDetail: MemoryInstanceDetail? = null,
     /** A class/instance graph query is running off the UI thread. */
     val isSelectionLoading: Boolean = false,
     val dominatorRows: List<MemoryDominatorRow> = emptyList(),
+    /** Remote rows contain one root page, not a complete flat dominator tree. */
+    val remoteDominators: Boolean = false,
+    val dominatorPageOffset: Int = 0,
+    val dominatorTotalCount: Int = 0,
+    val dominatorPageSize: Int = 500,
+    val dominatorChildren: Map<Long, List<MemoryDominatorRow>> = emptyMap(),
+    /** An absent total is unknown; only an explicit zero proves a leaf. */
+    val dominatorChildTotals: Map<Long, Int> = emptyMap(),
+    val dominatorChildOffsets: Map<Long, Int> = emptyMap(),
+    /** Failed child queries remain distinct from pending queries and proven leaves. */
+    val failedDominatorChildren: Set<Long> = emptySet(),
     /** Object IDs visited in the active snapshot; IDs never cross snapshot boundaries. */
     val instanceHistory: List<Long> = emptyList(),
     val instanceHistoryIndex: Int = -1,
@@ -408,4 +422,7 @@ public data class MemoryProfilerActions(
     val onStopLiveLeakMonitoring: () -> Unit = {},
     val onLoadInspectorObject: (Long, Int) -> Unit = { _, _ -> },
     val onClearInstanceSelection: () -> Unit = {},
+    val onLoadInstancePage: (Int) -> Unit = {},
+    val onLoadDominatorPage: (Int) -> Unit = {},
+    val onLoadDominatorChildren: (Long, Int) -> Unit = { _, _ -> },
 )

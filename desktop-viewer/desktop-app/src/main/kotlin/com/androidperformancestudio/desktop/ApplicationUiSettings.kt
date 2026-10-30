@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
 import com.androidperformancestudio.ui.UiLanguage
@@ -136,6 +137,7 @@ internal data class ApplicationUiSettings(
     val androidSdkPath: String? = null,
     /** The navigation rail starts collapsed and remembers the user's choice. */
     val navigationRailCollapsed: Boolean = true,
+    val hprofEngine: HprofEngine = HprofEngine.DEFAULT,
 )
 
 internal class ApplicationUiSettingsStore(
@@ -152,6 +154,7 @@ internal class ApplicationUiSettingsStore(
             androidSdkPath = readValue(ANDROID_SDK_PATH_KEY)?.trim()?.takeIf(String::isNotEmpty),
             navigationRailCollapsed =
                 readValue(NAVIGATION_RAIL_COLLAPSED_KEY)?.toBooleanStrictOrNull() ?: true,
+            hprofEngine = HprofEngine.parse(readValue(HPROF_ENGINE_KEY)),
         )
 
     fun save(settings: ApplicationUiSettings): Boolean =
@@ -162,6 +165,7 @@ internal class ApplicationUiSettingsStore(
             writeValue(LANGUAGE_KEY, settings.language.storageValue)
             writeValue(ANDROID_SDK_PATH_KEY, settings.androidSdkPath.orEmpty())
             writeValue(NAVIGATION_RAIL_COLLAPSED_KEY, settings.navigationRailCollapsed.toString())
+            writeValue(HPROF_ENGINE_KEY, settings.hprofEngine.storageValue)
             flush()
         }.isSuccess
 
@@ -172,6 +176,7 @@ internal class ApplicationUiSettingsStore(
         private const val LANGUAGE_KEY = "application.language"
         private const val ANDROID_SDK_PATH_KEY = "application.androidSdkPath"
         private const val NAVIGATION_RAIL_COLLAPSED_KEY = "application.navigationRailCollapsed"
+        private const val HPROF_ENGINE_KEY = "application.hprofEngine"
 
         fun desktop(): ApplicationUiSettingsStore {
             val preferences =

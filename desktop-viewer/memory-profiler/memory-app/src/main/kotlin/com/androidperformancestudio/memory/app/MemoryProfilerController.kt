@@ -11,7 +11,6 @@ import com.androidperformancestudio.memory.analysis.FieldValue
 import com.androidperformancestudio.memory.analysis.HeapDiffAnalyzer
 import com.androidperformancestudio.memory.analysis.InstanceQueryDetail
 import com.androidperformancestudio.memory.analysis.InstanceQueryRow
-import com.androidperformancestudio.memory.analysis.InstanceReferenceQuery
 import com.androidperformancestudio.memory.analysis.ProguardMapping
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.analyzing_memory_leaks
@@ -45,6 +44,7 @@ import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
@@ -89,6 +89,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -98,20 +99,31 @@ import java.time.Instant
 
 internal data class LoadedHeap(
     val heapDump: HeapDump,
-    val histogram: HeapHistogram,
-    val warning: String? = null,
-    val cleanupWarning: String? = null,
-    val mapping: ProguardMapping? = null,
-    val availableHeaps: List<String> = emptyList(),
-    val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
-    val uiSettings: MemorySessionUiSettings = MemorySessionUiSettings(),
-    val sourceFileDigest: String? = null,
+    override val histogram: HeapHistogram,
+    override val warning: String? = null,
+    override val cleanupWarning: String? = null,
+    override val mapping: ProguardMapping? = null,
+    override val availableHeaps: List<String> = emptyList(),
+    override val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
+    override val uiSettings: MemorySessionUiSettings = MemorySessionUiSettings(),
+    override val sourceFileDigest: String? = null,
     /** Digest of the raw or converted file whose bytes define this graph's object IDs. */
-    val analysisSourceDigest: String? = null,
-    val mappingDigest: String? = null,
-    val indexFile: Path? = null,
+    override val analysisSourceDigest: String? = null,
+    override val mappingDigest: String? = null,
+    override val indexFile: Path? = null,
     val investigationIndex: MemoryHeapInvestigationIndex = MemoryHeapInvestigationIndex(heapDump),
-)
+) : LoadedSnapshot {
+    override val engine: HprofEngine get() = HprofEngine.LEGACY
+    override val id: String get() = heapDump.id
+    override val rawHprofFile: Path? get() = heapDump.rawHprofFile
+    override val convertedHprofFile: Path? get() = heapDump.convertedHprofFile
+    override val capturedAt: Instant get() = heapDump.capturedAt
+    override val artifact get() = heapDump.artifact
+    override val leakCanaryReport: LeakCanaryReport get() = heapDump.leakCanaryReport
+    override val source: HeapSnapshotSource by lazy { LegacyHeapSnapshotSource(this) }
+
+    override fun withLeakReport(report: LeakCanaryReport): LoadedSnapshot = copy(heapDump = heapDump.copy(leakCanaryReport = report))
+}
 
 internal data class LoadedNativeHeap(
     val trace: NativeHeapTrace,
@@ -144,6 +156,8 @@ internal sealed interface MemoryBackendResult<out T> {
 internal interface MemoryProfilerBackend {
     fun changeLanguage(language: UiLanguage) = Unit
 
+    fun changeHprofEngine(engine: HprofEngine) = Unit
+
     fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription
 
     suspend fun listDevices(): MemoryBackendResult<List<MemoryDeviceOption>>
@@ -153,7 +167,7 @@ internal interface MemoryProfilerBackend {
     suspend fun capture(
         serial: String,
         process: MemoryProcessOption,
-    ): MemoryBackendResult<LoadedHeap>
+    ): MemoryBackendResult<LoadedSnapshot>
 
     suspend fun captureBitmaps(
         serial: String,
@@ -162,18 +176,18 @@ internal interface MemoryProfilerBackend {
     ): MemoryBackendResult<LoadedBitmapDump> =
         MemoryBackendResult.Failure("Bitmap dump unavailable", "The selected backend does not support Bitmap dumps.")
 
-    suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap>
+    suspend fun importHprof(file: Path): MemoryBackendResult<LoadedSnapshot>
 
     suspend fun importHprof(
         file: Path,
         onProgress: (Int) -> Unit,
-    ): MemoryBackendResult<LoadedHeap> = importHprof(file)
+    ): MemoryBackendResult<LoadedSnapshot> = importHprof(file)
 
     /**
      * Imports an R8/ProGuard mapping.txt and returns the re-analyzed heap when one was already
      * loaded, or null when only the mapping was stored.
      */
-    suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> =
+    suspend fun importMapping(file: Path): MemoryBackendResult<LoadedSnapshot?> =
         MemoryBackendResult.Failure("Mapping import unavailable", "The selected backend does not support mapping.txt.")
 
     suspend fun analyzeLeaks(): MemoryBackendResult<LeakCanaryReport> =
@@ -183,9 +197,64 @@ internal interface MemoryProfilerBackend {
         )
 
     suspend fun analyzeLeaks(
-        snapshot: LoadedHeap,
+        snapshot: LoadedSnapshot,
         onProgress: (Int) -> Unit,
     ): MemoryBackendResult<LeakCanaryReport> = analyzeLeaks()
+
+    fun exportSnapshotRaw(
+        snapshot: LoadedSnapshot,
+        output: Path,
+    ) {
+        when (snapshot) {
+            is LoadedHeap -> exportRaw(snapshot.heapDump, output)
+            is RustLoadedSnapshot -> SnapshotSourceExports.copyRaw(snapshot, output)
+        }
+    }
+
+    fun exportSnapshotConverted(
+        snapshot: LoadedSnapshot,
+        output: Path,
+    ) {
+        when (snapshot) {
+            is LoadedHeap -> exportConverted(snapshot.heapDump, output)
+            is RustLoadedSnapshot -> SnapshotSourceExports.copyConverted(snapshot, output)
+        }
+    }
+
+    fun exportSnapshotInstances(
+        snapshot: LoadedSnapshot,
+        className: String,
+        output: Path,
+    ) {
+        when (snapshot) {
+            is LoadedHeap -> exportClassInstances(snapshot.heapDump, className, output)
+            is RustLoadedSnapshot -> SnapshotSourceExports.instances(snapshot, className, output)
+        }
+    }
+
+    fun exportSnapshotJson(
+        snapshot: LoadedSnapshot,
+        output: Path,
+        summary: HeapSnapshotSummary?,
+    ) {
+        when (snapshot) {
+            is LoadedHeap -> exportHeapSnapshotJson(snapshot.heapDump, snapshot.histogram, output, summary)
+            is RustLoadedSnapshot -> SnapshotSourceExports.json(snapshot, output, summary)
+        }
+    }
+
+    fun exportSnapshotReport(
+        snapshot: LoadedSnapshot,
+        diff: com.androidperformancestudio.memory.model.HeapDiff?,
+        output: Path,
+        summary: HeapSnapshotSummary?,
+        context: HeapExportContext?,
+    ) {
+        when (snapshot) {
+            is LoadedHeap -> exportInvestigationReport(snapshot.heapDump, snapshot.histogram, diff, output, summary, context)
+            is RustLoadedSnapshot -> SnapshotSourceExports.report(snapshot, diff, output, summary, context)
+        }
+    }
 
     suspend fun injectLeakCanaryAgent(projectRoot: Path): MemoryBackendResult<String> =
         MemoryBackendResult.Failure(
@@ -219,7 +288,7 @@ internal interface MemoryProfilerBackend {
         settings: MemorySessionUiSettings,
     ) = Unit
 
-    suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedHeap> =
+    suspend fun loadSession(metadata: MemorySessionMetadata): MemoryBackendResult<LoadedSnapshot> =
         importHprof(metadata.convertedHprofFile ?: metadata.rawHprofFile)
 
     fun exportRaw(
@@ -316,7 +385,7 @@ internal interface MemoryProfilerBackend {
             detail = "The selected backend does not support importing native heap traces.",
         )
 
-    suspend fun importJavaHeap(file: Path): MemoryBackendResult<LoadedHeap> =
+    suspend fun importJavaHeap(file: Path): MemoryBackendResult<LoadedSnapshot> =
         MemoryBackendResult.Failure(
             title = "Java heap import unavailable",
             detail = "The selected backend does not support importing java_hprof traces.",
@@ -347,11 +416,11 @@ internal class MemoryProfilerController(
 
     val state: StateFlow<MemoryProfilerState> = mutableState.asStateFlow()
 
-    var loadedHeap: LoadedHeap? = null
+    var loadedHeap: LoadedSnapshot? = null
         private set
 
     /** Reachability/instance query rebuilt whenever a new heap dump is loaded. */
-    var instanceQuery: InstanceReferenceQuery? = null
+    var instanceQuery: HeapSnapshotQuery? = null
         private set
 
     var loadedBitmapDump: LoadedBitmapDump? = null
@@ -360,7 +429,9 @@ internal class MemoryProfilerController(
     private val mutableRecentSessions = MutableStateFlow<List<MemorySessionMetadata>>(emptyList())
     val recentSessions: StateFlow<List<MemorySessionMetadata>> = mutableRecentSessions.asStateFlow()
 
-    private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedHeap>()
+    private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedSnapshot>()
+    private var selectedQueryClasses: List<String> = emptyList()
+    private var selectedQueryHeap: String? = null
     private var previousBitmapDump: LoadedBitmapDump? = null
     private val processSelection = AndroidProcessSelection(MemoryProcessOption::pid)
     private val processSelectionSubscription =
@@ -439,6 +510,12 @@ internal class MemoryProfilerController(
         stopLiveLeakCanary()
         processSelectionSubscription.close()
         targetSubscription.close()
+        loadedHeapsBySnapshotId.values.forEach { it.close() }
+        loadedHeapsBySnapshotId.clear()
+    }
+
+    fun changeHprofEngine(engine: HprofEngine) {
+        backend.changeHprofEngine(engine)
     }
 
     suspend fun refreshDevices() {
@@ -539,7 +616,7 @@ internal class MemoryProfilerController(
         invalidateSelection()
         val current = mutableState.value
         val remaining = current.snapshotSummaries.filterNot { it.id == snapshotId }
-        loadedHeapsBySnapshotId.remove(snapshotId)
+        loadedHeapsBySnapshotId.remove(snapshotId)?.close()
         if (current.activeSnapshotId != snapshotId) {
             val diff =
                 current.heapDiff?.takeUnless {
@@ -606,43 +683,90 @@ internal class MemoryProfilerController(
 
     fun changeViewMode(mode: MemoryProfilerViewMode) {
         invalidateSelection()
+        val loaded = loadedHeap
+        val remote = loaded?.engine == HprofEngine.RUST
+        val page =
+            if (mode == MemoryProfilerViewMode.Dominators && remote) {
+                loaded.source.dominatorsPage(0, 500)
+            } else {
+                null
+            }
         val dominators =
             if (mode == MemoryProfilerViewMode.Dominators) {
-                loadedHeap?.investigationIndex?.dominators.orEmpty()
+                page?.rows ?: (loaded as? LoadedHeap)?.investigationIndex?.dominators.orEmpty()
             } else {
                 emptyList()
             }
-        mutableState.value = mutableState.value.copy(viewMode = mode, dominatorRows = dominators)
+        mutableState.value =
+            mutableState.value.copy(
+                viewMode = mode,
+                dominatorRows = dominators,
+                remoteDominators = remote,
+                dominatorPageOffset = 0,
+                dominatorTotalCount = page?.total ?: dominators.size,
+                dominatorChildren = emptyMap(),
+                dominatorChildTotals = emptyMap(),
+                dominatorChildOffsets = emptyMap(),
+                failedDominatorChildren = emptySet(),
+            )
+    }
+
+    suspend fun changeViewModeAsync(mode: MemoryProfilerViewMode) {
+        val loaded = loadedHeap
+        if (mode != MemoryProfilerViewMode.Dominators || loaded?.engine != HprofEngine.RUST) {
+            changeViewMode(mode)
+            return
+        }
+        querySelection(
+            compute = { _, _ -> loaded.source.dominatorsPage(0, 500) },
+            publish = { page ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        viewMode = mode,
+                        remoteDominators = true,
+                        dominatorRows = page.rows,
+                        dominatorTotalCount = page.total,
+                        dominatorPageOffset = 0,
+                        dominatorChildren = emptyMap(),
+                        dominatorChildTotals = emptyMap(),
+                        dominatorChildOffsets = emptyMap(),
+                        failedDominatorChildren = emptySet(),
+                    )
+            },
+        )
     }
 
     fun selectClass(className: String) {
         invalidateSelection()
-        val instances =
+        val page =
             instanceQuery
-                ?.instancesOf(className, heapName = mutableState.value.heapFilter)
-                .orEmpty()
-                .map { it.toPresentation() }
-        publishClassSelection(className, instances)
+                ?.let { selectionPage(it, listOf(className), mutableState.value.heapFilter) }
+                ?: HeapInstancePage(0, emptyList())
+        publishClassSelection(className, page)
     }
 
     suspend fun selectClassAsync(className: String) {
         querySelection(
-            compute = { query, heapFilter -> query.instancesOf(className, heapFilter).map { it.toPresentation() } },
-            publish = { instances -> publishClassSelection(className, instances) },
+            compute = { query, heapFilter -> selectionPage(query, listOf(className), heapFilter) },
+            publish = { page -> publishClassSelection(className, page) },
         )
     }
 
     private fun publishClassSelection(
         className: String,
-        instances: List<MemoryInstanceRow>,
+        page: HeapInstancePage,
     ) {
         resetInspectorObjects()
+        selectedQueryClasses = listOf(className)
+        selectedQueryHeap = mutableState.value.heapFilter
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = className,
                 selectedClassifierId = classifierClassId(className, mutableState.value.heapFilter),
                 selectedClassifierLabel = className,
-                selectedClassInstances = instances,
+                selectedClassInstances = page.rows.map { it.toPresentation() },
+                instanceTotalCount = page.total,
+                instancePageOffset = page.offset,
                 selectedInstanceDetail = null,
                 instanceHistory = emptyList(),
                 instanceHistoryIndex = -1,
@@ -652,45 +776,121 @@ internal class MemoryProfilerController(
     fun selectClassifier(row: MemoryClassifierRow) {
         invalidateSelection()
         val classNames = row.classNames()
-        val instances =
-            classNames
-                .flatMap { className ->
-                    instanceQuery
-                        ?.instancesOf(className, heapName = row.heapName ?: mutableState.value.heapFilter)
-                        .orEmpty()
-                }.sortedBy { it.objectId }
-                .map { it.toPresentation() }
-        publishClassifierSelection(row, instances)
+        val page =
+            instanceQuery?.let { selectionPage(it, classNames, row.heapName ?: mutableState.value.heapFilter) }
+                ?: HeapInstancePage(0, emptyList())
+        publishClassifierSelection(row, page)
     }
 
     suspend fun selectClassifierAsync(row: MemoryClassifierRow) {
         val classNames = row.classNames()
         querySelection(
             compute = { query, heapFilter ->
-                classNames
-                    .flatMap { className -> query.instancesOf(className, row.heapName ?: heapFilter) }
-                    .sortedBy { it.objectId }
-                    .map { it.toPresentation() }
+                selectionPage(query, classNames, row.heapName ?: heapFilter)
             },
-            publish = { instances -> publishClassifierSelection(row, instances) },
+            publish = { page -> publishClassifierSelection(row, page) },
         )
     }
 
     private fun publishClassifierSelection(
         row: MemoryClassifierRow,
-        instances: List<MemoryInstanceRow>,
+        page: HeapInstancePage,
     ) {
         resetInspectorObjects()
+        selectedQueryClasses = row.classNames()
+        selectedQueryHeap = row.heapName ?: mutableState.value.heapFilter
         mutableState.value =
             mutableState.value.copy(
                 selectedClassName = row.className,
                 selectedClassifierId = row.id,
                 selectedClassifierLabel = row.label,
-                selectedClassInstances = instances,
+                selectedClassInstances = page.rows.map { it.toPresentation() },
+                instanceTotalCount = page.total,
+                instancePageOffset = page.offset,
                 selectedInstanceDetail = null,
                 instanceHistory = emptyList(),
                 instanceHistoryIndex = -1,
             )
+    }
+
+    suspend fun loadInstancePageAsync(offset: Int) {
+        val classes = selectedQueryClasses
+        val heapName = selectedQueryHeap
+        if (classes.isEmpty() || offset < 0) return
+        querySelection(
+            compute = { query, _ -> query.instancesPage(classes, heapName, offset, 500) },
+            publish = { page ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        selectedClassInstances = page.rows.map { it.toPresentation() },
+                        instanceTotalCount = page.total,
+                        instancePageOffset = page.offset,
+                    )
+            },
+        )
+    }
+
+    private fun selectionPage(
+        query: HeapSnapshotQuery,
+        classNames: List<String>,
+        heapName: String?,
+        anchorObjectId: Long? = null,
+    ): HeapInstancePage {
+        val legacy = loadedHeap as? LoadedHeap
+        if (legacy != null) {
+            val rows =
+                classNames
+                    .distinct()
+                    .flatMap { legacy.investigationIndex.query.instancesOf(it, heapName) }
+                    .sortedBy { it.objectId }
+            return HeapInstancePage(rows.size, rows)
+        }
+        return query.instancesPage(classNames, heapName, 0, 500, anchorObjectId = anchorObjectId)
+    }
+
+    suspend fun loadDominatorPageAsync(offset: Int) {
+        val loaded = loadedHeap ?: return
+        if (loaded.engine != HprofEngine.RUST || offset < 0) return
+        querySelection(
+            compute = { _, _ -> loaded.source.dominatorsPage(offset, 500) },
+            publish = { page ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        dominatorRows = page.rows,
+                        dominatorTotalCount = page.total,
+                        dominatorPageOffset = offset,
+                        dominatorChildren = emptyMap(),
+                        dominatorChildTotals = emptyMap(),
+                        dominatorChildOffsets = emptyMap(),
+                        failedDominatorChildren = emptySet(),
+                    )
+            },
+        )
+    }
+
+    suspend fun loadDominatorChildrenAsync(
+        parentObjectId: Long,
+        offset: Int,
+    ) {
+        val loaded = loadedHeap ?: return
+        if (loaded.engine != HprofEngine.RUST || offset < 0) return
+        querySelection(
+            compute = { _, _ -> loaded.source.dominatorsPage(offset, 500, parentObjectId) },
+            publish = { page ->
+                val current = mutableState.value
+                mutableState.value =
+                    current.copy(
+                        dominatorChildren = current.dominatorChildren + (parentObjectId to page.rows),
+                        dominatorChildTotals = current.dominatorChildTotals + (parentObjectId to page.total),
+                        dominatorChildOffsets = current.dominatorChildOffsets + (parentObjectId to offset),
+                        failedDominatorChildren = current.failedDominatorChildren - parentObjectId,
+                    )
+            },
+            onFailure = {
+                val current = mutableState.value
+                mutableState.value = current.copy(failedDominatorChildren = current.failedDominatorChildren + parentObjectId)
+            },
+        )
     }
 
     fun selectInstance(objectId: Long) {
@@ -766,7 +966,7 @@ internal class MemoryProfilerController(
 
     private data class InspectorObjectRequest(
         val key: MemoryInspectorObjectKey,
-        val query: InstanceReferenceQuery,
+        val query: HeapSnapshotQuery,
         val snapshotId: String?,
         val rootObjectId: Long,
         val generation: Long,
@@ -880,14 +1080,13 @@ internal class MemoryProfilerController(
         val groupingClassName = instanceQuery?.groupingClassNameOf(objectId) ?: detail.className
         val current = mutableState.value
         val heapName = instanceQuery?.heapNameOf(objectId) ?: current.heapFilter
-        val instances =
+        val page =
             instanceQuery
-                ?.instancesOf(groupingClassName, heapName = heapName)
-                .orEmpty()
-                .map { it.toPresentation() }
+                ?.let { selectionPage(it, listOf(groupingClassName), heapName, objectId) }
+                ?: HeapInstancePage(0, emptyList())
         publishInstanceSelection(
             objectId,
-            InstanceSelection(detail, groupingClassName, instances, heapName),
+            InstanceSelection(detail, groupingClassName, page, heapName),
             appendToHistory,
             historyIndex,
         )
@@ -911,7 +1110,7 @@ internal class MemoryProfilerController(
                         InstanceSelection(
                             detail,
                             groupingClassName,
-                            query.instancesOf(groupingClassName, heapName).map { it.toPresentation() },
+                            selectionPage(query, listOf(groupingClassName), heapName, objectId),
                             heapName,
                         )
                     }
@@ -932,6 +1131,8 @@ internal class MemoryProfilerController(
     ) {
         if (mutableState.value.selectedInstanceDetail?.objectId != objectId) resetInspectorObjects()
         val current = mutableState.value
+        selectedQueryClasses = listOf(selection.groupingClassName)
+        selectedQueryHeap = selection.heapName
         val nextHistory =
             if (appendToHistory) {
                 (
@@ -947,7 +1148,9 @@ internal class MemoryProfilerController(
                 selectedClassName = selection.groupingClassName,
                 selectedClassifierId = classifierClassId(selection.groupingClassName, selection.heapName),
                 selectedClassifierLabel = selection.groupingClassName,
-                selectedClassInstances = selection.instances,
+                selectedClassInstances = selection.page.rows.map { it.toPresentation() },
+                instanceTotalCount = selection.page.total,
+                instancePageOffset = selection.page.offset,
                 selectedInstanceDetail = selection.detail,
                 instanceHistory = nextHistory,
                 instanceHistoryIndex = historyIndex ?: nextHistory.lastIndex,
@@ -957,12 +1160,12 @@ internal class MemoryProfilerController(
     private data class InstanceSelection(
         val detail: MemoryInstanceDetail,
         val groupingClassName: String,
-        val instances: List<MemoryInstanceRow>,
+        val page: HeapInstancePage,
         val heapName: String?,
     )
 
     private data class SelectionRequest(
-        val query: InstanceReferenceQuery,
+        val query: HeapSnapshotQuery,
         val snapshotId: String?,
         val heapFilter: String?,
         val generation: Long,
@@ -986,9 +1189,11 @@ internal class MemoryProfilerController(
             mutableState.value.heapFilter == request.heapFilter &&
             !mutableState.value.isDumping
 
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun <T> querySelection(
-        compute: (InstanceReferenceQuery, String?) -> T,
+        compute: (HeapSnapshotQuery, String?) -> T,
         publish: (T) -> Unit,
+        onFailure: (Exception) -> Unit = {},
     ) {
         invalidateSelection()
         val request =
@@ -1005,9 +1210,16 @@ internal class MemoryProfilerController(
             val result =
                 selectionMutex.withLock {
                     if (!selectionIsCurrent(request)) return@withLock null
-                    SelectionValue(withContext(selectionDispatcher) { compute(request.query, request.heapFilter) })
+                    SelectionValue(runInterruptible(selectionDispatcher) { compute(request.query, request.heapFilter) })
                 }
             if (result != null && selectionIsCurrent(request)) publish(result.value)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            if (selectionIsCurrent(request)) {
+                onFailure(exception)
+                showTargetFailure(MemoryBackendResult.Failure("Heap query failed", exception.message.orEmpty()))
+            }
         } finally {
             if (selectionGeneration == request.generation) {
                 mutableState.value = mutableState.value.copy(isSelectionLoading = false)
@@ -1343,7 +1555,7 @@ internal class MemoryProfilerController(
 
     private fun finishCancelledLeakAnalysis(
         operationJob: Job?,
-        heap: LoadedHeap,
+        heap: LoadedSnapshot,
         snapshot: MemoryProfilerState,
     ) {
         if (activeOperationJob !== operationJob) return
@@ -1357,13 +1569,13 @@ internal class MemoryProfilerController(
     }
 
     private fun cacheLeakReport(
-        heap: LoadedHeap,
+        heap: LoadedSnapshot,
         report: LeakCanaryReport,
         snapshotId: String?,
     ) {
-        val analyzedHeap = heap.copy(heapDump = heap.heapDump.copy(leakCanaryReport = report))
+        val analyzedHeap = heap.withLeakReport(report)
         loadedHeap = analyzedHeap
-        snapshotId?.let { loadedHeapsBySnapshotId[it] = analyzedHeap }
+        snapshotId?.let { retainSnapshot(it, analyzedHeap) }
     }
 
     private fun updateLeakAnalysisProgress(
@@ -1739,11 +1951,11 @@ internal class MemoryProfilerController(
     }
 
     fun exportRaw(output: Path) {
-        loadedHeap?.let { backend.exportRaw(it.heapDump, output) }
+        loadedHeap?.let { backend.exportSnapshotRaw(it, output) }
     }
 
     fun exportConverted(output: Path) {
-        loadedHeap?.let { backend.exportConverted(it.heapDump, output) }
+        loadedHeap?.let { backend.exportSnapshotConverted(it, output) }
     }
 
     fun exportHistogram(output: Path) {
@@ -1752,7 +1964,7 @@ internal class MemoryProfilerController(
 
     fun exportSelectedClassInstances(output: Path) {
         val className = mutableState.value.selectedClassName ?: return
-        loadedHeap?.let { backend.exportClassInstances(it.heapDump, className, output) }
+        loadedHeap?.let { backend.exportSnapshotInstances(it, className, output) }
     }
 
     fun exportHeapDiff(output: Path) {
@@ -1761,15 +1973,14 @@ internal class MemoryProfilerController(
 
     fun exportHeapSnapshotJson(output: Path) {
         loadedHeap?.let {
-            backend.exportHeapSnapshotJson(it.heapDump, it.histogram, output, mutableState.value.snapshotSummary)
+            backend.exportSnapshotJson(it, output, mutableState.value.snapshotSummary)
         }
     }
 
     fun exportInvestigationReport(output: Path) {
         loadedHeap?.let {
-            backend.exportInvestigationReport(
-                it.heapDump,
-                it.histogram,
+            backend.exportSnapshotReport(
+                it,
                 mutableState.value.heapDiff,
                 output,
                 mutableState.value.snapshotSummary,
@@ -1797,7 +2008,7 @@ internal class MemoryProfilerController(
 
     @Suppress("LongMethod")
     private fun applyLoadedResult(
-        result: MemoryBackendResult<LoadedHeap>,
+        result: MemoryBackendResult<LoadedSnapshot>,
         compareWithPrevious: Boolean = true,
         appendSnapshot: Boolean = true,
     ) {
@@ -1808,17 +2019,11 @@ internal class MemoryProfilerController(
                 resetInspectorObjects()
                 val previous = loadedHeap
                 loadedHeap = result.value
-                instanceQuery = result.value.investigationIndex.query
+                instanceQuery = result.value.source.query
+                val findings = result.value.findings
                 val snapshotSummary =
-                    result.value.heapDump.toSnapshotSummary(
-                        result.value.histogram,
-                        result.value.mapping != null,
-                        result.value.warning != null,
-                        result.value.sourceFileDigest,
-                        result.value.mappingDigest,
-                        result.value.indexFile,
-                    )
-                loadedHeapsBySnapshotId[snapshotSummary.id] = result.value
+                    result.value.toSnapshotSummary()
+                retainSnapshot(snapshotSummary.id, result.value)
                 val snapshotSummaries =
                     if (appendSnapshot) {
                         (
@@ -1836,16 +2041,14 @@ internal class MemoryProfilerController(
                             result.value.histogram.classes
                                 .filter { it.className.endsWith("Activity") }
                                 .sumOf { it.instanceCount },
-                        leakSuspects = result.value.heapDump.leakSuspects,
+                        leakSuspects = findings.leakSuspects,
                         lifecycleLeakObjects =
-                            result.value.heapDump.instances
-                                .asSequence()
-                                .filter { it.objectId in result.value.heapDump.activityFragmentLeakObjectIds }
+                            findings.lifecycleLeakObjects
                                 .map { instance ->
                                     com.androidperformancestudio.memory.presentation.MemoryLifecycleLeakObject(
                                         objectId = instance.objectId,
                                         className = instance.className,
-                                        heapName = result.value.heapDump.heapByObjectId[instance.objectId],
+                                        heapName = instance.heapName,
                                     )
                                 }.toList(),
                         isDumping = false,
@@ -1867,7 +2070,7 @@ internal class MemoryProfilerController(
                         error = null,
                         warning = result.value.warning,
                         cleanupWarning = result.value.cleanupWarning,
-                        artifact = result.value.heapDump.artifact,
+                        artifact = result.value.artifact,
                         heapDiff =
                             if (!compareWithPrevious) {
                                 mutableState.value.heapDiff?.takeIf { diff ->
@@ -1875,7 +2078,7 @@ internal class MemoryProfilerController(
                                         snapshotSummaries.any { it.id == diff.afterSnapshot?.id }
                                 }
                             } else {
-                                previous?.takeIf { it.heapDump.id != result.value.heapDump.id }?.let {
+                                previous?.takeIf { it.id != result.value.id }?.let {
                                     HeapDiffAnalyzer()
                                         .diff(
                                             it.histogram.classes,
@@ -1887,18 +2090,25 @@ internal class MemoryProfilerController(
                                         )
                                 }
                             },
-                        bitmapInstances = result.value.heapDump.bitmapInstances,
-                        activityLeaks = result.value.heapDump.activityLeaks,
-                        leakCanaryReport = result.value.heapDump.leakCanaryReport,
+                        bitmapInstances = findings.bitmapInstances,
+                        activityLeaks = findings.activityLeaks,
+                        leakCanaryReport = result.value.leakCanaryReport,
                         mappingLoaded = result.value.mapping != null,
                         selectedClassName = null,
                         selectedClassifierId = null,
                         selectedClassifierLabel = null,
                         selectedClassInstances = emptyList(),
+                        instanceTotalCount = 0,
+                        instancePageOffset = 0,
+                        remoteDominators = result.value.engine == HprofEngine.RUST,
+                        dominatorChildren = emptyMap(),
+                        dominatorChildTotals = emptyMap(),
+                        dominatorChildOffsets = emptyMap(),
+                        failedDominatorChildren = emptySet(),
                         selectedInstanceDetail = null,
                         dominatorRows =
                             if (mutableState.value.viewMode == MemoryProfilerViewMode.Dominators) {
-                                result.value.investigationIndex.dominators
+                                visibleDominatorRows(result.value)
                             } else {
                                 emptyList()
                             },
@@ -1919,7 +2129,15 @@ internal class MemoryProfilerController(
                         matchCase = false,
                         useRegex = false,
                     )
-                loadedHeapsBySnapshotId.keys.retainAll(snapshotSummaries.map { it.id }.toSet())
+                val retainedIds = snapshotSummaries.mapTo(hashSetOf()) { it.id }
+                loadedHeapsBySnapshotId.keys.filterNot { it in retainedIds }.forEach { id ->
+                    loadedHeapsBySnapshotId.remove(id)?.close()
+                }
+                selectedQueryClasses = emptyList()
+                selectedQueryHeap = null
+                if (mutableState.value.viewMode == MemoryProfilerViewMode.Dominators) {
+                    changeViewMode(MemoryProfilerViewMode.Dominators)
+                }
                 if (!compareWithPrevious) {
                     val comparison = mutableState.value.heapDiff
                     val beforeId = comparison?.beforeSnapshot?.id
@@ -1928,6 +2146,20 @@ internal class MemoryProfilerController(
                 }
             }
         }
+    }
+
+    private fun visibleDominatorRows(snapshot: LoadedSnapshot): List<com.androidperformancestudio.memory.presentation.MemoryDominatorRow> =
+        when (snapshot) {
+            is LoadedHeap -> snapshot.investigationIndex.dominators
+            is RustLoadedSnapshot -> snapshot.source.dominatorsPage(0, 500).rows
+        }
+
+    private fun retainSnapshot(
+        id: String,
+        snapshot: LoadedSnapshot,
+    ) {
+        val replaced = loadedHeapsBySnapshotId.put(id, snapshot)
+        if (replaced != null && replaced.source !== snapshot.source) replaced.close()
     }
 
     private fun applyBitmapResult(result: MemoryBackendResult<LoadedBitmapDump>) {
@@ -2022,21 +2254,15 @@ internal class MemoryProfilerController(
         )
 
     @Suppress("LongParameterList")
-    private fun HeapDump.toSnapshotSummary(
-        histogram: HeapHistogram,
-        mappingLoaded: Boolean,
-        hasAdditionalWarning: Boolean,
-        sourceFileDigest: String?,
-        mappingDigest: String?,
-        indexFile: Path?,
-    ): HeapSnapshotSummary {
+    private fun LoadedSnapshot.toSnapshotSummary(): HeapSnapshotSummary {
+        val metadata = source.metadata
         val capabilities =
             buildSet {
                 add(HeapCapability.HEAP_GRAPH)
-                if (gcRoots.isNotEmpty()) add(HeapCapability.GC_ROOTS)
-                if (instances.any { it.nativeSizeBytes != null }) add(HeapCapability.NATIVE_SIZE)
-                if (mappingLoaded) add(HeapCapability.MAPPING)
-                if (bitmapInstances.isNotEmpty()) add(HeapCapability.BITMAP_PAYLOAD)
+                if (metadata.rootCount > 0) add(HeapCapability.GC_ROOTS)
+                if (histogram.classes.any { it.nativeSize != null }) add(HeapCapability.NATIVE_SIZE)
+                if (mapping != null) add(HeapCapability.MAPPING)
+                if (findings.bitmapInstances.isNotEmpty()) add(HeapCapability.BITMAP_PAYLOAD)
             }
         return HeapSnapshotSummary(
             id = id.ifBlank { rawHprofFile?.fileName?.toString().orEmpty() },
@@ -2047,12 +2273,13 @@ internal class MemoryProfilerController(
             indexFile = indexFile,
             capturedAt = capturedAt,
             loadedAt = Instant.now(),
-            format = format,
-            idSize = idSize,
+            format = metadata.format,
+            idSize = metadata.idSize,
             classCount = histogram.summary.classCount,
             objectCount = histogram.summary.objectCount,
-            warningCount = warnings.size + if (hasAdditionalWarning) 1 else 0,
+            warningCount = metadata.warnings.size + if (warning != null) 1 else 0,
             capabilities = capabilities,
+            engine = engine,
         )
     }
 

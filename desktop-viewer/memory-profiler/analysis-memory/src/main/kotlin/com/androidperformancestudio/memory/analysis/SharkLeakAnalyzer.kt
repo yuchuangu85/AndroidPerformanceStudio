@@ -33,11 +33,17 @@ public class SharkLeakAnalyzer(
     public fun analyze(
         heapDump: HeapDump,
         hprofFile: Path,
+    ): LeakCanaryReport = analyze(hprofFile, heapDump.classes.size, heapDump.instances.size)
+
+    public fun analyze(
+        hprofFile: Path,
+        initialClassCount: Int,
+        initialObjectCount: Int,
     ): LeakCanaryReport {
         val startedAt = System.nanoTime()
         var candidateObjectCount = 0
-        var analyzedClassCount = heapDump.classes.size
-        var analyzedObjectCount = heapDump.instances.size
+        var analyzedClassCount = initialClassCount
+        var analyzedObjectCount = initialObjectCount
         var lastProgress = 0
 
         fun reportProgress(value: Int) {

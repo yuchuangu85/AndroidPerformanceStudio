@@ -68,6 +68,9 @@
     <string name="advanced_parameters">Advanced parameters</string>
     <string name="flame_graph">Flame graph</string>
     <string name="simpleperf_engine">Simpleperf engine</string>
+    <string name="hprof_analysis_engine">HPROF analysis engine</string>
+    <string name="hprof_engine_legacy">Legacy</string>
+    <string name="hprof_engine_rust">Rust</string>
     <string name="user_guide">User guide</string>
     <string name="android_performance_studio">Android Performance Studio</string>
     <string name="layout_inspector">Layout Inspector</string>

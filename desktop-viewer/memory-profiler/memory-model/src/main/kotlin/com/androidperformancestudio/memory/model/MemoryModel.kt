@@ -48,6 +48,7 @@ data class HeapSnapshotSummary(
     val warningCount: Int = 0,
     val analysisVersion: String = "offline-hprof-viewer-v1",
     val capabilities: Set<HeapCapability> = emptySet(),
+    val engine: HprofEngine = HprofEngine.LEGACY,
 )
 
 data class HeapExportContext(

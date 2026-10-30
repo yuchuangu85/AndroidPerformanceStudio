@@ -6,6 +6,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.HeapCapability
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.ui.UiLanguage
 import java.nio.file.Path
 import java.time.Instant
@@ -31,6 +32,7 @@ class MemorySnapshotEvidenceTest {
                 objectCount = 400,
                 warningCount = 2,
                 capabilities = setOf(HeapCapability.HEAP_GRAPH, HeapCapability.GC_ROOTS),
+                engine = HprofEngine.RUST,
             )
 
         val lines = snapshot.evidenceLines(UiLanguage.ENGLISH)
@@ -43,6 +45,7 @@ class MemorySnapshotEvidenceTest {
         assertTrue(lines.any { it.contains("0123456789abcdef") })
         assertTrue(lines.any { it.contains("GC_ROOTS") && it.contains("HEAP_GRAPH") })
         assertFalse(lines.any { it.contains("/private/app-data") })
+        assertTrue(lines.any { it == "HPROF engine: RUST" })
     }
 
     @Test

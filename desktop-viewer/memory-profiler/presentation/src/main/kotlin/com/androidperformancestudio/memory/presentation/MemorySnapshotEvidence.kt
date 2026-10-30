@@ -4,6 +4,7 @@ import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_capabilities
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_counts
+import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_engine
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_identity
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_mapping
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshot_provenance
@@ -36,5 +37,6 @@ internal fun HeapSnapshotSummary.evidenceLines(language: UiLanguage): List<Strin
         localizedStringResource(Res.string.snapshot_provenance, language, recorded, loaded, fileSize, sourceHash),
         localizedStringResource(Res.string.snapshot_mapping, language, mappingHash, algorithm),
         localizedStringResource(Res.string.snapshot_capabilities, language, availableCapabilities),
+        localizedStringResource(Res.string.snapshot_engine, language, engine.name),
     )
 }

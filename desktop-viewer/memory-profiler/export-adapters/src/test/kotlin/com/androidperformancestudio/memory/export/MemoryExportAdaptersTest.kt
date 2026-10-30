@@ -4,16 +4,29 @@ import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapDiffEntry
 import com.androidperformancestudio.memory.model.HeapDump
+import com.androidperformancestudio.memory.model.HeapExportContext
+import com.androidperformancestudio.memory.model.HeapExportInstance
+import com.androidperformancestudio.memory.model.HeapExportMetadata
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapInstance
+import com.androidperformancestudio.memory.model.HeapObjectArray
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
+import com.androidperformancestudio.memory.model.HeapPrimitiveArray
+import com.androidperformancestudio.memory.model.HeapRoot
+import com.androidperformancestudio.memory.model.HeapRootKind
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
+import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.MemoryWarning
 import java.nio.file.Files
+import java.time.Instant
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class MemoryExportAdaptersTest {
@@ -190,4 +203,304 @@ class MemoryExportAdaptersTest {
             Files.readAllLines(output),
         )
     }
+
+    @Test
+    fun `metadata snapshot json matches heap export byte for byte`() {
+        val directory = createTempDirectory("memory-metadata-export")
+        val legacy = directory.resolve("legacy.json")
+        val output = directory.resolve("reports/metadata.json")
+        val histogram =
+            HeapHistogram(
+                summary = HeapSummary(objectCount = 6, classCount = 3, shallowSize = 128),
+                classes =
+                    listOf(
+                        ClassStats("example.One", retainedSize = 48),
+                        ClassStats("example.Two"),
+                        ClassStats("example.Three", retainedSize = 96),
+                    ),
+            )
+        val summary = HeapSnapshotSummary("snapshot", sourceFileDigest = "source-hash", mappingDigest = "mapping-hash")
+        val context =
+            HeapExportContext(
+                sourceFileDigest = "ignored-context-source",
+                mappingDigest = "ignored-context-mapping",
+                filters = linkedMapOf("class" to "example.\"One\"", "heap" to "app"),
+                selectedObjectIds = listOf(42, -1),
+                exportedAt = Instant.parse("2026-10-30T00:00:00Z"),
+            )
+
+        adapters.exportHeapSnapshotJson(exportHeap(), histogram, legacy, summary, context)
+        val result = adapters.exportHeapSnapshotJson(exportMetadata(), histogram, output, summary, context)
+
+        assertEquals(output, result.outputFile)
+        assertContentEquals(Files.readAllBytes(legacy), Files.readAllBytes(output))
+        assertEquals(
+            """
+            {
+              "analysisVersion": "offline-hprof-viewer-v1",
+              "sourceFileDigest": "source-hash",
+              "mappingDigest": "mapping-hash",
+              "limitation": "Point-in-time heap evidence; no allocation timeline or cross-dump object identity. Class retained sizes may overlap.",
+              "exportedAt": "2026-10-30T00:00:00Z",
+              "filters": {"class":"example.\"One\"", "heap":"app"},
+              "selectedObjectIds": [42, -1],
+              "format": "JAVA PROFILE 1.0.3",
+              "idSize": 8,
+              "timestampMillis": 1234,
+              "classCount": 3,
+              "objectCount": 6,
+              "shallowSizeBytes": 128,
+              "retainedSizeBytes": 144,
+              "instanceCount": 2,
+              "objectArrayCount": 1,
+              "primitiveArrayCount": 3,
+              "gcRootCount": 4,
+              "warnings": ["warning \"quoted\"\\path\nnext\rline\tend", "second warning"]
+            }
+
+            """.trimIndent(),
+            Files.readString(output),
+        )
+    }
+
+    @Test
+    fun `metadata snapshot json preserves defaults without summary or context`() {
+        val directory = createTempDirectory("memory-metadata-defaults")
+        val legacy = directory.resolve("legacy.json")
+        val output = directory.resolve("metadata.json")
+        val metadata = HeapExportMetadata("", 0, 0, 0, 0, 0, 0)
+
+        adapters.exportHeapSnapshotJson(HeapDump(), HeapHistogram(), legacy)
+        adapters.exportHeapSnapshotJson(metadata, HeapHistogram(), output)
+
+        assertContentEquals(Files.readAllBytes(legacy), Files.readAllBytes(output))
+        val text = Files.readString(output)
+        assertTrue(text.contains("\"sourceFileDigest\": null"))
+        assertTrue(text.contains("\"mappingDigest\": null"))
+        assertTrue(text.contains("\"exportedAt\": null"))
+        assertTrue(text.contains("\"filters\": {}"))
+        assertTrue(text.contains("\"selectedObjectIds\": []"))
+        assertTrue(text.contains("\"retainedSizeBytes\": 0"))
+        assertTrue(text.contains("\"warnings\": []"))
+    }
+
+    @Test
+    fun `metadata investigation report matches heap export with warnings and diff`() {
+        val directory = createTempDirectory("memory-metadata-report")
+        val legacy = directory.resolve("legacy.md")
+        val output = directory.resolve("reports/metadata.md")
+        val histogram =
+            HeapHistogram(
+                summary = HeapSummary(objectCount = 6, classCount = 3, shallowSize = 128),
+                classes = listOf(ClassStats("example.Item", retainedSize = 144), ClassStats("example.Unknown")),
+            )
+        val summary =
+            HeapSnapshotSummary("summary-id", sourceFileDigest = "source-hash", mappingDigest = "mapping-hash")
+        val context =
+            HeapExportContext(
+                snapshotId = "context-id",
+                filters = linkedMapOf("class" to "example.Item", "heap" to "app"),
+                selectedObjectIds = listOf(42, -1),
+                exportedAt = Instant.parse("2026-10-30T00:00:00Z"),
+            )
+        val diff =
+            HeapDiff(
+                entries = listOf(HeapDiffEntry("example.Item|Nested", 1, 2, 1, 16, 32, 16)),
+                beforeSnapshot = HeapSnapshotSummary("A", sourceFileDigest = "hash-a", mappingDigest = "map-a"),
+                afterSnapshot = HeapSnapshotSummary("B", sourceFileDigest = "hash-b"),
+            )
+
+        adapters.exportInvestigationReportMarkdown(exportHeap(), histogram, diff, legacy, summary, context)
+        val result =
+            adapters.exportInvestigationReportMarkdown(exportMetadata(), histogram, diff, output, summary, context)
+
+        assertEquals(output, result.outputFile)
+        assertContentEquals(Files.readAllBytes(legacy), Files.readAllBytes(output))
+        val text = Files.readString(output)
+        assertTrue(text.contains("- Source digest: `source-hash`"))
+        assertTrue(text.contains("- Mapping digest: `mapping-hash`"))
+        assertTrue(text.contains("- Exported at: `2026-10-30T00:00:00Z`"))
+        assertTrue(text.contains("- Snapshot ID: `context-id`"))
+        assertTrue(text.contains("- Selected object IDs: `42, -1`"))
+        assertTrue(text.contains("- Filters: `class=example.Item, heap=app`"))
+        assertTrue(text.contains("- Format: `JAVA PROFILE 1.0.3`"))
+        assertTrue(text.contains("- ID size: `8`"))
+        assertTrue(text.contains("- Timestamp: `1234`"))
+        assertTrue(text.contains("- Retained size: `144` bytes"))
+        assertTrue(text.contains("## Warnings\n- ${exportMetadata().warnings.first().message}\n- second warning"))
+        assertTrue(text.contains("- Snapshot A: `A`; source `hash-a`; mapping `map-a`"))
+        assertTrue(text.contains("- Snapshot B: `B`; source `hash-b`; mapping `not loaded`"))
+        assertTrue(text.contains("| example.Item\\|Nested | 1 | 2 | 1 |"))
+    }
+
+    @Test
+    fun `metadata report preserves optional context fallbacks without warnings or diff`() {
+        val directory = createTempDirectory("memory-metadata-report-defaults")
+        val legacy = directory.resolve("legacy.md")
+        val output = directory.resolve("metadata.md")
+        val metadata = HeapExportMetadata("", 0, 0, 0, 0, 0, 0)
+        val exportedAtPrefix = "- Exported at: `"
+        for (summary in listOf(null, HeapSnapshotSummary("summary-id"))) {
+            val before = Instant.now()
+            adapters.exportInvestigationReportMarkdown(HeapDump(), HeapHistogram(), null, legacy, summary)
+            adapters.exportInvestigationReportMarkdown(metadata, HeapHistogram(), null, output, summary)
+            val after = Instant.now()
+            val legacyLines = Files.readAllLines(legacy)
+            val lines = Files.readAllLines(output)
+
+            assertEquals(
+                legacyLines.filterNot { it.startsWith(exportedAtPrefix) },
+                lines.filterNot { it.startsWith(exportedAtPrefix) },
+            )
+            val exportedAt =
+                Instant.parse(
+                    lines
+                        .single { it.startsWith(exportedAtPrefix) }
+                        .removePrefix(exportedAtPrefix)
+                        .removeSuffix("`"),
+                )
+            assertFalse(exportedAt.isBefore(before))
+            assertFalse(exportedAt.isAfter(after))
+            assertTrue(lines.contains("- Snapshot ID: `${summary?.id ?: "unknown"}`"))
+            assertTrue(lines.contains("- Source digest: `unknown`"))
+            assertTrue(lines.contains("- Mapping digest: `not loaded`"))
+            assertTrue(lines.contains("- Selected object IDs: `none`"))
+            assertFalse(lines.any { it.startsWith("- Filters:") })
+            assertFalse(lines.contains("## Warnings"))
+            assertFalse(lines.contains("## Class-level heap diff"))
+        }
+    }
+
+    @Test
+    fun `streaming instances match legacy class selection ids sizes and escaping`() {
+        val directory = createTempDirectory("memory-streaming-instances")
+        val legacy = directory.resolve("legacy.csv")
+        val output = directory.resolve("instances.csv")
+        val className = "example.Comma,Quote\"\r\n"
+        val heap =
+            HeapDump(
+                instances =
+                    listOf(
+                        HeapInstance(-1, 100, className, shallowSize = 0),
+                        HeapInstance(99, 101, "other.Class", shallowSize = 100),
+                        HeapInstance(42, 100, className, shallowSize = 24),
+                        HeapInstance(0, 100, className, shallowSize = 7, shallowSizeKnown = false),
+                    ),
+                objectArrays = listOf(HeapObjectArray(50, 100, className, shallowSize = 32)),
+                primitiveArrays = listOf(HeapPrimitiveArray(51, shallowSize = 8)),
+                objectRetainedSizes = mapOf(-1L to 0L, 42L to 96L),
+            )
+        val selected =
+            sequenceOf(
+                HeapExportInstance(-1, className, 0, 0),
+                HeapExportInstance(42, className, 24, 96),
+                HeapExportInstance(0, className, null, null),
+            ).constrainOnce()
+
+        adapters.exportClassInstancesCsv(heap, className, legacy)
+        val result = adapters.exportClassInstancesCsv(selected, output)
+
+        assertEquals(output, result.outputFile)
+        assertContentEquals(Files.readAllBytes(legacy), Files.readAllBytes(output))
+        val escapedName = "\"example.Comma,Quote\"\"\r\n\""
+        val newline = System.lineSeparator()
+        assertEquals(
+            listOf(
+                "objectId,className,shallowSizeBytes,retainedSizeBytes",
+                "0xffffffffffffffff,$escapedName,0,0",
+                "0x2a,$escapedName,24,96",
+                "0x0,$escapedName,,",
+                "",
+            ).joinToString(newline),
+            Files.readString(output),
+        )
+
+        adapters.exportClassInstancesCsv(heap, "missing.Class", legacy)
+        adapters.exportClassInstancesCsv(emptySequence(), output)
+        assertContentEquals(Files.readAllBytes(legacy), Files.readAllBytes(output))
+        assertEquals("objectId,className,shallowSizeBytes,retainedSizeBytes$newline", Files.readString(output))
+    }
+
+    @Test
+    fun `streams caller selected members once inside atomic write`() {
+        val directory = createTempDirectory("memory-streaming-selection")
+        val output = directory.resolve("instances.csv")
+        Files.writeString(output, "previous export")
+        val className = "example." + "Member".repeat(4096)
+        var consumed = 0
+        val members =
+            sequence {
+                val temporary =
+                    Files.list(directory).use { files ->
+                        files.filter { it.toString().endsWith(".tmp") }.toList().single()
+                    }
+                assertEquals("previous export", Files.readString(output))
+                yield(HeapExportInstance(42, className, null, 4096))
+                assertTrue(Files.size(temporary) > 0, "Rows must be written before requesting subsequent members")
+                assertEquals("previous export", Files.readString(output))
+                yield(HeapExportInstance(99, "excluded.Class", 24, null))
+                yield(HeapExportInstance(-1, "int[]", 0, null))
+            }.onEach { consumed++ }
+                .filter { it.objectId in setOf(42L, -1L) }
+                .constrainOnce()
+        assertEquals(0, consumed)
+
+        adapters.exportClassInstancesCsv(members, output)
+
+        assertEquals(3, consumed)
+        val newline = System.lineSeparator()
+        assertEquals(
+            "objectId,className,shallowSizeBytes,retainedSizeBytes$newline" +
+                "0x2a,$className,,4096${newline}0xffffffffffffffff,int[],0,$newline",
+            Files.readString(output),
+        )
+        assertEquals(listOf(output), Files.list(directory).use { it.toList() })
+    }
+
+    @Test
+    fun `streaming failure preserves existing output and deletes temporary file`() {
+        val directory = createTempDirectory("memory-streaming-failure")
+        val output = directory.resolve("instances.csv")
+        Files.writeString(output, "previous export")
+        val failure = IllegalStateException("member retrieval failed")
+        val members =
+            sequence {
+                yield(HeapExportInstance(42, "example.Item", 24, null))
+                throw failure
+            }
+
+        val actual = assertFailsWith<IllegalStateException> { adapters.exportClassInstancesCsv(members, output) }
+
+        assertSame(failure, actual)
+        assertEquals("previous export", Files.readString(output))
+        assertEquals(listOf(output), Files.list(directory).use { it.toList() })
+    }
+
+    private fun exportHeap(): HeapDump =
+        HeapDump(
+            format = "JAVA PROFILE 1.0.3",
+            idSize = 8,
+            timestampMillis = 1234,
+            instances = listOf(HeapInstance(1, 100), HeapInstance(2, 100)),
+            objectArrays = listOf(HeapObjectArray(3, 101)),
+            primitiveArrays = List(3) { HeapPrimitiveArray(it.toLong() + 4) },
+            gcRoots = List(4) { HeapRoot(it.toLong() + 1, HeapRootKind.UNKNOWN) },
+            warnings = exportMetadata().warnings,
+        )
+
+    private fun exportMetadata(): HeapExportMetadata =
+        HeapExportMetadata(
+            format = "JAVA PROFILE 1.0.3",
+            idSize = 8,
+            timestampMillis = 1234,
+            instanceCount = 2,
+            objectArrayCount = 1,
+            primitiveArrayCount = 3,
+            gcRootCount = 4,
+            warnings =
+                listOf(
+                    MemoryWarning("warning \"quoted\"\\path\nnext\rline\tend", offset = 12),
+                    MemoryWarning("second warning"),
+                ),
+        )
 }

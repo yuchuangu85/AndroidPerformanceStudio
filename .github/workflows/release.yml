@@ -106,6 +106,15 @@ jobs:
             desktop-viewer/**/build.gradle.kts
       - name: Install pinned Trace Processor
         run: PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
+      - name: Test Rust HPROF integration
+        run: ./desktop-viewer/gradlew -p desktop-viewer :memory-profiler:memory-app:test --no-daemon
       - name: Run tests
         run: |
           ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
@@ -254,6 +263,13 @@ jobs:
       - name: Install pinned Windows JBRSDK
         shell: pwsh
         run: ./scripts/install-jbr.ps1
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
       - name: Test Windows title bar on the packaged JBRSDK
         shell: pwsh
         env:
@@ -370,6 +386,13 @@ jobs:
             echo "::error::Expected $EXPECTED_ARCH runner, got $actual_arch."
             exit 1
           fi
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
       - name: Build DMG and PKG
         run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
       - name: Prepare macOS assets
@@ -457,6 +480,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fakeroot rpm
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
       - name: Build DEB and RPM
         run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
       - name: Prepare Linux assets

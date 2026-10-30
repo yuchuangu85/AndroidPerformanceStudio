@@ -64,6 +64,7 @@
     <string name="snapshot_counts">Classes %1$s · Objects %2$s · Parse warnings %3$s</string>
     <string name="snapshot_provenance">Recorded %1$s · loaded %2$s · file size %3$s · source SHA-256 %4$s</string>
     <string name="snapshot_mapping">Mapping SHA-256 %1$s · analysis %2$s</string>
+    <string name="snapshot_engine">HPROF engine: %1$s</string>
     <string name="snapshot_capabilities">Available capabilities: %1$s</string>
     <string name="snapshot_artifact">Artifact %1$s · %2$s · %3$s capabilities</string>
     <string name="snapshot_limitation">Limitation %1$s: %2$s</string>
@@ -98,6 +99,11 @@
     <string name="diff_view">Diff</string>
     <string name="class_level_diff">Class-level diff; object identity is not stable across snapshots.</string>
     <string name="dominator_tree">Dominator tree</string>
+    <string name="memory_page_range">%1$s-%2$s of %3$s</string>
+    <string name="memory_page_previous">Previous page</string>
+    <string name="memory_page_next">Next page</string>
+    <string name="memory_dominator_expand">Expand children of %1$s</string>
+    <string name="memory_dominator_collapse">Collapse children of %1$s</string>
     <string name="class_list">Class List</string>
     <string name="filter_classes">Filter classes</string>
     <string name="instances">Instances</string>

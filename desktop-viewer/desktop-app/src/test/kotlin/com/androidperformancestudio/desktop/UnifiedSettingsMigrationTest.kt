@@ -1,10 +1,12 @@
 package com.androidperformancestudio.desktop
 
-import java.nio.file.Files
-import java.nio.file.Path
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
+import java.nio.file.Path
+import javax.xml.parsers.DocumentBuilderFactory
 
 class UnifiedSettingsMigrationTest {
     @Test
@@ -79,6 +81,73 @@ class UnifiedSettingsMigrationTest {
         assertTrue(workspace.contains("captureSettingsManagedExternally = onOpenPreferences != null"))
         assertTrue(shell.contains("simpleperfCaptureSettingsContext = simpleperfCaptureSettingsContext"))
         assertTrue(shell.contains("simpleperfSettingsSection = section"))
+    }
+
+    @Test
+    fun `hprof engine configuration reuses the shared choice control and localized options`() {
+        val configuration =
+            desktopSource("DesktopAppSettingsPage.kt")
+                .substringAfter("private fun ConfigurationSettingsContent(")
+                .substringBefore("private fun ThemeColorSettingsContent(")
+
+        assertTrue(configuration.contains("SettingsChoice("))
+        assertTrue(configuration.contains("Res.string.hprof_analysis_engine"))
+        assertTrue(configuration.contains("current = settings.hprofEngine"))
+        assertTrue(configuration.contains("options = HprofEngine.entries"))
+        assertTrue(configuration.contains("HprofEngine.LEGACY -> Res.string.hprof_engine_legacy"))
+        assertTrue(configuration.contains("HprofEngine.RUST -> Res.string.hprof_engine_rust"))
+        assertTrue(configuration.contains("onSettingsChanged(settings.copy(hprofEngine = it))"))
+
+        val english = desktopStrings("values")
+        val chinese = desktopStrings("values-zh")
+        assertEquals("HPROF analysis engine", english["hprof_analysis_engine"])
+        assertEquals("HPROF \u5206\u6790\u5f15\u64ce", chinese["hprof_analysis_engine"])
+        assertEquals("Legacy", english["hprof_engine_legacy"])
+        assertEquals("Legacy\uFF08\u65E7\u7248\uFF09", chinese["hprof_engine_legacy"])
+        assertEquals("Rust", english["hprof_engine_rust"])
+        assertEquals("Rust", chinese["hprof_engine_rust"])
+    }
+
+    @Test
+    fun `hprof engine changes reach the remembered controller without restarting initial imports`() {
+        val shell = desktopSource("DesktopAppMainPage.kt")
+        val memoryPage =
+            Files.readString(
+                Path.of(
+                    "../memory-profiler/memory-app/src/main/kotlin/" +
+                        "com/androidperformancestudio/memory/app/MemoryProfilerMainPage.kt",
+                ),
+            )
+        val controllerCreation = memoryPage.substringAfter("val controller =").substringBefore("DisposableEffect")
+
+        assertTrue(shell.contains("hprofEngine = applicationSettings.hprofEngine"))
+        assertTrue(memoryPage.contains("hprofEngine: HprofEngine = HprofEngine.DEFAULT"))
+        assertTrue(Regex("remember\\s*\\{").containsMatchIn(controllerCreation))
+        assertFalse(Regex("remember\\s*\\([^)]*hprofEngine").containsMatchIn(controllerCreation))
+        assertTrue(
+            controllerCreation.contains("DesktopMemoryProfilerBackend(language = language, hprofEngine = hprofEngine)"),
+        )
+        assertTrue(
+            memoryPage.contains(
+                "LaunchedEffect(controller, hprofEngine) { controller.changeHprofEngine(hprofEngine) }",
+            ),
+        )
+        val initialImportEffect = "LaunchedEffect(initialImportFile, initialImportIsJavaHeap, initialImportRequestId)"
+        assertTrue(memoryPage.contains(initialImportEffect))
+        assertTrue(memoryPage.indexOf("controller.changeHprofEngine(hprofEngine)") < memoryPage.indexOf(initialImportEffect))
+    }
+
+    private fun desktopStrings(localeDirectory: String): Map<String, String> {
+        val document =
+            DocumentBuilderFactory
+                .newInstance()
+                .newDocumentBuilder()
+                .parse(Path.of("src/main/composeResources/$localeDirectory/strings.xml").toFile())
+        val strings = document.getElementsByTagName("string")
+        return (0 until strings.length).associate { index ->
+            val element = strings.item(index)
+            element.attributes.getNamedItem("name").nodeValue to element.textContent
+        }
     }
 
     private fun desktopSource(fileName: String): String =

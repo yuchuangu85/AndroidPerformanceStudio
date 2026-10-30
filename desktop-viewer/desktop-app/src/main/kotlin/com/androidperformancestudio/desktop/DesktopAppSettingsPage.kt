@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
@@ -540,6 +541,22 @@ private fun ConfigurationSettingsContent(
             settings = settings,
             language = language,
             onSettingsChanged = onSettingsChanged,
+        )
+        SettingsChoice(
+            language = language,
+            label = localizedStringResource(Res.string.hprof_analysis_engine, language),
+            current = settings.hprofEngine,
+            options = HprofEngine.entries,
+            optionLabel = { engine ->
+                localizedStringResource(
+                    when (engine) {
+                        HprofEngine.LEGACY -> Res.string.hprof_engine_legacy
+                        HprofEngine.RUST -> Res.string.hprof_engine_rust
+                    },
+                    language,
+                )
+            },
+            onSelected = { onSettingsChanged(settings.copy(hprofEngine = it)) },
         )
     }
 }
