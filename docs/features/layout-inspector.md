@@ -65,6 +65,8 @@ layout-inspector/shared-kernel/analysis-engine
 ## 输出与限制
 
 - 输出包括层级快照、截图、属性、findings 和归档。
+- Capture archive 支持导入/导出快照、截图和时间线历史；`InspectorStore` 保留有界时间线，`TimelineDiff` 对相邻快照生成节点新增、移除和属性变化。
+- 跨帧节点对应必须有可验证身份；不能把路径编号当作稳定身份，也不能把本地隐藏或未绘制节点解释为原始证据不存在。
 - fallback 无法保证获得 Agent 的全部字段、事件和自定义采集能力。
 - 当前实时路径面向一台授权设备；多设备选择仍是待办。
 - Compose 深层语义、State Reads 和调用栈属于独立能力，不应从传统 View snapshot 的结果推断。

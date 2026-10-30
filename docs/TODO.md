@@ -1,57 +1,32 @@
 # 待办事项
 
-最后扫描：2026-09-21
+文档整理：2026-10-30。本文只保留未完成能力和验收门禁；本次整理不代表重新完成了真机、原生窗口或发布验收。
 
 本清单汇总 Git 已跟踪的一方源码和文档中仍然有效的规划、延期能力、开放决策与发布门禁。第三方/生成产物、已被当前实现推翻的旧研究结论、历史执行计划中的未回填复选框，以及仅声明“不在当前范围”的设想不重复收录。
 
-## 已形成设计、待实施
+## 未完成能力
 
 - [ ] [支持多设备选择](../desktop-viewer/README.md#current-scope) — 当前实时路径只面向一台已授权设备。
-- [ ] [支持报告持久化](../desktop-viewer/README.md#current-scope)。
-- [ ] [支持时间线差异比较](../desktop-viewer/README.md#current-scope)。
+- [ ] [CPU Stack Chart 大数据性能优化](../desktop-viewer/simpleperf-viewer/docs/design/2026-10-29-stack-chart-performance-optimization-plan.md) — 移除全量逐块交互覆盖层，补视口索引、布局缓存和原生窗口性能验收；当前未实现。
+
+Layout Inspector 已有 capture archive 持久化和相邻快照 Timeline Diff，不再列为“尚未实现”；能力边界见 [功能说明](features/layout-inspector.md)。
+长期报告索引、配额和保留策略不同于单次归档，仍按[保留的待验收项](../desktop-viewer/docs/design/pending-acceptance.md#归档隐私与长期存储)核对，不因归档实现存在而自动核销。
 
 ## 性能工具扩展路线
 
 来源：2026-09-20 性能工具规划讨论。以下能力应优先复用现有 `platform-perfetto`、`frame-profiler`、`startup-profiler`、`benchmark-regression`、`memory-profiler`、Android Agent 与统一证据模型，不新增彼此重复的独立 Profiler。
 
-### LeakCanary 实时链路（2026-09-20）
+### LeakCanary 实时链路验收
 
-以下实现已完成源码、协议、AAR 构建和桌面端接入；真机端到端验收仍单独保留为待办，不把本地构建证据当作设备运行证据。
-
-- [x] Shark/HPROF 离线泄漏分析页面和引用链展示。
-- [x] LeakCanary bridge AAR：ContentProvider 自动启动、Activity/Fragment 监听、弱引用观察和 Agent session。
-- [x] ADB forward、token、轮询协议和桌面端实时事件页面。
-- [x] Android 工程自动注入：复制 AAR/JAR、添加 debug 依赖、备份 Gradle 文件并避免重复注入。
-- [x] AAR bundle 与 protocol JAR 构建任务。
 - [ ] 使用真实可调试 App 完成注入、重装、Activity/Fragment 销毁、GC 保留和桌面实时事件端到端验收。
 
-### P0 本轮实现进度（2026-09-21）
+### 实验与跨域归因验收
 
-以下为已落地的核心实现；真实 Android 工程/真机验收仍按原 P0 项目保留。
-
-- [x] Perfetto Diagnostics 增加 sched switch/waking、run queue、主线程阻塞、CPU contention、Binder 长尾/system_server/wait chain、Binder/FrameTimeline 对齐查询。
-- [x] Frame Profiler 增加 Activity/Fragment/window/page/interaction/UI-state、JankStats、RenderThread、SurfaceFlinger 和 FrameTimeline 归因，并纳入 JSON 导出。
-- [x] Benchmark CLI 与模型增加 Macrobenchmark 场景矩阵（cold/warm/hot、scroll/animation/page switch）、ART 编译模式、Baseline Profile 状态、trace/JSON/统计结果关联和 regression 对比。
-- [x] Startup Profiler 将 sched_waking/run queue/Binder/main-thread/frame 证据按启动阶段做有界时间关联，并保留 Baseline Profile artifact 身份。
 - [ ] 用真实 Macrobenchmark Android 工程和真机完成冷/温/热、滚动/动画/页面切换的端到端验收。
 - [ ] 用真实 Perfetto trace 验证调度、Binder、FrameTimeline 查询在目标 API/设备矩阵上的 schema 兼容性。
 - [ ] 用真实 JankStats/FrameMetrics Agent 事件验证 Activity、Fragment、页面状态与 FrameTimeline 的时间关联。
 
-### P0：实验与跨域归因
-
-- [x] **Macrobenchmark + Baseline Profile 实验台** — 在 `benchmark-regression` / `startup-profiler` 增加实验矩阵、编译模式、Profile 状态、trace/JSON/统计关联和前后对比。
-- [x] **CPU 调度与线程竞争分析** — 在 `perfetto-viewer` 增加 `sched_switch`、`sched_waking`、run queue、线程唤醒延迟、主线程阻塞和 CPU contention 分析。
-- [x] **Binder / IPC 性能分析** — 识别调用方、服务端、Binder 等待链、system_server 交互和 IPC 长尾，并提供 Binder–FrameTimeline 对齐查询。
-- [x] **FrameTimeline + JankStats 联合分析** — 在现有 `frame-profiler` 增加 Activity、Fragment、页面、交互状态、RenderThread、SurfaceFlinger 与 Jank frame 的统一关联。
-
-### P1：运行时和 UI 深度诊断
-
-- [x] **Compose Stability / Recomposition Profiler** — 解析 Compose Compiler stability/composable reports，展示不稳定参数、不可跳过 Composable、重组次数和跳过次数，并通过显式 Jank observation 建立有界关联。
-- [x] **I/O 与 SQLite Profiler** — 增加文件读写、fsync、block I/O、page fault、SQLite query/transaction、WAL checkpoint 和数据库锁等待分析。
-- [x] **ART / GC / JIT / Class Loading Profiler** — 在启动和内存分析中增加 GC pause、allocation churn、JIT、dex2oat、类加载、验证和初始化阶段归因。
-- [x] **Thermal / DVFS / Power Rails 分析** — 在 `battery-profiler` 与 Perfetto 分析中加入温度、CPU/GPU 频率、thermal throttling、power rail 和持续性能窗口，并提供 FrameTimeline 对齐。
-
-### P1 验收保留项（2026-09-21）
+### 运行时和专项证据验收
 
 - [ ] 使用真实 Compose Compiler 版本矩阵验证 reports 文本/CSV 方言，并与运行时 inspector/JankStats 同步采集。
 - [ ] 使用真实 SQLite workload 和文件 I/O 压力验证目标设备 ftrace/atrace 覆盖率。
@@ -62,6 +37,7 @@
 
 - [ ] **Background Work Profiler** — 分析 WorkManager、JobScheduler、AlarmManager、BroadcastReceiver、后台恢复、Doze 和 App Standby 对启动及功耗的影响。
 - [ ] **系统专项扩展** — 根据真实用户场景增加 Camera、Audio、Media Pipeline 等专项采集器；每个专项必须有独立协议、权限说明和证据完整性状态。
+- [ ] **Network Agent Push 模式评估** — 旧优化总结中暂缓的推送方案尚未实施；当前仍使用轮询，不将其误写成已支持能力。
 
 ### 统一交付门禁
 
@@ -78,34 +54,16 @@
 - [ ] [确认层级行隐藏按钮的最终位置](../DESIGN.md#open-questions) — disclosure 后或行尾。
 - [ ] [确认隐藏的已选节点是否显示低透明虚线边框](../DESIGN.md#open-questions)。
 - [ ] [确认手动刷新后隐藏状态是清空还是保留仍存在的 nodeId](../DESIGN.md#open-questions)。
-- [ ] [为候选节点切换补充更明确的键盘/鼠标滚轮提示](design/layoutinspectorv2-pro-comparison.md#后续决策建议)。
-- [ ] [在树中区分直接隐藏与受祖先隐藏影响](design/layoutinspectorv2-pro-comparison.md#后续决策建议)。
+- [ ] 为候选节点切换补充更明确的键盘/鼠标滚轮提示；小面积优先仅是调试策略，不代表真实触摸分发。
+- [ ] 在树中区分直接隐藏与受祖先隐藏影响；隐藏仅影响本地 Canvas 命中和 overlay，不改变原始快照或分析证据。
 
 ## AI 源码分析加固
 
-来源：[AI analysis roadmap](../desktop-viewer/docs/requirements/ai-analysis-roadmap.md#follow-up-hardening)。
+统一来源：[AI 路线与缺口](ai/roadmap.md)。该文档维护 Build Evidence、跨平台凭据、100k 文件基准、远端取消、本地化、Simpleperf 接线及对话窗口的分阶段要求，不再保留第二份路线图。
 
-- [ ] 接入 Native Build ID、`llvm-symbolizer`、R8 `mapping.txt` 与 Gradle build-evidence。
-- [ ] 实现 Windows Credential Manager 与 Linux Secret Service 凭据存储。
-- [ ] 增加 100k 文件性能基准和支持取消的远端传输。
-- [ ] 补齐所有 provider/error 状态的 Compose 本地化 UI 与 visual-golden 覆盖。
-
-## Simpleperf 后续能力
+## Simpleperf 后续能力验收
 
 来源：[V0.2 待办池](../desktop-viewer/simpleperf-viewer/docs/requirements/development-plan.md#10-v02-待办池)与[产品路线图](../desktop-viewer/simpleperf-viewer/docs/design/product-design.md#9-产品路线图)。
-
-- [x] CPU Sample Heatmap。
-- [x] Differential FlameGraph。
-- [x] Gecko Profile 导出。
-- [x] Folded Stacks 导出。
-- [x] PProf 导出。
-- [x] 接入 Perfetto Trace Processor，联合分析 sched、Binder 与 FrameTimeline。
-- [x] 接入 `libsimpleperf_report` bridge/backend 边界。
-- [x] 线程池归一化分组，合并 Binder、AsyncTask、Coroutine 同类线程。
-- [x] 补齐 V0.3 系统诊断中的频率与 GPU 联合分析。
-- [x] 实施 V0.4 团队与自动化能力：批量采集/分析、CI 对比、报告模板、符号服务器和规则市场。
-
-### Simpleperf 后续能力验收保留项（2026-09-21）
 
 - [ ] 在三平台加载真实 `libsimpleperf_report` 与 bridge，和 protobuf backend 对照同一 `perf.data`。
 - [ ] 使用真实 Perfetto + Simpleperf 同步采集验证 sched/Binder/FrameTimeline 时钟映射与频率/GPU 对齐。
@@ -135,7 +93,11 @@
 - [ ] 使用同一真实 Golden `perf.data` 人工比较 sample 数、线程、Top、CallTree 与 Flame 路径。
 - [ ] 随 GitHub Release artifacts 发布各平台安装包 SHA-256。
 
-## 扫描说明
+## 原生界面与交付验收
 
-- 一方代码中没有发现明确的 `TODO`、`FIXME`、`XXX`、`TBD`、`TODO()` 或 `NotImplemented` 债务标记。
-- 旧研究文档中关于 `platform-adb`、共享 Perfetto 引擎和 FrameTimeline 路径未完成的描述已被当前实现覆盖，因此未收录。
+- [ ] 完成[商业化 UI 待验收项](../desktop-viewer/docs/aps-commercial-ui-implementation/README.md#待验收)中的打包原生窗口、实际 1280×720 窗口、面板/导航联动、语言/主题/显示缩放、视觉参考及各平台交互。
+- [ ] 验证 10k 节点、至少 10,001 帧的真实交互延迟和重组开销；保留 Layout、Frame、Startup 和图形上下文的真机闭环。
+- [ ] 在真实 AGI 安装环境中验证启动、打开、Reveal/Relocate 和制品校验恢复；不把源码接线或截图当作外部工具运行证据。
+- [ ] 验证 Startup 当前/上一次实验对比；非 TTID 指标保留描述性边界，声明的 Profile 来源不等于已在设备安装或验证 Profile。
+- [ ] 按[保留的待验收项](../desktop-viewer/docs/design/pending-acceptance.md)完成传统 View 性能预算、API/ABI、归档/隐私、原生发布和共享平台验收；自动渲染、源码断言、局部测试或构建应用镜像均不替代这些门禁。
+- [ ] 大数据验收分别测量冷显示、重复进入、连续交互和峰值内存；不能以投影耗时或样本数替代原生窗口交互延迟。

@@ -23,7 +23,6 @@
 以下文档保留为详细设计和不可逆决策的来源，`docs/ai/` 负责提供统一入口和当前状态解释：
 
 - [AI 分析与源码工作区总体设计](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)
-- [AI analysis roadmap](../../desktop-viewer/docs/requirements/ai-analysis-roadmap.md)
 - [ADR-0001：确定性源码定位优先于 AI 排序](../adr/0001-deterministic-source-resolution-before-ai-ranking.md)
 - [ADR-0004：provider-neutral AI boundary，OpenAI first](../adr/0004-provider-neutral-ai-boundary-with-openai-first.md)
 - [ADR-0005：最小化并授权发送到云端 AI 的源码](../adr/0005-minimize-and-authorize-source-sent-to-cloud-ai.md)
@@ -40,4 +39,4 @@
 2. 不可逆的边界和安全决策写入 `docs/adr/`，并从本目录链接。
 3. Profiler 专属 evidence adapter 和 UI 细节仍放在对应模块；本目录只定义跨模块契约和用户可见边界。
 4. 文档中的“已实现”必须能在当前接口、接线或测试中找到证据；仅有模型或接口骨架的能力标记为“部分实现”。
-5. AI Business Layer 的外部 Agent、Skill 和脚本能力必须先有 manifest、权限、资源限制和审计设计，再进入业务接入路线.
+5. AI Business Layer 的外部 Agent、Skill 和脚本能力必须先有 manifest、权限、资源限制和审计设计，再进入业务接入路线。

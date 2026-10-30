@@ -2,7 +2,8 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-10-29
+- Last refreshed: 2026-10-30
+- Scope: 共享桌面交互、主题和各功能设计增量。下文前半部分详细描述 Layout Inspector 层级隐藏；它不代表产品仅包含布局检查器。
 - Primary product surfaces:
   - Compose Desktop 主入口与打包：`desktop-viewer/desktop-app`
   - Layout Inspector 功能 UI：`desktop-viewer/layout-inspector/presentation`
@@ -10,15 +11,15 @@
   - 三栏检查器：左侧层级结构、中央截图画布、右侧属性、底部问题列表
   - 当前设计增量：已在“层级结构 / 画布命中测试”中支持候选排序切换、同点轮选、临时隐藏指定层级，使鼠标焦点可以穿透到下方层级
 - Evidence reviewed:
-  - `README.md`：仓库当前只实现 Desktop 方案，目标是 Android 布局复杂度检测工具
+  - `README.md` 与 `docs/features/README.md`：统一桌面性能工作站及当前功能范围
   - `desktop-viewer/README.md`：现有三栏 hierarchy/canvas/properties UI、在线采集、离线归档、画布选中边框
-  - `desktop-viewer/docs/design/2026-07-02-desktop-viewer-design.md`：三栏检查器交互原则，树、截图、Finding、属性共享 `selectedNodeId`
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/DesktopViewerApp.kt`：`HierarchyPane`、`PreviewPane`、面板标题、Header、画布点击和 hover wiring
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/CanvasHitTester.kt`：命中测试当前按 z/elevation 与 child index 选择最上层命中路径
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/CanvasPointerSelection.kt`：同一点反复点击可在命中路径内轮选，但没有显式隐藏/忽略上层状态
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewBoundsOverlay.kt`：当前 overlay 绘制所有有效可见节点，未考虑用户临时隐藏层级
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/HierarchyTreeState.kt`：已有树折叠状态，但折叠只影响左侧树显示，不影响画布命中测试
-  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/dev/agentperf/desktop/ViewDisplayOptions.kt`：已有视图显示偏好，适合扩展“显示隐藏层级边框/清除隐藏”等非结构性选项
+  - `docs/features/layout-inspector.md`：三栏检查器交互原则、采集、归档和时间线差异的能力边界
+  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt`：层级、画布、详情、面板和共享选择接线
+  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/CanvasHitTester.kt`：命中候选与排序策略
+  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/CanvasPointerSelection.kt`：同点候选轮选和隐藏状态过滤
+  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/ViewBoundsOverlay.kt`：可见节点和本地隐藏状态的边框绘制
+  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/HierarchyTreeState.kt`：树折叠仅影响左侧显示，不改变画布命中含义
+  - `desktop-viewer/layout-inspector/presentation/src/main/kotlin/com/androidperformancestudio/desktop/ViewDisplayOptions.kt`：视图显示偏好
   - `desktop-viewer/layout-inspector/presentation/src/main/composeResources/values*/strings.xml`：已有英中双语资源，并通过 `Res.string` 直接访问
 
 ## Brand

@@ -1,17 +1,14 @@
 # Desktop Viewer Development Guide
 
-## Version matrix
+## Versions and toolchains
 
-| Component | Version / range |
-| --- | --- |
-| Gradle | 9.4.1 |
-| Kotlin | 2.3.21 |
-| Android Gradle Plugin | 9.2.0 |
-| Compose Multiplatform | 1.11.1 |
-| Desktop JVM target | Java 17 bytecode |
-| Android | minSdk 21, compile/target SDK 37 |
+- Use JDK 21 for the desktop build and runtime; `desktop-app` targets Java 21 bytecode.
+- Gradle is pinned in the [wrapper](../../gradle/wrapper/gradle-wrapper.properties).
+- Kotlin, Compose, AGP and library versions are pinned in the [version catalog](../../gradle/libs.versions.toml).
+- Android Agent and sample modules declare their own SDK requirements; the View sample uses minSdk 21 and compile/target SDK 37.
+- Android modules use AGP's built-in Kotlin. Do not re-add `org.jetbrains.kotlin.android`.
 
-AGP 9.2 uses built-in Kotlin for Android modules. Do not re-add `org.jetbrains.kotlin.android`.
+Build files are authoritative; do not maintain a second version table in documentation.
 
 ## Module boundaries
 
@@ -25,7 +22,7 @@ layout-inspector/
     android-agent-view/     traditional View hierarchy collection
     android-agent-frame/    API 24+ FrameMetrics collection and bounded batches
     android-agent-startup/  zero-code AndroidX Startup integration
-  adb-gateway/              pure ADB parsing and argument-vector construction
+  adb-gateway/              inspector capture and transport over shared ADB primitives
   application/              inspector state and selection use cases
   presentation/             embeddable Compose Desktop inspector workspace
   samples/
@@ -34,10 +31,18 @@ simpleperf-viewer/          isolated Simpleperf CPU profiler build
 platform-core/              Capture Artifact, host process, and ADB contracts
 platform-perfetto/          pinned Trace Processor lifecycle and typed query boundary
 frame-profiler/             isolated FrameTimeline/Jank profiler build
-desktop-app/                  process entry, native window, and packaging
+ai-core/                    provider-neutral AI transport and structured results
+source-workspace/           source snapshots, indexing, resolution and read-only viewing
+ui-components/              shared Compose controls, theme and window integration
+desktop-app/                process entry, native window, navigation and packaging
 ```
 
 Dependencies flow inward: UI and platform adapters depend on application/domain modules; protocol and analysis modules do not depend on Android or Compose.
+
+`platform-core/host-toolchain` owns host process execution, binary/text output, cancellation and timeouts.
+`platform-core/adb-core` owns executable resolution and shared ADB primitives over immutable `DeviceTarget` values.
+Feature adapters keep their capture lifecycle and protocol; they do not introduce another process runner or depend
+on Simpleperf for shared ADB models. See [ADR-0007](../adr/0007-stateless-device-target-and-shared-adb.md).
 
 Each immutable Capture or Import persists a versioned **Capture Artifact** envelope. The envelope records
 Provenance, SHA-256, format, privacy-safe Device Target and Process Identity when known, Clock Domains and
@@ -55,20 +60,27 @@ report the same version. There is no `PATH` fallback. Install the development bi
 
 ## Common commands
 
-```bash
-# All JVM and Android unit tests
-./gradlew test
+Run these commands from `desktop-viewer/`. Included builds have their own test and check tasks;
+passing the root desktop task does not mean every feature or Android Agent was tested.
 
-# Android sample
-./gradlew :layout-inspector:samples:android-view-app:assembleDebug
+```bash
+# Unified desktop integration and focused Layout Inspector tests
+./gradlew :desktop-app:test
+./gradlew :layout-inspector:application:test :layout-inspector:presentation:test
+
+# All checks in the isolated Simpleperf build
+./gradlew simpleperfCheck
+
+# Android sample (requires the Android SDK and explicit opt-in)
+./gradlew -PincludeLayoutInspectorAgents=true :layout-inspector-sample-app:assembleDebug
 
 # Desktop app image for this OS
 # Build the host-independent Android inspection runtime first (requires an Android SDK/NDK).
 ./gradlew :layout-inspector:compose-agent-build:verifyComposeAgentBundle --no-configuration-cache
 ./gradlew :desktop-app:createDistributable
 
-# Full local verification
-./gradlew clean test assemble
+# Compilation is separate from tests, native-window and device acceptance
+./gradlew :desktop-app:compileKotlin
 ```
 
 ## Compose inspection runtime in desktop packages
@@ -101,7 +113,7 @@ or `APC_COMPOSE_AGENT_BUNDLE` configuration remains authoritative. Do not instal
 
 - Protocol major changes are incompatible.
 - Unknown minor fields are ignored.
-- Desktop code targets Java 17 bytecode.
+- The unified desktop application targets Java 21 bytecode; library targets are declared in their own builds.
 - Traditional Views use public APIs available from API 21.
 - FrameMetrics Agent capture uses public APIs on API 24+ and degrades to desktop-side `gfxinfo` polling otherwise.
 - Screenshot capture and Compose semantics are intentionally separate adapters so unsupported platform/library versions can degrade without breaking View inspection.

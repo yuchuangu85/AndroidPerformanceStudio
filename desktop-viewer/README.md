@@ -1,12 +1,14 @@
-# AndroidPerfermanceStudio
+# Android Performance Studio Desktop
 
-AndroidPerfermanceStudio contains one root desktop application shell and two deliberately isolated
-feature implementations:
+`desktop-app/` owns the unified desktop shell. Profiler implementations remain isolated
+in their feature builds and expose public UI entry points:
 
 - **Layout Inspector** — the Android layout snapshot inspector under `layout-inspector/`;
   its embeddable desktop UI is the `presentation/` module.
 - **Simpleperf CPU Profiler** — an isolated capture and CPU profile analyzer under `simpleperf-viewer/`,
   embedded into the root shell through its public desktop workspace.
+- **Other profilers** — Trace, Memory, Frame, Startup, Battery, Network, GPU and Benchmark Regression;
+  see the [feature directory](../docs/features/README.md) for current behavior and evidence boundaries.
 
 The Layout Inspector foundation includes:
 
@@ -35,15 +37,11 @@ The desktop application's maximum heap defaults to 4 GiB. On a larger machine, t
 Gradle, not the desktop application. Pass the property to `:desktop-app:createDistributable`
 when packaging with a non-default limit.
 
-The root application opens on a three-entry home page. Selecting Layout Inspector or Simpleperf
-replaces the home page with that feature's original full-window interface. Selecting Perfetto opens
-`https://ui.perfetto.dev` in the system browser for online trace analysis while the desktop window
-stays open.
-Application-wide language (`System`, `简体中文`, `English`) and theme (`System`, `Light`, `Dark`)
-are available only from the operating system's application Settings/Preferences command; the
-home page and feature pages do not render language or theme controls. Feature settings stay inside
-their own interfaces: Layout Inspector keeps only view, capture archive, and canvas border settings
-in its dialog, while Simpleperf keeps profiling-specific configuration in its workflow.
+The application opens on the dashboard and uses a shared navigation rail for profiler workspaces,
+Source Workspaces and Settings. Trace Analyzer has its own capture/analysis workspace and can open
+traces in the configured Perfetto viewer. Shared language, theme, SDK and provider preferences live
+in the routed Settings page; profiler-specific controls remain with their owning feature.
+The native menu is shared by the shell rather than rebuilt as a different top-level menu per page.
 
 Run only the isolated Simpleperf CPU Profiler during feature development:
 
@@ -81,7 +79,7 @@ Create the native application image for the current OS:
 Set `ANDROID_HOME`, then build:
 
 ```bash
-./gradlew :layout-inspector:samples:android-view-app:assembleDebug
+./gradlew -PincludeLayoutInspectorAgents=true :layout-inspector-sample-app:assembleDebug
 ```
 
 The sample declares the View and FrameMetrics Agent only through `debugImplementation`. AndroidX Startup initializes them without changes to the sample `Application` or `Activity`. Frame Profiler prefers authenticated FrameMetrics batches on API 24+ and automatically falls back to `dumpsys gfxinfo framestats` when the Agent is absent.
@@ -104,12 +102,18 @@ The viewer follows the foreground application and reconnects automatically when 
 
 ## Current scope
 
-The live path currently targets one authorized device and its foreground application. Traditional View hierarchy and screenshots are supported. The ADB fallback is slower and only exposes nodes available through UI Automator. Multiple-device selection, Compose semantics, report persistence, and timeline diff remain future work.
+The Layout Inspector live path targets one authorized device and its foreground application.
+Traditional View hierarchy and screenshots, capture archive import/export, retained timeline frames
+and adjacent-snapshot diff have implementations. The ADB fallback is slower and only exposes nodes
+available through UI Automator. Full runtime Compose inspection remains separately gated by its
+capability, authorization, artifact and release requirements; multiple-device selection is still deferred.
+Code presence does not imply native-window, real-device or cross-platform acceptance.
 
 See:
 
-- [Architecture and product design](docs/design/2026-07-02-desktop-viewer-design.md)
+- [Current design](../DESIGN.md)
+- [Feature documentation](../docs/features/README.md)
 - [Development guide](docs/architecture/DEVELOPMENT.md)
 - [Protocol contract](docs/architecture/PROTOCOL.md)
-- [Deferred AI analysis work](docs/requirements/ai-analysis-roadmap.md)
+- [AI capabilities and roadmap](../docs/ai/README.md)
 - [Documentation index](docs/README.md)

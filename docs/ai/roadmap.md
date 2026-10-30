@@ -61,6 +61,7 @@
 4. 增加 Analysis Session 历史、重分析、child turn、Finding 比较和 evidence diff。
 5. 增加 AI 结果反馈、误报/漏报标记、人工 usefulness 评分和固定样例回归。
 6. 补齐 Windows Credential Manager、Linux Secret Service、可取消远端 transport 和 100k 文件索引基准。
+7. 补齐所有 provider/error 状态的 Compose 本地化 UI 与 visual-golden 覆盖。
 
 ## 4. P2：仅在需求成立后增加
 

@@ -10,15 +10,19 @@ This directory owns all Layout Inspector implementation code in the desktop proj
 - `shared-kernel/` — protocol, deterministic analysis, Android Agent, and test fixtures.
 - `samples/` — Android integration samples.
 
-Gradle projects are namespaced below `:layout-inspector` so filesystem and build ownership
-match. Kotlin package names remain unchanged to keep this move behavior-neutral.
+Layout Inspector is an included build named `layout-inspector`; its JVM projects use names
+such as `:application` and `:presentation`. The parent wrapper addresses them as
+`:layout-inspector:application` and `:layout-inspector:presentation`. Android Agent and sample
+projects are separately enabled in the parent build with `-PincludeLayoutInspectorAgents=true`.
 
 ## Commands
 
+Run from `desktop-viewer/`:
+
 ```bash
 ./gradlew :desktop-app:run
-./gradlew :layout-inspector:layout-presentation:test
-./gradlew :layout-inspector:samples:android-view-app:assembleDebug
+./gradlew :layout-inspector:presentation:test
+./gradlew -PincludeLayoutInspectorAgents=true :layout-inspector-sample-app:assembleDebug
 ```
 
 Simpleperf implementation belongs to the sibling `../simpleperf-viewer/` directory.
