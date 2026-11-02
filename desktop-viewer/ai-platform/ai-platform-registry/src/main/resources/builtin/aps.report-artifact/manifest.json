@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "kind": "SKILL",
+  "id": "aps.report-artifact",
+  "version": "1.3.0",
+  "name": "Report Artifact",
+  "description": "Declares bounded report output; publication still requires host policy.",
+  "entrypoint": "SKILL.md",
+  "inputSchema": "aps.evidence-context.v1",
+  "outputSchema": "aps.read-only-summary.v1",
+  "contextKinds": [
+    "layout-inspector",
+    "simpleperf",
+    "memory",
+    "trace",
+    "frame",
+    "startup",
+    "battery",
+    "network",
+    "gpu",
+    "benchmark",
+    "source-workspace"
+  ],
+  "evidenceKinds": [
+    "layout-snapshot",
+    "simpleperf-hotspots",
+    "memory-selection",
+    "memory-summary",
+    "frame-selection",
+    "frame-summary",
+    "startup-selection",
+    "startup-summary",
+    "battery-selection",
+    "battery-summary",
+    "network-selection",
+    "network-summary",
+    "gpu-selection",
+    "gpu-summary",
+    "benchmark-selection",
+    "benchmark-summary",
+    "trace-selection",
+    "source-workspace-selection"
+  ],
+  "allowedProviders": [],
+  "allowedSkills": [],
+  "permissions": [
+    "READ_EVIDENCE",
+    "READ_SOURCE_CANDIDATES",
+    "WRITE_ARTIFACT"
+  ],
+  "runtime": "NONE",
+  "artifactFormats": [
+    "HTML",
+    "MARKDOWN"
+  ],
+  "files": {
+    "SKILL.md": "841afbb992b5d743d32c2486d5808f5fa6b5113a43a94df86a136755ee9ab873"
+  }
+}

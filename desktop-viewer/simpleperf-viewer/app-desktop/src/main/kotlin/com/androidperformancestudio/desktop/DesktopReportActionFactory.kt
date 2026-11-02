@@ -65,7 +65,7 @@ internal class DesktopReportActionFactory(
             onTopFunctionSort = { sort, descending ->
                 scope.launch { controller.updateTopFunctionSort(sort, descending) }
             },
-            onCallTreeDirection = { direction -> scope.launch { controller.updateCallTreeDirection(direction) } },
+            onCallTreeDirection = { direction -> scope.launch { controller.updateCallStackDirection(direction) } },
             onFlamePreviewRange = controller::previewRange,
             onCancelFlamePreview = { scope.launch { controller.cancelPreview() } },
             onFlameSearch = { search -> scope.launch { controller.updateFlameSearch(search) } },
@@ -98,6 +98,9 @@ internal class DesktopReportActionFactory(
             onSelectOverviewFinding = controller::selectOverviewFinding,
             onSelectTopFunction = controller::selectTopFunction,
             onSelectStackChartBlock = controller::selectStackChartBlock,
+            onStackChartSameWidths = controller::setStackChartSameWidths,
+            onStackChartShowUserTimings = controller::setStackChartShowUserTimings,
+            onRemoveFlameTransformsAfter = { count -> scope.launch { controller.removeTransformsAfter(count) } },
             onSelectMarker = controller::selectMarker,
             onMarkerSearch = { search -> scope.launch { controller.updateMarkerSearch(search) } },
         )

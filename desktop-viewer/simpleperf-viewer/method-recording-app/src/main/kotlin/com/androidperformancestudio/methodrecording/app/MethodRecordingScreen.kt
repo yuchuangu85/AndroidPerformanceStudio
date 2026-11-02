@@ -43,6 +43,7 @@ import com.androidperformancestudio.profileanalysis.ImplementationFilter
 import com.androidperformancestudio.profileanalysis.StackChartBlockId
 import com.androidperformancestudio.storage.ProfileMarkerId
 import com.androidperformancestudio.storage.TopFunctionSort
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioPanel
@@ -61,43 +62,48 @@ fun MethodRecordingScreen(
         verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         state.error?.let { message ->
-            Text(
+            CopyableText(
                 text = message,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
+                language = language,
             )
         }
         if (state.isLoading) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.working, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                language = language,
             )
         }
         val analysis = state.analysis
         if (analysis == null) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.no_trace_loaded, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                language = language,
             )
             return@Column
         }
 
         state.traceLabel?.let { label ->
-            Text(
+            CopyableText(
                 text = label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
+                language = language,
             )
         }
         state.artifact?.let { artifact ->
-            Text(
+            CopyableText(
                 text =
                     "Artifact: ${artifact.provenance.producer::class.simpleName ?: "Unknown"} · " +
                         artifact.completeness.name.lowercase() +
                         if (artifact.limitations.isNotEmpty()) " · ${artifact.limitations.size} limitation(s)" else "",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelSmall,
+                language = language,
             )
         }
 

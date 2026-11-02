@@ -36,6 +36,7 @@ import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_open_s
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_recommendation_label
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_result_title
 import com.androidperformancestudio.app_desktop.generated.resources.sp_ai_session_label
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
@@ -175,14 +176,14 @@ private fun SimpleperfAiInsightMetadata(
             color = colors.secondaryText,
             fontSize = ViewerTypography.bodyCompact.fontSize,
         )
-        Text(insight.result.summary, color = colors.primaryText, fontSize = ViewerTypography.body.fontSize)
+        CopyableText(insight.result.summary, color = colors.primaryText, fontSize = ViewerTypography.body.fontSize, language = language)
         Text(
             localizedStringResource(Res.string.sp_ai_findings, language),
             color = colors.primaryText,
             fontSize = ViewerTypography.subsectionTitle.fontSize,
         )
         if (insight.result.findings.isEmpty()) {
-            Text(localizedStringResource(Res.string.sp_ai_no_findings, language), color = colors.secondaryText)
+            CopyableText(localizedStringResource(Res.string.sp_ai_no_findings, language), color = colors.secondaryText, language = language)
         }
     }
 }
@@ -195,7 +196,7 @@ private fun SimpleperfAiFindingCard(
 ) {
     val colors = LocalViewerColors.current
     StudioCard(Modifier.fillMaxWidth()) {
-        Text(finding.title, color = colors.primaryText, fontSize = ViewerTypography.body.fontSize)
+        CopyableText(finding.title, color = colors.primaryText, fontSize = ViewerTypography.body.fontSize, language = language)
         StudioStatusChip(
             label =
                 localizedStringResource(
@@ -210,13 +211,13 @@ private fun SimpleperfAiFindingCard(
             color = colors.secondaryText,
             fontSize = ViewerTypography.secondary.fontSize,
         )
-        Text(finding.explanation, color = colors.primaryText, fontSize = ViewerTypography.bodyCompact.fontSize)
+        CopyableText(finding.explanation, color = colors.primaryText, fontSize = ViewerTypography.bodyCompact.fontSize, language = language)
         Text(
             localizedStringResource(Res.string.sp_ai_recommendation_label, language),
             color = colors.secondaryText,
             fontSize = ViewerTypography.secondary.fontSize,
         )
-        Text(finding.recommendation, color = colors.primaryText, fontSize = ViewerTypography.bodyCompact.fontSize)
+        CopyableText(finding.recommendation, color = colors.primaryText, fontSize = ViewerTypography.bodyCompact.fontSize, language = language)
         if (onOpenSourceCandidate != null) {
             finding.sourceCandidateIds.forEachIndexed { index, candidateId ->
                 TextButton(onClick = { onOpenSourceCandidate(candidateId) }) {

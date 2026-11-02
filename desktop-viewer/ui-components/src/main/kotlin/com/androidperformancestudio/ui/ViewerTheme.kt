@@ -85,8 +85,13 @@ public object ViewerDimensions {
     public val footerHeight = 29.dp
     public val buttonHeight = 28.dp
     public val selectorHeight = 30.dp
+    /** Ordinary desktop form inputs; labels and validation messages sit outside this area. */
+    public val textFieldHeight = 32.dp
+    public val textFieldHorizontalPadding = 8.dp
+    public val textFieldVerticalPadding = 4.dp
     public val segmentedControlHeight = 28.dp
     public val segmentedItemHeight = 24.dp
+    public val segmentedItemVerticalPadding = 4.dp
     public val segmentedRadius = 14.dp
     public val segmentedMinItemWidth = 40.dp
     public val segmentedMaxWidth = 360.dp

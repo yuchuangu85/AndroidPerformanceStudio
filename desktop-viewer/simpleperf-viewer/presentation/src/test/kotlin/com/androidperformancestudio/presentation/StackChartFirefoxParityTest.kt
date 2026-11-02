@@ -28,8 +28,8 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class StackChartFirefoxParityTest {
     @Test
-    fun `standalone stack chart starts at the left edge and keeps Firefox row gaps and labels`() {
-        listOf(180, 365).forEach { width ->
+    fun `stack chart aligns to the timeline gutter and keeps Firefox row gaps and labels`() {
+        listOf(365, 900).forEach { width ->
             listOf(false, true).forEach { dark ->
                 listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
                     checkLayout(width, dark, language)
@@ -52,7 +52,6 @@ class StackChartFirefoxParityTest {
                         viewport = StackChartViewport(0, 100),
                         selectedBlockId = null,
                         onSelect = {},
-                        onCommitRange = { _, _ -> },
                     )
                 }
             }
@@ -61,8 +60,8 @@ class StackChartFirefoxParityTest {
         val canvas = onNodeWithTag("stack-chart-canvas")
         val canvasBounds = canvas.fetchSemanticsNode().boundsInRoot
         val blockBounds = onNodeWithTag("stack-block-block").fetchSemanticsNode().boundsInRoot
-        assertEquals(canvasBounds.left, blockBounds.left, "The stack chart has no track-label column")
-        assertEquals(canvasBounds.width - 15f, blockBounds.width, absoluteTolerance = 1f)
+        assertEquals(canvasBounds.left + 150f, blockBounds.left, "The stack chart shares Firefox's timeline gutter")
+        assertEquals(canvasBounds.width - 165f, blockBounds.width, absoluteTolerance = 1f)
 
         val image = canvas.captureToImage()
         val path = Path.of("build/reports/stack-chart-layout/stack-$width-$dark-${language.name}.png")
@@ -74,12 +73,12 @@ class StackChartFirefoxParityTest {
         val background = style.canvasBackground.toComposeColor()
         val fill = colors.fill.toComposeColor().compositeOver(background)
         val hasVisibleLabel =
-            (3..100).any { x ->
+            (153..250).any { x ->
                 (2..13).any { y -> pixels[x, y].isNear(style.canvasForeground.toComposeColor()) }
             }
-        assertTrue(pixels[2, 14].isNear(fill), "Left-edge fill: ${pixels[2, 14]}, expected: $fill")
+        assertTrue(pixels[152, 14].isNear(fill), "Plot fill: ${pixels[152, 14]}, expected: $fill")
         assertTrue(
-            pixels[2, 15].isNear(background),
+            pixels[152, 15].isNear(background),
             "Row gaps must retain the canvas background",
         )
         assertTrue(hasVisibleLabel, "The frame label must remain visible at the left edge")

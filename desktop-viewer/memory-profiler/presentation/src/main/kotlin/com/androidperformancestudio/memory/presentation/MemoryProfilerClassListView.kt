@@ -147,6 +147,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.save
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow_size_change
 import com.androidperformancestudio.memory.presentation.generated.resources.system_classes
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -1237,7 +1238,7 @@ private fun EmptyPaneHint(
         modifier = modifier.padding(8.dp),
         contentAlignment = Alignment.TopStart,
     ) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = ViewerTypography.bodyCompact.fontSize)
+        CopyableText(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = ViewerTypography.bodyCompact.fontSize)
     }
 }
 

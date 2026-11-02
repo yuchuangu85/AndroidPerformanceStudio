@@ -10,6 +10,8 @@ import java.net.http.HttpTimeoutException
 import java.time.Duration
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -74,7 +76,12 @@ public class OpenAiResponsesClient(
     private val endpoint: String = DEFAULT_ENDPOINT,
     private val transport: AiHttpTransport = JdkAiHttpTransport(),
     private val json: Json = Json { ignoreUnknownKeys = true },
+    private val maxOutputTokens: Int = 8192,
 ) {
+    init {
+        require(maxOutputTokens in 1..16_384)
+    }
+
     public suspend fun execute(request: StructuredAiRequest): AiTextResponse {
         require(apiKey.isNotBlank()) { "An API key is required for AI requests" }
         val response =
@@ -96,6 +103,11 @@ public class OpenAiResponsesClient(
     private fun buildRequestBody(request: StructuredAiRequest): String =
         buildJsonObject {
             put("model", model)
+            put("store", false)
+            put("tools", JsonArray(emptyList()))
+            put("tool_choice", "none")
+            put("parallel_tool_calls", false)
+            put("max_output_tokens", maxOutputTokens)
             put("instructions", request.instructions)
             put("input", request.input)
             put(
@@ -116,15 +128,35 @@ public class OpenAiResponsesClient(
 
     private fun extractOutputText(body: String): String {
         val root = json.parseToJsonElement(body).jsonObject
-        root["output_text"]?.jsonPrimitive?.contentOrNull?.let { return it }
+        require(root["status"]?.jsonPrimitive?.contentOrNull.let { it == null || it == "completed" }) {
+            "E_AI_RESPONSE_INCOMPLETE"
+        }
+        // Even a server that ignores tool_choice must not turn a tool-bearing response into success.
         root["output"]?.jsonArray?.forEach { item ->
-            item.jsonObject["content"]?.jsonArray?.forEach { content ->
-                val contentObject = content.jsonObject
-                if (contentObject["type"]?.jsonPrimitive?.contentOrNull == "output_text") {
-                    return contentObject.getValue("text").jsonPrimitive.content
+            val type = (item as? JsonObject)?.get("type")?.jsonPrimitive?.contentOrNull
+            require(type in setOf("message", "reasoning")) { "E_AI_TOOL_RESPONSE" }
+        }
+        root["output"]?.jsonArray?.let { output ->
+            val messages = output.map { it.jsonObject }.filter { it["type"]?.jsonPrimitive?.contentOrNull == "message" }
+            messages.forEach { message ->
+                require(message["phase"]?.jsonPrimitive?.contentOrNull in setOf(null, "commentary", "final_answer")) {
+                    "E_AI_RESPONSE_PHASE"
                 }
             }
+            val explicitFinal = messages.filter { it["phase"]?.jsonPrimitive?.contentOrNull == "final_answer" }
+            val candidates = explicitFinal.ifEmpty { messages.filter { it["phase"]?.jsonPrimitive?.contentOrNull == null } }
+            val selected = candidates.singleOrNull() ?: error("E_AI_FINAL_OUTPUT_MISSING")
+            val text = selected["content"]?.jsonArray?.joinToString("") { item ->
+                val content = item.jsonObject
+                val type = content["type"]?.jsonPrimitive?.contentOrNull
+                require(type != "refusal") { "E_AI_REFUSAL" }
+                require(type == "output_text") { "E_AI_RESPONSE_CONTENT" }
+                content.getValue("text").jsonPrimitive.content
+            }.orEmpty()
+            require(text.isNotBlank()) { "E_AI_FINAL_OUTPUT_MISSING" }
+            return text
         }
+        root["output_text"]?.jsonPrimitive?.contentOrNull?.let { return it }
         error("AI response did not contain output text")
     }
 

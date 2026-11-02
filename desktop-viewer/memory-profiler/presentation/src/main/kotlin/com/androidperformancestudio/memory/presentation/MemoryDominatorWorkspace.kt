@@ -67,6 +67,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.memo
 import com.androidperformancestudio.memory.presentation.generated.resources.retained
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -317,13 +318,13 @@ private fun RemoteDominatorChildPage(
     val modifier = Modifier.fillMaxWidth().padding(start = (8 + entry.depth.coerceAtMost(10) * 12).dp)
     val total = state.dominatorChildTotals[id]
     if (id in state.failedDominatorChildren) {
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.unavailable, language),
             modifier.testTag("memory-dominator-children-$id-unavailable"),
             style = ViewerTypography.secondary,
         )
     } else if (total == null) {
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.memory_inspector_loading, language),
             modifier.testTag("memory-dominator-children-$id-loading"),
             style = ViewerTypography.secondary,

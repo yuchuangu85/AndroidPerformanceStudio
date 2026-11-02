@@ -5,9 +5,34 @@ package com.androidperformancestudio.profileanalysis
 import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class LargeStackChartProjectionTest {
+    @Test
+    fun `deep stack shares parent links instead of materializing every path prefix`() {
+        val depth = 8_192
+        val frameIds = (1L..depth.toLong()).toList()
+        val source =
+            CallStackTable(
+                frameIds.associateWith { id ->
+                    CallStackFrame(id, FlameFunctionId(id), "frame$id", "deep.so", id, FrameImplementation.NATIVE)
+                },
+                listOf(WeightedCallStack(1, 0, 1, "main", null, null, frameIds)),
+            )
+
+        val snapshot = StackChartProjector.project(source, CallStackAnalysisQuery(), 1)
+        val flame = CallTreeProjector.project(source)
+
+        assertEquals(depth, snapshot.blocks.size)
+        assertEquals(depth, snapshot.parentCallNodeIds.size)
+        snapshot.blocks.forEachIndexed { index, block ->
+            val nodeId = assertNotNull(block.callNodeId)
+            assertEquals(flame.nodeIdAt(index), nodeId)
+            assertEquals(snapshot.blocks.getOrNull(index - 1)?.callNodeId, snapshot.parentCallNodeIds[nodeId])
+        }
+    }
+
     @Test
     fun `million sample projection and narrow range culling remain bounded`() {
         StackChartProjector.project(table(10_000), CallStackAnalysisQuery(), 10_000)

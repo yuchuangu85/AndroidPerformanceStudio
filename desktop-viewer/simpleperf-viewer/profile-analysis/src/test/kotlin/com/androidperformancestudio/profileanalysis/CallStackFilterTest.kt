@@ -76,7 +76,38 @@ class CallStackFilterTest {
         assertEquals(1, matching.afterSearchCount)
         assertTrue(missingTerm.table.stacks.isEmpty())
         assertEquals(0, missingTerm.afterSearchCount)
-        assertEquals(0, missingTerm.afterImplementationCount)
+        assertEquals(3, missingTerm.afterImplementationCount)
+    }
+
+    @Test
+    fun `search cannot match frames removed by the implementation filter`() {
+        val fixture = fixture()
+        val mixed = fixture.managedStack.copy(frameIdsRootToLeaf = listOf(MANAGED_TICK_ID, RENDER_ID))
+        val table = fixture.table.copy(stacks = listOf(mixed))
+
+        listOf("managedTick", "app.apk", "render,managedTick").forEach { search ->
+            val filtered =
+                CallStackFilter.apply(
+                    table,
+                    CallStackAnalysisQuery(searchText = search, implementation = ImplementationFilter.NATIVE),
+                )
+
+            assertTrue(filtered.table.stacks.isEmpty())
+            assertEquals(1, filtered.afterImplementationCount)
+            assertEquals(0, filtered.afterSearchCount)
+        }
+
+        val matched =
+            CallStackFilter.apply(
+                table,
+                CallStackAnalysisQuery(
+                    searchText = " RENDER, GRAPHICS.SO ",
+                    implementation = ImplementationFilter.NATIVE,
+                ),
+            )
+        assertEquals(listOf(listOf("render")), matched.table.stackSymbols())
+        assertEquals(1, matched.afterImplementationCount)
+        assertEquals(1, matched.afterSearchCount)
     }
 
     @Test
@@ -100,7 +131,7 @@ class CallStackFilterTest {
             )
 
         assertEquals(listOf(listOf("managedTick")), result.table.stackSymbols())
-        assertEquals(3, result.afterSearchCount)
+        assertEquals(1, result.afterSearchCount)
         assertEquals(1, result.afterImplementationCount)
         assertEquals(
             fixture.managedStack.copy(frameIdsRootToLeaf = listOf(MANAGED_TICK_ID)),

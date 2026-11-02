@@ -13,6 +13,7 @@
 - `0031`–`0034`：Winscope 的原生 Compose 工作区与可选浏览器查看器路径（已被 `0035` 取代）。
 - `0035`：移除 Winscope 工作区与上游查看器 submodule：删除 `third_party/aosp-winscope`、`desktop-viewer/winscope` 复合构建、浏览器查看器打包与页面入口。
 - `0036`：独立 AI Business Layer、主 Agent、子 Agent、Skill、外部扩展和沙箱脚本运行时（提案）。
+- `0037`：[AI Platform 信任与执行边界](0037-ai-platform-trust-and-execution-boundaries.md)：版本化目录、host-owned 信任、凭证引用、默认拒绝权限、沙箱不可用时禁止脚本执行。
 
 总体方案见
 [`../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md`](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)。

@@ -17,6 +17,7 @@
 
 package com.androidperformancestudio.memory.presentation
 
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -150,7 +151,7 @@ public fun MemoryProfilerScreen(
                             modifier = Modifier.padding(horizontal = 8.dp),
                         )
                         snapshot.evidenceLines(language).forEach { line ->
-                            Text(
+                            CopyableText(
                                 line,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = ViewerTypography.bodyCompact.fontSize,
@@ -159,7 +160,7 @@ public fun MemoryProfilerScreen(
                         }
                     }
                     presentedState.artifact?.let { artifact ->
-                        Text(
+                        CopyableText(
                             localizedStringResource(
                                 Res.string.snapshot_artifact,
                                 language,
@@ -172,7 +173,7 @@ public fun MemoryProfilerScreen(
                             modifier = Modifier.padding(horizontal = 8.dp),
                         )
                         artifact.limitations.forEach { limitation ->
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.snapshot_limitation, language, limitation.code, limitation.message),
                                 color = MaterialTheme.colorScheme.tertiary,
                                 fontSize = ViewerTypography.bodyCompact.fontSize,
@@ -180,7 +181,7 @@ public fun MemoryProfilerScreen(
                             )
                         }
                         artifact.warnings.forEach { warning ->
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.snapshot_artifact_warning, language, warning),
                                 color = MaterialTheme.colorScheme.tertiary,
                                 fontSize = ViewerTypography.bodyCompact.fontSize,
@@ -189,7 +190,7 @@ public fun MemoryProfilerScreen(
                         }
                     }
                     if (presentedState.mappingLoaded) {
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.mapping_loaded_note, language),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = ViewerTypography.bodyCompact.fontSize,
@@ -365,7 +366,7 @@ private fun MemoryProfilerDominatorPane(
             Text(localizedStringResource(Res.string.retained, language), Modifier.width(80.dp), style = ViewerTypography.secondary)
         }
         if (rows.isEmpty()) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -453,7 +454,7 @@ private fun MemoryProfilerStatusBar(
                     strokeWidth = 2.dp,
                 )
                 if (operationMessage != null) {
-                    Text(
+                    CopyableText(
                         text = state.loadPhase.name,
                         color = colors.mutedText,
                         fontSize = ViewerTypography.label.fontSize,
@@ -465,7 +466,7 @@ private fun MemoryProfilerStatusBar(
                         messageColor = colors.secondaryText,
                     )
                 } else {
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.in_progress, language),
                         color = colors.secondaryText,
                         style = ViewerTypography.secondary,
@@ -483,7 +484,7 @@ private fun MemoryProfilerStatusBar(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                 )
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.in_progress, language),
                     color = colors.secondaryText,
                     fontSize = ViewerTypography.label.fontSize,
@@ -535,13 +536,13 @@ private fun MemoryProfilerStatusMessage(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
+        CopyableText(
             text = "$label:",
             color = colors.mutedText,
             fontSize = ViewerTypography.label.fontSize,
             maxLines = 1,
         )
-        Text(
+        CopyableText(
             text = message,
             color = messageColor,
             fontSize = ViewerTypography.secondary.fontSize,
@@ -623,7 +624,7 @@ private fun Histogram(
         )
         HistogramHeader(sort, actions, language)
         if (classes.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.import_or_dump_an_hprof_file_to_show_class_histogram, language),
                 modifier = Modifier.testTag("memory-profiler-histogram-empty"),
             )

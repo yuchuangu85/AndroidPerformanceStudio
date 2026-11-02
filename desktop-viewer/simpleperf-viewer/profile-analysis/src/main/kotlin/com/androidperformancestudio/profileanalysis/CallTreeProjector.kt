@@ -64,7 +64,7 @@ object CallTreeProjector {
         table.stacks.forEach { stack ->
             addStack(table, stack, direction, canonicalFrames, roots, primaryHashStep, idDeriver)
         }
-        return flatten(roots.values, canonicalFrames)
+        return flatten(roots.values, canonicalFrames, table.stacks.all { it.tracedDurationNanos != null })
     }
 }
 
@@ -92,19 +92,70 @@ private class MutableCallNode(
     val children = LinkedHashMap<FlameFunctionId, MutableCallNode>()
     val threads = HashSet<String>()
     val categoryWeights = HashMap<String?, Long>()
+    val categoryMetrics = HashMap<Pair<String?, String?>, MutableCategoryMetrics>()
     var inclusiveWeight: Long = 0
     var selfWeight: Long = 0
     var sampleCount: Long = 0
+    var selfSampleCount: Long = 0
+    var tracedInclusiveNanos: Long = 0
+    var tracedSelfNanos: Long = 0
 
+    @Suppress("LongParameterList")
     fun record(
         weight: Long,
         threadKey: String,
         category: String?,
+        sampleCategory: Pair<String?, String?>,
+        isSelf: Boolean,
+        tracedDurationNanos: Long?,
     ) {
         inclusiveWeight = StableCallNodeId.saturatingNonNegativeAdd(inclusiveWeight, weight)
         sampleCount = StableCallNodeId.saturatingNonNegativeAdd(sampleCount, 1)
         threads += threadKey
         categoryWeights[category] = StableCallNodeId.saturatingNonNegativeAdd(categoryWeights[category] ?: 0, weight)
+        if (isSelf) {
+            selfWeight = StableCallNodeId.saturatingNonNegativeAdd(selfWeight, weight)
+            selfSampleCount = StableCallNodeId.saturatingNonNegativeAdd(selfSampleCount, 1)
+        }
+        tracedDurationNanos?.let { traced ->
+            require(traced >= 0) { "Negative traced duration is unsupported" }
+            tracedInclusiveNanos = StableCallNodeId.saturatingNonNegativeAdd(tracedInclusiveNanos, traced)
+            if (isSelf) tracedSelfNanos = StableCallNodeId.saturatingNonNegativeAdd(tracedSelfNanos, traced)
+        }
+        categoryMetrics.getOrPut(sampleCategory) { MutableCategoryMetrics() }.record(weight, isSelf)
+    }
+
+    fun categoryMetricsSnapshot(): List<CallNodeCategoryMetrics> =
+        categoryMetrics.entries
+            .sortedWith(compareBy({ it.key.first }, { it.key.second }))
+            .map { (category, values) ->
+                CallNodeCategoryMetrics(
+                    category.first,
+                    category.second,
+                    values.samples,
+                    values.selfSamples,
+                    values.weight,
+                    values.selfWeight,
+                )
+            }
+}
+
+private class MutableCategoryMetrics {
+    var samples = 0L
+    var selfSamples = 0L
+    var weight = 0L
+    var selfWeight = 0L
+
+    fun record(
+        sampleWeight: Long,
+        isSelf: Boolean,
+    ) {
+        samples = StableCallNodeId.saturatingNonNegativeAdd(samples, 1)
+        weight = StableCallNodeId.saturatingNonNegativeAdd(weight, sampleWeight)
+        if (isSelf) {
+            selfSamples = StableCallNodeId.saturatingNonNegativeAdd(selfSamples, 1)
+            selfWeight = StableCallNodeId.saturatingNonNegativeAdd(selfWeight, sampleWeight)
+        }
     }
 }
 
@@ -142,7 +193,10 @@ private fun addStack(
         }
     var parent: MutableCallNode? = null
     var siblings = roots
-    var terminal: MutableCallNode? = null
+    val leafCategory =
+        stack.categoriesRootToLeaf.last()
+            ?: table.frame(stack.frameIdsRootToLeaf.last()).firefoxCategoryName()
+    val sampleCategory = leafCategory to stack.subcategory
     indexes.forEach { sourceIndex ->
         val frame = table.frame(stack.frameIdsRootToLeaf[sourceIndex])
         check(canonicalFrames.containsKey(frame.functionId))
@@ -150,13 +204,16 @@ private fun addStack(
             siblings.getOrPut(frame.functionId) {
                 createNode(frame.functionId, parent, primaryHashStep, idDeriver)
             }
-        node.record(stack.weight, stack.threadKey, stack.categoriesRootToLeaf[sourceIndex])
-        terminal = node
+        node.record(
+            stack.weight,
+            stack.threadKey,
+            stack.categoriesRootToLeaf[sourceIndex],
+            sampleCategory,
+            isSelf = sourceIndex == stack.frameIdsRootToLeaf.lastIndex,
+            tracedDurationNanos = stack.tracedDurationNanos,
+        )
         parent = node
         siblings = node.children
-    }
-    terminal?.let { node ->
-        node.selfWeight = StableCallNodeId.saturatingNonNegativeAdd(node.selfWeight, stack.weight)
     }
 }
 
@@ -181,6 +238,7 @@ private fun createNode(
 private fun flatten(
     roots: Collection<MutableCallNode>,
     canonicalFrames: Map<FlameFunctionId, CallStackFrame>,
+    hasTracedDurations: Boolean,
 ): CallNodeTable {
     val nodeComparator = callNodeComparator(canonicalFrames)
     val orderedRoots = roots.sortedWith(nodeComparator)
@@ -192,6 +250,10 @@ private fun flatten(
     val inclusiveWeights = LongArray(nodeCount)
     val selfWeights = LongArray(nodeCount)
     val sampleCounts = LongArray(nodeCount)
+    val selfSampleCounts = LongArray(nodeCount)
+    val categoryMetrics = ArrayList<List<CallNodeCategoryMetrics>>(nodeCount)
+    val tracedInclusiveNanos = if (hasTracedDurations) LongArray(nodeCount) else null
+    val tracedSelfNanos = if (hasTracedDurations) LongArray(nodeCount) else null
     val threadCounts = IntArray(nodeCount)
     val categories = ArrayList<String?>(nodeCount)
     val projectedFrames = LinkedHashMap<Long, CallStackFrame>()
@@ -212,6 +274,10 @@ private fun flatten(
         inclusiveWeights[index] = node.inclusiveWeight
         selfWeights[index] = node.selfWeight
         sampleCounts[index] = node.sampleCount
+        selfSampleCounts[index] = node.selfSampleCount
+        categoryMetrics += node.categoryMetricsSnapshot()
+        tracedInclusiveNanos?.set(index, node.tracedInclusiveNanos)
+        tracedSelfNanos?.set(index, node.tracedSelfNanos)
         threadCounts[index] = node.threads.size
         categories += dominantCategory(node.categoryWeights)
         projectedFrames.putIfAbsent(canonicalFrame.frameId, canonicalFrame)
@@ -234,6 +300,10 @@ private fun flatten(
         threadCounts = threadCounts,
         categories = categories,
         framesById = projectedFrames,
+        selfSampleCounts = selfSampleCounts,
+        categoryMetrics = categoryMetrics,
+        tracedInclusiveNanos = tracedInclusiveNanos,
+        tracedSelfNanos = tracedSelfNanos,
     )
 }
 
@@ -272,10 +342,9 @@ private fun callNodeComparator(frames: Map<FlameFunctionId, CallStackFrame>): Co
         compareValuesBy(
             left,
             right,
-            { frames.getValue(it.functionId).symbolName.lowercase(Locale.ROOT) },
-            { it.functionId.value },
             { frames.getValue(it.functionId).symbolName },
             { frames.getValue(it.functionId).resource },
+            { it.functionId.value },
             { frames.getValue(it.functionId).virtualAddress },
             { frames.getValue(it.functionId).implementation.ordinal },
             { frames.getValue(it.functionId).frameId },

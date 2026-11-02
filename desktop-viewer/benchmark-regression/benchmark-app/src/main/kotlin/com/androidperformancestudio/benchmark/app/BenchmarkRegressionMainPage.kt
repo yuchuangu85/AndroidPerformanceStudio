@@ -45,6 +45,7 @@ import com.androidperformancestudio.benchmark.presentation.BenchmarkRunOption
 import com.androidperformancestudio.benchmark.presentation.BenchmarkTrend
 import com.androidperformancestudio.benchmark.presentation.BenchmarkTrendPoint
 import com.androidperformancestudio.benchmark.storage.SqliteBenchmarkStore
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -83,6 +84,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
     val indexStore = remember { BenchmarkReportIndexStore(reportDirectory.resolve("index.json")) }
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(BenchmarkReportsState()) }
+    PublishAiContext("benchmark", remember(state) { runCatching { benchmarkAiContext(state) }.getOrNull() })
     var settingsVisible by remember { mutableStateOf(false) }
     var orchestrationVisible by remember { mutableStateOf(false) }
     var orchestrationForm by remember { mutableStateOf(BenchmarkRunPlanForm()) }

@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="sp_tooltip_weight_value_format">%1$s weight</string>
+    <string name="sp_stack_show_user_timing">Show user timing</string>
+    <string name="sp_flame_copy_stack">Copy stack</string>
+    <string name="sp_flame_nav_complete">Complete</string>
+    <string name="sp_stack_same_widths">Use the same width for each stack</string>
+    <string name="sp_stack_zoom_to_selection">Zoom to selection</string>
     <string name="sp_cpu_profiler">CPU Profiler</string>
     <string name="sp_target_device_target">Device &amp; Target</string>
     <string name="sp_target_selection_description">Select an Android device and a profile target.</string>

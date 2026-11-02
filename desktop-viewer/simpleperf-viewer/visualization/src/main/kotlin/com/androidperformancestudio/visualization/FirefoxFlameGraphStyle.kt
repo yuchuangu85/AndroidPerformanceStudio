@@ -4,9 +4,10 @@ package com.androidperformancestudio.visualization
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.FontFamily
 import com.androidperformancestudio.ui.ViewerFlameGraphCategoryColors
 import com.androidperformancestudio.ui.ViewerFlameGraphColors
-import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.ViewerVisualizationColors
 
 data class FirefoxFlameGraphStyle(
@@ -37,6 +38,14 @@ data class FirefoxFlameGraphStyle(
 
     fun categoryStyle(role: FlameCategoryRole): FirefoxFlameCategoryStyle = categoryStyles[role.ordinal]
 
+    val dimmedFill: FlameGraphColor
+        get() = FlameGraphColor(if (theme == FlameTheme.DARK) 0xFF2A2A2E.toInt() else 0xFFF9F9FA.toInt())
+
+    val labelFontFamily: FontFamily get() = browserSansSerif
+
+    val dimmedForeground: FlameGraphColor
+        get() = FlameGraphColor(if (theme == FlameTheme.DARK) 0xFFB1B1B3.toInt() else 0xFF737373.toInt())
+
     fun nodeColors(
         category: String?,
         state: FlameNodeVisualState = FlameNodeVisualState(),
@@ -51,7 +60,7 @@ data class FirefoxFlameGraphStyle(
         return FlameNodeColors(
             fill = if (highlighted) categoryStyle.selectedFill else categoryStyle.unselectedFill,
             foreground = if (highlighted) categoryStyle.selectedText else canvasForeground,
-            outline = focusOutline.takeIf { highlighted },
+            outline = null,
         )
     }
 
@@ -99,9 +108,9 @@ private fun flameGraphStyle(
         focusOutline = argb(colors.focusOutline),
         selectedLineSurface = argb(colors.selectedLineSurface),
         rowHeightPx = cssPixels(16f, devicePixelRatio),
-        labelFontSizePx = cssPixels(ViewerTypography.flameGraphLabelPixels, devicePixelRatio),
-        labelStartOffsetPx = cssPixels(3f, devicePixelRatio),
-        labelBaselineOffsetPx = cssPixels(11f, devicePixelRatio),
+        labelFontSizePx = cssPixels(10f, devicePixelRatio),
+        labelStartOffsetPx = snappedCssPixels(3f, devicePixelRatio),
+        labelBaselineOffsetPx = snappedCssPixels(11f, devicePixelRatio),
         categoryStyles =
             categoryStyles(
                 system = colors.system.toFirefoxCategoryStyle(),
@@ -139,3 +148,11 @@ private fun cssPixels(
     value: Float,
     devicePixelRatio: Float,
 ): Float = value * devicePixelRatio
+
+@OptIn(ExperimentalTextApi::class)
+private val browserSansSerif = FontFamily("Arial")
+
+private fun snappedCssPixels(
+    value: Float,
+    devicePixelRatio: Float,
+): Float = snapFirefoxDevicePixel(value.toDouble() * devicePixelRatio).toFloat()

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,9 +43,11 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.sess
 import com.androidperformancestudio.battery.model.BatterySessionStatus
 import com.androidperformancestudio.battery.presentation.BatteryProfilerState
 import com.androidperformancestudio.battery.storage.StoredBatterySession
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioPanel
@@ -128,7 +129,7 @@ private fun BatterySessionsPane(
                 onClick = onNewExperiment,
             )
         }
-        OutlinedTextField(
+        ViewerTextField(
             value = query,
             onValueChange = { query = it },
             label = { Text(localizedStringResource(Res.string.sessions_search, language)) },
@@ -149,17 +150,18 @@ private fun BatterySessionsPane(
             )
         }
         state.sessionError?.let {
-            Text(it, color = LocalViewerColors.current.error, style = ViewerTypography.secondary)
+            CopyableText(it, color = LocalViewerColors.current.error, style = ViewerTypography.secondary, language = language)
         }
         val sessions = filterBatterySessions(state.sessions, query)
         if (sessions.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(
                     if (state.sessions.isEmpty()) Res.string.sessions_empty else Res.string.sessions_no_matches,
                     language,
                 ),
                 color = LocalViewerColors.current.mutedText,
                 style = ViewerTypography.bodyCompact,
+                language = language,
             )
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -209,7 +211,7 @@ private fun BatterySessionEntry(
                 BatterySessionStatus.COMPLETED -> Res.string.sessions_completed
                 BatterySessionStatus.INTERRUPTED -> Res.string.sessions_interrupted
             }
-        Text(
+        CopyableText(
             localizedStringResource(
                 Res.string.sessions_run_status,
                 language,
@@ -223,6 +225,7 @@ private fun BatterySessionEntry(
                     colors.secondaryText
                 },
             style = ViewerTypography.secondary,
+            language = language,
         )
     }
 }

@@ -29,7 +29,7 @@ class StackChartPresenterTest {
                 block("selected", start = 20, end = 30, depth = 2),
             )
 
-        assertEquals(StackChartBlockId("selected"), StackChartPresenter.hitTest(blocks, 25, 2))
+        assertEquals(StackChartBlockId("selected"), StackChartIndex(blocks).hitTest(25, 2)?.id)
     }
 }
 

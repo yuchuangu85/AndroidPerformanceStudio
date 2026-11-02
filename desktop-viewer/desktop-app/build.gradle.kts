@@ -20,6 +20,8 @@ val desktopMaxHeap = providers.gradleProperty("apsDesktopMaxHeap").orElse("4g")
 val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_party/firefox-profiler/dist")
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
+val adbTools = rootProject.layout.projectDirectory.dir("../build/adb-tools")
+val adbToolsPreparationScript = rootProject.layout.projectDirectory.file("../scripts/prepare-adb-tools.py")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
 val composeAgentBundle =
@@ -32,6 +34,7 @@ val prepareProfilerAppResources =
         inputs.file(firefoxProfilerDist.file("index.html"))
         inputs.file(perfettoUiDist.file("index.html"))
         inputs.file(traceProcessorManifestFile)
+        inputs.dir(adbTools)
         inputs.dir(userDocumentationEnglish)
         inputs.dir(userDocumentationChinese)
         from(firefoxProfilerDist)
@@ -40,6 +43,9 @@ val prepareProfilerAppResources =
         }
         from(perfettoTools) {
             into("perfetto-tools")
+        }
+        from(adbTools) {
+            into("adb-tools")
         }
         from(userDocumentationEnglish) {
             into("docs-user")
@@ -98,6 +104,56 @@ val targetOs =
     }
 
 val hprofEngineBinaryName = if (targetOs == "windows") "aps-hprof-engine.exe" else "aps-hprof-engine"
+if (targetOs == "linux") {
+    val launcherName = "aps-script-sandbox"
+    val launcherSource = rootProject.layout.projectDirectory.file(
+        "ai-platform/ai-platform-script-runtime/src/main/native/linux/$launcherName.c",
+    )
+    val launcherPrebuilt = providers.gradleProperty("apsScriptSandboxLauncherBinary")
+    val nativeLauncherTarget = targetArch == hostArch
+    val launcherBuilt = layout.buildDirectory.file("native/script-sandbox/$launcherName")
+    val launcherBinary = launcherPrebuilt.orNull?.let { rootProject.file(it) } ?: launcherBuilt.get().asFile
+    val launcherResources = layout.buildDirectory.dir("generated/script-sandbox")
+    val buildLauncher = tasks.register<Exec>("buildScriptSandboxLauncher") {
+        group = "distribution"
+        inputs.file(launcherSource)
+        outputs.file(launcherBuilt)
+        onlyIf { !launcherPrebuilt.isPresent && nativeLauncherTarget }
+        doFirst { launcherBuilt.get().asFile.parentFile.mkdirs() }
+        commandLine(
+            "cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2", "-fPIE", "-pie",
+            "-Wl,-z,relro,-z,now", launcherSource.asFile.absolutePath, "-o", launcherBuilt.get().asFile.absolutePath,
+        )
+    }
+    val prepareLauncher = tasks.register("prepareScriptSandboxLauncher") {
+        group = "distribution"
+        if (!launcherPrebuilt.isPresent && nativeLauncherTarget) dependsOn(buildLauncher)
+        inputs.file(launcherBinary)
+        inputs.property("targetArch", targetArch)
+        outputs.dir(launcherResources)
+        val binary = launcherBinary
+        val output = launcherResources.get().asFile
+        val architecture = targetArch
+        doLast {
+            check(binary.isFile && binary.length() in 64L..1_048_576L) { "Linux sandbox launcher is missing or invalid; cross-architecture packaging requires -PapsScriptSandboxLauncherBinary." }
+            val bytes = binary.inputStream().use { it.readNBytes(64) }
+            val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val expectedMachine = if (architecture == "x64") 62 else 183
+            check(header.getInt(0) == 0x464c457f && bytes[4].toInt() == 2 && bytes[5].toInt() == 1 &&
+                (header.getShort(18).toInt() and 0xffff) == expectedMachine
+            ) { "Linux sandbox launcher architecture does not match $architecture." }
+            check(output.isDirectory || output.mkdirs())
+            val staged = binary.copyTo(File(output, launcherName), overwrite = true)
+            check(staged.canExecute() || staged.setExecutable(true, false))
+            val digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(staged.readBytes()))
+            File(output, "$launcherName.sha256").writeText("$digest\n")
+        }
+    }
+    prepareProfilerAppResources.configure {
+        dependsOn(prepareLauncher)
+        from(launcherResources) { into("script-sandbox") }
+    }
+}
 val hprofEnginePrebuiltPath = providers.gradleProperty("apsHprofEngineBinary")
 val hprofEngineBinary =
     hprofEnginePrebuiltPath.orNull?.let { rootProject.file(it) }
@@ -288,6 +344,53 @@ val verifyPackagedTraceProcessor =
         }
     }
 
+val verifyPackagedAdbTools =
+    tasks.register<Exec>("verifyPackagedAdbTools") {
+        group = "verification"
+        description = "Verifies the target ADB executable, native companion libraries, license notices and checksums."
+        inputs.dir(adbTools)
+        inputs.file(adbToolsPreparationScript)
+        commandLine(
+            "python3",
+            adbToolsPreparationScript.asFile.absolutePath,
+            "--verify-only",
+            "--output-dir",
+            adbTools.asFile.absolutePath,
+            "--host",
+            "$targetOs-$targetArch",
+        )
+    }
+
+tasks
+    .matching { task -> task.name == "createDistributable" || task.name == "createReleaseDistributable" }
+    .configureEach {
+        val binaryName = if (targetOs == "windows") "adb.exe" else "adb"
+        val windows = targetOs == "windows"
+        doLast {
+            val packagedBinaries =
+                outputs.files.asFileTree
+                    .matching { include("**/resources/adb-tools/$binaryName") }
+                    .files
+            check(packagedBinaries.isNotEmpty()) { "Packaged ADB is missing from the distributable" }
+            packagedBinaries.forEach { binary ->
+                check(windows || binary.canExecute() || binary.setExecutable(true, false)) {
+                    "Unable to make the packaged ADB executable: $binary"
+                }
+                val manifest = Properties().apply { File(binary.parentFile, "manifest.properties").inputStream().use(::load) }
+                val count = checkNotNull(manifest.getProperty("file.count")?.toIntOrNull())
+                repeat(count) { index ->
+                    val relative = checkNotNull(manifest.getProperty("file.$index.path"))
+                    val file = File(binary.parentFile, relative)
+                    check(file.isFile) { "ADB companion file is missing from the distributable: $relative" }
+                    val actual = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(file.readBytes()))
+                    check(actual == manifest.getProperty("file.$index.sha256")) {
+                        "Packaged ADB checksum mismatch: $relative"
+                    }
+                }
+            }
+        }
+    }
+
 // The Android agent bundle is host-independent. Release CI builds it once on Linux x64 and
 // downloads it for each desktop target; packaging must never silently omit inspection support.
 val verifyPackagedComposeAgentBundle =
@@ -335,6 +438,7 @@ val verifyPackagedComposeAgentBundle =
 
 prepareProfilerAppResources.configure {
     dependsOn(verifyPackagedTraceProcessor)
+    dependsOn(verifyPackagedAdbTools)
     dependsOn(verifyPackagedComposeAgentBundle)
 }
 
@@ -346,6 +450,8 @@ require(targetArch == hostArch || targetJavaHome != null) {
 }
 
 dependencies {
+    implementation("com.androidperformancestudio:ai-platform-presentation:0.1.0-SNAPSHOT")
+    implementation("com.androidperformancestudio:ai-platform-app:0.1.0-SNAPSHOT")
     implementation(libs.aps.ai.core)
     implementation(libs.aps.source.workspace)
     implementation(libs.aps.ui.components)
@@ -387,8 +493,14 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
+val liveConfiguredAcceptance = providers.environmentVariable("APS_RUN_LIVE_CONFIGURED_PROVIDER").map { it == "true" }.orElse(false)
 tasks.test {
     useJUnitPlatform()
+    if (liveConfiguredAcceptance.get()) {
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
+        maxParallelForks = 1
+    }
 }
 
 compose.desktop {

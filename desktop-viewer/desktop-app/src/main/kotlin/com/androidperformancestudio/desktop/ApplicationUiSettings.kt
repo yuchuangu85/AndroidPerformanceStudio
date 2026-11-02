@@ -138,6 +138,7 @@ internal data class ApplicationUiSettings(
     /** The navigation rail starts collapsed and remembers the user's choice. */
     val navigationRailCollapsed: Boolean = true,
     val hprofEngine: HprofEngine = HprofEngine.DEFAULT,
+    val aiSettingsCategory: AiSettingsCategory = AiSettingsCategory.PROVIDER,
 )
 
 internal class ApplicationUiSettingsStore(
@@ -155,6 +156,7 @@ internal class ApplicationUiSettingsStore(
             navigationRailCollapsed =
                 readValue(NAVIGATION_RAIL_COLLAPSED_KEY)?.toBooleanStrictOrNull() ?: true,
             hprofEngine = HprofEngine.parse(readValue(HPROF_ENGINE_KEY)),
+            aiSettingsCategory = AiSettingsCategory.parse(readValue(AI_SETTINGS_CATEGORY_KEY)),
         )
 
     fun save(settings: ApplicationUiSettings): Boolean =
@@ -166,6 +168,7 @@ internal class ApplicationUiSettingsStore(
             writeValue(ANDROID_SDK_PATH_KEY, settings.androidSdkPath.orEmpty())
             writeValue(NAVIGATION_RAIL_COLLAPSED_KEY, settings.navigationRailCollapsed.toString())
             writeValue(HPROF_ENGINE_KEY, settings.hprofEngine.storageValue)
+            writeValue(AI_SETTINGS_CATEGORY_KEY, settings.aiSettingsCategory.name)
             flush()
         }.isSuccess
 
@@ -177,6 +180,7 @@ internal class ApplicationUiSettingsStore(
         private const val ANDROID_SDK_PATH_KEY = "application.androidSdkPath"
         private const val NAVIGATION_RAIL_COLLAPSED_KEY = "application.navigationRailCollapsed"
         private const val HPROF_ENGINE_KEY = "application.hprofEngine"
+        private const val AI_SETTINGS_CATEGORY_KEY = "application.aiSettingsCategory"
 
         fun desktop(): ApplicationUiSettingsStore {
             val preferences =

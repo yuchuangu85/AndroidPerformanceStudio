@@ -70,8 +70,8 @@ class AdbProcessRunner(
             causeMessage: String?,
         ): String = buildString {
             append("ADB executable not found: $executable. ")
-            append("Install Android SDK Platform Tools, set ANDROID_HOME or ANDROID_SDK_ROOT, ")
-            append("or add platform-tools to PATH.")
+            append("Application-managed ADB tools may be missing or damaged. Restore the application tools, ")
+            append("or configure an Android SDK using Settings, ANDROID_HOME or ANDROID_SDK_ROOT.")
             if (!causeMessage.isNullOrBlank()) append(" Original error: $causeMessage")
         }
     }

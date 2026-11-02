@@ -25,7 +25,7 @@ class FlameGraphNavigatorTest {
         val equalWidthSnapshot = navigationSnapshot(equalChildWidths = true)
 
         assertEquals(id(4), FlameGraphNavigator.widestChild(snapshot, id(1), minimumNormalizedWidth = 0.001))
-        assertEquals(id(4), FlameGraphNavigator.widestChild(snapshot, id(1), minimumNormalizedWidth = 0.3))
+        assertEquals(id(4), FlameGraphNavigator.widestChild(snapshot, id(1), minimumNormalizedWidth = 0.299))
         assertNull(FlameGraphNavigator.widestChild(snapshot, id(1), minimumNormalizedWidth = 0.301))
         assertEquals(id(2), FlameGraphNavigator.widestChild(equalWidthSnapshot, id(1)))
     }
@@ -60,11 +60,32 @@ class FlameGraphNavigatorTest {
         val snapshot = navigationSnapshot()
 
         listOf(-0.001, Double.NaN, Double.POSITIVE_INFINITY).forEach { invalid ->
-            assertFailsWith<IllegalArgumentException> { FlameGraphNavigator.parent(snapshot, id(2), invalid) }
             assertFailsWith<IllegalArgumentException> { FlameGraphNavigator.widestChild(snapshot, id(1), invalid) }
             assertFailsWith<IllegalArgumentException> { FlameGraphNavigator.previousSibling(snapshot, id(2), invalid) }
             assertFailsWith<IllegalArgumentException> { FlameGraphNavigator.nextSibling(snapshot, id(2), invalid) }
         }
+    }
+
+    @Test
+    fun `horizontal navigation follows the full row across parents and uses row order`() {
+        val snapshot = crossParentSnapshot()
+
+        assertEquals(id(5), FlameGraphNavigator.nextSibling(snapshot, id(2)))
+        assertEquals(id(2), FlameGraphNavigator.previousSibling(snapshot, id(5)))
+        assertNull(FlameGraphNavigator.previousSibling(snapshot, id(2)))
+        assertNull(FlameGraphNavigator.nextSibling(snapshot, id(5)))
+        assertEquals(id(5), FlameGraphNavigator.target(snapshot, id(2), FlameGraphNavigationCommand.NEXT_SIBLING))
+        assertEquals(id(2), FlameGraphNavigator.target(snapshot, id(5), FlameGraphNavigationCommand.PREVIOUS_SIBLING))
+    }
+
+    @Test
+    fun `exact threshold nodes are skipped but parent navigation has no width gate`() {
+        val snapshot = crossParentSnapshot()
+
+        assertNull(FlameGraphNavigator.widestChild(snapshot, id(3)))
+        assertEquals(id(3), FlameGraphNavigator.parent(snapshot, id(4)))
+        assertEquals(id(1), FlameGraphNavigator.previousSibling(snapshot, id(6)))
+        assertEquals(id(5), FlameGraphNavigator.nextSibling(snapshot, id(2)))
     }
 
     @Test
@@ -141,6 +162,36 @@ class FlameGraphNavigatorTest {
             virtualAddress = id,
             implementation = FrameImplementation.NATIVE,
         )
+
+    private fun crossParentSnapshot(): FlameGraphSnapshot {
+        val ids = longArrayOf(1, 2, 3, 4, 6, 5)
+        return FlameGraphSnapshot(
+            query = CallStackAnalysisQuery(),
+            callNodes =
+                CallNodeTable(
+                    ids = ids,
+                    parentIndexes = intArrayOf(-1, 0, -1, 2, -1, 4),
+                    frameIds = ids,
+                    depths = intArrayOf(0, 1, 0, 1, 0, 1),
+                    inclusiveWeights = longArrayOf(100, 60, 1, 1, 100, 30),
+                    selfWeights = LongArray(ids.size),
+                    sampleCounts = LongArray(ids.size),
+                    threadCounts = IntArray(ids.size),
+                    categories = List(ids.size) { null },
+                    framesById = ids.associateWith(::frame),
+                ),
+            rows =
+                FlameGraphRows(
+                    nodeIndexesByRow = listOf(intArrayOf(0, 2, 4), intArrayOf(1, 3, 5)),
+                    starts = doubleArrayOf(0.0, 0.0, 0.6, 0.0, 0.7, 0.7),
+                    ends = doubleArrayOf(0.6, 0.6, 0.6005, 0.001, 1.0, 1.0),
+                    startsAtBottom = true,
+                ),
+            totalWeight = 201,
+            emptyReason = null,
+            invalidTransforms = emptyList(),
+        )
+    }
 
     private fun flatSnapshot(parentIndexes: IntArray): FlameGraphSnapshot {
         val ids = LongArray(parentIndexes.size) { it.toLong() }

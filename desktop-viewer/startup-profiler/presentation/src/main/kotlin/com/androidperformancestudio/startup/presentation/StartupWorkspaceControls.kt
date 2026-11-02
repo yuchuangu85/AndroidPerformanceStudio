@@ -76,6 +76,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.sto
 import com.androidperformancestudio.startup.presentation.generated.resources.warm_start_description
 import com.androidperformancestudio.startup.presentation.generated.resources.warmup_runs
 import com.androidperformancestudio.ui.ActiveTitleBarTarget
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -394,7 +395,7 @@ internal fun StartupScenarioControls(
                 enabled = !state.isRunning,
                 modifier = Modifier.fillMaxWidth().testTag("startup-profile-artifact"),
             )
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.profile_artifact_hint, language),
                 color = LocalViewerColors.current.secondaryText,
                 fontSize = ViewerTypography.secondary.fontSize,
@@ -439,7 +440,7 @@ internal fun StartupProfileSummary(
         contentPadding = StudioTokens.compactContentPadding,
     ) {
         Text(localizedStringResource(Res.string.baseline_profile_status, language), fontWeight = FontWeight.SemiBold)
-        Text(
+        CopyableText(
             localizedStringResource(
                 when {
                     evidence == null -> Res.string.profile_no_evidence

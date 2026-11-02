@@ -93,8 +93,8 @@ private fun tooltipGoldenFacts() =
         category = "Rendering",
         implementation = FrameImplementation.MANAGED,
         resource = "/system/framework/framework.jar",
-        inclusiveWeight = 12_345_000,
-        selfWeight = 1_280_000,
+        inclusiveWeight = 90,
+        selfWeight = 9,
         sampleCount = 90,
         selfSampleCount = 9,
         categorySamples =
@@ -106,6 +106,8 @@ private fun tooltipGoldenFacts() =
         threadCount = 2,
         percentage = 61.728,
         previewRangeWeight = null,
+        weightType = com.androidperformancestudio.profileanalysis.CallStackWeightType.SAMPLES,
+        tracedInclusiveNanos = 12_345_000,
     )
 
 private const val GOLDEN_TAG = "firefox-tooltip-golden"

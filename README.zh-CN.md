@@ -27,7 +27,7 @@ Android Performance Studio 是一个基于 Compose Desktop 的 Android 性能分
 
 安装包已包含 Java 运行时和准备好的分析器资源。使用安装包不需要 Git、独立 JDK、Node.js、Yarn、Python 或 Android SDK/NDK 构建工具链。
 
-设备采集需要 Android SDK Platform Tools（`adb`）、开启 USB 调试并授权设备。仅分析导入产物时不需要连接设备。打开 **Settings** 可配置 Android SDK 位置、语言、主题和显示缩放；源码与 AI 设置按需配置。
+安装包自带应用托管的 ADB；设备采集不需要另行安装 Android SDK / Platform Tools，也不需要配置 ADB 环境变量或 `PATH`。仍需开启设备 USB 调试并授权连接；设备驱动或 USB 访问权限问题不由内置 ADB 绕过。已有 SDK / ADB 配置继续受支持，显式配置优先。仅分析导入产物时不需要连接设备。打开 **Settings** 可按需配置 Android SDK 位置、语言、主题和显示缩放；源码与 AI 设置按需配置。
 
 具体操作见[中文用户指南](docs-user-zh/README.md)或[英文用户指南](docs-user/README.md)。
 

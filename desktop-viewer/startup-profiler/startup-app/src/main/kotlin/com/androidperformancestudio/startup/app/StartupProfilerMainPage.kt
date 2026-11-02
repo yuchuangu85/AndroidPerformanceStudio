@@ -57,6 +57,8 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.impo
 import com.androidperformancestudio.startup.startup_app.generated.resources.import_startup_profiler_report
 import com.androidperformancestudio.startup.startup_app.generated.resources.refresh
 import com.androidperformancestudio.startup.startup_app.generated.resources.status
+import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -83,6 +85,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
 ) {
     val controller = remember(language) { StartupProfilerController(language = language) }
     val state by controller.state.collectAsState()
+    PublishAiContext("startup", remember(state) { runCatching { startupAiContext(state) }.getOrNull() })
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     val targetHost = LocalTitleBarTargetHost.current
@@ -158,8 +161,8 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     if (state.compilationConfirmationRequired) {
         AlertDialog(
             onDismissRequest = controller::dismissCompilationConfirmation,
-            title = { Text(localizedStringResource(Res.string.compilation_change_title, language)) },
-            text = { Text(localizedStringResource(Res.string.compilation_change_message, language)) },
+            title = { CopyableText(localizedStringResource(Res.string.compilation_change_title, language), language = language) },
+            text = { CopyableText(localizedStringResource(Res.string.compilation_change_message, language), language = language) },
             dismissButton = {
                 TextButton(onClick = controller::dismissCompilationConfirmation) {
                     Text(localizedStringResource(Res.string.cancel, language))
@@ -300,8 +303,9 @@ private fun StartupProfilerStatusBar(
                     maxLines = 1,
                 )
                 Spacer(Modifier.width(4.dp))
-                Text(
+                CopyableText(
                     text = it,
+                    language = language,
                     color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
                     fontSize = ViewerTypography.secondary.fontSize,
                     lineHeight = ViewerTypography.secondary.lineHeight,

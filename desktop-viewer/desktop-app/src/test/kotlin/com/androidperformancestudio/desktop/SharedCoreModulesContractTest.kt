@@ -143,12 +143,17 @@ class SharedCoreModulesContractTest {
     @Test
     fun `profiler business modules never construct adb processes directly`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
-        val allowed = desktopViewer.resolve("platform-core/host-toolchain/src/main/kotlin/com/androidperformancestudio/platform/toolchain/HostProcessRunner.kt")
+        val allowed = setOf(
+            desktopViewer.resolve("platform-core/host-toolchain/src/main/kotlin/com/androidperformancestudio/platform/toolchain/HostProcessRunner.kt"),
+            // This independent provider transport is not a profiler ADB gateway. Its readBounded
+            // helper otherwise triggers the deliberately broad case-insensitive ADB source guard.
+            desktopViewer.resolve("ai-platform/ai-platform-providers/src/main/kotlin/com/androidperformancestudio/aiplatform/providers/ControlledProviderProcess.kt"),
+        )
         val offenders =
             Files.walk(desktopViewer).use { paths ->
                 paths
                     .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") && it.toString().contains("/src/main/") }
-                    .filter { it != allowed }
+                    .filter { it !in allowed }
                     .filter {
                         val source = Files.readString(it)
                         source.contains("ProcessBuilder(") && source.contains("adb", ignoreCase = true)

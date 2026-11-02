@@ -83,6 +83,8 @@ import com.androidperformancestudio.battery.model.BatteryCaptureMode
 import com.androidperformancestudio.battery.presentation.BatteryProfilerActions
 import com.androidperformancestudio.battery.presentation.BatteryProfilerScreen
 import com.androidperformancestudio.platform.toolchain.RecentPathStore
+import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderDivider
@@ -115,6 +117,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
 ) {
     val controller = remember(language) { BatteryProfilerController(language = language) }
     val state by controller.state.collectAsState()
+    PublishAiContext("battery", remember(state) { runCatching { batteryAiContext(state) }.getOrNull() })
     val scope = rememberCoroutineScope()
     val targetHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
     val selectionReady =
@@ -428,8 +431,9 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             onDismissRequest = { confirmReset = false },
             title = { Text(localizedStringResource(Res.string.reset_global_batterystats, language)) },
             text = {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.this_clears_battery_statistics_and_battery_historian_history_for_every, language),
+                    language = language,
                 )
             },
             confirmButton = {
@@ -450,8 +454,9 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
             onDismissRequest = { confirmBugreport = false },
             title = { Text(localizedStringResource(Res.string.generate_battery_historian_input, language)) },
             text = {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.bugreports_may_contain_accounts_ssids_app_lists_logs_and_device, language),
+                    language = language,
                 )
             },
             confirmButton = {
@@ -507,12 +512,13 @@ private fun BatteryProfilerStatusBar(
                     maxLines = 1,
                 )
                 Spacer(Modifier.width(4.dp))
-                Text(
+                CopyableText(
                     text = it,
                     color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
                     fontSize = ViewerTypography.secondary.fontSize,
                     lineHeight = ViewerTypography.secondary.lineHeight,
                     maxLines = 1,
+                    language = language,
                 )
             }
         }

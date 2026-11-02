@@ -175,11 +175,12 @@ public fun <T> DropdownSelector(
                 }
             }
             if (searchable && filteredItems.isEmpty()) {
-                Text(
+                CopyableText(
                     text = localizedStringResource(emptyOptionsMessage, searchLanguage),
                     color = colors.secondaryText,
                     fontSize = menuTextSize,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    language = searchLanguage,
                 )
             }
             filteredItems.forEach { item ->

@@ -23,12 +23,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 
 
 /** Visual variants for [SegmentedSelector]. */
@@ -64,12 +67,18 @@ public fun <T> SegmentedSelector(
     style: SegmentedSelectorStyle = SegmentedSelectorStyle.PILL,
     onSelectedItemClick: ((T) -> Unit)? = null,
     colors: ViewerColors = LocalViewerColors.current,
+    textStyle: TextStyle = ViewerTypography.secondary,
 ) {
     if (items.isEmpty()) return
 
     val compact = style == SegmentedSelectorStyle.COMPACT_OUTLINED
-    val controlHeight = if (compact) ViewerDimensions.compactControlHeight else ViewerDimensions.segmentedControlHeight
-    val itemHeight = if (compact) ViewerDimensions.compactControlHeight else ViewerDimensions.segmentedItemHeight
+    val defaultItemHeight = if (compact) ViewerDimensions.compactControlHeight else ViewerDimensions.segmentedItemHeight
+    val lineHeight = textStyle.lineHeight.takeIf { it.isSpecified }
+        ?: textStyle.fontSize.takeIf { it.isSpecified }
+        ?: ViewerTypography.secondary.lineHeight
+    val textHeight = with(LocalDensity.current) { lineHeight.toDp() }
+    val itemHeight = maxOf(defaultItemHeight, textHeight + ViewerDimensions.segmentedItemVerticalPadding * 2)
+    val controlHeight = if (compact) itemHeight else maxOf(ViewerDimensions.segmentedControlHeight, itemHeight + 4.dp)
     val radius = if (compact) ViewerDimensions.compactControlRadius else ViewerDimensions.segmentedRadius
     val trackShape = RoundedCornerShape(radius)
     val trackColor = if (compact) colors.panel else colors.segmentedTrack
@@ -128,7 +137,7 @@ public fun <T> SegmentedSelector(
             ) {
                 Text(
                     text = itemLabel(item),
-                    style = ViewerTypography.secondary,
+                    style = textStyle,
                     color =
                         (if (compact && selected) colors.accentText else if (compact) colors.accent else colors.primaryText)
                             .copy(alpha = if (canSelect) 1f else DISABLED_CHIP_ALPHA),

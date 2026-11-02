@@ -122,6 +122,7 @@ import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.search.CompactSearchField
 import com.androidperformancestudio.ui.search.CompactSearchNavigationButton
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -132,7 +133,6 @@ import com.androidperformancestudio.ui.button.SettingsButton
 import com.androidperformancestudio.application.ConnectionStatus
 import com.androidperformancestudio.application.InspectorState
 import com.androidperformancestudio.application.InspectorStore
-import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import com.androidperformancestudio.platform.toolchain.RecentPathStore
 import com.androidperformancestudio.adb.ConnectedDeviceSession
 import com.androidperformancestudio.adb.AdbProcessRunner
@@ -168,6 +168,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -269,6 +270,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var state by remember { mutableStateOf(store.state) }
     var autoScanEnabled by remember { mutableStateOf(AUTO_SCAN_DEFAULT_ENABLED) }
     var manualRefreshRequest by remember { mutableStateOf(0) }
+    val manualRefreshRequests = remember { ManualRefreshRequests() }
+    var manualRefreshInvalidation by remember { mutableStateOf(0) }
     var manualRefreshInProgress by remember { mutableStateOf(false) }
     val deviceClient = remember { LiveDeviceClient() }
     val refreshTimingSink = remember { ConsoleRefreshTimingSink }
@@ -312,6 +315,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             ?: (error.message ?: error.javaClass.simpleName)
     }
     val composeCompilerReportParser = remember { ComposeCompilerReportParser() }
+    var composeAgentRequested by remember { mutableStateOf(false) }
+    var pendingComposeAuthorization by remember { mutableStateOf<PreparedComposeInspection?>(null) }
     var fullComposeEnabled by remember { mutableStateOf(false) }
     var hideSystemComposables by remember { mutableStateOf(DEFAULT_HIDE_SYSTEM_COMPOSABLES) }
     var composeAuthorization by remember { mutableStateOf<AuthorizedComposeTarget?>(null) }
@@ -336,10 +341,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     DisposableEffect(manualRefreshSession) {
         onDispose { manualRefreshSession.close() }
     }
-    var availableDevices by remember { mutableStateOf<List<AndroidDeviceInfo>>(emptyList()) }
     var selectedDeviceSerial by remember(correlationHint) { mutableStateOf(correlationHint?.deviceSerial) }
     val titleBarTargets = LocalTitleBarTargetHost.current
     var deviceListRefreshRequest by remember { mutableStateOf(0) }
+    val availableDevices = rememberInspectorDeviceOptions(titleBarTargets, deviceListRefreshRequest) {
+        deviceClient.listAuthorizedDeviceInfos()
+    }
     val protocolCodec = remember { ProtocolCodec(supportedMajor = 1) }
     val archiveFileChooser = remember { SwingCaptureArchiveFileChooser() }
     val recentArchiveStore =
@@ -373,36 +380,19 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var hiddenLayerState by remember { mutableStateOf(HiddenLayerState()) }
     var searchState by remember { mutableStateOf(HierarchySearchState()) }
 
-    LaunchedEffect(deviceListRefreshRequest) {
-        val devices = withContext(Dispatchers.IO) {
-            runInspectorCatching { deviceClient.listAuthorizedDeviceInfos() }.getOrDefault(emptyList())
-        }
-        availableDevices = devices
-        selectedDeviceSerial =
-            if (titleBarTargets?.selectedDeviceSerial != null) {
-                titleBarTargets.selectedDeviceSerial?.takeIf { shared ->
-                    devices.any { it.serial == shared && it.online }
-                }
-            } else {
-                sanitizeSelectedDeviceSerial(selectedDeviceSerial, devices)
-            }
-    }
-
     LaunchedEffect(titleBarTargets, titleBarTargets?.selectedDeviceSerial, selectedDeviceSerial, availableDevices) {
-        val host = titleBarTargets ?: return@LaunchedEffect
-        val sharedSerial = host.selectedDeviceSerial
-        if (sharedSerial == null) {
-            availableDevices.firstOrNull { it.serial == selectedDeviceSerial }?.let { device ->
-                host.chooseDevice(device.serial, device.displayName)
-            }
-        } else if (sharedSerial != selectedDeviceSerial) {
-            selectedDeviceSerial = sharedSerial.takeIf { serial ->
+        selectedDeviceSerial = if (titleBarTargets != null) {
+            titleBarTargets.selectedDeviceSerial?.takeIf { serial ->
                 availableDevices.any { it.serial == serial && it.online }
             }
+        } else {
+            selectedInspectorDeviceSerial(selectedDeviceSerial, availableDevices)
         }
     }
 
-    fun selectedCaptureSerial(): String? = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial
+    fun selectedCaptureSerial(): String? = selectedDeviceSerial?.takeIf { serial ->
+        availableDevices.any { it.serial == serial && it.online }
+    }
 
     suspend fun currentCaptureTarget(): InspectorCaptureTarget {
         val serial = checkNotNull(selectedCaptureSerial()) { "No Android device selected" }
@@ -433,6 +423,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         forceRetry: Boolean = false,
         target: InspectorCaptureTarget? = null,
     ): Boolean {
+        if (!composeAgentRequested) return false
         if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return false
         val requested = target ?: runInspectorCatching { currentCaptureTarget() }.getOrNull() ?: return false
         if (composePreparationTarget != requested) {
@@ -440,6 +431,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             composePreparation.invalidate()
             composeSession = null
             composeAuthorization = null
+            pendingComposeAuthorization = null
             fullComposeEnabled = false
             recompositionActive = false
             fullComposeRecoveryAttempts = 0
@@ -454,24 +446,30 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             mode = requested.mode,
             authorizedPackage = authorized?.takeIf { it.serial == requested.serial }?.packageName,
         ) == null
-        if (sameTarget && fullComposeEnabled && !forceRetry) return true
+        if (sameTarget && fullComposeEnabled) return true
+        if (pendingComposeAuthorization != null) return false
         if (!forceRetry && fullComposeRecoveryAttempts >= MAX_FULL_COMPOSE_RECOVERY_ATTEMPTS) return false
         val prepared = composePreparation.prepareForCapture(requested.serial, requested.packageName, forceRetry) ?: return false
-        if (!isCaptureTargetCurrent(requested)) return false
+        if (!composeAgentRequested || !isCaptureTargetCurrent(requested)) return false
         return prepared.fold(
             onSuccess = { ready ->
-                composeAuthorization = AuthorizedComposeTarget(ready, ComposeInspectionAuthorization.authorize(ready.preflight))
-                fullComposeEnabled = true
-                composeUnavailableReason = null
-                composeExpected = true
-                if (forceRetry) fullComposeRecoveryAttempts = 0
-                true
+                if (fullComposeEnabled && composeAuthorization?.prepared === ready) {
+                    true
+                } else {
+                    pendingComposeAuthorization = ready
+                    composeUnavailableReason = null
+                    composeExpected = true
+                    if (forceRetry) fullComposeRecoveryAttempts = 0
+                    false
+                }
             },
             onFailure = { error ->
                 val baseReason = error.message ?: error.javaClass.simpleName
                 val reason = "Full Compose inspection unavailable for " + requested.packageName + ": " + baseReason
                 if (composeUnavailableReason != reason) System.err.println("[layout-inspector] " + reason)
                 composeUnavailableReason = reason
+                store.noteComposeInspectionUnavailable(reason)
+                state = store.state
                 store.state.snapshot?.takeIf { it.packageName == requested.packageName }?.let { snapshot ->
                     composeCaptureWarning(snapshot, reason, composeExpected)?.let { warning ->
                         store.noteComposeInspectionUnavailable(warning)
@@ -479,6 +477,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     }
                 }
                 fullComposeEnabled = false
+                if (!manualRefreshInProgress) composeAgentRequested = false
                 composeAuthorization = null
                 recompositionActive = false
                 false
@@ -486,7 +485,34 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         )
     }
 
-    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, fullComposeEnabled, composeAuthorization) {
+    val updateComposeAgentRequested: (Boolean) -> Unit = { requested ->
+        composeAgentRequested = requested
+        composePreparation.invalidate()
+        pendingComposeAuthorization = null
+        composePreparationTarget = null
+        composeAuthorization = null
+        fullComposeEnabled = false
+        composeSession = null
+        recompositionActive = false
+        recompositionHeat = emptyMap()
+        fullComposeRecoveryAttempts = 0
+        composeUnavailableReason = null
+        composeExpected = requested
+        if (!requested && store.state.connectionStatus != ConnectionStatus.ARCHIVE) {
+            store.fallbackToCompatibleInspection()
+            state = store.state
+        }
+    }
+
+    LaunchedEffect(selectedDeviceSerial, captureTargetMode) {
+        manualRefreshRequests.discardThrough(manualRefreshRequest)
+        manualRefreshInProgress = false
+        if (composeAgentRequested || fullComposeEnabled || pendingComposeAuthorization != null) {
+            updateComposeAgentRequested(false)
+        }
+    }
+
+    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, fullComposeEnabled, composeAuthorization, composeAgentRequested) {
         if (!manualRefreshInProgress) prepareFullComposeForForeground()
     }
 
@@ -494,9 +520,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     // prepare the new package. Without this the first attempt stayed sticky: preparing a native View
     // app used to block every later Compose app, and a previously authorized app was reused after
     // another app took the foreground.
-    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, titleBarTargets?.selectedDeviceSerial) {
+    LaunchedEffect(selectedDeviceSerial, availableDevices, captureTargetMode, titleBarTargets?.selectedDeviceSerial, composeAgentRequested) {
+        if (!composeAgentRequested) return@LaunchedEffect
         if (titleBarTargets?.deviceReady(selectedDeviceSerial) == false) return@LaunchedEffect
-        val serial = selectedDeviceSerial ?: availableDevices.singleOrNull()?.serial ?: return@LaunchedEffect
+        val serial = selectedCaptureSerial() ?: return@LaunchedEffect
         while (currentCoroutineContext().isActive) {
             val foreground = withContext(Dispatchers.IO) {
                 runInspectorCatching { deviceClient.foregroundPackageName(serial) }.getOrNull()
@@ -510,7 +537,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
     }
 
-    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization, titleBarTargets?.selectedDeviceSerial) {
+    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization, titleBarTargets?.selectedDeviceSerial, composeAgentRequested) {
         if (!autoScanEnabled) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE &&
                 store.state.connectionStatus != ConnectionStatus.ERROR
@@ -538,24 +565,31 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 state = store.state
                 if (fullComposeEnabled) {
                     val authorized = checkNotNull(composeAuthorization) { "Full Compose inspection is not authorized" }
-                    fullSession = withContext(Dispatchers.IO) {
+                    val activeSession = withContext(Dispatchers.IO) {
                         val injected = composeInjectionManager.attach(authorized.prepared, authorized.authorization)
-                        ComposeLiveSession.open(
-                            injection = injected,
-                            artifactResolver = composeArtifactResolver,
-                            processRunner = composeProcessRunner,
-                            expectedComposeVersion = checkNotNull(authorized.prepared.preflight.composeVersion),
-                            explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
-                                ?.takeIf(String::isNotBlank)?.let(Path::of),
-                        )
+                        try {
+                            currentCoroutineContext().ensureActive()
+                            // Retain ownership even if cancellation discards the dispatcher result.
+                            ComposeLiveSession.open(
+                                injection = injected,
+                                artifactResolver = composeArtifactResolver,
+                                processRunner = composeProcessRunner,
+                                expectedComposeVersion = checkNotNull(authorized.prepared.preflight.composeVersion),
+                                explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
+                                    ?.takeIf(String::isNotBlank)?.let(Path::of),
+                            ).also { fullSession = it }
+                        } catch (error: Throwable) {
+                            injected.close()
+                            throw error
+                        }
                     }
-                    composeSession = fullSession
+                    composeSession = activeSession
                     if (recompositionActive) withContext(Dispatchers.IO) {
-                        fullSession.startRecompositionObservation()
+                        activeSession.startRecompositionObservation()
                     }
                     while (currentCoroutineContext().isActive) {
                         val capture = withContext(Dispatchers.IO) {
-                            fullSession.capture(hideSystemComposables)
+                            activeSession.capture(hideSystemComposables)
                         }
                         verifyCaptureTarget(target, capture.snapshot.packageName)
                         store.loadCapture(
@@ -625,12 +659,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         fullComposeRecoveryAttempts < MAX_FULL_COMPOSE_RECOVERY_ATTEMPTS
                 if (fullComposeEnabled && recoverableTarget) {
                     // The target app crashed or restarted: close the dead session, authorize the app
-                    // again and stay in full fidelity instead of degrading on the first loss.
+                    // again only after explicit confirmation of the new process.
                     fullComposeRecoveryAttempts += 1
                     val failedSession = fullSession
                     fullSession = null
                     composeSession = null
                     withContext(NonCancellable + Dispatchers.IO) { failedSession?.close() }
+                    currentCoroutineContext().ensureActive()
                     composeAuthorization = null
                     fullComposeEnabled = false
                     composePreparation.invalidate()
@@ -643,11 +678,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     fullSession = null
                     composeSession = null
                     withContext(NonCancellable + Dispatchers.IO) { failedSession?.close() }
+                    currentCoroutineContext().ensureActive()
                     val recovery = composeFallbackRecovery()
                     fullComposeRecoveryAttempts += 1
                     composePreparation.invalidate()
                     composeAuthorization = null
                     fullComposeEnabled = recovery.fullComposeEnabled
+                    composeAgentRequested = false
                     recompositionActive = recovery.recompositionActive
                     autoScanEnabled = recovery.autoScanEnabled
                     composeUnavailableReason = "Full Compose inspection failed: " + failureReason
@@ -659,7 +696,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     delay(RECONNECT_INTERVAL_MILLIS.milliseconds)
                 }
             } finally {
-                composeSession = null
+                if (composeSession === fullSession) composeSession = null
                 withContext(NonCancellable + Dispatchers.IO) {
                     fullSession?.close()
                     session?.close()
@@ -687,8 +724,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         if (store.loadComposeDetail(document.frame.frameId, detail)) state = store.state
     }
 
-    LaunchedEffect(manualRefreshRequest, autoScanEnabled) {
-        if (manualRefreshRequest == 0 || autoScanEnabled) {
+    LaunchedEffect(manualRefreshRequest, autoScanEnabled, composeAgentRequested, selectedDeviceSerial, captureTargetMode, manualRefreshInvalidation) {
+        val refreshRequest = manualRefreshRequest
+        if (autoScanEnabled) {
+            manualRefreshRequests.discardThrough(refreshRequest)
             manualRefreshInProgress = false
             return@LaunchedEffect
         }
@@ -696,8 +735,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             manualRefreshInProgress = false
             return@LaunchedEffect
         }
+        val refreshAttempt = manualRefreshRequests.begin(refreshRequest) ?: return@LaunchedEffect
         val timer = RefreshTimer("manual", refreshTimingSink)
         manualRefreshInProgress = true
+        var refreshCancelled = false
         var requestedTarget: InspectorCaptureTarget? = null
         try {
             store.connecting()
@@ -714,9 +755,11 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     "Full Compose inspection is not authorized"
                 }
                 val capture = withContext(Dispatchers.IO) {
+                    val captureContext = currentCoroutineContext()
                     timer.measure("captureFullCompose") {
                         val injected = composeInjectionManager.attach(authorized.prepared, authorized.authorization)
                         try {
+                            captureContext.ensureActive()
                             ComposeLiveSession.open(
                                 injection = injected,
                                 artifactResolver = composeArtifactResolver,
@@ -766,6 +809,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 aiAnalysisUiState = AiAnalysisUiState.Idle
             }
         } catch (error: CancellationException) {
+            refreshCancelled = true
             throw error
         } catch (error: InspectorCaptureTargetChangedException) {
             manualRefreshSession.invalidate()
@@ -809,6 +853,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         aiAnalysisUiState = AiAnalysisUiState.Idle
                     }
                 } catch (error: CancellationException) {
+                    refreshCancelled = true
                     throw error
                 } catch (fallbackError: Exception) {
                     store.connectionFailed(
@@ -822,7 +867,9 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 state = store.state
             }
         } finally {
-            manualRefreshInProgress = false
+            refreshCancelled = refreshCancelled || !currentCoroutineContext().isActive
+            if (manualRefreshRequests.finish(refreshAttempt, refreshCancelled)) manualRefreshInProgress = false
+            if (!refreshCancelled && !fullComposeEnabled && composeUnavailableReason != null) composeAgentRequested = false
         }
     }
 
@@ -938,6 +985,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             return@openCaptureArchive
         }
         autoScanEnabled = false
+        manualRefreshRequests.discardThrough(manualRefreshRequest)
+        manualRefreshInvalidation += 1
+        manualRefreshInProgress = false
+        updateComposeAgentRequested(false)
         archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.IMPORT)
         coroutineScope.launch {
             try {
@@ -1093,13 +1144,24 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             )
         }
     }
+    val globalAiContext = remember(state.snapshot, state.activeRoot, state.analysis, state.selectedNodeId) {
+        // An expired selection is unavailable, not a request to silently analyze the report.
+        if (state.selectedNodeId != null && state.selectedNode == null) null else {
+            layoutUiAiContext(
+                state.snapshot?.capturedAtEpochMillis?.toString().orEmpty(),
+                buildAiAnalysisInput(state.selectedNode),
+            )
+        }
+    }
+    com.androidperformancestudio.ui.PublishAiContext("layout-inspector", globalAiContext)
     val runAiAnalysis: () -> Unit = runAiAnalysis@{
         if (aiAnalysisUiState is AiAnalysisUiState.Working) return@runAiAnalysis
         prepareAiAnalysis(buildAiAnalysisInput(state.selectedNode) ?: return@runAiAnalysis)
     }
 
     val presentationCache = remember { InspectorPresentationCache() }
-    val model = presentationCache.present(state, uiLanguage)
+    val deviceOnline = selectedCaptureSerial() != null && titleBarTargets?.deviceReady(selectedDeviceSerial) != false
+    val model = presentationCache.present(state, uiLanguage, deviceOnline)
 
     val selectNode: (String) -> Unit = { id ->
         if (store.selectNode(id)) state = store.state
@@ -1236,18 +1298,20 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 val inTitleBar = LocalTitleBarTargetHost.current != null
                 TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
                     DeviceSelector(
-                        devices = deviceChoices(availableDevices),
+                        devices = availableDevices.map { DeviceChoiceModel(it.serial, it.label) },
                         selectedSerial = selectedDeviceSerial,
                         onSelectDevice = { serial ->
                             if (serial == null) {
                                 titleBarTargets?.clearDevice()
                             } else {
                                 availableDevices.firstOrNull { it.serial == serial }?.let { device ->
-                                    titleBarTargets?.chooseDevice(serial, device.displayName)
+                                    titleBarTargets?.chooseDevice(serial, device.label)
                                 }
                             }
                             manualRefreshSession.invalidate()
                             composeAuthorization = null
+                            composeAgentRequested = false
+                            pendingComposeAuthorization = null
                             fullComposeEnabled = false
                             recompositionActive = false
                             composePreparation.invalidate()
@@ -1275,6 +1339,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         if (captureTargetMode != mode) {
                             manualRefreshSession.invalidate()
                             composeAuthorization = null
+                            composeAgentRequested = false
+                            pendingComposeAuthorization = null
                             fullComposeEnabled = false
                             recompositionActive = false
                             composePreparation.invalidate()
@@ -1312,6 +1378,17 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 HeaderSpacer()
                 Text(model.connectionLabel, color = connectionColor, fontSize = ViewerTypography.bodyCompact.fontSize)
                 Spacer(Modifier.weight(1f))
+                ComposeAgentToggle(
+                    checked = composeAgentRequested,
+                    canEnable = captureTargetMode == CaptureTargetMode.FOREGROUND_APP &&
+                        !manualRefreshInProgress &&
+                        deviceOnline &&
+                        archiveUiState !is CaptureArchiveUiState.Working &&
+                        titleBarTargets?.deviceReady(selectedDeviceSerial) != false,
+                    language = language,
+                    onCheckedChange = updateComposeAgentRequested,
+                )
+                HeaderSpacer()
                 val scanControlState = ScanControlState(
                     autoScanEnabled = autoScanEnabled,
                     manualRefreshInProgress = manualRefreshInProgress,
@@ -1677,6 +1754,37 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 )
             }
         }
+        pendingComposeAuthorization?.let { ready ->
+            ComposeAgentAuthorizationDialog(
+                preflight = ready.preflight,
+                language = uiLanguage,
+                onCancel = { updateComposeAgentRequested(false) },
+                onConfirm = {
+                    coroutineScope.launch {
+                        val target = composePreparationTarget
+                        confirmComposeAgentRequest(
+                            isCurrentRequest = { composeAgentRequested && pendingComposeAuthorization === ready },
+                            verifyTarget = {
+                                target != null &&
+                                    target.serial == ready.preflight.serial &&
+                                    target.packageName == ready.preflight.packageName &&
+                                    runInspectorCatching { isCaptureTargetCurrent(target) }.getOrDefault(false)
+                            },
+                            onTargetChanged = { updateComposeAgentRequested(false) },
+                            onAuthorized = {
+                                pendingComposeAuthorization = null
+                                composeAuthorization = AuthorizedComposeTarget(
+                                    ready,
+                                    ComposeInspectionAuthorization.authorize(ready.preflight),
+                                )
+                                fullComposeEnabled = true
+                                if (!autoScanEnabled) manualRefreshRequest += 1
+                            },
+                        )
+                    }
+                },
+            )
+        }
         pendingAiAnalysis?.let { prepared ->
             val input = prepared.input
             val manifest = prepared.manifest
@@ -1748,7 +1856,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            Text(
+                            CopyableText(
                                 localizedStringResource(
                                     Res.string.ai_analysis_source_resolution,
                                     uiLanguage,
@@ -1757,24 +1865,28 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     source.indexComplete?.toString() ?: "unknown",
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
+                                language = uiLanguage,
                             )
                         }
                         manifest.blockedReason?.let { reason ->
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.ai_analysis_blocked, uiLanguage, reason),
                                 color = MaterialTheme.colorScheme.error,
+                                language = uiLanguage,
                             )
                         }
                         if (manifest.requiresSourceUploadAuthorization) {
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.ai_analysis_source_upload_hint, uiLanguage),
                                 color = MaterialTheme.colorScheme.error,
+                                language = uiLanguage,
                             )
                         }
                         if (manifest.requiresNarrowerScope) {
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.ai_analysis_narrow_scope_hint, uiLanguage),
                                 color = MaterialTheme.colorScheme.error,
+                                language = uiLanguage,
                             )
                         }
                         val controlsEnabled = aiAnalysisUiState !is AiAnalysisUiState.Working
@@ -1840,7 +1952,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 title = { Text(localizedStringResource(Res.string.compose_export_title, uiLanguage)) },
                 text = {
                     Column {
-                        Text(localizedStringResource(Res.string.compose_export_safe_default, uiLanguage))
+                        CopyableText(localizedStringResource(Res.string.compose_export_safe_default, uiLanguage), language = uiLanguage)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.clickable { fullFidelity = !fullFidelity },
@@ -1887,11 +1999,12 @@ private fun CorrelationBanner(
         } else {
             " · ${hint.foregroundMismatchPrefix}: $capturedPackageName"
         }
-    Text(
+    CopyableText(
         text = hint.message + suffix,
         modifier = Modifier.fillMaxWidth().background(colors.panel).padding(horizontal = 18.dp, vertical = 5.dp),
         color = if (matches) colors.secondaryText else colors.warning,
         fontSize = ViewerTypography.bodyCompact.fontSize,
+        language = LocalLayoutInspectorLanguage.current,
     )
 }
 
@@ -1985,7 +2098,7 @@ private fun ExportResultDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { Text(message) },
+        text = { CopyableText(message, language = LocalLayoutInspectorLanguage.current) },
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(dismissLabel)
@@ -2138,12 +2251,13 @@ private fun StatusBarValue(
             maxLines = 1,
         )
         Spacer(Modifier.width(4.dp))
-        Text(
+        CopyableText(
             text = value,
             color = valueColor,
             fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
             fontSize = ViewerTypography.secondary.fontSize,
             maxLines = 1,
+            language = LocalLayoutInspectorLanguage.current,
         )
     }
 }
@@ -3314,32 +3428,7 @@ internal fun DetailsPane(
             }
         }
         state.composeInspectionWarning?.let { warning ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.riskSectionBackground)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = localizedStringResource(Res.string.compose_inspection_unavailable, language),
-                        color = colors.warning,
-                        fontSize = ViewerTypography.label.fontSize,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = warning,
-                        color = colors.secondaryText,
-                        fontSize = ViewerTypography.dense.fontSize,
-                        lineHeight = ViewerTypography.secondary.lineHeight,
-                        maxLines = 3,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            ComposeInspectionWarningBanner(warning, language)
         }
         if (categories.isNotEmpty()) {
             SegmentedSelector(
@@ -3585,7 +3674,7 @@ private fun FindingsPane(
                     is AiAnalysisUiState.Failure -> localizedStringResource(Res.string.ai_analysis_failed, language, aiAnalysisUiState.message)
                 }
                 if (aiStatus != null) {
-                    Text(aiStatus, color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize, maxLines = 1)
+                    CopyableText(aiStatus, color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize, maxLines = 1, language = language)
                     Spacer(Modifier.width(12.dp))
                 }
             }
@@ -3617,13 +3706,14 @@ private fun FindingsPane(
         }
         HorizontalDivider(color = colors.border)
         if (displayedFindings.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(
                     if (findings.isEmpty()) Res.string.no_findings else Res.string.no_findings_for_severity,
                     language,
                 ),
                 color = colors.subtleText,
                 modifier = Modifier.padding(16.dp),
+                language = language,
             )
         } else {
             if (FindingsLayout.showTableHeader(panelHeightDp, showTimeline)) {
@@ -3904,12 +3994,13 @@ private fun FindingRow(
                     lineHeight = ViewerTypography.secondary.lineHeight,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
+                CopyableText(
                     text = finding.message,
                     color = colors.secondaryText,
                     fontSize = ViewerTypography.secondary.fontSize,
                     lineHeight = ViewerTypography.secondary.lineHeight,
                     modifier = Modifier.weight(2f),
+                    language = language,
                 )
                 Text(
                     text = finding.nodeNumber,

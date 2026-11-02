@@ -1,6 +1,7 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ui.LocalPageMenuHost
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.MenuCommand
@@ -97,6 +98,55 @@ fun FrameWindowScope.DesktopAppMainPage(
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
     val userDocumentationLauncher = remember { UserDocumentationLauncher() }
     val sourceWorkspaceRuntime = remember { SourceWorkspaceRuntime.desktop() }
+    val aiCoordinator = remember { DesktopAiCoordinator() }
+    var aiPlatform by remember { mutableStateOf<com.androidperformancestudio.aiplatform.app.AiPlatformRuntime?>(null) }
+    var aiStartupError by remember { mutableStateOf<String?>(null) }
+    var showAiWindow by remember { mutableStateOf(false) }
+    var aiWindowContext by remember { mutableStateOf<com.androidperformancestudio.aiplatform.app.BusinessContext?>(null) }
+    aiCoordinator.sourceModel = sourceWorkspaceRuntime::aiModel
+    aiCoordinator.onOpen = { context -> aiWindowContext = context; showAiWindow = true }
+    val aiContextHost = remember {
+        object : com.androidperformancestudio.ui.AiContextHost {
+            override fun publish(context: com.androidperformancestudio.ui.UiAiContext) {
+                val evidence = context.evidence.map { item -> com.androidperformancestudio.ai.PerformanceEvidence(item.id, item.kind, item.summary, item.payloadJson) }
+                aiCoordinator.contexts.publish(com.androidperformancestudio.aiplatform.app.createBusinessContext(context.key, context.title, evidence, context.currentSelection))
+            }
+            override fun remove(key: String) { aiCoordinator.contexts.remove(key) }
+        }
+    }
+    val openGlobalAi: () -> Unit = {
+        aiWindowContext = navigator.destination.aiContextKey()?.let(aiCoordinator.contexts::current)
+        showAiWindow = true
+    }
+    LaunchedEffect(sourceWorkspaceRuntime) {
+        try {
+            runDesktopAiRuntime(open = {
+                com.androidperformancestudio.aiplatform.app.AiPlatformRuntime.open(
+                    openAiGateway = { model -> sourceWorkspaceRuntime.providerGateway(AiProviderConnection.CUSTOM, model) },
+                    openAiAvailable = { sourceWorkspaceRuntime.providerHasCredential(AiProviderConnection.CUSTOM) },
+                    codexGateway = { model -> sourceWorkspaceRuntime.providerGateway(AiProviderConnection.CODEX, model) },
+                    codexAvailable = { sourceWorkspaceRuntime.providerHasCredential(AiProviderConnection.CODEX) },
+                    claudeEnvironment = sourceWorkspaceRuntime::claudeEnvironment,
+                    connectionRevision = { providerId ->
+                        sourceWorkspaceRuntime.providerConnectionRevision(AiProviderConnection.fromProviderId(providerId))
+                    },
+                    gatewayForRun = { providerId, model, revision ->
+                        sourceWorkspaceRuntime.providerGateway(AiProviderConnection.fromProviderId(providerId), model, revision)
+                    },
+                    claudeEnvironmentForRun = { revision -> sourceWorkspaceRuntime.claudeEnvironment(revision) },
+                    sourceAuthorization = { request -> request.sourceCandidates.all { candidate ->
+                        val resolved = sourceWorkspaceRuntime.candidate(candidate.id)
+                        resolved != null && sourceWorkspaceRuntime.repository.workspace(resolved.location.workspaceId)?.allowAiSourceUpload == true &&
+                            resolved.location.contentHash == candidate.contentHash
+                    } },
+                )
+            }) { platform ->
+                aiPlatform = platform; aiCoordinator.runtime = platform
+            }
+        } catch (failure: kotlinx.coroutines.CancellationException) {
+            throw failure
+        } catch (_: Exception) { aiStartupError = "E_AI_STARTUP" }
+    }
     val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
     var simpleperfPreferences by remember { mutableStateOf(simpleperfPreferencesStore.load()) }
@@ -180,6 +230,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                 helpItems =
                     listOf(
                         MenuCommand(localizedStringResource(Res.string.user_guide, language), onClick = openUserGuide),
+                        MenuCommand(if (language == UiLanguage.SIMPLIFIED_CHINESE) "AI 分析" else "AI Analysis", onClick = openGlobalAi),
                     ),
             ),
     )
@@ -217,6 +268,20 @@ fun FrameWindowScope.DesktopAppMainPage(
             darkTheme = darkTheme,
             accentColor = applicationSettings.themeColor,
         )
+    com.androidperformancestudio.aiplatform.presentation.AiConversationWindowHost(
+        visible = showAiWindow,
+        runtime = aiPlatform,
+        startupError = aiStartupError,
+        context = aiWindowContext,
+        language = language,
+        darkTheme = darkTheme,
+        defaultModel = sourceWorkspaceRuntime.aiModel(),
+        onClose = { showAiWindow = false; coroutineScope.launch { aiPlatform?.service?.cancel() } },
+        onOpenSourceCandidate = { id -> sourceWorkspaceRuntime.candidate(id)?.takeIf { it.confidence != ResolutionConfidence.WEAK }?.let { navigator.openSource(it.location) } },
+        onOpenSettings = { openSettings(SettingsPage.AI) },
+        windowChrome = { title -> AiConversationWindowChrome(title, windowColors, darkTheme) },
+    )
+
     WindowsWindowChromeEffect(windowColors, darkTheme)
     Column(modifier = Modifier.fillMaxSize()) {
         MacOsTitleBar(
@@ -247,6 +312,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                         navigator = navigator,
                         language = language,
                         navigationRailCollapsed = applicationSettings.navigationRailCollapsed,
+                        onOpenAi = openGlobalAi,
                     ) {
                         navigator.retainedDestinations.forEach { destination ->
                             key(destination) {
@@ -254,6 +320,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                 CompositionLocalProvider(
                                     LocalWindowMenuBarActive provides active,
                                     LocalPageMenuHost provides pageMenuHost,
+                                    com.androidperformancestudio.ui.LocalAiContextHost provides aiContextHost,
                                     LocalTitleBarTargetHost provides
                                         titleBarTargetHost.takeIf { canEmbedTitleBarTargets && active },
                                 ) {
@@ -323,7 +390,10 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     initialArchiveFile = navigator.layoutArchiveRequest?.path,
                                     initialArchiveRequestId = navigator.layoutArchiveRequest?.requestId ?: 0L,
                                     aiAnalysisClient = remember(sourceWorkspaceRuntime) {
-                                        SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime)
+                                        SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime, globalAnalysis = aiCoordinator::analyze, onPreparedContext = { request ->
+                                            val revision = com.androidperformancestudio.aiplatform.app.contextDigest(request.toString())
+                                            aiCoordinator.contexts.publish(com.androidperformancestudio.aiplatform.app.BusinessContext("layout-inspector", revision, request.scope.description, request))
+                                        })
                                     },
                                     onOpenSourceCandidate = { candidateId, archived ->
                                         val current = sourceWorkspaceRuntime.candidate(candidateId)
@@ -367,7 +437,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     },
                                     onCaptureSettingsContextChanged = { simpleperfCaptureSettingsContext = it },
                                     onOpenUserGuide = openUserGuide,
-                                    aiAnalysisClient = null,
+                                    aiAnalysisClient = remember(sourceWorkspaceRuntime, aiCoordinator) { ProductionSimpleperfAiAnalysisClient(sourceWorkspaceRuntime, aiCoordinator) },
                                     onOpenSourceCandidate = { candidateId ->
                                         sourceWorkspaceRuntime.candidate(candidateId)
                                             ?.takeIf { it.confidence != ResolutionConfidence.WEAK }
@@ -517,6 +587,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
                                     onOpenUserGuide = openUserGuide,
                                     persistenceErrorPage = settingsPersistenceErrorPage,
+                                    aiPlatformRuntime = aiPlatform,
                                 )
                         }
                                 }
@@ -565,7 +636,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                 text = {
                                     Column {
                                         if (workspaces.isEmpty()) {
-                                            Text(localizedStringResource(Res.string.source_no_rebind_match, language))
+                                            CopyableText(localizedStringResource(Res.string.source_no_rebind_match, language), language = language)
                                         }
                                         workspaces.forEach { workspace ->
                                             TextButton(

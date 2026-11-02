@@ -7,6 +7,14 @@ import kotlin.test.assertTrue
 
 class FlameSearchDraftStateTest {
     @Test
+    fun `immediate clear is not debounced a second time while awaiting acknowledgement`() {
+        val state = FlameSearchDraftState.initial("render").edit("").markDispatched("")
+        assertTrue(state.isDirty)
+        assertFalse(state.shouldDispatch)
+        assertTrue(state.edit("next").shouldDispatch)
+    }
+
+    @Test
     fun `older dispatch acknowledgment preserves a newer dirty draft`() {
         val state =
             FlameSearchDraftState

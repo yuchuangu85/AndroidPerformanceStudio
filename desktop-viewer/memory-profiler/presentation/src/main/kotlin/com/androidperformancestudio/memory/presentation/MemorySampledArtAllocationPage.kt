@@ -27,6 +27,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.art_
 import com.androidperformancestudio.memory.presentation.generated.resources.art_sampled_trace_details
 import com.androidperformancestudio.memory.presentation.generated.resources.art_sampled_trace_source
 import com.androidperformancestudio.memory.presentation.generated.resources.art_sampled_trace_unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 
@@ -47,13 +48,13 @@ public fun MemorySampledArtAllocationPage(
             localizedStringResource(Res.string.art_sampled_trace_source, language),
             style = MaterialTheme.typography.titleMedium,
         )
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.art_sampled_evidence_boundary, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         when {
-            isRecording -> Text(localizedStringResource(Res.string.art_sampled_recording, language))
-            trace == null -> Text(localizedStringResource(Res.string.art_sampled_trace_unavailable, language))
+            isRecording -> CopyableText(localizedStringResource(Res.string.art_sampled_recording, language))
+            trace == null -> CopyableText(localizedStringResource(Res.string.art_sampled_trace_unavailable, language))
             else -> {
                 if (trace.origin == MemorySampledArtOrigin.IMPORT) {
                     Text(localizedStringResource(Res.string.art_sampled_import_details, language, trace.fileSizeBytes))
@@ -87,16 +88,16 @@ private fun SampledArtAnalysisContent(
     when (analysis) {
         is MemorySampledArtAnalysis.Analyzed -> SampledArtSamples(analysis, language)
         is MemorySampledArtAnalysis.Unavailable ->
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.art_sampled_analysis_unavailable, language, analysis.reason),
                 modifier = Modifier.testTag("memory-art-sampled-analysis-unavailable"),
             )
         is MemorySampledArtAnalysis.Failed ->
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.art_sampled_analysis_failed, language, analysis.reason),
                 modifier = Modifier.testTag("memory-art-sampled-analysis-failed"),
             )
-        null -> Text(localizedStringResource(Res.string.art_sampled_analysis_unavailable, language, ""))
+        null -> CopyableText(localizedStringResource(Res.string.art_sampled_analysis_unavailable, language, ""))
     }
 }
 
@@ -106,7 +107,7 @@ private fun SampledArtSamples(
     language: UiLanguage,
 ) {
     if (analysis.sampleRows == 0L) {
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.art_sampled_no_samples, language),
             modifier = Modifier.testTag("memory-art-sampled-empty"),
         )

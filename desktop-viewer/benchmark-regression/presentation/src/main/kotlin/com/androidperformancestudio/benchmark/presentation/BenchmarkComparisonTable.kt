@@ -33,6 +33,7 @@ import com.androidperformancestudio.benchmark.model.EvidenceConfidence
 import com.androidperformancestudio.benchmark.model.MetricComparison
 import com.androidperformancestudio.benchmark.model.RegressionClassification
 import com.androidperformancestudio.benchmark.presentation.generated.resources.*
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
@@ -80,11 +81,12 @@ internal fun BenchmarkComparisonTable(
             ClassificationFilter(state, language, onClassificationFilterChange)
         }
         if (rows.isEmpty()) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.no_comparisons, language),
                 color = colors.secondaryText,
                 fontSize = ViewerTypography.bodyCompact.fontSize,
                 lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                language = language,
             )
             return@StudioDataTable
         }

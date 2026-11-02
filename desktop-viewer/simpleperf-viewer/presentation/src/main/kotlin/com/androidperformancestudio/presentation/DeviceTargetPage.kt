@@ -49,6 +49,7 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.ui.ActiveTitleBarTarget
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -432,11 +433,12 @@ private fun CapabilityPopup(
             fontWeight = FontWeight.SemiBold,
         )
         if (selection == null) {
-            Text(
+            CopyableText(
                 localizedStringResource(SimpleperfViewerRes.sp_target_capability_selection_hint, language),
                 color = style.secondaryText,
                 fontSize = ViewerTypography.secondary.fontSize,
                 lineHeight = ViewerTypography.label.lineHeight,
+                language = language,
             )
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -531,12 +533,13 @@ private fun CapabilityPopupFact(
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.secondary.lineHeight,
         )
-        Text(
+        CopyableText(
             value,
             modifier = Modifier.weight(1f),
             color = if (warning) style.warning else style.text,
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.secondary.lineHeight,
+            language = currentSimpleperfLanguage(),
         )
     }
 }
@@ -562,7 +565,7 @@ private fun CapabilityStatusBadge(
     ) {
         StatusDot(color)
         Spacer(Modifier.width(5.dp))
-        Text(
+        CopyableText(
             localizedStringResource(
                 when (status) {
                     CapabilityStatus.READY -> SimpleperfViewerRes.sp_target_ready
@@ -575,6 +578,7 @@ private fun CapabilityStatusBadge(
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.label.lineHeight,
             fontWeight = FontWeight.Bold,
+            language = language,
         )
     }
 }
@@ -629,7 +633,7 @@ private fun CaptureStatus(
         val fileInfo = captureFooterFileInfo(error != null || hasCaptureError, reportState, captureState)
         StatusDot(color)
         Spacer(Modifier.width(7.dp))
-        Text(
+        CopyableText(
             error?.let {
                 if (it.code == ADB_NOT_FOUND_ERROR_CODE) {
                     "$ADB_NOT_FOUND_ERROR_CODE: ${
@@ -648,12 +652,13 @@ private fun CaptureStatus(
             lineHeight = ViewerTypography.secondary.lineHeight,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            language = currentSimpleperfLanguage(),
         )
         fileInfo?.let { info ->
             Spacer(Modifier.width(10.dp))
             Box(Modifier.width(ViewerDimensions.hairline).height(14.dp).background(style.border))
             Spacer(Modifier.width(10.dp))
-            Text(
+            CopyableText(
                 info.name,
                 color = style.text,
                 fontSize = ViewerTypography.label.fontSize,
@@ -661,19 +666,19 @@ private fun CaptureStatus(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                language = currentSimpleperfLanguage(),
             )
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
-                SelectionContainer {
-                    Text(
-                        info.path,
-                        color = style.secondaryText,
-                        fontSize = ViewerTypography.dense.fontSize,
-                        lineHeight = ViewerTypography.label.lineHeight,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                CopyableText(
+                    info.path,
+                    color = style.secondaryText,
+                    fontSize = ViewerTypography.dense.fontSize,
+                    lineHeight = ViewerTypography.label.lineHeight,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    language = currentSimpleperfLanguage(),
+                )
             }
         }
     }

@@ -56,6 +56,7 @@ import com.androidperformancestudio.capture.SamplingParameters
 import com.androidperformancestudio.capture.SamplingRate
 import com.androidperformancestudio.capture.SamplingTemplate
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DISABLED_CHIP_ALPHA
 import com.androidperformancestudio.ui.DURATION_FIELD_WEIGHT
 import com.androidperformancestudio.ui.MAX_EVENT_CHIPS
@@ -321,7 +322,12 @@ private fun SettingsPanel(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(section.subtitle(locale), color = style.secondaryText, fontSize = ViewerTypography.label.fontSize)
+                CopyableText(
+                    section.subtitle(locale),
+                    color = style.secondaryText,
+                    fontSize = ViewerTypography.label.fontSize,
+                    language = UiLanguage.fromLocale(locale),
+                )
             }
             onDismiss?.let {
                 MacOSTextButton(
@@ -427,7 +433,7 @@ private fun UserGuideSettingsPanel(
                 fontSize = ViewerTypography.bodyCompact.fontSize,
                 fontWeight = FontWeight.SemiBold,
             )
-            Text(
+            CopyableText(
                 localizedStringResource(SimpleperfViewerRes.sp_settings_user_guide_description, locale),
                 color = style.secondaryText,
                 fontSize = ViewerTypography.label.fontSize,
@@ -460,7 +466,7 @@ private fun FlameGraphSettingsPanel(
             fontSize = ViewerTypography.bodyCompact.fontSize,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(
+        CopyableText(
             localizedStringResource(SimpleperfViewerRes.sp_settings_frame_information_behavior_description, locale),
             color = style.secondaryText,
             fontSize = ViewerTypography.label.fontSize,
@@ -498,7 +504,7 @@ private fun SimpleperfEngineSettingsPanel(
         containerColor = style.panel,
         borderColor = style.border,
     ) {
-        Text(
+        CopyableText(
             localizedStringResource(SimpleperfViewerRes.sp_settings_analysis_engine_options_description, locale),
             color = style.secondaryText,
             style = MaterialTheme.typography.bodySmall,
@@ -721,7 +727,7 @@ private fun EmptyParametersPanel(
             fontSize = ViewerTypography.bodyCompact.fontSize,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(
+        CopyableText(
             localizedStringResource(SimpleperfViewerRes.sp_capture_sampling_target_required_hint, locale),
             color = style.secondaryText,
             fontSize = ViewerTypography.label.fontSize,
@@ -830,12 +836,13 @@ private fun TemplateChoice(
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
             )
-            Text(
+            CopyableText(
                 template.localizedTemplateDescription(locale),
                 color = style.secondaryText.copy(alpha = if (enabled) 1f else DISABLED_CHIP_ALPHA),
                 fontSize = ViewerTypography.micro.fontSize,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                language = UiLanguage.fromLocale(locale),
             )
         }
     }

@@ -10,8 +10,14 @@ sealed class AdbException(
 ) : RuntimeException(message, cause)
 
 class AdbNotFoundException(
-    message: String = "ADB was not found in the configured Android SDK, environment, or PATH",
+    message: String = "ADB was not found in the configured Android SDK, environment, PATH, or application tools",
 ) : AdbException(message)
+
+class AdbBundleInvalidException(
+    val path: Path,
+    detail: String,
+    cause: Throwable? = null,
+) : AdbException("Application-managed ADB is invalid at $path: $detail", cause)
 
 class AdbNotExecutableException(
     val path: Path,

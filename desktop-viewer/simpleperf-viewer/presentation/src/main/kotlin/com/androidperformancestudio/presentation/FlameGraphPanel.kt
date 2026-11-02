@@ -5,6 +5,8 @@ package com.androidperformancestudio.presentation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -19,12 +21,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -33,9 +37,16 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
@@ -51,7 +62,6 @@ import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.visualization.FirefoxFlameGraphStyle
 import com.androidperformancestudio.visualization.FlameGraphCanvas
 import com.androidperformancestudio.visualization.FlameGraphLayout
-import com.androidperformancestudio.visualization.FlameHorizontalViewport
 import com.androidperformancestudio.visualization.FlameViewport
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -71,12 +81,13 @@ fun FlameGraphPanel(
     snapshot: FlameGraphSnapshot,
     actions: ReportActions,
     tooltipMode: FlameTooltipMode = FlameTooltipMode.FOLLOW_MOUSE,
+    sessionKey: Any? = null,
 ) {
     val style = rememberFirefoxFlameGraphStyle()
     var widthPixels by remember { mutableIntStateOf(0) }
     var heightPixels by remember { mutableIntStateOf(0) }
-    var scrollRow by remember(snapshot) { mutableIntStateOf(0) }
-    var horizontalViewport by remember(snapshot) { mutableStateOf(FlameHorizontalViewport()) }
+    val startsAtBottom = snapshot.rows.startsAtBottom
+    var scrollOffsetPx by remember(sessionKey, startsAtBottom) { mutableStateOf(0f) }
     var contextAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
     var hoverAnchor by remember(snapshot) { mutableStateOf<Offset?>(null) }
     var tooltipSize by remember(snapshot) { mutableStateOf(IntSize.Zero) }
@@ -90,24 +101,41 @@ fun FlameGraphPanel(
         FlameViewport(
             widthPx = widthPixels,
             heightPx = heightPixels,
-            scrollRow = scrollRow,
+            scrollRow = 0,
             rowHeightPx = style.rowHeightPx,
-            horizontal = horizontalViewport,
+            scrollOffsetPx = scrollOffsetPx,
         )
-    val clampedScrollRow = FlameGraphLayout.clampScrollRow(snapshot, requestedViewport)
-    val viewport = requestedViewport.copy(scrollRow = clampedScrollRow)
+    val clampedScrollOffset = FlameGraphLayout.clampScrollOffset(snapshot, requestedViewport)
+    val viewport = requestedViewport.copy(scrollOffsetPx = clampedScrollOffset)
+    val currentScroll by rememberUpdatedState<(Float) -> Unit> { offsetY ->
+        val offset = if (startsAtBottom) offsetY else -offsetY
+        scrollOffsetPx =
+            FlameGraphLayout.clampScrollOffset(
+                snapshot,
+                viewport.copy(scrollOffsetPx = scrollOffsetPx + offset),
+            )
+    }
+    val density = LocalDensity.current.density
+    val keyboard =
+        rememberFirefoxChartKeyboard(
+            horizontalEnabled = false,
+            resetKey = Triple(sessionKey, startsAtBottom, snapshot.emptyReason == null),
+        ) { motion -> currentScroll(motion.offsetYCss * density) }
     val layout = remember(snapshot, viewport) { FlameGraphLayout.layout(snapshot, viewport) }
     val hoveredTooltipFacts =
         remember(snapshot, state.hoveredNodeId) {
             state.hoveredNodeId?.let(snapshot::tooltipFacts)
         }
 
-    LaunchedEffect(snapshot, selectedNodeId, heightPixels) {
+    LaunchedEffect(snapshot, heightPixels) {
+        if (scrollOffsetPx != clampedScrollOffset) scrollOffsetPx = clampedScrollOffset
+    }
+    LaunchedEffect(sessionKey, startsAtBottom, selectedNodeId, heightPixels) {
         val next =
             selectedNodeId?.let { selected ->
-                FlameGraphPresenter.scrollRowToReveal(snapshot, selected, viewport)
-            } ?: clampedScrollRow
-        if (scrollRow != next) scrollRow = next
+                FlameGraphLayout.scrollOffsetToReveal(snapshot, selected, viewport)
+            } ?: clampedScrollOffset
+        if (scrollOffsetPx != next) scrollOffsetPx = next
     }
     LaunchedEffect(state.contextNodeId) {
         if (state.contextNodeId == null) contextAnchor = null
@@ -120,6 +148,7 @@ fun FlameGraphPanel(
             style = style,
             onUndo = actions.onUndoFlameTransform,
             onClear = actions.onClearFlameTransforms,
+            onRemoveAfter = actions.onRemoveFlameTransformsAfter,
         )
         FirefoxFlameGraphViewport(
             style = style,
@@ -149,7 +178,7 @@ fun FlameGraphPanel(
                             actions = actions,
                             snapshot = snapshot,
                             viewport = viewport,
-                            onScrollRow = { scrollRow = it },
+                            onScrollOffset = { scrollOffsetPx = it },
                             onContextAnchor = { contextAnchor = it },
                         )
                     },
@@ -158,22 +187,9 @@ fun FlameGraphPanel(
                             .fillMaxSize()
                             .semantics { contentDescription = callStacksDescription }
                             .focusRequester(focusRequester)
+                            .onFocusChanged { if (!it.hasFocus) keyboard.clear() }
                             .onPreviewKeyEvent { event ->
-                                val modifiersPressed =
-                                    event.isCtrlPressed ||
-                                        event.isMetaPressed ||
-                                        event.isAltPressed ||
-                                        event.isShiftPressed
-                                val horizontalAction =
-                                    FlameGraphKeyboardNavigation.horizontalActionFor(
-                                        key = event.key,
-                                        eventType = event.type,
-                                        modifiersPressed = modifiersPressed,
-                                    )
-                                if (horizontalAction != null) {
-                                    horizontalViewport = horizontalViewport.navigate(horizontalAction)
-                                    return@onPreviewKeyEvent true
-                                }
+                                if (keyboard.handle(event)) return@onPreviewKeyEvent true
                                 val action =
                                     FlameGraphPresenter.keyAction(
                                         key = event.key,
@@ -196,26 +212,50 @@ fun FlameGraphPanel(
                                         actions = actions,
                                         snapshot = snapshot,
                                         viewport = viewport,
-                                        onScrollRow = { scrollRow = it },
+                                        onScrollOffset = { scrollOffsetPx = it },
                                         onContextAnchor = { contextAnchor = it },
                                     )
                                     true
                                 }
                             }.focusable()
                             .onPointerEvent(PointerEventType.Press) { focusRequester.requestFocus() }
-                            .onPointerEvent(PointerEventType.Scroll) { event ->
+                            .pointerInput(sessionKey, startsAtBottom) {
+                                awaitEachGesture {
+                                    val down =
+                                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    if (down.type != PointerType.Mouse || currentEvent.buttons.isPrimaryPressed) {
+                                        var previousPosition = down.position
+                                        do {
+                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            val delta = change.position - previousPosition
+                                            previousPosition = change.position
+                                            if (delta != Offset.Zero) {
+                                                currentScroll(delta.y)
+                                                change.consume()
+                                            }
+                                        } while (change.pressed)
+                                    }
+                                }
+                            }.onPointerEvent(PointerEventType.PanMove) { event ->
+                                event.changes.forEach { change -> change.consume() }
                                 val delta =
                                     event.changes
                                         .firstOrNull()
-                                        ?.scrollDelta
+                                        ?.panOffset
                                         ?.y ?: 0f
-                                flameGraphScrollRowDelta(delta)?.let { rows ->
-                                    scrollRow =
-                                        FlameGraphLayout.clampScrollRow(
-                                            snapshot,
-                                            viewport.copy(scrollRow = clampedScrollRow + rows),
-                                        )
+                                if (!event.keyboardModifiers.isCtrlPressed && !event.keyboardModifiers.isShiftPressed) {
+                                    if (delta.isFinite()) currentScroll(delta)
                                 }
+                            }.onPointerEvent(PointerEventType.Scroll) { event ->
+                                event.changes.forEach { change -> change.consume() }
+                                val delta =
+                                    firefoxChartWheelPixels(event, heightPixels.toFloat(), density).y
+                                flameGraphScrollPixelDelta(
+                                    delta,
+                                    controlPressed = event.keyboardModifiers.isCtrlPressed,
+                                    shiftPressed = event.keyboardModifiers.isShiftPressed,
+                                )?.let(currentScroll)
                             }.onSizeChanged { size ->
                                 widthPixels = size.width
                                 heightPixels = size.height
@@ -275,11 +315,26 @@ fun FlameGraphPanel(
     }
 }
 
-internal fun flameGraphScrollRowDelta(scrollDeltaY: Float): Int? {
-    if (!scrollDeltaY.isFinite() || scrollDeltaY == 0f) return null
-    val magnitude = abs(scrollDeltaY).roundToInt().coerceAtLeast(1)
-    return if (scrollDeltaY > 0f) -magnitude else magnitude
+internal fun flameGraphScrollPixelDelta(
+    scrollDeltaY: Float,
+    controlPressed: Boolean = false,
+    shiftPressed: Boolean = false,
+): Float? {
+    val validScroll = scrollDeltaY.isFinite() && scrollDeltaY != 0f
+    if (controlPressed || shiftPressed || !validScroll) return null
+    return -scrollDeltaY
 }
+
+// Compatibility for callers still using integer row navigation; charts use pixel input above.
+internal fun flameGraphScrollRowDelta(
+    scrollDeltaY: Float,
+    controlPressed: Boolean = false,
+    shiftPressed: Boolean = false,
+): Int? =
+    flameGraphScrollPixelDelta(scrollDeltaY, controlPressed, shiftPressed)?.let { delta ->
+        val magnitude = abs(delta).roundToInt().coerceAtLeast(1)
+        if (delta > 0f) magnitude else -magnitude
+    }
 
 internal fun firefoxTooltipOffset(
     mouse: Offset,
@@ -333,7 +388,7 @@ private fun dispatchFlameAction(
     actions: ReportActions,
     snapshot: FlameGraphSnapshot,
     viewport: FlameViewport,
-    onScrollRow: (Int) -> Unit,
+    onScrollOffset: (Float) -> Unit,
     onContextAnchor: (Offset?) -> Unit = {},
 ) {
     when (action) {
@@ -364,13 +419,13 @@ private fun dispatchFlameAction(
         is FlameGraphPanelAction.Navigate -> {
             actions.onOpenFlameContext(null)
             actions.onNavigateFlameNode(action.command)?.let { target ->
-                onScrollRow(FlameGraphPresenter.scrollRowToReveal(snapshot, target, viewport))
+                onScrollOffset(FlameGraphLayout.scrollOffsetToReveal(snapshot, target, viewport))
             }
         }
     }
 }
 
-private fun dispatchContextCommand(
+internal fun dispatchContextCommand(
     command: FlameGraphContextCommand,
     actions: ReportActions,
 ) {

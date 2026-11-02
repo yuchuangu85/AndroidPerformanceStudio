@@ -13,12 +13,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.Divider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -33,6 +46,7 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerTypography
@@ -53,8 +67,20 @@ internal fun FirefoxReportWorkspace(
 ) {
     val language = currentSimpleperfLanguage()
     val color = LocalViewerColors.current
+    val searchFocusRequester = remember { FocusRequester() }
+    var searchFocused by remember { mutableStateOf(false) }
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier =
+            Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                val stackTab =
+                    state.selectedTab != ReportTab.MARKER_CHART && state.selectedTab != ReportTab.MARKER_TABLE
+                if (stackTab && !searchFocused && event.isSearchFocusShortcut()) {
+                    searchFocusRequester.requestFocus()
+                    true
+                } else {
+                    false
+                }
+            },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CpuProfilerKpiStrip(report, style)
@@ -107,7 +133,7 @@ internal fun FirefoxReportWorkspace(
         if (state.selectedTab == ReportTab.MARKER_CHART || state.selectedTab == ReportTab.MARKER_TABLE) {
             FirefoxMarkerToolbar(state, actions, style)
         } else {
-            FirefoxStackToolbar(state, actions, style)
+            FirefoxStackToolbar(state, actions, style, searchFocusRequester) { searchFocused = it }
         }
         Divider(Modifier.fillMaxWidth(), color = color.border)
         if (state.selectedTab == ReportTab.FLAME_GRAPH || state.selectedTab == ReportTab.CALL_TREE) {
@@ -126,12 +152,18 @@ internal fun FirefoxReportWorkspace(
             flameTooltipMode = flameTooltipMode,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
-        Text(
+        CopyableText(
             localizedStringResource(SimpleperfViewerRes.sp_diagnostics_sample_weight_duration_disclaimer, language),
             color = style.secondaryText,
             fontSize = ViewerTypography.label.fontSize,
+            language = language,
         )
     }
+}
+
+private fun KeyEvent.isSearchFocusShortcut(): Boolean {
+    val modified = isCtrlPressed || isMetaPressed || isAltPressed || isShiftPressed
+    return type == KeyEventType.KeyDown && key == Key.Slash && !modified
 }
 
 @Composable

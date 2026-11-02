@@ -4,23 +4,39 @@ import java.time.Instant
 import java.util.UUID
 
 @JvmInline
-public value class AnalysisSessionId(public val value: String) {
+public value class AnalysisSessionId(
+    public val value: String,
+) {
     public companion object {
         public fun create(): AnalysisSessionId = AnalysisSessionId(UUID.randomUUID().toString())
     }
 }
 
 @JvmInline
-public value class AnalysisFindingId(public val value: String)
+public value class AnalysisFindingId(
+    public val value: String,
+)
 
 public enum class ProfilerKind {
     LAYOUT_INSPECTOR,
     SIMPLEPERF,
+    MEMORY,
+    TRACE,
+    FRAME,
+    STARTUP,
+    BATTERY,
+    NETWORK,
+    GPU,
+    BENCHMARK,
+    METHOD_RECORDING,
+    SOURCE_WORKSPACE,
+    CHAT,
 }
 
 public enum class AnalysisScopeKind {
     CURRENT_SELECTION,
     REPORT_SUMMARY,
+    CONVERSATION,
 }
 
 public data class AnalysisScope(
@@ -57,7 +73,47 @@ public data class AnalysisRequest(
     val sourceCandidates: List<AiSourceCandidate>,
     val promptVersion: String,
     val payloadPolicyVersion: String,
-)
+    val userQuestion: String? = null,
+    val conversationContext: List<AiConversationContextTurn> = emptyList(),
+) {
+    init {
+        require((originProfiler == ProfilerKind.CHAT) == (scope.kind == AnalysisScopeKind.CONVERSATION)) { "E_CHAT_CONTEXT" }
+        if (originProfiler == ProfilerKind.CHAT) {
+            require(evidence.isEmpty() && sourceCandidates.isEmpty()) { "E_CHAT_CONTEXT" }
+        }
+        require(userQuestion == null || userQuestion.length in 1..MAX_USER_QUESTION_LENGTH) { "E_QUESTION_LIMIT" }
+        require(conversationContext.size <= MAX_CHAT_CONTEXT_TURNS) { "E_CONVERSATION_CONTEXT_LIMIT" }
+        require(conversationContext.map { it.runId }.distinct().size == conversationContext.size) {
+            "E_CONVERSATION_CONTEXT_ID"
+        }
+    }
+}
+
+/** A data-free conversation is not profiler evidence and cannot carry source access. */
+public val AnalysisRequest.isDirectChat: Boolean
+    get() =
+        originProfiler == ProfilerKind.CHAT &&
+            scope.kind == AnalysisScopeKind.CONVERSATION &&
+            evidence.isEmpty() &&
+            sourceCandidates.isEmpty()
+
+/** Earlier redacted messages are untrusted dialogue context, not performance facts or authority. */
+public data class AiConversationContextTurn(
+    val runId: String,
+    val question: String?,
+    val answer: String,
+) {
+    init {
+        require(runId.length in 1..MAX_CHAT_CONTEXT_ID_LENGTH) { "E_CONVERSATION_CONTEXT_ID" }
+        require(question == null || question.length <= MAX_CHAT_CONTEXT_TEXT_LENGTH) { "E_CONVERSATION_CONTEXT_LIMIT" }
+        require(answer.isNotBlank() && answer.length <= MAX_CHAT_CONTEXT_TEXT_LENGTH) { "E_CONVERSATION_CONTEXT_LIMIT" }
+    }
+}
+
+private const val MAX_CHAT_CONTEXT_TURNS = 4
+private const val MAX_CHAT_CONTEXT_TEXT_LENGTH = 2048
+private const val MAX_CHAT_CONTEXT_ID_LENGTH = 128
+private const val MAX_USER_QUESTION_LENGTH = 4096
 
 public enum class AnalysisSeverity {
     INFO,

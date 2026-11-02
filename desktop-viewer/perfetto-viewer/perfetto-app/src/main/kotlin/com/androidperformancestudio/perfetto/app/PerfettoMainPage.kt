@@ -1,6 +1,7 @@
 package com.androidperformancestudio.perfetto.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -133,6 +133,7 @@ import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
 import com.androidperformancestudio.ui.DeviceDropdownSelector
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -140,6 +141,7 @@ import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
 import com.androidperformancestudio.ui.TitleBarTargetWidth
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -164,6 +166,7 @@ import kotlin.io.path.fileSize
 private data class DiagnosticOutcome(
     val result: DiagnosticResult? = null,
     val error: String? = null,
+    val artifactId: String? = null,
 )
 
 internal fun formatRecentSessionTimestamp(capturedAt: Instant): String = capturedAt.toString().replace("T", "-T")
@@ -247,6 +250,12 @@ fun FrameWindowScope.PerfettoMainPage(
     val analysisMutex = remember { Mutex() }
     var fileDialogOpen by remember { mutableStateOf(false) }
     var traceOpenJob by remember { mutableStateOf<Job?>(null) }
+    PublishAiContext("trace", remember(activeArtifact?.id, diagnosticQuery, diagnosticOutcomes) {
+        runCatching {
+            val outcome = diagnosticQuery?.id?.let { diagnosticOutcomes[it] }
+            traceAiContextForArtifact(activeArtifact?.id?.value, outcome?.artifactId, diagnosticQuery, outcome?.result)
+        }.getOrNull()
+    })
     val traceOpenMutex = remember { Mutex() }
     val openTrace: (Path, com.androidperformancestudio.contracts.CaptureArtifact?, Long?) -> Unit = { traceFile, artifact, timestamp ->
         traceOpenJob?.cancel()
@@ -487,6 +496,7 @@ fun FrameWindowScope.PerfettoMainPage(
                                         query.id to
                                             DiagnosticOutcome(
                                                 result = DiagnosticResult(query.columns, queryResult.value),
+                                                artifactId = artifact.id.value,
                                             )
                                     )
                             }
@@ -851,7 +861,7 @@ fun FrameWindowScope.PerfettoMainPage(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             deviceRefreshError?.let { error ->
-                Text(
+                CopyableText(
                     text =
                         localizedStringResource(Res.string.device_refresh_failed, language) +
                             "\n${error.code}: ${error.message}",
@@ -954,11 +964,12 @@ private fun PerfettoStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
+            CopyableText(
                 text = "${localizedStringResource(Res.string.device_status, language)}:",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
+                language = language,
             )
             PerfettoStatusDot(
                 color =
@@ -968,11 +979,12 @@ private fun PerfettoStatusBar(
                         MaterialTheme.colorScheme.error
                     },
             )
-            Text(
+            CopyableText(
                 text = statusText,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
+                language = language,
             )
         }
     }
@@ -1072,12 +1084,12 @@ private fun InitialTraceNotice(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
+        CopyableText(
             text = traceFile.fileName.toString(),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = ViewerTypography.secondary.fontSize,
         )
-        Text(
+        CopyableText(
             text = notice,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = ViewerTypography.label.fontSize,

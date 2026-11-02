@@ -30,6 +30,6 @@ class DetailsPaneCategoryWiringTest {
         assertTrue(source.contains("composeInspectionWarning = reason"))
         assertTrue(source.contains("ComposeInspectionWarningBanner(reason, uiLanguage)"))
         assertTrue(source.contains("state.composeInspectionWarning?.let"))
-        assertTrue(source.contains("Res.string.compose_inspection_unavailable"))
+        assertTrue(source.contains("ComposeInspectionWarningBanner(warning, language)"))
     }
 }

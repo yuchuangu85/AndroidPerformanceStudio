@@ -60,7 +60,11 @@ class FlameGraphContextMenuTest {
                 (entry.command as? FlameGraphContextCommand.ApplyTransform)?.transform
             }
 
-        assertFalse(transforms.any { it is CallStackTransform.FocusCallNode })
+        assertTrue(
+            transforms.any {
+                it is CallStackTransform.FocusCallNode && it.direction == CallStackDirection.INVERTED
+            },
+        )
         assertFalse(transforms.any { it is CallStackTransform.MergeCallNode })
         assertFalse(transforms.any { it is CallStackTransform.FocusCategory })
         assertFalse(transforms.any { it is CallStackTransform.CollapseResource })
@@ -87,7 +91,7 @@ class FlameGraphContextMenuTest {
                 Key.S to true,
                 Key.M to true,
                 Key.M to false,
-                Key.D to true,
+                Key.D to false,
                 Key.C to true,
                 Key.R to false,
                 Key.R to true,
@@ -102,6 +106,34 @@ class FlameGraphContextMenuTest {
             )
         }
         assertNull(FlameGraphContextCommands.commandForShortcut(snapshot, target, Key.X, shiftPressed = false))
+        assertNull(FlameGraphContextCommands.commandForShortcut(snapshot, target, Key.D, shiftPressed = true))
+        assertEquals("d", FlameGraphContextCommands.shortcutLabel(Key.D, shiftPressed = false))
+    }
+
+    @Test
+    fun `copy stack runs from selected frame to root and annotates actual resources`() {
+        val entries = FlameGraphContextCommands.entries(recursiveSnapshot(), FlameCallNodeId(13), hasTransforms = false)
+        assertTrue(
+            entries.any {
+                it.command ==
+                    FlameGraphContextCommand.Copy(
+                        "A [/system/liba.so]\nA [/system/liba.so]\nB [/system/libb.so]\nA [/system/liba.so]",
+                    )
+            },
+        )
+        assertTrue(entries.first { it.command == FlameGraphContextCommand.Copy("A") }.separatorBefore)
+    }
+
+    @Test
+    fun `menu navigation wraps and skips unavailable commands`() {
+        val enabled = FlameGraphContextEntry("Copy", null, FlameGraphContextCommand.Copy("A"))
+        val entries = listOf(enabled, enabled.copy(enabled = false), enabled.copy(label = "Copy stack"))
+        assertEquals(0, FlameGraphContextCommands.nextEnabledIndex(entries, -1, 1))
+        assertEquals(2, FlameGraphContextCommands.nextEnabledIndex(entries, -1, -1))
+        assertEquals(2, FlameGraphContextCommands.nextEnabledIndex(entries, 0, 1))
+        assertEquals(0, FlameGraphContextCommands.nextEnabledIndex(entries, 2, 1))
+        assertEquals(-1, FlameGraphContextCommands.nextEnabledIndex(listOf(enabled.copy(enabled = false)), 0, 1))
+        assertEquals(-1, FlameGraphContextCommands.nextEnabledIndex(emptyList(), -1, 1))
     }
 
     @Test

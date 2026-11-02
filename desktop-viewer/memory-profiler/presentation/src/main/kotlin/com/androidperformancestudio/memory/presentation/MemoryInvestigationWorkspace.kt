@@ -47,6 +47,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.reta
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
@@ -341,7 +342,7 @@ private fun MemoryHeapDistribution(
                 }
             }
             if (rows.isEmpty()) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.memory_no_snapshot, language),
                     style = ViewerTypography.secondary,
                 )

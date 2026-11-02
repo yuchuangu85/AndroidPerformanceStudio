@@ -15,12 +15,12 @@ object CallStackFilter {
         query: CallStackAnalysisQuery,
     ): FilteredCallStacks {
         val afterPreview = filterPreview(table.stacks, query.previewRange)
+        val afterImplementation = filterImplementation(table, afterPreview, query.implementation)
         val searchTerms = parseFlameSearchTerms(query.searchText)
-        val afterSearch = filterSearch(table, afterPreview, searchTerms)
-        val afterImplementation = filterImplementation(table, afterSearch, query.implementation)
+        val afterSearch = filterSearch(table, afterImplementation, searchTerms)
 
         return FilteredCallStacks(
-            table = table.withStacks(afterImplementation),
+            table = table.withStacks(afterSearch),
             inputStackCount = table.stacks.size,
             afterPreviewCount = afterPreview.size,
             afterSearchCount = afterSearch.size,
@@ -52,7 +52,7 @@ object CallStackFilter {
         } else {
             stacks.filter { stack ->
                 terms.all { term ->
-                    stack.frameIdsRootToLeaf.any { frameId -> table.frame(frameId).matches(term) }
+                    stack.frameIdsRootToLeaf.any { frameId -> table.frame(frameId).matchesStackSearch(term) }
                 }
             }
         }
@@ -83,9 +83,6 @@ object CallStackFilter {
             }
         }
 
-    private fun CallStackFrame.matches(term: String): Boolean =
-        symbolName.contains(term, ignoreCase = true) || resource.contains(term, ignoreCase = true)
-
     private fun FrameImplementation.matches(filter: ImplementationFilter): Boolean =
         when (filter) {
             ImplementationFilter.ALL -> true
@@ -99,3 +96,9 @@ object CallStackFilter {
     private fun List<WeightedCallStack>.hasSameInstances(other: List<WeightedCallStack>): Boolean =
         size == other.size && indices.all { index -> this[index] === other[index] }
 }
+
+fun CallStackFrame.matchesStackSearch(term: String): Boolean =
+    symbolName.contains(term, ignoreCase = true) ||
+        resource.contains(term, ignoreCase = true) ||
+        sourceFile?.contains(term, ignoreCase = true) == true ||
+        originalSourceFile?.contains(term, ignoreCase = true) == true

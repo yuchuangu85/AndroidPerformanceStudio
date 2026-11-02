@@ -32,6 +32,7 @@ import com.androidperformancestudio.gpu.presentation.GpuArtifactAvailability
 import com.androidperformancestudio.gpu.presentation.GpuIntegrationActions
 import com.androidperformancestudio.gpu.toolchain.AgiExecutablePreferenceStore
 import com.androidperformancestudio.gpu.toolchain.AgiLocator
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -67,6 +68,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
         )
     }
     val state by controller.state.collectAsState()
+    PublishAiContext("gpu", remember(state) { runCatching { gpuAiContext(state) }.getOrNull() })
     val scope = rememberCoroutineScope()
     LaunchedEffect(controller) { controller.initialize() }
     LaunchedEffect(reader) { controller.refreshDevices() }

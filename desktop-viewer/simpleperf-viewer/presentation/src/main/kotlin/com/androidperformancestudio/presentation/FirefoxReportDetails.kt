@@ -33,6 +33,7 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.MarkerProjectionRow
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -86,10 +87,21 @@ private fun OverviewDetails(
         DetailsPrompt(SimpleperfViewerRes.sp_finding_select_finding_hint, style)
     } else {
         DetailsHeading(SimpleperfViewerRes.sp_finding_finding_details, style)
-        Text(finding.title, color = style.text, fontSize = ViewerTypography.secondary.fontSize, fontWeight = FontWeight.SemiBold)
-        Text(finding.conclusion, color = style.secondaryText, fontSize = ViewerTypography.label.fontSize)
+        CopyableText(
+            finding.title,
+            color = style.text,
+            fontSize = ViewerTypography.secondary.fontSize,
+            fontWeight = FontWeight.SemiBold,
+            language = currentSimpleperfLanguage(),
+        )
+        CopyableText(
+            finding.conclusion,
+            color = style.secondaryText,
+            fontSize = ViewerTypography.label.fontSize,
+            language = currentSimpleperfLanguage(),
+        )
         finding.recommendations.forEach {
-            Text(
+            CopyableText(
                 localizedStringResource(
                     SimpleperfViewerRes.sp_common_bullet_format,
                     currentSimpleperfLanguage(),
@@ -328,7 +340,11 @@ private fun StackBlockDetails(
     style: ViewerColors,
 ) {
     val snapshot = (report.stackChart as? PanelProjection.Ready)?.value
-    val block = snapshot?.blocks?.firstOrNull { it.id == state.workspace.selections.stackChartBlockId }
+    val block =
+        snapshot?.selectedBlock(
+            state.workspace.selections.stackChartBlockId,
+            state.workspace.selections.callNodeId,
+        )
     val frame = block?.let { snapshot.framesById[it.frameId] }
     if (block == null || frame == null) {
         DetailsPrompt(SimpleperfViewerRes.sp_stack_select_stack_block_hint, style)
@@ -416,10 +432,11 @@ private fun MarkerDetailsContent(
     val formattedPayload = marker.payloadJson.prettyJsonOrNull()
     Text(formattedPayload ?: marker.payloadJson, color = style.text, fontSize = ViewerTypography.dense.fontSize)
     if (formattedPayload == null && marker.payloadJson.isNotBlank()) {
-        Text(
+        CopyableText(
             localizedStringResource(SimpleperfViewerRes.sp_diagnostics_invalid_json_raw_fallback_message, language),
             color = style.warning,
             fontSize = ViewerTypography.dense.fontSize,
+            language = language,
         )
     }
 }
@@ -443,10 +460,11 @@ private fun DetailsPrompt(
     style: ViewerColors,
 ) {
     DetailsHeading(SimpleperfViewerRes.sp_details_details, style)
-    Text(
+    CopyableText(
         localizedStringResource(prompt, currentSimpleperfLanguage()),
         color = style.secondaryText,
         fontSize = ViewerTypography.label.fontSize,
+        language = currentSimpleperfLanguage(),
     )
 }
 

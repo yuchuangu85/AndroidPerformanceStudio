@@ -18,13 +18,11 @@ import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import com.androidperformancestudio.storage.PanelProjection
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class StackChartComposeUiTest {
     @Test
-    fun `stack blocks fill the report content edge with and without details`() {
+    fun `stack blocks align with the Firefox timeline gutter with and without details`() {
         listOf(900, 1280).forEach { width ->
             listOf(false, true).forEach { detailsVisible ->
                 runDesktopComposeUiTest(width = width, height = 800) {
@@ -38,17 +36,17 @@ class StackChartComposeUiTest {
                     val canvas = onNodeWithTag("stack-chart-canvas").fetchSemanticsNode().boundsInRoot
                     val firstBlock = onNodeWithTag("stack-block-block-1").fetchSemanticsNode().boundsInRoot
                     assertEquals(content.left, canvas.left)
-                    assertEquals(canvas.left, firstBlock.left)
+                    assertEquals(canvas.left + 150f, firstBlock.left)
                 }
             }
         }
     }
 
     @Test
-    fun `left edge clicks and full width range drags use the visible plot coordinates`() =
+    fun `left edge clicks use plot coordinates and graph drags pan without committing a range`() =
         runDesktopComposeUiTest(width = 365, height = 64) {
             var selected: StackChartBlockId? = null
-            var committed: Pair<Long, Long>? = null
+            var preview: StackChartViewport? = null
             val report = requireNotNull(stackChartReportState().lastReadyReport)
             val snapshot = (report.stackChart as PanelProjection.Ready).value
             setContent {
@@ -57,16 +55,26 @@ class StackChartComposeUiTest {
                     viewport = StackChartViewport(0, 10_001),
                     selectedBlockId = null,
                     onSelect = { selected = it },
-                    onCommitRange = { start, end -> committed = start to end },
+                    onViewportChange = { preview = it },
                 )
             }
 
             val canvas = onNodeWithTag("stack-chart-canvas")
             canvas.performMouseInput { click(Offset(4f, 8f)) }
+            mainClock.advanceTimeBy(500)
+            waitForIdle()
+            assertEquals(null, selected)
+            canvas.performMouseInput { click(Offset(154f, 8f)) }
+            mainClock.advanceTimeBy(500)
+            waitForIdle()
             assertEquals(StackChartBlockId("block-1"), selected)
             canvas.performMouseInput { click(Offset(262f, 8f)) }
+            mainClock.advanceTimeBy(500)
+            waitForIdle()
             assertEquals(StackChartBlockId("block-2"), selected)
             canvas.performMouseInput { click(Offset(364f, 8f)) }
+            mainClock.advanceTimeBy(500)
+            waitForIdle()
             assertEquals(null, selected)
 
             canvas.performMouseInput {
@@ -77,12 +85,7 @@ class StackChartComposeUiTest {
                 moveTo(Offset(350f, 40f))
                 release()
             }
-            val range = assertNotNull(committed)
-            assertTrue(
-                range.first in 0L..200L,
-                "A drag starting at the plot's left edge must start near the viewport start",
-            )
-            assertEquals(10_001L, range.second)
+            assertEquals(null, preview)
         }
 
     @Test
@@ -100,6 +103,8 @@ class StackChartComposeUiTest {
 
             onNodeWithTag("stack-chart-panel").assertExists()
             onNodeWithTag("stack-block-block-1").performClick()
+            mainClock.advanceTimeBy(500)
+            waitForIdle()
             assertEquals(StackChartBlockId("block-1"), selected)
         }
 
@@ -143,6 +148,10 @@ internal fun stackChartReportState() =
                 maxDepth = 0,
                 emptyReason = null,
             )
-        val updated = report.copy(stackChart = PanelProjection.Ready(snapshot))
+        val updated =
+            report.copy(
+                sessionOverview = report.sessionOverview.copy(startNanos = 0, endNanosInclusive = 10_000),
+                stackChart = PanelProjection.Ready(snapshot),
+            )
         base.copy(loadState = ReportLoadState.Ready(updated), lastReadyReport = updated)
     }

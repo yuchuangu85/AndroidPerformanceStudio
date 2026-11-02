@@ -277,7 +277,15 @@ internal object NodeDetailsPresenter {
             add(row(language, Res.string.detail_label_compose_mode, frame?.mode))
             add(row(language, Res.string.detail_label_compose_generation, frame?.generation))
             add(row(language, Res.string.detail_label_compose_completeness, frame?.completeness))
-            warning?.let { add(DetailRowModel("Warning", it, DetailTone.WARNING)) }
+            warning?.let {
+                add(
+                    DetailRowModel(
+                        localizedStringResource(Res.string.compose_inspection_unavailable, language),
+                        localizedStringResource(Res.string.compose_inspection_project_hint, language),
+                        DetailTone.WARNING,
+                    ),
+                )
+            }
         }
         return buildList {
             if (statusRows.isNotEmpty()) {

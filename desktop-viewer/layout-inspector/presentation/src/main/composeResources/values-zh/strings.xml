@@ -87,6 +87,7 @@
     <string name="no_available_windows">无可用窗口</string>
     <string name="no_snapshot_loaded">尚未加载布局快照</string>
     <string name="disconnected">未连接</string>
+    <string name="device_online">设备在线</string>
     <string name="connecting">连接中</string>
     <string name="live">实时</string>
     <string name="offline_archive">离线归档</string>
@@ -285,4 +286,19 @@
     <string name="detail_label_unstable_parameters">不稳定参数</string>
     <string name="menu_import_screenshot">截图…</string>
     <string name="menu_export_capture_archive">采集归档…</string>
+    <string name="compose_inspection_project_hint">当前项目可能不是 Compose 项目，只有 Compose 项目才需要注入 Compose Agent。</string>
+    <string name="compose_inspection_show_details">详细信息</string>
+    <string name="compose_inspection_hide_details">收起详情</string>
+    <string name="compose_agent_title">Compose Agent</string>
+    <string name="compose_agent_authorize">允许注入</string>
+    <string name="compose_agent_yes">是</string>
+    <string name="compose_agent_no">否</string>
+    <string name="compose_agent_preflight">设备：%1$s
+应用：%2$s
+PID：%3$s · Android API：%4$s · ABI：%5$s
+Compose：%6$s
+Inspector 来源：%7$s
+需要下载：%8$s · 需要重启：%9$s
+
+是否向此进程注入 Compose 检查器？它可能增加 CPU 和内存开销。关闭 Compose Agent 后使用兼容采集，不再注入 JVMTI Agent。</string>
 </resources>

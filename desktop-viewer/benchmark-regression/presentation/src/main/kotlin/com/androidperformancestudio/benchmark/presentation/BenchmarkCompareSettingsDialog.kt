@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,6 +27,7 @@ import com.androidperformancestudio.benchmark.presentation.generated.resources.*
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioTokens
 
@@ -69,42 +69,42 @@ public fun BenchmarkCompareSettingsDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-                OutlinedTextField(
+                ViewerTextField(
                     value = relativeThreshold,
                     onValueChange = { relativeThreshold = it },
                     label = { Text(localizedStringResource(Res.string.settings_threshold_percent, language)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = absoluteThreshold,
                     onValueChange = { absoluteThreshold = it },
                     label = { Text(localizedStringResource(Res.string.settings_absolute_threshold, language)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = maximumOf(minimumSamples.toIntOrNull(), 1).toString(),
                     onValueChange = { minimumSamples = it },
                     label = { Text(localizedStringResource(Res.string.inspector_samples, language, "")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = policyVersion,
                     onValueChange = { policyVersion = it },
                     label = { Text(localizedStringResource(Res.string.policy_version_label, language)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = maxRegressions,
                     onValueChange = { maxRegressions = it },
                     label = { Text(localizedStringResource(Res.string.settings_max_regressions, language)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = blockingPatterns,
                     onValueChange = { blockingPatterns = it },
                     label = { Text(localizedStringResource(Res.string.settings_blocking_metrics, language)) },

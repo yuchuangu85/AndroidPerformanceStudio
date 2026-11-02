@@ -19,6 +19,7 @@ import com.androidperformancestudio.presentation.generated.resources.SimpleperfV
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -134,9 +135,19 @@ internal fun FirefoxFlameGraphEmptyState(
         modifier = modifier.fillMaxWidth().background(style.canvasBackground.toComposeColor()).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(content.message, color = style.canvasForeground.toComposeColor(), fontSize = ViewerTypography.body.fontSize)
+        CopyableText(
+            content.message,
+            color = style.canvasForeground.toComposeColor(),
+            fontSize = ViewerTypography.body.fontSize,
+            language = currentSimpleperfLanguage(),
+        )
         content.diagnosticDetails?.takeIf(String::isNotBlank)?.let { details ->
-            Text(details, color = style.mutedForeground.toComposeColor(), fontSize = ViewerTypography.secondary.fontSize)
+            CopyableText(
+                details,
+                color = style.mutedForeground.toComposeColor(),
+                fontSize = ViewerTypography.secondary.fontSize,
+                language = currentSimpleperfLanguage(),
+            )
         }
         Box(
             modifier =

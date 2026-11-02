@@ -48,6 +48,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.wat
 import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_platform_only
 import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_runs_preview
 import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_unplotted_phases
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -112,8 +113,8 @@ internal fun StartupRunsWaterfall(
             )
         }
         if (sources.isEmpty()) {
-            Text(localizedStringResource(Res.string.waterfall_no_intervals, language), style = MaterialTheme.typography.bodySmall)
-            Text(
+            CopyableText(localizedStringResource(Res.string.waterfall_no_intervals, language), style = MaterialTheme.typography.bodySmall)
+            CopyableText(
                 localizedStringResource(Res.string.waterfall_platform_only, language),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.secondaryText,
@@ -225,7 +226,7 @@ internal fun StartupRunsWaterfall(
         if (omitted >
             0
         ) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.waterfall_unplotted_phases, language, omitted),
                 color = colors.warning,
                 style = MaterialTheme.typography.bodySmall,
@@ -234,12 +235,12 @@ internal fun StartupRunsWaterfall(
         if (runs.size >
             preview.size
         ) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.waterfall_runs_preview, language, preview.size, runs.size),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.platform_durations_independent, language),
             color = colors.secondaryText,
             fontSize = ViewerTypography.secondary.fontSize,

@@ -54,8 +54,8 @@ class AdbGatewayTest {
         )
         assertEquals(
             listOf(
-                "-s", "device", "shell", "logcat", "-d", "-t", "'10-29 19:00:00.000'",
-                "--pid=1234", "*:E",
+                "-s", "device", "shell", "logcat", "-d", "-v", "threadtime", "-t", "'10-29 19:00:00.000'",
+                "--pid=1234", "*:W",
             ),
             AdbCommandFactory.readAgentLogcat("device", 1234, "10-29 19:00:00.000"),
         )

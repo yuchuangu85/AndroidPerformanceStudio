@@ -39,7 +39,32 @@ class FlameGraphEmptyReasonTest {
                 projectionFailure = "must remain diagnostic-only",
             )
 
-        assertEquals(FlameGraphEmptyReason.SEARCH_FILTERED_ALL, counts.emptyReason())
+        assertEquals(FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL, counts.emptyReason())
+    }
+
+    @Test
+    fun `range then transforms then implementation then search determine stage precedence`() {
+        val downstreamEmpty =
+            stages(
+                afterTransformCount = 0,
+                afterImplementationCount = 0,
+                afterSearchCount = 0,
+                projectedNodeCount = 0,
+            )
+
+        assertEquals(FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL, downstreamEmpty.emptyReason())
+        assertEquals(
+            FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL,
+            downstreamEmpty.copy(afterTransformCount = 1).emptyReason(),
+        )
+        assertEquals(
+            FlameGraphEmptyReason.SEARCH_FILTERED_ALL,
+            downstreamEmpty.copy(afterTransformCount = 1, afterImplementationCount = 1).emptyReason(),
+        )
+        assertEquals(
+            FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY,
+            downstreamEmpty.copy(afterPreviewCount = 0).emptyReason(),
+        )
     }
 }
 

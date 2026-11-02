@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.io.Closeable
+import java.io.InputStream
+import java.util.concurrent.Semaphore
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -27,13 +29,13 @@ internal class LocalFirefoxProfilerLauncher(
     private var activeServer: FirefoxProfilerLocalServer? = null
 
     @Suppress("TooGenericExceptionCaught")
-    suspend fun open(sessionDirectory: Path): Path =
+    suspend fun open(sessionDirectory: Path, bridge: SimpleperfWebBridgeSession? = null): Path =
         withContext(Dispatchers.IO) {
             var nextServer: FirefoxProfilerLocalServer? = null
             try {
                 val profile = sessionDirectory.resolve(FIREFOX_PROFILE_FILE)
                 exporter.export(sessionDirectory, profile)
-                nextServer = FirefoxProfilerLocalServer(siteDirectory(), profile)
+                nextServer = FirefoxProfilerLocalServer(siteDirectory(), profile, bridge)
                 val pageUri = nextServer.start()
                 synchronized(serverLock) {
                     activeServer?.close()
@@ -104,9 +106,14 @@ internal fun firefoxProfilerUrl(
 internal class FirefoxProfilerLocalServer(
     siteDirectory: Path,
     private val profile: Path,
+    private val bridge: SimpleperfWebBridgeSession? = null,
 ) : Closeable {
     private val siteDirectory = siteDirectory.toAbsolutePath().normalize()
     private val server = ServerSocket(0, SERVER_BACKLOG, InetAddress.getByName(LOOPBACK_ADDRESS))
+    private val requestSlots = Semaphore(16)
+    private val activeSockets = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
+    private val origin: String get() = "http://$LOOPBACK_ADDRESS:${server.localPort}"
+
 
     @Volatile
     private var closed = false
@@ -125,6 +132,8 @@ internal class FirefoxProfilerLocalServer(
 
     override fun close() {
         closed = true
+        bridge?.close()
+        activeSockets.forEach { runCatching(it::close) }
         runCatching(server::close)
     }
 
@@ -132,8 +141,10 @@ internal class FirefoxProfilerLocalServer(
         while (!closed) {
             try {
                 val socket = server.accept()
+                if (!requestSlots.tryAcquire()) { socket.close(); continue }
+                activeSockets.add(socket)
                 thread(name = "firefox-profiler-local-request", isDaemon = true) {
-                    socket.use(::handle)
+                    try { socket.use { runCatching { handle(it) } } } finally { activeSockets.remove(socket); requestSlots.release() }
                 }
             } catch (_: SocketException) {
                 if (!closed) {
@@ -145,28 +156,74 @@ internal class FirefoxProfilerLocalServer(
 
     private fun handle(socket: Socket) {
         socket.soTimeout = SOCKET_TIMEOUT_MILLIS
-        val input = socket.getInputStream().bufferedReader(StandardCharsets.US_ASCII)
-        val request = input.readLine().orEmpty().split(' ')
-        val headers =
-            generateSequence(input::readLine)
-                .takeWhile(String::isNotEmpty)
-                .mapNotNull { line ->
-                    val separator = line.indexOf(':')
-                    if (separator <= 0) {
-                        null
-                    } else {
-                        line.substring(0, separator).lowercase() to line.substring(separator + 1).trim()
-                    }
-                }.toMap()
+        val input = socket.getInputStream().buffered()
+        val request = input.readHttpLine(8192)?.split(' ') ?: return
+        val headers = linkedMapOf<String, String>()
+        var headerBytes = 0
+        while (true) {
+            val line = input.readHttpLine(8192) ?: return
+            headerBytes += line.length
+            if (headerBytes > 16384) return
+            if (line.isEmpty()) break
+            val separator = line.indexOf(':')
+            if (separator <= 0) return
+            val key = line.substring(0, separator).lowercase()
+            if (key in headers) return
+            headers[key] = line.substring(separator + 1).trim()
+        }
         val method = request.getOrNull(0)
         val requestPath = request.getOrNull(1)?.let(::requestPath)
+        if (!socket.inetAddress.isLoopbackAddress || headers["host"] != "$LOOPBACK_ADDRESS:${server.localPort}") {
+            writeJson(socket, "403 Forbidden", "{\"code\":\"E_BRIDGE_HOST\"}")
+            return
+        }
+        if (requestPath?.startsWith("/aps-ai/") == true) {
+            handleBridge(socket, input, method.orEmpty(), requestPath, headers)
+            return
+        }
         when {
             method == "OPTIONS" -> writeResponse(socket, "204 No Content", "text/plain", 0, false)
             method !in setOf("GET", "HEAD") || requestPath == null -> writeNotFound(socket, method == "HEAD")
-            requestPath == "/$FIREFOX_PROFILE_FILE" ->
-                serveFile(socket, profile, PROFILE_CONTENT_TYPE, method == "HEAD", true)
+            requestPath == "/$FIREFOX_PROFILE_FILE" -> serveFile(socket, profile, PROFILE_CONTENT_TYPE, method == "HEAD", true)
             else -> serveSiteFile(socket, requestPath, headers["accept"].orEmpty(), method == "HEAD")
         }
+    }
+
+    private fun handleBridge(socket: Socket, input: InputStream, method: String, path: String, headers: Map<String, String>) {
+        val active = bridge
+        if (active == null) { writeNotFound(socket, false); return }
+        val sourceOrigin = headers["origin"]
+        if (!active.acceptsToken(headers["x-aps-bridge-token"]) ||
+            (sourceOrigin != null && sourceOrigin != origin) ||
+            headers["sec-fetch-site"]?.let { it != "same-origin" && it != "none" } == true ||
+            (method == "POST" && sourceOrigin != origin)) {
+            writeJson(socket, "403 Forbidden", "{\"code\":\"E_BRIDGE_AUTH\"}")
+            return
+        }
+        when {
+            path == "/aps-ai/context" && method == "GET" -> {
+                val context = runCatching(active::attach).getOrNull()
+                if (context == null) writeJson(socket, "410 Gone", active.result().json()) else writeJson(socket, "200 OK", context)
+            }
+            path == "/aps-ai/result" && method == "GET" -> writeJson(socket, "200 OK", active.result().json())
+            path == "/aps-ai/event" && method == "POST" -> {
+                val length = headers["content-length"]?.toIntOrNull()
+                if (headers["content-type"]?.substringBefore(';') != "application/json" || headers.containsKey("transfer-encoding") || length == null || length !in 1..MAX_BRIDGE_BYTES) {
+                    writeJson(socket, "413 Payload Too Large", "{\"code\":\"E_BRIDGE_LIMIT\"}")
+                    return
+                }
+                val body = input.readNBytes(length)
+                if (body.size != length) { writeJson(socket, "400 Bad Request", "{\"code\":\"E_BRIDGE_PROTOCOL\"}"); return }
+                writeJson(socket, "200 OK", active.submit(body).json())
+            }
+            else -> writeNotFound(socket, false)
+        }
+    }
+
+    private fun writeJson(socket: Socket, status: String, value: String) {
+        val bytes = value.toByteArray(StandardCharsets.UTF_8)
+        writeResponse(socket, status, "application/json; charset=utf-8", bytes.size.toLong(), true)
+        socket.getOutputStream().write(bytes)
     }
 
     private fun serveSiteFile(
@@ -176,7 +233,7 @@ internal class FirefoxProfilerLocalServer(
         headOnly: Boolean,
     ) {
         if (requestPath == "/" || requestPath.startsWith("/from-url/")) {
-            serveFile(socket, siteDirectory.resolve(INDEX_FILE), "text/html; charset=utf-8", headOnly, false)
+            serveIndex(socket, headOnly)
             return
         }
         val requested = resolveSiteFile(requestPath)
@@ -193,11 +250,25 @@ internal class FirefoxProfilerLocalServer(
         }
     }
 
+    private fun serveIndex(socket: Socket, headOnly: Boolean) {
+        val active = bridge
+        if (active == null) { serveFile(socket, siteDirectory.resolve(INDEX_FILE), "text/html; charset=utf-8", headOnly, false); return }
+        val html = Files.readString(siteDirectory.resolve(INDEX_FILE))
+        val adapter = "<script>" + simpleperfWebBridgeAdapter(active.token) + "</script>"
+        val injected = if (html.contains("</body>")) html.replace("</body>", adapter + "</body>") else html + adapter
+        val bytes = injected.toByteArray(StandardCharsets.UTF_8)
+        writeResponse(socket, "200 OK", "text/html; charset=utf-8", bytes.size.toLong(), true)
+        if (!headOnly) socket.getOutputStream().write(bytes)
+    }
+
     private fun resolveSiteFile(requestPath: String): Path? =
         runCatching {
             val relative = URLDecoder.decode(requestPath.removePrefix("/"), StandardCharsets.UTF_8)
             val requested = siteDirectory.resolve(relative).normalize()
-            requested.takeIf { path -> path.startsWith(siteDirectory) }
+            requested.takeIf { path ->
+                path.startsWith(siteDirectory) && !Files.isSymbolicLink(path) &&
+                    (!Files.exists(path) || path.toRealPath().startsWith(siteDirectory.toRealPath()))
+            }
         }.getOrNull()
 
     private fun serveFile(
@@ -235,9 +306,8 @@ internal class FirefoxProfilerLocalServer(
         val headers =
             buildString {
                 append("HTTP/1.1 $status\r\n")
-                append("Access-Control-Allow-Origin: *\r\n")
-                append("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n")
-                append("Access-Control-Allow-Headers: *\r\n")
+                append("X-Content-Type-Options: nosniff\r\n")
+                append("Referrer-Policy: no-referrer\r\n")
                 append("Content-Type: $contentType\r\n")
                 append("Content-Length: $contentLength\r\n")
                 append("Cache-Control: ${if (noStore) "no-store" else "no-cache"}\r\n")
@@ -284,3 +354,14 @@ private const val FIREFOX_PROFILER_DIST_PROPERTY = "androidperformancestudio.fir
 private const val FIREFOX_PROFILER_DIST_ENVIRONMENT = "ANDROID_PERFORMANCE_STUDIO_FIREFOX_PROFILER_DIST"
 private const val COMPOSE_APPLICATION_RESOURCES_PROPERTY = "compose.application.resources.dir"
 private const val FIREFOX_PROFILER_DIST_RELATIVE_PATH = "third_party/firefox-profiler/dist"
+
+private fun InputStream.readHttpLine(limit: Int): String? {
+    val bytes = java.io.ByteArrayOutputStream()
+    while (bytes.size() <= limit) {
+        val value = read()
+        if (value < 0) return null
+        if (value == 10) return bytes.toByteArray().toString(StandardCharsets.US_ASCII).removeSuffix("\r")
+        bytes.write(value)
+    }
+    return null
+}

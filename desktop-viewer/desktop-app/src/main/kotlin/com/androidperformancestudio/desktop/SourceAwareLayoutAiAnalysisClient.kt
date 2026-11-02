@@ -32,6 +32,8 @@ import kotlinx.coroutines.ensureActive
 internal class SourceAwareLayoutAiAnalysisClient(
     private val runtime: SourceWorkspaceRuntime,
     private val analysisGateway: AiAnalysisGateway? = null,
+    private val globalAnalysis: (suspend (AnalysisRequest) -> com.androidperformancestudio.ai.AnalysisResult)? = null,
+    private val onPreparedContext: (AnalysisRequest) -> Unit = {},
 ) : AiAnalysisClient {
     override suspend fun prepare(input: AiAnalysisInput): PreparedAiAnalysis {
         val sessionId = AnalysisSessionId.create()
@@ -92,6 +94,7 @@ internal class SourceAwareLayoutAiAnalysisClient(
             createdAt = Instant.now(),
             provider = "OpenAI Responses",
         )
+        onPreparedContext(request)
         return PreparedAiAnalysis(
             input = input,
             manifest = AiPayloadManifest(
@@ -128,7 +131,7 @@ internal class SourceAwareLayoutAiAnalysisClient(
         runtime.analysisSessions.saveSession(initialSession)
         return try {
             runtime.analysisSessions.saveRequest(request)
-            val result = (analysisGateway ?: gateway(model, endpoint)).analyze(request)
+            val result = globalAnalysis?.invoke(request) ?: (analysisGateway ?: gateway(model, endpoint)).analyze(request)
             currentCoroutineContext().ensureActive()
             runtime.analysisSessions.saveResult(result)
             AiAnalysisReport(

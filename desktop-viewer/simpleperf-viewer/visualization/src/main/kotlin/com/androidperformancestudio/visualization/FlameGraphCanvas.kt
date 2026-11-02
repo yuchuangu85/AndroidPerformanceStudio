@@ -12,7 +12,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -189,14 +188,6 @@ private fun DrawScope.drawFlameNode(
         topLeft = Offset(node.x, node.y),
         size = Size(node.width, drawableHeight),
     )
-    colors.outline?.let { outline ->
-        drawRect(
-            color = outline.toComposeColor(),
-            topLeft = Offset(node.x, node.y),
-            size = Size(node.width, drawableHeight),
-            style = Stroke(width = OUTLINE_WIDTH_PX),
-        )
-    }
     if (shouldResolveFlameLabel(node, size.width, size.height, style)) {
         drawFittedLabel(
             node,
@@ -321,6 +312,7 @@ private data class FlameLabelCacheKey(
 private fun FirefoxFlameGraphStyle.textStyle(density: Density): TextStyle =
     TextStyle(
         fontSize = with(density) { labelFontSizePx.toSp() },
+        fontFamily = labelFontFamily,
     )
 
 private fun VisibleFlameLayout.nodeIdAt(position: Offset): FlameCallNodeId? =
@@ -334,7 +326,6 @@ private fun FlameGraphColor.toComposeColor(): Color = Color(argb)
 
 private const val ROW_BOTTOM_GAP_DEVICE_PX = 1f
 private const val MINIMUM_NODE_HEIGHT_PX = 1f
-private const val OUTLINE_WIDTH_PX = 1f
 private const val MINIMUM_LABEL_HEIGHT_PX = 8f
 private const val ELLIPSIS = "…"
 private const val MAXIMUM_LABEL_CACHE_ENTRIES = 4_096

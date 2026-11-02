@@ -13,7 +13,6 @@ import com.androidperformancestudio.profileanalysis.FlameGraphRows
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.visualization.FlameViewport
-import com.androidperformancestudio.visualization.NavigationAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -54,13 +53,12 @@ class FlameGraphKeyboardNavigationTest {
     }
 
     @Test
-    fun `wasd maps to horizontal viewport actions without modifiers`() {
-        assertEquals(NavigationAction.ZOOM_IN, keyboard.horizontalActionFor(Key.W, KeyEventType.KeyDown, false))
-        assertEquals(NavigationAction.ZOOM_OUT, keyboard.horizontalActionFor(Key.S, KeyEventType.KeyDown, false))
-        assertEquals(NavigationAction.PAN_LEFT, keyboard.horizontalActionFor(Key.A, KeyEventType.KeyDown, false))
-        assertEquals(NavigationAction.PAN_RIGHT, keyboard.horizontalActionFor(Key.D, KeyEventType.KeyDown, false))
-        assertNull(keyboard.horizontalActionFor(Key.W, KeyEventType.KeyUp, false))
-        assertNull(keyboard.horizontalActionFor(Key.D, KeyEventType.KeyDown, true))
+    fun `continuous viewport shortcuts do not become selection commands`() {
+        val keys = listOf(Key.W, Key.K, Key.S, Key.J, Key.A, Key.D, Key.H, Key.L, Key.Q, Key.E, Key.Y, Key.U)
+        keys.forEach { key ->
+            assertNull(keyboard.commandFor(key, KeyEventType.KeyDown, CallStackDirection.FORWARD))
+            assertNull(keyboard.commandFor(key, KeyEventType.KeyDown, CallStackDirection.INVERTED))
+        }
     }
 
     @Test

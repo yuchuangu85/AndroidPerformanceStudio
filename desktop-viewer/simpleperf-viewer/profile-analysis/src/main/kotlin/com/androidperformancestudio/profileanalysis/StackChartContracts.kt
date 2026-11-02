@@ -17,6 +17,8 @@ data class StackChartBlock(
     val frameId: Long,
     val threadKey: String,
     val weight: Long,
+    val callNodeId: FlameCallNodeId? = null,
+    val category: String? = null,
 )
 
 enum class StackChartEmptyReason {
@@ -26,6 +28,7 @@ enum class StackChartEmptyReason {
 }
 
 @ConsistentCopyVisibility
+@Suppress("LongParameterList")
 data class StackChartSnapshot private constructor(
     val framesById: Map<Long, CallStackFrame>,
     val blocks: List<StackChartBlock>,
@@ -33,8 +36,16 @@ data class StackChartSnapshot private constructor(
     val endNanosExclusive: Long?,
     val maxDepth: Int,
     val emptyReason: StackChartEmptyReason?,
+    /** Shared parent links for projected call nodes; roots map to null. */
+    val parentCallNodeIds: Map<FlameCallNodeId, FlameCallNodeId?>,
+    val committedAnalysis: FlameGraphSnapshot?,
     private val immutableSnapshot: Boolean,
 ) {
+    val blocksById: Map<StackChartBlockId, StackChartBlock> =
+        immutableStackChartMap(blocks.associateBy(StackChartBlock::id))
+    val blocksByCallNodeId: Map<FlameCallNodeId, List<StackChartBlock>> = indexBlocksByCallNode(blocks)
+
+    @Suppress("LongParameterList")
     constructor(
         framesById: Map<Long, CallStackFrame>,
         blocks: List<StackChartBlock>,
@@ -42,6 +53,8 @@ data class StackChartSnapshot private constructor(
         endNanosExclusive: Long?,
         maxDepth: Int,
         emptyReason: StackChartEmptyReason?,
+        parentCallNodeIds: Map<FlameCallNodeId, FlameCallNodeId?> = emptyMap(),
+        committedAnalysis: FlameGraphSnapshot? = null,
     ) : this(
         immutableStackChartMap(framesById),
         immutableStackChartList(blocks),
@@ -49,8 +62,12 @@ data class StackChartSnapshot private constructor(
         endNanosExclusive,
         maxDepth,
         emptyReason,
+        immutableStackChartMap(parentCallNodeIds),
+        committedAnalysis,
         true,
     )
+
+    fun blockById(id: StackChartBlockId): StackChartBlock? = blocksById[id]
 
     @Suppress("LongParameterList")
     fun copy(
@@ -60,11 +77,32 @@ data class StackChartSnapshot private constructor(
         endNanosExclusive: Long? = this.endNanosExclusive,
         maxDepth: Int = this.maxDepth,
         emptyReason: StackChartEmptyReason? = this.emptyReason,
-    ): StackChartSnapshot = StackChartSnapshot(framesById, blocks, startNanos, endNanosExclusive, maxDepth, emptyReason)
+        parentCallNodeIds: Map<FlameCallNodeId, FlameCallNodeId?> = this.parentCallNodeIds,
+        committedAnalysis: FlameGraphSnapshot? = this.committedAnalysis,
+    ): StackChartSnapshot =
+        StackChartSnapshot(
+            framesById,
+            blocks,
+            startNanos,
+            endNanosExclusive,
+            maxDepth,
+            emptyReason,
+            parentCallNodeIds,
+            committedAnalysis,
+        )
 
     override fun toString(): String =
         "StackChartSnapshot(framesById=$framesById, blocks=$blocks, startNanos=$startNanos, " +
-            "endNanosExclusive=$endNanosExclusive, maxDepth=$maxDepth, emptyReason=$emptyReason)"
+            "endNanosExclusive=$endNanosExclusive, maxDepth=$maxDepth, emptyReason=$emptyReason, " +
+            "parentCallNodeIds=$parentCallNodeIds, committedAnalysis=$committedAnalysis)"
+}
+
+private fun indexBlocksByCallNode(blocks: List<StackChartBlock>): Map<FlameCallNodeId, List<StackChartBlock>> {
+    val grouped = LinkedHashMap<FlameCallNodeId, MutableList<StackChartBlock>>()
+    blocks.forEach { block ->
+        block.callNodeId?.let { nodeId -> grouped.getOrPut(nodeId) { ArrayList() }.add(block) }
+    }
+    return immutableStackChartMap(grouped.mapValues { (_, matches) -> immutableStackChartList(matches) })
 }
 
 @Suppress("MaxLineLength")

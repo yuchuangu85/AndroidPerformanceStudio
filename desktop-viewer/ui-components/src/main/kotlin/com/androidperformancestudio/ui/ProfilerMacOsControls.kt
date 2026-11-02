@@ -190,7 +190,7 @@ public fun ProfilerToolbarStatus(
     modifier: Modifier = Modifier,
 ) {
     val status = error ?: message ?: return
-    Text(
+    CopyableText(
         text = status,
         modifier = modifier,
         color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,

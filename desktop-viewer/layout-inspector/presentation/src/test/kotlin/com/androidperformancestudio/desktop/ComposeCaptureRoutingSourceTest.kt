@@ -13,7 +13,7 @@ class ComposeCaptureRoutingSourceTest {
         )
     private val manual =
         source
-            .substringAfter("LaunchedEffect(manualRefreshRequest, autoScanEnabled)")
+            .substringAfter("LaunchedEffect(manualRefreshRequest, autoScanEnabled, composeAgentRequested,")
             .substringBefore("var paneWidths")
 
     @Test

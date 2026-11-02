@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "kind": "SKILL",
+  "id": "aps.evidence-summary",
+  "version": "1.3.0",
+  "name": "Evidence Summary",
+  "description": "Read-only evidence summarization declaration.",
+  "entrypoint": "SKILL.md",
+  "inputSchema": "aps.evidence-context.v1",
+  "outputSchema": "aps.read-only-summary.v1",
+  "contextKinds": [
+    "layout-inspector",
+    "simpleperf",
+    "memory",
+    "trace",
+    "frame",
+    "startup",
+    "battery",
+    "network",
+    "gpu",
+    "benchmark",
+    "source-workspace"
+  ],
+  "evidenceKinds": [
+    "layout-snapshot",
+    "simpleperf-hotspots",
+    "memory-selection",
+    "memory-summary",
+    "frame-selection",
+    "frame-summary",
+    "startup-selection",
+    "startup-summary",
+    "battery-selection",
+    "battery-summary",
+    "network-selection",
+    "network-summary",
+    "gpu-selection",
+    "gpu-summary",
+    "benchmark-selection",
+    "benchmark-summary",
+    "trace-selection",
+    "source-workspace-selection"
+  ],
+  "allowedProviders": [],
+  "allowedSkills": [],
+  "permissions": [
+    "READ_EVIDENCE"
+  ],
+  "runtime": "NONE",
+  "artifactFormats": [],
+  "files": {
+    "SKILL.md": "22eca0051e49c91370cba96eae4cf23926b9368a6b98c2c189b696953b2c4356"
+  }
+}

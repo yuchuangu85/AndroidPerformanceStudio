@@ -71,6 +71,7 @@ import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.storage.CallTreeNode
 import com.androidperformancestudio.storage.TopFunction
 import com.androidperformancestudio.storage.TopFunctionSort
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
@@ -234,7 +235,7 @@ private fun ReportStatus(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
     ) {
-        Text(message, color = style.text, fontSize = ViewerTypography.body.fontSize)
+        CopyableText(message, color = style.text, fontSize = ViewerTypography.body.fontSize, language = currentSimpleperfLanguage())
         if (actionLabel != null && onAction != null) {
             MacOSTextButton(actionLabel, onAction, style)
         }
@@ -262,6 +263,7 @@ internal fun ReportSelectedPanel(
                 snapshot = report.flameGraph,
                 actions = actions,
                 tooltipMode = flameTooltipMode,
+                sessionKey = report.session.directory,
             )
         ReportTab.STACK_CHART -> StackChartPanel(state, report.stackChart, actions, style)
         ReportTab.MARKER_CHART -> MarkerChartPanel(state, report.markers, actions, style)
@@ -312,7 +314,7 @@ internal fun OverviewReport(
                     fontSize = ViewerTypography.bodyCompact.fontSize,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
+                CopyableText(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_diagnostics_lost_samples_value_format,
                         language,
@@ -321,7 +323,7 @@ internal fun OverviewReport(
                     color = style.text,
                     fontSize = ViewerTypography.label.fontSize,
                 )
-                Text(
+                CopyableText(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_diagnostics_unwind_errors_value_format,
                         language,
@@ -330,7 +332,7 @@ internal fun OverviewReport(
                     color = style.text,
                     fontSize = ViewerTypography.label.fontSize,
                 )
-                Text(
+                CopyableText(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_diagnostics_unknown_symbols_value_format,
                         language,
@@ -339,7 +341,7 @@ internal fun OverviewReport(
                     color = style.text,
                     fontSize = ViewerTypography.label.fontSize,
                 )
-                Text(
+                CopyableText(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_diagnostics_empty_stacks_value_format,
                         language,
@@ -385,7 +387,7 @@ internal fun OverviewReport(
         }
         item { SectionTitle(SimpleperfViewerRes.sp_report_artifacts, style) }
         items(report.session.artifacts, key = { it.name }) { artifact ->
-            Text(
+            CopyableText(
                 "${if (artifact.exists) "✓" else "–"} ${artifact.name} · ${artifact.path}",
                 color = style.text,
                 fontSize = ViewerTypography.label.fontSize,
@@ -394,7 +396,7 @@ internal fun OverviewReport(
         item { SectionTitle(SimpleperfViewerRes.sp_diagnostics_diagnostics, style) }
         if (report.diagnostics.isEmpty()) {
             item {
-                Text(
+                CopyableText(
                     localizedStringResource(SimpleperfViewerRes.sp_diagnostics_no_findings_empty_state, language),
                     color = style.secondaryText,
                     fontSize = ViewerTypography.label.fontSize,
@@ -1108,21 +1110,21 @@ private fun DiagnosticCard(
         borderColor = accent,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
+            CopyableText(
                 finding.title,
                 modifier = Modifier.weight(1f),
                 color = style.text,
                 fontSize = ViewerTypography.bodyCompact.fontSize,
                 fontWeight = FontWeight.SemiBold,
             )
-            Text(
+            CopyableText(
                 localizedStringResource(finding.severity.resource(), language),
                 color = accent,
                 fontSize = ViewerTypography.dense.fontSize,
                 fontWeight = FontWeight.Bold,
             )
         }
-        Text(finding.conclusion, color = style.text, fontSize = ViewerTypography.label.fontSize)
+        CopyableText(finding.conclusion, color = style.text, fontSize = ViewerTypography.label.fontSize, language = language)
         finding.evidence.forEach { evidence ->
             Row(Modifier.fillMaxWidth()) {
                 Text(
@@ -1131,7 +1133,13 @@ private fun DiagnosticCard(
                     color = style.secondaryText,
                     fontSize = ViewerTypography.dense.fontSize,
                 )
-                Text(evidence.value, color = style.text, fontSize = ViewerTypography.dense.fontSize, fontWeight = FontWeight.SemiBold)
+                CopyableText(
+                    evidence.value,
+                    color = style.text,
+                    fontSize = ViewerTypography.dense.fontSize,
+                    fontWeight = FontWeight.SemiBold,
+                    language = language,
+                )
             }
         }
         if (finding.recommendations.isNotEmpty()) {
@@ -1142,10 +1150,11 @@ private fun DiagnosticCard(
                 fontWeight = FontWeight.Bold,
             )
             finding.recommendations.forEach {
-                Text(
+                CopyableText(
                     localizedStringResource(SimpleperfViewerRes.sp_common_bullet_format, language, it),
                     color = style.secondaryText,
                     fontSize = ViewerTypography.dense.fontSize,
+                    language = language,
                 )
             }
         }

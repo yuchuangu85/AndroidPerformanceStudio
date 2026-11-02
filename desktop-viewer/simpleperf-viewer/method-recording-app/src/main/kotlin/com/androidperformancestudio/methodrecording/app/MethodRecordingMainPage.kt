@@ -1,6 +1,7 @@
 package com.androidperformancestudio.methodrecording.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -14,10 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +60,7 @@ import com.androidperformancestudio.ui.TitleBarTargetHost
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
 import com.androidperformancestudio.ui.TitleBarTargetWidth
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -268,18 +268,20 @@ private fun MethodRecordingStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
+            CopyableText(
                 text = "${localizedStringResource(Res.string.device_status, language)}:",
                 color = colors.mutedText,
                 fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
+                language = language,
             )
-            Text(
+            CopyableText(
                 text = deviceStatus,
                 color = if (onlineDeviceCount > 0) colors.secondaryText else colors.mutedText,
                 fontSize = ViewerTypography.secondary.fontSize,
                 lineHeight = ViewerTypography.secondary.lineHeight,
                 maxLines = 1,
+                language = language,
             )
         }
     }

@@ -64,6 +64,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.shar
 import com.androidperformancestudio.memory.presentation.generated.resources.shark_status_failed
 import com.androidperformancestudio.memory.presentation.generated.resources.shark_status_no_candidates
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -209,7 +210,7 @@ private fun LeakReportSummary(
                 fontWeight = FontWeight.SemiBold,
                 color = colors.primaryText,
             )
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.leak_offline_analysis, language),
                 Modifier.weight(1f),
                 style = ViewerTypography.secondary,
@@ -244,7 +245,7 @@ private fun LeakReportSummary(
                         LeakCanaryStatus.FAILED -> Res.string.shark_status_failed
                     }
             }
-        Text(
+        CopyableText(
             localizedStringResource(
                 Res.string.leak_analysis_status,
                 language,
@@ -296,7 +297,7 @@ private fun LeakReportMetrics(
 private fun LeakReportScopeNote(report: LeakCanaryReport) {
     if (report.status == LeakCanaryStatus.COMPLETED) {
         report.message?.takeIf { it.isNotBlank() }?.let { message ->
-            Text(
+            CopyableText(
                 message,
                 Modifier
                     .fillMaxWidth()
@@ -344,7 +345,7 @@ private fun LeakAnalysisFeedback(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-        Text(
+        CopyableText(
             text,
             style = ViewerTypography.bodyCompact,
             color =

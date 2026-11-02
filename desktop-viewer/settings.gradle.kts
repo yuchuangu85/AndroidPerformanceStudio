@@ -46,6 +46,11 @@ includeBuild("ai-core") {
     name = "ai-core"
 }
 
+// Independent evidence-bound Agent Platform; no Profiler owns its runtime.
+includeBuild("ai-platform") {
+    name = "ai-platform"
+}
+
 // Shared import contracts and filesystem source validation.
 includeBuild("source-workspace") {
     name = "source-workspace"

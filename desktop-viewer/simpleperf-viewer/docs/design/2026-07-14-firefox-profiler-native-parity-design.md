@@ -11,6 +11,12 @@ Bring the generally applicable analysis capabilities and interaction semantics o
 
 This is functional and interaction parity, not a visual clone. The implementation follows the existing desktop theme, localization, packaging, and application-shell conventions.
 
+Update (2026-10-30): the user's newer CPU-chart request supersedes that visual non-goal for Flame
+Graph and Stack Chart. Those native panels now target the fixed Firefox reference's UI and events,
+including chart-local typography, timeline gutter, stack settings and transform history. The APS
+application shell remains native and distinct. See the current compatibility matrix and root
+`DESIGN.md`; this historical design is not evidence that every parity gate has passed.
+
 ## 2. Definition of Complete
 
 Completion means Android-semantic parity rather than literal browser-data parity:

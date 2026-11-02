@@ -16,7 +16,8 @@ class HeaderControlTest {
     fun `shared device selection gates capture when device is unavailable`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"))
 
-        assertTrue(source.contains("titleBarTargets?.chooseDevice(serial, device.displayName)"))
+        assertTrue(source.contains("rememberInspectorDeviceOptions(titleBarTargets, deviceListRefreshRequest)"))
+        assertTrue(source.contains("titleBarTargets?.chooseDevice(serial, device.label)"))
         assertTrue(source.contains("titleBarTargets?.clearDevice()"))
         assertTrue(source.contains("titleBarTargets?.deviceReady(selectedDeviceSerial) == false"))
         assertTrue(source.contains("displayTextOverride = if (inTitleBar) titleBarTargets?.selectedDeviceLabel else null"))

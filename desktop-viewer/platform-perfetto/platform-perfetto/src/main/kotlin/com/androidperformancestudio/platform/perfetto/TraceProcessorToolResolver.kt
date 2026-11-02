@@ -13,9 +13,21 @@ import com.androidperformancestudio.platform.toolchain.HostProcessRunner
 import com.androidperformancestudio.platform.toolchain.JvmHostProcessRunner
 import com.androidperformancestudio.platform.toolchain.SystemHostPlatformDetector
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
+import java.util.concurrent.CancellationException
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -91,7 +103,9 @@ public class TraceProcessorToolResolver(
                 )
         val binaryName = if (platform.operatingSystem == HostOperatingSystem.WINDOWS) WINDOWS_BINARY else UNIX_BINARY
         val packaged = applicationResourcesPath?.resolve("perfetto-tools")?.resolve(binaryName)
-        if (packaged != null && Files.exists(packaged)) return verifiedPinned(packaged, expected)
+        if (packaged != null && Files.exists(packaged)) {
+            return verifiedPinned(packaged, expected, allowSignedMacResource = platform.operatingSystem == HostOperatingSystem.MACOS)
+        }
         val installed = installedToolsPath.resolve(binaryName)
         if (Files.exists(installed)) return verifiedPinned(installed, expected)
         return failure(
@@ -102,15 +116,17 @@ public class TraceProcessorToolResolver(
         )
     }
 
-    private fun verifiedPinned(
+    private suspend fun verifiedPinned(
         path: Path,
         expectedSha256: String,
+        allowSignedMacResource: Boolean = false,
     ): StudioResult<TraceProcessorTool> {
         if (!Files.isRegularFile(path) || !Files.isExecutable(path)) {
             return failure(ErrorCategory.CONFIGURATION, "TRACE_PROCESSOR_NOT_EXECUTABLE", "Trace Processor is not executable: $path")
         }
         val actual = ArtifactFileEvidence.sha256(path).value
         if (actual != expectedSha256) {
+            if (allowSignedMacResource) return verifiedSignedMacResource(path, expectedSha256, actual)
             return failure(
                 ErrorCategory.DATA_VALIDATION,
                 "TRACE_PROCESSOR_CHECKSUM_MISMATCH",
@@ -118,6 +134,80 @@ public class TraceProcessorToolResolver(
             )
         }
         return StudioResult.Success(TraceProcessorTool(path, TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION, actual))
+    }
+
+    private suspend fun verifiedSignedMacResource(
+        path: Path,
+        upstreamSha256: String,
+        actualSha256: String,
+    ): StudioResult<TraceProcessorTool> =
+        try {
+            currentCoroutineContext().ensureActive()
+            val binary = path.toAbsolutePath()
+            require(binary == binary.normalize())
+            requireNoSymlinks(binary)
+            val app =
+                generateSequence(binary.parent) { it.parent }.firstOrNull {
+                    it.fileName?.toString()?.endsWith(".app") == true && Files.isDirectory(it.resolve("Contents"), NOFOLLOW_LINKS)
+                } ?: error("Missing application bundle")
+            require(binary == app.resolve("Contents/app/resources/perfetto-tools/$UNIX_BINARY"))
+            val metadataPath = binary.resolveSibling(SIGNATURE_METADATA)
+            val metadataBytes = readSignatureMetadata(metadataPath)
+            val metadata = Json.decodeFromString(SignedTraceProcessorMetadata, metadataBytes.decodeToString(throwOnInvalidSequence = true))
+            val schemaVersion = metadata.getValue("schemaVersion")
+            require(!schemaVersion.isString && schemaVersion.content == "1")
+            fun stringValue(key: String): String = metadata.getValue(key).also { require(it.isString) }.content
+            require(stringValue("upstreamVersion") == TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION)
+            require(stringValue("binary") == UNIX_BINARY)
+            require(stringValue("upstreamSha256") == upstreamSha256)
+            require(stringValue("signedSha256") == actualSha256)
+            val teamId = stringValue("teamId")
+            require(Regex("[A-Z0-9]{10}").matches(teamId))
+            val verification =
+                processRunner.executeText(
+                    HostProcessRequest(
+                        executable = Path.of("/usr/bin/codesign"),
+                        arguments =
+                            listOf(
+                                "--verify",
+                                "--deep",
+                                "--strict",
+                                "-R",
+                                "=anchor apple generic and certificate leaf[subject.OU] = \"$teamId\"",
+                                app.toString(),
+                            ),
+                        timeout = 15.seconds,
+                        maxOutputBytesPerStream = 16 * 1024,
+                    ),
+                )
+            currentCoroutineContext().ensureActive()
+            require(verification.exitCode == 0 && !verification.stdoutTruncated && !verification.stderrTruncated)
+            requireNoSymlinks(binary)
+            require(Files.isRegularFile(binary, NOFOLLOW_LINKS) && Files.isExecutable(binary))
+            require(readSignatureMetadata(metadataPath).contentEquals(metadataBytes))
+            require(ArtifactFileEvidence.sha256(binary).value == actualSha256)
+            // The sealed metadata proves a signed transformation, not native tool qualification.
+            StudioResult.Success(TraceProcessorTool(path, TraceQuerySchema.PINNED_TRACE_PROCESSOR_VERSION, actualSha256))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            failure(
+                ErrorCategory.DATA_VALIDATION,
+                "TRACE_PROCESSOR_SIGNED_RESOURCE_INVALID",
+                "Packaged Trace Processor signed-resource integrity verification failed",
+            )
+        }
+
+    private fun requireNoSymlinks(path: Path) {
+        require(generateSequence(path) { it.parent }.none(Files::isSymbolicLink))
+    }
+
+    private fun readSignatureMetadata(path: Path): ByteArray {
+        requireNoSymlinks(path)
+        require(Files.isRegularFile(path, NOFOLLOW_LINKS))
+        return Files.newInputStream(path, NOFOLLOW_LINKS).use { input ->
+            input.readNBytes(MAX_SIGNATURE_METADATA_BYTES + 1).also { require(it.size in 1..MAX_SIGNATURE_METADATA_BYTES) }
+        }
     }
 
     private suspend fun resolveOverride(path: Path): StudioResult<TraceProcessorTool> {
@@ -160,10 +250,35 @@ public class TraceProcessorToolResolver(
     private companion object {
         const val UNIX_BINARY: String = "trace_processor_shell"
         const val WINDOWS_BINARY: String = "trace_processor_shell.exe"
+        const val SIGNATURE_METADATA: String = "trace-processor-signature.json"
+        const val MAX_SIGNATURE_METADATA_BYTES: Int = 4 * 1024
         const val COMPOSE_APPLICATION_RESOURCES_PROPERTY: String = "compose.application.resources.dir"
         const val TRACE_PROCESSOR_OVERRIDE_PROPERTY: String = "androidperformancestudio.traceProcessorPath"
         const val TRACE_PROCESSOR_OVERRIDE_ENVIRONMENT: String = "PERFETTO_TRACE_PROCESSOR_PATH"
     }
+}
+
+private object SignedTraceProcessorMetadata : DeserializationStrategy<Map<String, JsonPrimitive>> {
+    private val keys = listOf("schemaVersion", "upstreamVersion", "binary", "upstreamSha256", "signedSha256", "teamId")
+
+    override val descriptor: SerialDescriptor =
+        buildClassSerialDescriptor("SignedTraceProcessorMetadata") {
+            keys.forEach { element<JsonPrimitive>(it) }
+        }
+
+    override fun deserialize(decoder: Decoder): Map<String, JsonPrimitive> =
+        decoder.decodeStructure(descriptor) {
+            val values = mutableMapOf<String, JsonPrimitive>()
+            while (true) {
+                val index = decodeElementIndex(descriptor)
+                if (index == CompositeDecoder.DECODE_DONE) break
+                val key = keys[index]
+                require(key !in values)
+                values[key] = decodeSerializableElement(descriptor, index, JsonPrimitive.serializer())
+            }
+            require(values.keys == keys.toSet())
+            values
+        }
 }
 
 private fun <T> failure(

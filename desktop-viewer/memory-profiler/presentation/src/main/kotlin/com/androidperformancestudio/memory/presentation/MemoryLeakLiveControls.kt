@@ -36,6 +36,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.leak
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_live_stopping
 import com.androidperformancestudio.memory.presentation.generated.resources.live_event_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.no_live_events
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -107,7 +108,7 @@ private fun LiveAgentStatus(
             LeakCanaryLiveStatus.STOPPED -> Res.string.leak_live_stopped
             LeakCanaryLiveStatus.FAILED -> Res.string.leak_live_failed
         }
-    Text(
+    CopyableText(
         localizedStringResource(label, language),
         style = ViewerTypography.secondary,
         color =
@@ -141,7 +142,7 @@ private fun LiveAgentEvents(
         )
     }
     session.message?.takeIf { it.isNotBlank() }?.let {
-        Text(
+        CopyableText(
             it,
             Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = ViewerTypography.secondary,
@@ -151,14 +152,14 @@ private fun LiveAgentEvents(
         )
     }
     if (session.events.isEmpty()) {
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.no_live_events, language),
             Modifier.padding(8.dp),
             style = ViewerTypography.secondary,
             color = colors.secondaryText,
         )
     } else {
-        Text(
+        CopyableText(
             localizedStringResource(
                 Res.string.live_event_summary,
                 language,

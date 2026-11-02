@@ -153,6 +153,7 @@ import com.androidperformancestudio.frame.presentation.generated.resources.verdi
 import com.androidperformancestudio.frame.presentation.generated.resources.waiting_for_live_frame_data
 import com.androidperformancestudio.frame.presentation.generated.resources.window
 import com.androidperformancestudio.frame.presentation.generated.resources.worst
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -252,13 +253,13 @@ private fun AnalysisContent(
                 if (filteredAnalysis.frames.isEmpty()) {
                     Column(timelineModifier.verticalScroll(rememberScrollState())) {
                         FrameTimelineHeading(language = language, filters = filters)
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.no_frames_match_filter, language),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (state.analysis == null) {
                             Spacer(Modifier.height(8.dp))
-                            Text(
+                            CopyableText(
                                 text =
                                     if (state.isCapturing) {
                                         localizedStringResource(Res.string.waiting_for_live_frame_data, language)
@@ -267,16 +268,16 @@ private fun AnalysisContent(
                                     },
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(
+                            CopyableText(
                                 localizedStringResource(
                                     Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf,
                                     language,
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            operationMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
+                            operationMessage?.let { CopyableText(it, modifier = Modifier.padding(top = 8.dp)) }
                             state.errorMessage?.let {
-                                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                                CopyableText(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                             }
                         }
                     }
@@ -346,7 +347,7 @@ private fun AnalysisContent(
                         Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
                             FrameAttributionSection(filteredAnalysis.attributions, language)
                             state.warnings.forEach { warning ->
-                                Text(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+                                CopyableText(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -546,7 +547,7 @@ private fun FrameAttributionSection(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
         StudioPanelHeader(localizedStringResource(Res.string.frame_attribution, language))
         attributions.take(5).forEachIndexed { index, attribution ->
-            Text(
+            CopyableText(
                 localizedStringResource(
                     Res.string.frame_attribution_entry,
                     language,
@@ -806,7 +807,7 @@ private fun FrameTimeline(
                     frame.deadlineVerdict.name,
                 )
             }
-        Text(
+        CopyableText(
             text = listOfNotNull(clusterHint.takeIf { it.isNotEmpty() }, hoverText).joinToString("  |  "),
             modifier = Modifier.fillMaxWidth().testTag("frame-timeline-caption"),
             style = MaterialTheme.typography.bodySmall,
@@ -938,6 +939,7 @@ private fun FrameDetail(
                         DetailRow(
                             localizedStringResource(Res.string.surface_flinger_jank, language),
                             it,
+                            copyable = true,
                         )
                     }
                     frame.sample.jankStatsJank?.let { DetailRow(localizedStringResource(Res.string.jank_stats, language), it.toString()) }
@@ -945,10 +947,11 @@ private fun FrameDetail(
                         DetailRow(
                             localizedStringResource(Res.string.jank_stats_reasons, language),
                             frame.sample.jankStatsReasons.joinToString(),
+                            copyable = true,
                         )
                     }
                     frame.largestReportedStage?.let { stage ->
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.stage_investigation_hint, language, stage),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -958,6 +961,7 @@ private fun FrameDetail(
                         DetailRow(
                             localizedStringResource(Res.string.jank_types, language),
                             frame.platformJankTypes.joinToString { it.name },
+                            copyable = true,
                         )
                     }
                     frame.sample.states.forEach { (key, value) ->
@@ -974,13 +978,13 @@ private fun FrameDetail(
                             text = localizedStringResource(Res.string.copy_evidence, language),
                             onClick = { copySucceeded = copy(frame.copyEvidenceText(language)) },
                         )
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.copy_evidence_privacy_hint, language),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         copySucceeded?.let { succeeded ->
-                            Text(
+                            CopyableText(
                                 localizedStringResource(
                                     if (succeeded) Res.string.evidence_copied else Res.string.clipboard_unavailable,
                                     language,
@@ -1032,7 +1036,7 @@ private fun FrameLayoutPreview(
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.frame_screenshot_unavailable, language),
                             color = colors.secondaryText,
                             style = ViewerTypography.dense,
@@ -1050,7 +1054,7 @@ private fun FrameLayoutPreview(
                     }
                 }
             }
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.layout_preview_current_only, language),
                 style = ViewerTypography.dense,
                 color = colors.secondaryText,
@@ -1134,6 +1138,7 @@ private fun FrameStageRow(
 private fun DetailRow(
     label: String,
     value: String,
+    copyable: Boolean = false,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1143,13 +1148,23 @@ private fun DetailRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = ViewerTypography.bodyCompact,
             )
-            Text(
-                value,
-                modifier = Modifier.weight(1f),
-                fontWeight = FontWeight.Medium,
-                style = ViewerTypography.bodyCompact,
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            )
+            if (copyable) {
+                CopyableText(
+                    value,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Medium,
+                    style = ViewerTypography.bodyCompact,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
+            } else {
+                Text(
+                    value,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Medium,
+                    style = ViewerTypography.bodyCompact,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
+            }
         }
         HorizontalDivider(color = LocalViewerColors.current.border, modifier = Modifier.testTag("frame-detail-divider-$label"))
     }
@@ -1173,7 +1188,7 @@ private fun ClusterList(
             subtitle = localizedStringResource(Res.string.cluster_count, language, analysis.clusters.size),
         )
         if (analysis.clusters.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.no_jank_clusters_detected, language),
                 color = LocalViewerColors.current.secondaryText,
             )
@@ -1245,7 +1260,7 @@ private fun ProblemFramesTable(
             }
         }
         if (problemFrames.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.no_problem_frames, language),
                 color = LocalViewerColors.current.secondaryText,
             )
@@ -1296,7 +1311,7 @@ private fun ProblemFramesTable(
                                         ).padding(10.dp),
                                 ) {
                                     SelectionContainer {
-                                        Text(
+                                        CopyableText(
                                             frame.problemEvidence(language),
                                             style = ViewerTypography.dense,
                                             color = tooltipColors.primaryText,

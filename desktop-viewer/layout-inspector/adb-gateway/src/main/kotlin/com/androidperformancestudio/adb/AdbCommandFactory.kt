@@ -98,9 +98,9 @@ object AdbCommandFactory {
                 "Unsafe logcat timestamp"
             }
         }
-        return devicePrefix(serial) + listOf("shell", "logcat", "-d") +
+        return devicePrefix(serial) + listOf("shell", "logcat", "-d", "-v", "threadtime") +
             since?.let { listOf("-t", "'$it'") }.orEmpty() +
-            listOf("--pid=$pid", "*:E")
+            listOf("--pid=$pid", "*:W")
     }
 
     fun push(serial: String, localPath: String, remotePath: String): List<String> {

@@ -3,10 +3,16 @@
 package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.profileanalysis.AnalysisTimeRange
+import com.androidperformancestudio.profileanalysis.CallNodePath
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
+import com.androidperformancestudio.profileanalysis.CallStackTransform
+import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.ImplementationFilter
+import com.androidperformancestudio.profileanalysis.StackChartBlock
+import com.androidperformancestudio.profileanalysis.StackChartEmptyReason
+import com.androidperformancestudio.profileanalysis.StackChartProjector
 import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import java.nio.file.Files
 import java.nio.file.Path
@@ -17,9 +23,155 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class SQLiteProfileProjectionQueriesTest {
+    @Test
+    fun `committed range never stretches the selected thread terminal sample`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+            store.execute("INSERT INTO thread(thread_id, process_id, name) VALUES (102, 100, 'worker')")
+            store.execute(
+                "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count, leaf_callsite_id) " +
+                    "VALUES (20, 100, 101, 1, 7, 2), (80, 100, 102, 1, 11, 2)",
+            )
+            listOf(null, 100L).forEach { right ->
+                val snapshot =
+                    store.projectCore(
+                        ProfileQuery(startNanosInclusive = 0, endNanosExclusive = right, threadIds = setOf(101)),
+                    )
+                val chart = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+                assertEquals(21, chart.endNanosExclusive)
+                assertEquals(21, chart.blocks.maxOf(StackChartBlock::endNanosExclusive))
+                assertEquals(2, snapshot.overview.sampleCount)
+                assertEquals(10, snapshot.overview.totalEventWeight)
+                assertEquals(3, snapshot.sessionOverview.sampleCount)
+                assertEquals(80, snapshot.sessionOverview.endNanosInclusive)
+            }
+        }
+
+    @Test
+    fun `right open committed boundary excludes its sample without extending the preceding sample`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+            store.execute(
+                "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count, leaf_callsite_id) " +
+                    "VALUES (20, 100, 101, 1, 7, 2)",
+            )
+            val snapshot = store.projectCore(ProfileQuery(startNanosInclusive = 0, endNanosExclusive = 20))
+            val chart = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+            assertEquals(11, chart.endNanosExclusive)
+            assertEquals(1, snapshot.overview.sampleCount)
+            assertEquals(3, snapshot.flameGraph.totalWeight)
+            assertEquals(2, snapshot.sessionOverview.sampleCount)
+        }
+
+    @Test
+    fun `user timings keep unsearched markers when marker search excludes every marker`() =
+        withStore { store ->
+            store.seedCanonicalSource("source", "main", sampleNanos = 100)
+            val snapshot = store.projectCore(ProfileProjectionRequest(markerSearch = "absent"))
+            val markers = assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(snapshot.markers).value
+            assertTrue(markers.markers.isEmpty())
+            val timings = assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(snapshot.userTimings).value
+            assertEquals(listOf("marker"), timings.markers.map(MarkerProjectionRow::name))
+            assertEquals(MarkerAvailability.AVAILABLE, timings.availability)
+        }
+
+    @Test
+    fun `blank marker search reuses its projection for user timings without a duplicate query`() =
+        withStore { store ->
+            store.seedCanonicalSource("source", "main", sampleNanos = 100)
+            listOf("", "   ").forEach { search ->
+                val queries = mutableListOf<String>()
+                val snapshot =
+                    SQLiteProfileProjectionQueries.project(
+                        store,
+                        ProfileProjectionRequest(markerSearch = search),
+                        markerProjector = { connection, query, text ->
+                            queries += text
+                            SQLiteMarkerProjectionQueries.load(connection, query, text)
+                        },
+                    )
+                assertEquals(listOf(search), queries)
+                assertSame(snapshot.markers, snapshot.userTimings)
+            }
+        }
+
+    @Test
+    fun `searched markers and unsearched user timings isolate their failures independently`() =
+        withStore { store ->
+            store.seedCanonicalSource("source", "main", sampleNanos = 100)
+            val markerFailure =
+                SQLiteProfileProjectionQueries.project(
+                    store,
+                    ProfileProjectionRequest(markerSearch = "marker"),
+                    markerProjector = { connection, query, text ->
+                        if (text.isNotBlank()) throw SQLException("search failed")
+                        SQLiteMarkerProjectionQueries.load(connection, query, text)
+                    },
+                )
+            assertIs<PanelProjection.Failed>(markerFailure.markers)
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(markerFailure.userTimings)
+            val timingsFailure =
+                SQLiteProfileProjectionQueries.project(
+                    store,
+                    ProfileProjectionRequest(markerSearch = "marker"),
+                    markerProjector = { connection, query, text ->
+                        if (text.isBlank()) throw SQLException("unsearched markers failed")
+                        SQLiteMarkerProjectionQueries.load(connection, query, text)
+                    },
+                )
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(timingsFailure.markers)
+            assertIs<PanelProjection.Failed>(timingsFailure.userTimings)
+        }
+
+    @Test
+    fun `unsearched user timings preserve empty v2 marker availability`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            val snapshot = store.projectCore(ProfileProjectionRequest(markerSearch = "timing"))
+            val timings = assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(snapshot.userTimings).value
+            assertEquals(MarkerAvailability.AVAILABLE, timings.availability)
+            assertEquals(MarkerEmptyReason.PROFILE_EMPTY, timings.emptyReason)
+            assertTrue(timings.markers.isEmpty())
+            assertEquals(snapshot.markers, snapshot.userTimings)
+        }
+
+    @Test
+    fun `stack chart projection always receives forward direction while preserving shared filters`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachTwoFrameStack()
+            val analysis =
+                CallStackAnalysisQuery(
+                    direction = CallStackDirection.INVERTED,
+                    previewRange = AnalysisTimeRange(10, 11),
+                    searchText = "leaf",
+                    transforms = listOf(CallStackTransform.FocusFunction(store.functionAt(1))),
+                )
+            val snapshot =
+                SQLiteProfileProjectionQueries.project(
+                    store,
+                    ProfileProjectionRequest(callStackAnalysis = analysis),
+                    stackChartProjector = { source, query, end ->
+                        assertEquals(analysis.copy(direction = CallStackDirection.FORWARD, previewRange = null), query)
+                        StackChartProjector.project(source, query, end)
+                    },
+                )
+            val chart = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+            assertEquals(
+                listOf("root", "leaf"),
+                chart.blocks.sortedBy(StackChartBlock::depth).map { chart.framesById.getValue(it.frameId).symbolName },
+            )
+            assertEquals("leaf", snapshot.callTree.single { it.parentId == null }.symbolName)
+            assertEquals(CallStackDirection.INVERTED, snapshot.flameGraph.query.direction)
+        }
+
     @Test
     fun `core projection publishes stack chart and marker snapshots`() =
         withStore { store ->
@@ -88,6 +240,231 @@ class SQLiteProfileProjectionQueriesTest {
             val topFunctions = store.projectCore(request).topFunctions
 
             assertEquals(listOf("managedFrame"), topFunctions.map(TopFunction::symbolName))
+        }
+
+    @Test
+    fun `transforms see original implementation paths across all stack panels`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            val transforms =
+                listOf(
+                    CallStackTransform.FocusFunction(store.functionAt(1)),
+                    CallStackTransform.FocusCallNode(CallNodePath(listOf(store.functionAt(1), store.functionAt(2)))),
+                )
+
+            transforms.forEach { transform ->
+                val snapshot =
+                    store.projectCore(
+                        ProfileProjectionRequest(
+                            callStackAnalysis =
+                                CallStackAnalysisQuery(
+                                    implementation = ImplementationFilter.SCRIPT,
+                                    searchText = "managedFrame,managed.jar",
+                                    transforms = listOf(transform),
+                                ),
+                        ),
+                    )
+                val node = snapshot.callTree.single()
+                val stack = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+                val block = stack.blocks.single()
+
+                assertEquals("managedFrame", node.symbolName)
+                assertEquals(0, node.depth)
+                assertEquals(node.id, assertNotNull(block.callNodeId).value)
+                assertNotNull(snapshot.flameGraph.callNodes.indexOf(assertNotNull(block.callNodeId)))
+                assertTrue(snapshot.flameGraph.invalidTransforms.isEmpty())
+                assertEquals(listOf("managedFrame"), snapshot.topFunctions.map(TopFunction::symbolName))
+                assertEquals(3, snapshot.flameGraph.totalWeight)
+            }
+        }
+
+    @Test
+    fun `script call node transforms retain their creation context before implementation filtering`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            val path = CallNodePath(listOf(store.functionAt(2)))
+            val focus = CallStackTransform.FocusCallNode(path, ImplementationFilter.SCRIPT)
+            val merge = CallStackTransform.MergeCallNode(path, ImplementationFilter.SCRIPT)
+            val script = CallStackAnalysisQuery(implementation = ImplementationFilter.SCRIPT)
+
+            val focused =
+                store.projectCore(ProfileProjectionRequest(callStackAnalysis = script.copy(transforms = listOf(focus))))
+            val merged =
+                store.projectCore(ProfileProjectionRequest(callStackAnalysis = script.copy(transforms = listOf(merge))))
+            val allFrames =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        callStackAnalysis =
+                            script.copy(implementation = ImplementationFilter.ALL, transforms = listOf(merge)),
+                    ),
+                )
+
+            assertTrue(focused.flameGraph.invalidTransforms.isEmpty())
+            assertEquals("managedFrame", focused.callTree.single().symbolName)
+            val stack = assertIs<PanelProjection.Ready<StackChartSnapshot>>(focused.stackChart).value
+            assertEquals(focused.callTree.single().id, assertNotNull(stack.blocks.single().callNodeId).value)
+            assertTrue(merged.flameGraph.invalidTransforms.isEmpty())
+            assertEquals(FlameGraphEmptyReason.IMPLEMENTATION_FILTERED_ALL, merged.flameGraph.emptyReason)
+            assertTrue(merged.callTree.isEmpty())
+            assertTrue(assertIs<PanelProjection.Ready<StackChartSnapshot>>(merged.stackChart).value.blocks.isEmpty())
+            assertTrue(allFrames.flameGraph.invalidTransforms.isEmpty())
+            assertEquals("nativeFrame", allFrames.callTree.single().symbolName)
+        }
+
+    @Test
+    fun `search only matches frames remaining after transforms`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+
+            val snapshot =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        callStackAnalysis =
+                            CallStackAnalysisQuery(
+                                searchText = "managedFrame",
+                                transforms = listOf(CallStackTransform.MergeFunction(store.functionAt(2))),
+                            ),
+                    ),
+                )
+
+            assertEquals(FlameGraphEmptyReason.SEARCH_FILTERED_ALL, snapshot.flameGraph.emptyReason)
+            assertEquals(0, snapshot.flameGraph.totalWeight)
+            assertTrue(snapshot.callTree.isEmpty())
+            assertTrue(snapshot.topFunctions.isEmpty())
+            val stack = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+            assertEquals(StackChartEmptyReason.FILTERED_ALL, stack.emptyReason)
+            assertTrue(stack.blocks.isEmpty())
+        }
+
+    @Test
+    fun `transform elimination wins over downstream empty implementation and search`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            val query =
+                CallStackAnalysisQuery(
+                    implementation = ImplementationFilter.SCRIPT,
+                    searchText = "absent",
+                    transforms = listOf(CallStackTransform.DropFunction(store.functionAt(1))),
+                )
+
+            val transformed = store.projectCore(ProfileProjectionRequest(callStackAnalysis = query))
+            val previewEmpty =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        callStackAnalysis = query.copy(previewRange = AnalysisTimeRange(20, 30)),
+                    ),
+                )
+
+            assertEquals(FlameGraphEmptyReason.TRANSFORMS_FILTERED_ALL, transformed.flameGraph.emptyReason)
+            assertEquals(FlameGraphEmptyReason.PREVIEW_RANGE_EMPTY, previewEmpty.flameGraph.emptyReason)
+        }
+
+    @Test
+    fun `preview excluded call paths are invalid before implementation and search`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            store.execute("UPDATE sample SET leaf_callsite_id=1")
+            store.execute(
+                "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count, leaf_callsite_id) " +
+                    "VALUES (20, 100, 101, 1, 7, 2)",
+            )
+            val transform =
+                CallStackTransform.FocusCallNode(CallNodePath(listOf(store.functionAt(1), store.functionAt(2))))
+            val snapshot =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        callStackAnalysis =
+                            CallStackAnalysisQuery(
+                                previewRange = AnalysisTimeRange(10, 20),
+                                searchText = "Frame",
+                                transforms = listOf(transform),
+                            ),
+                    ),
+                )
+
+            assertEquals(listOf(transform), snapshot.flameGraph.invalidTransforms)
+            assertEquals("nativeFrame", snapshot.callTree.single().symbolName)
+            assertEquals(3, snapshot.flameGraph.totalWeight)
+            val stack = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+            assertEquals("managedFrame", stack.framesById.getValue(stack.blocks.single().frameId).symbolName)
+            assertEquals(20, stack.blocks.single().startNanos)
+            assertEquals(21, stack.blocks.single().endNanosExclusive)
+        }
+
+    @Test
+    fun `preview filters aggregates without clipping committed stack chart blocks`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            store.execute(
+                "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count, leaf_callsite_id) " +
+                    "VALUES (20, 100, 101, 1, 7, 2)",
+            )
+
+            val snapshot =
+                store.projectCore(
+                    ProfileProjectionRequest(
+                        query = ProfileQuery(startNanosInclusive = 0, endNanosExclusive = 31),
+                        callStackAnalysis =
+                            CallStackAnalysisQuery(
+                                previewRange = AnalysisTimeRange(10, 11),
+                                implementation = ImplementationFilter.SCRIPT,
+                                searchText = "managedFrame",
+                                direction = CallStackDirection.INVERTED,
+                                transforms = listOf(CallStackTransform.FocusFunction(store.functionAt(1))),
+                            ),
+                    ),
+                )
+            val stack = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+            val block = stack.blocks.single()
+            val nodeId = assertNotNull(block.callNodeId)
+
+            assertEquals(2, snapshot.overview.sampleCount)
+            assertEquals(3, snapshot.flameGraph.totalWeight)
+            assertEquals(3, snapshot.topFunctions.single().inclusiveWeight)
+            assertEquals(nodeId.value, snapshot.callTree.single().id)
+            assertNotNull(snapshot.flameGraph.callNodes.indexOf(nodeId))
+            assertEquals(10, block.startNanos)
+            assertEquals(21, block.endNanosExclusive)
+            assertEquals(10, block.weight)
+            assertEquals(21, stack.endNanosExclusive)
+        }
+
+    @Test
+    fun `transform ordering preserves exact rejected sample intervals and panel node ids`() =
+        withStore { store ->
+            store.seedLegacyProfile(traceOffCpu = false, contextSwitchNanos = null)
+            store.attachMixedImplementationStack()
+            store.execute(
+                "INSERT INTO sample(timestamp_nanos, process_id, thread_id, event_id, event_count, leaf_callsite_id) " +
+                    "VALUES (20, 100, 101, 1, 5, 1), (30, 100, 101, 1, 7, 2), (40, 100, 101, 1, 11, 1)",
+            )
+            val query =
+                CallStackAnalysisQuery(
+                    implementation = ImplementationFilter.SCRIPT,
+                    searchText = "managedFrame",
+                    transforms = listOf(CallStackTransform.FocusFunction(store.functionAt(1))),
+                )
+
+            CallStackDirection.entries.forEach { direction ->
+                val snapshot =
+                    store.projectCore(
+                        ProfileProjectionRequest(callStackAnalysis = query.copy(direction = direction)),
+                    )
+                val stack = assertIs<PanelProjection.Ready<StackChartSnapshot>>(snapshot.stackChart).value
+                val nodeId = assertNotNull(snapshot.flameGraph.callNodes.nodeIdAt(0))
+
+                assertEquals(listOf(10L to 20L, 30L to 40L), stack.blocks.map { it.startNanos to it.endNanosExclusive })
+                assertEquals(listOf(3L, 7L), stack.blocks.map(StackChartBlock::weight))
+                assertEquals(listOf(nodeId, nodeId), stack.blocks.map(StackChartBlock::callNodeId))
+                assertEquals(nodeId.value, snapshot.callTree.single().id)
+                assertEquals(10, snapshot.flameGraph.totalWeight)
+            }
         }
 
     @Test
@@ -524,6 +901,12 @@ class SQLiteProfileProjectionQueriesTest {
             )
         }
     }
+
+    private fun SQLiteSampleStore.functionAt(frameId: Long): FlameFunctionId =
+        projectCore()
+            .flameGraph.callNodes.framesById
+            .getValue(frameId)
+            .functionId
 
     private fun SQLiteSampleStore.attachTwoFrameStack() {
         execute("INSERT INTO file(file_id, path) VALUES (1, '/lib.so')")

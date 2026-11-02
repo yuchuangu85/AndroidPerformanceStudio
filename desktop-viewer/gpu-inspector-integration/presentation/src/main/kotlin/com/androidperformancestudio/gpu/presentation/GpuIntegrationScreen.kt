@@ -25,6 +25,7 @@ import com.androidperformancestudio.gpu.model.GpuArtifactKind
 import com.androidperformancestudio.gpu.model.GpuDeviceContext
 import com.androidperformancestudio.gpu.presentation.generated.resources.*
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioCard
@@ -99,11 +100,12 @@ public fun GpuIntegrationScreen(
                     localizedStringResource(Res.string.android_gpu_inspector, language),
                     style = MaterialTheme.typography.titleLarge,
                 )
-                Text(
+                CopyableText(
                     state.capability?.executable?.toString()
                         ?: localizedStringResource(Res.string.agi_is_not_configured, language),
+                    language = language,
                 )
-                Text(
+                CopyableText(
                     localizedStringResource(
                         Res.string.capability_summary,
                         language,
@@ -112,23 +114,26 @@ public fun GpuIntegrationScreen(
                         state.capability?.launchMode?.displayName(language)
                             ?: localizedStringResource(Res.string.unavailable, language),
                     ),
+                    language = language,
                 )
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.tool_responsibility_hint, language),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    language = language,
                 )
                 state.capability?.warnings.orEmpty().forEach { warning ->
-                    Text(
+                    CopyableText(
                         localizedWarning(warning, language),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        language = language,
                     )
                 }
             }
         }
-        state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        state.message?.let { CopyableText(it, color = MaterialTheme.colorScheme.primary, language = language) }
+        state.error?.let { CopyableText(it, color = MaterialTheme.colorScheme.error, language = language) }
         Text(
             localizedStringResource(Res.string.recent_gpu_artifacts, language),
             style = MaterialTheme.typography.titleLarge,
@@ -160,13 +165,14 @@ public fun GpuIntegrationScreen(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             artifact.warnings.forEach { warning ->
-                                Text(
+                                CopyableText(
                                     localizedWarning(warning, language),
                                     style = MaterialTheme.typography.bodySmall,
+                                    language = language,
                                 )
                             }
                             availability?.let {
-                                Text(
+                                CopyableText(
                                     it.locationStatus.displayName(language),
                                     style = MaterialTheme.typography.bodySmall,
                                     color =
@@ -175,6 +181,7 @@ public fun GpuIntegrationScreen(
                                         } else {
                                             MaterialTheme.colorScheme.error
                                         },
+                                    language = language,
                                 )
                             }
                         }

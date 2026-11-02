@@ -4,15 +4,18 @@ package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackFilter
 import com.androidperformancestudio.profileanalysis.CallStackTable
 import com.androidperformancestudio.profileanalysis.CallStackTransformer
+import com.androidperformancestudio.profileanalysis.CallStackWeightType
 import com.androidperformancestudio.profileanalysis.CallTreeProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FlameGraphStageCounts
 import com.androidperformancestudio.profileanalysis.StackChartProjector
 import com.androidperformancestudio.profileanalysis.StackChartSnapshot
+import com.androidperformancestudio.profileanalysis.withWeightType
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
@@ -31,26 +34,44 @@ internal object SQLiteProfileProjectionQueries {
             StackChartProjector::project,
         markerProjector: (Connection, ProfileQuery, String) -> MarkerProjectionSnapshot =
             SQLiteMarkerProjectionQueries::load,
-    ): ProfileProjectionSnapshot {
-        val frozenQuery = request.query.freeze()
-        return store.readTransaction {
+    ): ProfileProjectionSnapshot =
+        store.readTransaction {
+            val frozenQuery = connection.projectionQuery(request)
             val overview = overview(frozenQuery)
             val sessionOverview = overview()
             val sessionThreads = threads().sortedThreads()
             val quality = dataQuality()
             val source = SQLiteFlameGraphStackQueries.load(connection, frozenQuery)
-            val callStacks = projectCallStacks(source, frozenQuery, request, sessionOverview, sessionThreads)
+            val tracedTimeSource =
+                connection.tracedTimeSource(source, frozenQuery, request.callStackAnalysis.weightType)
+            val callStacks =
+                projectCallStacks(
+                    source,
+                    tracedTimeSource,
+                    request.copy(query = frozenQuery),
+                    sessionOverview,
+                    sessionThreads,
+                )
             val stackChart =
                 isolatedPanel(STACK_CHART_QUERY_FAILED) {
+                    // Preview changes the viewport, not the committed stack-chart data.
                     stackChartProjector(
-                        source,
-                        request.callStackAnalysis,
+                        source.projectionWeights(request.callStackAnalysis.weightType, tracedTimeSource),
+                        request.callStackAnalysis.copy(previewRange = null, direction = CallStackDirection.FORWARD),
                         overview.stackChartViewportEnd(request),
                     )
                 }
             val markers =
                 isolatedPanel(MARKER_QUERY_FAILED) {
                     markerProjector(connection, frozenQuery, request.markerSearch)
+                }
+            val userTimings =
+                if (request.markerSearch.isBlank()) {
+                    markers
+                } else {
+                    isolatedPanel(USER_TIMINGS_QUERY_FAILED) {
+                        markerProjector(connection, frozenQuery, "")
+                    }
                 }
             ProfileProjectionSnapshot(
                 query = frozenQuery,
@@ -61,19 +82,10 @@ internal object SQLiteProfileProjectionQueries {
                 tracks = coreTracks(connection, frozenQuery),
                 threads = threads(frozenQuery).sortedThreads(),
                 timeline = timelineBuckets(frozenQuery, request.timelineBucketCount).sortedTimeline(),
-                topFunctions =
-                    CallStackTopFunctions.project(
-                        table = callStacks.transformed,
-                        options =
-                            TopFunctionOptions(
-                                limit = request.topFunctionLimit,
-                                search = request.topSearch,
-                                sort = request.topSort,
-                                descending = request.topDescending,
-                            ),
-                    ),
+                topFunctions = callStacks.projectTopFunctions(request),
                 stackChart = stackChart,
                 markers = markers,
+                userTimings = userTimings,
                 sessionOverview = sessionOverview.copy(eventTypes = sessionOverview.eventTypes.sorted()),
                 sessionThreads = sessionThreads,
                 timelineTracks =
@@ -83,18 +95,58 @@ internal object SQLiteProfileProjectionQueries {
                     ),
             )
         }
+
+    private fun Connection.projectionQuery(request: ProfileProjectionRequest): ProfileQuery {
+        val query = request.query.freeze()
+        return if (request.selectInitialThread && query.threadIds.isEmpty()) {
+            initialThread(query)?.let { query.copy(threadIds = setOf(it)) } ?: query
+        } else {
+            query
+        }
     }
+
+    private fun Connection.tracedTimeSource(
+        source: CallStackTable,
+        query: ProfileQuery,
+        type: CallStackWeightType,
+    ): CallStackTable =
+        if (type == CallStackWeightType.SAMPLES && query.hasCommittedRange()) {
+            SQLiteFlameGraphStackQueries.loadTimingSource(
+                this,
+                query.copy(startNanosInclusive = null, endNanosExclusive = null),
+            )
+        } else {
+            source
+        }
+
+    private fun CallStackPanels.projectTopFunctions(request: ProfileProjectionRequest): List<TopFunction> =
+        CallStackTopFunctions.project(
+            table = transformed,
+            options =
+                TopFunctionOptions(
+                    limit = request.topFunctionLimit,
+                    search = request.topSearch,
+                    sort = request.topSort,
+                    descending = request.topDescending,
+                ),
+        )
 
     private fun SQLiteSampleStore.projectCallStacks(
         source: CallStackTable,
-        query: ProfileQuery,
+        tracedTimeSource: CallStackTable,
         request: ProfileProjectionRequest,
         sessionOverview: ProfileOverview,
         sessionThreads: List<ThreadSummary>,
     ): CallStackPanels {
-        val filtered = CallStackFilter.apply(source, request.callStackAnalysis)
-        val transformed = CallStackTransformer.apply(filtered.table, request.callStackAnalysis.transforms)
-        val projection = CallTreeProjector.projectResult(transformed.table, request.callStackAnalysis.direction)
+        val query = request.query
+        val analysisQuery = request.callStackAnalysis
+        val preview = CallStackFilter.apply(source, CallStackAnalysisQuery(previewRange = analysisQuery.previewRange))
+        // Firefox derives traced time after cropping the preview, but before transforms/search.
+        // In particular the last retained sample uses the interval, not a sample outside the preview.
+        val weighted = preview.table.projectionWeights(analysisQuery.weightType, tracedTimeSource)
+        val transformed = CallStackTransformer.apply(weighted, analysisQuery.transforms)
+        val filtered = CallStackFilter.apply(transformed.table, analysisQuery.copy(previewRange = null))
+        val projection = CallTreeProjector.projectResult(filtered.table, analysisQuery.direction)
         val callNodes = projection.callNodes
         val committedRangeExcludedSamples =
             source.stacks.isEmpty() &&
@@ -112,7 +164,7 @@ internal object SQLiteProfileProjectionQueries {
                 sourceStackCount = source.stacks.size,
                 selectedThreadHasNoSamples = selectedThreadHasNoSamples,
                 committedRangeExcludedSamples = committedRangeExcludedSamples,
-                afterPreviewCount = filtered.afterPreviewCount,
+                afterPreviewCount = preview.afterPreviewCount,
                 afterSearchCount = filtered.afterSearchCount,
                 afterImplementationCount = filtered.afterImplementationCount,
                 afterTransformCount = transformed.outputStackCount,
@@ -121,7 +173,7 @@ internal object SQLiteProfileProjectionQueries {
                 projectionFailure = projection.failureDetail,
             )
         return CallStackPanels(
-            transformed = transformed.table,
+            transformed = filtered.table,
             flameGraph =
                 FlameGraphSnapshot(
                     query = request.callStackAnalysis,
@@ -131,15 +183,20 @@ internal object SQLiteProfileProjectionQueries {
                     emptyReason = stages.emptyReason(),
                     invalidTransforms = transformed.invalidTransforms,
                     diagnosticDetails = projection.failureDetail,
+                    weightType = filtered.table.weightType,
                 ),
         )
     }
 
+    private fun CallStackTable.projectionWeights(
+        type: CallStackWeightType,
+        tracedTimeSource: CallStackTable = this,
+    ): CallStackTable =
+        // Preserve invalid weights for the projector's structured failure; never turn them into 1.
+        if (stacks.any { it.weight < 0 }) copy(weightType = type) else withWeightType(type, tracedTimeSource)
+
     private fun ProfileOverview.stackChartViewportEnd(request: ProfileProjectionRequest): Long =
-        request.callStackAnalysis.previewRange?.endNanosExclusive
-            ?: request.query.endNanosExclusive
-            ?: endNanosInclusive?.exclusiveEnd()
-            ?: 0L
+        minOf(endNanosInclusive?.exclusiveEnd() ?: 0L, request.query.endNanosExclusive ?: Long.MAX_VALUE)
 
     private inline fun <T> isolatedPanel(
         code: String,
@@ -539,8 +596,54 @@ internal object SQLiteProfileProjectionQueries {
 
     private const val STACK_CHART_QUERY_FAILED = "STACK_CHART_QUERY_FAILED"
     private const val MARKER_QUERY_FAILED = "MARKER_QUERY_FAILED"
+    private const val USER_TIMINGS_QUERY_FAILED = "USER_TIMINGS_QUERY_FAILED"
     private const val SQLITE_INTERRUPT = 9
 }
+
+private fun Connection.initialThread(query: ProfileQuery): Int? {
+    val filter = query.toSqlFilter("s", "e")
+    val eligible = "s.leaf_callsite_id IS NOT NULL"
+    val where = if (filter.whereClause.isEmpty()) "WHERE $eligible" else "${filter.whereClause} AND $eligible"
+    val sql =
+        "SELECT s.thread_id, COUNT(*) FROM sample s LEFT JOIN event e ON e.event_id=s.event_id " +
+            "$where GROUP BY s.thread_id"
+    val counts =
+        prepareStatement(sql).use { statement ->
+            statement.bind(filter.parameters)
+            statement.executeQuery().use { rows ->
+                buildMap { while (rows.next()) put(rows.getInt(1), rows.getLong(2)) }
+            }
+        }
+    val threads =
+        prepareStatement("SELECT thread_id, process_id, name FROM thread ORDER BY process_id, thread_id")
+            .use { statement ->
+                statement.executeQuery().use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            val id = rows.getInt(1)
+                            val count = counts[id] ?: 0
+                            if (count > 0) add(ThreadSummary(rows.getInt(2), id, rows.getString(3), count, 0))
+                        }
+                    }
+                }
+            }
+    return threads
+        .sortedWith(
+            compareBy<ThreadSummary>(
+                { it.name == "Compositor" || it.name == "Renderer" },
+                {
+                    val boost = if (INITIAL_MEDIA_THREAD.matches(it.name)) MEDIA_ACTIVITY_BOOST else 1.0
+                    -it.sampleCount.toDouble() * boost
+                },
+                ThreadSummary::processId,
+                ThreadSummary::threadId,
+            ),
+        ).firstOrNull()
+        ?.threadId
+}
+
+private val INITIAL_MEDIA_THREAD = Regex("^(Audio|Media|GraphRunner|WebrtcWorker).*")
+private const val MEDIA_ACTIVITY_BOOST = 40.0
 
 private data class CallStackPanels(
     val transformed: CallStackTable,

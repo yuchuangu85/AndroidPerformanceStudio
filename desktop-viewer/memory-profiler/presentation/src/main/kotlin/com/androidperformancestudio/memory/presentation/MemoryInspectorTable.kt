@@ -88,6 +88,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.no_o
 import com.androidperformancestudio.memory.presentation.generated.resources.no_references
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
@@ -393,7 +394,7 @@ private fun InspectorMessage(
             MemoryInspectorTreeMessage.NO_REFERENCES -> Res.string.no_references
             MemoryInspectorTreeMessage.ARRAY_UNAVAILABLE -> Res.string.array_values_unavailable
         }
-    Text(
+    CopyableText(
         localizedStringResource(key, language),
         Modifier
             .fillMaxWidth()

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.application.FlameGraphDetailsState
 import com.androidperformancestudio.application.FlameGraphFrameDetails
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -129,7 +130,12 @@ internal fun FirefoxFrameDetailsBottomBox(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(content.title, color = style.canvasForeground.toComposeColor(), fontSize = ViewerTypography.bodyCompact.fontSize)
+                CopyableText(
+                    content.title,
+                    color = style.canvasForeground.toComposeColor(),
+                    fontSize = ViewerTypography.bodyCompact.fontSize,
+                    language = currentSimpleperfLanguage(),
+                )
                 Text(
                     localizedStringResource(
                         SimpleperfViewerRes.sp_details_close,
@@ -154,12 +160,13 @@ internal fun FirefoxFrameDetailsBottomBox(
                         } else {
                             Modifier.fillMaxWidth()
                         }
-                    Text(
+                    CopyableText(
                         text = line,
                         modifier = lineModifier.padding(horizontal = 4.dp, vertical = 1.dp),
                         color = style.canvasForeground.toComposeColor(),
                         fontSize = ViewerTypography.label.fontSize,
                         fontFamily = if (content.monospace) FontFamily.Monospace else null,
+                        language = currentSimpleperfLanguage(),
                     )
                 }
             }

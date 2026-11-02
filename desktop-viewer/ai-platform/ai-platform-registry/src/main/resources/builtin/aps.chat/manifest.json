@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "kind": "AGENT",
+  "id": "aps.chat",
+  "version": "1.0.0",
+  "name": "Chat Agent",
+  "description": "General conversation without profiler evidence, source access, tools or delegated work.",
+  "entrypoint": "prompt.md",
+  "inputSchema": "aps.conversation-context.v1",
+  "outputSchema": "aps.analysis.v1",
+  "contextKinds": [
+    "chat"
+  ],
+  "evidenceKinds": [],
+  "allowedProviders": [
+    "openai",
+    "codex",
+    "claude"
+  ],
+  "allowedSkills": [],
+  "permissions": [
+    "READ_EVIDENCE",
+    "PROVIDER_NETWORK"
+  ],
+  "runtime": "NONE",
+  "artifactFormats": [],
+  "files": {
+    "prompt.md": "e085adb8aaa5ee2e5ec99824dbadac051f7cd1d4df769f1c9dcfbcaa7632b67c"
+  },
+  "budget": {
+    "maxChildDepth": 0
+  }
+}

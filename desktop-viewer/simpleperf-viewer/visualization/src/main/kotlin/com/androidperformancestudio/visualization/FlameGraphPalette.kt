@@ -40,6 +40,9 @@ object FlameGraphPalette {
     fun categoryRole(category: String?): FlameCategoryRole {
         val normalized = category?.trim()?.lowercase(Locale.ROOT).orEmpty()
         return when {
+            normalized == "user" -> FlameCategoryRole.NATIVE
+            normalized == "jit" || normalized == "dex" || normalized == "oat" -> FlameCategoryRole.MANAGED
+            normalized == "off-cpu" -> FlameCategoryRole.NETWORK
             normalized == "io" -> FlameCategoryRole.IO
             normalized.containsAny("kernel", "linux") -> FlameCategoryRole.KERNEL
             normalized.containsAny("java", "kotlin", "managed", "dalvik", "art") -> FlameCategoryRole.MANAGED

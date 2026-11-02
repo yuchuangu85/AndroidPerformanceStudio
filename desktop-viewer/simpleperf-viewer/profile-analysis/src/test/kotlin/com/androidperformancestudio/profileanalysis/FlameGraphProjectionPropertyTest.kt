@@ -32,7 +32,44 @@ class FlameGraphProjectionPropertyTest {
             assertTrue(first.frameIds.contentEquals(second.frameIds), "frames seed=$seed")
             assertTrue(first.depths.contentEquals(second.depths), "depths seed=$seed")
             assertTrue(first.inclusiveWeights.contentEquals(second.inclusiveWeights), "weights seed=$seed")
+            assertTrue(first.selfSampleCounts.contentEquals(second.selfSampleCounts), "self samples seed=$seed")
+            assertEquals(first.categoryMetrics, second.categoryMetrics, "category metrics seed=$seed")
             assertTrue(first.categories == second.categories, "categories seed=$seed")
+        }
+    }
+
+    @Test
+    fun `random projections preserve exact sample category counts and direction dependent self semantics`() {
+        repeat(100) { seed ->
+            val table = randomTable(seed)
+            CallStackDirection.entries.forEach { direction ->
+                val nodes = CallTreeProjector.project(table, direction)
+                nodes.parentIndexes.forEachIndexed { index, parent ->
+                    val metrics = requireNotNull(nodes.categoryMetricsAt(index))
+                    assertEquals(nodes.sampleCountAt(index), metrics.sumOf { it.sampleCount }, "samples seed=$seed")
+                    assertEquals(
+                        nodes.inclusiveWeightAt(index),
+                        metrics.sumOf { it.inclusiveWeight },
+                        "weight seed=$seed",
+                    )
+                    assertEquals(
+                        nodes.selfSampleCountAt(index),
+                        metrics.sumOf { it.selfSampleCount },
+                        "self seed=$seed",
+                    )
+                    assertEquals(nodes.selfWeightAt(index), metrics.sumOf { it.selfWeight }, "self weight seed=$seed")
+                    if (direction == CallStackDirection.INVERTED) {
+                        assertEquals(
+                            if (parent == -1) nodes.sampleCountAt(index) else 0L,
+                            nodes.selfSampleCountAt(index),
+                        )
+                        assertEquals(
+                            if (parent == -1) nodes.inclusiveWeightAt(index) else 0L,
+                            nodes.selfWeightAt(index),
+                        )
+                    }
+                }
+            }
         }
     }
 

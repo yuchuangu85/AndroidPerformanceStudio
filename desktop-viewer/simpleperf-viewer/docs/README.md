@@ -5,6 +5,7 @@
 - [`requirements/requirements.md`](requirements/requirements.md) — V0.1 产品需求和验收标准。
 - [`requirements/development-plan.md`](requirements/development-plan.md) — 版本范围、WBS 和阶段状态。
 - [`requirements/firefox-flame-graph-compatibility.md`](requirements/firefox-flame-graph-compatibility.md) — Flame Graph 兼容矩阵、交互契约与待验收条件。
+- [`requirements/simpleperf-ai-analysis-todo.md`](requirements/simpleperf-ai-analysis-todo.md) — local web Flame Graph 复用 Compose AI 能力的 TODO、桥接契约和验收门禁。
 - [原始需求跟踪表](requirements/simpleperf_client_development_tracker.xlsx) — 保留需求追踪，不作为当前验收证明。
 
 ## Design

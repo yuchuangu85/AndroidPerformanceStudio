@@ -2,6 +2,7 @@ package com.androidperformancestudio.profileanalysis
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class StackChartProjectorTest {
@@ -26,6 +27,35 @@ class StackChartProjectorTest {
 
         assertEquals("leaf", snapshot.frameAtDepth(0).symbolName)
         assertEquals("root", snapshot.frameAtDepth(1).symbolName)
+    }
+
+    @Test
+    fun `blocks use captured per frame categories from the shared call node projection`() {
+        val base = twoSampleTable()
+        val source =
+            base.copy(
+                stacks =
+                    base.stacks.map { stack ->
+                        stack.copy(
+                            category = "Stack fallback",
+                            categoriesRootToLeaf =
+                                if (stack.sampleId == 2L) listOf("Graphics", "Layout") else listOf("Java", "Native"),
+                        )
+                    },
+            )
+        val expectedCategories = mapOf(ROOT to "Graphics", LEAF to "Layout")
+
+        CallStackDirection.entries.forEach { direction ->
+            val nodes = CallTreeProjector.project(source, direction)
+            val snapshot = StackChartProjector.project(source, CallStackAnalysisQuery(direction = direction), 31)
+
+            snapshot.blocks.forEach { block ->
+                val nodeId = assertNotNull(block.callNodeId)
+                val nodeIndex = assertNotNull(nodes.indexOf(nodeId))
+                assertEquals(expectedCategories.getValue(block.frameId), block.category)
+                assertEquals(nodes.categoryAt(nodeIndex), block.category)
+            }
+        }
     }
 
     @Test
@@ -58,9 +88,9 @@ class StackChartProjectorTest {
         assertEquals(listOf(3L, 3L, 4L), snapshot.blocksAtDepth(0).map(StackChartBlock::weight))
         assertEquals(
             listOf(
-                StackChartBlockId("main:0:$ROOT:10"),
-                StackChartBlockId("worker:0:$ROOT:30"),
-                StackChartBlockId("main:0:$ROOT:40"),
+                StackChartBlockId("main:0:$ROOT:10:1"),
+                StackChartBlockId("worker:0:$ROOT:30:3"),
+                StackChartBlockId("main:0:$ROOT:40:4"),
             ),
             snapshot.blocksAtDepth(0).map(StackChartBlock::id),
         )

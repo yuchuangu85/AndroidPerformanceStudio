@@ -38,6 +38,7 @@ import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
@@ -119,10 +120,16 @@ internal fun ReportData.cpuProfilerKpis(): CpuProfilerKpis {
             ?.takeIf { it > 0L && overview.sampleCount > 0L }
             ?.let { overview.sampleCount * NANOS_PER_SECOND / it.toDouble() }
     val hottestSelf = topFunctions.maxByOrNull { it.exclusiveWeight }
+    val shareWeight =
+        if (flameGraph.weightType == com.androidperformancestudio.profileanalysis.CallStackWeightType.SAMPLES) {
+            flameGraph.totalWeight
+        } else {
+            overview.totalEventWeight
+        }
     val share =
         hottestSelf
-            ?.takeIf { overview.totalEventWeight > 0L && it.exclusiveWeight > 0L }
-            ?.let { it.exclusiveWeight.toDouble() / overview.totalEventWeight }
+            ?.takeIf { shareWeight > 0L && it.exclusiveWeight > 0L }
+            ?.let { it.exclusiveWeight.toDouble() / shareWeight }
     return CpuProfilerKpis(
         sampleCount = overview.sampleCount,
         lostSampleCount = quality.lostSampleCount,
@@ -346,12 +353,13 @@ private fun CpuKpiTileFrame(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
-        Text(
+        CopyableText(
             support.orEmpty(),
             color = style.secondaryText,
             fontSize = ViewerTypography.dense.fontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            language = currentSimpleperfLanguage(),
         )
     }
 }
@@ -528,10 +536,11 @@ internal fun CpuCallPathBreadcrumb(
             fontWeight = FontWeight.SemiBold,
         )
         if (frame == null) {
-            Text(
+            CopyableText(
                 localizedStringResource(SimpleperfViewerRes.sp_workspace_no_selection_path, language),
                 color = style.secondaryText,
                 fontSize = ViewerTypography.dense.fontSize,
+                language = language,
             )
         } else {
             frame.path.forEachIndexed { index, pathFrame ->

@@ -27,6 +27,7 @@ import com.androidperformancestudio.perfetto_presentation.generated.resources.tr
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_empty_bookmarks
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_go
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_no_anchors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -114,11 +115,12 @@ internal fun TraceEvidenceAnchors(
             fontWeight = FontWeight.SemiBold,
         )
         if (anchors.isEmpty()) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.trace_workspace_no_anchors, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = ViewerTypography.label.fontSize,
                 lineHeight = ViewerTypography.label.lineHeight,
+                language = language,
             )
         } else {
             Row(

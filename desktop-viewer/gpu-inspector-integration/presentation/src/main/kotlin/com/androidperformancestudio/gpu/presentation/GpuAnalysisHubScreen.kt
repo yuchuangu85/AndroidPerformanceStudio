@@ -37,6 +37,7 @@ import com.androidperformancestudio.gpu.presentation.generated.resources.*
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -440,12 +441,12 @@ private fun GpuDeviceContextPanel(
             },
         )
         if (state.isInspectingDevice || state.isRefreshingDevices) {
-            Text(localizedStringResource(Res.string.reading_device_context, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.reading_device_context, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         }
         if (state.devices.isEmpty() && !state.isRefreshingDevices) {
-            Text(localizedStringResource(Res.string.no_connected_devices, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.no_connected_devices, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         }
-        state.deviceError?.let { Text(it, color = colors.error, style = ViewerTypography.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        state.deviceError?.let { CopyableText(it, color = colors.error, style = ViewerTypography.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, language = language) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap)) {
             ContextValue(localizedStringResource(Res.string.gpu_renderer, language), selectedDevice?.gpuRenderer, Modifier.weight(1.3f))
             ContextValue(localizedStringResource(Res.string.gpu_vendor, language), selectedDevice?.gpuVendor, Modifier.weight(1f))
@@ -485,17 +486,17 @@ internal fun GpuCapabilityRail(
         SectionTitle(localizedStringResource(Res.string.capability_supported_arguments, language))
         val arguments = capability?.supportedArguments.orEmpty().sorted()
         if (arguments.isEmpty()) {
-            Text(localizedStringResource(Res.string.capability_no_arguments, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.capability_no_arguments, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         } else {
-            Text(arguments.joinToString(" "), color = colors.primaryText, style = ViewerTypography.secondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            CopyableText(arguments.joinToString(" "), color = colors.primaryText, style = ViewerTypography.secondary, maxLines = 3, overflow = TextOverflow.Ellipsis, language = language)
         }
         SectionTitle(localizedStringResource(Res.string.capability_warnings, language))
         val warnings = capability?.warnings.orEmpty()
         if (warnings.isEmpty()) {
-            Text(localizedStringResource(Res.string.capability_no_warnings, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.capability_no_warnings, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         } else {
             warnings.forEach { warning ->
-                Text("• ${localizedWarning(warning, language)}", color = colors.warning, style = ViewerTypography.secondary)
+                CopyableText("• ${localizedWarning(warning, language)}", color = colors.warning, style = ViewerTypography.secondary, language = language)
             }
         }
     }
@@ -522,7 +523,7 @@ internal fun GpuOpenWithRail(
                 )
             },
         )
-        Text(localizedStringResource(Res.string.tool_responsibility_hint, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+        CopyableText(localizedStringResource(Res.string.tool_responsibility_hint, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         HorizontalDivider(color = colors.border)
         ProfilerCompactButton(
             text = availability?.primaryAction?.displayName(language) ?: localizedStringResource(Res.string.unavailable, language),
@@ -558,11 +559,12 @@ internal fun CapabilityFlag(label: String, supported: Boolean, language: UiLangu
     val colors = LocalViewerColors.current
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), color = colors.secondaryText, style = ViewerTypography.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
+        CopyableText(
             localizedStringResource(if (supported) Res.string.yes else Res.string.no, language),
             color = if (supported) colors.success else colors.warning,
             style = ViewerTypography.secondary,
             fontWeight = FontWeight.Medium,
+            language = language,
         )
     }
 }

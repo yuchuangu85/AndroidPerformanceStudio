@@ -140,6 +140,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.wat
 import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_no_intervals
 import com.androidperformancestudio.startup.presentation.generated.resources.waterfall_unplotted_phases
 import com.androidperformancestudio.startup.presentation.generated.resources.yes
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -217,7 +218,7 @@ private fun StartupMainWorkspace(
             contentPadding = StudioTokens.compactContentPadding,
         ) {
             StudioPanelHeader(localizedStringResource(Res.string.startup_waterfall, language))
-            Text(localizedStringResource(Res.string.choose_a_device_and_app_to_run_repeatable_cold_warm, language))
+            CopyableText(localizedStringResource(Res.string.choose_a_device_and_app_to_run_repeatable_cold_warm, language))
         }
     } else {
         StartupRunsWaterfall(analysis.runs, selected, actions, language, state.isRunning)
@@ -236,10 +237,10 @@ private fun StartupMainWorkspace(
         }
     }
     StartupBaselineComparison(state, actions, language)
-    state.operationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-    state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    state.operationMessage?.let { CopyableText(it, style = MaterialTheme.typography.bodySmall) }
+    state.errorMessage?.let { CopyableText(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     if (state.isRunning && state.totalRuns > 0) {
-        Text(localizedStringResource(Res.string.progress_runs, language, state.completedRuns, state.totalRuns))
+        CopyableText(localizedStringResource(Res.string.progress_runs, language, state.completedRuns, state.totalRuns))
         LinearProgressIndicator(
             progress = { (state.completedRuns.toFloat() / state.totalRuns).coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxWidth().testTag("startup-progress"),
@@ -266,16 +267,16 @@ private fun StartupEvidenceRail(
                     (state.warnings + state.analysis?.warnings.orEmpty() + selected?.warnings.orEmpty() + selected?.diagnostics.orEmpty())
                         .distinct()
                 if (selected != null && selected.platform.fullyDrawnTimeMs == null) {
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.report_fully_drawn_hint, language),
                         color = LocalViewerColors.current.warning,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 if (findings.isEmpty()) {
-                    Text(localizedStringResource(Res.string.optimization_empty, language), style = MaterialTheme.typography.bodySmall)
+                    CopyableText(localizedStringResource(Res.string.optimization_empty, language), style = MaterialTheme.typography.bodySmall)
                 }
-                findings.forEach { Text("• $it", color = LocalViewerColors.current.warning, style = MaterialTheme.typography.bodySmall) }
+                findings.forEach { CopyableText("• $it", color = LocalViewerColors.current.warning, style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
@@ -398,7 +399,7 @@ private fun RunDetail(
         fontWeight = FontWeight.Bold,
     )
     Text(localizedStringResource(Res.string.platform_timeline, language), fontWeight = FontWeight.SemiBold)
-    Text(
+    CopyableText(
         localizedStringResource(
             Res.string.metric_evidence,
             language,
@@ -407,7 +408,7 @@ private fun RunDetail(
             run.ttidEvidence.statusLabel(language),
         ),
     )
-    Text(
+    CopyableText(
         localizedStringResource(
             Res.string.metric_evidence,
             language,
@@ -416,7 +417,7 @@ private fun RunDetail(
             run.agentFirstFrameEvidence.statusLabel(language),
         ),
     )
-    Text(
+    CopyableText(
         localizedStringResource(
             Res.string.metric_evidence,
             language,
@@ -425,14 +426,14 @@ private fun RunDetail(
             run.ttfdEvidence.statusLabel(language),
         ),
     )
-    if (run.platform.fullyDrawnTimeMs == null) Text(localizedStringResource(Res.string.report_fully_drawn_hint, language))
+    if (run.platform.fullyDrawnTimeMs == null) CopyableText(localizedStringResource(Res.string.report_fully_drawn_hint, language))
     ExpandableEvidence(localizedStringResource(Res.string.compilation_details, language), run.id) {
         Text(localizedStringResource(Res.string.compilation_details, language), fontWeight = FontWeight.SemiBold)
         val compilationEvidence = run.compilationEvidence
         if (compilationEvidence == null) {
-            Text(localizedStringResource(Res.string.unavailable, language))
+            CopyableText(localizedStringResource(Res.string.unavailable, language))
         } else {
-            compilationEvidence.detailRows(language).forEach { row -> Text("${row.label}: ${row.value}") }
+            compilationEvidence.detailRows(language).forEach { row -> CopyableText("${row.label}: ${row.value}") }
         }
     }
     run.environmentEvidence?.let { evidence ->
@@ -452,7 +453,7 @@ private fun RunDetail(
     }
     RunTraceEvidence(run, actions, language)
     if (run.diagnostics.isNotEmpty()) {
-        Text(localizedStringResource(Res.string.diagnostics, language, run.diagnostics.joinToString()))
+        CopyableText(localizedStringResource(Res.string.diagnostics, language, run.diagnostics.joinToString()))
     }
     ExpandableEvidence(localizedStringResource(Res.string.raw_am_start_w_evidence, language), run.id) {
         if (run.milestones.isNotEmpty()) {
@@ -491,7 +492,7 @@ private fun RunTraceEvidence(
 ) {
     val evidence = run.traceEvidence ?: return
     var traceOpenFailed by remember(run.id) { mutableStateOf(false) }
-    Text(
+    CopyableText(
         localizedStringResource(
             Res.string.trace_evidence,
             language,
@@ -500,9 +501,9 @@ private fun RunTraceEvidence(
             localizedStringResource(if (evidence.truncated) Res.string.yes else Res.string.no, language),
         ),
     )
-    evidence.failureReason?.let { reason -> Text(localizedStringResource(Res.string.trace_failure_reason, language, reason)) }
+    evidence.failureReason?.let { reason -> CopyableText(localizedStringResource(Res.string.trace_failure_reason, language, reason)) }
     evidence.artifact?.let { artifact ->
-        Text(
+        CopyableText(
             "Artifact: ${artifact.completeness.name.lowercase()} · ${artifact.availableCapabilities.size} capabilities",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -515,12 +516,12 @@ private fun RunTraceEvidence(
                 Text(localizedStringResource(Res.string.open_trace, language))
             }
             if (traceOpenFailed) {
-                Text(localizedStringResource(Res.string.trace_open_failed, language), color = MaterialTheme.colorScheme.error)
+                CopyableText(localizedStringResource(Res.string.trace_open_failed, language), color = MaterialTheme.colorScheme.error)
             }
         }
     }
     evidence.rootCause?.let { rootCause ->
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.trace_correlation, language) + ": " +
                 localizedStringResource(
                     if (rootCause.correlated) Res.string.correlated else Res.string.not_correlated,
@@ -537,7 +538,7 @@ private fun RunTraceEvidence(
         TraceSliceGroup(localizedStringResource(Res.string.trace_frame_slices, language), rootCause.frameSlices, language)
         if (rootCause.limitations.isNotEmpty()) {
             Text(localizedStringResource(Res.string.trace_limitations, language), fontWeight = FontWeight.SemiBold)
-            rootCause.limitations.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+            rootCause.limitations.forEach { CopyableText("• $it", style = MaterialTheme.typography.bodySmall) }
         }
         rootCause.phaseAttributions.forEach { phase ->
             Text(
@@ -557,7 +558,7 @@ private fun PlatformDurationBars(
     run: StartupRun,
     language: UiLanguage,
 ) {
-    Text(localizedStringResource(Res.string.platform_durations_independent, language), style = MaterialTheme.typography.bodySmall)
+    CopyableText(localizedStringResource(Res.string.platform_durations_independent, language), style = MaterialTheme.typography.bodySmall)
     val values =
         listOfNotNull(
             run.platform.thisTimeMs?.takeIf { it >= 0 }?.let {
@@ -574,7 +575,7 @@ private fun PlatformDurationBars(
             },
         )
     if (values.isEmpty()) {
-        Text(localizedStringResource(Res.string.no_platform_durations, language))
+        CopyableText(localizedStringResource(Res.string.no_platform_durations, language))
     } else {
         TimelineBar(values)
     }
@@ -589,7 +590,7 @@ private fun StartupWaterfallChart(
     val colors = MaterialTheme.colorScheme
     Text(localizedStringResource(Res.string.startup_waterfall, language), fontWeight = FontWeight.SemiBold)
     if (waterfall.groups.isEmpty()) {
-        Text(localizedStringResource(Res.string.waterfall_no_intervals, language))
+        CopyableText(localizedStringResource(Res.string.waterfall_no_intervals, language))
     }
     waterfall.groups.forEach { group ->
         Text(
@@ -636,7 +637,7 @@ private fun StartupWaterfallChart(
         }
     }
     if (waterfall.unplottedPhaseCount > 0) {
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.waterfall_unplotted_phases, language, waterfall.unplottedPhaseCount),
             style = MaterialTheme.typography.bodySmall,
             color = colors.onSurfaceVariant,
@@ -665,7 +666,7 @@ private fun TraceSliceGroup(
         )
     }
     if (slices.size > MAX_VISIBLE_TRACE_SLICES) {
-        Text(localizedStringResource(Res.string.trace_more_slices, language, MAX_VISIBLE_TRACE_SLICES, slices.size))
+        CopyableText(localizedStringResource(Res.string.trace_more_slices, language, MAX_VISIBLE_TRACE_SLICES, slices.size))
     }
 }
 
@@ -704,7 +705,7 @@ private fun ConfidenceBadge(
     language: UiLanguage,
 ) {
     val color = if (confidence == EvidenceConfidence.EXACT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
-    Text(confidence.localizedLabel(language), color = color, style = MaterialTheme.typography.labelSmall)
+    CopyableText(confidence.localizedLabel(language), color = color, style = MaterialTheme.typography.labelSmall)
 }
 
 internal fun Number?.formatMs(): String = this?.let { String.format(Locale.US, "%.1f ms", toDouble()) } ?: "—"

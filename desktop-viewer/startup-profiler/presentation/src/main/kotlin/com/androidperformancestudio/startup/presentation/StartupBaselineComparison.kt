@@ -47,6 +47,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.dev
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_agent_first_frame
 import com.androidperformancestudio.startup.presentation.generated.resources.phase_comparison
 import com.androidperformancestudio.startup.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -137,7 +138,7 @@ internal fun StartupBaselineComparison(
         SelectionContainer {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 cohorts.forEachIndexed { index, (label, analysis) ->
-                    Text(
+                    CopyableText(
                         comparisonEvidenceText(label, analysis, language),
                         modifier = Modifier.testTag(if (index == 0) "startup-current-evidence" else "startup-baseline-evidence"),
                         color = colors.secondaryText,
@@ -146,7 +147,7 @@ internal fun StartupBaselineComparison(
                 }
                 val comparison = state.comparison
                 if (comparison == null) {
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.baseline_comparison_empty, language),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -158,7 +159,7 @@ internal fun StartupBaselineComparison(
                             ?.phases
                             .orEmpty()
                             .associate { it.name to it.localizedName(language) }
-                    Text(
+                    CopyableText(
                         localizedStringResource(
                             Res.string.baseline_comparison,
                             language,
@@ -181,7 +182,7 @@ internal fun StartupBaselineComparison(
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    comparison.reasons.forEach { Text("• $it", color = colors.warning, style = MaterialTheme.typography.bodySmall) }
+                    comparison.reasons.forEach { CopyableText("• $it", color = colors.warning, style = MaterialTheme.typography.bodySmall) }
                     comparison.phaseDifferences.forEach { phase ->
                         Text(
                             localizedStringResource(
@@ -194,7 +195,7 @@ internal fun StartupBaselineComparison(
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.comparison_descriptive, language),
                         color = colors.secondaryText,
                         fontSize = ViewerTypography.secondary.fontSize,

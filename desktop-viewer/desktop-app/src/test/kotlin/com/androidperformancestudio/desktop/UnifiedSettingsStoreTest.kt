@@ -1,16 +1,113 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.ui.graphics.Color
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
-import androidx.compose.ui.graphics.Color
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class UnifiedSettingsStoreTest {
+    @Test
+    fun `AI settings category defaults safely without repairing absent or invalid stored values`() {
+        assertEquals(AiSettingsCategory.PROVIDER, ApplicationUiSettings().aiSettingsCategory)
+        val empty = mutableMapOf<String, String>()
+        assertEquals(
+            AiSettingsCategory.PROVIDER,
+            ApplicationUiSettingsStore(empty::get, empty::set).load().aiSettingsCategory,
+        )
+        assertTrue(empty.isEmpty())
+
+        listOf("", " ", "unknown", "future-category", "AGENTS", "connection\u0000").forEach { raw ->
+            val values = mutableMapOf("application.aiSettingsCategory" to raw, "application.theme" to "dark")
+            val original = values.toMap()
+            val loaded = ApplicationUiSettingsStore(values::get, values::set).load()
+
+            assertEquals(AiSettingsCategory.PROVIDER, loaded.aiSettingsCategory)
+            assertEquals(ApplicationThemePreference.DARK, loaded.theme)
+            assertEquals(original, values)
+        }
+    }
+
+    @Test
+    fun `all four AI settings categories round trip through fresh application stores under the exact key`() {
+        assertEquals(
+            setOf("PROVIDER", "AGENT", "SKILL", "POLICY"),
+            AiSettingsCategory.entries.map { it.name }.toSet(),
+        )
+        AiSettingsCategory.entries.forEach { category ->
+            val values = mutableMapOf<String, String>()
+            val writes = mutableListOf<String>()
+            var flushes = 0
+            val store =
+                ApplicationUiSettingsStore(
+                    readValue = values::get,
+                    writeValue = { key, value ->
+                        values[key] = value
+                        writes += key
+                    },
+                    flush = { flushes++ },
+                )
+            val settings = ApplicationUiSettings(aiSettingsCategory = category)
+
+            assertTrue(store.save(settings))
+            assertEquals(category.name, values["application.aiSettingsCategory"])
+            assertEquals(settings, ApplicationUiSettingsStore(values::get, values::set).load())
+            assertEquals(1, flushes)
+            assertTrue(writes.all { it.startsWith("application.") })
+
+            values["application.aiSettingsCategory"] = " ${category.name.lowercase()} "
+            assertEquals(category, ApplicationUiSettingsStore(values::get, values::set).load().aiSettingsCategory)
+        }
+    }
+
+    @Test
+    fun `legacy connection and provider categories both open the new provider page without rewriting preferences`() {
+        listOf("CONNECTION", " connection ", "PROVIDER", " provider ").forEach { legacy ->
+            val values = mutableMapOf("application.aiSettingsCategory" to legacy)
+            val original = values.toMap()
+            val loaded = ApplicationUiSettingsStore(values::get, values::set).load()
+            assertEquals(AiSettingsCategory.PROVIDER, loaded.aiSettingsCategory)
+            assertEquals(original, values)
+        }
+    }
+
+    @Test
+    fun `saving other application preferences preserves the selected AI category and leaves provider credentials untouched`() {
+        val independentValues =
+            mapOf(
+                "providerId" to "claude",
+                "model" to "fixture-selected-model",
+                "agentId" to "aps.report",
+                "openai:api-key" to "fixture-opaque-credential-reference",
+                "claude:auth-token" to "fixture-other-opaque-reference",
+                "simpleperf.engine" to "LOCAL",
+            )
+        val values = independentValues.toMutableMap()
+        val store = ApplicationUiSettingsStore(values::get, values::set)
+        assertTrue(store.save(store.load().copy(aiSettingsCategory = AiSettingsCategory.SKILL)))
+
+        val reloaded = ApplicationUiSettingsStore(values::get, values::set)
+        val changed =
+            reloaded.load().copy(
+                theme = ApplicationThemePreference.DARK,
+                displayScale = ApplicationDisplayScale.PERCENT_125,
+                themeColor = ApplicationThemeColor.ROYAL_PURPLE.color,
+                language = ApplicationLanguagePreference.SIMPLIFIED_CHINESE,
+                androidSdkPath = "D:/Android/Sdk",
+                navigationRailCollapsed = false,
+                hprofEngine = HprofEngine.LEGACY,
+            )
+        assertTrue(reloaded.save(changed))
+
+        assertEquals(AiSettingsCategory.SKILL.name, values["application.aiSettingsCategory"])
+        assertEquals(changed, ApplicationUiSettingsStore(values::get, values::set).load())
+        assertEquals(independentValues, values.filterKeys { it in independentValues })
+    }
+
     @Test
     fun `application settings save immediately under stable namespaced keys`() {
         val values = mutableMapOf<String, String>()

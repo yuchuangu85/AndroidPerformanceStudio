@@ -51,6 +51,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.not_
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_bytes
 import com.androidperformancestudio.memory.presentation.generated.resources.retained_objects
 import com.androidperformancestudio.memory.presentation.generated.resources.unknown_status
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -122,7 +123,7 @@ internal fun MemoryLeakFindingsPane(
             LazyColumn(Modifier.fillMaxSize().padding(end = 10.dp), state = list) {
                 if (findings.isEmpty()) {
                     item {
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.leak_no_matching_findings, language),
                             Modifier.padding(12.dp),
                             style = ViewerTypography.secondary,
@@ -160,7 +161,7 @@ internal fun MemoryLeakFindingsPane(
                                 Modifier.testTag("memory-leak-finding-warning-${finding.index}"),
                             )
                         }
-                        Text(
+                        CopyableText(
                             leak.shortDescription,
                             style = ViewerTypography.secondary,
                             maxLines = 2,
@@ -235,11 +236,11 @@ internal fun MemoryLeakPathPane(
                             onClick = { actions.onSelectInstance(id) },
                             modifier = Modifier.testTag("memory-leak-retained-object"),
                         )
-                    } ?: Text(
+                    } ?: CopyableText(
                         localizedStringResource(Res.string.leak_object_unavailable, language),
                         style = ViewerTypography.secondary,
                     )
-                    Text(leak.shortDescription, style = ViewerTypography.secondary, color = colors.secondaryText)
+                    CopyableText(leak.shortDescription, style = ViewerTypography.secondary, color = colors.secondaryText)
                     leak.retainedHeapByteSize?.let {
                         Text(
                             localizedStringResource(Res.string.retained_bytes, language, formatBytes(it.toLong())),
@@ -269,7 +270,7 @@ internal fun MemoryLeakPathPane(
                     )
                 }
                 if (leak.trace.isEmpty()) {
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.leak_no_path, language),
                         Modifier.padding(8.dp),
                         style = ViewerTypography.secondary,
@@ -331,7 +332,7 @@ private fun LeakPathNode(
                 color = colors.secondaryText,
             )
             LeakPathNodeStatus(element, language)
-            element.labels.forEach { Text(it, style = ViewerTypography.secondary, color = colors.secondaryText) }
+            element.labels.forEach { CopyableText(it, style = ViewerTypography.secondary, color = colors.secondaryText) }
         }
         if (element.referenceName != null || element.isSuspect) {
             LeakPathReference(element, index, language)
@@ -363,7 +364,7 @@ private fun LeakPathNodeStatus(
             },
             language,
         )
-    Text(
+    CopyableText(
         listOfNotNull(status, element.leakingStatusReason?.takeIf { it.isNotBlank() }).joinToString(": "),
         style = ViewerTypography.secondary,
         color = statusColor,
@@ -395,7 +396,7 @@ private fun LeakPathReference(
                 overflow = TextOverflow.Ellipsis,
             )
             if (element.isSuspect) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.leak_suspect_reference, language),
                     Modifier.testTag("memory-leak-suspect-edge-$index"),
                     style = ViewerTypography.label,

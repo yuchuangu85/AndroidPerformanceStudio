@@ -42,6 +42,7 @@ data class ProfileProjectionRequest(
     val markerSearch: String = "",
     val topSort: TopFunctionSort = TopFunctionSort.INCLUSIVE_WEIGHT,
     val topDescending: Boolean = true,
+    val selectInitialThread: Boolean = false,
 ) {
     init {
         require(timelineBucketCount > 0) { "timelineBucketCount must be positive" }
@@ -64,4 +65,5 @@ data class ProfileProjectionSnapshot(
     val sessionOverview: ProfileOverview = overview,
     val sessionThreads: List<ThreadSummary> = threads,
     val timelineTracks: List<ThreadTimelineTrack> = emptyList(),
+    val userTimings: PanelProjection<MarkerProjectionSnapshot> = markers,
 )

@@ -10,6 +10,18 @@ import org.jetbrains.compose.resources.StringResource
 @OptIn(InternalResourceApi::class)
 @Suppress("LargeClass")
 object SimpleperfViewerRes {
+    val sp_tooltip_weight_value_format: StringResource
+        get() = Res.string.sp_tooltip_weight_value_format
+    val sp_stack_show_user_timing: StringResource
+        get() = Res.string.sp_stack_show_user_timing
+    val sp_flame_copy_stack: StringResource
+        get() = Res.string.sp_flame_copy_stack
+    val sp_flame_nav_complete: StringResource
+        get() = Res.string.sp_flame_nav_complete
+    val sp_stack_same_widths: StringResource
+        get() = Res.string.sp_stack_same_widths
+    val sp_stack_zoom_to_selection: StringResource
+        get() = Res.string.sp_stack_zoom_to_selection
     val sp_cpu_profiler: StringResource
         get() = Res.string.sp_cpu_profiler
     val sp_target_device_target: StringResource

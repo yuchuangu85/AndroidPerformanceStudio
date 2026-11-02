@@ -14,6 +14,7 @@ import com.androidperformancestudio.profileanalysis.CallNodeTable
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.CallStackTransform
+import com.androidperformancestudio.profileanalysis.CallStackWeightType
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
@@ -90,6 +91,7 @@ data class ReportData(
     val markers: PanelProjection<MarkerProjectionSnapshot>,
     val diagnostics: List<DiagnosticFinding>,
     val timelineTracks: List<ThreadTimelineTrack> = emptyList(),
+    val userTimings: PanelProjection<MarkerProjectionSnapshot> = markers,
 )
 
 sealed interface ReportLoadState {
@@ -121,7 +123,10 @@ data class ReportState(
     val flameGraph: FlameGraphPanelState = FlameGraphPanelState(),
 ) {
     val callTreeDirection: CallStackDirection
-        get() = callStackQuery.direction
+        get() = workspace.callStackDirection(ReportTab.CALL_TREE)
+
+    val flameGraphDirection: CallStackDirection
+        get() = workspace.callStackDirection(ReportTab.FLAME_GRAPH)
 }
 
 fun interface ReportSessionSummaryLoader {
@@ -139,6 +144,8 @@ class ReportController(
     private val sessionSummaryLoader: ReportSessionSummaryLoader =
         ReportSessionSummaryLoader { directory -> sessionSummary(directory) },
     private val detailsProvider: FlameGraphFrameDetailsProvider = FlameGraphFrameDetailsResolver(),
+    private val selectInitialThread: Boolean = false,
+    private val matchFirefoxSampleWeights: Boolean = false,
 ) : Closeable {
     private val configuration = ReportConfiguration(timelineBucketCount, topFunctionLimit)
     private val ownsScope = scope == null
@@ -152,6 +159,7 @@ class ReportController(
     private val sessionMutationLock = Any()
     private val sessionEpoch = AtomicLong()
     private val previewMutationId = AtomicLong()
+    private val tabMutationId = AtomicLong()
     private val previewRequests = Channel<PreviewRequest>(Channel.CONFLATED)
     private val workspaceCollection =
         controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -176,9 +184,24 @@ class ReportController(
                     cancelFrameDetailsLocked()
                     sessionEpoch.incrementAndGet()
                     val session = directory.toAbsolutePath().normalize()
-                    val next = ReportState(loadState = ReportLoadState.Loading(session))
+                    val next =
+                        ReportState(
+                            loadState = ReportLoadState.Loading(session),
+                            callStackQuery =
+                                CallStackAnalysisQuery(
+                                    weightType =
+                                        if (matchFirefoxSampleWeights) {
+                                            CallStackWeightType.SAMPLES
+                                        } else {
+                                            CallStackWeightType.NANOSECONDS
+                                        },
+                                ),
+                        )
                     mutableState.value = next
-                    workspace.openSession(session, next.projectionRequest())
+                    workspace.openSession(
+                        session,
+                        next.projectionRequest().copy(selectInitialThread = selectInitialThread),
+                    )
                     workspace.state.value.generation
                 }
             }
@@ -210,16 +233,60 @@ class ReportController(
     }
 
     fun selectTab(tab: ReportTab) {
-        if (tab != ReportTab.FLAME_GRAPH) synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
-        mutableState.mutate { current ->
-            current.copy(selectedTab = tab).let { next ->
-                if (tab == ReportTab.FLAME_GRAPH) next else next.clearFlameTransients()
+        val (expectedSessionEpoch, mutationId) =
+            synchronized(sessionMutationLock) {
+                if (closed) return
+                mutableState.update { current ->
+                    if (current.selectedTab == tab) {
+                        current
+                    } else {
+                        current.copy(
+                            selectedTab = tab,
+                            flameGraph = current.flameGraph.copy(hoveredNodeId = null, contextNodeId = null),
+                        )
+                    }
+                }
+                sessionEpoch.get() to tabMutationId.incrementAndGet()
             }
+        controllerScope.launch {
+            val generation =
+                semanticMutationMutex.withLock {
+                    synchronized(sessionMutationLock) {
+                        val current = mutableState.value
+                        val staleTab =
+                            closed ||
+                                sessionEpoch.get() != expectedSessionEpoch ||
+                                tabMutationId.get() != mutationId
+                        val activeDirection = current.workspace.callStackDirection(current.selectedTab)
+                        if (staleTab || current.callStackQuery.direction == activeDirection) {
+                            null
+                        } else {
+                            withPreviewAdmissionSuspended {
+                                cancelFrameDetailsLocked()
+                                invalidatePreviewWorkLocked()
+                                updateProjectionStateLocked(expectedSessionEpoch) { it }
+                            }
+                        }
+                    }
+                }
+            generation?.let { awaitPublication(it) }
         }
     }
 
     fun setDetailsVisible(visible: Boolean) {
         mutableState.update { current -> current.copy(workspace = current.workspace.copy(detailsVisible = visible)) }
+    }
+
+    fun setStackChartSameWidths(sameWidths: Boolean) {
+        mutableState.update { current ->
+            current.copy(workspace = current.workspace.copy(stackChartSameWidths = sameWidths))
+        }
+    }
+
+    fun setStackChartShowUserTimings(showUserTimings: Boolean) {
+        mutableState.update { current ->
+            current.copy(workspace = current.workspace.copy(stackChartShowUserTimings = showUserTimings))
+        }
     }
 
     fun setTimelineHeightDp(heightDp: Int) {
@@ -252,10 +319,39 @@ class ReportController(
     }
 
     fun selectStackChartBlock(blockId: StackChartBlockId?) {
-        mutateSelections { current, report ->
+        mutableState.mutate { state ->
+            val current = state.workspace.selections
+            val report = (state.loadState as? ReportLoadState.Ready)?.report
             val ready = report?.stackChart as? PanelProjection.Ready
-            current.copy(
-                stackChartBlockId = blockId?.takeIf { id -> ready?.value?.blocks?.any { it.id == id } == true },
+            val block = blockId?.let { ready?.value?.blockById(it) }
+            val snapshot = report?.callStackAnalysis(state.selectedTab)
+            val function =
+                block?.let {
+                    ready
+                        ?.value
+                        ?.framesById
+                        ?.get(it.frameId)
+                        ?.functionId
+                }
+            state.copy(
+                workspace =
+                    state.workspace.copy(
+                        selections =
+                            current.copy(
+                                stackChartBlockId = block?.id,
+                                callNodeId =
+                                    if (block == null) {
+                                        null
+                                    } else {
+                                        block.callNodeId?.takeIf { id ->
+                                            snapshot != null &&
+                                                snapshot.query.direction == CallStackDirection.FORWARD &&
+                                                function != null &&
+                                                snapshot.callNodes.functionFor(id) == function
+                                        } ?: current.callNodeId
+                                    },
+                            ),
+                    ),
             )
         }
     }
@@ -394,11 +490,15 @@ class ReportController(
     }
 
     suspend fun updateCallStackDirection(direction: CallStackDirection) {
-        updateCallStackQuery { copy(direction = direction) }
+        updateProjectionState { current -> current.withTabDirection(current.selectedTab, direction) }
     }
 
     suspend fun updateCallTreeDirection(direction: CallStackDirection) {
-        updateCallStackDirection(direction)
+        updateProjectionState { current -> current.withTabDirection(ReportTab.CALL_TREE, direction) }
+    }
+
+    suspend fun updateFlameGraphDirection(direction: CallStackDirection) {
+        updateProjectionState { current -> current.withTabDirection(ReportTab.FLAME_GRAPH, direction) }
     }
 
     suspend fun applyTransform(transform: CallStackTransform) {
@@ -417,6 +517,10 @@ class ReportController(
         updateCallStackQuery { copy(transforms = transforms.dropLast(1)) }
     }
 
+    suspend fun removeTransformsAfter(count: Int) {
+        updateCallStackQuery { copy(transforms = transforms.take(count.coerceAtLeast(0))) }
+    }
+
     suspend fun retryProjection() {
         val generation =
             semanticMutationMutex.withLock {
@@ -427,6 +531,7 @@ class ReportController(
                         if (closed || workspace.state.value.sessionDirectory == null) {
                             null
                         } else {
+                            mutableState.update { it.withActiveDirection().clearFlameTransients() }
                             workspace.updateProjection(mutableState.value.projectionRequest())
                             workspace.state.value.generation
                         }
@@ -449,7 +554,7 @@ class ReportController(
         transform: (FlameGraphPanelState, FlameCallNodeId?) -> FlameGraphPanelState,
     ) {
         mutableState.mutate { current ->
-            val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+            val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.callStackAnalysis(current.selectedTab)
             val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
             current.copy(flameGraph = transform(current.flameGraph, validId))
         }
@@ -462,8 +567,9 @@ class ReportController(
                 if (closed) return
                 val current = mutableState.value
                 val report = (current.loadState as? ReportLoadState.Ready)?.report ?: return
-                val nodeIndex = report.flameGraph.callNodes.indexOf(nodeId) ?: return
-                val frame = report.flameGraph.callNodes.frameAt(nodeIndex) ?: return
+                val snapshot = report.callStackAnalysis(current.selectedTab)
+                val nodeIndex = snapshot.callNodes.indexOf(nodeId) ?: return
+                val frame = snapshot.callNodes.frameAt(nodeIndex) ?: return
                 val generation = workspace.state.value.generation
                 cancelFrameDetailsLocked()
                 mutableState.value =
@@ -548,7 +654,7 @@ class ReportController(
 
     fun selectCallNode(nodeId: FlameCallNodeId?) {
         mutableState.mutate { current ->
-            val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+            val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.callStackAnalysis(current.selectedTab)
             val validId = nodeId?.takeIf { candidate -> snapshot?.callNodes?.contains(candidate) == true }
             current.copy(
                 workspace =
@@ -567,7 +673,8 @@ class ReportController(
     fun navigateCallNode(command: FlameGraphNavigationCommand): FlameCallNodeId? {
         val mutation =
             mutableState.mutate { current ->
-                val snapshot = (current.loadState as? ReportLoadState.Ready)?.report?.flameGraph
+                val snapshot =
+                    (current.loadState as? ReportLoadState.Ready)?.report?.callStackAnalysis(current.selectedTab)
                 val selectedNodeId = current.workspace.selections.callNodeId
                 val targetNodeId =
                     if (snapshot == null || selectedNodeId == null) {
@@ -676,7 +783,6 @@ class ReportController(
         val generation =
             semanticMutationMutex.withLock {
                 withPreviewAdmissionSuspended {
-                    synchronized(sessionMutationLock) { cancelFrameDetailsLocked() }
                     invalidatePreviewWork()
                     afterPreviewInvalidatedForTest?.invoke()
                     updateProjectionStateLocked(transform = transform)
@@ -713,10 +819,10 @@ class ReportController(
             if (expectedSessionEpoch != null && sessionEpoch.get() != expectedSessionEpoch) {
                 return@synchronized null
             }
-            if (workspace.state.value.sessionDirectory == null) return@synchronized null
+            if (closed || workspace.state.value.sessionDirectory == null) return@synchronized null
             val mutation =
                 mutableState.mutate { current ->
-                    val transformed = transform(current)
+                    val transformed = transform(current).withActiveDirection()
                     if (current.projectionRequest() == transformed.projectionRequest()) {
                         transformed
                     } else {
@@ -727,6 +833,7 @@ class ReportController(
             val currentRequest = mutation.current.projectionRequest()
             val nextRequest = mutation.next.projectionRequest()
             if (currentRequest == nextRequest) return@synchronized null
+            cancelFrameDetailsLocked()
             workspace.updateProjection(nextRequest)
             workspace.state.value.generation
         }
@@ -762,7 +869,7 @@ class ReportController(
                         )
                         return
                     }
-                publishReady(workspaceState.generation, report)
+                publishReady(workspaceState.generation, report, workspaceState.query)
             }
             is ProfileWorkspaceLoadState.Failed ->
                 publishFailure(workspaceState.generation, loadState.sessionDirectory, loadState.error)
@@ -776,6 +883,7 @@ class ReportController(
     private fun publishReady(
         generation: ProfileGeneration,
         report: ReportData,
+        query: ProfileQuery,
     ) {
         synchronized(sessionMutationLock) {
             mutableState.update { current ->
@@ -783,23 +891,25 @@ class ReportController(
                     current
                 } else {
                     val selections = retainSelections(current, report)
+                    val analysis = report.callStackAnalysis(current.selectedTab)
                     val hovered =
                         current.flameGraph.hoveredNodeId?.takeIf { nodeId ->
-                            report.flameGraph.callNodes.contains(nodeId)
+                            analysis.callNodes.contains(nodeId)
                         }
                     val context =
                         current.flameGraph.contextNodeId?.takeIf { nodeId ->
-                            report.flameGraph.callNodes.contains(nodeId)
+                            analysis.callNodes.contains(nodeId)
                         }
                     current.copy(
                         loadState = ReportLoadState.Ready(report),
                         lastReadyReport = report,
+                        filter = query,
                         workspace = current.workspace.copy(selections = selections),
                         flameGraph =
                             current.flameGraph.copy(
                                 hoveredNodeId = hovered,
                                 contextNodeId = context,
-                                invalidTransforms = report.flameGraph.invalidTransforms,
+                                invalidTransforms = analysis.invalidTransforms,
                             ),
                     )
                 }
@@ -843,6 +953,7 @@ class ReportController(
             flameGraph = flameGraph,
             stackChart = stackChart,
             markers = markers,
+            userTimings = userTimings,
             diagnostics =
                 diagnosticEngine.analyze(
                     AnalysisSnapshot(overview, quality, threads, topFunctions),
@@ -927,12 +1038,19 @@ private fun retainCallNodeSelection(
     next: FlameGraphSnapshot,
 ): FlameCallNodeId? {
     val selected = state.workspace.selections.callNodeId
+    val previous = state.lastReadyReport?.selectionAnalysis(state.selectedTab, selected)
+    if (selected != null && previous != null && previous.query.direction != next.query.direction) {
+        return previous.callNodes.pathAfterInversion(selected)?.nearestVisibleAncestor(next.callNodes)
+    }
     return when {
         selected == null -> null
-        next.callNodes.contains(selected) -> selected
+        next.callNodes.contains(selected) &&
+            (
+                previous == null ||
+                    previous.callNodes.functionFor(selected) == next.callNodes.functionFor(selected)
+            ) -> selected
         else ->
-            state.lastReadyReport
-                ?.flameGraph
+            previous
                 ?.callNodes
                 ?.pathFor(selected)
                 ?.nearestVisibleAncestor(next.callNodes)
@@ -944,6 +1062,7 @@ private fun retainSelections(
     next: ReportData,
 ): ReportPanelSelections {
     val current = state.workspace.selections
+    val retainedBlockId = retainStackChartSelection(current.stackChartBlockId, next.stackChart)
     return current.copy(
         overviewFindingRuleId =
             current.overviewFindingRuleId?.takeIf { ruleId ->
@@ -953,8 +1072,8 @@ private fun retainSelections(
             current.topFunctionKey?.takeIf { key ->
                 next.topFunctions.any { function -> function.symbolName == key }
             },
-        callNodeId = retainCallNodeSelection(state, next.flameGraph),
-        stackChartBlockId = retainStackChartSelection(current.stackChartBlockId, next.stackChart),
+        callNodeId = retainStackChartCallNodeSelection(state, next, retainedBlockId),
+        stackChartBlockId = retainedBlockId,
         markerId = retainMarkerSelection(current.markerId, next.markers),
     )
 }
@@ -965,8 +1084,111 @@ private fun retainStackChartSelection(
 ): StackChartBlockId? =
     when (projection) {
         is PanelProjection.Failed -> selected
-        is PanelProjection.Ready -> selected?.takeIf { id -> projection.value.blocks.any { it.id == id } }
+        is PanelProjection.Ready -> selected?.takeIf { id -> projection.value.blockById(id) != null }
     }
+
+private fun retainStackChartCallNodeSelection(
+    state: ReportState,
+    next: ReportData,
+    retainedBlockId: StackChartBlockId?,
+): FlameCallNodeId? {
+    val nextAnalysis = next.callStackAnalysis(state.selectedTab)
+    val retainedNodeId = retainCallNodeSelection(state, nextAnalysis)
+    val current = state.workspace.selections
+    val previousChart = (state.lastReadyReport?.stackChart as? PanelProjection.Ready)?.value
+    val previousBlock = current.stackChartBlockId?.let { previousChart?.blockById(it) }
+    if (current.callNodeId == null ||
+        current.callNodeId != previousBlock?.callNodeId
+    ) {
+        return retainedNodeId
+    }
+    val previousDirection =
+        state.lastReadyReport
+            ?.selectionAnalysis(state.selectedTab, current.callNodeId)
+            ?.query
+            ?.direction
+    return if (previousDirection != CallStackDirection.FORWARD ||
+        nextAnalysis.query.direction != CallStackDirection.FORWARD
+    ) {
+        retainedNodeId
+    } else {
+        val nextChart = (next.stackChart as? PanelProjection.Ready)?.value
+        val nextBlock = retainedBlockId?.let { nextChart?.blockById(it) }
+        val function = nextBlock?.let { nextChart?.framesById?.get(it.frameId)?.functionId }
+        nextBlock?.callNodeId?.takeIf { function != null && nextAnalysis.callNodes.functionFor(it) == function }
+            ?: retainedNodeId
+    }
+}
+
+private fun ReportData.callStackAnalysis(tab: ReportTab): FlameGraphSnapshot =
+    if (tab == ReportTab.STACK_CHART) {
+        (stackChart as? PanelProjection.Ready)?.value?.committedAnalysis ?: flameGraph
+    } else {
+        flameGraph
+    }
+
+private fun ReportData.selectionAnalysis(
+    tab: ReportTab,
+    nodeId: FlameCallNodeId?,
+): FlameGraphSnapshot {
+    val active = callStackAnalysis(tab)
+    if (nodeId == null || active.callNodes.contains(nodeId)) return active
+    // During a tab switch the selection can still belong to the previous graph.
+    val alternative = if (tab == ReportTab.STACK_CHART) flameGraph else callStackAnalysis(ReportTab.STACK_CHART)
+    return alternative.takeIf { it.callNodes.contains(nodeId) } ?: active
+}
+
+private fun ReportState.withTabDirection(
+    tab: ReportTab,
+    direction: CallStackDirection,
+): ReportState {
+    val inverted = direction == CallStackDirection.INVERTED
+    return when (tab) {
+        ReportTab.CALL_TREE -> copy(workspace = workspace.copy(invertCallTree = inverted))
+        ReportTab.FLAME_GRAPH -> copy(workspace = workspace.copy(invertFlameGraph = inverted))
+        else -> this
+    }
+}
+
+private fun ReportState.withActiveDirection(): ReportState =
+    copy(callStackQuery = callStackQuery.copy(direction = workspace.callStackDirection(selectedTab)))
+
+private fun CallNodeTable.functionFor(nodeId: FlameCallNodeId): FlameFunctionId? {
+    val index = indexOf(nodeId) ?: return null
+    return frameAt(index)?.functionId
+}
+
+private fun CallNodeTable.pathAfterInversion(nodeId: FlameCallNodeId): CallNodePath? {
+    val selectedIndex = indexOf(nodeId) ?: return null
+    val selectedDepth = checkNotNull(depthAt(selectedIndex))
+    var heaviestIndex = selectedIndex
+    var heaviestWeight = pathTerminationWeightAt(selectedIndex)
+    var index = selectedIndex + 1
+    // Nodes are in preorder. Invert the heaviest terminating path in the selected
+    // subtree, not its ancestor path. Inverted UI Self belongs to sampled roots,
+    // so it cannot identify the path's original caller-side endpoint.
+    while (index < size && checkNotNull(depthAt(index)) > selectedDepth) {
+        val weight = pathTerminationWeightAt(index)
+        if (weight > heaviestWeight) {
+            heaviestIndex = index
+            heaviestWeight = weight
+        }
+        index += 1
+    }
+    return pathFor(checkNotNull(nodeIdAt(heaviestIndex)))?.let { path ->
+        CallNodePath(path.functions.drop(selectedDepth).asReversed())
+    }
+}
+
+private fun CallNodeTable.pathTerminationWeightAt(nodeIndex: Int): Long {
+    var remaining = checkNotNull(inclusiveWeightAt(nodeIndex))
+    var childIndex = firstChildIndexAt(nodeIndex)
+    while (childIndex != null) {
+        remaining = (remaining - checkNotNull(inclusiveWeightAt(childIndex))).coerceAtLeast(0)
+        childIndex = nextSiblingIndexAt(childIndex)
+    }
+    return remaining
+}
 
 private fun retainMarkerSelection(
     selected: ProfileMarkerId?,

@@ -71,6 +71,7 @@ import com.androidperformancestudio.perfetto_presentation.generated.resources.sy
 import com.androidperformancestudio.perfetto_presentation.generated.resources.system_wide_for_example_com_example_app
 import com.androidperformancestudio.perfetto_presentation.generated.resources.target_package
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_template
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -186,11 +187,12 @@ private fun PerfettoDataSourcesPanel(
             verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             capabilities?.queryError?.let { error ->
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.capability_query_failed, language, error),
                     color = MaterialTheme.colorScheme.error,
                     fontSize = ViewerTypography.dense.fontSize,
                     lineHeight = ViewerTypography.dense.lineHeight,
+                    language = language,
                 )
             }
             if (selectedTemplate != PerfettoTraceTemplate.CUSTOM) {
@@ -293,7 +295,7 @@ private fun PerfettoProbeOption(
                 lineHeight = ViewerTypography.label.lineHeight,
             )
             reason?.let {
-                Text(
+                CopyableText(
                     text = it,
                     color = MaterialTheme.colorScheme.error,
                     fontSize = ViewerTypography.micro.fontSize,
@@ -376,7 +378,7 @@ private fun PerfettoTemplateOption(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
+            CopyableText(
                 text = template.description(language),
                 color =
                     if (selected) {
@@ -560,7 +562,7 @@ private fun CaptureStatus(
     if (inProgress) {
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
     }
-    Text(
+    CopyableText(
         text =
             when (state) {
                 is PerfettoCaptureState.Idle -> localizedStringResource(Res.string.ready, language)
@@ -578,6 +580,7 @@ private fun CaptureStatus(
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
         fontSize = ViewerTypography.secondary.fontSize,
+        language = language,
     )
 }
 

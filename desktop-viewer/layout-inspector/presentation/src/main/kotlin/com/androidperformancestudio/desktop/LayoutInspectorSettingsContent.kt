@@ -5,6 +5,8 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTextField
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.localizedStringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,10 +84,11 @@ public fun LayoutInspectorSettingsContent(
             style = MaterialTheme.typography.titleLarge,
         )
         if (persistenceError) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.settings_save_failed, language),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
+                language = language,
             )
         }
 
@@ -152,10 +154,11 @@ public fun LayoutInspectorSettingsContent(
                     CaptureArchiveLimits.MAX_SNAPSHOT_SIZE_MULTIPLIER -
                         CaptureArchiveLimits.MIN_SNAPSHOT_SIZE_MULTIPLIER - 1,
             )
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
+                language = language,
             )
         }
 
@@ -263,7 +266,7 @@ private fun CanvasColorField(
         ) {
             Text(label, modifier = Modifier.width(82.dp), style = MaterialTheme.typography.bodyMedium)
             Box(Modifier.size(20.dp).background(color.toComposeColor(), RoundedCornerShape(10.dp)))
-            OutlinedTextField(
+            ViewerTextField(
                 colors = viewerOutlinedTextFieldColors(),
                 value = value,
                 onValueChange = { updated ->

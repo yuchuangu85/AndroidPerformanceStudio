@@ -30,6 +30,7 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -62,6 +63,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
     var pollJob by remember { mutableStateOf<Job?>(null) }
     var stopRequested by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf(NetworkProfilerState()) }
+    PublishAiContext("network", remember(state) { runCatching { networkAiContext(state) }.getOrNull() })
     val targetHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
 
     LaunchedEffect(targetHost, targetHost?.selectedDeviceSerial, targetHost?.selectedPackageName, state.capturing) {

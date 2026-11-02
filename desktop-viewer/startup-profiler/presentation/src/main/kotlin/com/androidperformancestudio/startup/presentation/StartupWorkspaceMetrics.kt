@@ -34,6 +34,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.met
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_ttid
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_ttid_description
 import com.androidperformancestudio.startup.presentation.generated.resources.startup_metrics
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerAccentPalette
@@ -104,7 +105,7 @@ internal fun StartupMetricOverview(
             }
         }
         analysis?.let {
-            Text(
+            CopyableText(
                 "${localizedStringResource(Res.string.median_totaltime, language)}: ${it.totalTime.medianMs.formatMs()} · " +
                     "P90 TTID ${it.firstFrame.p90Ms.formatMs()} · " +
                     localizedStringResource(Res.string.mad, language, it.firstFrame.medianAbsoluteDeviationMs.formatMs()) +

@@ -56,6 +56,9 @@ data class ReportActions(
     val onSelectOverviewFinding: (String?) -> Unit = {},
     val onSelectTopFunction: (String?) -> Unit = {},
     val onSelectStackChartBlock: (StackChartBlockId?) -> Unit = {},
+    val onStackChartSameWidths: (Boolean) -> Unit = {},
+    val onStackChartShowUserTimings: (Boolean) -> Unit = {},
+    val onRemoveFlameTransformsAfter: (Int) -> Unit = {},
     val onSelectMarker: (ProfileMarkerId?) -> Unit = {},
     val onMarkerSearch: (String) -> Unit = {},
 )

@@ -75,6 +75,7 @@ import com.androidperformancestudio.perfetto_presentation.generated.resources.tr
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_view_result
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_viewer
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -304,7 +305,7 @@ private fun TraceSummaryCard(
                 fontSize = ViewerTypography.secondary.fontSize,
                 maxLines = 1,
             )
-            Text(
+            CopyableText(
                 text = value,
                 color = if (summary.value == null) MaterialTheme.colorScheme.onSurfaceVariant else accent,
                 fontSize = ViewerTypography.bodyCompact.fontSize,
@@ -313,7 +314,7 @@ private fun TraceSummaryCard(
                 overflow = TextOverflow.Ellipsis,
             )
             summary.sourceTitle?.let { source ->
-                Text(
+                CopyableText(
                     text = source,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = ViewerTypography.label.fontSize,
@@ -491,17 +492,19 @@ private fun TraceViewerPanel(
             ) {
                 PerfettoMark()
                 Spacer(Modifier.height(12.dp))
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.trace_workspace_no_trace, language),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = MaterialTheme.typography.titleMedium.fontSize,
                     fontWeight = FontWeight.SemiBold,
+                    language = language,
                 )
                 Spacer(Modifier.height(5.dp))
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.trace_workspace_no_trace_description, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = ViewerTypography.secondary.fontSize,
+                    language = language,
                 )
             }
         } else {
@@ -554,11 +557,12 @@ private fun TraceViewerPanel(
                         fontSize = ViewerTypography.bodyCompact.fontSize,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
+                    CopyableText(
                         text = localizedStringResource(Res.string.trace_workspace_source_of_truth, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = ViewerTypography.secondary.fontSize,
                         lineHeight = ViewerTypography.secondary.lineHeight,
+                        language = language,
                     )
                 }
                 Row(
@@ -669,7 +673,7 @@ private fun TraceInsightCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             PerfettoStatusDot(accent)
-            Text(
+            CopyableText(
                 text = insight.title,
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurface,
@@ -677,6 +681,7 @@ private fun TraceInsightCard(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                language = language,
             )
         }
         insight.aggregate?.takeIf(String::isNotBlank)?.let { aggregate ->
@@ -766,7 +771,7 @@ internal fun EvidenceLine(
             fontSize = ViewerTypography.label.fontSize,
             fontWeight = FontWeight.Medium,
         )
-        Text(
+        CopyableText(
             text = value,
             modifier = Modifier.weight(1f),
             color = valueColor,
@@ -782,7 +787,7 @@ internal fun EmptyMessage(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-    Text(
+    CopyableText(
         text = text,
         modifier = modifier.padding(8.dp),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -816,7 +821,7 @@ private fun PerfettoMark() {
 @Suppress("ktlint:standard:function-naming")
 private fun TraceWorkspaceStatus(state: TraceAnalyzerWorkspaceState) {
     val message = state.error ?: state.status ?: return
-    Text(
+    CopyableText(
         text = message,
         modifier =
             Modifier

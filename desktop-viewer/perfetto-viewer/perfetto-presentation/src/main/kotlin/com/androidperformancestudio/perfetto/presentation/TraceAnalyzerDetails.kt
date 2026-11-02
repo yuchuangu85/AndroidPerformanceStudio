@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +48,7 @@ import com.androidperformancestudio.perfetto_presentation.generated.resources.tr
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_tab_search
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_thread
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_timestamp
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -119,7 +119,7 @@ private fun ResultTab(
         return
     }
     Column(modifier = Modifier.fillMaxSize().padding(8.dp).testTag("trace-result-table")) {
-        Text(
+        CopyableText(
             text = "${table.title}  ·  ${localizedStringResource(Res.string.trace_workspace_rows_shown, language, table.rows.size)}",
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = ViewerTypography.secondary.fontSize,
@@ -176,26 +176,26 @@ private fun QueryTab(
         EvidenceLine(localizedStringResource(Res.string.trace_workspace_artifact_id, language), table.artifactId)
         EvidenceLine(localizedStringResource(Res.string.trace_workspace_schema, language), table.schemaVersion)
         EvidenceLine(localizedStringResource(Res.string.trace_workspace_description, language), table.description)
-        Text(
+        CopyableText(
             text = localizedStringResource(Res.string.trace_workspace_read_only_query, language),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = ViewerTypography.label.fontSize,
+            language = language,
         )
-        SelectionContainer {
-            Text(
-                text = table.sql,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .horizontalScroll(rememberScrollState())
-                        .padding(StudioTokens.compactContentPadding)
-                        .testTag("trace-query-sql"),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontFamily = FontFamily.Monospace,
-                fontSize = ViewerTypography.label.fontSize,
-            )
-        }
+        CopyableText(
+            text = table.sql,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(StudioTokens.compactContentPadding)
+                    .testTag("trace-query-sql"),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontFamily = FontFamily.Monospace,
+            fontSize = ViewerTypography.label.fontSize,
+            language = language,
+        )
     }
 }
 
@@ -220,11 +220,12 @@ private fun SearchTab(
         state.searchHits.isEmpty() -> EmptyMessage(localizedStringResource(Res.string.trace_workspace_search_no_hits, language, term))
         else ->
             Column(modifier = Modifier.fillMaxSize().padding(8.dp).testTag("trace-search-results")) {
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.trace_workspace_search_hits, language, state.searchHits.size, term),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = ViewerTypography.secondary.fontSize,
                     fontWeight = FontWeight.SemiBold,
+                    language = language,
                 )
                 TableRow(
                     cells =

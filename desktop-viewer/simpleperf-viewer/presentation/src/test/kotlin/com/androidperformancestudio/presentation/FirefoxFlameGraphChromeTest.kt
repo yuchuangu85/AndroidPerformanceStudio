@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.profileanalysis.CallStackTransform
+import com.androidperformancestudio.profileanalysis.CallStackWeightType
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.ui.UiLanguage
@@ -31,8 +32,8 @@ class FirefoxFlameGraphChromeTest {
                                 category = "Native",
                                 implementation = FrameImplementation.NATIVE,
                                 resource = "libui.so",
-                                inclusiveWeight = 54_000_000,
-                                selfWeight = 4_000_000,
+                                inclusiveWeight = 54,
+                                selfWeight = 4,
                                 sampleCount = 54,
                                 selfSampleCount = 4,
                                 categorySamples =
@@ -44,6 +45,8 @@ class FirefoxFlameGraphChromeTest {
                                 threadCount = 2,
                                 percentage = 100.0,
                                 previewRangeWeight = null,
+                                weightType = CallStackWeightType.SAMPLES,
+                                tracedInclusiveNanos = 54_000_000,
                             ),
                         style = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT),
                     )
@@ -85,7 +88,7 @@ class FirefoxFlameGraphChromeTest {
                                 category = null,
                                 implementation = FrameImplementation.UNKNOWN,
                                 resource = null,
-                                inclusiveWeight = 12_345_000,
+                                inclusiveWeight = 8,
                                 selfWeight = 0,
                                 sampleCount = 8,
                                 selfSampleCount = 0,
@@ -93,6 +96,8 @@ class FirefoxFlameGraphChromeTest {
                                 threadCount = 1,
                                 percentage = 0.1234,
                                 previewRangeWeight = null,
+                                weightType = CallStackWeightType.SAMPLES,
+                                tracedInclusiveNanos = 12_345_000,
                             ),
                         style = FirefoxFlameGraphStyle.resolve(FlameTheme.DARK),
                     )
@@ -131,7 +136,7 @@ class FirefoxFlameGraphChromeTest {
         }
 
     @Test
-    fun `transform navigator exposes segments and trailing recovery actions`() =
+    fun `transform navigator exposes clickable history and an inert current segment`() =
         runDesktopComposeUiTest(width = 700, height = 80) {
             var undoCount = 0
             var clearCount = 0
@@ -151,10 +156,9 @@ class FirefoxFlameGraphChromeTest {
                 }
             }
 
-            onNodeWithText("Focus function").fetchSemanticsNode()
+            onNodeWithText("Focus function").performClick()
             onNodeWithText("Collapse libui.so").fetchSemanticsNode()
-            onNodeWithText("Undo").performClick()
-            onNodeWithText("Clear").performClick()
+            onNodeWithTag("transform-crumb-0").performClick()
 
             assertEquals(1, undoCount)
             assertEquals(1, clearCount)
@@ -167,8 +171,8 @@ private fun localizedTooltipFacts() =
         category = "Rendering",
         implementation = FrameImplementation.NATIVE,
         resource = "libui.so",
-        inclusiveWeight = 54_000_000,
-        selfWeight = 4_000_000,
+        inclusiveWeight = 54,
+        selfWeight = 4,
         sampleCount = 54,
         selfSampleCount = 4,
         categorySamples =
@@ -179,4 +183,6 @@ private fun localizedTooltipFacts() =
         threadCount = 2,
         percentage = 100.0,
         previewRangeWeight = null,
+        weightType = CallStackWeightType.SAMPLES,
+        tracedInclusiveNanos = 54_000_000,
     )

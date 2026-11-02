@@ -50,6 +50,7 @@ import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.UiLanguage
@@ -552,7 +553,7 @@ private fun HomeRecentSessions(
             )
             else -> {
                 if ((recentSnapshot?.unavailableSourceCount ?: 0) > 0) {
-                    Text(
+                    CopyableText(
                         text = localizedStringResource(Res.string.some_recent_indexes_unavailable, language),
                         color = colors.secondaryText,
                         fontSize = ViewerTypography.secondary.fontSize,
@@ -698,7 +699,7 @@ private fun HomeDeviceSummary(
                     }
                 }
                 if (overview.devices.isEmpty()) {
-                    Text(
+                    CopyableText(
                         text = localizedStringResource(Res.string.no_connected_devices, language),
                         color = colors.secondaryText,
                         fontSize = ViewerTypography.body.fontSize,

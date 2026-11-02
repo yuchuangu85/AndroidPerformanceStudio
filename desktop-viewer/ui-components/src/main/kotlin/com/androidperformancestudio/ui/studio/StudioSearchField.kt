@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 
 /**
@@ -42,7 +42,7 @@ public fun StudioSearchField(
         return
     }
     val colors = LocalViewerColors.current
-    OutlinedTextField(
+    ViewerTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,

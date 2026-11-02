@@ -48,6 +48,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -71,8 +72,10 @@ import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioSearchField
 import com.androidperformancestudio.ui.studio.StudioTokens
+import com.androidperformancestudio.ui_components.generated.resources.ic_settings_ai
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 
 internal const val NAVIGATION_COLLAPSE_BREAKPOINT_DP: Int = 1280
 
@@ -97,6 +100,7 @@ internal fun CommercialAppShell(
     navigator: AppNavigator,
     language: UiLanguage,
     navigationRailCollapsed: Boolean,
+    onOpenAi: () -> Unit = {},
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -148,6 +152,9 @@ internal fun CommercialAppShell(
                 .focusRequester(shellFocusRequester)
                 .onPreviewKeyEvent { event ->
                     when {
+                        event.type == KeyEventType.KeyDown && event.key == Key.A && event.isShiftPressed && (event.isCtrlPressed || event.isMetaPressed) -> {
+                            onOpenAi(); true
+                        }
                         event.type == KeyEventType.KeyDown &&
                             event.key == Key.K &&
                             (event.isCtrlPressed || event.isMetaPressed) -> {
@@ -179,6 +186,8 @@ internal fun CommercialAppShell(
                 settingsSelected = navigator.destination == AppDestination.SETTINGS,
                 onDestinationSelected = navigator::open,
                 onOpenSettings = { navigator.open(AppDestination.SETTINGS) },
+                onOpenAi = onOpenAi,
+                aiLabel = if (language == UiLanguage.SIMPLIFIED_CHINESE) "AI 分析" else "AI Analysis",
             )
             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 content()
@@ -211,6 +220,8 @@ private fun StudioNavigationRail(
     settingsSelected: Boolean,
     onDestinationSelected: (AppDestination) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAi: () -> Unit,
+    aiLabel: String,
 ) {
     val colors = LocalViewerColors.current
     val width = if (collapsed) StudioTokens.navigationCollapsedWidth else StudioTokens.navigationExpandedWidth
@@ -235,6 +246,13 @@ private fun StudioNavigationRail(
             )
         }
         Spacer(Modifier.weight(1f))
+        NavigationRailEntry(
+            icon = UiComponentsRes.drawable.ic_settings_ai,
+            label = aiLabel,
+            selected = false,
+            collapsed = collapsed,
+            onClick = onOpenAi,
+        )
         Box(
             modifier =
                 Modifier

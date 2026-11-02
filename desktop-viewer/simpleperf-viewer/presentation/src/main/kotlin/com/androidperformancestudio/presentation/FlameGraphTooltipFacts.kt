@@ -1,14 +1,18 @@
 package com.androidperformancestudio.presentation
 
 import com.androidperformancestudio.profileanalysis.CallNodeTable
+import com.androidperformancestudio.profileanalysis.CallStackWeightType
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
 import com.androidperformancestudio.profileanalysis.FrameImplementation
+import com.androidperformancestudio.profileanalysis.firefoxCategoryName
 
 internal data class FlameGraphTooltipCategorySamples(
     val category: String,
     val running: Long,
     val self: Long,
+    val inclusiveWeight: Long = running,
+    val selfWeight: Long = self,
 )
 
 internal data class FlameGraphTooltipFacts(
@@ -24,6 +28,8 @@ internal data class FlameGraphTooltipFacts(
     val threadCount: Int,
     val percentage: Double,
     val previewRangeWeight: Long?,
+    val weightType: CallStackWeightType = CallStackWeightType.NANOSECONDS,
+    val tracedInclusiveNanos: Long? = null,
 )
 
 @Suppress("ReturnCount")
@@ -51,11 +57,24 @@ internal fun FlameGraphSnapshot.tooltipFacts(nodeId: FlameCallNodeId): FlameGrap
         threadCount = threads,
         percentage = percentage.takeIf(Double::isFinite) ?: 0.0,
         previewRangeWeight = inclusive.takeIf { query.previewRange != null },
+        weightType = weightType,
+        tracedInclusiveNanos = callNodes.tracedInclusiveNanosAt(index),
     )
 }
 
 private fun CallNodeTable.firefoxCategorySamplesAt(rootIndex: Int): List<FlameGraphTooltipCategorySamples> {
     val samplesByCategory = LinkedHashMap<String, CategorySampleAccumulator>()
+    categoryMetricsAt(rootIndex)?.let { metrics ->
+        metrics.forEach { value ->
+            val category = value.category ?: FIREFOX_CATEGORY_OTHER
+            val total = samplesByCategory.getOrPut(category) { CategorySampleAccumulator() }
+            total.running += value.sampleCount
+            total.self += value.selfSampleCount
+            total.runningWeight += value.inclusiveWeight
+            total.selfWeight += value.selfWeight
+        }
+        return samplesByCategory.categorySamples()
+    }
     val pending = ArrayDeque<Int>()
     pending.addLast(rootIndex)
     while (pending.isNotEmpty()) {
@@ -65,28 +84,31 @@ private fun CallNodeTable.firefoxCategorySamplesAt(rootIndex: Int): List<FlameGr
             val category = firefoxCategoryAt(nodeIndex)
             val accumulator = samplesByCategory.getOrPut(category) { CategorySampleAccumulator() }
             accumulator.running += selfSamples
+            accumulator.runningWeight += selfWeightAt(nodeIndex) ?: 0L
             if (nodeIndex == rootIndex) accumulator.self += selfSamples
+            if (nodeIndex == rootIndex) accumulator.selfWeight += selfWeightAt(nodeIndex) ?: 0L
         }
         childIndexes(nodeIndex).forEach(pending::addLast)
     }
-    return samplesByCategory
+    return samplesByCategory.categorySamples()
+}
+
+private fun Map<String, CategorySampleAccumulator>.categorySamples(): List<FlameGraphTooltipCategorySamples> =
+    this
         .map { (category, samples) ->
-            FlameGraphTooltipCategorySamples(category, samples.running, samples.self)
+            FlameGraphTooltipCategorySamples(
+                category,
+                samples.running,
+                samples.self,
+                samples.runningWeight,
+                samples.selfWeight,
+            )
         }.sortedWith(
             compareBy(
                 { samples -> firefoxCategoryOrder.indexOf(samples.category).takeIf { it >= 0 } ?: Int.MAX_VALUE },
                 FlameGraphTooltipCategorySamples::category,
             ),
         )
-}
-
-private fun CallNodeTable.selfSampleCountAt(nodeIndex: Int): Long {
-    var remaining = sampleCountAt(nodeIndex)?.coerceAtLeast(0) ?: return 0
-    childIndexes(nodeIndex).forEach { childIndex ->
-        remaining = (remaining - (sampleCountAt(childIndex) ?: 0)).coerceAtLeast(0)
-    }
-    return remaining
-}
 
 private fun CallNodeTable.childIndexes(nodeIndex: Int): List<Int> =
     buildList {
@@ -99,23 +121,14 @@ private fun CallNodeTable.childIndexes(nodeIndex: Int): List<Int> =
 
 private fun CallNodeTable.firefoxCategoryAt(nodeIndex: Int): String =
     categoryAt(nodeIndex)?.takeIf(String::isNotBlank)
-        ?: frameAt(nodeIndex)?.firefoxSimpleperfCategory()
+        ?: frameAt(nodeIndex)?.firefoxCategoryName()
         ?: FIREFOX_CATEGORY_OTHER
-
-private fun com.androidperformancestudio.profileanalysis.CallStackFrame.firefoxSimpleperfCategory(): String =
-    when {
-        resource.contains("kallsyms") || resource.endsWith(".ko") ->
-            if (symbolName.startsWith("__schedule ")) FIREFOX_CATEGORY_OFF_CPU else FIREFOX_CATEGORY_KERNEL
-        resource.endsWith(".so") -> FIREFOX_CATEGORY_NATIVE
-        resource.endsWith(".vdex") -> FIREFOX_CATEGORY_DEX
-        resource.endsWith(".oat") -> FIREFOX_CATEGORY_OAT
-        resource == "[JIT app cache]" -> FIREFOX_CATEGORY_JIT
-        else -> FIREFOX_CATEGORY_USER
-    }
 
 private data class CategorySampleAccumulator(
     var running: Long = 0,
     var self: Long = 0,
+    var runningWeight: Long = 0,
+    var selfWeight: Long = 0,
 )
 
 private const val PERCENT_SCALE = 100.0

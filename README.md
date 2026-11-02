@@ -27,7 +27,7 @@ Download an installer matching your operating system and CPU architecture from [
 
 Installers include a Java runtime and prepared profiler resources. Git, a separate JDK, Node.js, Yarn, Python, and the Android SDK/NDK build toolchain are not required to use an installer.
 
-Device workflows require Android SDK Platform Tools (`adb`), USB debugging, and device authorization. Artifact-only analysis does not require a connected device. Open **Settings** to configure the Android SDK location, language, theme, and display scale; source and AI settings are optional.
+Installers include application-managed ADB, so device workflows do not require a separate Android SDK / Platform Tools installation, ADB environment variables, or a configured `PATH`. USB debugging and device authorization are still required; bundled ADB does not bypass device drivers or USB access permissions. Existing SDK / ADB settings remain supported, with explicit configuration taking precedence. Artifact-only analysis does not require a connected device. Open **Settings** to optionally configure the Android SDK location, language, theme, and display scale; source and AI settings are optional.
 
 See the [English user guide](docs-user/README.md) or [Simplified Chinese user guide](docs-user-zh/README.md) for individual workflows.
 

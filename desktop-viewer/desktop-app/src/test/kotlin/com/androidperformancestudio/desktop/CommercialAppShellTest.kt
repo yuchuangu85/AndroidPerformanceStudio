@@ -69,6 +69,17 @@ class CommercialAppShellTest {
     }
 
     @Test
+    fun `AI entry uses the shared sparkle icon instead of the settings gear`() {
+        val shell = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/shell/CommercialAppShell.kt"))
+        val aiEntry = Regex("NavigationRailEntry\\(\\s*icon = UiComponentsRes.drawable.ic_settings_ai,[\\s\\S]*?\\n        \\)")
+            .find(shell)?.value.orEmpty()
+
+        assertTrue(aiEntry.contains("label = aiLabel"))
+        assertTrue(aiEntry.contains("onClick = onOpenAi"))
+        assertFalse(aiEntry.contains("AppDestination.SETTINGS.navigationIconResource"))
+    }
+
+    @Test
     fun `navigation rail draws an icon per item and keeps only icons when collapsed`() {
         val shell =
             Files.readString(

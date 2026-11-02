@@ -83,6 +83,51 @@ passing the root desktop task does not mean every feature or Android Agent was t
 ./gradlew :desktop-app:compileKotlin
 ```
 
+## Application-managed ADB
+
+The unified desktop installers include an `adb-tools` resource directory. Device capture does not
+require an SDK installation, SDK environment variables, or an ADB entry on the user's `PATH`.
+USB debugging, device authorization, and host USB access are still required. Explicit executable
+and SDK configuration remain authoritative; automatic system discovery precedes the packaged
+fallback. Every profiler uses the same `adb-core` resolver.
+
+Prepare the tools on the development or packaging host, from the repository root:
+
+```bash
+python3 scripts/install-adb-tools.py
+# Offline development can use a trusted installed copy of the pinned platform-tools version.
+python3 scripts/install-adb-tools.py --source-dir "$HOME/Library/Android/sdk/platform-tools"
+python3 -m unittest discover -s scripts/tests -v
+```
+
+Download URLs and archive checksums are pinned in
+`platform-core/adb-core/adb-tools-manifest.json`. Google archives supply macOS universal, Windows,
+and Linux x64 ADB. Linux arm64 packaging uses the native Ubuntu 24.04 `adb` package on its build
+runner, copies the non-glibc shared-library dependency closure, and sets bundle-relative RPATHs.
+Its actual package / ADB version is recorded, not represented as the Google archive version.
+Only the build host needs Python, `patchelf`, or Ubuntu packaging tools; installed applications do not.
+
+The preparation scripts stage ADB, required companion libraries, license notices, and a versioned
+`manifest.properties` with per-file SHA-256 digests. Packaging fails if the tools are absent, corrupt,
+or incompatible with the target architecture. Runtime fallback also validates the manifest and
+companion files before selecting an application-managed executable. macOS signing refreshes hashes
+for signed ADB files before signing the enclosing app. No tool is installed into system directories,
+and the preparation scripts do not modify the system SDK or `PATH`.
+
+From `desktop-viewer/`, run a probe with an empty `PATH`, no ADB / SDK environment variables, and an
+empty SDK home directory. The optional device probe requires exactly one authorized device and reads
+`/proc/meminfo`; it does not change device configuration or stop an existing ADB server:
+
+```bash
+./gradlew :platform-core:adb-core:smokeBundledAdb
+./gradlew :platform-core:adb-core:smokeBundledAdb -PadbSmokeDevice=true
+./gradlew :desktop-app:verifyPackagedAdbTools :desktop-app:prepareProfilerAppResources
+```
+
+`-PadbSmokeBundle=/absolute/path/to/resources/adb-tools` selects an app image for the same probe.
+Unit tests, a build-host binary probe, real-device capture, native installer acceptance, and signed
+release qualification are separate evidence; passing one does not establish the others.
+
 ## Compose inspection runtime in desktop packages
 
 Complete Compose inspection needs the verified `compose-agent-bundle`, not only the version-specific

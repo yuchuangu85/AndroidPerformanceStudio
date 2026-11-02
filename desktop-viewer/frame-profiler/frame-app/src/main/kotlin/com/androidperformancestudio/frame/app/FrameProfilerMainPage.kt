@@ -57,6 +57,8 @@ import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
+import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
@@ -93,6 +95,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     val controller = remember { FrameProfilerController() }
     DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
+    PublishAiContext("frame", remember(state) { runCatching { frameAiContext(state) }.getOrNull() })
     val selectedSample =
         state.analysis
             ?.frames
@@ -405,8 +408,9 @@ private fun FrameProfilerStatusBar(
                     maxLines = 1,
                 )
                 Spacer(Modifier.width(4.dp))
-                Text(
+                CopyableText(
                     text = it,
+                    language = language,
                     color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
                     fontSize = ViewerTypography.secondary.fontSize,
                     lineHeight = ViewerTypography.secondary.lineHeight,

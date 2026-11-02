@@ -53,6 +53,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.bitm
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_png_storage
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_total_pss
 import com.androidperformancestudio.memory.presentation.generated.resources.bitmap_unique_images
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -102,12 +103,12 @@ public fun MemoryProfilerBitmapDumpPage(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             isLoading ->
-                androidx.compose.material3.Text(
+                CopyableText(
                     localizedStringResource(Res.string.bitmap_dump_loading, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             else ->
-                androidx.compose.material3.Text(
+                CopyableText(
                     localizedStringResource(Res.string.bitmap_dump_no_session, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -141,7 +142,7 @@ private fun BitmapDumpGalleryContent(
             }
             if (session.images.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    androidx.compose.material3.Text(
+                    CopyableText(
                         localizedStringResource(Res.string.bitmap_dump_no_session, language),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -316,7 +317,7 @@ private fun BitmapDumpImageCard(
                 modifier = Modifier.fillMaxWidth().height(120.dp),
                 color = MaterialTheme.colorScheme.surface,
             ) {
-                androidx.compose.material3.Text(
+                CopyableText(
                     localizedStringResource(Res.string.bitmap_image_unavailable, language, bitmap.file.fileName.toString()),
                     modifier = Modifier.padding(8.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

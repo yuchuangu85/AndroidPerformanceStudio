@@ -4,9 +4,13 @@ import com.androidperformancestudio.platform.perfetto.TraceQuerySchema
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeFalse
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -17,7 +21,7 @@ class ReleaseWorkflowTest {
     lateinit var directory: Path
 
     @Test
-    fun `release workflow supports tag and manual releases`() {
+    fun `release workflow requires explicit qualified manual publication even for tags`() {
         val workflow = Files.readString(workflowPath)
 
         assertTrue(workflow.contains("tags:"))
@@ -25,6 +29,9 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("workflow_dispatch:"))
         assertTrue(workflow.contains("version:"))
         assertTrue(workflow.contains("""^v?[0-9]+\.[0-9]+\.[0-9]+${'$'}"""))
+        assertTrue(workflow.contains("release_qualified:"))
+        assertTrue(workflow.contains("run_real_provider:"))
+        assertTrue(workflow.contains("tag pushes alone cannot publish"))
     }
 
     @Test
@@ -39,7 +46,7 @@ class ReleaseWorkflowTest {
         )
         assertTrue(!workflow.contains("simpleperfCheck --no-daemon"))
         assertTrue(workflow.contains("prepare-release:"))
-        assertTrue(workflow.contains("--draft"))
+        assertTrue(workflow.contains("publication.py check"))
         assertTrue(workflow.contains("uses: actions/setup-node@v6"))
         assertTrue(workflow.contains("node-version: \"24.19.0\""))
         assertTrue(workflow.contains("npm install --global yarn@1"))
@@ -75,6 +82,7 @@ class ReleaseWorkflowTest {
     @Test
     fun `publish job has write access and stable native asset names`() {
         val workflow = Files.readString(workflowPath)
+        val publication = Files.readString(Path.of("../../scripts/ai-release/publication.py"))
 
         assertTrue(workflow.contains("permissions:\n  contents: read"))
         assertTrue(workflow.contains("permissions:\n      contents: write"))
@@ -82,21 +90,37 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-windows-x64.exe"))
         assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-macos-${'$'}ARCH.dmg"))
         assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-macos-${'$'}ARCH.pkg"))
-        assertTrue(workflow.contains("macos-arm64.dmg"))
-        assertTrue(workflow.contains("macos-arm64.pkg"))
-        assertTrue(workflow.contains("macos-x64.dmg"))
-        assertTrue(workflow.contains("macos-x64.pkg"))
         assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-${'$'}ARCH.deb"))
         assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-${'$'}ARCH.rpm"))
-        assertTrue(workflow.contains("linux-x64.deb"))
-        assertTrue(workflow.contains("linux-arm64.deb"))
-        assertTrue(workflow.contains("Release asset mismatch."))
-        assertTrue(workflow.contains("gh release create"))
-        assertTrue(workflow.contains("gh release upload"))
+        assertTrue(publication.contains("Release asset mismatch"))
+        assertTrue(workflowJob(workflow, "publish").contains("publication.py publish"))
         assertTrue(workflow.contains("tag_exists=${'$'}{tag_exists}"))
-        assertTrue(workflow.contains("TAG_EXISTS: ${'$'}{{ needs.resolve.outputs.tag_exists }}"))
-        assertTrue(workflow.contains("""elif [[ "${'$'}TAG_EXISTS" == "true" ]]; then"""))
-        assertTrue(workflow.contains("--clobber"))
+        assertTrue(workflow.contains("tag_sha"))
+        assertTrue(!workflow.contains("--clobber"))
+
+        val process = runCatching {
+            ProcessBuilder(
+                "python3", "-I", "-c",
+                "import ast,json,pathlib,sys;sys.path.insert(0,sys.argv[1]);import publication;" +
+                    "tree=ast.parse(pathlib.Path(publication.__file__).read_text());" +
+                    "assert not any(isinstance(n,ast.Constant) and n.value=='--clobber' for n in ast.walk(tree));" +
+                    "print(json.dumps(sorted(n for p,a in publication.TARGETS for n in publication.asset_names(p,'1.2.3',a))))",
+                Path.of("../../scripts/ai-release").toAbsolutePath().normalize().toString(),
+            ).redirectErrorStream(true).start()
+        }.getOrNull()
+        assumeTrue(process != null, "Python 3 is required to check actual release asset generation")
+        val running = requireNotNull(process)
+        val completed = running.waitFor(10, TimeUnit.SECONDS)
+        if (!completed) running.destroyForcibly()
+        assertTrue(completed)
+        val output = running.inputStream.bufferedReader().use { it.readText() }
+        assertEquals(0, running.exitValue(), output)
+        val assets = Json.parseToJsonElement(output.trim()).jsonArray.map { it.jsonPrimitive.content }
+        val expected = listOf(
+            "windows-x64.msi", "windows-x64.exe", "macos-arm64.dmg", "macos-arm64.pkg", "macos-x64.dmg", "macos-x64.pkg",
+            "linux-x64.deb", "linux-x64.rpm", "linux-arm64.deb", "linux-arm64.rpm",
+        ).map { "AndroidPerfermanceStudio-1.2.3-$it" }.sorted()
+        assertEquals(expected, assets)
     }
 
     @Test
@@ -147,10 +171,13 @@ class ReleaseWorkflowTest {
             assertTrue(packaging.contains("digest-mismatch: error"))
             assertTrue(packaging.indexOf("uses: actions/download-artifact@v8") < packaging.indexOf(":desktop-app:package"))
             assertTrue(!packaging.contains("sdkmanager"), "Android tools are needed only by the shared bundle producer")
-            assertTrue(packaging.contains("gh release upload"), "Installers must still upload directly to the release")
+            assertTrue(packaging.contains("publication.py record"), "Every candidate must record source/run/hash provenance")
+            assertTrue(packaging.contains("uses: actions/upload-artifact@v7"))
+            assertTrue(packaging.contains("release-candidate-"))
+            assertTrue(!packaging.contains("gh release upload"), "Only the single verified publisher may mutate release assets")
         }
-        assertTrue(Regex("uses: actions/upload-artifact@").findAll(workflow).count() == 1)
-        assertTrue(Regex("uses: actions/download-artifact@").findAll(workflow).count() == 3)
+        assertEquals(4, Regex("uses: actions/upload-artifact@").findAll(workflow).count())
+        assertEquals(4, Regex("uses: actions/download-artifact@").findAll(workflow).count())
         assertTrue(!workflowJob(workflow, "publish").contains("compose-agent-bundle"))
     }
 
