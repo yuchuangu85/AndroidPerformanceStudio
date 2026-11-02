@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ai.AnalysisFinding
 import com.androidperformancestudio.ai.AnalysisResult
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
+import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import com.androidperformancestudio.aiplatform.runtime.ChatTurn
 import com.androidperformancestudio.aiplatform.runtime.PreparedAgentRun
@@ -393,6 +395,19 @@ private fun DshApproval(
             color = colors.muted,
             style = DshChatStyle.secondary,
         )
+        if (Permission.WRITE_ARTIFACT in pending.approval.permissions) {
+            val format =
+                when (pending.reportFormat) {
+                    ArtifactFormat.HTML -> "HTML (.html)"
+                    ArtifactFormat.MARKDOWN -> "Markdown (.md)"
+                }
+            DshText(
+                dshLabel(language, "Report format: $format", "报告格式：$format"),
+                modifier = Modifier.testTag("ai-report-format"),
+                color = colors.muted,
+                style = DshChatStyle.secondary,
+            )
+        }
         pending.analysisPreview?.userQuestion?.let { SelectionContainer { DshText(it) } }
         pending.analysisPreview?.let { preview ->
             preview.evidence.forEach { evidence ->

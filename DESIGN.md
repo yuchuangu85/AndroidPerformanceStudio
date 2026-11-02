@@ -491,7 +491,8 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - 顶部分类组在设置内容区横向居中，使用共享最大字号 `ViewerTypography.pageTitle`（16sp）。高度随文字行高和共享上下内边距增长，默认 30dp，保留统一主题边框与选中态；窄窗口仍可横向滚动，其他页面紧凑选择器的默认 24dp 不变。
 - 首次进入 AI 设置默认选中“Provider”；之后沿用 `ApplicationUiSettings` 持久化上次选中的标签，返回设置页和重启后均恢复。旧 `CONNECTION`、旧 `PROVIDER` 以及未知或损坏值均打开新的 Provider 连接页，读取时不重写偏好或连接配置。标签导航只改变可见分类，不保存连接草稿、不发起 Provider/脚本执行，也不扩大权限。
 - AI 设置全页使用共享 `ViewerTypography` 的 16sp/13sp/11sp 三档，不另设局部字号；这条设置页约束不修改 DSH 聊天局部的字体、颜色或布局 tokens。
-- Provider、Agent、Skill 和执行策略沿用共享 `StudioCard` 的圆角、边框、背景与间距：Provider 显示所选连接；Agent/Skill 的导入区域和每个包独立成卡；执行策略分为执行权限与会话历史。卡片不嵌套，连接配置、信任、版本、启用和历史清理操作保持原语义。
+- Provider、Agent、Skill 和执行策略沿用共享 `StudioCard` 的圆角、边框、背景与间距：Provider 显示所选连接；Agent/Skill 的导入区域和每个包独立成卡；执行策略分为执行权限、报告输出与会话历史。卡片不嵌套，连接配置、信任、版本、启用和历史清理操作保持原语义。
+- “执行策略 → 报告输出”以固定 320dp 的共享下拉框选择 `HTML (.html)` 或 `Markdown (.md)`，默认 HTML，旧配置缺失或未知值也回退 HTML。选择立即保存但不授予文件写入权限；新报告预检冻结格式并纳入确认 hash，已预检或运行中的报告不因设置变化改写。已生成报告按各自产物元数据的真实格式打开。
 - AI 对话在发送、重试及队列问题开始预检时读取最新已保存的 Provider、模型、Agent 和权限设置；已预检和运行中的请求不因设置更改而替换。普通无报告聊天仍使用受限 `aps.chat`，不因设置 Agent 而获得源码、脚本或 Artifact 权限。Codex 使用配置中的完整模型 ID，不要求名字包含 codex，不切换为 CLI/tools。
 - 连接保存使用带回滚的“保存并应用”操作，统一设置发布失败时恢复旧连接；无法恢复时保持不可用，不以新接口搭配旧模型继续运行。请求预检记录非秘密连接版本，连接变化后旧授权失效，需要重新预检，不能把已确认 payload 静默发往新 endpoint。
 - AI 设置中 OpenAI/Codex 和 Claude 的模型列表统一复用紧凑 macOS 风格 `DropdownSelector`，保留主题边框、展开箭头和选中态。控件宽度不随模型名变化，长名称省略，菜单限高滚动；加载中或列表为空时禁用，成功查询但无可选模型时显示明确的空结果提示，不伪装成请求失败，也不阻止手动填写模型或显式保存。
@@ -503,5 +504,5 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - 设置页成功加载并应用的模型目录按 Provider 和连接版本缓存，供对话菜单复用；缺失时读取当前已保存连接，显式刷新绕过缓存。未保存草稿或过期请求不得替换对话目录。模型切换不提交问题，运行或待确认时禁用；下一次发送、重试或排队预检使用最新已保存模型。
 - 每次从导航栏、菜单或协调器打开 AI 都产生新的窗口激活请求：已有窗口恢复最小化、移至前台并请求焦点，不重建 Runtime、不清空草稿或取消执行。仅将可见开关重复设为 true 不视为完成激活。
 - 长对话的滚动导航固定于整个消息区域最右下角，位于输入区上方，与消息文字保留独立侧边空间；32dp 的回到顶部/回到最新消息图标按钮上下竖排、间隔 6dp，距视口右边和底边各 12dp。短内容隐藏；上箭头仅离开顶部时显示，下箭头仅未到底部时显示。回到顶部暂停自动跟随，回到底部恢复跟随；滚动不触发模型或其他业务操作。
-- 对话显示用户问题、结构化 Findings、Evidence/Source 跳转、子任务/Skill timeline 和已验证 HTML Artifact。附件、任意源码浏览、完整 Markdown 导出/渲染、Token/速度精确统计等必须有真实后端和独立验收后才能呈现为可用功能；不能用占位按钮宣称 DSH 完全对齐。
+- 对话显示用户问题、结构化 Findings、Evidence/Source 跳转、子任务/Skill timeline 和已验证 HTML/Markdown Artifact；HTML 由固定惰性模板转义生成，Markdown 保留安全围栏，不执行模型 HTML 或链接。附件、任意源码浏览、完整 Markdown 富文本渲染、另存到任意目录、Token/速度精确统计等必须有真实后端和独立验收后才能呈现为可用功能；不能用占位按钮宣称 DSH 完全对齐。
 - 中英、明暗、900/1280 布局、键盘/焦点/语义测试与截图独立于实际 provider、沙箱和跨平台 Release 证据。

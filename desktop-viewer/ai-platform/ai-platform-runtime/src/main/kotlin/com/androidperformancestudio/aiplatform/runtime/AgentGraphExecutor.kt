@@ -4,6 +4,7 @@ import com.androidperformancestudio.ai.AnalysisRequest
 import com.androidperformancestudio.ai.AnalysisResult
 import com.androidperformancestudio.ai.AnalysisSessionId
 import com.androidperformancestudio.ai.payloadText
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ConversationRecord
 import com.androidperformancestudio.aiplatform.model.ConversationTurn
 import com.androidperformancestudio.aiplatform.model.Permission
@@ -59,6 +60,7 @@ internal class AgentGraphExecutor(
     private val emitEvent: suspend (AgentRunEvent) -> Unit,
     val ledger: ExecutionBudgetLedger = ExecutionBudgetLedger(rootRequest.budget),
     private val checkConnection: () -> Unit = {},
+    private val reportFormat: ArtifactFormat = ArtifactFormat.HTML,
 ) {
     private val history = conversations as? ConversationHistoryRepository
     private val skills = BuiltinSkillExecutor()
@@ -337,6 +339,7 @@ internal class AgentGraphExecutor(
                         skill.permissions,
                         analysis.evidence.map { it.id }.toSet(),
                         analysis.sourceCandidates.map { it.id }.toSet(),
+                        format = reportFormat,
                     ),
                 )
             checkCurrent()

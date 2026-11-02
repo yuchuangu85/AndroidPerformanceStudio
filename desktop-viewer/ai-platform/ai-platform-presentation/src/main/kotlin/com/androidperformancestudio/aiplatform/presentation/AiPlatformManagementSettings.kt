@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ExtensionKind
 import com.androidperformancestudio.aiplatform.model.ExtensionOrigin
 import com.androidperformancestudio.aiplatform.model.TrustStatus
@@ -48,6 +49,7 @@ import com.androidperformancestudio.aiplatform.registry.ExtensionKey
 import com.androidperformancestudio.aiplatform.registry.RegistryEntry
 import com.androidperformancestudio.aiplatform.registry.RegistryException
 import com.androidperformancestudio.ui.CopyableText
+import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTextField
@@ -457,6 +459,30 @@ private fun ManagementPolicy(
                 color = LocalViewerColors.current.secondaryText,
             )
         }
+        StudioCard(Modifier.fillMaxWidth().testTag("ai-management-card-report")) {
+            Text(
+                managementLabel(language, "Report Output", "报告输出"),
+                color = LocalViewerColors.current.accent,
+                style = ViewerTypography.subsectionTitle,
+            )
+            val description = managementLabel(language, "Report output format", "输出报告格式")
+            DropdownSelector(
+                items = listOf(ArtifactFormat.HTML, ArtifactFormat.MARKDOWN),
+                selectedItem = settings.reportFormat,
+                onItemSelected = { selected -> onChange { current -> current.copy(reportFormat = selected) } },
+                itemLabel = { format ->
+                    when (format) {
+                        ArtifactFormat.HTML -> "HTML (.html)"
+                        ArtifactFormat.MARKDOWN -> "Markdown (.md)"
+                    }
+                },
+                placeholder = description,
+                modifier = Modifier.width(320.dp).testTag("ai-management-report-format"),
+                selectorDescription = description,
+                fillWidth = true,
+                menuModifier = Modifier.width(320.dp).testTag("ai-management-report-format-menu"),
+            )
+        }
         StudioCard(Modifier.fillMaxWidth().testTag("ai-management-card-history")) {
             Text(
                 managementLabel(language, "Conversation history", "会话历史"),
@@ -516,7 +542,9 @@ private fun ManagementPolicy(
                             scope.launch {
                                 try {
                                     removed =
-                                        withContext(Dispatchers.IO) { runtime.service.retain(100, System.currentTimeMillis() - 30L * 86_400_000) }
+                                        withContext(Dispatchers.IO) {
+                                            runtime.service.retain(100, System.currentTimeMillis() - 30L * 86_400_000)
+                                        }
                                 } catch (failure: CancellationException) {
                                     throw failure
                                 } catch (_: Exception) {

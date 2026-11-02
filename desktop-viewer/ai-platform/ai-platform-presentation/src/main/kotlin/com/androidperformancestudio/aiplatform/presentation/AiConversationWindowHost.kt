@@ -37,6 +37,7 @@ import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
 import com.androidperformancestudio.aiplatform.app.BusinessContext
 import com.androidperformancestudio.aiplatform.app.contextDigest
 import com.androidperformancestudio.aiplatform.app.createChatContext
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ConversationRecord
 import com.androidperformancestudio.aiplatform.model.ExtensionKind
 import com.androidperformancestudio.aiplatform.model.Permission
@@ -60,6 +61,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 
 @Composable
@@ -332,6 +334,7 @@ internal fun ConversationWorkspace(
                         question.takeIf(String::isNotBlank),
                         parent,
                         parentConversationId,
+                        reportFormat = selectedSettings.reportFormat,
                     )
             }
             parentConversationId = null
@@ -800,22 +803,31 @@ private fun chatLabel(
     zh: String,
 ): String = if (language == UiLanguage.SIMPLIFIED_CHINESE) zh else en
 
-private fun previewArtifact(
+internal fun previewArtifact(
     runtime: AiPlatformRuntime,
     hash: String,
+    open: (Path, ArtifactFormat) -> Unit = { target, format ->
+        val desktop = java.awt.Desktop.getDesktop()
+        when (format) {
+            ArtifactFormat.HTML -> desktop.browse(target.toUri())
+            ArtifactFormat.MARKDOWN -> desktop.open(target.toFile())
+        }
+    },
 ) {
     val metadata = runtime.artifacts.metadata(hash)
     val bytes = runtime.artifacts.read(hash)
-    require(metadata.format == com.androidperformancestudio.aiplatform.model.ArtifactFormat.HTML)
+    val extension =
+        when (metadata.format) {
+            ArtifactFormat.HTML -> "html"
+            ArtifactFormat.MARKDOWN -> "md"
+        }
     val directory = runtime.directories.artifacts.resolve("previews")
     Files.createDirectories(directory)
     require(!Files.isSymbolicLink(directory))
-    val target = directory.resolve("$hash.html")
+    val target = directory.resolve("$hash.$extension")
     require(!Files.isSymbolicLink(target))
     Files.write(target, bytes)
-    java.awt.Desktop
-        .getDesktop()
-        .browse(target.toUri())
+    open(target, metadata.format)
 }
 
 private const val MAX_QUEUED_MESSAGES = 8

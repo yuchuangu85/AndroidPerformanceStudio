@@ -23,19 +23,25 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
+import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ai.AiAnalysisGateway
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ConversationRecord
 import com.androidperformancestudio.aiplatform.model.ConversationTurn
 import com.androidperformancestudio.aiplatform.model.ExtensionKind
@@ -131,6 +137,7 @@ class AiPlatformManagementSettingsTest {
                                         mapOf(
                                             "ai-management-card-permissions" to
                                                 listOf("ai-management-allow-artifacts", "ai-management-allow-scripts"),
+                                            "ai-management-card-report" to listOf("ai-management-report-format"),
                                             "ai-management-card-history" to listOf("ai-management-retain-history"),
                                         )
                                 }
@@ -145,6 +152,15 @@ class AiPlatformManagementSettingsTest {
                                         .performScrollTo()
                                         .assertIsDisplayed()
                                 }
+                            }
+                            if (next == AiManagementSection.POLICY) {
+                                val chinese = language == UiLanguage.SIMPLIFIED_CHINESE
+                                onNodeWithText(if (chinese) "报告输出" else "Report Output")
+                                    .assert(hasAnyAncestor(hasTestTag("ai-management-card-report")))
+                                onNodeWithContentDescription(if (chinese) "输出报告格式" else "Report output format")
+                                    .assert(hasAnyAncestor(hasTestTag("ai-management-card-report")))
+                                    .assertTextContains("HTML (.html)")
+                                onNodeWithTag("ai-management-report-format").assertWidthIsEqualTo(320.dp)
                             }
                             assertEquals(original, fixture.newSettingsStore().load())
                             fixture.assertNoProviderWork()
@@ -163,6 +179,7 @@ class AiPlatformManagementSettingsTest {
                             onNodeWithTag("ai-management-provider-model").assertDoesNotExist()
                             onNodeWithTag("ai-management-import-path").assertDoesNotExist()
                             onNodeWithTag("ai-management-allow-artifacts").assertDoesNotExist()
+                            onNodeWithTag("ai-management-report-format").assertDoesNotExist()
                             saveManagementScreenshot("unavailable-${next.name.lowercase()}-$variant")
                             assertEquals(original, fixture.newSettingsStore().load())
                             fixture.assertNoProviderWork()
@@ -188,6 +205,7 @@ class AiPlatformManagementSettingsTest {
                     runOnIdle { section = next }
                     onNodeWithTag("ai-management-unavailable").assertTextContains("AI runtime unavailable", substring = true)
                     onNodeWithTag("ai-management-provider-model").assertDoesNotExist()
+                    onNodeWithTag("ai-management-report-format").assertDoesNotExist()
                 }
                 assertEquals(original, fixture.settings.load())
                 fixture.assertNoProviderWork()
@@ -216,6 +234,69 @@ class AiPlatformManagementSettingsTest {
                 onNodeWithTag("ai-management-allow-scripts").assertIsOff()
                 onNodeWithTag("ai-management-allow-artifacts").performClick().assertIsOff()
                 assertEquals(AiPlatformSettings("claude", "external-model"), external.load())
+                fixture.assertNoProviderWork()
+            }
+        }
+
+    @Test
+    fun `report format defaults to HTML and saves and observes shared settings without provider work`() =
+        ManagementFixture().use { fixture ->
+            val original =
+                AiPlatformSettings(
+                    providerId = "codex",
+                    model = "selected-model",
+                    allowArtifacts = true,
+                    agentId = "aps.report",
+                    allowScripts = true,
+                )
+            fixture.settings.save(original)
+            val external = fixture.newSettingsStore()
+            runDesktopComposeUiTest(width = 480, height = 600) {
+                setContent {
+                    ViewerTheme(darkTheme = false) {
+                        AiPlatformManagementSettings(
+                            fixture.runtime,
+                            AiManagementSection.POLICY,
+                            UiLanguage.ENGLISH,
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                val selector = onNodeWithContentDescription("Report output format")
+                selector.performScrollTo().assertIsDisplayed().assertTextContains("HTML (.html)")
+                onNodeWithTag("ai-management-report-format").assertWidthIsEqualTo(320.dp)
+                onNodeWithTag("ai-management-report-format-menu").assertDoesNotExist()
+                assertEquals(ArtifactFormat.HTML, external.load().reportFormat)
+                assertEquals(original, external.load())
+
+                selector.performClick()
+                onNodeWithTag("ai-management-report-format-menu").assertIsDisplayed().assertWidthIsEqualTo(320.dp)
+                val menuItem = hasAnyAncestor(hasTestTag("ai-management-report-format-menu"))
+                onNode(hasText("HTML (.html)") and menuItem).assertIsSelected()
+                onNode(hasText("Markdown (.md)") and menuItem).performClick()
+                selector.assertTextContains("Markdown (.md)")
+                onNodeWithTag("ai-management-report-format-menu").assertDoesNotExist()
+                val markdown = original.copy(reportFormat = ArtifactFormat.MARKDOWN)
+                assertEquals(markdown, external.load())
+                assertEquals(markdown, fixture.settings.settings.value)
+
+                val updated =
+                    original.copy(
+                        providerId = "claude",
+                        model = "external-model",
+                        agentId = "aps.main",
+                        allowArtifacts = false,
+                        allowScripts = false,
+                        reportFormat = ArtifactFormat.HTML,
+                    )
+                runOnIdle { external.save(updated) }
+                selector.assertTextContains("HTML (.html)")
+                assertEquals(updated, fixture.settings.load())
+                selector.performClick()
+                onNode(hasText("HTML (.html)") and menuItem).assertIsSelected()
+                onNode(hasText("Markdown (.md)") and menuItem).performClick()
+                selector.assertTextContains("Markdown (.md)")
+                assertEquals(updated.copy(reportFormat = ArtifactFormat.MARKDOWN), external.load())
                 fixture.assertNoProviderWork()
             }
         }

@@ -472,7 +472,8 @@ class AiSettingsGroupingTest {
                             val card = onNodeWithTag("ai-connection-group-$id").fetchSemanticsNode().boundsInRoot
                             val model = onNodeWithTag("ai-$id-connection-model").fetchSemanticsNode().boundsInRoot
                             assertEquals(StudioTokens.compactContentPadding.value, model.left - card.left, 1f)
-                            assertEquals(StudioTokens.compactContentPadding.value, card.right - model.right, 1f)
+                            assertEquals(320f, model.width, 1f)
+                            assertTrue(model.right <= card.right - StudioTokens.compactContentPadding.value + 1f)
                             val refreshButton = onNodeWithTag("ai-$id-model-refresh").fetchSemanticsNode().boundsInRoot
                             val saveButton = onNodeWithTag("ai-$id-connection-save").fetchSemanticsNode().boundsInRoot
                             assertEquals(ViewerDimensions.buttonHeight.value, refreshButton.height, 1f)

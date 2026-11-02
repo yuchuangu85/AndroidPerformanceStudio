@@ -198,4 +198,6 @@ AI 响应应包含结构化部分：
 - 对话历史能够恢复，但不保存凭证、绝对路径、完整源码或模型原始响应。
 - Simpleperf 接线完成后，同一窗口契约可复用于函数、调用树和 Stack Chart 证据。
 - 主 Agent 可以在一个问题中调用至少一个内置 Skill，并在窗口中展示调用摘要和结构化输出。
-- HTML Artifact 只通过已验证 hash 从对话打开；Markdown 显式导出仍是后续验收项，不能从现有 HTML 预览推导其已经可用。
+- “设置 → AI 设置 → 执行策略 → 报告输出”可选择 `HTML (.html)` 或 `Markdown (.md)`，默认 HTML；旧配置和未知格式回退 HTML，不覆盖已有 Provider、模型、Agent 或权限。
+- 报告格式在新预检时冻结并计入确认 hash；设置变更只影响之后的新报告，不替换待确认、运行中或历史报告的格式。格式选择不自动授予 `WRITE_ARTIFACT`，普通聊天仍无报告写入权限。
+- HTML/Markdown Artifact 只通过已验证 hash 从对话打开，按产物元数据生成对应 `.html` / `.md` 文件；HTML 在浏览器中打开，Markdown 使用系统关联应用。任意目录“另存为”和完整 Markdown 富文本渲染仍是独立后续范围。

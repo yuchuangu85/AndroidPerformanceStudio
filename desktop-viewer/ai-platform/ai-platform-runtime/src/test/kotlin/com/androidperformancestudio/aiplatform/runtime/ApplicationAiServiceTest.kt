@@ -12,6 +12,7 @@ import com.androidperformancestudio.ai.AnalysisSessionId
 import com.androidperformancestudio.ai.AnalysisSeverity
 import com.androidperformancestudio.ai.PerformanceEvidence
 import com.androidperformancestudio.ai.ProfilerKind
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import com.androidperformancestudio.aiplatform.providers.GatewayAnalysisProvider
@@ -383,7 +384,16 @@ class ApplicationAiServiceTest {
     fun `main executes independent child providers and readonly skills and restores redacted result`() =
         runBlocking {
             withFixture(this) { fixture ->
-                val prepared = fixture.service.prepare("conversation", request(), "aps.main", "openai", "test-model", permissions)
+                val prepared =
+                    fixture.service.prepare(
+                        "conversation",
+                        request(),
+                        "aps.main",
+                        "openai",
+                        "test-model",
+                        permissions,
+                        reportFormat = ArtifactFormat.MARKDOWN,
+                    )
                 fixture.service.approveAndRun(prepared.approval).join()
                 val state = fixture.service.state.value
                 assertEquals(RunStatus.SUCCEEDED, state.status)
@@ -594,6 +604,8 @@ class ApplicationAiServiceTest {
                 val state = fixture.service.state.value
                 assertEquals(RunStatus.SUCCEEDED, state.status)
                 val hash = assertNotNull(state.publishedArtifactHash)
+                assertEquals(ArtifactFormat.HTML, prepared.reportFormat)
+                assertEquals(ArtifactFormat.HTML, fixture.publisher.metadata(hash).format)
                 val html = fixture.publisher.read(hash).decodeToString()
                 assertTrue(html.contains("Content-Security-Policy"))
                 assertFalse(html.contains("sk-testsecret"))
@@ -613,6 +625,60 @@ class ApplicationAiServiceTest {
                 assertTrue(fixture.service.delete("conversation"))
                 assertNull(fixture.store.result("conversation", prepared.approval.runId))
                 assertTrue(fixture.store.audit("conversation").isEmpty())
+            }
+        }
+
+    @Test
+    fun `report format is frozen in approval and Markdown artifacts survive history restore`() =
+        runBlocking {
+            withFixture(this) { fixture ->
+                val html =
+                    fixture.service.prepare(
+                        "conversation",
+                        request(),
+                        "aps.report",
+                        "openai",
+                        "test-model",
+                        permissions + Permission.WRITE_ARTIFACT,
+                    )
+                val markdown =
+                    fixture.service.prepare(
+                        "conversation",
+                        request(),
+                        "aps.report",
+                        "openai",
+                        "test-model",
+                        permissions + Permission.WRITE_ARTIFACT,
+                        reportFormat = ArtifactFormat.MARKDOWN,
+                    )
+                assertEquals(ArtifactFormat.HTML, html.reportFormat)
+                assertEquals(ArtifactFormat.MARKDOWN, markdown.reportFormat)
+                assertTrue(html.approval.payloadHash != markdown.approval.payloadHash)
+                assertEquals(
+                    "E_APPROVAL_MISMATCH",
+                    assertFailsWith<AgentPolicyException> {
+                        fixture.service.approveAndRun(markdown.approval.copy(payloadHash = html.approval.payloadHash))
+                    }.code,
+                )
+                assertTrue(fixture.calls.isEmpty())
+
+                fixture.service.approveAndRun(markdown.approval).join()
+
+                assertEquals(RunStatus.SUCCEEDED, fixture.service.state.value.status)
+                val hash = assertNotNull(fixture.service.state.value.publishedArtifactHash)
+                assertEquals(ArtifactFormat.MARKDOWN, fixture.publisher.metadata(hash).format)
+                val content = fixture.publisher.read(hash).decodeToString()
+                assertTrue(content.startsWith("# Performance analysis"))
+                assertFalse(content.contains("<!doctype html>"))
+                assertFalse(content.contains("sk-testsecret"))
+                assertEquals(hash, fixture.service.restore("conversation").publishedArtifactHash)
+                assertEquals(
+                    listOf(hash),
+                    fixture.service
+                        .transcript("conversation")
+                        .last()
+                        .artifactHashes,
+                )
             }
         }
 

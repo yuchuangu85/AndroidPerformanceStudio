@@ -115,8 +115,12 @@ class AiPlatformManagementTypographyTest {
                 ).assertFontSize(ViewerTypography.bodyCompact.fontSize)
                 onNodeWithText("Source snippets require live workspace authorization.", substring = true)
                     .assertFontSize(ViewerTypography.secondary.fontSize)
-                onNodeWithText("Retain at most 100 conversations / 30 days").assertFontSize(ViewerTypography.bodyCompact.fontSize)
-                onNodeWithTag("ai-management-retain-history").performClick()
+                onNodeWithText("Report Output").assertFontSize(ViewerTypography.subsectionTitle.fontSize)
+                onNodeWithText("HTML (.html)").assertFontSize(ViewerTypography.secondary.fontSize)
+                onNodeWithText("Retain at most 100 conversations / 30 days").assertFontSize(ViewerTypography.secondary.fontSize)
+                onNodeWithTag("ai-management-retain-history").performScrollTo().performClick()
+                onNodeWithTag("ai-management-retention-result").assertDoesNotExist()
+                onNodeWithTag("ai-management-retention-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) {
                     runCatching { onNodeWithTag("ai-management-retention-result").fetchSemanticsNode() }.isSuccess
                 }

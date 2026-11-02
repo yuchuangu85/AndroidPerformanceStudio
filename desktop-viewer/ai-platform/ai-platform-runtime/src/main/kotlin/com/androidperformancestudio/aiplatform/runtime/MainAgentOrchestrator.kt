@@ -5,6 +5,7 @@ import com.androidperformancestudio.ai.AnalysisRequest
 import com.androidperformancestudio.ai.isDirectChat
 import com.androidperformancestudio.ai.payloadText
 import com.androidperformancestudio.aiplatform.model.ApprovalRequest
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ConversationRecord
 import com.androidperformancestudio.aiplatform.model.ConversationTurn
 import com.androidperformancestudio.aiplatform.model.ExtensionKind
@@ -58,6 +59,7 @@ public data class PreparedAgentRun(
     val plannedCallCount: Int = 0,
     val plannedScriptCount: Int = 0,
     val plannedProviderCallCount: Int = 0,
+    val reportFormat: ArtifactFormat = ArtifactFormat.HTML,
 )
 
 public data class AgentRunEvent(
@@ -96,6 +98,7 @@ public class MainAgentOrchestrator(
         question: String? = null,
         parentTurnRunId: String? = null,
         parentConversationId: String? = null,
+        reportFormat: ArtifactFormat = ArtifactFormat.HTML,
     ): PreparedAgentRun =
         mutex.withLock {
             pending.values
@@ -249,13 +252,15 @@ public class MainAgentOrchestrator(
                         (
                             payload.sha256() + "\n" + contextHash + "\n" + graph.approvalMaterial() +
                                 "\nprovider:" + providerId + "\nmodel:" + model + "\n" + grants.map { it.name }.sorted() +
+                                "\nreport-format:" + reportFormat.name +
                                 "\nparent-turn:" + parentTurnRunId?.sha256().orEmpty() +
                                 "\nparent-conversation:" + (previous?.parentConversationId ?: parentConversationId)?.sha256().orEmpty()
                         ).sha256(),
                     permissions = grants,
                     expiresAtEpochMillis = clock() + 300_000,
                 )
-            val run = PendingRun(conversationId, request, approval, graph, authorized, parentTurnRunId, preparedConnectionRevision)
+            val run =
+                PendingRun(conversationId, request, approval, graph, authorized, parentTurnRunId, preparedConnectionRevision, reportFormat)
             val current =
                 conversations.load(conversationId) ?: ConversationRecord(
                     id = conversationId,
@@ -288,6 +293,7 @@ public class MainAgentOrchestrator(
                 plannedCallCount = graph.callCount,
                 plannedScriptCount = graph.scriptCount,
                 plannedProviderCallCount = graph.agents.size,
+                reportFormat = reportFormat,
             )
         }
 
@@ -367,6 +373,7 @@ public class MainAgentOrchestrator(
                     },
                     emitEvent = { emit(it) },
                     checkConnection = { verifyConnection(run) },
+                    reportFormat = run.reportFormat,
                 )
             try {
                 val finalEvents =
@@ -605,6 +612,7 @@ public class MainAgentOrchestrator(
         val authorizationAnalysis: AnalysisRequest,
         val parentTurnRunId: String?,
         val connectionRevision: String,
+        val reportFormat: ArtifactFormat,
         var status: RunStatus = RunStatus.AWAITING_APPROVAL,
         var approved: Boolean = false,
         var job: Job? = null,

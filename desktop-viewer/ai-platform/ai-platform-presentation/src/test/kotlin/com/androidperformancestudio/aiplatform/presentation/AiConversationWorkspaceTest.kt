@@ -33,6 +33,7 @@ import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
 import com.androidperformancestudio.aiplatform.app.BusinessContext
 import com.androidperformancestudio.aiplatform.app.createBusinessContext
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import com.androidperformancestudio.aiplatform.storage.ExecutionKind
@@ -264,6 +265,62 @@ class AiConversationWorkspaceTest {
                     },
                 )
                 assertEquals(List(prepared.plannedProviderCallCount) { "codex-idle" }, fixture.models.toList())
+            }
+        }
+
+    @Test
+    fun `saved report format applies to new runs and cannot replace a pending report format`() =
+        WorkspaceFixture().use { fixture ->
+            fixture.settings.update { it.copy(allowArtifacts = true, reportFormat = ArtifactFormat.MARKDOWN) }
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("report-format"),
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("Write the selected evidence report")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
+                assertTrue(Permission.WRITE_ARTIFACT in prepared.approval.permissions)
+                onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
+                runOnIdle { fixture.newSettingsStore().update { it.copy(reportFormat = ArtifactFormat.HTML) } }
+                waitForIdle()
+                assertSame(prepared, fixture.runtime.service.state.value.prepared)
+                onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                onNodeWithTag("ai-confirm").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                val hash = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
+                assertEquals(
+                    ArtifactFormat.MARKDOWN,
+                    fixture.runtime.artifacts
+                        .metadata(hash)
+                        .format,
+                )
+                assertTrue(
+                    fixture.runtime.artifacts
+                        .read(hash)
+                        .decodeToString()
+                        .startsWith("# Performance analysis"),
+                )
+
+                onNodeWithTag("ai-question").performTextReplacement("Write the next report")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                assertEquals(
+                    ArtifactFormat.HTML,
+                    fixture.runtime.service.state.value.prepared
+                        ?.reportFormat,
+                )
+                onNodeWithTag("ai-report-format").assertTextContains("HTML (.html)", substring = true)
             }
         }
 

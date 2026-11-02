@@ -3,6 +3,7 @@ package com.androidperformancestudio.aiplatform.runtime
 import com.androidperformancestudio.ai.AnalysisRequest
 import com.androidperformancestudio.ai.AnalysisResult
 import com.androidperformancestudio.aiplatform.model.ApprovalRequest
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ConversationRecord
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.ProviderEvent
@@ -60,6 +61,7 @@ public class ApplicationAiService(
         question: String? = null,
         parentTurnRunId: String? = null,
         parentConversationId: String? = null,
+        reportFormat: ArtifactFormat = ArtifactFormat.HTML,
     ): PreparedAgentRun =
         mutex.withLock {
             cancelLocked()
@@ -75,6 +77,7 @@ public class ApplicationAiService(
                         question,
                         parentTurnRunId,
                         parentConversationId,
+                        reportFormat,
                     )
                 activeRunId = prepared.approval.runId
                 completions[prepared.approval.runId] = RunCompletion()
