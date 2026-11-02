@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -455,7 +456,8 @@ internal fun DshMenuItem(
         text = { DshText(title, color = LocalDshChatColors.current.text.copy(alpha = if (enabled) 1f else 0.45f)) },
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.testTag(tag),
+        modifier = Modifier.height(32.dp).testTag(tag),
+        contentPadding = PaddingValues(horizontal = 12.dp),
         leadingIcon = { Icon(icon, null, Modifier.size(18.dp), tint = LocalDshChatColors.current.muted) },
     )
 }

@@ -11,6 +11,7 @@ import com.androidperformancestudio.ui.TitleBarTargetControls
 import com.androidperformancestudio.ui.ViewerTheme
 import com.androidperformancestudio.ui.WindowMenuBar
 import com.androidperformancestudio.ui.WindowMenuChrome
+import com.androidperformancestudio.ui.WindowSurfaceEffect
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.rememberPageMenuHost
 import com.androidperformancestudio.ui.rememberTitleBarTargetHost
@@ -20,6 +21,7 @@ import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -299,8 +301,9 @@ fun FrameWindowScope.DesktopAppMainPage(
         },
     )
 
+    WindowSurfaceEffect(windowColors.workspace)
     WindowsWindowChromeEffect(windowColors, darkTheme)
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().background(windowColors.workspace)) {
         MacOsTitleBar(
             title = windowTitle?.value ?: APP_DISPLAY_NAME,
             background = windowColors.toolbar,

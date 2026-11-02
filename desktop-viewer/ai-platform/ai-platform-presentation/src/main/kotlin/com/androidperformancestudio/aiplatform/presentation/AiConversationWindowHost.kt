@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.aiplatform.presentation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +49,7 @@ import com.androidperformancestudio.aiplatform.runtime.PreparedAgentRun
 import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.WindowSurfaceEffect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +91,9 @@ public fun AiConversationWindowHost(
     ) {
         window.minimumSize = java.awt.Dimension(900, 720)
         AiConversationWindowActivationEffect(openRequestId, windowState)
-        Column(Modifier.fillMaxSize()) {
+        val background = (if (darkTheme) DshChatColors.Dark else DshChatColors.Light).background
+        WindowSurfaceEffect(background)
+        Column(Modifier.fillMaxSize().background(background)) {
             // Native decoration belongs to the desktop host and stays outside the scaled viewer theme.
             windowChrome(title)
             Box(Modifier.weight(1f)) {

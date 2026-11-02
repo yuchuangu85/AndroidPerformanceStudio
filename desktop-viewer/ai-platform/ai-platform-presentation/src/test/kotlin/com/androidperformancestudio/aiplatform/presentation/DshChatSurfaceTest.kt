@@ -102,6 +102,7 @@ class DshChatSurfaceTest {
             setContent { ViewerTheme(darkTheme = false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.ENGLISH) } }
             onNodeWithTag("ai-session-menu-frame").performClick()
             val menuTags = listOf("ai-session-pin", "ai-session-rename", "ai-session-fork", "ai-session-archive", "ai-session-copy-id")
+            menuTags.forEach { onNodeWithTag(it).assertHeightIsEqualTo(32.dp) }
             val tops = menuTags.map { onNodeWithTag(it).fetchSemanticsNode().boundsInRoot.top }
             assertEquals(tops.sorted(), tops)
             onNodeWithText("Delete").assertDoesNotExist()
