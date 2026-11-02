@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -224,7 +225,7 @@ private fun DshModelPicker(
     val colors = LocalDshChatColors.current
     var expanded by remember(state.busy) { mutableStateOf(false) }
     val windowSize = LocalWindowInfo.current.containerSize
-    val menuWidth = with(LocalDensity.current) { (windowSize.width.toDp() - 32.dp).coerceIn(0.dp, 480.dp) }
+    val menuWidth = with(LocalDensity.current) { (windowSize.width.toDp() - 32.dp).coerceIn(0.dp, 280.dp) }
     val menuHeight = with(LocalDensity.current) { (windowSize.height.toDp() - 96.dp).coerceIn(0.dp, 320.dp) }
     val currentModel = state.model.ifBlank { dshLabel(language, "Choose model", "选择模型") }
     val closeModels by rememberUpdatedState(actions.onCloseModels)
@@ -258,6 +259,7 @@ private fun DshModelPicker(
                 actions.onCloseModels()
             },
             modifier = Modifier.width(menuWidth).heightIn(max = menuHeight).testTag("ai-chat-model-menu"),
+            shape = RoundedCornerShape(8.dp),
             containerColor = colors.sidebar,
         ) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -306,7 +308,8 @@ private fun DshModelPicker(
                         }
                     },
                     enabled = enabled,
-                    modifier = Modifier.testTag("ai-chat-model-option-$model").semantics { this.selected = selected },
+                    modifier = Modifier.height(32.dp).testTag("ai-chat-model-option-$model").semantics { this.selected = selected },
+                    contentPadding = PaddingValues(horizontal = 12.dp),
                     trailingIcon = {
                         if (selected) {
                             Icon(Icons.Regular.Checkmark, null, Modifier.size(16.dp), tint = colors.send)

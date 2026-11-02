@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
@@ -49,6 +52,7 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.studio.StudioCard
 import com.androidperformancestudio.ui.studio.StudioTokens
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
@@ -56,7 +60,6 @@ import io.github.composefluent.icons.Icons
 import io.github.composefluent.icons.regular.ArrowDownload
 import io.github.composefluent.icons.regular.Delete
 import io.github.composefluent.icons.regular.FolderOpen
-import io.github.composefluent.icons.regular.History
 import io.github.composefluent.icons.regular.ShieldCheckmark
 import io.github.composefluent.icons.regular.ShieldDismiss
 import kotlinx.coroutines.CancellationException
@@ -223,54 +226,55 @@ private fun ManagementExtensions(
                 color = LocalViewerColors.current.accent,
                 style = ViewerTypography.subsectionTitle,
             )
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ViewerTextField(
-                    value = importPath,
-                    onValueChange = { importPath = it },
-                    modifier = Modifier.weight(1f).testTag("ai-management-import-path"),
-                    colors = viewerOutlinedTextFieldColors(),
-                    enabled = !busy,
-                    textStyle = ViewerTypography.body,
-                    label = { Text(managementLabel(language, "Package directory", "包目录"), style = ViewerTypography.secondary) },
-                    singleLine = true,
-                )
-                ManagementIconAction(
-                    Icons.Regular.FolderOpen,
-                    managementLabel(language, "Choose package directory", "选择包目录"),
-                    "ai-management-browse",
-                    !busy,
-                ) {
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try {
-                            val selected =
-                                withContext(Dispatchers.IO) {
-                                    var path: String? = null
-                                    SwingUtilities.invokeAndWait {
-                                        val chooser =
-                                            JFileChooser().apply {
-                                                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+            ViewerTextField(
+                value = importPath,
+                onValueChange = { importPath = it },
+                modifier = Modifier.width(320.dp).testTag("ai-management-import-path"),
+                colors = viewerOutlinedTextFieldColors(),
+                enabled = !busy,
+                textStyle = ViewerTypography.body,
+                label = { Text(managementLabel(language, "Package directory", "包目录"), style = ViewerTypography.secondary) },
+                singleLine = true,
+                trailingIcon = {
+                    ManagementIconAction(
+                        Icons.Regular.FolderOpen,
+                        managementLabel(language, "Choose package directory", "选择包目录"),
+                        "ai-management-browse",
+                        !busy,
+                        size = 32.dp,
+                    ) {
+                        busy = true
+                        error = null
+                        scope.launch {
+                            try {
+                                val selected =
+                                    withContext(Dispatchers.IO) {
+                                        var path: String? = null
+                                        SwingUtilities.invokeAndWait {
+                                            val chooser =
+                                                JFileChooser().apply {
+                                                    fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                                                }
+                                            if (chooser.showOpenDialog(null) ==
+                                                JFileChooser.APPROVE_OPTION
+                                            ) {
+                                                path = chooser.selectedFile.absolutePath
                                             }
-                                        if (chooser.showOpenDialog(null) ==
-                                            JFileChooser.APPROVE_OPTION
-                                        ) {
-                                            path = chooser.selectedFile.absolutePath
                                         }
+                                        path
                                     }
-                                    path
-                                }
-                            selected?.let { importPath = it }
-                        } catch (failure: CancellationException) {
-                            throw failure
-                        } catch (_: Exception) {
-                            error = "E_EXTENSION_ACTION"
-                        } finally {
-                            busy = false
+                                selected?.let { importPath = it }
+                            } catch (failure: CancellationException) {
+                                throw failure
+                            } catch (_: Exception) {
+                                error = "E_EXTENSION_ACTION"
+                            } finally {
+                                busy = false
+                            }
                         }
                     }
-                }
-            }
+                },
+            )
             OutlinedButton(
                 onClick = {
                     val path = importPath
@@ -404,6 +408,7 @@ private fun ManagementPolicy(
     onChange: ((AiPlatformSettings) -> AiPlatformSettings) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    var confirmingRetention by remember(runtime) { mutableStateOf(false) }
     var retaining by remember { mutableStateOf(false) }
     var removed by remember { mutableStateOf<Int?>(null) }
     var error by remember { mutableStateOf(false) }
@@ -458,34 +463,12 @@ private fun ManagementPolicy(
                 color = LocalViewerColors.current.accent,
                 style = ViewerTypography.subsectionTitle,
             )
-            OutlinedButton(
-                onClick = {
-                    retaining = true
-                    removed = null
-                    error = false
-                    scope.launch {
-                        try {
-                            removed =
-                                withContext(Dispatchers.IO) { runtime.service.retain(100, System.currentTimeMillis() - 30L * 86_400_000) }
-                        } catch (failure: CancellationException) {
-                            throw failure
-                        } catch (_: Exception) {
-                            error = true
-                        } finally {
-                            retaining = false
-                        }
-                    }
-                },
+            MacOSTextButton(
+                label = managementLabel(language, "Retain at most 100 conversations / 30 days", "仅保留最近 30 天、最多 100 个会话"),
+                onClick = { if (!retaining) confirmingRetention = true },
                 enabled = !retaining,
                 modifier = Modifier.testTag("ai-management-retain-history"),
-            ) {
-                Icon(Icons.Regular.History, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(
-                    managementLabel(language, "Retain at most 100 conversations / 30 days", "仅保留最近 30 天、最多 100 个会话"),
-                    Modifier.weight(1f, fill = false).padding(start = StudioTokens.compactContentPadding),
-                    style = ViewerTypography.bodyCompact,
-                )
-            }
+            )
             removed?.let {
                 Text(
                     managementLabel(language, "Removed conversations: $it", "已移除会话：$it"),
@@ -503,6 +486,58 @@ private fun ManagementPolicy(
             }
         }
     }
+    if (confirmingRetention) {
+        AlertDialog(
+            onDismissRequest = { confirmingRetention = false },
+            modifier = Modifier.testTag("ai-management-retention-dialog"),
+            containerColor = LocalViewerColors.current.panel,
+            title = { Text(managementLabel(language, "Clean up conversation history?", "确认清理会话历史？")) },
+            text = {
+                Text(
+                    managementLabel(
+                        language,
+                        "Keep at most 100 conversations from the last 30 days. " +
+                            "Older and excess conversations will be permanently deleted. This cannot be undone.",
+                        "仅保留最近 30 天、最多 100 个会话，超出期限或数量的会话将被永久删除，此操作无法撤销。",
+                    ),
+                )
+            },
+            confirmButton = {
+                MacOSTextButton(
+                    label = managementLabel(language, "Confirm cleanup", "确认清理"),
+                    modifier = Modifier.testTag("ai-management-retention-confirm"),
+                    enabled = !retaining,
+                    onClick = {
+                        if (!retaining) {
+                            confirmingRetention = false
+                            retaining = true
+                            removed = null
+                            error = false
+                            scope.launch {
+                                try {
+                                    removed =
+                                        withContext(Dispatchers.IO) { runtime.service.retain(100, System.currentTimeMillis() - 30L * 86_400_000) }
+                                } catch (failure: CancellationException) {
+                                    throw failure
+                                } catch (_: Exception) {
+                                    error = true
+                                } finally {
+                                    retaining = false
+                                }
+                            }
+                        }
+                    },
+                )
+            },
+            dismissButton = {
+                MacOSTextButton(
+                    label = managementLabel(language, "Cancel", "取消"),
+                    modifier = Modifier.testTag("ai-management-retention-cancel"),
+                    onClick = { confirmingRetention = false },
+                )
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -512,12 +547,13 @@ private fun ManagementIconAction(
     title: String,
     tag: String,
     enabled: Boolean = true,
+    size: Dp = 36.dp,
     onClick: () -> Unit,
 ) {
     TooltipArea(tooltip = {
         Surface { Text(title, Modifier.padding(StudioTokens.compactContentPadding), style = ViewerTypography.secondary) }
     }) {
-        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(36.dp).testTag(tag)) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(size).testTag(tag)) {
             Icon(icon, contentDescription = title, modifier = Modifier.size(18.dp))
         }
     }

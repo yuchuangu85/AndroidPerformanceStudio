@@ -435,7 +435,40 @@ class AiPlatformManagementSettingsTest {
                         .size,
                 )
                 onNodeWithTag("ai-management-retain-history").performScrollTo().performClick()
+                awaitNode("ai-management-retention-dialog")
+                onNodeWithTag("ai-management-retention-dialog").assertIsDisplayed()
+                onNodeWithTag("ai-management-retention-result").assertDoesNotExist()
+                assertEquals(
+                    102,
+                    fixture.runtime.history
+                        .list(1000, 0)
+                        .size,
+                )
+                assertTrue(fixture.runtime.history.load("conversation-0") != null)
+                onNodeWithTag("ai-management-retention-cancel").performClick()
+                onNodeWithTag("ai-management-retention-dialog").assertDoesNotExist()
+                onNodeWithTag("ai-management-retention-result").assertDoesNotExist()
+                assertEquals(
+                    102,
+                    fixture.runtime.history
+                        .list(1000, 0)
+                        .size,
+                )
+                assertTrue(fixture.runtime.history.load("conversation-0") != null)
+                onNodeWithTag("ai-management-retain-history").performScrollTo().performClick()
+                awaitNode("ai-management-retention-dialog")
+                onNodeWithTag("ai-management-retention-dialog").assertIsDisplayed()
+                onNodeWithTag("ai-management-retention-result").assertDoesNotExist()
+                assertEquals(
+                    102,
+                    fixture.runtime.history
+                        .list(1000, 0)
+                        .size,
+                )
+                assertTrue(fixture.runtime.history.load("conversation-0") != null)
+                onNodeWithTag("ai-management-retention-confirm").performClick()
                 awaitNode("ai-management-retention-result")
+                onNodeWithTag("ai-management-retention-dialog").assertDoesNotExist()
                 onNodeWithTag("ai-management-retention-result").assertTextContains("2", substring = true)
                 assertEquals(
                     100,

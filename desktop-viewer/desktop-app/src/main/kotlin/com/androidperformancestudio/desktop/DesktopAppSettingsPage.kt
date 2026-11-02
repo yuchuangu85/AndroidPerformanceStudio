@@ -394,10 +394,10 @@ internal fun AiSettingsContent(
             itemLabel = { providerLabel(it, language) },
             placeholder = "Provider",
             selectorDescription = "Provider",
-            modifier = Modifier.fillMaxWidth().testTag("ai-provider-selector").semantics(mergeDescendants = true) {
+            modifier = Modifier.width(320.dp).testTag("ai-provider-selector").semantics(mergeDescendants = true) {
                 if (draft.working.value) disabled()
             },
-            menuModifier = Modifier.testTag("ai-provider-menu"),
+            menuModifier = Modifier.width(320.dp).testTag("ai-provider-menu"),
             fillWidth = true,
             enabled = !draft.working.value,
         )
@@ -592,6 +592,9 @@ private fun AiConnectionSettingsGroup(
                 itemLabel = { localizedStringResource(if (it == ImportedCredentialKind.BEARER_TOKEN) Res.string.source_ai_claude_auth_token else Res.string.source_ai_claude_api_key, language) },
                 placeholder = localizedStringResource(Res.string.source_ai_auth_kind, language),
                 selectorDescription = localizedStringResource(Res.string.source_ai_auth_kind, language),
+                modifier = Modifier.width(320.dp),
+                menuModifier = Modifier.width(320.dp),
+                fillWidth = true,
                 enabled = !working,
             )
         }
@@ -610,7 +613,7 @@ private fun AiConnectionSettingsGroup(
                 modelsLoaded = false
                 modelsError = null
             },
-            modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-connection-key"),
+            modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-key"),
             enabled = !working,
             label = { Text(localizedStringResource(
                 if (connection != AiProviderConnection.CLAUDE) Res.string.source_openai_api_key
@@ -640,10 +643,10 @@ private fun AiConnectionSettingsGroup(
                 placeholder = localizedStringResource(Res.string.source_choose_model, language, models.size),
                 selectorDescription = localizedStringResource(Res.string.source_model, language),
                 enabled = !working && models.isNotEmpty(),
-                modifier = Modifier.weight(1f).testTag("$tagPrefix-model-picker").semantics(mergeDescendants = true) {
+                modifier = Modifier.weight(1f, fill = false).width(320.dp).testTag("$tagPrefix-model-picker").semantics(mergeDescendants = true) {
                     if (working || models.isEmpty()) disabled()
                 },
-                menuModifier = Modifier.widthIn(min = 240.dp, max = 480.dp).heightIn(max = 320.dp).testTag("$tagPrefix-model-menu"),
+                menuModifier = Modifier.width(320.dp).heightIn(max = 320.dp).testTag("$tagPrefix-model-menu"),
                 fillWidth = true,
             )
             MacOSTextButton(
@@ -677,7 +680,7 @@ private fun AiConnectionSettingsGroup(
             colors = viewerOutlinedTextFieldColors(),
             value = model,
             onValueChange = { model = it },
-            modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-connection-model"),
+            modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-model"),
             enabled = !working,
             label = { Text(localizedStringResource(Res.string.source_model, language)) },
             singleLine = true,
@@ -693,7 +696,7 @@ private fun AiConnectionSettingsGroup(
                 modelsLoaded = false
                 modelsError = null
             },
-            modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-connection-endpoint"),
+            modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-endpoint"),
             enabled = !working,
             label = { Text(localizedStringResource(Res.string.source_endpoint, language)) },
             singleLine = true,
@@ -708,7 +711,7 @@ private fun AiConnectionSettingsGroup(
                     modelsLoaded = false
                     modelsError = null
                 },
-                modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-connection-models-endpoint"),
+                modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-models-endpoint"),
                 enabled = !working,
                 textStyle = MaterialTheme.typography.bodyMedium,
                 label = { Text(localizedStringResource(Res.string.source_ai_models_endpoint, language)) },
