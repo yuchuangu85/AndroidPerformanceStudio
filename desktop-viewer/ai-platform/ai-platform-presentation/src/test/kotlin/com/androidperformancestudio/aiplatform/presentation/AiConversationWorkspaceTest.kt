@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -56,10 +57,12 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class AiConversationWorkspaceTest {
     @Test
-    fun `chat contains no management tabs or settings button and model entry opens settings without sending`() =
+    fun `chat model menu loads saved Provider models and selects without navigating or sending`() =
         WorkspaceFixture().use { fixture ->
             runDesktopComposeUiTest(width = 1280, height = 720) {
                 var settingsOpened = 0
+                val providers = mutableListOf<String>()
+                val original = fixture.settings.load()
                 setContent {
                     ViewerTheme(false) {
                         AiConversationWorkspace(
@@ -69,6 +72,10 @@ class AiConversationWorkspaceTest {
                             "fake-model",
                             settingsStoreOverride = fixture.settings,
                             onOpenSettings = { settingsOpened++ },
+                            loadModels = { provider, _ ->
+                                providers += provider
+                                listOf("frozen-model", "free/gpt-next-model")
+                            },
                         )
                     }
                 }
@@ -78,8 +85,141 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-evidence").assertDoesNotExist()
                 onNodeWithTag("ai-settings").assertDoesNotExist()
                 onNodeWithTag("ai-model").performClick()
-                assertEquals(1, settingsOpened)
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithTag("ai-chat-model-option-free/gpt-next-model").fetchSemanticsNodes().isNotEmpty()
+                }
+                onNodeWithTag("ai-chat-model-menu").assertExists()
+                assertEquals(listOf("openai"), providers)
+                assertEquals(0, settingsOpened)
                 assertEquals(0, fixture.calls.get())
+                onNodeWithTag("ai-chat-model-option-free/gpt-next-model").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.settings.settings.value.model == "free/gpt-next-model" }
+                onNodeWithTag("ai-model").assertTextContains("free/gpt-next-model", substring = true)
+                assertEquals(original.copy(model = "free/gpt-next-model"), fixture.settings.load())
+                assertEquals(0, fixture.calls.get())
+                assertEquals(0, settingsOpened)
+                onNodeWithTag("ai-question").performTextReplacement("Use the model selected in this chat")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                assertEquals(
+                    "free/gpt-next-model",
+                    fixture.runtime.service.state.value.prepared
+                        ?.model,
+                )
+                assertEquals(0, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `chat model refresh explicitly reloads the catalog without sending a message`() =
+        WorkspaceFixture().use { fixture ->
+            val refreshes = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("idle"),
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                            loadModels = { _, refresh ->
+                                refreshes += refresh
+                                listOf(if (refresh) "gpt-refreshed-model" else "gpt-cached-model")
+                            },
+                        )
+                    }
+                }
+                onNodeWithTag("ai-model").performClick()
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithTag("ai-chat-model-option-gpt-cached-model").fetchSemanticsNodes().isNotEmpty()
+                }
+                onNodeWithTag("ai-chat-model-retry").performClick()
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithTag("ai-chat-model-option-gpt-refreshed-model").fetchSemanticsNodes().isNotEmpty()
+                }
+                onNodeWithTag("ai-chat-model-option-gpt-cached-model").assertDoesNotExist()
+                assertEquals(listOf(false, true), refreshes.toList())
+                assertEquals("frozen-model", fixture.settings.load().model)
+                assertEquals(0, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `an open model menu loads the new Provider while discarding the previous Provider late catalog`() =
+        WorkspaceFixture().use { fixture ->
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            try {
+                runDesktopComposeUiTest(width = 1280, height = 720) {
+                    setContent {
+                        ViewerTheme(false) {
+                            AiConversationWorkspace(
+                                fixture.runtime,
+                                context("idle"),
+                                UiLanguage.ENGLISH,
+                                "fake-model",
+                                settingsStoreOverride = fixture.settings,
+                                loadModels = { provider, _ ->
+                                    if (provider == "openai") {
+                                        entered.complete(Unit)
+                                        release.await()
+                                        listOf("gpt-stale-model")
+                                    } else {
+                                        check(provider == "claude")
+                                        listOf("claude-new-model")
+                                    }
+                                },
+                            )
+                        }
+                    }
+                    onNodeWithTag("ai-model").performClick()
+                    waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                    runOnIdle { fixture.settings.update { it.copy(providerId = "claude", model = "claude-new-model") } }
+                    waitUntil(timeoutMillis = 10_000) {
+                        onAllNodesWithTag("ai-chat-model-option-claude-new-model").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    release.complete(Unit)
+                    waitForIdle()
+                    onNodeWithTag("ai-chat-model-option-gpt-stale-model").assertDoesNotExist()
+                    onNodeWithTag("ai-chat-model-option-claude-new-model").assertExists()
+                    onNodeWithTag("ai-model").assertTextContains("claude-new-model", substring = true)
+                    assertEquals(0, fixture.calls.get())
+                }
+            } finally {
+                release.complete(Unit)
+            }
+        }
+
+    @Test
+    fun `model catalog failure stays in the chat menu and leaves saved settings and draft intact`() =
+        WorkspaceFixture().use { fixture ->
+            val original = fixture.settings.load()
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                var settingsOpened = 0
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("idle"),
+                            UiLanguage.SIMPLIFIED_CHINESE,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                            onOpenSettings = { settingsOpened++ },
+                            loadModels = { _, _ -> error("private-fixture-error") },
+                        )
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("An unsent draft")
+                onNodeWithTag("ai-model").performClick()
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithTag("ai-chat-model-status").fetchSemanticsNodes().isNotEmpty()
+                }
+                onNodeWithTag("ai-chat-model-menu").assertExists()
+                onNodeWithText("private-fixture-error").assertDoesNotExist()
+                assertEquals(original, fixture.settings.load())
+                assertEquals(0, fixture.calls.get())
+                assertEquals(0, settingsOpened)
             }
         }
 

@@ -55,6 +55,9 @@ internal data class ChatSurfaceState(
     val canIncludeSource: Boolean,
     val queued: List<String> = emptyList(),
     val showingArchived: Boolean = false,
+    val models: List<String> = emptyList(),
+    val modelsLoading: Boolean = false,
+    val modelsError: String? = null,
 )
 
 internal class ChatSurfaceActions(
@@ -80,6 +83,10 @@ internal class ChatSurfaceActions(
     val onRemoveQueued: (Int) -> Unit,
     val onEditQueued: (Int) -> Unit,
     val onShowArchived: (Boolean) -> Unit,
+    val onOpenModels: () -> Unit = {},
+    val onSelectModel: (String) -> Unit = {},
+    val onRefreshModels: () -> Unit = onOpenModels,
+    val onCloseModels: () -> Unit = {},
 )
 
 /** Pure presentation: all execution, context authority and persistence stay with the host. */

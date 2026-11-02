@@ -27,6 +27,9 @@ import java.util.UUID
 import java.util.prefs.AbstractPreferences
 import java.util.prefs.BackingStoreException
 import java.util.prefs.Preferences
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -831,6 +834,356 @@ class ProviderConnectionRuntimeTest {
         }
     }
 
+    @Test
+    fun `saved catalogs use provider-specific saved routes and in-memory caches`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            AiProviderConnection.entries.forEach { fixture.save(it, "${it.name}-key", ImportedCredentialKind.BEARER_TOKEN) }
+            val before = fixture.preferences.snapshot()
+            AiProviderConnection.entries.forEach { connection ->
+                assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels(connection.providerId))
+                assertEquals(connectionCatalogEndpoint(connection), fixture.requests.last().url)
+                assertEquals("Bearer ${connection.name}-key", fixture.requests.last().headers["Authorization"])
+                val readsBefore = fixture.credentials.readKeys.size
+                assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels(connection.providerId))
+                assertEquals(readsBefore, fixture.credentials.readKeys.size)
+            }
+            assertEquals(3, fixture.requests.size)
+            assertEquals(before, fixture.preferences.snapshot())
+            fixture.reopen()
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("codex"))
+            assertEquals(4, fixture.requests.size)
+        }
+    }
+
+    @Test
+    fun `explicit chat catalog refresh bypasses a previously loaded cache without changing the saved connection`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.save(AiProviderConnection.CODEX, "codex-key")
+            val before = fixture.preferences.snapshot()
+            val revision = fixture.runtime.providerConnectionRevision(AiProviderConnection.CODEX)
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CODEX, listOf("old-cached-model"))
+            assertEquals(listOf("old-cached-model"), fixture.runtime.savedProviderModels("codex"))
+            assertTrue(fixture.requests.isEmpty())
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("codex", refresh = true))
+            assertEquals(1, fixture.requests.size)
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("codex"))
+            assertEquals(1, fixture.requests.size)
+            assertEquals(before, fixture.preferences.snapshot())
+            assertEquals(revision, fixture.runtime.providerConnectionRevision(AiProviderConnection.CODEX))
+        }
+    }
+
+    @Test
+    fun `saved Claude catalogs preserve API key authentication`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.save(AiProviderConnection.CLAUDE, "claude-key")
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("claude"))
+            assertEquals("claude-key", fixture.requests.single().headers["x-api-key"])
+            assertNull(fixture.requests.single().headers["Authorization"])
+            assertEquals(ImportedCredentialKind.API_KEY, fixture.runtime.providerCredentialKind(AiProviderConnection.CLAUDE))
+        }
+    }
+
+    @Test
+    fun `seeded catalogs preserve exact bounded ids and empty results without credentials or requests`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            AiProviderConnection.entries.forEach { fixture.save(it, "${it.name}-key") }
+            val before = fixture.preferences.snapshot()
+            val readsBefore = fixture.credentials.readKeys.size
+            val ids = mutableListOf(" gateway/gpt-exact ", "x".repeat(256), "gateway/gpt-exact", "gateway/gpt-exact")
+            val expected = ids.toList()
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CODEX, ids)
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CLAUDE, emptyList())
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, List(10_000) { "model-$it" })
+            ids.clear()
+            val returned = fixture.runtime.savedProviderModels("codex")
+            assertEquals(expected, returned)
+            (returned as MutableList<String>).clear()
+            assertEquals(expected, fixture.runtime.savedProviderModels("codex"))
+            assertEquals(emptyList<String>(), fixture.runtime.savedProviderModels("claude"))
+            assertEquals(10_000, fixture.runtime.savedProviderModels("openai").size)
+            assertEquals(readsBefore, fixture.credentials.readKeys.size)
+            assertEquals(before, fixture.preferences.snapshot())
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun `invalid seeds and mismatched publication revisions cannot overwrite the current cache`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.save(AiProviderConnection.CUSTOM, "custom-key")
+            val previousRevision = fixture.runtime.providerConnectionRevision(AiProviderConnection.CUSTOM)
+            fixture.save(AiProviderConnection.CUSTOM, "replacement-key")
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, listOf("kept-model"))
+            val failure = assertThrows<IllegalStateException> {
+                fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, listOf("stale-model"), previousRevision)
+            }
+            assertEquals("E_PROVIDER_CONNECTION_CHANGED", failure.message)
+            listOf(listOf(""), listOf("  "), listOf("bad\nmodel"), listOf("bad\u007fmodel"), listOf("x".repeat(257)), List(10_001) { "model" })
+                .forEach { models ->
+                    assertThrows<IllegalArgumentException> { fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, models) }
+                    assertEquals(listOf("kept-model"), fixture.runtime.savedProviderModels("openai"))
+                }
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun `connection and credential edits invalidate only their own seeded catalogs`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            AiProviderConnection.entries.forEach { fixture.save(it, "${it.name}-key") }
+            AiProviderConnection.entries.forEach { fixture.runtime.cacheProviderModels(it, listOf("${it.name}-cached")) }
+            fixture.save(AiProviderConnection.CUSTOM, "replacement-key")
+            assertThrows<IllegalStateException> { fixture.runtime.selectProviderModel("openai", "CUSTOM-cached") {} }
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("openai"))
+            assertEquals("Bearer replacement-key", fixture.requests.single().headers["Authorization"])
+            assertEquals(listOf("CODEX-cached"), fixture.runtime.savedProviderModels("codex"))
+            assertEquals(listOf("CLAUDE-cached"), fixture.runtime.savedProviderModels("claude"))
+            fixture.runtime.saveProviderConnection(
+                AiProviderConnection.CUSTOM, "edited-model", "https://edited.example/responses", "https://edited.example/catalog/models",
+                ImportedCredentialKind.BEARER_TOKEN, "edited-key",
+            )
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("openai"))
+            assertEquals("https://edited.example/catalog/models", fixture.requests.last().url)
+            assertEquals("Bearer edited-key", fixture.requests.last().headers["Authorization"])
+            assertEquals(2, fixture.requests.size)
+        }
+    }
+
+    @Test
+    fun `stale loads use captured credentials and cannot replace newer revision caches`() = runBlocking<Unit> {
+        AiProviderConnection.entries.forEach { connection ->
+            Fixture().use { fixture ->
+                fixture.save(connection, "old-key", ImportedCredentialKind.BEARER_TOKEN)
+                val pending = CompletableDeferred<AiHttpResponse>()
+                fixture.catalogResponse = { pending.await() }
+                val result = async(start = CoroutineStart.UNDISPATCHED) {
+                    runCatching { fixture.runtime.savedProviderModels(connection.providerId) }
+                }
+                assertEquals(connectionCatalogEndpoint(connection), fixture.requests.single().url)
+                assertEquals("Bearer old-key", fixture.requests.single().headers["Authorization"])
+                fixture.runtime.saveProviderConnection(
+                    connection, "new-model", "https://new.example/v1", "", ImportedCredentialKind.API_KEY, "new-key",
+                )
+                fixture.runtime.cacheProviderModels(connection, listOf("new-model"))
+                pending.complete(AiHttpResponse(200, """{"data":[{"id":"gpt-stale"}]}"""))
+                assertEquals("E_PROVIDER_CONNECTION_CHANGED", result.await().exceptionOrNull()?.message)
+                assertEquals(listOf("new-model"), fixture.runtime.savedProviderModels(connection.providerId))
+                assertEquals(1, fixture.requests.size)
+            }
+        }
+    }
+
+    @Test
+    fun `failed and cancelled loads cannot publish a catalog or overwrite a later seed`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.save(AiProviderConnection.CUSTOM, "custom-key")
+            fixture.catalogResponse = { AiHttpResponse(200, "not a model catalog") }
+            assertThrows<AiModelCatalogException> { fixture.runtime.savedProviderModels("openai") }
+            assertThrows<IllegalStateException> { fixture.runtime.selectProviderModel("openai", "gpt-4.1") {} }
+            val pending = CompletableDeferred<AiHttpResponse>()
+            fixture.catalogResponse = { pending.await() }
+            val result = async(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { fixture.runtime.savedProviderModels("openai") }
+            }
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, listOf("kept-model"))
+            pending.complete(AiHttpResponse(200, "not a model catalog"))
+            assertTrue(result.await().exceptionOrNull() is AiModelCatalogException)
+            assertEquals(listOf("kept-model"), fixture.runtime.savedProviderModels("openai"))
+            fixture.save(AiProviderConnection.CUSTOM, "replacement-key")
+            fixture.catalogResponse = { throw kotlinx.coroutines.CancellationException("Synthetic cancellation") }
+            assertThrows<kotlinx.coroutines.CancellationException> { fixture.runtime.savedProviderModels("openai") }
+            assertThrows<IllegalStateException> { fixture.runtime.selectProviderModel("openai", "kept-model") {} }
+        }
+    }
+
+    @Test
+    fun `selection changes only each provider model and preserves provider agent flags keys and revisions`() {
+        val platformPreferences = FaultingPreferences().node("selection-${UUID.randomUUID()}") as FaultingPreferences
+        try {
+            Fixture().use { fixture ->
+                AiProviderConnection.entries.forEach { fixture.save(it, "${it.name}-key") }
+                val settingsStore = AiPlatformSettingsStore(platformPreferences)
+                AiProviderConnection.entries.forEach { connection ->
+                    val applied = AiPlatformSettings(
+                        providerId = connection.providerId, model = connectionModel(connection), agentId = "kept.agent",
+                        allowArtifacts = true, allowScripts = true,
+                    )
+                    settingsStore.save(applied)
+                    val selectedModel = " gateway/gpt-${connection.name} "
+                    fixture.runtime.cacheProviderModels(connection, listOf(selectedModel))
+                    val before = fixture.preferences.snapshot()
+                    val credentialsBefore = fixture.credentials.values.toMap()
+                    val readsBefore = fixture.credentials.readKeys.size
+                    val writesBefore = fixture.credentials.writeKeys.size
+                    val modelKey = when (connection) {
+                        AiProviderConnection.CODEX -> "model"
+                        AiProviderConnection.CLAUDE -> "claude.model"
+                        AiProviderConnection.CUSTOM -> "custom.model"
+                    }
+                    fixture.runtime.selectProviderModel(connection.providerId, selectedModel) {
+                        assertEquals(selectedModel, fixture.runtime.providerModel(connection))
+                        settingsStore.update {
+                            check(it.providerId == connection.providerId)
+                            it.copy(model = selectedModel)
+                        }
+                    }
+                    assertEquals(before + (modelKey to selectedModel), fixture.preferences.snapshot())
+                    assertEquals(applied.copy(model = selectedModel), settingsStore.load())
+                    assertEquals(credentialsBefore, fixture.credentials.values)
+                    assertEquals(readsBefore, fixture.credentials.readKeys.size)
+                    assertEquals(writesBefore, fixture.credentials.writeKeys.size)
+                }
+                assertTrue(fixture.requests.isEmpty())
+            }
+        } finally {
+            platformPreferences.removeNode()
+        }
+    }
+
+    @Test
+    fun `selection rejects missing unknown and oversized models before changing state`() {
+        Fixture().use { fixture ->
+            fixture.save(AiProviderConnection.CUSTOM, "custom-key")
+            val before = fixture.preferences.snapshot()
+            val readsBefore = fixture.credentials.readKeys.size
+            var applied = false
+            assertThrows<IllegalStateException> { fixture.runtime.selectProviderModel("openai", "gpt-next") { applied = true } }
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, listOf("gpt-next", "x".repeat(129)))
+            assertThrows<IllegalStateException> { fixture.runtime.selectProviderModel("openai", "not-loaded") { applied = true } }
+            listOf("", "  ", "bad\nmodel", "x".repeat(129)).forEach { model ->
+                assertThrows<IllegalArgumentException> { fixture.runtime.selectProviderModel("openai", model) { applied = true } }
+            }
+            assertThrows<IllegalArgumentException> { fixture.runtime.selectProviderModel("unknown", "gpt-next") { applied = true } }
+            assertFalse(applied)
+            assertEquals(before, fixture.preferences.snapshot())
+            assertEquals(readsBefore, fixture.credentials.readKeys.size)
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun `activation failure restores exact preferences and cache without reading credentials`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            AiProviderConnection.entries.forEach { fixture.save(it, "${it.name}-key") }
+            AiProviderConnection.entries.forEach { connection ->
+                fixture.runtime.cacheProviderModels(connection, listOf("next-model"))
+                val before = fixture.preferences.snapshot()
+                val credentialsBefore = fixture.credentials.values.toMap()
+                val readsBefore = fixture.credentials.readKeys.size
+                val writesBefore = fixture.credentials.writeKeys.size
+                val callbackFailure = IllegalStateException("Synthetic activation failure")
+                assertSame(callbackFailure, assertThrows<IllegalStateException> {
+                    fixture.runtime.selectProviderModel(connection.providerId, "next-model") { throw callbackFailure }
+                })
+                assertEquals(before, fixture.preferences.snapshot())
+                assertEquals(credentialsBefore, fixture.credentials.values)
+                assertEquals(readsBefore, fixture.credentials.readKeys.size)
+                assertEquals(writesBefore, fixture.credentials.writeKeys.size)
+                assertEquals(listOf("next-model"), fixture.runtime.savedProviderModels(connection.providerId))
+            }
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun `flush failure skips activation and rollback flush failure invalidates the connection`() = runBlocking<Unit> {
+        val preferences = FaultingPreferences()
+        Fixture(preferences).use { fixture ->
+            fixture.save(AiProviderConnection.CUSTOM, "custom-key")
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, listOf("next-model"))
+            val before = fixture.preferences.snapshot()
+            val readsBefore = fixture.credentials.readKeys.size
+            val writesBefore = fixture.credentials.writeKeys.size
+            var applied = false
+            preferences.failFlushes = 1
+            assertThrows<BackingStoreException> { fixture.runtime.selectProviderModel("openai", "next-model") { applied = true } }
+            assertFalse(applied)
+            assertEquals(before, fixture.preferences.snapshot())
+            assertEquals(listOf("next-model"), fixture.runtime.savedProviderModels("openai"))
+            val callbackFailure = IllegalStateException("Synthetic activation failure")
+            assertSame(callbackFailure, assertThrows<IllegalStateException> {
+                fixture.runtime.selectProviderModel("openai", "next-model") {
+                    preferences.failFlushes = 1
+                    throw callbackFailure
+                }
+            })
+            assertNotEquals(before.getValue("custom.connectionRevision"), fixture.runtime.providerConnectionRevision(AiProviderConnection.CUSTOM))
+            assertEquals(readsBefore, fixture.credentials.readKeys.size)
+            assertEquals(writesBefore, fixture.credentials.writeKeys.size)
+            assertThrows<IllegalStateException> { fixture.runtime.savedProviderModels("openai") }
+            assertThrows<IllegalStateException> { fixture.runtime.selectProviderModel("openai", "next-model") {} }
+            fixture.reopen()
+            assertFalse(fixture.runtime.providerHasCredential(AiProviderConnection.CUSTOM))
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun `legacy Custom catalog selection migrates only Custom and rebinds its loaded cache`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.runtime.saveAiConfiguration("legacy-model", "https://legacy.example/responses", "https://legacy.example/catalog/models")
+            fixture.runtime.saveCredential("openai:api-key", "legacy-key")
+            val before = fixture.preferences.snapshot()
+            val codexRevision = fixture.runtime.providerConnectionRevision(AiProviderConnection.CODEX)
+            val legacyRevision = fixture.runtime.providerConnectionRevision(AiProviderConnection.CUSTOM)
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("openai"))
+            var applied = false
+            fixture.runtime.selectProviderModel("openai", "gpt-4.1") { applied = true }
+            assertTrue(applied)
+            assertEquals("gpt-4.1", fixture.runtime.providerModel(AiProviderConnection.CUSTOM))
+            assertEquals("legacy-model", fixture.runtime.aiModel())
+            assertEquals(codexRevision, fixture.runtime.providerConnectionRevision(AiProviderConnection.CODEX))
+            assertNotEquals(legacyRevision, fixture.runtime.providerConnectionRevision(AiProviderConnection.CUSTOM))
+            assertEquals(before, fixture.preferences.snapshot().filterKeys { !it.startsWith("custom.") })
+            assertEquals(mapOf("openai:api-key" to "legacy-key", "custom:api-key" to "legacy-key"), fixture.credentials.values)
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("openai"))
+            assertEquals(1, fixture.requests.size)
+            fixture.reopen()
+            assertEquals("gpt-4.1", fixture.runtime.providerModel(AiProviderConnection.CUSTOM))
+            assertTrue(fixture.runtime.providerHasCredential(AiProviderConnection.CUSTOM))
+            assertEquals("https://legacy.example/responses", fixture.runtime.providerEndpoint(AiProviderConnection.CUSTOM))
+        }
+    }
+
+    @Test
+    fun `failed legacy Custom activation restores the alias original revision and loaded cache`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.runtime.saveAiConfiguration("legacy-model", "https://legacy.example/responses", "https://legacy.example/catalog/models")
+            fixture.runtime.saveCredential("openai:api-key", "legacy-key")
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("openai"))
+            val before = fixture.preferences.snapshot()
+            val revision = fixture.runtime.providerConnectionRevision(AiProviderConnection.CUSTOM)
+            val callbackFailure = IllegalStateException("Synthetic activation failure")
+            assertSame(callbackFailure, assertThrows<IllegalStateException> {
+                fixture.runtime.selectProviderModel("openai", "gpt-4.1") { throw callbackFailure }
+            })
+            assertEquals(before, fixture.preferences.snapshot())
+            assertEquals(revision, fixture.runtime.providerConnectionRevision(AiProviderConnection.CUSTOM))
+            assertEquals("legacy-model", fixture.runtime.providerModel(AiProviderConnection.CUSTOM))
+            assertEquals(mapOf("openai:api-key" to "legacy-key"), fixture.credentials.values)
+            assertEquals(listOf("gpt-4.1"), fixture.runtime.savedProviderModels("openai"))
+            assertEquals(1, fixture.requests.size)
+        }
+    }
+
+    @Test
+    fun `legacy Custom selection preserves exact catalog ids through migration`() = runBlocking<Unit> {
+        Fixture().use { fixture ->
+            fixture.runtime.saveAiConfiguration("legacy-model", "https://legacy.example/responses")
+            fixture.runtime.saveCredential("openai:api-key", "legacy-key")
+            val model = " gateway/gpt-exact "
+            fixture.runtime.cacheProviderModels(AiProviderConnection.CUSTOM, listOf(model))
+            fixture.runtime.selectProviderModel("openai", model) {
+                assertEquals(model, fixture.runtime.providerModel(AiProviderConnection.CUSTOM))
+            }
+            assertEquals(model, fixture.runtime.providerModel(AiProviderConnection.CUSTOM))
+            assertEquals("legacy-model", fixture.runtime.aiModel())
+            assertEquals(listOf(model), fixture.runtime.savedProviderModels("openai"))
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
     private data class SaveInput(
         val model: String = "valid-model",
         val endpoint: String = "https://valid.example/v1/responses",
@@ -844,6 +1197,7 @@ class ProviderConnectionRuntimeTest {
         private val root = Files.createTempDirectory("aps-provider-connections-")
         val credentials = RecordingCredentials()
         val requests = mutableListOf<AiHttpRequest>()
+        var catalogResponse: suspend (AiHttpRequest) -> AiHttpResponse = { AiHttpResponse(200, """{"data":[{"id":"gpt-4.1"}]}""") }
         var runtime: SourceWorkspaceRuntime = createRuntime()
             private set
 
@@ -873,7 +1227,7 @@ class ProviderConnectionRuntimeTest {
                 modelCatalogTransport = AiHttpTransport { request ->
                     requests += request
                     if (request.method == AiHttpMethod.GET) {
-                        AiHttpResponse(200, """{"data":[{"id":"gpt-4.1"}]}""")
+                        catalogResponse(request)
                     } else {
                         AiHttpResponse(200, """{"output_text":"{\"summary\":\"ok\",\"findings\":[]}"}""")
                     }

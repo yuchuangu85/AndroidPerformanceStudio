@@ -2,6 +2,9 @@ package com.androidperformancestudio.desktop
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
@@ -39,7 +42,10 @@ import com.androidperformancestudio.ai.LocalAiConfigurationImport
 import com.androidperformancestudio.ai.LocalAiConfigurationReader
 import com.androidperformancestudio.ai.SqliteAnalysisSessionRepository
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
+import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
+import com.androidperformancestudio.aiplatform.model.RunStatus
+import com.androidperformancestudio.aiplatform.presentation.AiConversationWorkspace
 import com.androidperformancestudio.source.ContentAddressedSourceCache
 import com.androidperformancestudio.source.DefaultSourceWorkspaceService
 import com.androidperformancestudio.source.IndexedSourceResolver
@@ -65,6 +71,88 @@ import org.junit.jupiter.api.Test
 
 @OptIn(ExperimentalTestApi::class)
 class AiSettingsGroupingTest {
+    @Test
+    fun `saved settings catalog is reused by chat and selecting its model updates the next request without navigation`() {
+        val requests = CopyOnWriteArrayList<AiHttpRequest>()
+        withFixture(AiHttpTransport { request ->
+            requests += request
+            check(request.method == com.androidperformancestudio.ai.AiHttpMethod.GET)
+            AiHttpResponse(200, """{"data":[{"id":"gpt-configured"},{"id":"gateway/gpt-next"}]}""")
+        }) { fixture ->
+            fixture.runtime.saveProviderConnection(
+                AiProviderConnection.CODEX, "gpt-configured", "https://codex.example/v1/responses", "",
+                ImportedCredentialKind.API_KEY, "fixture-key",
+            )
+            fixture.settings.update { it.copy(model = "gpt-configured") }
+            val before = fixture.settings.load()
+            val originalRevision = fixture.runtime.providerConnectionRevision(AiProviderConnection.CODEX)
+            val root = Files.createTempDirectory("aps-settings-chat-model-").toRealPath()
+            try {
+                AiPlatformRuntime.open(
+                    root.resolve("profile"),
+                    openAiGateway = { error("Selecting a chat model must not execute a provider") },
+                    openAiAvailable = { false },
+                ).use { platform ->
+                    runDesktopComposeUiTest(width = 1000, height = 900) {
+                        var chat by mutableStateOf(false)
+                        var navigations = 0
+                        setContent {
+                            ViewerTheme(false) {
+                                Surface(Modifier.fillMaxSize()) {
+                                    if (!chat) {
+                                        AiSettingsContent(UiLanguage.ENGLISH, fixture.runtime, platformSettingsStore = fixture.settings)
+                                    } else {
+                                        AiConversationWorkspace(
+                                            platform, null, UiLanguage.ENGLISH, "fallback-model",
+                                            settingsStoreOverride = fixture.settings,
+                                            onOpenSettings = { navigations++ },
+                                            loadModels = fixture.runtime::savedProviderModels,
+                                            selectModel = { providerId, model ->
+                                                fixture.runtime.selectProviderModel(providerId, model) {
+                                                    fixture.settings.update {
+                                                        check(it.providerId == providerId)
+                                                        it.copy(model = model)
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        awaitProviderReady()
+                        assertEquals(1, requests.size)
+                        onNodeWithTag("ai-codex-connection-save").performScrollTo().performClick()
+                        waitUntil(timeoutMillis = 10_000) {
+                            fixture.runtime.providerConnectionRevision(AiProviderConnection.CODEX) != originalRevision &&
+                                SemanticsProperties.Disabled !in onNodeWithTag("ai-provider-selector").fetchSemanticsNode().config
+                        }
+                        runOnIdle { chat = true }
+                        onNodeWithTag("ai-question").performTextReplacement("Use the chat selection")
+                        onNodeWithTag("ai-model").performClick()
+                        waitUntil(timeoutMillis = 10_000) {
+                            onAllNodesWithTag("ai-chat-model-option-gateway/gpt-next").fetchSemanticsNodes().isNotEmpty()
+                        }
+                        assertEquals(1, requests.size, "Chat must reuse the applied settings catalog")
+                        onNodeWithTag("ai-chat-model-option-gateway/gpt-next").performClick()
+                        waitUntil(timeoutMillis = 10_000) { fixture.settings.load().model == "gateway/gpt-next" }
+                        assertEquals("gateway/gpt-next", fixture.runtime.providerModel(AiProviderConnection.CODEX))
+                        assertEquals(before.copy(model = "gateway/gpt-next"), fixture.settings.load())
+                        assertEquals(0, navigations)
+                        assertEquals(null, platform.service.state.value.status)
+                        onNodeWithTag("ai-send").performClick()
+                        waitUntil(timeoutMillis = 10_000) { platform.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                        assertEquals("gateway/gpt-next", platform.service.state.value.prepared?.model)
+                        assertEquals("codex", platform.service.state.value.prepared?.providerId)
+                        assertEquals(1, requests.size, "Preflight must not execute an inference")
+                    }
+                }
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+    }
+
     @Test
     fun `unconfigured selection keeps independent drafts without imports requests or persistence`() {
         val reads = CopyOnWriteArrayList<LocalAiConfigSource>()

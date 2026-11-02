@@ -731,6 +731,7 @@ private fun AiConnectionSettingsGroup(
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
+                            var savedRevision: String? = null
                             runtime.saveAndApplyProviderConnection(
                                 connection,
                                 model.trim(),
@@ -740,6 +741,11 @@ private fun AiConnectionSettingsGroup(
                                 apiKey.trim().takeIf(String::isNotBlank),
                             ) {
                                 settingsStore.update { it.copy(providerId = connection.providerId, model = model.trim()) }
+                                savedRevision = runtime.providerConnectionRevision(connection)
+                            }
+                            if (modelsLoaded && modelsError == null) {
+                                // Cache publication must not turn a committed save into a reported failure.
+                                runCatching { runtime.cacheProviderModels(connection, models, expectedRevision = savedRevision) }
                             }
                         }
                         configured = true

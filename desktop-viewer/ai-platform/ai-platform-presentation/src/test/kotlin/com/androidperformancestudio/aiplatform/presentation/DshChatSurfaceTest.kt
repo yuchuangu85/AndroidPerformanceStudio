@@ -13,7 +13,10 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -23,6 +26,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
@@ -288,15 +292,151 @@ class DshChatSurfaceTest {
         }
 
     @Test
-    fun `answer copy provides checked feedback and model picker opens actual settings callback`() =
+    fun `answer copy provides checked feedback and model picker loads and selects without settings or send`() =
         runDesktopComposeUiTest(width = 1280, height = 900) {
-            val fixture = SurfaceFixture().also { it.state = it.state.copy(turns = listOf(turn("one"))) }
+            val fixture =
+                SurfaceFixture().also {
+                    it.state = it.state.copy(turns = listOf(turn("one")), modelsLoading = true, models = listOf("test-model"))
+                }
             setContent { ViewerTheme(darkTheme = false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.ENGLISH) } }
             onNodeWithTag("ai-copy-answer-one").performClick()
             waitUntil(timeoutMillis = 5000) { runCatching { onNodeWithContentDescription("Copied").fetchSemanticsNode() }.isSuccess }
             onNodeWithTag("ai-model").performClick()
-            assertEquals(listOf("settings"), fixture.events)
+            onNodeWithTag("ai-chat-model-menu").assertIsDisplayed()
+            onNodeWithTag("ai-chat-model-status").assertTextEquals("Loading models...")
+            onNodeWithTag("ai-chat-model-retry").assertIsNotEnabled()
+            onNodeWithTag("ai-chat-model-option-test-model").assertIsNotEnabled().performClick()
+            onNodeWithTag("ai-chat-model-menu").assertIsDisplayed()
+            assertEquals(listOf("models"), fixture.events)
+            runOnIdle {
+                fixture.state = fixture.state.copy(modelsLoading = false, models = listOf("test-model", "provider/actual-model-id"))
+            }
+            onNodeWithTag("ai-chat-model-option-test-model").assertIsSelected()
+            onNodeWithTag("ai-chat-model-option-provider/actual-model-id")
+                .assertTextEquals("provider/actual-model-id")
+                .assertIsNotSelected()
+                .performClick()
+            onNodeWithTag("ai-chat-model-menu").assertDoesNotExist()
+            onNodeWithTag("ai-model").assertTextContains("provider/actual-model-id")
+            assertEquals(listOf("models", "model:provider/actual-model-id"), fixture.events)
         }
+
+    @Test
+    fun `model picker localizes empty loading and stable errors without exposing failure text`() {
+        for (language in listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE)) {
+            runDesktopComposeUiTest(width = 600, height = 720) {
+                val fixture = SurfaceFixture()
+                setContent { ViewerTheme(darkTheme = false) { DshChatSurface(fixture.state, fixture.actions, language) } }
+                onNodeWithTag("ai-model").performClick()
+                onNodeWithTag("ai-chat-model-current").assertTextEquals("test-model")
+                onNodeWithTag("ai-chat-model-option-test-model").assertDoesNotExist()
+                onNodeWithTag("ai-chat-model-status").assertTextEquals(dshLabel(language, "No models available", "暂无可用模型"))
+                onNodeWithContentDescription(dshLabel(language, "Refresh models", "刷新模型")).assertExists()
+                onNodeWithTag("ai-chat-model-retry").performClick()
+                onNodeWithTag("ai-chat-model-menu").assertIsDisplayed()
+                assertEquals(listOf("models", "models"), fixture.events)
+                val failures =
+                    listOf(
+                        "E_AI_MODEL_CATALOG_INVALID_ENDPOINT" to dshLabel(language, "Model endpoint is unavailable", "模型接口不可用"),
+                        "E_AI_MODEL_CATALOG_INVALID_RESPONSE" to dshLabel(language, "Model list is unavailable", "模型列表不可用"),
+                        "E_AI_MODEL_CATALOG_HTML_RESPONSE" to dshLabel(language, "Model list is unavailable", "模型列表不可用"),
+                        "E_UNKNOWN_MODEL_FAILURE" to dshLabel(language, "Unable to load models", "无法加载模型"),
+                        "private raw response with credential=not-for-display" to dshLabel(language, "Unable to load models", "无法加载模型"),
+                    )
+                for ((code, label) in failures) {
+                    runOnIdle { fixture.state = fixture.state.copy(modelsError = code) }
+                    onNodeWithTag("ai-chat-model-status").assertTextEquals(label)
+                    onNodeWithText(code, substring = true).assertDoesNotExist()
+                    onNodeWithTag("ai-chat-model-option-test-model").assertDoesNotExist()
+                }
+                runOnIdle { fixture.state = fixture.state.copy(modelsLoading = true) }
+                onNodeWithTag("ai-chat-model-status").assertTextEquals(dshLabel(language, "Loading models...", "正在加载模型…"))
+                onNodeWithTag("ai-chat-model-retry").assertIsNotEnabled()
+                runOnIdle {
+                    fixture.state = fixture.state.copy(modelsLoading = false, modelsError = null, models = listOf("other/actual-id"))
+                }
+                onNodeWithTag("ai-chat-model-current").assertTextEquals("test-model")
+                onNodeWithTag("ai-chat-model-option-test-model").assertDoesNotExist()
+                onNodeWithTag("ai-chat-model-option-other/actual-id").assertTextEquals("other/actual-id").assertIsNotSelected()
+                runOnIdle { fixture.state = fixture.state.copy(model = "", models = emptyList()) }
+                onNodeWithTag("ai-chat-model-current").assertTextEquals(dshLabel(language, "Choose model", "选择模型"))
+                onNodeWithTag("ai-chat-model-option-").assertDoesNotExist()
+                onNodeWithTag("ai-chat-model-retry").performClick()
+                assertEquals(listOf("models", "models", "models"), fixture.events)
+            }
+        }
+    }
+
+    @Test
+    fun `model picker disables while busy and never changes pending run model`() =
+        runDesktopComposeUiTest(width = 900, height = 720) {
+            val approval =
+                PreparedAgentRun(
+                    ApprovalRequest("approval", "run", "session", 1, "a".repeat(64), setOf(Permission.READ_EVIDENCE), Long.MAX_VALUE),
+                    evidenceCount = 1,
+                    candidateCount = 0,
+                    payloadBytes = 128,
+                    providerId = "openai",
+                    model = "frozen-model",
+                )
+            val fixture =
+                SurfaceFixture().also {
+                    it.state =
+                        it.state.copy(
+                            busy = true,
+                            pendingApproval = approval,
+                            status = RunStatus.AWAITING_APPROVAL,
+                            models = listOf("test-model", "next-model"),
+                        )
+                }
+            setContent { ViewerTheme(darkTheme = true) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.ENGLISH) } }
+            onNodeWithTag("ai-model").assertIsNotEnabled().performClick()
+            onNodeWithTag("ai-chat-model-menu").assertDoesNotExist()
+            assertTrue(fixture.events.isEmpty())
+            runOnIdle { fixture.state = fixture.state.copy(busy = false) }
+            onNodeWithTag("ai-model").performClick()
+            onNodeWithTag("ai-chat-model-option-next-model").performClick()
+            assertEquals(listOf("models", "model:next-model"), fixture.events)
+            assertEquals(approval, fixture.state.pendingApproval)
+            assertEquals("frozen-model", fixture.state.pendingApproval?.model)
+            onNodeWithTag("ai-model").performClick()
+            runOnIdle { fixture.state = fixture.state.copy(busy = true) }
+            onNodeWithTag("ai-model").assertIsNotEnabled()
+            onNodeWithTag("ai-chat-model-menu").assertDoesNotExist()
+            runOnIdle { fixture.state = fixture.state.copy(busy = false) }
+            onNodeWithTag("ai-chat-model-menu").assertDoesNotExist()
+            assertEquals(listOf("models", "model:next-model", "models"), fixture.events)
+        }
+
+    @Test
+    fun `model picker fits compact and long IDs in English Chinese light and dark layouts`() {
+        val longId = "provider/" + "long-model-id-".repeat(16)
+        for (width in listOf(320, 900)) {
+            for (language in listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE)) {
+                for (dark in listOf(false, true)) {
+                    runDesktopComposeUiTest(width = width, height = 720) {
+                        val models = listOf(longId, "other/actual-id") + (1..20).map { "provider/model-$it" }
+                        val fixture = SurfaceFixture().also { it.state = it.state.copy(model = longId, models = models + longId) }
+                        setContent { ViewerTheme(darkTheme = dark) { DshChatSurface(fixture.state, fixture.actions, language) } }
+                        onNodeWithTag("ai-model").performClick()
+                        onNodeWithTag("ai-chat-model-current").assertTextEquals(longId)
+                        onNodeWithTag("ai-chat-model-option-$longId").assertIsSelected().assertTextEquals(longId)
+                        assertEquals(1, onAllNodesWithTag("ai-chat-model-option-$longId").fetchSemanticsNodes().size)
+                        val menu = onNodeWithTag("ai-chat-model-menu").getUnclippedBoundsInRoot()
+                        val menuWidth = menu.right - menu.left
+                        assertTrue(menuWidth <= 480.dp && menuWidth <= (width - 32).dp)
+                        assertTrue(menu.bottom - menu.top <= 320.dp)
+                        val suffix = "$width-${language.name}-${if (dark) "dark" else "light"}"
+                        captureDshNode("model-picker-$suffix", "ai-chat-model-menu")
+                        onNodeWithTag("ai-chat-model-option-provider/model-20").performScrollTo().assertIsDisplayed().performClick()
+                        onNodeWithTag("ai-model").assertTextContains("provider/model-20")
+                        onNodeWithTag("ai-chat-model-menu").assertDoesNotExist()
+                        assertEquals(listOf("models", "model:provider/model-20"), fixture.events)
+                    }
+                }
+            }
+        }
+    }
 
     @Test
     fun `approval shows immutable request counts and never auto approves`() =
@@ -737,7 +877,15 @@ private fun DesktopComposeUiTest.captureDshConversation(
         assertEquals(12f, (viewport.bottom - buttons.last().bottom).value, absoluteTolerance = 1f)
         buttons.zipWithNext { top, bottom -> assertEquals(6f, (bottom.top - top.bottom).value, absoluteTolerance = 1f) }
     }
-    val image = onNodeWithTag("ai-workspace").captureToImage().toPixelMap()
+    captureDshNode(name, "ai-workspace")
+}
+
+@OptIn(ExperimentalTestApi::class)
+private fun DesktopComposeUiTest.captureDshNode(
+    name: String,
+    tag: String,
+) {
+    val image = onNodeWithTag(tag).captureToImage().toPixelMap()
     val screenshot = BufferedImage(image.width, image.height, BufferedImage.TYPE_INT_ARGB)
     for (y in 0 until image.height) for (x in 0 until image.width) screenshot.setRGB(x, y, image[x, y].toArgb())
     val output = Path.of("build/reports/dsh-chat/$name.png")
@@ -802,6 +950,11 @@ private class SurfaceFixture {
             onRemoveQueued = { events += "remove-queued:$it" },
             onEditQueued = { events += "edit-queued:$it" },
             onShowArchived = { state = state.copy(showingArchived = it) },
+            onOpenModels = { events += "models" },
+            onSelectModel = {
+                events += "model:$it"
+                state = state.copy(model = it)
+            },
         )
 }
 

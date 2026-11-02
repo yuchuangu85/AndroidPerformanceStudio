@@ -73,17 +73,22 @@ public fun AiConversationWindowHost(
     onOpenSourceCandidate: (String) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     windowChrome: @Composable FrameWindowScope.(title: String) -> Unit = {},
+    openRequestId: Long = 0,
+    loadModels: suspend (providerId: String, refresh: Boolean) -> List<String> = { _, _ -> emptyList() },
+    selectModel: ((providerId: String, model: String) -> Unit)? = null,
 ) {
     // Unsent drafts remain local across closing/reopening this window, never in provider history.
     val memory = remember(runtime) { ChatWindowMemory(context) }
     if (!visible) return
     val title = chatLabel(language, "AI Chat", "AI 对话")
+    val windowState = rememberWindowState(width = 1200.dp, height = 800.dp)
     Window(
         onCloseRequest = onClose,
         title = title,
-        state = rememberWindowState(width = 1200.dp, height = 800.dp),
+        state = windowState,
     ) {
         window.minimumSize = java.awt.Dimension(900, 720)
+        AiConversationWindowActivationEffect(openRequestId, windowState)
         Column(Modifier.fillMaxSize()) {
             // Native decoration belongs to the desktop host and stays outside the scaled viewer theme.
             windowChrome(title)
@@ -94,7 +99,18 @@ public fun AiConversationWindowHost(
                             CopyableText(startupError ?: "E_AI_STARTING", language = language)
                         }
                     } else {
-                        ConversationWorkspace(runtime, context, language, defaultModel, onOpenSourceCandidate, onOpenSettings, null, memory)
+                        ConversationWorkspace(
+                            runtime,
+                            context,
+                            language,
+                            defaultModel,
+                            onOpenSourceCandidate,
+                            onOpenSettings,
+                            null,
+                            memory,
+                            loadModels = loadModels,
+                            selectModel = selectModel,
+                        )
                     }
                 }
             }
@@ -111,9 +127,22 @@ public fun AiConversationWorkspace(
     onOpenSourceCandidate: (String) -> Unit = {},
     settingsStoreOverride: AiPlatformSettingsStore? = null,
     onOpenSettings: () -> Unit = {},
+    loadModels: suspend (providerId: String, refresh: Boolean) -> List<String> = { _, _ -> emptyList() },
+    selectModel: ((providerId: String, model: String) -> Unit)? = null,
 ) {
     val memory = remember(runtime) { ChatWindowMemory(context) }
-    ConversationWorkspace(runtime, context, language, defaultModel, onOpenSourceCandidate, onOpenSettings, settingsStoreOverride, memory)
+    ConversationWorkspace(
+        runtime,
+        context,
+        language,
+        defaultModel,
+        onOpenSourceCandidate,
+        onOpenSettings,
+        settingsStoreOverride,
+        memory,
+        loadModels = loadModels,
+        selectModel = selectModel,
+    )
 }
 
 @Composable
@@ -127,12 +156,20 @@ internal fun ConversationWorkspace(
     settingsStoreOverride: AiPlatformSettingsStore?,
     memory: ChatWindowMemory,
     interactionMutex: Mutex = remember { Mutex() },
+    loadModels: suspend (providerId: String, refresh: Boolean) -> List<String> = { _, _ -> emptyList() },
+    selectModel: ((providerId: String, model: String) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val state by runtime.service.state.collectAsState()
     val store = remember(settingsStoreOverride) { settingsStoreOverride ?: AiPlatformSettingsStore() }
     val latestSettings by store.settings.collectAsState()
     var settings by remember(store) { mutableStateOf(store.settings.value) }
+    var catalogProvider by remember(store) { mutableStateOf(store.settings.value.providerId) }
+    var catalogModels by remember(store) { mutableStateOf<List<String>>(emptyList()) }
+    var catalogLoading by remember(store) { mutableStateOf(false) }
+    var catalogError by remember(store) { mutableStateOf<String?>(null) }
+    var catalogGeneration by remember(store) { mutableStateOf(0L) }
+    var catalogOpen by remember(store) { mutableStateOf(false) }
     var bound by memory.bound
     var boundRunId by memory.boundRunId
     var boundHistoryId by remember { mutableStateOf<String?>(null) }
@@ -152,6 +189,45 @@ internal fun ConversationWorkspace(
     var preparationJob by remember { mutableStateOf<Job?>(null) }
     var preparationGeneration by remember { mutableStateOf(0L) }
     val busy = preparing || transitioning || state.status?.terminal == false
+
+    fun refreshModels(refresh: Boolean = false) {
+        if (busy) return
+        val provider = store.settings.value.providerId
+        if (catalogLoading && catalogProvider == provider) return
+        if (catalogProvider != provider) catalogModels = emptyList()
+        catalogProvider = provider
+        val generation = ++catalogGeneration
+        catalogLoading = true
+        catalogError = null
+        scope.launch {
+            try {
+                val loaded = withContext(Dispatchers.IO) { loadModels(provider, refresh).toList() }
+                if (catalogGeneration == generation && store.settings.value.providerId == provider) {
+                    catalogModels = loaded
+                }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (_: Exception) {
+                if (catalogGeneration == generation && store.settings.value.providerId == provider) {
+                    catalogModels = emptyList()
+                    catalogError = "E_AI_MODEL_CATALOG"
+                }
+            } finally {
+                if (catalogGeneration == generation) catalogLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(latestSettings.providerId, busy) {
+        if (catalogProvider != latestSettings.providerId) {
+            catalogProvider = latestSettings.providerId
+            catalogGeneration++
+            catalogModels = emptyList()
+            catalogLoading = false
+            catalogError = null
+            if (catalogOpen && !busy) refreshModels()
+        }
+    }
     val displayContext = preparedDisplayContext(state.prepared.takeIf { busy }, bound)
     val sourceReauthorizationRequired =
         !includeSource &&
@@ -417,6 +493,9 @@ internal fun ConversationWorkspace(
                 !busy && bound?.request?.sourceCandidates?.isNotEmpty() == true,
                 visibleQueue.map { it.question },
                 memory.showingArchived,
+                models = catalogModels.takeIf { catalogProvider == latestSettings.providerId }.orEmpty(),
+                modelsLoading = catalogLoading,
+                modelsError = catalogError,
             ),
         actions =
             ChatSurfaceActions(
@@ -499,6 +578,36 @@ internal fun ConversationWorkspace(
                     }
                 },
                 onOpenSettings = onOpenSettings,
+                onOpenModels = {
+                    catalogOpen = true
+                    refreshModels()
+                },
+                onRefreshModels = { refreshModels(refresh = true) },
+                onCloseModels = { catalogOpen = false },
+                onSelectModel = { model ->
+                    if (!busy && !catalogLoading && model in catalogModels && catalogProvider == store.settings.value.providerId) {
+                        val provider = catalogProvider
+                        action {
+                            if (runtime.service.state.value.status
+                                    ?.terminal == false ||
+                                preparing ||
+                                transitioning
+                            ) {
+                                return@action
+                            }
+                            withContext(Dispatchers.IO) {
+                                if (selectModel == null) {
+                                    store.update {
+                                        check(it.providerId == provider) { "E_PROVIDER_CONNECTION_CHANGED" }
+                                        it.copy(model = model)
+                                    }
+                                } else {
+                                    selectModel(provider, model)
+                                }
+                            }
+                        }
+                    }
+                },
                 onBindContext = {
                     if (!busy && context != null) {
                         navigate {

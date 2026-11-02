@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @file:Suppress("FunctionNaming", "LongParameterList", "ktlint:standard:function-naming")
 
 package com.androidperformancestudio.aiplatform.presentation
@@ -30,9 +30,12 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,13 +50,19 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.UiLanguage
 import io.github.composefluent.icons.Icons
 import io.github.composefluent.icons.regular.Add
+import io.github.composefluent.icons.regular.ArrowClockwise
 import io.github.composefluent.icons.regular.ArrowUp
+import io.github.composefluent.icons.regular.Checkmark
 import io.github.composefluent.icons.regular.ChevronDown
 import io.github.composefluent.icons.regular.Delete
 import io.github.composefluent.icons.regular.DocumentText
@@ -181,21 +190,7 @@ internal fun DshComposer(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(
-                        onClick = actions.onOpenSettings,
-                        modifier = Modifier.weight(1f, fill = false).widthIn(max = 240.dp).testTag("ai-model"),
-                    ) {
-                        DshText(
-                            state.model.ifBlank {
-                                dshLabel(language, "Choose model", "选择模型")
-                            },
-                            color = colors.muted,
-                            style = DshChatStyle.secondary,
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Regular.ChevronDown, null, Modifier.size(12.dp), tint = colors.muted)
-                    }
+                    DshModelPicker(state, actions, language, Modifier.weight(1f, fill = false).widthIn(max = 240.dp))
                     Spacer(Modifier.width(4.dp))
                     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides DshChatStyle.sendButtonSize) {
                         DshIconButton(
@@ -218,6 +213,123 @@ internal fun DshComposer(
         }
     }
 }
+
+@Composable
+private fun DshModelPicker(
+    state: ChatSurfaceState,
+    actions: ChatSurfaceActions,
+    language: UiLanguage,
+    modifier: Modifier,
+) {
+    val colors = LocalDshChatColors.current
+    var expanded by remember(state.busy) { mutableStateOf(false) }
+    val windowSize = LocalWindowInfo.current.containerSize
+    val menuWidth = with(LocalDensity.current) { (windowSize.width.toDp() - 32.dp).coerceIn(0.dp, 480.dp) }
+    val menuHeight = with(LocalDensity.current) { (windowSize.height.toDp() - 96.dp).coerceIn(0.dp, 320.dp) }
+    val currentModel = state.model.ifBlank { dshLabel(language, "Choose model", "选择模型") }
+    val closeModels by rememberUpdatedState(actions.onCloseModels)
+    DisposableEffect(Unit) { onDispose { closeModels() } }
+    LaunchedEffect(state.busy) { if (state.busy) actions.onCloseModels() }
+    Box(modifier) {
+        TextButton(
+            onClick = {
+                if (!state.busy) {
+                    expanded = true
+                    actions.onOpenModels()
+                }
+            },
+            enabled = !state.busy,
+            modifier = Modifier.testTag("ai-model"),
+        ) {
+            DshText(
+                currentModel,
+                Modifier.weight(1f, fill = false),
+                color = colors.muted.copy(alpha = if (state.busy) 0.45f else 1f),
+                style = DshChatStyle.secondary,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Regular.ChevronDown, null, Modifier.size(12.dp), tint = colors.muted)
+        }
+        DropdownMenu(
+            expanded = expanded && !state.busy,
+            onDismissRequest = {
+                expanded = false
+                actions.onCloseModels()
+            },
+            modifier = Modifier.width(menuWidth).heightIn(max = menuHeight).testTag("ai-chat-model-menu"),
+            containerColor = colors.sidebar,
+        ) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                DshText(
+                    currentModel,
+                    Modifier.weight(1f).testTag("ai-chat-model-current"),
+                    color = colors.muted,
+                    style = DshChatStyle.secondary,
+                    maxLines = 1,
+                )
+                DshIconButton(
+                    Icons.Regular.ArrowClockwise,
+                    dshLabel(language, "Refresh models", "刷新模型"),
+                    "ai-chat-model-retry",
+                    enabled = !state.busy && !state.modelsLoading,
+                ) {
+                    if (!state.busy && !state.modelsLoading) actions.onRefreshModels()
+                }
+            }
+            val status =
+                when {
+                    state.modelsLoading -> dshLabel(language, "Loading models...", "正在加载模型…")
+                    state.modelsError != null -> dshModelErrorLabel(state.modelsError, language)
+                    state.models.isEmpty() -> dshLabel(language, "No models available", "暂无可用模型")
+                    else -> null
+                }
+            if (status != null) {
+                DshText(
+                    status,
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("ai-chat-model-status"),
+                    color = if (state.modelsError != null && !state.modelsLoading) colors.error else colors.muted,
+                    style = DshChatStyle.secondary,
+                )
+            }
+            state.models.distinct().forEach { model ->
+                val selected = model == state.model
+                val enabled =
+                    !state.busy && !state.modelsLoading && model.isNotBlank() && model.length <= 128 && model.none(Char::isISOControl)
+                DropdownMenuItem(
+                    text = { DshText(model, color = colors.text.copy(alpha = if (enabled) 1f else 0.45f), maxLines = 1) },
+                    onClick = {
+                        if (enabled) {
+                            expanded = false
+                            actions.onCloseModels()
+                            actions.onSelectModel(model)
+                        }
+                    },
+                    enabled = enabled,
+                    modifier = Modifier.testTag("ai-chat-model-option-$model").semantics { this.selected = selected },
+                    trailingIcon = {
+                        if (selected) {
+                            Icon(Icons.Regular.Checkmark, null, Modifier.size(16.dp), tint = colors.send)
+                        } else {
+                            Spacer(Modifier.size(16.dp))
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun dshModelErrorLabel(
+    code: String,
+    language: UiLanguage,
+): String =
+    when (code) {
+        "E_AI_MODEL_CATALOG_INVALID_ENDPOINT" -> dshLabel(language, "Model endpoint is unavailable", "模型接口不可用")
+        "E_AI_MODEL_CATALOG_HTML_RESPONSE", "E_AI_MODEL_CATALOG_INVALID_RESPONSE" ->
+            dshLabel(language, "Model list is unavailable", "模型列表不可用")
+        else -> dshLabel(language, "Unable to load models", "无法加载模型")
+    }
 
 @Composable
 private fun DshQueuedDock(

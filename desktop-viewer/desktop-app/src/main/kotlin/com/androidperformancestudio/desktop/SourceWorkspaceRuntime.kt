@@ -52,6 +52,19 @@ internal class SourceWorkspaceRuntime(
     private val candidates: MutableMap<String, ResolutionCandidate> = java.util.concurrent.ConcurrentHashMap()
     private val providerConnectionLock = Any()
     private val blockedProviderConnections = mutableMapOf<AiProviderConnection, String>()
+    private val providerModelCatalogs = mutableMapOf<AiProviderConnection, ProviderModelCatalog>()
+
+    private data class ProviderCatalogConfiguration(
+        val revision: String,
+        val endpoint: String,
+        val modelsEndpoint: String,
+        val kind: ImportedCredentialKind,
+    )
+
+    private data class ProviderModelCatalog(
+        val configuration: ProviderCatalogConfiguration,
+        val models: List<String>,
+    )
 
     fun saveCredential(
         key: String,
@@ -255,6 +268,93 @@ internal class SourceWorkspaceRuntime(
             apiKey to catalogEndpoint
         }
         return OpenAiModelCatalog(apiKey, requestedEndpoint, modelCatalogTransport, modelsEndpointOverride = catalogEndpoint).listModels()
+    }
+
+    fun cacheProviderModels(connection: AiProviderConnection, models: List<String>, expectedRevision: String? = null) {
+        synchronized(providerConnectionLock) {
+            requireProviderConnectionRevision(connection, expectedRevision)
+            check(!providerConnectionBlocked(connection)) { "E_PROVIDER_CONNECTION_CHANGED" }
+            providerModelCatalogs[connection] = ProviderModelCatalog(providerCatalogConfiguration(connection), copyProviderModels(models))
+        }
+    }
+
+    suspend fun savedProviderModels(providerId: String, refresh: Boolean = false): List<String> {
+        val connection = savedProviderConnection(providerId)
+        val (configuration, key) = synchronized(providerConnectionLock) {
+            val configuration = providerCatalogConfiguration(connection)
+            check(!providerConnectionBlocked(connection)) { "E_PROVIDER_CONNECTION_CHANGED" }
+            if (!refresh) {
+                providerModelCatalogs[connection]?.takeIf { it.configuration == configuration }?.let { return it.models.toList() }
+            }
+            // Capture the secret with its routing metadata, never after releasing the connection lock.
+            configuration to providerCredential(connection, configuration.endpoint, configuration.kind)
+        }
+        val models = providerModels(connection, key, configuration.endpoint, configuration.modelsEndpoint, configuration.kind)
+        return synchronized(providerConnectionLock) {
+            check(!providerConnectionBlocked(connection) && providerCatalogConfiguration(connection) == configuration) {
+                "E_PROVIDER_CONNECTION_CHANGED"
+            }
+            val copiedModels = copyProviderModels(models)
+            providerModelCatalogs[connection] = ProviderModelCatalog(configuration, copiedModels)
+            copiedModels.toList()
+        }
+    }
+
+    fun selectProviderModel(providerId: String, model: String, apply: () -> Unit) {
+        val connection = savedProviderConnection(providerId)
+        synchronized(providerConnectionLock) {
+            require(model.isNotBlank() && model.length <= 128 && model.none(Char::isISOControl)) { "AI model is required" }
+            check(!providerConnectionBlocked(connection)) { "E_PROVIDER_CONNECTION_CHANGED" }
+            val configuration = providerCatalogConfiguration(connection)
+            val catalog = providerModelCatalogs[connection]?.takeIf { it.configuration == configuration }
+            check(catalog != null && model in catalog.models) { "E_PROVIDER_MODEL_NOT_LOADED" }
+            if (connection == AiProviderConnection.CUSTOM && !customConfigured()) {
+                // Copy the legacy connection before selecting its independent model; never modify Codex.
+                saveAndApplyProviderConnection(
+                    connection, model, configuration.endpoint, configuration.modelsEndpoint, configuration.kind, null,
+                ) {
+                    if (model != model.trim()) {
+                        preferences.put("custom.model", model)
+                        preferences.flush()
+                    }
+                    apply()
+                }
+                providerModelCatalogs[connection] = ProviderModelCatalog(providerCatalogConfiguration(connection), catalog.models)
+                return
+            }
+            val modelKey = "${providerPreferencePrefix(connection)}model"
+            val previousModel = preferences.get(modelKey, null)
+            try {
+                preferences.put(modelKey, model)
+                preferences.flush()
+                apply()
+            } catch (failure: Exception) {
+                val restored = runCatching {
+                    if (previousModel == null) preferences.remove(modelKey) else preferences.put(modelKey, previousModel)
+                    preferences.flush()
+                    check(preferences.get(modelKey, null) == previousModel)
+                }.isSuccess
+                if (!restored) invalidateProviderConnections(setOf(connection))
+                throw failure
+            }
+        }
+    }
+
+    private fun savedProviderConnection(providerId: String): AiProviderConnection =
+        AiProviderConnection.entries.firstOrNull { it.providerId == providerId }
+            ?: throw IllegalArgumentException("E_PROVIDER_CONNECTION_UNKNOWN")
+
+    private fun providerCatalogConfiguration(connection: AiProviderConnection): ProviderCatalogConfiguration =
+        ProviderCatalogConfiguration(
+            providerConnectionRevision(connection), providerEndpoint(connection).trim(), providerModelsEndpoint(connection).trim(),
+            providerCredentialKind(connection),
+        )
+
+    private fun copyProviderModels(models: List<String>): List<String> {
+        require(models.size <= 10_000) { "Invalid model catalog" }
+        val copy = models.toList()
+        require(copy.all { it.isNotBlank() && it.length <= 256 && it.none(Char::isISOControl) }) { "Invalid model catalog" }
+        return copy
     }
 
     fun saveProviderConnection(

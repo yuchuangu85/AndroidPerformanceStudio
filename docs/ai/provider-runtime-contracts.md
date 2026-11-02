@@ -186,6 +186,13 @@ Live catalog acceptance uses the same JDK transport and catalog parser as the ap
 existing credential only for its saved origin. It submits GETs only, never an inference request;
 catalog success must not be reported as provider inference or release acceptance.
 
+Chat model selection uses that same saved connection, not the settings draft. Successful settings
+save/apply can publish its loaded model IDs into an in-memory, provider/connection-revision cache.
+Late results and late cache publication fail their revision checks. Opening the chat model menu
+reuses a matching cache or loads the saved catalog; its explicit refresh bypasses the cache. Model
+selection must reference the matching loaded catalog, updates only the saved model and active
+settings, and rolls back on activation failure. It submits no inference and never navigates Settings.
+
 Users may still enter a model identifier manually. Catalog failure does not establish inference
 failure, and a successful catalog response does not prove that the selected model supports the
 required inference contract. HTML responses receive a stable, body-free diagnostic asking the

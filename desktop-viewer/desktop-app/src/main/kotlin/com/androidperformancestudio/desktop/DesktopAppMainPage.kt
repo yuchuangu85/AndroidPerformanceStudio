@@ -98,13 +98,19 @@ fun FrameWindowScope.DesktopAppMainPage(
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
     val userDocumentationLauncher = remember { UserDocumentationLauncher() }
     val sourceWorkspaceRuntime = remember { SourceWorkspaceRuntime.desktop() }
+    val aiSettingsStore = remember { com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore() }
     val aiCoordinator = remember { DesktopAiCoordinator() }
     var aiPlatform by remember { mutableStateOf<com.androidperformancestudio.aiplatform.app.AiPlatformRuntime?>(null) }
     var aiStartupError by remember { mutableStateOf<String?>(null) }
     var showAiWindow by remember { mutableStateOf(false) }
+    var aiWindowOpenRequestId by remember { mutableStateOf(0L) }
     var aiWindowContext by remember { mutableStateOf<com.androidperformancestudio.aiplatform.app.BusinessContext?>(null) }
     aiCoordinator.sourceModel = sourceWorkspaceRuntime::aiModel
-    aiCoordinator.onOpen = { context -> aiWindowContext = context; showAiWindow = true }
+    aiCoordinator.onOpen = { context ->
+        aiWindowContext = context
+        showAiWindow = true
+        aiWindowOpenRequestId++
+    }
     val aiContextHost = remember {
         object : com.androidperformancestudio.ui.AiContextHost {
             override fun publish(context: com.androidperformancestudio.ui.UiAiContext) {
@@ -117,6 +123,7 @@ fun FrameWindowScope.DesktopAppMainPage(
     val openGlobalAi: () -> Unit = {
         aiWindowContext = navigator.destination.aiContextKey()?.let(aiCoordinator.contexts::current)
         showAiWindow = true
+        aiWindowOpenRequestId++
     }
     LaunchedEffect(sourceWorkspaceRuntime) {
         try {
@@ -270,6 +277,7 @@ fun FrameWindowScope.DesktopAppMainPage(
         )
     com.androidperformancestudio.aiplatform.presentation.AiConversationWindowHost(
         visible = showAiWindow,
+        openRequestId = aiWindowOpenRequestId,
         runtime = aiPlatform,
         startupError = aiStartupError,
         context = aiWindowContext,
@@ -280,6 +288,15 @@ fun FrameWindowScope.DesktopAppMainPage(
         onOpenSourceCandidate = { id -> sourceWorkspaceRuntime.candidate(id)?.takeIf { it.confidence != ResolutionConfidence.WEAK }?.let { navigator.openSource(it.location) } },
         onOpenSettings = { openSettings(SettingsPage.AI) },
         windowChrome = { title -> AiConversationWindowChrome(title, windowColors, darkTheme) },
+        loadModels = sourceWorkspaceRuntime::savedProviderModels,
+        selectModel = { providerId, model ->
+            sourceWorkspaceRuntime.selectProviderModel(providerId, model) {
+                aiSettingsStore.update {
+                    check(it.providerId == providerId) { "E_PROVIDER_CONNECTION_CHANGED" }
+                    it.copy(model = model)
+                }
+            }
+        },
     )
 
     WindowsWindowChromeEffect(windowColors, darkTheme)
@@ -588,6 +605,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     onOpenUserGuide = openUserGuide,
                                     persistenceErrorPage = settingsPersistenceErrorPage,
                                     aiPlatformRuntime = aiPlatform,
+                                    aiPlatformSettingsStore = aiSettingsStore,
                                 )
                         }
                                 }
