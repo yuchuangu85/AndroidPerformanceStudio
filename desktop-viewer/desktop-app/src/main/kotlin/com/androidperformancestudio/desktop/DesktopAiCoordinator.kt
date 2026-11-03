@@ -13,6 +13,8 @@ import com.androidperformancestudio.aiplatform.model.ExtensionKind
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import java.util.UUID
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 internal fun AppDestination.aiContextKey(): String? = when (this) {
@@ -39,14 +41,21 @@ internal class DesktopAiCoordinator(
     var onOpen: (BusinessContext?) -> Unit = {}
 
     suspend fun analyze(request: AnalysisRequest): AnalysisResult {
+        currentCoroutineContext().ensureActive()
+        if (runtime == null) error("E_AI_UNAVAILABLE")
+        return analyze(request, loadSettings())
+    }
+
+    suspend fun analyze(request: AnalysisRequest, settings: AiPlatformSettings): AnalysisResult {
+        currentCoroutineContext().ensureActive()
         val platform = runtime ?: error("E_AI_UNAVAILABLE")
-        val settings = loadSettings()
         val frozen = request.copy(
             evidence = request.evidence.map { it.copy() },
             sourceCandidates = request.sourceCandidates.map { it.copy(reasons = it.reasons.toList()) },
         )
         val key = frozen.originProfiler.name.lowercase().replace('_', '-')
         val context = BusinessContext(key, contextDigest(frozen.toString()), frozen.scope.description.take(256), frozen)
+        currentCoroutineContext().ensureActive()
         contexts.publish(context)
         val declared = platform.registry.resolve(ExtensionKind.AGENT, settings.agentId).manifest.permissions
         val permissions = setOf(Permission.READ_EVIDENCE, Permission.PROVIDER_NETWORK) +
@@ -55,10 +64,16 @@ internal class DesktopAiCoordinator(
             (if (settings.allowArtifacts && Permission.WRITE_ARTIFACT in declared) setOf(Permission.WRITE_ARTIFACT) else emptySet()) +
             (if (settings.allowScripts && Permission.EXECUTE_SCRIPT in declared) setOf(Permission.EXECUTE_SCRIPT) else emptySet())
         val conversationId = UUID.randomUUID().toString()
-        val prepared = platform.service.prepare(conversationId, frozen, settings.agentId, settings.providerId, settings.model.ifBlank { sourceModel() }, permissions)
+        currentCoroutineContext().ensureActive()
+        val prepared = platform.service.prepare(
+            conversationId, frozen, settings.agentId, settings.providerId, settings.model.ifBlank { sourceModel() }, permissions,
+            reportFormat = settings.reportFormat,
+        )
         try {
+            currentCoroutineContext().ensureActive()
             onOpen(context)
             val terminal = platform.service.awaitRun(prepared.approval.runId)
+            if (terminal.status == RunStatus.CANCELLED) throw kotlinx.coroutines.CancellationException("E_AI_CANCELLED")
             return terminal.result?.takeIf { terminal.status == RunStatus.SUCCEEDED } ?: error(terminal.errorCode ?: "E_AI_CANCELLED")
         } catch (failure: kotlinx.coroutines.CancellationException) {
             withContext(NonCancellable) {

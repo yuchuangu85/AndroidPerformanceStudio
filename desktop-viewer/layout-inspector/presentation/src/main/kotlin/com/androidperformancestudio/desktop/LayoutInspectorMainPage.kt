@@ -112,6 +112,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -164,7 +165,6 @@ import com.androidperformancestudio.ui_components.generated.resources.ic_toggle_
 import com.androidperformancestudio.ui_components.generated.resources.ic_toggle_right
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -367,16 +367,29 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     }
     val aiAnalysisInputBuilder = remember { AiAnalysisInputBuilder() }
     val effectiveAiAnalysisClient = remember(aiAnalysisClient) { aiAnalysisClient ?: OpenAiResponsesAnalysisClient.fromEnvironment() }
-    var aiAnalysisUiState by remember { mutableStateOf<AiAnalysisUiState>(AiAnalysisUiState.Idle) }
-    var pendingAiAnalysis by remember { mutableStateOf<PreparedAiAnalysis?>(null) }
-    var aiAnalysisJob by remember { mutableStateOf<Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val aiAnalysisLifecycle = remember(store, effectiveAiAnalysisClient, coroutineScope) {
+        LayoutAiAnalysisLifecycle(
+            scope = coroutineScope,
+            client = effectiveAiAnalysisClient,
+            isTargetCurrent = store::isAiAnalysisTargetCurrent,
+            loadReport = { report, target ->
+                store.loadAiAnalysis(report, target).also { loaded ->
+                    if (loaded) state = store.state
+                }
+            },
+        )
+    }
+    SideEffect { aiAnalysisLifecycle.cancelIfTargetChanged() }
+    DisposableEffect(aiAnalysisLifecycle) {
+        onDispose { aiAnalysisLifecycle.dispose() }
+    }
     var archiveUiState by remember {
         mutableStateOf<CaptureArchiveUiState>(CaptureArchiveUiState.Idle)
     }
     var importedRawArtifacts by remember {
         mutableStateOf<CaptureRawArtifacts?>(null)
     }
-    val coroutineScope = rememberCoroutineScope()
     var hiddenLayerState by remember { mutableStateOf(HiddenLayerState()) }
     var searchState by remember { mutableStateOf(HierarchySearchState()) }
 
@@ -544,7 +557,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             ) {
                 store.disconnected()
                 state = store.state
-                aiAnalysisUiState = AiAnalysisUiState.Idle
+                aiAnalysisLifecycle.cancelIfTargetChanged()
             }
             return@LaunchedEffect
         }
@@ -601,7 +614,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
                         state = store.state
-                        aiAnalysisUiState = AiAnalysisUiState.Idle
+                        aiAnalysisLifecycle.cancelIfTargetChanged()
                         delay(
                             (if (recompositionActive) ACTIVE_COMPOSE_CAPTURE_INTERVAL_MILLIS
                             else CAPTURE_INTERVAL_MILLIS).milliseconds,
@@ -637,7 +650,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
                         state = store.state
-                        aiAnalysisUiState = AiAnalysisUiState.Idle
+                        aiAnalysisLifecycle.cancelIfTargetChanged()
                     }
                     delay(CAPTURE_INTERVAL_MILLIS.milliseconds)
                 }
@@ -784,7 +797,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     importedRawArtifacts = null
                     hiddenLayerState = HiddenLayerState()
                     state = store.state
-                    aiAnalysisUiState = AiAnalysisUiState.Idle
+                    aiAnalysisLifecycle.cancelIfTargetChanged()
                 }
                 return@LaunchedEffect
             }
@@ -806,7 +819,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 importedRawArtifacts = null
                 hiddenLayerState = HiddenLayerState()
                 state = store.state
-                aiAnalysisUiState = AiAnalysisUiState.Idle
+                aiAnalysisLifecycle.cancelIfTargetChanged()
             }
         } catch (error: CancellationException) {
             refreshCancelled = true
@@ -850,7 +863,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         importedRawArtifacts = null
                         hiddenLayerState = HiddenLayerState()
                         state = store.state
-                        aiAnalysisUiState = AiAnalysisUiState.Idle
+                        aiAnalysisLifecycle.cancelIfTargetChanged()
                     }
                 } catch (error: CancellationException) {
                     refreshCancelled = true
@@ -1006,7 +1019,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 )
                 state = store.state
                 importedRawArtifacts = imported.rawArtifacts
-                aiAnalysisUiState = AiAnalysisUiState.Idle
+                aiAnalysisLifecycle.cancelIfTargetChanged()
                 hierarchyTreeState = HierarchyTreeState()
                 hiddenLayerState = HiddenLayerState()
                 recentArchives = withContext(Dispatchers.IO) {
@@ -1072,7 +1085,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     throw IllegalStateException("The selected layout changed while importing the screenshot")
                 }
                 state = store.state
-                aiAnalysisUiState = AiAnalysisUiState.Idle
+                aiAnalysisLifecycle.cancelIfTargetChanged()
                 archiveUiState = CaptureArchiveUiState.Success(
                     operation = CaptureArchiveOperation.IMPORT_SCREENSHOT,
                     path = source,
@@ -1087,48 +1100,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
         }
     }
-    val prepareAiAnalysis: (AiAnalysisInput) -> Unit = { input ->
-        aiAnalysisUiState = AiAnalysisUiState.Working
-        coroutineScope.launch {
-            try {
-                pendingAiAnalysis = withContext(Dispatchers.IO) {
-                    effectiveAiAnalysisClient.prepare(input)
-                }
-                aiAnalysisUiState = AiAnalysisUiState.Idle
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                aiAnalysisUiState = AiAnalysisUiState.Failure(error.message ?: error.javaClass.simpleName)
-            }
-        }
-    }
-    val performAiAnalysis: (PreparedAiAnalysis) -> Unit = performAiAnalysis@{ prepared ->
-        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@performAiAnalysis
-        aiAnalysisUiState = AiAnalysisUiState.Working
-        aiAnalysisJob = coroutineScope.launch {
-            try {
-                val report = withContext(Dispatchers.IO) {
-                    effectiveAiAnalysisClient.analyze(prepared)
-                }
-                store.loadAiAnalysis(report)
-                state = store.state
-                aiAnalysisUiState = AiAnalysisUiState.Idle
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                aiAnalysisUiState = AiAnalysisUiState.Failure(
-                    error.message ?: error.javaClass.simpleName,
-                )
-            } finally {
-                if (aiAnalysisJob == currentCoroutineContext()[Job]) aiAnalysisJob = null
-            }
-        }
-    }
-    val cancelAiAnalysis: () -> Unit = {
-        aiAnalysisJob?.cancel()
-        aiAnalysisJob = null
-        aiAnalysisUiState = AiAnalysisUiState.Idle
-    }
+    val cancelAiAnalysis: () -> Unit = aiAnalysisLifecycle::cancel
     val buildAiAnalysisInput: (UiNode?) -> AiAnalysisInput? = { selectedNode ->
         val snapshot = state.snapshot
         val activeRoot = state.activeRoot
@@ -1139,7 +1111,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 snapshot = snapshot,
                 activeRoot = activeRoot,
                 analysis = state.analysis,
-                screenshotAvailable = state.screenshotPng?.isNotEmpty() == true,
                 selectedNode = selectedNode,
             )
         }
@@ -1155,8 +1126,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     }
     com.androidperformancestudio.ui.PublishAiContext("layout-inspector", globalAiContext)
     val runAiAnalysis: () -> Unit = runAiAnalysis@{
-        if (aiAnalysisUiState is AiAnalysisUiState.Working) return@runAiAnalysis
-        prepareAiAnalysis(buildAiAnalysisInput(state.selectedNode) ?: return@runAiAnalysis)
+        if (!aiAnalysisLifecycle.canStart) return@runAiAnalysis
+        if (state.selectedNodeId != null && state.selectedNode == null) return@runAiAnalysis
+        val target = store.aiAnalysisTarget() ?: return@runAiAnalysis
+        val input = buildAiAnalysisInput(state.selectedNode) ?: return@runAiAnalysis
+        if (!effectiveAiAnalysisClient.requiresLocalConfirmation) autoScanEnabled = false
+        aiAnalysisLifecycle.start(input, target)
     }
 
     val presentationCache = remember { InspectorPresentationCache() }
@@ -1361,7 +1336,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 hierarchyTreeState = HierarchyTreeState()
                                 hiddenLayerState = HiddenLayerState()
                                 state = store.state
-                                aiAnalysisUiState = AiAnalysisUiState.Idle
+                                aiAnalysisLifecycle.cancelIfTargetChanged()
                             }
                         },
                     )
@@ -1605,7 +1580,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                             panelHeightDp = normalizedFindingsHeight,
                             viewDisplayOptions = viewDisplayOptions,
                             onSelectNode = selectNode,
-                            aiAnalysisUiState = aiAnalysisUiState,
+                            aiAnalysisUiState = aiAnalysisLifecycle.uiState,
                             onRunAiAnalysis = runAiAnalysis,
                             onCancelAiAnalysis = cancelAiAnalysis,
                             onOpenSourceCandidate = onOpenSourceCandidate,
@@ -1618,7 +1593,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     hierarchyTreeState = HierarchyTreeState()
                                     hiddenLayerState = HiddenLayerState()
                                     state = store.state
-                                    aiAnalysisUiState = AiAnalysisUiState.Idle
+                                    aiAnalysisLifecycle.cancelIfTargetChanged()
                                 }
                             },
                             onCloseTimelineFrame = { index ->
@@ -1628,7 +1603,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     hierarchyTreeState = HierarchyTreeState()
                                     hiddenLayerState = HiddenLayerState()
                                     state = store.state
-                                    aiAnalysisUiState = AiAnalysisUiState.Idle
+                                    aiAnalysisLifecycle.cancelIfTargetChanged()
                                 }
                             },
                             modifier =
@@ -1785,11 +1760,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 },
             )
         }
-        pendingAiAnalysis?.let { prepared ->
+        aiAnalysisLifecycle.pendingAnalysis?.takeIf { store.isAiAnalysisTargetCurrent(it.target) }?.let { pending ->
+            val prepared = pending.prepared
             val input = prepared.input
             val manifest = prepared.manifest
             AlertDialog(
-                onDismissRequest = { pendingAiAnalysis = null },
+                onDismissRequest = { aiAnalysisLifecycle.dismiss(pending) },
                 title = { Text(localizedStringResource(Res.string.ai_analysis_dialog_title, uiLanguage)) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -1889,13 +1865,16 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 language = uiLanguage,
                             )
                         }
-                        val controlsEnabled = aiAnalysisUiState !is AiAnalysisUiState.Working
+                        val controlsEnabled = aiAnalysisLifecycle.uiState !is AiAnalysisUiState.Working
                         if (state.selectedNode != null) {
                             val entireReport = input.selectedNodeId == null
-                            val changeScope: (Boolean) -> Unit = { useEntireReport ->
+                            val changeScope: (Boolean) -> Unit = changeScope@{ useEntireReport ->
+                                if (!store.isAiAnalysisTargetCurrent(pending.target)) return@changeScope
                                 val selectedNode = if (useEntireReport) null else state.selectedNode
+                                if (!useEntireReport && selectedNode == null) return@changeScope
                                 buildAiAnalysisInput(selectedNode)?.let { scopedInput ->
-                                    prepareAiAnalysis(
+                                    aiAnalysisLifecycle.reprepare(
+                                        pending,
                                         scopedInput.copy(includeSourceSnippets = input.includeSourceSnippets),
                                     )
                                 }
@@ -1914,7 +1893,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                         }
                         val performanceDataOnly = manifest.performanceDataOnly
                         val changePayload: (Boolean) -> Unit = { performanceOnly ->
-                            prepareAiAnalysis(input.copy(includeSourceSnippets = !performanceOnly))
+                            aiAnalysisLifecycle.reprepare(pending, input.copy(includeSourceSnippets = !performanceOnly))
                         }
                         Row(
                             modifier = Modifier.clickable(enabled = controlsEnabled) { changePayload(!performanceDataOnly) },
@@ -1931,15 +1910,12 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 },
                 confirmButton = {
                     TextButton(
-                        enabled = manifest.canAnalyze && aiAnalysisUiState !is AiAnalysisUiState.Working,
-                        onClick = {
-                            pendingAiAnalysis = null
-                            performAiAnalysis(prepared)
-                        },
+                        enabled = manifest.canAnalyze && aiAnalysisLifecycle.uiState !is AiAnalysisUiState.Working,
+                        onClick = { aiAnalysisLifecycle.confirm(pending) },
                     ) { Text(localizedStringResource(Res.string.analyze, uiLanguage)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pendingAiAnalysis = null }) {
+                    TextButton(onClick = { aiAnalysisLifecycle.dismiss(pending) }) {
                         Text(localizedStringResource(Res.string.cancel, uiLanguage))
                     }
                 },
@@ -3674,7 +3650,15 @@ private fun FindingsPane(
                     is AiAnalysisUiState.Failure -> localizedStringResource(Res.string.ai_analysis_failed, language, aiAnalysisUiState.message)
                 }
                 if (aiStatus != null) {
-                    CopyableText(aiStatus, color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize, maxLines = 1, language = language)
+                    CopyableText(
+                        aiStatus,
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = colors.mutedText,
+                        fontSize = ViewerTypography.secondary.fontSize,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1,
+                        language = language,
+                    )
                     Spacer(Modifier.width(12.dp))
                 }
             }
@@ -3692,7 +3676,9 @@ private fun FindingsPane(
                     } else {
                         onRunAiAnalysis
                     },
-                    enabled = state.snapshot != null,
+                    enabled = aiAnalysisUiState is AiAnalysisUiState.Working ||
+                        (state.snapshot != null && (state.selectedNodeId == null || state.selectedNode != null)),
+                    modifier = Modifier.testTag("layout-inspector-run-ai-analysis"),
                 )
             }
         }

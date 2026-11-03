@@ -13,6 +13,7 @@ import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.BusinessContext
 import com.androidperformancestudio.aiplatform.app.contextDigest
+import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import java.nio.file.Files
@@ -20,9 +21,12 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -31,6 +35,7 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -89,7 +94,7 @@ class DesktopAiCoordinatorTest {
 
     @Test
     fun `explicit global approval completes legacy caller using fallback model and artifact settings`() = runBlocking {
-        withFixture(settings = AiPlatformSettings(model = "", allowArtifacts = true)) { fixture ->
+        withFixture(settings = AiPlatformSettings(model = "", allowArtifacts = true, reportFormat = ArtifactFormat.MARKDOWN)) { fixture ->
             var fallbackCalls = 0
             fixture.coordinator.sourceModel = { fallbackCalls++; "fallback-model" }
             val input = request()
@@ -98,6 +103,7 @@ class DesktopAiCoordinatorTest {
 
             assertEquals(1, fallbackCalls)
             assertEquals("fallback-model", prepared.model)
+            assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
             assertEquals(
                 setOf(Permission.READ_EVIDENCE, Permission.PROVIDER_NETWORK, Permission.WRITE_ARTIFACT),
                 prepared.approval.permissions,
@@ -113,11 +119,114 @@ class DesktopAiCoordinatorTest {
             assertEquals(prepared.plannedProviderCallCount, fixture.requests.size)
             assertEquals(List(prepared.plannedProviderCallCount) { "fallback-model" }, fixture.models.toList())
             assertEquals(RunStatus.SUCCEEDED, fixture.runtime.service.state.value.status)
-            assertNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
+            val hash = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
+            assertEquals(ArtifactFormat.MARKDOWN, fixture.runtime.artifacts.metadata(hash).format)
             assertEquals(
                 RunStatus.SUCCEEDED,
                 fixture.runtime.history.load(prepared.conversationId)?.turns?.single()?.status,
             )
+        }
+    }
+
+    @Test
+    fun `explicit settings snapshot controls Layout preflight and result without rereading current settings`() = runBlocking {
+        withFixture { fixture ->
+            val captured = AiPlatformSettings(
+                providerId = "openai",
+                model = "layout-model",
+                agentId = "aps.report",
+                allowArtifacts = true,
+                reportFormat = ArtifactFormat.MARKDOWN,
+            )
+            val input = request("layout-snapshot").copy(
+                originProfiler = ProfilerKind.LAYOUT_INSPECTOR,
+                scope = AnalysisScope(AnalysisScopeKind.CURRENT_SELECTION, "Layout node selected"),
+                evidence = listOf(PerformanceEvidence("layout:selected", "layout-snapshot", "Selected view bounds", "{\"nodeCount\":1}")),
+            )
+            val analysis = async(start = CoroutineStart.UNDISPATCHED) { fixture.coordinator.analyze(input, captured) }
+            val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+            assertEquals("layout-model", prepared.model)
+            assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
+            assertEquals(1, prepared.plannedProviderCallCount)
+            assertTrue(Permission.WRITE_ARTIFACT in prepared.approval.permissions)
+            assertTrue(fixture.requests.isEmpty())
+            assertFalse(analysis.isCompleted)
+
+            fixture.runtime.service.approveAndRun(prepared.approval).join()
+
+            assertEquals(result(input, "layout-model"), analysis.await())
+            assertEquals(listOf("layout-model"), fixture.models.toList())
+            val hash = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
+            assertEquals(ArtifactFormat.MARKDOWN, fixture.runtime.artifacts.metadata(hash).format)
+            assertRootRequest(input, fixture.requests.toList())
+        }
+    }
+
+    @Test
+    fun `global cancellation cancels the Layout caller without a provider request`() = runBlocking {
+        withFixture { fixture ->
+            val analysis = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.coordinator.analyze(request().copy(originProfiler = ProfilerKind.LAYOUT_INSPECTOR))
+            }
+            val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+
+            fixture.runtime.service.cancel(prepared.approval.runId)
+
+            assertThrows<kotlinx.coroutines.CancellationException> { analysis.await() }
+            assertTrue(analysis.isCancelled)
+            assertTrue(fixture.requests.isEmpty())
+            assertEquals(RunStatus.CANCELLED, fixture.runtime.service.state.value.status)
+        }
+    }
+
+    @Test
+    fun `already cancelled callers cannot replace a newer global preflight`() = runBlocking {
+        withFixture { fixture ->
+            var opened = 0
+            fixture.coordinator.onOpen = { opened++ }
+            val newer = async(start = CoroutineStart.UNDISPATCHED) { fixture.coordinator.analyze(request("newer")) }
+            try {
+                val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+                val context = fixture.coordinator.contexts.current("frame")
+                for (explicitSettings in listOf(false, true)) {
+                    val cancelled = Job().apply { cancel() }
+                    val old = CoroutineScope(cancelled + Dispatchers.Unconfined).async(start = CoroutineStart.UNDISPATCHED) {
+                        if (explicitSettings) {
+                            fixture.coordinator.analyze(request("old"), AiPlatformSettings(model = "stale-model"))
+                        } else {
+                            fixture.coordinator.analyze(request("old"))
+                        }
+                    }
+                    assertThrows<kotlinx.coroutines.CancellationException> { old.await() }
+                    assertSame(prepared, fixture.runtime.service.state.value.prepared)
+                    assertEquals(context, fixture.coordinator.contexts.current("frame"))
+                    assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
+                    assertEquals(1, opened)
+                    assertTrue(fixture.requests.isEmpty())
+                }
+            } finally {
+                newer.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test
+    fun `cancellation during global prepare cleans its exact run without opening the window`() = runBlocking {
+        var owner: Job? = null
+        withFixture(connectionRevision = { owner?.cancel(); "" }) { fixture ->
+            var opened = 0
+            fixture.coordinator.onOpen = { opened++ }
+            val analysis = async(start = CoroutineStart.UNDISPATCHED) {
+                owner = currentCoroutineContext()[Job]
+                fixture.coordinator.analyze(request())
+            }
+
+            assertThrows<kotlinx.coroutines.CancellationException> { analysis.await() }
+
+            assertEquals(0, opened)
+            assertTrue(fixture.requests.isEmpty())
+            assertEquals(RunStatus.CANCELLED, fixture.runtime.service.state.value.status)
+            assertEquals(RunStatus.CANCELLED, fixture.runtime.service.history().single { it.parentConversationId == null }.turns.last().status)
         }
     }
 
@@ -269,6 +378,7 @@ class DesktopAiCoordinatorTest {
     private suspend fun withFixture(
         settings: AiPlatformSettings = AiPlatformSettings(model = "test-model"),
         analyze: suspend (AnalysisRequest, String) -> AnalysisResult = { input, model -> result(input, model) },
+        connectionRevision: (String) -> String = { "" },
         block: suspend CoroutineScope.(Fixture) -> Unit,
     ) {
         val root = Files.createTempDirectory("aps-desktop-ai-coordinator-").toRealPath()
@@ -286,6 +396,7 @@ class DesktopAiCoordinatorTest {
                     }
                 },
                 sourceAuthorization = { true },
+                connectionRevision = connectionRevision,
             ).use { runtime ->
                 val coordinator = DesktopAiCoordinator(loadSettings = { settings })
                 coordinator.runtime = runtime

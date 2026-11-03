@@ -28,6 +28,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -43,9 +45,31 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ApplicationAiServiceTest {
+    @Test
+    fun `cancelled preparation cannot cancel an active global run`() =
+        runBlocking {
+            withFixture(this) { fixture ->
+                val prepared = fixture.service.prepare("current", request(), "aps.report", "openai", "test-model", permissions)
+                val cancelled = Job().apply { cancel() }
+                val stale =
+                    CoroutineScope(cancelled + Dispatchers.Unconfined).async(start = CoroutineStart.UNDISPATCHED) {
+                        fixture.service.prepare("stale", request(), "aps.report", "openai", "stale-model", permissions)
+                    }
+
+                assertFailsWith<CancellationException> { stale.await() }
+
+                assertSame(prepared, fixture.service.state.value.prepared)
+                assertEquals(RunStatus.AWAITING_APPROVAL, fixture.service.state.value.status)
+                assertNull(fixture.store.load("stale"))
+                assertTrue(fixture.calls.isEmpty())
+                fixture.service.cancel(prepared.approval.runId)
+            }
+        }
+
     @Test
     fun `connection changed before approval completes failed run and permits manual retry only`() =
         runBlocking {

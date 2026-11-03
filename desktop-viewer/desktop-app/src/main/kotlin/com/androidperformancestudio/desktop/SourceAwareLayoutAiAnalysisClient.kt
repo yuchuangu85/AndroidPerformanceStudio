@@ -3,6 +3,7 @@ package com.androidperformancestudio.desktop
 import com.androidperformancestudio.ai.AiAnalysisGateway
 import com.androidperformancestudio.ai.AiSourceCandidate
 import com.androidperformancestudio.ai.AnalysisRequest
+import com.androidperformancestudio.ai.AnalysisResult
 import com.androidperformancestudio.ai.AnalysisScope
 import com.androidperformancestudio.ai.AnalysisScopeKind
 import com.androidperformancestudio.ai.AnalysisSession
@@ -14,6 +15,8 @@ import com.androidperformancestudio.ai.OpenAiResponsesClient
 import com.androidperformancestudio.ai.PerformanceEvidence
 import com.androidperformancestudio.ai.ProfilerKind
 import com.androidperformancestudio.ai.payloadText
+import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
+import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
 import com.androidperformancestudio.analysis.AiAnalysisReport
 import com.androidperformancestudio.analysis.AiAnalysisProvenance
 import com.androidperformancestudio.analysis.AiEvidenceReference
@@ -32,15 +35,34 @@ import kotlinx.coroutines.ensureActive
 internal class SourceAwareLayoutAiAnalysisClient(
     private val runtime: SourceWorkspaceRuntime,
     private val analysisGateway: AiAnalysisGateway? = null,
-    private val globalAnalysis: (suspend (AnalysisRequest) -> com.androidperformancestudio.ai.AnalysisResult)? = null,
+    private val globalAnalysis: (suspend (AnalysisRequest, AiPlatformSettings) -> AnalysisResult)? = null,
     private val onPreparedContext: (AnalysisRequest) -> Unit = {},
+    private val loadSettings: () -> AiPlatformSettings = { AiPlatformSettingsStore().load() },
 ) : AiAnalysisClient {
+    override val requiresLocalConfirmation: Boolean get() = globalAnalysis == null
+
     override suspend fun prepare(input: AiAnalysisInput): PreparedAiAnalysis {
         val sessionId = AnalysisSessionId.create()
         val localWorkspaces = runtime.service.workspaces.value.filter { it.config.kind == SourceProviderKind.LOCAL }
         val snapshots = localWorkspaces.mapNotNull { it.activeSnapshotId }.toSet()
-        val model = runtime.aiModel()
-        val endpoint = runtime.aiEndpoint()
+        val settings = if (globalAnalysis == null) {
+            null
+        } else {
+            loadSettings().let { saved ->
+                if (saved.model.isBlank()) {
+                    saved.copy(model = runtime.providerModel(AiProviderConnection.fromProviderId(saved.providerId)))
+                } else {
+                    saved
+                }
+            }
+        }
+        val model = settings?.model ?: runtime.aiModel()
+        val endpoint = if (settings == null) runtime.aiEndpoint() else null
+        val provider = when (settings?.providerId) {
+            "codex" -> "Codex Responses"
+            "claude" -> "Claude"
+            else -> "OpenAI Responses"
+        }
         val performanceEvidence = input.performanceEvidence()
         val candidates = if (input.includeSourceSnippets && input.omittedSourceEvidenceCount == 0 && !input.treeTruncated) {
             runtime.resolver.resolve(snapshots, input.resolutionEvidence())
@@ -69,12 +91,13 @@ internal class SourceAwareLayoutAiAnalysisClient(
         val payloadBytes = request.payloadText().encodeToByteArray().size
         val unauthorized = input.includeSourceSnippets && candidates.any { !sourceUploadAllowed(it) }
         val unreadable = input.includeSourceSnippets && aiCandidates.any { candidate -> candidate.sourceSnippet == null }
+        val boundedPerformanceSummary = !input.includeSourceSnippets && input.hasBoundedSummary
         val blockedReason = when {
             unauthorized -> "Source upload is not authorized for every candidate workspace"
             unreadable -> "One or more approved source snippets could not be read"
-            input.omittedSourceEvidenceCount > 0 ->
+            input.omittedSourceEvidenceCount > 0 && !boundedPerformanceSummary ->
                 "${input.omittedSourceEvidenceCount} source evidence items exceed the report budget; narrow the scope"
-            input.treeTruncated -> "Layout tree exceeds the analysis budget; narrow the scope"
+            input.treeTruncated && !boundedPerformanceSummary -> "Layout tree exceeds the analysis budget; narrow the scope"
             input.includeSourceSnippets && candidates.size > MAX_CANDIDATES ->
                 "AI analysis has ${candidates.size} source candidates; narrow the scope below $MAX_CANDIDATES"
             payloadBytes > AI_ANALYSIS_MAX_PAYLOAD_BYTES ->
@@ -92,7 +115,7 @@ internal class SourceAwareLayoutAiAnalysisClient(
             buildEvidenceBundleIds = emptyList(),
             status = AnalysisSessionStatus.RUNNING,
             createdAt = Instant.now(),
-            provider = "OpenAI Responses",
+            provider = provider,
         )
         onPreparedContext(request)
         return PreparedAiAnalysis(
@@ -113,7 +136,7 @@ internal class SourceAwareLayoutAiAnalysisClient(
                 requiresNarrowerScope = blockedReason != null && !unauthorized && !unreadable,
             ),
         ) {
-            execute(initialSession, request, input, candidates, model, endpoint)
+            execute(initialSession, request, input, candidates, model, endpoint, settings)
         }
     }
 
@@ -123,7 +146,8 @@ internal class SourceAwareLayoutAiAnalysisClient(
         input: AiAnalysisInput,
         candidates: List<ResolutionCandidate>,
         model: String,
-        endpoint: String,
+        endpoint: String?,
+        settings: AiPlatformSettings?,
     ): AiAnalysisReport {
         check(request.sourceCandidates.isEmpty() || candidates.all(::sourceUploadAllowed)) {
             "Source upload authorization changed; prepare the analysis again"
@@ -131,7 +155,12 @@ internal class SourceAwareLayoutAiAnalysisClient(
         runtime.analysisSessions.saveSession(initialSession)
         return try {
             runtime.analysisSessions.saveRequest(request)
-            val result = globalAnalysis?.invoke(request) ?: (analysisGateway ?: gateway(model, endpoint)).analyze(request)
+            currentCoroutineContext().ensureActive()
+            val result = if (globalAnalysis != null) {
+                globalAnalysis.invoke(request, requireNotNull(settings))
+            } else {
+                (analysisGateway ?: gateway(model, requireNotNull(endpoint))).analyze(request)
+            }
             currentCoroutineContext().ensureActive()
             runtime.analysisSessions.saveResult(result)
             AiAnalysisReport(
@@ -159,7 +188,7 @@ internal class SourceAwareLayoutAiAnalysisClient(
                 },
                 provenance = AiAnalysisProvenance(
                     sessionId = request.sessionId.value,
-                    provider = "OpenAI Responses",
+                    provider = requireNotNull(initialSession.provider),
                     scope = request.scope.description,
                     promptVersion = request.promptVersion,
                     payloadPolicyVersion = request.payloadPolicyVersion,
@@ -213,12 +242,15 @@ internal class SourceAwareLayoutAiAnalysisClient(
             PerformanceEvidence(
                 id = selectedNodeId?.let(::evidenceId) ?: "layout-report",
                 kind = "layout-snapshot",
-                summary = sourceEvidence.firstOrNull()?.let { item ->
-                    buildString {
-                        append(item.className)
-                        item.resourceName?.let { append(" · ").append(it) }
+                summary = buildString {
+                    if (treeTruncated) append("Partial/incomplete layout summary (included nodes only): ")
+                    val item = sourceEvidence.firstOrNull()
+                    if (item == null) {
+                        append("Layout report summary")
+                    } else {
+                        append(item.className.substringAfterLast('.').take(160))
                     }
-                } ?: "Layout report summary",
+                },
                 structuredPayload = json,
             ),
         )

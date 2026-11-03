@@ -25,6 +25,12 @@ data class ManualScreenshotTarget(
     val timelineFrameIndex: Int?,
 )
 
+class AiAnalysisTarget internal constructor(
+    internal val snapshot: LayoutSnapshot,
+    internal val windowId: String?,
+    internal val timelineFrameIndex: Int?,
+)
+
 class InspectorStore(
     private val analyzer: LayoutAnalyzer = LayoutAnalyzer(),
     private val timelineMemoryBudgetBytes: Long = 64L * 1024 * 1024,
@@ -307,6 +313,27 @@ class InspectorStore(
 
     fun loadComposeCompilerReport(report: ComposeCompilerReport) {
         state = state.copy(composeCompilerReport = report)
+    }
+
+    fun aiAnalysisTarget(): AiAnalysisTarget? {
+        val snapshot = state.snapshot ?: return null
+        if (state.activeRoot == null) return null
+        return AiAnalysisTarget(
+            snapshot = snapshot,
+            windowId = state.selectedWindowId,
+            timelineFrameIndex = state.selectedTimelineFrameIndex,
+        )
+    }
+
+    fun isAiAnalysisTargetCurrent(target: AiAnalysisTarget): Boolean =
+        state.snapshot === target.snapshot &&
+            state.selectedWindowId == target.windowId &&
+            state.selectedTimelineFrameIndex == target.timelineFrameIndex
+
+    fun loadAiAnalysis(report: AiAnalysisReport, target: AiAnalysisTarget): Boolean {
+        if (!isAiAnalysisTargetCurrent(target)) return false
+        loadAiAnalysis(report)
+        return true
     }
 
     fun loadAiAnalysis(report: AiAnalysisReport) {

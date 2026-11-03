@@ -409,11 +409,12 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     correlationHint = navigator.inspectorCorrelationHint,
                                     initialArchiveFile = navigator.layoutArchiveRequest?.path,
                                     initialArchiveRequestId = navigator.layoutArchiveRequest?.requestId ?: 0L,
-                                    aiAnalysisClient = remember(sourceWorkspaceRuntime) {
-                                        SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime, globalAnalysis = aiCoordinator::analyze, onPreparedContext = { request ->
-                                            val revision = com.androidperformancestudio.aiplatform.app.contextDigest(request.toString())
-                                            aiCoordinator.contexts.publish(com.androidperformancestudio.aiplatform.app.BusinessContext("layout-inspector", revision, request.scope.description, request))
-                                        })
+                                    aiAnalysisClient = remember(sourceWorkspaceRuntime, aiCoordinator, aiSettingsStore) {
+                                        SourceAwareLayoutAiAnalysisClient(
+                                            sourceWorkspaceRuntime,
+                                            globalAnalysis = aiCoordinator::analyze,
+                                            loadSettings = aiSettingsStore::load,
+                                        )
                                     },
                                     onOpenSourceCandidate = { candidateId, archived ->
                                         val current = sourceWorkspaceRuntime.candidate(candidateId)

@@ -15,6 +15,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -64,6 +65,7 @@ public class ApplicationAiService(
         reportFormat: ArtifactFormat = ArtifactFormat.HTML,
     ): PreparedAgentRun =
         mutex.withLock {
+            currentCoroutineContext().ensureActive()
             cancelLocked()
             try {
                 val prepared =
