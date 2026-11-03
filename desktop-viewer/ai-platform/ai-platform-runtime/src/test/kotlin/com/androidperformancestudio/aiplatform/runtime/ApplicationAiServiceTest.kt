@@ -13,6 +13,8 @@ import com.androidperformancestudio.ai.AnalysisSeverity
 import com.androidperformancestudio.ai.PerformanceEvidence
 import com.androidperformancestudio.ai.ProfilerKind
 import com.androidperformancestudio.aiplatform.model.ArtifactFormat
+import com.androidperformancestudio.aiplatform.model.ConversationRecord
+import com.androidperformancestudio.aiplatform.model.ConversationTurn
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import com.androidperformancestudio.aiplatform.providers.GatewayAnalysisProvider
@@ -21,6 +23,7 @@ import com.androidperformancestudio.aiplatform.providers.ProviderRegistry
 import com.androidperformancestudio.aiplatform.registry.ExtensionRegistry
 import com.androidperformancestudio.aiplatform.registry.PlatformDirectories
 import com.androidperformancestudio.aiplatform.script.ArtifactPublisher
+import com.androidperformancestudio.aiplatform.storage.ConversationStorageException
 import com.androidperformancestudio.aiplatform.storage.ExecutionKind
 import com.androidperformancestudio.aiplatform.storage.ExecutionPhase
 import com.androidperformancestudio.aiplatform.storage.SqliteConversationRepository
@@ -703,6 +706,209 @@ class ApplicationAiServiceTest {
                         .last()
                         .artifactHashes,
                 )
+            }
+        }
+
+    @Test
+    fun `confirmed chat deletion removes nested agents and projections but preserves shared artifact content`() =
+        runBlocking {
+            withFixture(this) { fixture ->
+                val prepared =
+                    fixture.service.prepare(
+                        "conversation",
+                        request(),
+                        "aps.main",
+                        "openai",
+                        "test-model",
+                        permissions + Permission.WRITE_ARTIFACT,
+                    )
+                fixture.service.approveAndRun(prepared.approval).join()
+                val root = fixture.store.load("conversation")!!
+                val child = fixture.store.list().first { it.parentConversationId == root.id }
+                fixture.store.save(
+                    child.copy(id = "nested-child", parentConversationId = child.id, analysisSessionId = root.analysisSessionId),
+                )
+                val stored = fixture.store.result(root.id, prepared.approval.runId)!!
+                val hash = assertNotNull(fixture.service.state.value.publishedArtifactHash)
+                val artifact = fixture.publisher.read(hash).toList()
+                val unrelated = root.copy(id = "unrelated")
+                fixture.store.save(unrelated)
+                fixture.store.saveResult(stored.copy(conversationId = unrelated.id))
+                val deletedIds =
+                    fixture.store
+                        .list()
+                        .filter { it.id != unrelated.id }
+                        .map { it.id }
+
+                assertTrue(fixture.service.deleteChatConversation(root.id))
+
+                assertEquals(AiApplicationState(), fixture.service.state.value)
+                assertEquals(listOf(unrelated), fixture.store.list())
+                assertEquals(listOf(unrelated.id), fixture.service.chatHistory().map { it.id })
+                deletedIds.forEach { id ->
+                    assertNull(fixture.store.load(id))
+                    assertTrue(fixture.service.transcript(id).isEmpty())
+                    assertTrue(fixture.store.audit(id).isEmpty())
+                    assertNull(fixture.store.chatMetadata(id))
+                }
+                assertNull(fixture.store.result(root.id, prepared.approval.runId))
+                assertEquals(listOf(hash), fixture.store.result(unrelated.id, prepared.approval.runId)!!.artifactHashes)
+                assertEquals(artifact, fixture.publisher.read(hash).toList())
+                assertFalse(fixture.service.deleteChatConversation(root.id))
+            }
+        }
+
+    @Test
+    fun `confirmed deletion cancels the running root and waits for child agent cleanup`() =
+        runBlocking {
+            val started = CompletableDeferred<Unit>()
+            val cancelled = CompletableDeferred<Unit>()
+            withFixture(this, beforeResult = {
+                started.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    cancelled.complete(Unit)
+                }
+            }) { fixture ->
+                val prepared = fixture.service.prepare("running", request(), "aps.main", "openai", "test-model", permissions)
+                val job = fixture.service.approveAndRun(prepared.approval)
+                withTimeout(5000) { started.await() }
+                assertTrue(fixture.store.list().any { it.parentConversationId == "running" })
+
+                assertTrue(withTimeout(5000) { fixture.service.deleteChatConversation("running") })
+
+                assertTrue(job.isCompleted)
+                assertTrue(cancelled.isCompleted)
+                assertEquals(RunStatus.CANCELLED, fixture.service.awaitRun(prepared.approval.runId).status)
+                assertEquals(AiApplicationState(), fixture.service.state.value)
+                assertTrue(fixture.store.list().isEmpty())
+                assertTrue(fixture.service.chatHistory().isEmpty())
+            }
+        }
+
+    @Test
+    fun `confirmed deletion of another root never cancels the current running conversation`() =
+        runBlocking {
+            val started = CompletableDeferred<Unit>()
+            withFixture(this, beforeResult = {
+                started.complete(Unit)
+                awaitCancellation()
+            }) { fixture ->
+                val target =
+                    ConversationRecord(
+                        id = "target",
+                        analysisSessionId = "target-session",
+                        contextHash = "a".repeat(64),
+                        turns = listOf(ConversationTurn("target-run", 0, RunStatus.SUCCEEDED, emptyList(), emptyList())),
+                    )
+                fixture.store.save(target)
+                fixture.store.save(target.copy(id = "target-child", analysisSessionId = "child-session", parentConversationId = target.id))
+                val prepared = fixture.service.prepare("current", request(), "aps.main", "openai", "test-model", permissions)
+                val job = fixture.service.approveAndRun(prepared.approval)
+                withTimeout(5000) { started.await() }
+                val state = fixture.service.state.value
+                val current = fixture.store.list().filter { it.id != target.id && it.id != "target-child" }
+                try {
+                    assertTrue(fixture.service.deleteChatConversation(target.id))
+                    assertEquals(state, fixture.service.state.value)
+                    assertTrue(job.isActive)
+                    assertEquals(current, fixture.store.list())
+                    assertEquals(
+                        RunStatus.RUNNING,
+                        fixture.store
+                            .load("current")!!
+                            .turns
+                            .last()
+                            .status,
+                    )
+                } finally {
+                    fixture.service.cancel(prepared.approval.runId)
+                    withTimeout(5000) { job.join() }
+                }
+            }
+        }
+
+    @Test
+    fun `active user fork is not cancelled when parent deletion is rejected atomically`() =
+        runBlocking {
+            withFixture(this) { fixture ->
+                val parent = fixture.service.prepare("parent", request(), "aps.main", "openai", "test-model", permissions)
+                fixture.service.approveAndRun(parent.approval).join()
+                val fork =
+                    fixture.service.prepare(
+                        "fork",
+                        request(),
+                        "aps.main",
+                        "openai",
+                        "test-model",
+                        permissions,
+                        parentConversationId = "parent",
+                        parentTurnRunId = parent.approval.runId,
+                    )
+                val before = fixture.store.list()
+                val state = fixture.service.state.value
+                val failure = assertFailsWith<ConversationStorageException> { fixture.service.deleteChatConversation("parent") }
+                assertEquals("E_CONVERSATION_HAS_CHILDREN", failure.code)
+                assertEquals(before, fixture.store.list())
+                assertEquals(state, fixture.service.state.value)
+                fixture.service.approveAndRun(fork.approval).join()
+                assertEquals(RunStatus.SUCCEEDED, fixture.service.state.value.status)
+            }
+        }
+
+    @Test
+    fun `deleting a root clears a restored graph descendant selection`() =
+        runBlocking {
+            withFixture(this) { fixture ->
+                val prepared = fixture.service.prepare("root", request(), "aps.main", "openai", "test-model", permissions)
+                fixture.service.approveAndRun(prepared.approval).join()
+                val child = fixture.store.list().first { it.parentConversationId == "root" }
+                fixture.service.restore(child.id)
+                assertEquals(child.id, fixture.service.state.value.conversationId)
+
+                assertTrue(fixture.service.deleteChatConversation("root"))
+
+                assertEquals(AiApplicationState(), fixture.service.state.value)
+                assertTrue(fixture.store.list().isEmpty())
+            }
+        }
+
+    @Test
+    fun `selection changed while cancelled collector finishes is preserved`() =
+        runBlocking {
+            val started = CompletableDeferred<Unit>()
+            val cleaningUp = CompletableDeferred<Unit>()
+            val finishCleanup = CompletableDeferred<Unit>()
+            withFixture(this, beforeResult = {
+                started.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    withContext(NonCancellable) {
+                        cleaningUp.complete(Unit)
+                        finishCleanup.await()
+                    }
+                }
+            }) { fixture ->
+                val prepared = fixture.service.prepare("target", request(), "aps.main", "openai", "test-model", permissions)
+                fixture.service.approveAndRun(prepared.approval)
+                withTimeout(5000) { started.await() }
+                val deleting = async { fixture.service.deleteChatConversation("target") }
+                try {
+                    withTimeout(5000) { cleaningUp.await() }
+                    fixture.service.prepare("current", request(), "aps.main", "openai", "test-model", permissions)
+                    val state = fixture.service.state.value
+                    finishCleanup.complete(Unit)
+                    assertTrue(withTimeout(5000) { deleting.await() })
+                    assertEquals(state, fixture.service.state.value)
+                    assertNotNull(fixture.store.load("current"))
+                    assertEquals(RunStatus.CANCELLED, fixture.service.awaitRun(prepared.approval.runId).status)
+                } finally {
+                    finishCleanup.complete(Unit)
+                    fixture.service.cancel()
+                    withTimeout(5000) { deleting.join() }
+                }
             }
         }
 

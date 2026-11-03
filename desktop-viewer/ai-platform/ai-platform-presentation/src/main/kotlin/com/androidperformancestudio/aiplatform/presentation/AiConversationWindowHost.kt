@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.ai.isDirectChat
 import com.androidperformancestudio.ai.payloadText
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
@@ -47,6 +48,7 @@ import com.androidperformancestudio.aiplatform.runtime.AiApplicationState
 import com.androidperformancestudio.aiplatform.runtime.ChatSessionSummary
 import com.androidperformancestudio.aiplatform.runtime.ChatTurn
 import com.androidperformancestudio.aiplatform.runtime.PreparedAgentRun
+import com.androidperformancestudio.aiplatform.storage.ConversationStorageException
 import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
@@ -263,6 +265,8 @@ internal fun ConversationWorkspace(
                 throw failure
             } catch (failure: AgentPolicyException) {
                 message = failure.code.takeIf { it.matches(Regex("E_[A-Z0-9_]{1,80}")) } ?: "E_AI_ACTION"
+            } catch (failure: ConversationStorageException) {
+                message = failure.code.takeIf { it.matches(Regex("E_[A-Z0-9_]{1,80}")) } ?: "E_AI_ACTION"
             } catch (_: Exception) {
                 message = "E_AI_ACTION"
             } finally {
@@ -276,14 +280,18 @@ internal fun ConversationWorkspace(
         action(onFinally = { transitioning = false }) { block() }
     }
 
-    suspend fun beginConversation(keepDraft: Boolean = false) {
+    suspend fun beginConversation(
+        keepDraft: Boolean = false,
+        bindCurrentContext: Boolean = true,
+    ) {
         val draft = memory.draft
         memory.drafts[memory.conversationId] = memory.draft
         memory.queued = memory.queued.filterNot { it.conversationId == memory.conversationId }
+        memory.retryDraft = null
         withContext(Dispatchers.IO) { runtime.service.newConversation() }
         memory.conversationId = UUID.randomUUID().toString()
         memory.draft = if (keepDraft) draft else TextFieldValue("")
-        bound = context ?: createChatContext()
+        bound = if (bindCurrentContext) context ?: createChatContext() else createChatContext()
         boundRunId = null
         boundHistoryId = null
         navigationRevision = context?.revision
@@ -306,7 +314,11 @@ internal fun ConversationWorkspace(
         var acquired: PreparedAgentRun? = null
         try {
             val id = memory.conversationId
-            val request = frozenContext.request.copy(sourceCandidates = if (source) frozenContext.request.sourceCandidates else emptyList())
+            val request =
+                frozenContext.request.copy(
+                    sourceCandidates = if (source) frozenContext.request.sourceCandidates else emptyList(),
+                    outputLanguage = selectedSettings.reportLanguage,
+                )
             val parent =
                 parentTurnId ?: state.lastTurnRunId?.takeIf {
                     state.conversationId == id && state.status?.terminal == true
@@ -367,7 +379,15 @@ internal fun ConversationWorkspace(
                     if (preparationGeneration == generation) preparing = false
                 },
             ) {
-                prepare(question, canonical, selectedSettings, source, submittedDraft)
+                try {
+                    prepare(question, canonical, selectedSettings, source, submittedDraft)
+                    memory.retryDraft = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    memory.retryDraft = QueuedChatDraft(memory.conversationId, question, canonical, source)
+                    throw failure
+                }
             }
     }
 
@@ -399,6 +419,29 @@ internal fun ConversationWorkspace(
         }
     }
 
+    fun retry(runId: String? = null) {
+        if (busy) return
+        val canonical = executableContext
+        if (canonical == null || sourceReauthorizationRequired) {
+            message = if (sourceReauthorizationRequired) "E_SOURCE_REAUTH_REQUIRED" else "E_CONTEXT_UNAVAILABLE"
+            return
+        }
+        val currentTurns = turns.takeIf { loadedConversationId == memory.conversationId }.orEmpty()
+        val failedTurn =
+            if (runId != null) {
+                currentTurns.singleOrNull { it.runId == runId && it.status.allowsChatRetry() && it.result == null }
+            } else {
+                currentTurns.lastOrNull()?.takeIf { it.status.allowsChatRetry() && it.result == null }
+            }
+        val failedDraft = memory.retryDraft?.takeIf { runId == null && it.conversationId == memory.conversationId }
+        val question = failedDraft?.question ?: failedTurn?.question.orEmpty()
+        if (failedDraft == null && failedTurn == null || question.isBlank() && canonical.request.isDirectChat) {
+            message = "E_RETRY_UNAVAILABLE"
+            return
+        }
+        launchPreparation(question, canonical, store.settings.value, includeSource)
+    }
+
     LaunchedEffect(latestSettings, busy) { if (!busy) settings = latestSettings }
     LaunchedEffect(context?.revision, state.conversationId, state.prepared?.approval?.runId, state.restored, state.status) {
         evidenceSelection = null
@@ -411,8 +454,9 @@ internal fun ConversationWorkspace(
                 state.conversationId?.let { id ->
                     memory.conversationId = id
                     val record = withContext(Dispatchers.IO) { runtime.service.history().find { it.id == id } }
-                    bound = record?.let { matchingChatContext(it, createChatContext()) }
+                    bound = record?.let { matchingChatContext(it, context) ?: matchingChatContext(it, createChatContext()) }
                     boundHistoryId = id.takeIf { bound != null }
+                    sourceRequired = bound?.request?.sourceCandidates?.isNotEmpty() == true
                 }
                 includeSource = false
             }
@@ -550,6 +594,19 @@ internal fun ConversationWorkspace(
                         refresh++
                     }
                 },
+                onDelete = { id ->
+                    navigate {
+                        withContext(Dispatchers.IO) { runtime.service.deleteChatConversation(id) }
+                        memory.queued = memory.queued.filterNot { it.conversationId == id }
+                        memory.retryDraft = memory.retryDraft?.takeUnless { it.conversationId == id }
+                        if (id == memory.conversationId) {
+                            beginConversation()
+                            loadedConversationId = null
+                        }
+                        memory.drafts.remove(id)
+                        refresh++
+                    }
+                },
                 onFork = { id, requestedTurn ->
                     if (!busy) {
                         navigate {
@@ -576,14 +633,9 @@ internal fun ConversationWorkspace(
                 onCopySession = {},
                 onEditQuestion = { question -> memory.draft = TextFieldValue(question, TextRange(question.length)) },
                 onRetry = {
-                    val question = turns.lastOrNull()?.question
-                    val canonical = bound
-                    if (!busy && question != null && canonical != null && !sourceReauthorizationRequired) {
-                        launchPreparation(question, canonical, store.settings.value, includeSource)
-                    } else {
-                        message = if (sourceReauthorizationRequired) "E_SOURCE_REAUTH_REQUIRED" else "E_CONTEXT_UNAVAILABLE"
-                    }
+                    retry()
                 },
+                onRetryTurn = { retry(it) },
                 onOpenSettings = onOpenSettings,
                 onOpenModels = {
                     catalogOpen = true
@@ -632,6 +684,11 @@ internal fun ConversationWorkspace(
                         }
                     } else if (context == null) {
                         message = "E_CONTEXT_UNAVAILABLE"
+                    }
+                },
+                onStartOrdinaryChat = {
+                    if (!busy) {
+                        navigate { beginConversation(keepDraft = true, bindCurrentContext = false) }
                     }
                 },
                 onIncludeSource = {
@@ -726,7 +783,12 @@ internal fun matchingChatContext(
     return candidates
         .firstOrNull { request ->
             val material =
-                request.copy(userQuestion = null, conversationContext = emptyList()).payloadText() +
+                request
+                    .copy(
+                        userQuestion = null,
+                        conversationContext = emptyList(),
+                        outputLanguage = ReportLanguage.AUTO,
+                    ).payloadText() +
                     "\n" + request.promptVersion + "\n" + request.payloadPolicyVersion
             contextDigest(material) == record.contextHash
         }?.let { context.copy(request = it) }
@@ -782,6 +844,7 @@ internal class ChatWindowMemory(
     var draft by mutableStateOf(TextFieldValue(""))
     var showingArchived by mutableStateOf(false)
     var queued by mutableStateOf<List<QueuedChatDraft>>(emptyList())
+    var retryDraft by mutableStateOf<QueuedChatDraft?>(null)
     val drafts = mutableMapOf<String, TextFieldValue>()
 }
 

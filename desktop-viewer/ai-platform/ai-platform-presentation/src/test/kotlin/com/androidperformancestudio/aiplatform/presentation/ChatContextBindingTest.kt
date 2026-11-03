@@ -3,6 +3,7 @@ package com.androidperformancestudio.aiplatform.presentation
 import com.androidperformancestudio.ai.AiSourceCandidate
 import com.androidperformancestudio.ai.AnalysisRequest
 import com.androidperformancestudio.ai.PerformanceEvidence
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.ai.payloadText
 import com.androidperformancestudio.aiplatform.app.contextDigest
 import com.androidperformancestudio.aiplatform.app.createBusinessContext
@@ -49,6 +50,14 @@ class ChatContextBindingTest {
         val context = context()
         val withQuestion = context.copy(request = context.request.copy(userQuestion = "A different current question"))
         assertEquals(withQuestion, matchingChatContext(record(context.request), withQuestion))
+    }
+
+    @Test
+    fun `report language does not change canonical evidence identity`() {
+        val context = context()
+        val chinese = context.copy(request = context.request.copy(outputLanguage = ReportLanguage.SIMPLIFIED_CHINESE))
+
+        assertEquals(chinese, matchingChatContext(record(context.request), chinese))
     }
 
     @Test

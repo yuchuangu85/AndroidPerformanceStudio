@@ -39,6 +39,12 @@ public enum class AnalysisScopeKind {
     CONVERSATION,
 }
 
+public enum class ReportLanguage {
+    AUTO,
+    ENGLISH,
+    SIMPLIFIED_CHINESE,
+}
+
 public data class AnalysisScope(
     val kind: AnalysisScopeKind,
     val description: String,
@@ -75,6 +81,7 @@ public data class AnalysisRequest(
     val payloadPolicyVersion: String,
     val userQuestion: String? = null,
     val conversationContext: List<AiConversationContextTurn> = emptyList(),
+    val outputLanguage: ReportLanguage = ReportLanguage.AUTO,
 ) {
     init {
         require((originProfiler == ProfilerKind.CHAT) == (scope.kind == AnalysisScopeKind.CONVERSATION)) { "E_CHAT_CONTEXT" }

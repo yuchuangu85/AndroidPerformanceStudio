@@ -419,7 +419,8 @@ class DesktopAiManagementSettingsTest {
             val layouts = mutableListOf<TextLayoutResult>()
             onNodeWithText(label, useUnmergedTree = true)
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertEquals(titleFontSize, layouts.single().layoutInput.style.fontSize, "$label must match the title font size")
+            assertEquals(13.sp, layouts.single().layoutInput.style.fontSize, "$label must use the middle font size")
+            assertEquals(ViewerTypography.body.fontSize, layouts.single().layoutInput.style.fontSize)
             val textBounds = onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
             assertTrue(layouts.single().getBoundingBox(label.lastIndex).right <= textBounds.width + 1f)
             assertTrue(layouts.single().multiParagraph.height <= headerBounds.height)

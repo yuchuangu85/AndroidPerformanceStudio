@@ -17,7 +17,7 @@
 
 - 七个内置包为四个 Agent：`aps.main`、`aps.simpleperf`、`aps.source-evidence`、`aps.report`；三个 Skill：`aps.evidence-summary`、`aps.source-candidates`、`aps.report-artifact`。
 - `FrozenAgentGraph` 冻结可信 manifest 图，支持 imported Agent 和声明脚本；每个 child 独立调用 Provider、持久化独立会话并记录精确父子运行引用。子结果和脚本输出经过校验、脱敏及预算检查后作为不可信派生分析供父 Agent 使用，不能扩大证据/源码 allowlist 或覆盖系统指令。
-- `MainAgentOrchestrator` 已实现冻结请求、宿主审批、计划/包哈希与权限复检、generation 防旧结果覆盖、取消和共享预算。预算覆盖根/child/Skill/Provider/Artifact；CPU 按 elapsed time 保守扣减，不是进程树 CPU 计量，JVM memory 也不是硬隔离。
+- `MainAgentOrchestrator` 已实现冻结请求、宿主审批、计划/包哈希与权限复检、generation 防旧结果覆盖、取消和共享预算。预算覆盖根/child/Skill/Provider/Artifact；CPU 按协程执行线程的 JVM CPU 时间累计，模型等待由独立 wall timeout 限制。CPU 在宿主执行边界检查，不是进程树 CPU 抢占，JVM memory 也不是硬隔离。
 - 会话/turn 保持 reference-only；`StoredAnalysisResult` 另存有界、校验并脱敏的结论、问题哈希、parent-turn/Artifact 引用。SQLite 原子完成 turn 与结果投影，并保存结构化执行审计；已有只读 restore、删除和显式 retention，不归档完整请求、源码、原始 profile 或 Provider response。
 - `ArtifactPublisher` 已有默认 inert HTML、Markdown API、引用 allowlist、provenance 和读回哈希复检。报告 Skill 默认可生成内存报告，落盘需 `WRITE_ARTIFACT`；全局 UI 已能打开校验后的 HTML，尚不是完整的 Markdown 导出/共享产品。
 

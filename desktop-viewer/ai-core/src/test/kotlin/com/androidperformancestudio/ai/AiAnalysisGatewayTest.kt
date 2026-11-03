@@ -12,6 +12,27 @@ import kotlinx.coroutines.runBlocking
 
 class AiAnalysisGatewayTest {
     @Test
+    fun `selected report language is a trusted instruction and structured payload field`() = runBlocking {
+        var captured: AiHttpRequest? = null
+        val gateway =
+            OpenAiAnalysisGateway(
+                OpenAiResponsesClient(
+                    apiKey = "api-secret",
+                    model = "test-model",
+                    transport = AiHttpTransport { request ->
+                        captured = request
+                        AiHttpResponse(200, """{"output_text":"{\"summary\":\"ok\",\"findings\":[]}"}""")
+                    },
+                ),
+            )
+
+        gateway.analyze(request().copy(outputLanguage = ReportLanguage.SIMPLIFIED_CHINESE))
+
+        assertTrue(checkNotNull(captured).body.contains("Simplified Chinese"))
+        assertTrue(checkNotNull(captured).body.contains("SIMPLIFIED_CHINESE"))
+    }
+
+    @Test
     fun `accepts only evidence-bound structured findings`() = runBlocking {
         val gateway = gatewayReturning(
             """

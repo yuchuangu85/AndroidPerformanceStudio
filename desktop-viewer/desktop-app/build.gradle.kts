@@ -490,6 +490,9 @@ dependencies {
     testImplementation(libs.aps.analysis.frame)
     testImplementation(libs.aps.analysis.startup)
     testImplementation(libs.aps.startup.model)
+    testImplementation("com.androidperformancestudio:profile-analysis:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio:simpleperf-storage-sqlite:0.1.0-SNAPSHOT")
+    testImplementation("com.androidperformancestudio:analysis-rules:0.1.0-SNAPSHOT")
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
@@ -520,10 +523,11 @@ compose.desktop {
             appResourcesRootDir.set(profilerAppResources)
             // The minimized jpackage runtime cannot infer reflective/com.sun HTTP usage, so list the
             // required JDK modules explicitly: java.net.http for AI transport, jdk.httpserver for the
-            // PerfettoUiServer, java.sql for the SQLite session stores.
+            // PerfettoUiServer, java.sql for SQLite, java.management for coroutine CPU metering.
             modules("java.net.http")
             modules("jdk.httpserver")
             modules("java.sql")
+            modules("java.management")
             targetFormats(
                 TargetFormat.Dmg,
                 TargetFormat.Pkg,

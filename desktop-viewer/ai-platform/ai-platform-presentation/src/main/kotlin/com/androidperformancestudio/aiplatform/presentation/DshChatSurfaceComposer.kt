@@ -97,16 +97,34 @@ internal fun DshComposer(
             }
         }
         if (!state.canSend && (!state.busy || state.pendingApproval != null)) {
-            DshText(
-                dshLabel(
-                    language,
-                    "Rebind this conversation's report evidence or re-authorize source access. Start a new chat to talk without a report.",
-                    "请重新绑定此对话的报告证据或授权源码；无需报告时可新建普通对话。",
-                ),
-                Modifier.padding(horizontal = 16.dp).testTag("ai-context-unavailable"),
-                color = colors.error,
-                style = DshChatStyle.secondary,
-            )
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DshText(
+                    if (state.canIncludeSource && !state.includeSource) {
+                        dshLabel(language, "Re-authorize source access to continue this conversation.", "继续此对话前，请重新授权源码访问。")
+                    } else {
+                        dshLabel(language, "This conversation's report evidence is unavailable.", "此对话的报告证据尚未绑定。")
+                    },
+                    Modifier.testTag("ai-context-unavailable"),
+                    color = colors.error,
+                    style = DshChatStyle.secondary,
+                )
+                if (!state.busy) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (state.canIncludeSource && !state.includeSource) {
+                            TextButton(onClick = { actions.onIncludeSource(true) }, modifier = Modifier.testTag("ai-reauthorize-source")) {
+                                DshText(dshLabel(language, "Authorize source access", "授权源码访问"), style = DshChatStyle.secondary)
+                            }
+                        } else {
+                            TextButton(onClick = actions.onBindContext, modifier = Modifier.testTag("ai-rebind-context")) {
+                                DshText(dshLabel(language, "Rebind current report", "重新绑定当前报告"), style = DshChatStyle.secondary)
+                            }
+                        }
+                        TextButton(onClick = actions.onStartOrdinaryChat, modifier = Modifier.testTag("ai-start-ordinary-chat")) {
+                            DshText(dshLabel(language, "Start ordinary chat", "新建普通对话"), style = DshChatStyle.secondary)
+                        }
+                    }
+                }
+            }
         }
         Column(
             Modifier

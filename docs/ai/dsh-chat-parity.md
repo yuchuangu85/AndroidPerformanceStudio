@@ -58,8 +58,13 @@ Provider、Agent、Skill、Policy 与连接全部进入 `DesktopAppSettingsPage.
 没有打开性能报告时，输入区允许普通对话：使用明确的 `CHAT/CONVERSATION` 空上下文和
 独立 `aps.chat` Agent，仍先预检、再显式批准。请求不伪造性能 Evidence，不包含 Source，
 不运行 Skill、子 Agent、脚本或 Artifact 发布；回复只放在 `summary`，`findings=[]`。
-恢复普通对话仅接受完全匹配的 canonical session/hash；缺失报告绑定的历史分析不能自动降级
-成普通聊天，需重新绑定原报告，或新建普通对话。原有报告分析仍要求真实非空证据和独立源码授权。
+恢复普通对话及当前仍可用的报告对话仅接受完全匹配的 canonical session/hash；证据完全匹配时，
+恢复报告对话不再要求重复手工绑定，不发起 Provider 请求。源码会话即使匹配也保持发送关闭，
+需显式重新授权源码。证据或源码授权缺失时，输入区分别显示直接恢复操作及“新建普通对话”；
+后者保留草稿但创建独立的 `CHAT/CONVERSATION` 空上下文，不沿用报告证据、源码或授权。
+缺失报告绑定的历史分析不能自动降级成普通聊天，也不从另一报告补齐同名 ID。
+CPU 页分析入口与全局入口共用 canonical 请求构造，保持 session、prompt/payload 版本一致；
+旧随机 session 历史不自动迁移或绕过 hash 校验。原有报告分析仍要求真实非空证据和独立源码授权。
 
 Enter、Shift+Enter、IME、空输入上箭头、两次独立 Escape、新建/搜索快捷键、忙碌排队、
 问题编辑/移除、复制反馈和回到最新消息是本轮实现目标。每轮仍需 APS 实际 immutable payload
@@ -74,7 +79,11 @@ Enter、Shift+Enter、IME、空输入上箭头、两次独立 Escape、新建/�
 - **队列与 Steer**：当前是本地有界、按会话隔离的待处理问题，不是持久化 Inbox、
   跨客户端恢复或运行中 steering；没有 DSH 的 Queue/Steer 设置及 Ctrl/Cmd+Enter 互补模式。
 - **内容呈现**：结构化 Findings 与安全正文不是完整 DSH Markdown/图片灯箱/任意文件或
-  HTTP 导航；当前安全 Markdown 支持标题、列表、加粗、行内代码和 fenced code，HTML/链接保持字面文本。消息动作常显，尚未复现 DSH
+  HTTP 导航；原生 Markdown 显示子集已覆盖段落、六级标题、嵌套有序/无序/任务列表、引用、
+  管道表格、分隔线、嵌套加粗/斜体/删除线、行内代码和代码围栏。HTTP(S) 链接显示标签样式但
+  不执行导航；HTML、图片和不安全链接保持字面文本，不加载远程资源。代码块提供语言、复制、
+  自动换行和常见代码片段的轻量着色，不冒充 Shiki 语法全集。数学公式、脚注及完整 CommonMark
+  兼容仍未实现。消息动作常显，尚未复现 DSH
   历史消息 hover/focus 显隐。只读 HTML Artifact 打开不等同 Markdown 导出或 DSH Artifact 插件。
 - **运行细节**：现有宿主审计时间线不等同 DSH 的四档 Work details、思考流分组、
   独立折叠时机、额度/压缩恢复等全部状态。
@@ -87,6 +96,19 @@ Enter、Shift+Enter、IME、空输入上箭头、两次独立 Escape、新建/�
   历史 canonical 证据/源码绑定缺失时明确 unavailable，不回填别的报告。
 
 ## 验证口径
+
+### 2026-11-03 Markdown 显示
+
+- 参照同一只读 0.2.1-rc.5 安装包中的 `dsh-web-frontend/dist/assets/index-BNyAYEM7.css`
+  Markdown typography（29596–34035）和代码块（57429–59856），以及
+  `dsh-client-ui-chat/lib/client.js:6252-6311` 的 Markdown 消息容器；不复制第三方实现。
+- 正文保持 14sp/24sp，段落间距 16dp；h1/h2/h3 为 21/30、19/28、18/26，前距 32dp，
+  其余标题保持正文尺寸。引用为 2dp 左线和 14dp 内缩，列表项间距 6dp。
+- 摘要、Finding explanation/recommendation 共用惰性原生 renderer。表格仅在自身视口横向滚动，
+  代码块有界于聊天列，默认横向滚动，可切换换行；复制使用未经着色改写的源代码。
+- 块嵌套限制 12 层，行内解析设深度和工作量限制；超限显示原文，不吞掉内容或扩张业务权限。
+- Compose 480/900/1280 明暗截图、解析和交互测试不等同同内容 Harness 像素对齐、原生键鼠或
+  真实 Provider 验收。
 
 组件/宿主 tests、存储 reopen 与损坏记录 tests、编译/静态检查、语言/主题/宽窄截图、
 原生键鼠、真实 Provider 和签名/安装包分别记录。最终执行结果由任务报告及实际构建日志提供；

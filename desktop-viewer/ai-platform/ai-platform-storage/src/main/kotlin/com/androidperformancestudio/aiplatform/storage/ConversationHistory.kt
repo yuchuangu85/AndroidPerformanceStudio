@@ -175,6 +175,9 @@ public interface ConversationHistoryRepository : ConversationRepository {
 
     public fun delete(conversationId: String): Boolean
 
+    /** Explicit chat deletion; implementations must atomically reject forks and active descendants. */
+    public fun deleteChatConversation(conversationId: String): Boolean = throw ConversationStorageException("E_CHAT_UNSUPPORTED")
+
     public fun prune(
         maxConversations: Int,
         olderThanEpochMillis: Long,

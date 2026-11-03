@@ -2,11 +2,8 @@ package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.ai.AiSourceCandidate
 import com.androidperformancestudio.ai.AnalysisRequest
-import com.androidperformancestudio.ai.AnalysisScope
-import com.androidperformancestudio.ai.AnalysisScopeKind
-import com.androidperformancestudio.ai.AnalysisSessionId
 import com.androidperformancestudio.ai.PerformanceEvidence
-import com.androidperformancestudio.ai.ProfilerKind
+import com.androidperformancestudio.aiplatform.app.createBusinessContext
 import com.androidperformancestudio.application.ReportData
 import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.source.PerformanceEvidenceId
@@ -47,10 +44,10 @@ internal class ProductionSimpleperfAiAnalysisClient(
 
 internal fun simpleperfAnalysisRequest(report: ReportData, state: ReportState): AnalysisRequest {
     val context = simpleperfUiAiContext(report, state)
-    return AnalysisRequest(
-        AnalysisSessionId.create(), ProfilerKind.SIMPLEPERF,
-        AnalysisScope(if (context.currentSelection) AnalysisScopeKind.CURRENT_SELECTION else AnalysisScopeKind.REPORT_SUMMARY, context.title),
+    return createBusinessContext(
+        context.key,
+        context.title,
         context.evidence.map { PerformanceEvidence(it.id, it.kind, it.summary, it.payloadJson) },
-        emptyList(), "simpleperf-evidence-v1", "aps-minimized-v1",
-    )
+        context.currentSelection,
+    ).request
 }

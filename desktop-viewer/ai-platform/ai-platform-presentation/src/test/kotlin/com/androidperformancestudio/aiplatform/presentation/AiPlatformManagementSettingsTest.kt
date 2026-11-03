@@ -38,6 +38,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ai.AiAnalysisGateway
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
@@ -137,7 +138,8 @@ class AiPlatformManagementSettingsTest {
                                         mapOf(
                                             "ai-management-card-permissions" to
                                                 listOf("ai-management-allow-artifacts", "ai-management-allow-scripts"),
-                                            "ai-management-card-report" to listOf("ai-management-report-format"),
+                                            "ai-management-card-report" to
+                                                listOf("ai-management-report-format", "ai-management-report-language"),
                                             "ai-management-card-history" to listOf("ai-management-retain-history"),
                                         )
                                 }
@@ -161,6 +163,9 @@ class AiPlatformManagementSettingsTest {
                                     .assert(hasAnyAncestor(hasTestTag("ai-management-card-report")))
                                     .assertTextContains("HTML (.html)")
                                 onNodeWithTag("ai-management-report-format").assertWidthIsEqualTo(320.dp)
+                                onNodeWithContentDescription(if (chinese) "输出报告语言" else "Report output language")
+                                    .assert(hasAnyAncestor(hasTestTag("ai-management-card-report")))
+                                onNodeWithTag("ai-management-report-language").assertWidthIsEqualTo(320.dp)
                             }
                             assertEquals(original, fixture.newSettingsStore().load())
                             fixture.assertNoProviderWork()
@@ -297,6 +302,32 @@ class AiPlatformManagementSettingsTest {
                 onNode(hasText("Markdown (.md)") and menuItem).performClick()
                 selector.assertTextContains("Markdown (.md)")
                 assertEquals(updated.copy(reportFormat = ArtifactFormat.MARKDOWN), external.load())
+                fixture.assertNoProviderWork()
+            }
+        }
+
+    @Test
+    fun `report language defaults to automatic and persists explicit output language without provider work`() =
+        ManagementFixture().use { fixture ->
+            val external = fixture.newSettingsStore()
+            runDesktopComposeUiTest(width = 480, height = 600) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiPlatformManagementSettings(
+                            fixture.runtime,
+                            AiManagementSection.POLICY,
+                            UiLanguage.SIMPLIFIED_CHINESE,
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                val selector = onNodeWithContentDescription("输出报告语言")
+                selector.performScrollTo().assertTextContains("自动（问题或报告语言）")
+                selector.performClick()
+                val menuItem = hasAnyAncestor(hasTestTag("ai-management-report-language-menu"))
+                onNode(hasText("简体中文") and menuItem).performClick()
+                selector.assertTextContains("简体中文")
+                assertEquals(ReportLanguage.SIMPLIFIED_CHINESE, external.load().reportLanguage)
                 fixture.assertNoProviderWork()
             }
         }

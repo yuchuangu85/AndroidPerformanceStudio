@@ -83,10 +83,13 @@ internal class ChatSurfaceActions(
     val onRemoveQueued: (Int) -> Unit,
     val onEditQueued: (Int) -> Unit,
     val onShowArchived: (Boolean) -> Unit,
+    val onStartOrdinaryChat: () -> Unit = onNew,
     val onOpenModels: () -> Unit = {},
     val onSelectModel: (String) -> Unit = {},
     val onRefreshModels: () -> Unit = onOpenModels,
     val onCloseModels: () -> Unit = {},
+    val onRetryTurn: (String) -> Unit = { onRetry() },
+    val onDelete: (String) -> Unit,
 )
 
 /** Pure presentation: all execution, context authority and persistence stay with the host. */

@@ -28,6 +28,7 @@ import com.androidperformancestudio.ai.AnalysisRequest
 import com.androidperformancestudio.ai.AnalysisResult
 import com.androidperformancestudio.ai.AnalysisSeverity
 import com.androidperformancestudio.ai.PerformanceEvidence
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
@@ -57,6 +58,223 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class AiConversationWorkspaceTest {
+    @Test
+    fun `confirmed deletion of the current conversation removes history and leaves a fresh usable conversation`() =
+        WorkspaceFixture().use { fixture ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            null,
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("Delete only this conversation")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                onNodeWithTag("ai-confirm").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-session-menu-$id").performClick()
+                onNodeWithTag("ai-session-delete").performClick()
+                assertTrue(
+                    runBlocking {
+                        fixture.runtime.service
+                            .history()
+                            .any { it.id == id }
+                    },
+                )
+                onNodeWithTag("ai-delete-cancel").performClick()
+                onNodeWithTag("ai-session-$id").assertExists()
+                onNodeWithTag("ai-session-menu-$id").performClick()
+                onNodeWithTag("ai-session-delete").performClick()
+                onNodeWithTag("ai-delete-confirm").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
+                onNodeWithTag("ai-session-$id").assertDoesNotExist()
+                assertTrue(
+                    runBlocking {
+                        fixture.runtime.service
+                            .history()
+                            .none { it.id == id }
+                    },
+                )
+                assertTrue(
+                    runBlocking {
+                        fixture.runtime.service
+                            .transcript(id)
+                            .isEmpty()
+                    },
+                )
+                onNodeWithTag("ai-question").performTextReplacement("A new question")
+                onNodeWithTag("ai-send").assertIsEnabled()
+                assertEquals(1, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `deleting another conversation preserves the selected conversation and its unsent draft`() =
+        WorkspaceFixture().use { fixture ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            null,
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                val ids = mutableListOf<String>()
+                for (question in listOf("Conversation A", "Conversation B")) {
+                    onNodeWithTag("ai-question").performTextReplacement(question)
+                    onNodeWithTag("ai-send").performClick()
+                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                    ids += checkNotNull(fixture.runtime.service.state.value.conversationId)
+                    onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                    onNodeWithTag("ai-confirm").performClick()
+                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                    if (ids.size == 1) {
+                        onNodeWithTag("ai-new-chat").performClick()
+                        waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("Preserve B draft")
+                onNodeWithTag("ai-session-menu-${ids.first()}").performClick()
+                onNodeWithTag("ai-session-delete").performClick()
+                onNodeWithTag("ai-delete-confirm").performClick()
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithTag("ai-session-${ids.first()}").fetchSemanticsNodes().isEmpty()
+                }
+                assertEquals(ids.last(), fixture.runtime.service.state.value.conversationId)
+                assertEquals(RunStatus.SUCCEEDED, fixture.runtime.service.state.value.status)
+                onNodeWithTag("ai-question").assertTextContains("Preserve B draft")
+                onNodeWithTag("ai-send").assertIsEnabled()
+                assertEquals(2, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `report analysis without a typed question can retry after a provider failure`() =
+        WorkspaceFixture(beforeResult = { error("fixture provider failure") }).use { fixture ->
+            val canonical = context("report-only-retry")
+            val original =
+                runBlocking {
+                    fixture.runtime.service.prepare("report-only", canonical.request, "aps.report", "openai", "first-model", permissions)
+                }
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            canonical,
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                onNodeWithTag("ai-confirm").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.PERMANENT_FAILURE }
+                val tag = "ai-retry-${original.approval.runId}"
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag(tag))
+                onNodeWithTag(tag).performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val retry = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals(null, retry.analysisPreview?.userQuestion)
+                assertEquals(canonical.request.sessionId, retry.analysisPreview?.sessionId)
+                assertEquals(original.conversationId, retry.conversationId)
+                assertTrue(original.approval.runId != retry.approval.runId)
+                assertEquals(1, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `retrying an older failed turn uses its own question and latest settings with fresh approval`() =
+        WorkspaceFixture(beforeResult = { error("fixture provider failure") }).use { fixture ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("retry"),
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                val failedRuns = mutableListOf<String>()
+                for (question in listOf("First failed question", "Second failed question")) {
+                    onNodeWithTag("ai-question").performTextReplacement(question)
+                    onNodeWithTag("ai-send").performClick()
+                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                    failedRuns += checkNotNull(fixture.runtime.service.state.value.prepared).approval.runId
+                    onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                    onNodeWithTag("ai-confirm").performClick()
+                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.PERMANENT_FAILURE }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("Keep this unsent draft")
+                runOnIdle {
+                    fixture.settings.update { it.copy(model = "retry-model", reportLanguage = ReportLanguage.ENGLISH) }
+                }
+                val retryTag = "ai-retry-${failedRuns.first()}"
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag(retryTag))
+                onNodeWithTag(retryTag).performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val retried = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals("First failed question", retried.analysisPreview?.userQuestion)
+                assertEquals("retry-model", retried.model)
+                assertEquals(ReportLanguage.ENGLISH, retried.analysisPreview?.outputLanguage)
+                assertTrue(retried.approval.runId !in failedRuns)
+                assertEquals(2, fixture.calls.get())
+                onNodeWithTag("ai-question").assertTextContains("Keep this unsent draft")
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag(retryTag))
+                onNodeWithTag(retryTag).assertIsNotEnabled()
+            }
+        }
+
+    @Test
+    fun `preflight failure can retry the original question after correcting settings without a provider call`() =
+        WorkspaceFixture().use { fixture ->
+            fixture.settings.update { it.copy(agentId = "aps.missing") }
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("preflight-retry"),
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("Retry this original question")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) {
+                    onAllNodesWithTag("ai-chat-error").fetchSemanticsNodes().isNotEmpty()
+                }
+                runOnIdle { fixture.settings.update { it.copy(agentId = "aps.report", model = "corrected-model") } }
+                onNodeWithTag("ai-question").performTextReplacement("A different unsent draft")
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-retry"))
+                onNodeWithTag("ai-retry").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val retried = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals("Retry this original question", retried.analysisPreview?.userQuestion)
+                assertEquals("corrected-model", retried.model)
+                assertEquals(0, fixture.calls.get())
+                onNodeWithTag("ai-question").assertTextContains("A different unsent draft")
+            }
+        }
+
     @Test
     fun `chat model menu loads saved Provider models and selects without navigating or sending`() =
         WorkspaceFixture().use { fixture ->
@@ -269,9 +487,15 @@ class AiConversationWorkspaceTest {
         }
 
     @Test
-    fun `saved report format applies to new runs and cannot replace a pending report format`() =
+    fun `saved report format and language apply to new runs and cannot replace a pending snapshot`() =
         WorkspaceFixture().use { fixture ->
-            fixture.settings.update { it.copy(allowArtifacts = true, reportFormat = ArtifactFormat.MARKDOWN) }
+            fixture.settings.update {
+                it.copy(
+                    allowArtifacts = true,
+                    reportFormat = ArtifactFormat.MARKDOWN,
+                    reportLanguage = ReportLanguage.SIMPLIFIED_CHINESE,
+                )
+            }
             runDesktopComposeUiTest(width = 1280, height = 720) {
                 setContent {
                     ViewerTheme(false) {
@@ -289,12 +513,19 @@ class AiConversationWorkspaceTest {
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
+                assertEquals(ReportLanguage.SIMPLIFIED_CHINESE, prepared.analysisPreview?.outputLanguage)
                 assertTrue(Permission.WRITE_ARTIFACT in prepared.approval.permissions)
                 onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
-                runOnIdle { fixture.newSettingsStore().update { it.copy(reportFormat = ArtifactFormat.HTML) } }
+                onNodeWithTag("ai-report-language").assertTextContains("Simplified Chinese", substring = true)
+                runOnIdle {
+                    fixture.newSettingsStore().update {
+                        it.copy(reportFormat = ArtifactFormat.HTML, reportLanguage = ReportLanguage.ENGLISH)
+                    }
+                }
                 waitForIdle()
                 assertSame(prepared, fixture.runtime.service.state.value.prepared)
                 onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
+                onNodeWithTag("ai-report-language").assertTextContains("Simplified Chinese", substring = true)
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
                 onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
@@ -321,6 +552,13 @@ class AiConversationWorkspaceTest {
                         ?.reportFormat,
                 )
                 onNodeWithTag("ai-report-format").assertTextContains("HTML (.html)", substring = true)
+                assertEquals(
+                    ReportLanguage.ENGLISH,
+                    fixture.runtime.service.state.value.prepared
+                        ?.analysisPreview
+                        ?.outputLanguage,
+                )
+                onNodeWithTag("ai-report-language").assertTextContains("English", substring = true)
             }
         }
 
@@ -435,7 +673,7 @@ class AiConversationWorkspaceTest {
     }
 
     @Test
-    fun `finding opens canonical evidence and restored history never invents canonical payload`() =
+    fun `restoring the exact current report retains canonical evidence without a provider request`() =
         WorkspaceFixture(includeFinding = true).use { fixture ->
             runDesktopComposeUiTest(width = 1280, height = 720) {
                 setContent {
@@ -467,8 +705,12 @@ class AiConversationWorkspaceTest {
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.restored }
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-finding-evidence-evidence-known"))
                 onNodeWithTag("ai-finding-evidence-evidence-known").performClick()
-                onNodeWithTag("ai-evidence-context-unavailable").assertExists()
-                onNodeWithTag("ai-evidence-detail").assertDoesNotExist()
+                onNodeWithTag("ai-evidence-context-unavailable").assertDoesNotExist()
+                onNodeWithTag("ai-evidence-detail-payload").assertTextContains("{\"durationNs\":123}")
+                onNodeWithText("Close").performClick()
+                onNodeWithTag("ai-question").performTextReplacement("Continue the same report")
+                onNodeWithTag("ai-send").assertIsEnabled()
+                onNodeWithTag("ai-context-unavailable").assertDoesNotExist()
                 assertEquals(1, fixture.calls.get())
             }
         }
@@ -511,8 +753,57 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-session-$id").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.restored }
                 assertEquals(2, fixture.calls.get())
-                onNodeWithTag("ai-question").performTextReplacement("Do not send without rebound context")
+                onNodeWithTag("ai-question").performTextReplacement("Continue the same report")
+                onNodeWithTag("ai-send").assertIsEnabled().performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val followup = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals(id, followup.conversationId)
+                assertEquals(context("history").request.evidence, fixture.requests.last().evidence)
+                assertEquals(2, followup.analysisPreview?.conversationContext?.size)
+                assertEquals(2, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `missing historical evidence can start an ordinary chat without losing the draft`() =
+        WorkspaceFixture().use { fixture ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                var active by mutableStateOf<BusinessContext?>(context("missing"))
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            active,
+                            UiLanguage.SIMPLIFIED_CHINESE,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("First report question")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
+                onNodeWithTag("ai-cancel-preflight").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.CANCELLED }
+                runOnIdle { active = context("other") }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
+                onNodeWithTag("ai-session-$id").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.restored }
+                onNodeWithTag("ai-question").performTextReplacement("An ordinary question")
                 onNodeWithTag("ai-send").assertIsNotEnabled()
+                onNodeWithTag("ai-start-ordinary-chat").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
+                onNodeWithTag("ai-question").assertTextContains("An ordinary question")
+                onNodeWithTag("ai-bound-context").assertDoesNotExist()
+                onNodeWithTag("ai-send").assertIsEnabled().performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertTrue(prepared.conversationId != id)
+                assertEquals(emptyList(), prepared.analysisPreview?.evidence)
+                assertEquals(emptyList(), prepared.analysisPreview?.sourceCandidates)
+                assertEquals("An ordinary question", prepared.analysisPreview?.userQuestion)
+                assertEquals(0, fixture.calls.get())
             }
         }
 
@@ -867,13 +1158,9 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-session-$id").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.restored }
                 onNodeWithTag("ai-question").performTextReplacement("Follow up on this source")
-                onNodeWithTag("ai-context-menu").performClick()
-                onNodeWithTag("ai-bind-context").performClick()
-                waitForIdle()
                 onNodeWithTag("ai-send").assertIsNotEnabled()
                 onNodeWithTag("ai-context-unavailable").assertExists()
-                onNodeWithTag("ai-context-menu").performClick()
-                onNodeWithTag("ai-include-source").performClick()
+                onNodeWithTag("ai-reauthorize-source").performClick()
                 onNodeWithTag("ai-send").assertIsEnabled()
                 onNodeWithTag("ai-send").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }

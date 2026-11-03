@@ -9,6 +9,7 @@ import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.ProviderEvent
 import com.androidperformancestudio.aiplatform.model.RunStatus
 import com.androidperformancestudio.aiplatform.storage.ConversationHistoryRepository
+import com.androidperformancestudio.aiplatform.storage.ConversationStorageException
 import com.androidperformancestudio.aiplatform.storage.ExecutionAuditEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -264,6 +265,7 @@ public class ApplicationAiService(
 
     private companion object {
         const val MAX_RETAINED_COMPLETIONS = 64
+        const val MAX_CONVERSATION_ANCESTORS = 10_000
     }
 
     /** Restore is read-only. Interrupted runs require a fresh explicit analysis, never automatic replay. */
@@ -392,6 +394,48 @@ public class ApplicationAiService(
                 }
             }
         }
+
+    /** Called only after explicit UI confirmation; user forks are never cascade-deleted. */
+    public suspend fun deleteChatConversation(id: String): Boolean {
+        val cancelledCollector =
+            mutex.withLock {
+                currentCoroutineContext().ensureActive()
+                historyRepository.load(id) ?: return false
+                if (isInChatTreeLocked(mutableState.value.conversationId, id)) {
+                    val job = collector
+                    cancelLocked()
+                    job
+                } else {
+                    null
+                }
+            }
+        // Graph-owned children become terminal during collector cleanup, which also uses mutex.
+        cancelledCollector?.join()
+        return mutex.withLock {
+            currentCoroutineContext().ensureActive()
+            val selected = isInChatTreeLocked(mutableState.value.conversationId, id)
+            if (selected && activeRunId != null) throw ConversationStorageException("E_CONVERSATION_ACTIVE")
+            historyRepository.deleteChatConversation(id).also { deleted ->
+                if (deleted && selected) mutableState.value = AiApplicationState()
+            }
+        }
+    }
+
+    private fun isInChatTreeLocked(
+        conversationId: String?,
+        rootId: String,
+    ): Boolean {
+        var record = conversationId?.let(historyRepository::load) ?: return false
+        val visited = mutableSetOf<String>()
+        while (true) {
+            if (record.id == rootId) return true
+            if (!visited.add(record.id)) throw ConversationStorageException("E_STORAGE_CORRUPT")
+            if (visited.size >= MAX_CONVERSATION_ANCESTORS) throw ConversationStorageException("E_CONVERSATION_LIMIT")
+            val parent = record.parentConversationId?.let(historyRepository::load) ?: return false
+            if (parent.analysisSessionId == record.analysisSessionId) return false
+            record = parent
+        }
+    }
 
     public suspend fun retain(
         maxConversations: Int,

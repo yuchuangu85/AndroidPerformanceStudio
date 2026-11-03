@@ -6,6 +6,7 @@ import com.androidperformancestudio.ai.AnalysisScopeKind
 import com.androidperformancestudio.ai.AnalysisSessionId
 import com.androidperformancestudio.ai.PerformanceEvidence
 import com.androidperformancestudio.ai.ProfilerKind
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.ProviderAvailability
 import com.androidperformancestudio.aiplatform.model.ProviderEvent
@@ -340,7 +341,9 @@ class ClaudeCliProviderTest {
     @Test
     fun `controlled Claude process receives no tools and stdin evidence and returns validated result`() =
         withProvider(SUCCESS) { provider, root, _ ->
-            val events = ProviderBroker(ProviderRegistry(listOf(provider))).run(request(), setOf("claude")).toList()
+            val selected =
+                request().copy(analysis = request().analysis.copy(outputLanguage = ReportLanguage.SIMPLIFIED_CHINESE))
+            val events = ProviderBroker(ProviderRegistry(listOf(provider))).run(selected, setOf("claude")).toList()
             assertEquals(ProviderEvent.Started, events.first())
             assertEquals(ProviderEvent.Completed, events.last())
             assertEquals(
@@ -356,8 +359,11 @@ class ClaudeCliProviderTest {
             assertTrue(args.contains("--bare"))
             assertTrue(args.contains("--strict-mcp-config"))
             assertTrue(args.contains("--no-session-persistence"))
+            assertTrue(args.contains("Simplified Chinese"))
             assertFalse(args.contains("selected evidence"))
-            assertTrue(Files.readString(root.resolve("input")).contains("selected evidence"))
+            val input = Files.readString(root.resolve("input"))
+            assertTrue(input.contains("selected evidence"))
+            assertTrue(input.contains("\"outputLanguage\":\"SIMPLIFIED_CHINESE\""))
             assertFalse(events.toString().contains("stderr-secret"))
         }
 

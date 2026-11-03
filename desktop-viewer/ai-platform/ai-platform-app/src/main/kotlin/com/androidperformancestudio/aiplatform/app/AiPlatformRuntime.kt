@@ -2,6 +2,7 @@ package com.androidperformancestudio.aiplatform.app
 
 import com.androidperformancestudio.ai.AiAnalysisGateway
 import com.androidperformancestudio.ai.AnalysisRequest
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.model.AiProviderDriver
 import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.ProviderAvailability
@@ -55,6 +56,7 @@ public data class AiPlatformSettings(
     val agentId: String = "aps.main",
     val allowScripts: Boolean = false,
     val reportFormat: ArtifactFormat = ArtifactFormat.HTML,
+    val reportLanguage: ReportLanguage = ReportLanguage.AUTO,
 ) {
     init {
         require(providerId in setOf("openai", "codex", "claude") && model.length <= 128)
@@ -85,6 +87,7 @@ public class AiPlatformSettingsStore(
                 preferences.get("agent", "aps.main"),
                 preferences.getBoolean("scripts", false),
                 ArtifactFormat.entries.firstOrNull { it.name == preferences.get("reportFormat", null) } ?: ArtifactFormat.HTML,
+                ReportLanguage.entries.firstOrNull { it.name == preferences.get("reportLanguage", null) } ?: ReportLanguage.AUTO,
             )
         }.getOrElse { AiPlatformSettings() }
 
@@ -107,6 +110,7 @@ public class AiPlatformSettingsStore(
             preferences.put("agent", settings.agentId)
             preferences.putBoolean("scripts", settings.allowScripts)
             preferences.put("reportFormat", settings.reportFormat.name)
+            preferences.put("reportLanguage", settings.reportLanguage.name)
             preferences.flush()
         } catch (failure: Exception) {
             // Restore exact persisted values, including absent keys, before reporting failure.
@@ -120,7 +124,7 @@ public class AiPlatformSettingsStore(
     }
 
     private companion object {
-        val preferenceKeys = listOf("provider", "model", "artifacts", "agent", "scripts", "reportFormat")
+        val preferenceKeys = listOf("provider", "model", "artifacts", "agent", "scripts", "reportFormat", "reportLanguage")
         val states = ConcurrentHashMap<Pair<Boolean, String>, MutableStateFlow<AiPlatformSettings>>()
     }
 }

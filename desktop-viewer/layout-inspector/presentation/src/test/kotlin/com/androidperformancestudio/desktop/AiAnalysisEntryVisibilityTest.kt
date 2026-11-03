@@ -42,12 +42,15 @@ class AiAnalysisEntryVisibilityTest {
 
     @Test
     fun `AI status text is bounded before trailing analysis controls`() {
-        val status = pageSource().substringAfter("if (aiStatus != null) {")
-            .substringBefore("Spacer(Modifier.width(12.dp))")
+        val header = pageSource().substringAfter("internal fun FindingsPane(")
+            .substringBefore("if (showTimeline) {")
+        val status = header.substringAfter("if (aiStatus != null) {")
 
-        assertTrue(status.contains("modifier = Modifier.weight(1f, fill = false)"))
+        assertTrue(header.contains("modifier = Modifier.weight(1f).padding(horizontal = 12.dp)"))
+        assertTrue(header.contains("contentAlignment = Alignment.CenterEnd"))
         assertTrue(status.contains("overflow = TextOverflow.Ellipsis"))
         assertTrue(status.contains("maxLines = 1"))
+        assertTrue(header.contains("Modifier.testTag(\"layout-inspector-run-ai-analysis\").width(72.dp)"))
     }
 
     private fun pageSource(): String = Files.readString(

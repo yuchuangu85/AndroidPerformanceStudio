@@ -475,6 +475,45 @@ public class SqliteConversationRepository(
             transaction { deleteUnlocked(conversationId) }
         }
 
+    override fun deleteChatConversation(conversationId: String): Boolean =
+        guarded {
+            validateId(conversationId)
+            transaction {
+                val root = read(conversationId) ?: return@transaction false
+                val records =
+                    connection.createStatement().use { statement ->
+                        statement.executeQuery("SELECT id, length(CAST(record AS BLOB)), record FROM conversation").use { rows ->
+                            buildList {
+                                while (rows.next()) {
+                                    checkStorage(size < MAX_CONVERSATIONS, "E_CONVERSATION_LIMIT")
+                                    checkStorage(rows.getInt(2) <= MAX_RECORD_BYTES, "E_CONVERSATION_SIZE")
+                                    add(decodeRecord(rows.getString(1), rows.getString(3)))
+                                }
+                            }
+                        }
+                    }
+                val children = records.groupBy { it.parentConversationId }
+                val planned = mutableListOf(root)
+                val visited = mutableSetOf(root.id)
+                var index = 0
+                // Iterative breadth-first planning is bounded by the repository record limit.
+                while (index < planned.size) {
+                    val parent = planned[index++]
+                    for (child in children[parent.id].orEmpty()) {
+                        checkStorage(child.analysisSessionId != parent.analysisSessionId, "E_CONVERSATION_HAS_CHILDREN")
+                        checkStorage(visited.add(child.id), "E_STORAGE_CORRUPT")
+                        checkStorage(planned.size < MAX_CONVERSATIONS, "E_CONVERSATION_LIMIT")
+                        planned.add(child)
+                    }
+                }
+                checkStorage(planned.all { record -> record.turns.all { it.status.terminal } }, "E_CONVERSATION_ACTIVE")
+                planned.asReversed().forEach { record ->
+                    checkStorage(deleteUnlocked(record.id), "E_STORAGE_CORRUPT")
+                }
+                true
+            }
+        }
+
     private fun deleteUnlocked(conversationId: String): Boolean {
         val record = read(conversationId) ?: return false
         checkStorage(record.turns.all { it.status.terminal }, "E_CONVERSATION_ACTIVE")

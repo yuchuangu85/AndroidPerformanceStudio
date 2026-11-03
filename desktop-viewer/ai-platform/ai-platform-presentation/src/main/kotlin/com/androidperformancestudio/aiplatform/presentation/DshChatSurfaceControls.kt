@@ -69,6 +69,7 @@ import io.github.composefluent.icons.regular.ArrowClockwise
 import io.github.composefluent.icons.regular.BranchFork
 import io.github.composefluent.icons.regular.Checkmark
 import io.github.composefluent.icons.regular.Copy
+import io.github.composefluent.icons.regular.Delete
 import io.github.composefluent.icons.regular.Edit
 import io.github.composefluent.icons.regular.MoreHorizontal
 import io.github.composefluent.icons.regular.PanelLeft
@@ -319,6 +320,7 @@ private fun DshSessionMenu(
     var expanded by remember(session.id) { mutableStateOf(false) }
     var renaming by remember(session.id) { mutableStateOf(false) }
     var confirmingArchive by remember(session.id) { mutableStateOf(false) }
+    var confirmingDelete by remember(session.id) { mutableStateOf(false) }
     var title by remember(session.id, session.title) { mutableStateOf(session.title) }
     var copyFeedback by remember(session.id) { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboard.current
@@ -385,7 +387,47 @@ private fun DshSessionMenu(
                     }
                 }
             }
+            DshMenuItem(Icons.Regular.Delete, dshLabel(language, "Delete", "删除"), "ai-session-delete") {
+                expanded = false
+                confirmingDelete = true
+            }
         }
+    }
+    if (confirmingDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            containerColor = colors.background,
+            modifier = Modifier.testTag("ai-delete-dialog"),
+            title = { DshText(dshLabel(language, "Delete conversation?", "删除会话？")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DshText(session.title.ifBlank { dshLabel(language, "New chat", "新建会话") })
+                    DshText(
+                        dshLabel(
+                            language,
+                            "This permanently deletes the conversation and its messages. A running request will be stopped. This cannot be undone.",
+                            "将永久删除此会话及其消息；若会话正在运行，将先停止请求。此操作无法撤销。",
+                        ),
+                        style = DshChatStyle.secondary,
+                        color = colors.muted,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmingDelete = false
+                        actions.onDelete(session.id)
+                    },
+                    modifier = Modifier.testTag("ai-delete-confirm"),
+                ) { DshText(dshLabel(language, "Delete", "删除"), color = colors.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = false }, modifier = Modifier.testTag("ai-delete-cancel")) {
+                    DshText(dshLabel(language, "Cancel", "取消"))
+                }
+            },
+        )
     }
     if (renaming) {
         AlertDialog(

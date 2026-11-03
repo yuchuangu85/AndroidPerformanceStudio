@@ -1,5 +1,6 @@
 package com.androidperformancestudio.aiplatform.provider.claude
 
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.ai.payloadText
 import com.androidperformancestudio.aiplatform.model.AiProviderDriver
 import com.androidperformancestudio.aiplatform.model.ProviderAvailability
@@ -134,7 +135,7 @@ public class ClaudeCliProvider(
                                     "--model",
                                     request.model,
                                     "--system-prompt",
-                                    INSTRUCTIONS,
+                                    "$INSTRUCTIONS ${request.analysis.outputLanguage.instruction()}",
                                 ),
                             stdin = request.analysis.payloadText(),
                             workDirectory = work,
@@ -221,3 +222,13 @@ public class ClaudeCliProvider(
                 "Do not call tools or read files. Distinguish observed performance facts from analysis and retain uncertainty."
     }
 }
+
+private fun ReportLanguage.instruction(): String =
+    when (this) {
+        ReportLanguage.AUTO ->
+            "Write the response in the language of untrustedUserQuestion when present; otherwise follow the report scope language."
+        ReportLanguage.ENGLISH ->
+            "Write summary, finding titles, explanations, recommendations, and report prose in English. Preserve identifiers verbatim."
+        ReportLanguage.SIMPLIFIED_CHINESE ->
+            "Write summary, finding titles, explanations, recommendations, and report prose in Simplified Chinese. Preserve identifiers verbatim."
+    }

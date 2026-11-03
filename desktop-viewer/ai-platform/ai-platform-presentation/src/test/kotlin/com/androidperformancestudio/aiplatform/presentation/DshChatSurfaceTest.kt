@@ -33,8 +33,6 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ai.AiConversationContextTurn
@@ -69,6 +67,58 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class DshChatSurfaceTest {
     @Test
+    fun `delete always requires a second confirmation and cancellation preserves the session`() {
+        for (status in listOf(RunStatus.SUCCEEDED, RunStatus.RUNNING)) {
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                val fixture = SurfaceFixture()
+                fixture.state =
+                    fixture.state.copy(sessions = fixture.state.sessions.map { if (it.id == "frame") it.copy(status = status) else it })
+                setContent { ViewerTheme(false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.SIMPLIFIED_CHINESE) } }
+                onNodeWithTag("ai-session-menu-frame").performClick()
+                onNodeWithTag("ai-session-delete").performClick()
+                onNodeWithTag("ai-delete-dialog").assertExists()
+                captureDshNode("delete-confirm-${status.name.lowercase()}", "ai-delete-dialog")
+                assertTrue(fixture.events.isEmpty())
+                onNodeWithTag("ai-delete-cancel").performClick()
+                onNodeWithTag("ai-delete-dialog").assertDoesNotExist()
+                onNodeWithTag("ai-session-frame").assertExists()
+                assertTrue(fixture.events.isEmpty())
+                onNodeWithTag("ai-session-menu-frame").performClick()
+                onNodeWithTag("ai-session-delete").performClick()
+                onNodeWithTag("ai-delete-confirm").performClick()
+                assertEquals(listOf("delete:frame"), fixture.events)
+                onNodeWithTag("ai-session-frame").assertDoesNotExist()
+                onNodeWithTag("ai-session-battery").assertExists()
+            }
+        }
+    }
+
+    @Test
+    fun `every failed turn has its own retry action and cannot retry while busy or unbound`() =
+        runDesktopComposeUiTest(width = 900, height = 720) {
+            val fixture = SurfaceFixture()
+            setContent { ViewerTheme(false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.SIMPLIFIED_CHINESE) } }
+            for (status in listOf(RunStatus.RETRYABLE_FAILURE, RunStatus.PERMANENT_FAILURE, RunStatus.INTERRUPTED)) {
+                runOnIdle {
+                    fixture.state = fixture.state.copy(turns = listOf(turn("failed").copy(status = status, result = null)))
+                }
+                onNodeWithTag("ai-retry-failed").performClick()
+                assertEquals("retry:failed", fixture.events.last())
+                runOnIdle { fixture.state = fixture.state.copy(busy = true) }
+                onNodeWithTag("ai-retry-failed").assertIsNotEnabled()
+                runOnIdle { fixture.state = fixture.state.copy(busy = false, canSend = false) }
+                onNodeWithTag("ai-retry-failed").assertIsNotEnabled()
+                runOnIdle { fixture.state = fixture.state.copy(canSend = true) }
+            }
+            captureDshConversation("failure-retry-900", 900)
+            runOnIdle {
+                fixture.state =
+                    fixture.state.copy(turns = listOf(turn("cancelled").copy(status = RunStatus.CANCELLED, result = null)))
+            }
+            onNodeWithTag("ai-retry-cancelled").assertDoesNotExist()
+        }
+
+    @Test
     fun `empty workspace is chat only and does not dispatch actions`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
             val fixture = SurfaceFixture()
@@ -101,11 +151,19 @@ class DshChatSurfaceTest {
             val fixture = SurfaceFixture()
             setContent { ViewerTheme(darkTheme = false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.ENGLISH) } }
             onNodeWithTag("ai-session-menu-frame").performClick()
-            val menuTags = listOf("ai-session-pin", "ai-session-rename", "ai-session-fork", "ai-session-archive", "ai-session-copy-id")
+            val menuTags =
+                listOf(
+                    "ai-session-pin",
+                    "ai-session-rename",
+                    "ai-session-fork",
+                    "ai-session-archive",
+                    "ai-session-copy-id",
+                    "ai-session-delete",
+                )
             menuTags.forEach { onNodeWithTag(it).assertHeightIsEqualTo(32.dp) }
             val tops = menuTags.map { onNodeWithTag(it).fetchSemanticsNode().boundsInRoot.top }
             assertEquals(tops.sorted(), tops)
-            onNodeWithText("Delete").assertDoesNotExist()
+            onNodeWithTag("ai-session-delete").assertExists()
             onNodeWithTag("ai-session-pin").performClick()
             assertEquals("pin:frame:true", fixture.events.last())
             onNodeWithTag("ai-session-menu-frame").performClick()
@@ -221,6 +279,30 @@ class DshChatSurfaceTest {
             onNodeWithTag("ai-question").performTextReplacement("A followup")
             onNodeWithTag("ai-question").performKeyInput { pressKey(Key.Enter) }
             assertEquals(listOf("send:你好", "send:A followup"), fixture.events)
+        }
+
+    @Test
+    fun `missing evidence exposes rebind and ordinary chat actions without sending`() =
+        runDesktopComposeUiTest(width = 900, height = 720) {
+            val fixture = SurfaceFixture().also { it.state = it.state.copy(canSend = false, canIncludeSource = false) }
+            setContent { ViewerTheme(false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.SIMPLIFIED_CHINESE) } }
+            onNodeWithTag("ai-context-unavailable").assertTextContains("此对话的报告证据尚未绑定。")
+            captureDshConversation("evidence-recovery-900", 900)
+            onNodeWithTag("ai-rebind-context").performClick()
+            assertEquals(listOf("context"), fixture.events)
+            onNodeWithTag("ai-start-ordinary-chat").performClick()
+            assertEquals(listOf("context", "new"), fixture.events)
+        }
+
+    @Test
+    fun `missing source authorization exposes a separate approval action without sending`() =
+        runDesktopComposeUiTest(width = 900, height = 720) {
+            val fixture = SurfaceFixture().also { it.state = it.state.copy(canSend = false, canIncludeSource = true) }
+            setContent { ViewerTheme(false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.SIMPLIFIED_CHINESE) } }
+            onNodeWithTag("ai-context-unavailable").assertTextContains("继续此对话前，请重新授权源码访问。")
+            onNodeWithTag("ai-rebind-context").assertDoesNotExist()
+            onNodeWithTag("ai-reauthorize-source").performClick()
+            assertEquals(listOf("source-permission:true"), fixture.events)
         }
 
     @Test
@@ -527,7 +609,7 @@ class DshChatSurfaceTest {
         runDesktopComposeUiTest(width = 900, height = 720) {
             val fixture =
                 SurfaceFixture().also {
-                    it.state = it.state.copy(turns = listOf(turn("long", summary = (1..100).joinToString("\n") { "Answer line $it" })))
+                    it.state = it.state.copy(turns = listOf(turn("long", summary = (1..100).joinToString("  \n") { "Answer line $it" })))
                 }
             setContent { ViewerTheme(darkTheme = false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.ENGLISH) } }
             assertScrollNavigation(canScrollBackward = true, canScrollForward = false)
@@ -688,7 +770,7 @@ class DshChatSurfaceTest {
                 onNodeWithTag("ai-chat-history").performScrollToIndex(0)
                 onNodeWithTag("ai-user-populated").assertExists()
                 onNodeWithTag("ai-assistant-populated").assertExists()
-                onNodeWithTag("ai-summary-populated-code-copy-1").assertExists()
+                onNodeWithTag("ai-summary-populated-block-1-code-copy").assertExists()
                 onNodeWithTag("ai-finding-evidence-evidence").assertExists()
                 onNodeWithTag("ai-finding-source-source").assertExists()
                 val suffix = "$width-${language.name}-${if (dark) "dark" else "light"}"
@@ -764,36 +846,6 @@ class DshChatSurfaceTest {
     }
 
     @Test
-    fun `fenced code remains literal and model HTML links never become navigation`() {
-        val blocks = dshTextBlocks("Result\n```kotlin\nprintln(1)\n```\n<a href='file:///private/secret'>open</a>")
-        assertEquals(listOf(false, true, false), blocks.map { it.code })
-        assertEquals("kotlin", blocks[1].language)
-        assertEquals("println(1)", blocks[1].text)
-        assertTrue(blocks[2].text.contains("file:///private/secret"))
-    }
-
-    @Test
-    fun `safe Markdown styles headings lists bold and inline code without executable annotations`() {
-        val lines =
-            dshMarkdownLines(
-                "## Findings\n- **Hot** path uses `dispatch()`\n1. Inspect [link](file:///private/secret)\n<script>run()</script>",
-            )
-        assertEquals(2, lines[0].headingLevel)
-        assertEquals("Findings", lines[0].text.text)
-        assertEquals("•", lines[1].marker)
-        assertEquals("Hot path uses dispatch()", lines[1].text.text)
-        assertTrue(lines[1].text.spanStyles.any { it.item.fontWeight == FontWeight.SemiBold })
-        assertTrue(lines[1].text.spanStyles.any { it.item.fontFamily == FontFamily.Monospace })
-        assertEquals("1.", lines[2].marker)
-        assertEquals("Inspect [link](file:///private/secret)", lines[2].text.text)
-        assertTrue(lines.all { it.text.getStringAnnotations(0, it.text.length).isEmpty() })
-        assertEquals("<script>run()</script>", lines[3].text.text)
-        assertEquals("**literal**", dshInlineMarkdown("\\*\\*literal\\*\\*").text)
-        assertEquals("**literal**", dshInlineMarkdown("`**literal**`").text)
-        assertEquals("**unclosed", dshInlineMarkdown("**unclosed").text)
-    }
-
-    @Test
     fun `Markdown answer renders semantic heading and literal unsafe links without actions`() =
         runDesktopComposeUiTest(width = 1280, height = 900) {
             val sourceTurn = turn("markdown")
@@ -815,9 +867,9 @@ class DshChatSurfaceTest {
                 }
             setContent { ViewerTheme(darkTheme = false) { DshChatSurface(fixture.state, fixture.actions, UiLanguage.ENGLISH) } }
             onNodeWithText("Findings").assertExists()
-            onNodeWithText("Hot path").assertExists()
-            onNodeWithText("Inspect dispatch()").assertExists()
-            onNodeWithText("[secret](file:///private/secret)").assertExists()
+            onNodeWithText("Hot path", substring = true).assertExists()
+            onNodeWithText("Inspect dispatch()", substring = true).assertExists()
+            onNodeWithText("[secret](file:///private/secret)", substring = true).assertExists()
             assertTrue(fixture.events.isEmpty())
         }
 }
@@ -935,6 +987,10 @@ private class SurfaceFixture {
                 events += "archive:$id:$archived"
                 state = state.copy(sessions = state.sessions.map { if (it.id == id) it.copy(archived = archived) else it })
             },
+            onDelete = { id ->
+                events += "delete:$id"
+                state = state.copy(sessions = state.sessions.filterNot { it.id == id })
+            },
             onFork = { id, run -> events += "fork:$id:$run" },
             onCopySession = { events += "copy-session:$it" },
             onEditQuestion = {
@@ -942,6 +998,7 @@ private class SurfaceFixture {
                 state = state.copy(draft = TextFieldValue(it))
             },
             onRetry = { events += "retry" },
+            onRetryTurn = { events += "retry:$it" },
             onOpenSettings = { events += "settings" },
             onBindContext = { events += "context" },
             onIncludeSource = { events += "source-permission:$it" },

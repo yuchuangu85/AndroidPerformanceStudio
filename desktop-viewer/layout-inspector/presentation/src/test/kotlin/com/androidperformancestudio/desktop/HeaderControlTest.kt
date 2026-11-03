@@ -97,7 +97,7 @@ class HeaderControlTest {
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"),
         )
         val findingsHeader = source
-            .substringAfter("private fun FindingsPane(")
+            .substringAfter("internal fun FindingsPane(")
             .substringAfter("Column(modifier.background(colors.panel)) {")
             .substringBefore("if (showTimeline) {")
 

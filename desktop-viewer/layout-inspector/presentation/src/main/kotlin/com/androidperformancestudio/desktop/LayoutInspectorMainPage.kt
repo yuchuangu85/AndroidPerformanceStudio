@@ -3576,7 +3576,7 @@ private fun com.androidperformancestudio.compose.inspection.ComposableDetail.fin
 }
 
 @Composable
-private fun FindingsPane(
+internal fun FindingsPane(
     state: InspectorState,
     model: InspectorScreenModel,
     panelHeightDp: Float,
@@ -3642,24 +3642,27 @@ private fun FindingsPane(
                 selected = selectedTone == FindingTone.ERROR,
                 onClick = { selectedTone = FindingTone.ERROR },
             )
-            Spacer(Modifier.weight(1f))
-            if (AI_ANALYSIS_ENTRY_VISIBLE) {
-                val aiStatus = when (aiAnalysisUiState) {
-                    AiAnalysisUiState.Idle -> state.aiAnalysis?.summary?.let { localizedStringResource(Res.string.ai_analysis_summary, language, it) }
-                    AiAnalysisUiState.Working -> localizedStringResource(Res.string.ai_analysis_running, language)
-                    is AiAnalysisUiState.Failure -> localizedStringResource(Res.string.ai_analysis_failed, language, aiAnalysisUiState.message)
-                }
-                if (aiStatus != null) {
-                    CopyableText(
-                        aiStatus,
-                        modifier = Modifier.weight(1f, fill = false),
-                        color = colors.mutedText,
-                        fontSize = ViewerTypography.secondary.fontSize,
-                        overflow = TextOverflow.Ellipsis,
-                        maxLines = 1,
-                        language = language,
-                    )
-                    Spacer(Modifier.width(12.dp))
+            Box(
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                if (AI_ANALYSIS_ENTRY_VISIBLE) {
+                    val aiStatus = when (aiAnalysisUiState) {
+                        AiAnalysisUiState.Idle -> state.aiAnalysis?.summary?.let { localizedStringResource(Res.string.ai_analysis_summary, language, it) }
+                        AiAnalysisUiState.Working -> localizedStringResource(Res.string.ai_analysis_running, language)
+                        is AiAnalysisUiState.Failure -> localizedStringResource(Res.string.ai_analysis_failed, language, aiAnalysisUiState.message)
+                    }
+                    if (aiStatus != null) {
+                        CopyableText(
+                            aiStatus,
+                            modifier = Modifier.testTag("layout-inspector-ai-status"),
+                            color = colors.mutedText,
+                            fontSize = ViewerTypography.secondary.fontSize,
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            language = language,
+                        )
+                    }
                 }
             }
             Text(localizedStringResource(Res.string.timeline_live_capture, language), color = colors.mutedText, fontSize = ViewerTypography.secondary.fontSize)
@@ -3678,7 +3681,7 @@ private fun FindingsPane(
                     },
                     enabled = aiAnalysisUiState is AiAnalysisUiState.Working ||
                         (state.snapshot != null && (state.selectedNodeId == null || state.selectedNode != null)),
-                    modifier = Modifier.testTag("layout-inspector-run-ai-analysis"),
+                    modifier = Modifier.testTag("layout-inspector-run-ai-analysis").width(72.dp),
                 )
             }
         }

@@ -144,7 +144,7 @@ Provider 进程、通用独立 child/脚本图与 11 类业务上下文。Codex 
   Main Agent 只调度已授信、显式授权、预检合格的脚本；Provider 自授 tool/approval 仍被拒绝。
 - 会话保留引用；独立结构化结果/审计存储有界、脱敏的结论和 Artifact hash，不保存原始
   请求、源码、凭证或 provider 全文。恢复时不重放，也不把先前实时证据误当历史 canonical payload。
-- CPU ledger 使用 elapsed time 保守上限，非精确进程树 CPU；JVM/transport 内部内存分配无进程级硬限制。
+- CPU ledger 使用协程执行线程的 JVM CPU 时间，在根/子任务间累计；模型等待只计入独立 wall timeout，不再消耗 CPU 预算。检查发生在宿主执行边界，不是任意非协作代码的抢占或进程树 CPU 硬限制；JVM/transport 内部内存分配仍无进程级硬限制。
 - registry/JDBC 路径预检不等于抵御同权限恶意进程的原子文件系统沙箱；非 POSIX ACL 和跨平台资格待验收。
 - 发布脚本 51 个不同 fixture 通过（unittest discovery 共76次执行，含重复加载），actionlint 通过。
   已修复 extensionless JBR seal、JAR 嵌入 Mach-O、签名后 HPROF/TP校验，以及同版本/同 SHA 唯一发布事务，

@@ -97,124 +97,124 @@ internal class AgentGraphExecutor(
         conversationId: String,
         request: ProviderRunRequest,
         scopes: List<Scope>,
-    ): ExecutedAnalysis {
-        val result =
-            withTimeoutOrNull(minOf(node.budget.timeoutMillis, node.budget.maxCpuMillis)) {
-                checkCurrent()
-                val derived = DerivedAnalysisContext(rootRequest.analysis, approvalHash)
-                for (skill in node.skills.filter { it.entry.key.id != "aps.report-artifact" }) {
-                    executeSkill(node, skill, request, scopes, null, derived)
-                }
-                for (child in node.children) {
+    ): ExecutedAnalysis =
+        withContext(ExecutionCpuTime(scopes.map { it.ledger })) {
+            val result =
+                withTimeoutOrNull(node.budget.timeoutMillis) {
                     checkCurrent()
-                    val analysis = child.analysis(request.analysis.copy(sessionId = AnalysisSessionId.create()))
-                    val childRequest =
-                        request.copy(
-                            runId = UUID.randomUUID().toString(),
-                            generation = 0,
-                            agentId = child.entry.key.id,
-                            analysis = analysis,
-                            grantedPermissions = child.permissions,
-                            budget = child.budget,
-                            approval = null,
-                        )
-                    val childRun = ChildRun(child, UUID.randomUUID().toString(), childRequest, node.entry.key.id)
-                    conversations.save(
-                        ConversationRecord(
-                            id = childRun.conversationId,
-                            analysisSessionId = analysis.sessionId.value,
-                            contextHash =
-                                (analysis.payloadText() + "\nparent-run:" + request.runId + "\n" + approvalHash)
-                                    .toByteArray()
-                                    .sha256(),
-                            parentConversationId = conversationId,
-                            turns = listOf(childRequest.turn(RunStatus.RUNNING)),
-                        ),
-                    )
-                    children += childRun
-                    childAudit(childRun, ExecutionPhase.STARTED)
-                    val executed =
-                        executeNode(
-                            child,
-                            childRun.conversationId,
-                            childRequest,
-                            scopes + Scope(child.depth, ExecutionBudgetLedger(child.budget)),
-                        )
-                    checkCurrent()
-                    val projection =
-                        projectAnalysisResult(
-                            childRun.conversationId,
-                            childRequest.runId,
-                            childRequest.generation,
-                            analysis,
-                            derived.redact(executed.result),
-                            clock(),
-                        )
-                    val accepted = projection.toAnalysisResult()
-                    val record = conversations.load(childRun.conversationId) ?: throw AgentPolicyException("E_CONVERSATION_UNAVAILABLE")
-                    if (record.turns.singleOrNull()?.runId != childRequest.runId) throw AgentPolicyException("E_STALE_RUN")
-                    val completed = record.copy(turns = listOf(childRequest.turn(RunStatus.SUCCEEDED, accepted)))
-                    // Live parents cannot be referenced by StoredAnalysisResult.parentTurnRunId.
-                    // The child's immutable ConversationRecord links the actual immediate parent.
-                    if (history == null) conversations.save(completed) else history.complete(completed, projection)
-                    childRun.status = RunStatus.SUCCEEDED
-                    childAudit(childRun, ExecutionPhase.SUCCEEDED)
-                    derived.child(child.entry, childRequest, executed.inputHash, accepted)
-                }
-                checkCurrent()
-                val providerRequest = request.copy(analysis = derived.augment(request.analysis))
-                val payload = providerRequest.analysis.payloadText().toByteArray()
-                enter(
-                    scopes,
-                    node.depth,
-                    payload.size.toLong(),
-                )
-                providerAudit(node, conversationId, providerRequest, ExecutionPhase.STARTED)
-                checkCurrent()
-                var result: AnalysisResult? = null
-                var completed = false
-                var failure: ProviderEvent.Failure? = null
-                checkConnection()
-                providers.run(providerRequest, node.entry.manifest.allowedProviders).collect { event ->
-                    checkCurrent()
-                    when (event) {
-                        is ProviderEvent.StructuredResult -> {
-                            result = event.result
-                            consume(scopes, event.result.encodedBytes())
-                        }
-                        is ProviderEvent.TextDelta ->
-                            consume(
-                                scopes,
-                                event.text
-                                    .toByteArray()
-                                    .size
-                                    .toLong(),
-                            )
-                        ProviderEvent.Completed -> completed = true
-                        is ProviderEvent.Failure -> failure = event
-                        ProviderEvent.Cancelled -> throw CancellationException("E_PROVIDER_CANCELLED")
-                        is ProviderEvent.ToolCall, is ProviderEvent.ApprovalRequired -> throw AgentPolicyException("E_TOOL_UNAVAILABLE")
-                        else -> Unit
+                    val derived = DerivedAnalysisContext(rootRequest.analysis, approvalHash)
+                    for (skill in node.skills.filter { it.entry.key.id != "aps.report-artifact" }) {
+                        executeSkill(node, skill, request, scopes, null, derived)
                     }
+                    for (child in node.children) {
+                        checkCurrent()
+                        val analysis = child.analysis(request.analysis.copy(sessionId = AnalysisSessionId.create()))
+                        val childRequest =
+                            request.copy(
+                                runId = UUID.randomUUID().toString(),
+                                generation = 0,
+                                agentId = child.entry.key.id,
+                                analysis = analysis,
+                                grantedPermissions = child.permissions,
+                                budget = child.budget,
+                                approval = null,
+                            )
+                        val childRun = ChildRun(child, UUID.randomUUID().toString(), childRequest, node.entry.key.id)
+                        conversations.save(
+                            ConversationRecord(
+                                id = childRun.conversationId,
+                                analysisSessionId = analysis.sessionId.value,
+                                contextHash =
+                                    (analysis.payloadText() + "\nparent-run:" + request.runId + "\n" + approvalHash)
+                                        .toByteArray()
+                                        .sha256(),
+                                parentConversationId = conversationId,
+                                turns = listOf(childRequest.turn(RunStatus.RUNNING)),
+                            ),
+                        )
+                        children += childRun
+                        childAudit(childRun, ExecutionPhase.STARTED)
+                        val executed =
+                            executeNode(
+                                child,
+                                childRun.conversationId,
+                                childRequest,
+                                scopes + Scope(child.depth, ExecutionBudgetLedger(child.budget)),
+                            )
+                        checkCurrent()
+                        val projection =
+                            projectAnalysisResult(
+                                childRun.conversationId,
+                                childRequest.runId,
+                                childRequest.generation,
+                                analysis,
+                                derived.redact(executed.result),
+                                clock(),
+                            )
+                        val accepted = projection.toAnalysisResult()
+                        val record = conversations.load(childRun.conversationId) ?: throw AgentPolicyException("E_CONVERSATION_UNAVAILABLE")
+                        if (record.turns.singleOrNull()?.runId != childRequest.runId) throw AgentPolicyException("E_STALE_RUN")
+                        val completed = record.copy(turns = listOf(childRequest.turn(RunStatus.SUCCEEDED, accepted)))
+                        // Live parents cannot be referenced by StoredAnalysisResult.parentTurnRunId.
+                        // The child's immutable ConversationRecord links the actual immediate parent.
+                        if (history == null) conversations.save(completed) else history.complete(completed, projection)
+                        childRun.status = RunStatus.SUCCEEDED
+                        childAudit(childRun, ExecutionPhase.SUCCEEDED)
+                        derived.child(child.entry, childRequest, executed.inputHash, accepted)
+                    }
+                    checkCurrent()
+                    val providerRequest = request.copy(analysis = derived.augment(request.analysis))
+                    val payload = providerRequest.analysis.payloadText().toByteArray()
+                    enter(
+                        scopes,
+                        node.depth,
+                        payload.size.toLong(),
+                    )
+                    providerAudit(node, conversationId, providerRequest, ExecutionPhase.STARTED)
+                    checkCurrent()
+                    var result: AnalysisResult? = null
+                    var completed = false
+                    var failure: ProviderEvent.Failure? = null
+                    checkConnection()
+                    providers.run(providerRequest, node.entry.manifest.allowedProviders).collect { event ->
+                        checkCurrent()
+                        when (event) {
+                            is ProviderEvent.StructuredResult -> {
+                                result = event.result
+                                consume(scopes, event.result.encodedBytes())
+                            }
+                            is ProviderEvent.TextDelta ->
+                                consume(
+                                    scopes,
+                                    event.text
+                                        .toByteArray()
+                                        .size
+                                        .toLong(),
+                                )
+                            ProviderEvent.Completed -> completed = true
+                            is ProviderEvent.Failure -> failure = event
+                            ProviderEvent.Cancelled -> throw CancellationException("E_PROVIDER_CANCELLED")
+                            is ProviderEvent.ToolCall, is ProviderEvent.ApprovalRequired -> throw AgentPolicyException("E_TOOL_UNAVAILABLE")
+                            else -> Unit
+                        }
+                    }
+                    checkCurrent()
+                    failure?.let { throw GraphExecutionFailure(it.code, it.retryable) }
+                    if (!completed || result == null) throw AgentPolicyException("E_PROVIDER_PROTOCOL")
+                    // Broker validation is per independent request/session, before either persistence or Skills.
+                    val accepted = checkNotNull(result)
+                    providerAudit(node, conversationId, request, ExecutionPhase.SUCCEEDED)
+                    for (skill in node.skills.filter { it.entry.key.id == "aps.report-artifact" }) {
+                        executeSkill(node, skill, providerRequest, scopes, accepted, derived)
+                    }
+                    checkCurrent()
+                    ExecutedAnalysis(accepted, payload.sha256())
                 }
-                checkCurrent()
-                failure?.let { throw GraphExecutionFailure(it.code, it.retryable) }
-                if (!completed || result == null) throw AgentPolicyException("E_PROVIDER_PROTOCOL")
-                // Broker validation is per independent request/session, before either persistence or Skills.
-                val accepted = checkNotNull(result)
-                providerAudit(node, conversationId, request, ExecutionPhase.SUCCEEDED)
-                for (skill in node.skills.filter { it.entry.key.id == "aps.report-artifact" }) {
-                    executeSkill(node, skill, providerRequest, scopes, accepted, derived)
-                }
-                checkCurrent()
-                ExecutedAnalysis(accepted, payload.sha256())
-            }
-        currentCoroutineContext().ensureActive()
-        return result ?: throw GraphExecutionFailure(
-            if (node.budget.maxCpuMillis < node.budget.timeoutMillis) "E_CPU_BUDGET" else "E_PROVIDER_TIMEOUT",
-            retryable = node.budget.maxCpuMillis >= node.budget.timeoutMillis,
-        )
-    }
+            currentCoroutineContext().ensureActive()
+            val accepted = result ?: throw GraphExecutionFailure("E_PROVIDER_TIMEOUT", retryable = true)
+            scopes.forEach { it.ledger.checkTime() }
+            accepted
+        }
 
     private suspend fun executeSkill(
         node: FrozenAgent,
@@ -252,7 +252,7 @@ internal class AgentGraphExecutor(
                 try {
                     checkCurrent()
                     val checked =
-                        withTimeoutOrNull(minOf(skill.budget.timeoutMillis, skill.budget.maxCpuMillis)) { runner(scriptRequest) }
+                        withTimeoutOrNull(skill.budget.timeoutMillis) { runner(scriptRequest) }
                     currentCoroutineContext().ensureActive()
                     if (checked == null) throw GraphExecutionFailure("E_SCRIPT_TIMEOUT")
                     checkCurrent()

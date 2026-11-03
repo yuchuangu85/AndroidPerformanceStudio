@@ -8,6 +8,7 @@ import com.androidperformancestudio.ai.AnalysisScope
 import com.androidperformancestudio.ai.AnalysisScopeKind
 import com.androidperformancestudio.ai.AnalysisSessionId
 import com.androidperformancestudio.ai.PerformanceEvidence
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.ai.ProfilerKind
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
@@ -94,7 +95,15 @@ class DesktopAiCoordinatorTest {
 
     @Test
     fun `explicit global approval completes legacy caller using fallback model and artifact settings`() = runBlocking {
-        withFixture(settings = AiPlatformSettings(model = "", allowArtifacts = true, reportFormat = ArtifactFormat.MARKDOWN)) { fixture ->
+        withFixture(
+            settings =
+                AiPlatformSettings(
+                    model = "",
+                    allowArtifacts = true,
+                    reportFormat = ArtifactFormat.MARKDOWN,
+                    reportLanguage = ReportLanguage.SIMPLIFIED_CHINESE,
+                ),
+        ) { fixture ->
             var fallbackCalls = 0
             fixture.coordinator.sourceModel = { fallbackCalls++; "fallback-model" }
             val input = request()
@@ -104,6 +113,7 @@ class DesktopAiCoordinatorTest {
             assertEquals(1, fallbackCalls)
             assertEquals("fallback-model", prepared.model)
             assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
+            assertEquals(ReportLanguage.SIMPLIFIED_CHINESE, prepared.analysisPreview?.outputLanguage)
             assertEquals(
                 setOf(Permission.READ_EVIDENCE, Permission.PROVIDER_NETWORK, Permission.WRITE_ARTIFACT),
                 prepared.approval.permissions,
@@ -115,7 +125,7 @@ class DesktopAiCoordinatorTest {
             fixture.runtime.service.approveAndRun(prepared.approval).join()
 
             assertEquals(result(input, "fallback-model"), analysis.await())
-            assertRootRequest(input, fixture.requests.toList())
+            assertRootRequest(input.copy(outputLanguage = ReportLanguage.SIMPLIFIED_CHINESE), fixture.requests.toList())
             assertEquals(prepared.plannedProviderCallCount, fixture.requests.size)
             assertEquals(List(prepared.plannedProviderCallCount) { "fallback-model" }, fixture.models.toList())
             assertEquals(RunStatus.SUCCEEDED, fixture.runtime.service.state.value.status)
@@ -137,6 +147,7 @@ class DesktopAiCoordinatorTest {
                 agentId = "aps.report",
                 allowArtifacts = true,
                 reportFormat = ArtifactFormat.MARKDOWN,
+                reportLanguage = ReportLanguage.ENGLISH,
             )
             val input = request("layout-snapshot").copy(
                 originProfiler = ProfilerKind.LAYOUT_INSPECTOR,
@@ -147,6 +158,7 @@ class DesktopAiCoordinatorTest {
             val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
             assertEquals("layout-model", prepared.model)
             assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
+            assertEquals(ReportLanguage.ENGLISH, prepared.analysisPreview?.outputLanguage)
             assertEquals(1, prepared.plannedProviderCallCount)
             assertTrue(Permission.WRITE_ARTIFACT in prepared.approval.permissions)
             assertTrue(fixture.requests.isEmpty())
@@ -158,7 +170,7 @@ class DesktopAiCoordinatorTest {
             assertEquals(listOf("layout-model"), fixture.models.toList())
             val hash = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
             assertEquals(ArtifactFormat.MARKDOWN, fixture.runtime.artifacts.metadata(hash).format)
-            assertRootRequest(input, fixture.requests.toList())
+            assertRootRequest(input.copy(outputLanguage = ReportLanguage.ENGLISH), fixture.requests.toList())
         }
     }
 

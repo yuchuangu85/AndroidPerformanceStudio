@@ -35,7 +35,7 @@ class ExecutionBudgetTest {
     }
 
     @Test
-    fun `cpu allowance conservatively includes waiting and rejects before accounting`() {
+    fun `waiting spends wall time but not CPU allowance`() {
         var time = 0L
         val ledger =
             ExecutionBudgetLedger(
@@ -44,10 +44,36 @@ class ExecutionBudgetTest {
             )
         ledger.enter(0, 1)
         time = 11_000_000
+        ledger.enter(0, 1)
+        ledger.consumeOutput(1)
+        assertEquals(2, ledger.snapshot().invocations)
+        assertEquals(11L, ledger.snapshot().elapsedMillis)
+        assertEquals(0L, ledger.snapshot().cpuMillis)
+    }
+
+    @Test
+    fun `measured CPU exhaustion rejects before counting another invocation or output`() {
+        val ledger = ExecutionBudgetLedger(ResourceBudget(timeoutMillis = 1000, maxCpuMillis = 10))
+        ledger.enter(0, 1)
+        ledger.recordCpuTime(11_000_000)
         assertEquals("E_CPU_BUDGET", assertFailsWith<AgentPolicyException> { ledger.enter(0, 1) }.code)
         assertEquals("E_CPU_BUDGET", assertFailsWith<AgentPolicyException> { ledger.consumeOutput(1) }.code)
         assertEquals(1, ledger.snapshot().invocations)
         assertEquals(1L, ledger.snapshot().inputBytes)
         assertEquals(0L, ledger.snapshot().outputBytes)
+        assertEquals(11L, ledger.snapshot().cpuMillis)
+    }
+
+    @Test
+    fun `CPU accounting saturates safely and unsupported sampling fails closed`() {
+        val overflow = ExecutionBudgetLedger(ResourceBudget())
+        overflow.recordCpuTime(Long.MAX_VALUE)
+        overflow.recordCpuTime(Long.MAX_VALUE)
+        assertEquals(Long.MAX_VALUE / 1_000_000, overflow.snapshot().cpuMillis)
+        assertEquals("E_CPU_BUDGET", assertFailsWith<AgentPolicyException> { overflow.checkTime() }.code)
+
+        val unavailable = ExecutionBudgetLedger(ResourceBudget())
+        unavailable.recordCpuTime(-1)
+        assertEquals("E_CPU_METER_UNAVAILABLE", assertFailsWith<AgentPolicyException> { unavailable.checkTime() }.code)
     }
 }

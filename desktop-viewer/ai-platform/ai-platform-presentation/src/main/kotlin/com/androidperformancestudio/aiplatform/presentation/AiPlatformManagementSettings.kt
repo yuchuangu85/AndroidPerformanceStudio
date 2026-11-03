@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettings
 import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
@@ -482,6 +483,18 @@ private fun ManagementPolicy(
                 fillWidth = true,
                 menuModifier = Modifier.width(320.dp).testTag("ai-management-report-format-menu"),
             )
+            val languageDescription = managementLabel(language, "Report output language", "输出报告语言")
+            DropdownSelector(
+                items = ReportLanguage.entries,
+                selectedItem = settings.reportLanguage,
+                onItemSelected = { selected -> onChange { current -> current.copy(reportLanguage = selected) } },
+                itemLabel = { selected -> reportLanguageLabel(selected, language) },
+                placeholder = languageDescription,
+                modifier = Modifier.width(320.dp).testTag("ai-management-report-language"),
+                selectorDescription = languageDescription,
+                fillWidth = true,
+                menuModifier = Modifier.width(320.dp).testTag("ai-management-report-language-menu"),
+            )
         }
         StudioCard(Modifier.fillMaxWidth().testTag("ai-management-card-history")) {
             Text(
@@ -567,6 +580,16 @@ private fun ManagementPolicy(
         )
     }
 }
+
+private fun reportLanguageLabel(
+    reportLanguage: ReportLanguage,
+    language: UiLanguage,
+): String =
+    when (reportLanguage) {
+        ReportLanguage.AUTO -> managementLabel(language, "Auto (question or report language)", "自动（问题或报告语言）")
+        ReportLanguage.ENGLISH -> managementLabel(language, "English", "英语")
+        ReportLanguage.SIMPLIFIED_CHINESE -> managementLabel(language, "Simplified Chinese", "简体中文")
+    }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

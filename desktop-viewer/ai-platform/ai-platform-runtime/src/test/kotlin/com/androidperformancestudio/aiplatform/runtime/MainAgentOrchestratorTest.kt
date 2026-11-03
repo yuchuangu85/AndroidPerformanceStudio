@@ -37,10 +37,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import java.lang.management.ManagementFactory
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.sql.DriverManager
@@ -730,40 +733,107 @@ class MainAgentOrchestratorTest {
         }
 
     @Test
-    fun `conservative cpu budget cancels provider with permanent budget failure`() =
+    fun `suspended provider wait does not consume cpu budget`() =
         runBlocking {
-            var cancelled = false
             fixture(
                 gateway = {
-                    try {
-                        awaitCancellation()
-                    } finally {
-                        cancelled = true
-                    }
+                    delay(500)
+                    result(it)
                 },
                 budget = ResourceBudget(timeoutMillis = 5000, maxCpuMillis = 250),
             ).use { fixture ->
                 val prepared = fixture.prepare()
                 fixture.runtime.approve(prepared.approval)
-                val event =
-                    assertIs<ProviderEvent.Failure>(
-                        fixture.runtime
-                            .run(prepared.approval.runId)
-                            .toList()
-                            .last()
-                            .event,
-                    )
-                assertEquals("E_CPU_BUDGET", event.code)
-                assertFalse(event.retryable)
-                assertTrue(cancelled)
-                assertEquals(
-                    RunStatus.PERMANENT_FAILURE,
+                val events =
+                    fixture.runtime
+                        .run(prepared.approval.runId)
+                        .toList()
+                        .map { it.event }
+                val accepted = events.filterIsInstance<ProviderEvent.StructuredResult>().single().result
+                assertEquals(result(request()), accepted)
+                assertEquals(ProviderEvent.Completed, events.last())
+                val turn =
                     fixture.store
                         .load("conversation-1")!!
                         .turns
                         .single()
-                        .status,
-                )
+                assertEquals(RunStatus.SUCCEEDED, turn.status)
+                assertNull(turn.errorCode)
+                assertEquals(accepted, fixture.store.result("conversation-1", prepared.approval.runId)?.toAnalysisResult())
+            }
+        }
+
+    @Test
+    fun `blocking provider wait does not consume cpu budget`() =
+        runBlocking {
+            fixture(
+                gateway = {
+                    Thread.sleep(500)
+                    result(it)
+                },
+                budget = ResourceBudget(timeoutMillis = 5000, maxCpuMillis = 250),
+            ).use { fixture ->
+                val prepared = fixture.prepare()
+                fixture.runtime.approve(prepared.approval)
+                val events =
+                    fixture.runtime
+                        .run(prepared.approval.runId)
+                        .toList()
+                        .map { it.event }
+                val accepted = events.filterIsInstance<ProviderEvent.StructuredResult>().single().result
+                assertEquals(result(request()), accepted)
+                assertEquals(ProviderEvent.Completed, events.last())
+                val turn =
+                    fixture.store
+                        .load("conversation-1")!!
+                        .turns
+                        .single()
+                assertEquals(RunStatus.SUCCEEDED, turn.status)
+                assertNull(turn.errorCode)
+                assertEquals(accepted, fixture.store.result("conversation-1", prepared.approval.runId)?.toAnalysisResult())
+            }
+        }
+
+    @Test
+    fun `cpu bound provider fails permanently without accepting result`() =
+        runBlocking {
+            val threadCpu = ManagementFactory.getThreadMXBean()
+            assumeTrue(threadCpu.isCurrentThreadCpuTimeSupported, "Current-thread CPU metering is unsupported")
+            if (!threadCpu.isThreadCpuTimeEnabled) threadCpu.isThreadCpuTimeEnabled = true
+            var consumedCpuNanos = 0L
+            fixture(
+                gateway = {
+                    val startedCpu = threadCpu.currentThreadCpuTime
+                    assertTrue(startedCpu >= 0, "Current-thread CPU time must be available when metering is supported")
+                    val startedWall = System.nanoTime()
+                    while (consumedCpuNanos <= 350_000_000L) {
+                        assertTrue(System.nanoTime() - startedWall < 4_000_000_000L, "CPU work exceeded its wall-clock safeguard")
+                        consumedCpuNanos = threadCpu.currentThreadCpuTime - startedCpu
+                    }
+                    result(it)
+                },
+                budget = ResourceBudget(timeoutMillis = 5000, maxCpuMillis = 250),
+            ).use { fixture ->
+                val prepared = fixture.prepare()
+                fixture.runtime.approve(prepared.approval)
+                val events =
+                    fixture.runtime
+                        .run(prepared.approval.runId)
+                        .toList()
+                        .map { it.event }
+                val event = assertIs<ProviderEvent.Failure>(events.last())
+                assertTrue(consumedCpuNanos > 350_000_000L)
+                assertEquals("E_CPU_BUDGET", event.code)
+                assertFalse(event.retryable)
+                assertFalse(events.any { it is ProviderEvent.StructuredResult || it == ProviderEvent.Completed })
+                val turn =
+                    fixture.store
+                        .load("conversation-1")!!
+                        .turns
+                        .single()
+                assertEquals(RunStatus.PERMANENT_FAILURE, turn.status)
+                assertEquals("E_CPU_BUDGET", turn.errorCode)
+                assertNull(fixture.store.result("conversation-1", prepared.approval.runId))
             }
         }
 

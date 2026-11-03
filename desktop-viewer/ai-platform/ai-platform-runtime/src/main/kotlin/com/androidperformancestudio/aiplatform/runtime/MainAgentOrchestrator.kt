@@ -2,6 +2,7 @@ package com.androidperformancestudio.aiplatform.runtime
 
 import com.androidperformancestudio.ai.AiConversationContextTurn
 import com.androidperformancestudio.ai.AnalysisRequest
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.ai.isDirectChat
 import com.androidperformancestudio.ai.payloadText
 import com.androidperformancestudio.aiplatform.model.ApprovalRequest
@@ -31,10 +32,12 @@ import com.androidperformancestudio.aiplatform.storage.redactAnalysisText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -153,7 +156,12 @@ public class MainAgentOrchestrator(
             }
             val contextHash =
                 (
-                    authorized.copy(userQuestion = null, conversationContext = emptyList()).payloadText() +
+                    authorized
+                        .copy(
+                            userQuestion = null,
+                            conversationContext = emptyList(),
+                            outputLanguage = ReportLanguage.AUTO,
+                        ).payloadText() +
                         "\n" + authorized.promptVersion + "\n" + authorized.payloadPolicyVersion
                 ).sha256()
             val previous = conversations.load(conversationId)
@@ -320,7 +328,7 @@ public class MainAgentOrchestrator(
         }
 
     public fun run(runId: String): Flow<AgentRunEvent> =
-        flow {
+        channelFlow {
             val run =
                 mutex.withLock {
                     val current = pending[runId] ?: failPolicy("E_RUN_UNAVAILABLE")
@@ -371,7 +379,7 @@ public class MainAgentOrchestrator(
                             verify(run)
                         }
                     },
-                    emitEvent = { emit(it) },
+                    emitEvent = { send(it) },
                     checkConnection = { verifyConnection(run) },
                     reportFormat = run.reportFormat,
                 )
@@ -451,7 +459,7 @@ public class MainAgentOrchestrator(
                 for (event in finalEvents) {
                     currentCoroutineContext().ensureActive()
                     if (!mutex.withLock { pending[runId] === run }) break
-                    emit(
+                    send(
                         AgentRunEvent(
                             runId,
                             run.request.generation,
@@ -476,7 +484,7 @@ public class MainAgentOrchestrator(
                     }
                 }
             }
-        }
+        }.buffer(Channel.RENDEZVOUS)
 
     private fun conversationContext(
         parent: ConversationRecord?,

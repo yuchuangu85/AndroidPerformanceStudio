@@ -41,7 +41,7 @@ class FindingSelectionStateTest {
     @Test
     fun `findings use a virtualized honest table without changing row interactions`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"))
-        val pane = source.substringAfter("private fun FindingsPane(").substringBefore("private fun TimelineStrip(")
+        val pane = source.substringAfter("internal fun FindingsPane(").substringBefore("private fun TimelineStrip(")
         val row = source.substringAfter("private fun FindingRow(").substringBefore("private fun PanelTitle(")
 
         assertTrue(pane.contains("FindingsTableHeader("))

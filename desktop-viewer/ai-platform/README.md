@@ -88,9 +88,13 @@ audit. Qualification happens during preflight, before provider dispatch. Provide
 device writes remain unavailable; trust alone never grants script execution.
 
 One budget ledger covers the root, child/Skill steps, provider and artifact publication, bounding
-invocations, depth, input/output and elapsed time. Its CPU allowance is conservatively spent as
-elapsed time, not process-tree CPU metering. JVM memory and gateway-internal raw response allocations
-are not constrained by that ledger. Native script CPU/address-space limits are a separate OS boundary.
+invocations, depth, input/output and elapsed time. CPU allowance is charged from JVM thread CPU time
+while the graph's coroutines execute, cumulatively across the root and children; suspended or blocking
+provider waits only spend the separate wall deadline. CPU usage is checked at host execution boundaries,
+not preemptively during arbitrary non-cooperative code. This is not whole-process or process-tree CPU
+metering. Unsupported JVM CPU metering fails closed with `E_CPU_METER_UNAVAILABLE`. JVM memory and
+gateway-internal raw response allocations are not constrained by that ledger. Native script
+CPU/address-space limits remain a separate OS boundary.
 
 ## Profiler integration
 

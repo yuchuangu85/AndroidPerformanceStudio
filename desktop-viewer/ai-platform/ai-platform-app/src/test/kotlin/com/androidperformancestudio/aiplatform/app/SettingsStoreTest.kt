@@ -1,5 +1,6 @@
 package com.androidperformancestudio.aiplatform.app
 
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -20,12 +21,33 @@ import kotlin.test.assertTrue
 
 class SettingsStoreTest {
     @Test
-    fun `new settings and empty profiles default to HTML reports`() {
+    fun `new settings and empty profiles default to HTML reports with automatic language`() {
         val preferences = MemoryPreferences().node(UUID.randomUUID().toString())
         val store = AiPlatformSettingsStore(preferences)
 
         assertEquals(ArtifactFormat.HTML, AiPlatformSettings().reportFormat)
+        assertEquals(ReportLanguage.AUTO, AiPlatformSettings().reportLanguage)
         assertEquals(AiPlatformSettings(), store.load())
+    }
+
+    @Test
+    fun `report languages persist enum names and invalid values fall back to automatic`() {
+        for (language in ReportLanguage.entries) {
+            val preferences = MemoryPreferences().node(UUID.randomUUID().toString())
+            val expected = AiPlatformSettings("openai", "report-model", reportLanguage = language)
+            AiPlatformSettingsStore(preferences).save(expected)
+
+            assertEquals(language.name, preferences.get("reportLanguage", null))
+            assertEquals(expected, AiPlatformSettingsStore(preferences).load())
+        }
+        for (invalid in listOf("CHINESE", "english", "")) {
+            val preferences = MemoryPreferences().node(UUID.randomUUID().toString())
+            preferences.put("provider", "codex")
+            preferences.put("model", "retained-model")
+            preferences.put("reportLanguage", invalid)
+
+            assertEquals(AiPlatformSettings("codex", "retained-model"), AiPlatformSettingsStore(preferences).load())
+        }
     }
 
     @Test

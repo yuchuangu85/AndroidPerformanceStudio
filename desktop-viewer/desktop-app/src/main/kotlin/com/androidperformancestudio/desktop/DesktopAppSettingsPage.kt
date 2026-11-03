@@ -344,7 +344,7 @@ internal fun AiSettingsPageContent(
                 selectorDescription = if (language == UiLanguage.SIMPLIFIED_CHINESE) "AI 设置分类" else "AI settings category",
                 modifier = Modifier.testTag("ai-settings-category"),
                 style = SegmentedSelectorStyle.COMPACT_OUTLINED,
-                textStyle = ViewerTypography.pageTitle,
+                textStyle = ViewerTypography.body.copy(lineHeight = ViewerTypography.pageTitle.lineHeight),
                 maxWidth = Dp.Infinity,
             )
         }

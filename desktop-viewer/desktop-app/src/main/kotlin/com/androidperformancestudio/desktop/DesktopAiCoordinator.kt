@@ -52,6 +52,7 @@ internal class DesktopAiCoordinator(
         val frozen = request.copy(
             evidence = request.evidence.map { it.copy() },
             sourceCandidates = request.sourceCandidates.map { it.copy(reasons = it.reasons.toList()) },
+            outputLanguage = settings.reportLanguage,
         )
         val key = frozen.originProfiler.name.lowercase().replace('_', '-')
         val context = BusinessContext(key, contextDigest(frozen.toString()), frozen.scope.description.take(256), frozen)

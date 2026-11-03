@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -44,19 +43,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ai.AnalysisFinding
 import com.androidperformancestudio.ai.AnalysisResult
+import com.androidperformancestudio.ai.ReportLanguage
 import com.androidperformancestudio.aiplatform.model.ArtifactFormat
 import com.androidperformancestudio.aiplatform.model.Permission
 import com.androidperformancestudio.aiplatform.model.RunStatus
@@ -180,7 +172,7 @@ private fun DshMessageList(
                 }
             }
             items(state.turns, key = { "${it.runId}:${it.generation}" }) { turn ->
-                DshTurn(turn, state.selectedConversationId, actions, language)
+                DshTurn(turn, state.selectedConversationId, actions, language, retryEnabled = !state.busy && state.canSend)
             }
             state.pendingApproval?.let { pending ->
                 item("approval-${pending.approval.id}") { DshApproval(pending, actions, language) }
@@ -197,11 +189,22 @@ private fun DshMessageList(
                 item("error") {
                     Column {
                         SelectionContainer { DshText(state.errorCode, color = colors.error, modifier = Modifier.testTag("ai-chat-error")) }
+                        if (state.errorCode == "E_CONVERSATION_HAS_CHILDREN") {
+                            DshText(
+                                dshLabel(
+                                    language,
+                                    "This conversation has branches. Delete its branches before deleting this conversation.",
+                                    "此会话存在分支，请先删除分支会话，再删除此会话。",
+                                ),
+                                color = colors.muted,
+                                style = DshChatStyle.secondary,
+                            )
+                        }
                         DshCommand(
                             Icons.Regular.ArrowClockwise,
                             dshLabel(language, "Retry", "重试"),
                             "ai-retry",
-                            enabled = !state.busy,
+                            enabled = !state.busy && state.canSend,
                             onClick = actions.onRetry,
                         )
                     }
@@ -258,6 +261,7 @@ private fun DshTurn(
     conversationId: String?,
     actions: ChatSurfaceActions,
     language: UiLanguage,
+    retryEnabled: Boolean,
 ) {
     val colors = LocalDshChatColors.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -325,18 +329,22 @@ private fun DshTurn(
         if (turn.result == null && turn.status.terminal) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DshText(dshRunLabel(turn.status, language), color = colors.muted, style = DshChatStyle.secondary)
-                if (turn.status == RunStatus.RETRYABLE_FAILURE || turn.status == RunStatus.INTERRUPTED) {
+                if (turn.status.allowsChatRetry()) {
                     DshCommand(
                         Icons.Regular.ArrowClockwise,
                         dshLabel(language, "Retry", "重试"),
                         "ai-retry-${turn.runId}",
-                        onClick = actions.onRetry,
+                        enabled = retryEnabled,
+                        onClick = { actions.onRetryTurn(turn.runId) },
                     )
                 }
             }
         }
     }
 }
+
+internal fun RunStatus.allowsChatRetry(): Boolean =
+    this == RunStatus.RETRYABLE_FAILURE || this == RunStatus.PERMANENT_FAILURE || this == RunStatus.INTERRUPTED
 
 @Composable
 private fun DshFinding(
@@ -347,9 +355,11 @@ private fun DshFinding(
     val colors = LocalDshChatColors.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SelectionContainer { DshText(finding.title, style = DshChatStyle.body.copy(fontWeight = FontWeight.Medium)) }
-        DshMarkdownText(finding.explanation)
+        DshSafeText(finding.explanation, language, "ai-finding-explanation-${finding.id.value}")
         if (finding.recommendation.isNotBlank()) {
-            Box(Modifier.padding(top = 6.dp)) { DshMarkdownText(finding.recommendation) }
+            Box(Modifier.padding(top = 6.dp)) {
+                DshSafeText(finding.recommendation, language, "ai-finding-recommendation-${finding.id.value}")
+            }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             finding.performanceEvidenceIds.distinct().forEach { id ->
@@ -408,6 +418,18 @@ private fun DshApproval(
                 style = DshChatStyle.secondary,
             )
         }
+        val reportLanguage =
+            when (pending.analysisPreview?.outputLanguage ?: ReportLanguage.AUTO) {
+                ReportLanguage.AUTO -> dshLabel(language, "Auto", "自动")
+                ReportLanguage.ENGLISH -> dshLabel(language, "English", "英语")
+                ReportLanguage.SIMPLIFIED_CHINESE -> dshLabel(language, "Simplified Chinese", "简体中文")
+            }
+        DshText(
+            dshLabel(language, "Report language: $reportLanguage", "报告语言：$reportLanguage"),
+            modifier = Modifier.testTag("ai-report-language"),
+            color = colors.muted,
+            style = DshChatStyle.secondary,
+        )
         pending.analysisPreview?.userQuestion?.let { SelectionContainer { DshText(it) } }
         pending.analysisPreview?.let { preview ->
             preview.evidence.forEach { evidence ->
@@ -499,153 +521,6 @@ private fun DshActivity(
                             "${event.subjectId}  ${event.kind.name} / ${event.phase.name}" + (event.errorCode?.let { "  $it" } ?: ""),
                             color = colors.muted,
                             style = DshChatStyle.secondary,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-internal data class DshTextBlock(
-    val text: String,
-    val code: Boolean,
-    val language: String = "",
-)
-
-/** Fences split code from safe Markdown; no HTML, URI handlers or model-authored navigation. */
-internal fun dshTextBlocks(text: String): List<DshTextBlock> {
-    val blocks = mutableListOf<DshTextBlock>()
-    val lines = mutableListOf<String>()
-    var code = false
-    var language = ""
-
-    fun flush() {
-        if (lines.isNotEmpty()) blocks += DshTextBlock(lines.joinToString("\n"), code, language)
-        lines.clear()
-    }
-    text.lineSequence().forEach { line ->
-        if (line.startsWith("```")) {
-            flush()
-            if (!code) language = line.removePrefix("```").trim().take(32)
-            code = !code
-        } else {
-            lines += line
-        }
-    }
-    flush()
-    return blocks
-}
-
-@Composable
-private fun DshSafeText(
-    text: String,
-    language: UiLanguage,
-    tag: String,
-) {
-    val colors = LocalDshChatColors.current
-    val blocks = remember(text) { dshTextBlocks(text) }
-    Column(Modifier.fillMaxWidth().testTag(tag), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        blocks.forEachIndexed { index, block ->
-            if (block.code) {
-                Column(Modifier.fillMaxWidth().background(colors.sidebar, RoundedCornerShape(DshChatStyle.smallRadius)).padding(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        DshText(block.language, Modifier.weight(1f), color = colors.muted, style = DshChatStyle.secondary)
-                        DshCopyButton(block.text, language, "$tag-code-copy-$index")
-                    }
-                    SelectionContainer {
-                        DshText(
-                            block.text,
-                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            style = DshChatStyle.body.copy(fontFamily = FontFamily.Monospace),
-                        )
-                    }
-                }
-            } else {
-                DshMarkdownText(block.text)
-            }
-        }
-    }
-}
-
-internal data class DshMarkdownLine(
-    val text: AnnotatedString,
-    val headingLevel: Int = 0,
-    val marker: String? = null,
-)
-
-/** Deliberately bounded Markdown presentation, never an HTML renderer or a link executor. */
-internal fun dshMarkdownLines(text: String): List<DshMarkdownLine> =
-    text
-        .lineSequence()
-        .map { line ->
-            val heading = DSH_HEADING_PATTERN.matchEntire(line)
-            val list = if (heading == null) DSH_LIST_PATTERN.matchEntire(line) else null
-            val content = heading?.groupValues?.get(2) ?: list?.groupValues?.get(2) ?: line
-            val marker = list?.groupValues?.get(1)?.let { if (it in listOf("-", "*", "+")) "•" else it }
-            DshMarkdownLine(dshInlineMarkdown(content), heading?.groupValues?.get(1)?.length ?: 0, marker)
-        }.toList()
-
-private val DSH_HEADING_PATTERN = Regex("^ {0,3}(#{1,6})\\s+(.+)$")
-private val DSH_LIST_PATTERN = Regex("^ {0,3}([-*+]|[0-9]{1,9}[.)])\\s+(.+)$")
-
-internal fun dshInlineMarkdown(text: String): AnnotatedString =
-    buildAnnotatedString {
-        var index = 0
-        while (index < text.length) {
-            when {
-                text[index] == '\\' && index + 1 < text.length && text[index + 1] in "\\*`#_[]" -> {
-                    append(text[index + 1])
-                    index += 2
-                }
-                text[index] == '`' -> {
-                    val end = text.indexOf('`', index + 1)
-                    if (end > index + 1) {
-                        withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(text.substring(index + 1, end)) }
-                        index = end + 1
-                    } else {
-                        append(text[index++])
-                    }
-                }
-                text.startsWith("**", index) || text.startsWith("__", index) -> {
-                    val delimiter = text.substring(index, index + 2)
-                    val end = text.indexOf(delimiter, index + 2)
-                    if (end > index + 2) {
-                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(text.substring(index + 2, end)) }
-                        index = end + 2
-                    } else {
-                        append(text[index++])
-                    }
-                }
-                else -> append(text[index++])
-            }
-        }
-    }
-
-@Composable
-private fun DshMarkdownText(text: String) {
-    val colors = LocalDshChatColors.current
-    val lines = remember(text) { dshMarkdownLines(text) }
-    SelectionContainer {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            lines.forEach { line ->
-                if (line.text.isEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                } else {
-                    val style =
-                        when (line.headingLevel) {
-                            1 -> DshChatStyle.body.copy(fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold)
-                            2 -> DshChatStyle.body.copy(fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold)
-                            in 3..6 -> DshChatStyle.body.copy(fontWeight = FontWeight.SemiBold)
-                            else -> DshChatStyle.body
-                        }
-                    Row(Modifier.fillMaxWidth()) {
-                        line.marker?.let { DshText("$it ", Modifier.widthIn(min = 20.dp), color = colors.muted) }
-                        Text(
-                            line.text,
-                            modifier = Modifier.weight(1f).then(if (line.headingLevel > 0) Modifier.semantics { heading() } else Modifier),
-                            color = colors.text,
-                            style = style,
                         )
                     }
                 }
