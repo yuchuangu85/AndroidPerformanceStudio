@@ -58,6 +58,84 @@ class DeviceTargetControllerTest {
         }
 
     @Test
+    fun `discovered device is selected while its details are still loading`() =
+        runBlocking {
+            val details = CompletableDeferred<StudioResult<DeviceSelection>>()
+            val gateway =
+                object : DeviceTargetGateway by FakeDeviceTargetGateway() {
+                    override suspend fun loadSelection(serial: String): StudioResult<DeviceSelection> = details.await()
+                }
+            val controller = DeviceTargetController(gateway)
+            val refresh = async(start = CoroutineStart.UNDISPATCHED) { controller.refreshDevices() }
+
+            try {
+                val loading = controller.state.value
+                assertEquals("serial-1", loading.selectedSerial)
+                assertEquals("Pixel 8", loading.devices.first().label)
+                assertTrue(loading.isLoading)
+                assertNull(loading.selection)
+            } finally {
+                details.complete(FakeDeviceTargetGateway().loadSelection("serial-1"))
+                refresh.await()
+            }
+
+            val loaded = controller.state.value
+            assertFalse(loaded.isLoading)
+            assertEquals("serial-1", loaded.selection?.serial)
+        }
+
+    @Test
+    fun `device detail failure preserves discovered device identity and error`() =
+        runBlocking {
+            val expected = StudioError(ErrorCategory.IO, "CAPABILITY_FAILED", "Device capability probe failed")
+            val gateway =
+                object : DeviceTargetGateway by FakeDeviceTargetGateway() {
+                    override suspend fun loadSelection(serial: String) = StudioResult.Failure(expected)
+                }
+            val controller = DeviceTargetController(gateway)
+
+            controller.refreshDevices()
+
+            val failed = controller.state.value
+            assertEquals("serial-1", failed.selectedSerial)
+            assertEquals("Pixel 8", failed.devices.first().label)
+            assertNull(failed.selection)
+            assertEquals(expected, failed.error)
+            assertFalse(failed.isLoading)
+            assertFalse(failed.canEnterCapture)
+        }
+
+    @Test
+    fun `switching to a device with failed details clears the previous capture target`() =
+        runBlocking {
+            val expected = StudioError(ErrorCategory.IO, "CAPABILITY_FAILED", "Device capability probe failed")
+            val delegate = FakeDeviceTargetGateway()
+            val gateway =
+                object : DeviceTargetGateway by delegate {
+                    override suspend fun loadSelection(serial: String): StudioResult<DeviceSelection> =
+                        if (serial == "serial-2") StudioResult.Failure(expected) else delegate.loadSelection(serial)
+                }
+            val controller = DeviceTargetController(gateway)
+            controller.refreshDevices()
+            controller.selectPackage("com.example.camera")
+            controller.selectProcess(321)
+            assertTrue(controller.state.value.canEnterCapture)
+
+            controller.selectDevice("serial-2")
+
+            val failed = controller.state.value
+            assertEquals("serial-2", failed.selectedSerial)
+            assertNull(failed.selection)
+            assertNull(failed.selectedPackageName)
+            assertNull(failed.selectedTarget)
+            assertNull(failed.captureSetup)
+            assertTrue(failed.threads.isEmpty())
+            assertEquals(expected, failed.error)
+            assertFalse(failed.isLoading)
+            assertFalse(failed.canEnterCapture)
+        }
+
+    @Test
     fun `searches targets locally without reloading the selected device`() =
         runBlocking {
             val gateway = FakeDeviceTargetGateway()
@@ -175,26 +253,62 @@ class DeviceTargetControllerTest {
         }
 
     @Test
-    fun `process selection is constrained to the previously selected app`() =
+    fun `device-wide process list selects a process that belongs to no selected app`() =
         runBlocking {
             val controller = DeviceTargetController(FakeDeviceTargetGateway())
             controller.refreshDevices()
             controller.selectDevice("serial-1")
             controller.selectPackage("com.example.camera")
 
+            // The app filter still narrows the app-scoped list, but the picker keeps every process.
             assertEquals(
                 listOf(321),
                 controller.state.value.processesForSelectedPackage
                     .map(ProcessOption::pid),
             )
+            assertEquals(
+                listOf(321, 654),
+                controller.state.value.selection
+                    ?.processes
+                    ?.map(ProcessOption::pid),
+            )
 
             controller.selectProcess(654)
 
-            assertIs<CaptureTarget.App>(controller.state.value.selectedTarget)
-            assertEquals("com.example.camera", controller.state.value.selectedPackageName)
-            assertTrue(
+            val target = controller.state.value.selectedTarget
+            assertIs<CaptureTarget.Process>(target)
+            assertEquals(654, target.pid)
+            assertEquals("surfaceflinger", target.name)
+            assertEquals(
+                SimpleperfTarget.Process(654, appPackage = null),
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.target,
+            )
+        }
+
+    @Test
+    fun `selects a device-wide process before any application is chosen`() =
+        runBlocking {
+            val controller = DeviceTargetController(FakeDeviceTargetGateway())
+            controller.refreshDevices()
+            assertNull(controller.state.value.selectedPackageName)
+
+            controller.selectProcess(321)
+
+            val target = controller.state.value.selectedTarget
+            assertIs<CaptureTarget.Process>(target)
+            assertEquals(321, target.pid)
+            assertEquals(
+                SimpleperfTarget.Process(321, appPackage = "com.example.camera"),
+                controller.state.value.captureSetup
+                    ?.parameters
+                    ?.target,
+            )
+            assertEquals(
+                listOf(321, 333),
                 controller.state.value.threads
-                    .isEmpty(),
+                    .map(ThreadOption::tid),
             )
         }
 

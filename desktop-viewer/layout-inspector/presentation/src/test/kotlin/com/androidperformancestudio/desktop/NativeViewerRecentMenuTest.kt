@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test
 
 class NativeViewerRecentMenuTest {
     @Test
-    fun `file menu exposes localized recent archives and disambiguates duplicate names`() {
+    fun `recent menu exposes recent archives and disambiguates duplicate names`() {
         val first = Path.of("/captures/first/layout.apinspect")
         val second = Path.of("/captures/second/layout.apinspect")
         val model = NativeViewerMenuModel(
@@ -25,9 +25,6 @@ class NativeViewerRecentMenuTest {
             isMacOs = true,
         )
 
-        assertEquals("最近打开", model.openRecentTitle)
-        assertEquals("暂无最近归档", model.noRecentLabel)
-        assertEquals("清除菜单", model.clearRecentLabel)
         assertEquals(
             listOf(first, second).map { it.toAbsolutePath().normalize().toString() },
             model.recentItems.map { it.label },
@@ -49,7 +46,6 @@ class NativeViewerRecentMenuTest {
             isMacOs = false,
         )
 
-        assertEquals("Open Recent", model.openRecentTitle)
         assertFalse(model.recentEnabled)
     }
 
@@ -59,9 +55,9 @@ class NativeViewerRecentMenuTest {
             Path.of("src/main/kotlin/com/androidperformancestudio/desktop/NativeViewerMenuBar.kt"),
         )
 
-        assertTrue(source.contains("Menu(model.openRecentTitle, enabled = model.recentEnabled)"))
+        assertTrue(source.contains("enabled = model.recentEnabled"))
         assertTrue(source.contains("onOpenRecentArchive: (Path) -> Unit"))
-        assertTrue(source.contains("onClick = { onOpenRecentArchive(item.path) }"))
-        assertTrue(source.contains("onClick = onClearRecentArchives"))
+        assertTrue(source.contains("MenuCommand(item.label) { onOpenRecentArchive(item.path) }"))
+        assertTrue(source.contains("onClear = onClearRecentArchives"))
     }
 }

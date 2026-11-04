@@ -10,6 +10,7 @@ compose-fluent = "v0.1.0"
 coroutines = "1.11.0"
 detekt = "1.23.8"
 junit = "6.1.3"
+jbr-api = "1.5.0"
 kotlin = "2.4.20"
 ktlint = "14.2.0"
 okhttp = "5.5.0"
@@ -38,6 +39,7 @@ compose-ui-test-junit4 = { module = "org.jetbrains.compose.ui:ui-test-junit4", v
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+jbr-api = { module = "org.jetbrains.runtime:jbr-api", version.ref = "jbr-api" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
@@ -68,6 +70,7 @@ aps-frame-app = { module = "com.androidperformancestudio.frame:frame-app", versi
 aps-gpu-integration-app = { module = "com.androidperformancestudio.gpu:gpu-integration-app", version.ref = "aps" }
 aps-analysis-memory = { module = "com.androidperformancestudio.memory:analysis-memory", version.ref = "aps" }
 aps-memory-app = { module = "com.androidperformancestudio.memory:memory-app", version.ref = "aps" }
+aps-memory-model = { module = "com.androidperformancestudio.memory:memory-model", version.ref = "aps" }
 aps-network-app = { module = "com.androidperformancestudio.network:network-app", version.ref = "aps" }
 aps-analysis-startup = { module = "com.androidperformancestudio.startup:analysis-startup", version.ref = "aps" }
 aps-startup-agent-protocol = { module = "com.androidperformancestudio.startup:startup-agent-protocol", version.ref = "aps" }

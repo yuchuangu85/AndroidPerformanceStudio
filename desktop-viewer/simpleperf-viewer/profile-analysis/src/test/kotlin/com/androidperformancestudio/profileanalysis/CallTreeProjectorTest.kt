@@ -23,8 +23,10 @@ class CallTreeProjectorTest {
         assertEquals(listOf("leaf", "otherLeaf"), inverted.rootNames())
         assertEquals(4, forward.selfWeight(listOf("root", "A", "leaf")))
         assertEquals(0, forward.selfWeight(listOf("root")))
-        assertEquals(4, inverted.selfWeight(listOf("leaf", "A", "root")))
-        assertEquals(0, inverted.selfWeight(listOf("leaf")))
+        assertEquals(0, inverted.selfWeight(listOf("leaf", "A", "root")))
+        assertEquals(4, inverted.selfWeight(listOf("leaf")))
+        assertEquals(1L, inverted.selfSampleCountAt(inverted.indexForNames(listOf("leaf"))))
+        assertEquals(0L, inverted.selfSampleCountAt(inverted.indexForNames(listOf("leaf", "A", "root"))))
         assertEquals("UI", forward.category(listOf("root", "A")))
         assertEquals("Runtime", inverted.category(listOf("leaf", "A", "root")))
     }
@@ -43,6 +45,130 @@ class CallTreeProjectorTest {
 
         assertEquals(listOf("beta", "root"), projection.rootNames())
         assertEquals(listOf("Alpha", "alpha", "zeta"), projection.childNames("root"))
+    }
+
+    @Test
+    fun `siblings compare original case before function identity`() {
+        val frames =
+            listOf(frame(1, ROOT, "root"), frame(2, A, "a"), frame(3, B, "B"))
+                .associateBy(CallStackFrame::frameId)
+        val table =
+            CallStackTable(
+                frames,
+                listOf(stack(1, 9, "main", listOf(ROOT, A)), stack(2, 1, "main", listOf(ROOT, B))),
+            )
+
+        assertEquals(listOf("B", "a"), CallTreeProjector.project(table).childNames("root"))
+    }
+
+    @Test
+    fun `recursive asymmetric paths retain sampled leaf self counts in either direction`() {
+        val table =
+            tableOf(
+                stack(1, 9, "main", listOf(ROOT, A, LEAF)),
+                stack(2, 1, "main", listOf(ROOT, A, OTHER_LEAF)),
+                stack(3, 2, "main", listOf(ROOT, A, A, LEAF)),
+                stack(4, 3, "main", listOf(ROOT, A)),
+                stack(5, 5, "main", listOf(ROOT, B, A, OTHER_LEAF)),
+            )
+
+        val forward = CallTreeProjector.project(table)
+        val outer = forward.indexFor(listOf(ROOT, A))
+        assertEquals(15L, forward.inclusiveWeightAt(outer))
+        assertEquals(4L, forward.sampleCountAt(outer))
+        assertEquals(3L, forward.selfWeightAt(outer))
+        assertEquals(1L, forward.selfSampleCountAt(outer))
+        assertEquals(2L, forward.inclusiveWeightAt(forward.indexFor(listOf(ROOT, A, A))))
+
+        val inverted = CallTreeProjector.project(table, CallStackDirection.INVERTED)
+        inverted.parentIndexes.forEachIndexed { index, parent ->
+            assertEquals(if (parent == -1) inverted.inclusiveWeightAt(index) else 0L, inverted.selfWeightAt(index))
+            assertEquals(if (parent == -1) inverted.sampleCountAt(index) else 0L, inverted.selfSampleCountAt(index))
+        }
+    }
+
+    @Test
+    fun `category metrics retain every sample category and subcategory before node merging`() {
+        val table =
+            tableOf(
+                stack(1, 9, "main", listOf(ROOT, A), listOf("Runtime", "Native")).copy(subcategory = "App"),
+                stack(2, 1, "main", listOf(ROOT, A), listOf("Runtime", "JIT")).copy(subcategory = "Code"),
+                stack(3, 0, "main", listOf(ROOT, A, LEAF), listOf("Runtime", "Native", "Native"))
+                    .copy(subcategory = "App"),
+            )
+
+        val forward = CallTreeProjector.project(table)
+        val categories = requireNotNull(forward.categoryMetricsAt(forward.indexFor(listOf(ROOT, A))))
+        assertEquals(
+            listOf(
+                CallNodeCategoryMetrics("JIT", "Code", 1, 1, 1, 1),
+                CallNodeCategoryMetrics("Native", "App", 2, 1, 9, 9),
+            ),
+            categories,
+        )
+        val inverted = CallTreeProjector.project(table, CallStackDirection.INVERTED)
+        val invertedRoot = requireNotNull(inverted.categoryMetricsAt(inverted.indexFor(listOf(A))))
+        assertEquals(invertedRoot.map { it.sampleCount }, invertedRoot.map { it.selfSampleCount })
+        assertEquals(invertedRoot.map { it.inclusiveWeight }, invertedRoot.map { it.selfWeight })
+        assertTrue(
+            requireNotNull(inverted.categoryMetricsAt(inverted.indexFor(listOf(A, ROOT)))).all {
+                it.selfSampleCount == 0L && it.selfWeight == 0L
+            },
+        )
+    }
+
+    @Test
+    fun `sample weights and traced time remain independent with sampled leaf self in either direction`() {
+        val source =
+            tableOf(
+                stack(1, 9_000_000, "main", listOf(ROOT, A)).copy(timestampNanos = 0),
+                stack(2, 1_000_000, "main", listOf(ROOT, B)).copy(timestampNanos = 10_000_000),
+            )
+        val sampled = source.withWeightType(CallStackWeightType.SAMPLES)
+        val forward = CallTreeProjector.project(sampled)
+        val root = forward.indexFor(listOf(ROOT))
+        val a = forward.indexFor(listOf(ROOT, A))
+        assertEquals(2L, forward.inclusiveWeightAt(root))
+        assertEquals(11_000_000L, forward.tracedInclusiveNanosAt(root))
+        assertEquals(0L, forward.tracedSelfNanosAt(root))
+        assertEquals(10_000_000L, forward.tracedSelfNanosAt(a))
+        assertEquals(1L, forward.selfSampleCountAt(a))
+        assertEquals(null, CallTreeProjector.project(source).tracedInclusiveNanosAt(root))
+
+        val inverted = CallTreeProjector.project(sampled, CallStackDirection.INVERTED)
+        val invertedA = inverted.indexFor(listOf(A))
+        assertEquals(10_000_000L, inverted.tracedInclusiveNanosAt(invertedA))
+        assertEquals(10_000_000L, inverted.tracedSelfNanosAt(invertedA))
+        assertEquals(0L, inverted.tracedSelfNanosAt(inverted.indexFor(listOf(A, ROOT))))
+    }
+
+    @Test
+    fun `missing sample categories use each actual leaf module before canonical frame merging`() {
+        val frames =
+            listOf(
+                frame(1, ROOT, "root"),
+                frame(2, A, "loopOnce", "lib.so"),
+                frame(3, A, "loopOnce", "[JIT app cache]"),
+            ).associateBy(CallStackFrame::frameId)
+        val table =
+            CallStackTable(
+                frames,
+                listOf(
+                    stackFromFrameIds(1, 9, "main", listOf(1, 2))
+                        .copy(category = null, categoriesRootToLeaf = listOf(null, null)),
+                    stackFromFrameIds(2, 1, "main", listOf(1, 3))
+                        .copy(category = null, categoriesRootToLeaf = listOf(null, null)),
+                ),
+            )
+        val nodes = CallTreeProjector.project(table)
+
+        assertEquals(
+            listOf(
+                CallNodeCategoryMetrics("JIT", null, 1, 1, 1, 1),
+                CallNodeCategoryMetrics("Native", null, 1, 1, 9, 9),
+            ),
+            nodes.categoryMetricsAt(nodes.indexFor(listOf(ROOT, A))),
+        )
     }
 
     @Test

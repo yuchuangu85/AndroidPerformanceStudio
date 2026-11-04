@@ -1,6 +1,8 @@
 package com.androidperformancestudio.frame.presentation
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +18,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.frame.analysis.AnalyzedFrame
 import com.androidperformancestudio.ui.LocalViewerColors
@@ -45,12 +46,12 @@ internal fun FrameTimelineWindow.axisIndices(): List<Int> {
 internal fun formatFrameTimelineTick(valueMs: Double) = "%.2f".format(Locale.ROOT, valueMs).trimEnd('0').trimEnd('.')
 
 @Composable
-@Suppress("FunctionNaming", "ktlint:standard:function-naming")
+@Suppress("FunctionNaming", "LongMethod", "ktlint:standard:function-naming")
 internal fun FrameTimelineAxes(
     durationTicksMs: List<Double>,
     window: FrameTimelineWindow,
     frames: List<AnalyzedFrame>,
-    plotHeight: Dp,
+    modifier: Modifier = Modifier,
     plot: @Composable () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -64,48 +65,56 @@ internal fun FrameTimelineAxes(
     val frameLayouts = frameLabels.map { textMeasurer.measure(it, textStyle) }
     val labelHeight = with(LocalDensity.current) { frameLayouts.maxOfOrNull { it.size.height }?.toDp() ?: 0.dp }
 
-    Row(Modifier.fillMaxWidth()) {
-        Canvas(
-            Modifier
-                .width(gutter)
-                .height(plotHeight)
-                .testTag("frame-timeline-duration-axis")
-                .semantics { contentDescription = durationLabels.joinToString { "$it ms" } },
-        ) {
-            durationLayouts.forEachIndexed { index, label ->
-                val y = size.height * (1f - index.toFloat() / AXIS_INTERVALS)
-                val labelTop =
-                    (y - label.size.height / 2f).coerceIn(0f, (size.height - label.size.height).coerceAtLeast(0f))
-                drawText(
-                    label,
-                    topLeft =
-                        Offset(
-                            size.width - label.size.width - 8.dp.toPx(),
-                            labelTop,
-                        ),
-                )
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val actualPlotHeight =
+            if (constraints.hasBoundedHeight) {
+                (maxHeight - labelHeight - 8.dp).coerceAtLeast(0.dp)
+            } else {
+                72.dp
             }
-        }
-        Column(Modifier.weight(1f)) {
-            plot()
+        Row(Modifier.fillMaxWidth()) {
             Canvas(
                 Modifier
-                    .fillMaxWidth()
-                    .height(labelHeight + 8.dp)
-                    .testTag("frame-timeline-frame-axis")
-                    .semantics { contentDescription = frameLabels.joinToString() },
+                    .width(gutter)
+                    .height(actualPlotHeight)
+                    .testTag("frame-timeline-duration-axis")
+                    .semantics { contentDescription = durationLabels.joinToString { "$it ms" } },
             ) {
-                drawLine(colors.border, Offset.Zero, Offset(size.width, 0f))
-                frameIndices.forEachIndexed { index, frameIndex ->
-                    val x = (frameIndex - window.startIndex + FRAME_CENTER_OFFSET) / window.count * size.width
-                    drawLine(colors.border, Offset(x, 0f), Offset(x, 4.dp.toPx()))
-                    val label = frameLayouts[index]
-                    val labelLeft =
-                        (x - label.size.width / 2f).coerceIn(0f, (size.width - label.size.width).coerceAtLeast(0f))
+                durationLayouts.forEachIndexed { index, label ->
+                    val y = size.height * (1f - index.toFloat() / AXIS_INTERVALS)
+                    val labelTop =
+                        (y - label.size.height / 2f).coerceIn(0f, (size.height - label.size.height).coerceAtLeast(0f))
                     drawText(
                         label,
-                        topLeft = Offset(labelLeft, 6.dp.toPx()),
+                        topLeft =
+                            Offset(
+                                size.width - label.size.width - 8.dp.toPx(),
+                                labelTop,
+                            ),
                     )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Box(Modifier.fillMaxWidth().height(actualPlotHeight)) { plot() }
+                Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(labelHeight + 8.dp)
+                        .testTag("frame-timeline-frame-axis")
+                        .semantics { contentDescription = frameLabels.joinToString() },
+                ) {
+                    drawLine(colors.border, Offset.Zero, Offset(size.width, 0f))
+                    frameIndices.forEachIndexed { index, frameIndex ->
+                        val x = (frameIndex - window.startIndex + FRAME_CENTER_OFFSET) / window.count * size.width
+                        drawLine(colors.border, Offset(x, 0f), Offset(x, 4.dp.toPx()))
+                        val label = frameLayouts[index]
+                        val labelLeft =
+                            (x - label.size.width / 2f).coerceIn(0f, (size.width - label.size.width).coerceAtLeast(0f))
+                        drawText(
+                            label,
+                            topLeft = Offset(labelLeft, 6.dp.toPx()),
+                        )
+                    }
                 }
             }
         }

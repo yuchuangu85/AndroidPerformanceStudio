@@ -69,6 +69,7 @@ class HprofParserTest {
                 .loadClass(classId, className)
                 .heapDump(
                     HprofFixtureBuilder().androidHeapDumpInfo(1, appHeapName),
+                    HprofFixtureBuilder().classDump(classId, 24),
                     HprofFixtureBuilder().instanceDump(10, classId),
                     HprofFixtureBuilder().instanceDump(11, classId),
                     HprofFixtureBuilder().androidHeapDumpInfo(2, imageHeapName),
@@ -78,6 +79,7 @@ class HprofParserTest {
 
         val heap = parser.parse(fixture)
 
+        assertEquals("App", heap.heapByObjectId[classId])
         assertEquals("App", heap.heapByObjectId[10L])
         assertEquals("App", heap.heapByObjectId[11L])
         assertEquals("Image", heap.heapByObjectId[12L])
@@ -175,9 +177,24 @@ class HprofParserTest {
         val objectArray = heap.objectArrays.single()
         assertEquals(32L, instance.shallowSize)
         assertTrue(instance.fieldBytes.isEmpty())
-        assertEquals(24L, objectArray.shallowSize)
+        assertEquals(20L, objectArray.shallowSize)
         assertEquals(listOf(3L, 3L), objectArray.elementIds)
-        assertEquals(20L, heap.primitiveArrays.single().shallowSize)
+        assertEquals(16L, heap.primitiveArrays.single().shallowSize)
+    }
+
+    @Test
+    fun `wide primitive arrays retain the aligned header used by Trace Processor`() {
+        val heap =
+            parser.parse(
+                HprofFixtureBuilder()
+                    .heapDump(
+                        HprofFixtureBuilder().primitiveArrayDump(1, PrimitiveType.LONG, 2),
+                        HprofFixtureBuilder().primitiveArrayDump(2, PrimitiveType.DOUBLE, 1),
+                        HprofFixtureBuilder().primitiveArrayDump(3, PrimitiveType.INT, 2),
+                    ).build(),
+            )
+
+        assertEquals(listOf(32L, 24L, 20L), heap.primitiveArrays.map { it.shallowSize })
     }
 
     @Test
@@ -235,7 +252,7 @@ class HprofParserTest {
 
         assertEquals("com.example.AndroidObject", heap.instances.single().className)
         assertEquals(10, heap.primitiveArrays.single().elementCount)
-        assertEquals(26L, heap.primitiveArrays.single().shallowSize)
+        assertEquals(22L, heap.primitiveArrays.single().shallowSize)
         assertEquals(emptyList(), heap.warnings)
     }
 

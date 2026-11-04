@@ -56,4 +56,25 @@ class MemoryModelDefaultsTest {
         assertEquals(1_048_576L, stats.shallowSize)
         assertEquals(1_048_576L, summary.shallowSize)
     }
+
+    @Test
+    fun `primitive array payload is unavailable by default and old positional arguments remain valid`() {
+        val array = HeapPrimitiveArray(7L, PrimitiveType.INT, 2, 20L, false)
+
+        assertNull(array.valueSource)
+        assertEquals(7L, array.objectId)
+        assertEquals("int[]", array.className)
+        assertEquals(2, array.elementCount)
+        assertEquals(20L, array.shallowSize)
+        assertEquals(false, array.shallowSizeKnown)
+        assertEquals(4096, HeapPrimitiveArrayValueSource.MAX_READ_ELEMENTS)
+    }
+
+    @Test
+    fun `inspector value kinds preserve all required evidence categories`() {
+        assertEquals(
+            listOf("OBJECT", "CLASS", "ARRAY", "STRING", "PRIMITIVE", "NULL", "UNKNOWN"),
+            HeapValueKind.entries.map { it.name },
+        )
+    }
 }

@@ -167,7 +167,7 @@ public class TraceAnalysisContext internal constructor(
                         executable = tool.path,
                         // Query the artifact-scoped warm context rather than launching another
                         // processor which would parse the same Capture Artifact again.
-                        arguments = listOf("query", "--remote", "127.0.0.1:$port", sql),
+                        arguments = listOf("query", "--format", "csv", "--remote", "127.0.0.1:$port", sql),
                     ),
                 )
             if (result.exitCode != 0) return failure("TRACE_QUERY_FAILED", "Trace query failed with exit code ${result.exitCode}")

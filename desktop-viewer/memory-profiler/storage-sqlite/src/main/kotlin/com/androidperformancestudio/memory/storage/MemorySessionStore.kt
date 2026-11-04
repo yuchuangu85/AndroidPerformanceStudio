@@ -9,6 +9,7 @@ import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.ResultSet
+import java.sql.Statement
 import java.time.Instant
 
 data class MemorySessionMetadata(
@@ -84,34 +85,38 @@ class SqliteMemorySessionStore private constructor(
                 ON memory_sessions(package_name)
                 """.trimIndent(),
             )
-            statement.executeUpdate(
-                """
-                CREATE TABLE IF NOT EXISTS memory_session_columns (
-                    session_id TEXT NOT NULL,
-                    column_name TEXT NOT NULL,
-                    visible INTEGER NOT NULL,
-                    PRIMARY KEY(session_id, column_name)
-                )
-                """.trimIndent(),
-            )
-            statement.executeUpdate(
-                """
-                CREATE TABLE IF NOT EXISTS memory_session_filter_presets (
-                    session_id TEXT NOT NULL,
-                    preset_id TEXT NOT NULL,
-                    label TEXT NOT NULL,
-                    heap_filter TEXT,
-                    class_scope TEXT NOT NULL,
-                    leak_filter TEXT NOT NULL,
-                    arrange_by TEXT NOT NULL,
-                    search_text TEXT NOT NULL,
-                    match_case INTEGER NOT NULL,
-                    use_regex INTEGER NOT NULL,
-                    PRIMARY KEY(session_id, preset_id)
-                )
-                """.trimIndent(),
-            )
+            createUiSettingsSchema(statement)
         }
+    }
+
+    private fun createUiSettingsSchema(statement: Statement) {
+        statement.executeUpdate(
+            """
+            CREATE TABLE IF NOT EXISTS memory_session_columns (
+                session_id TEXT NOT NULL,
+                column_name TEXT NOT NULL,
+                visible INTEGER NOT NULL,
+                PRIMARY KEY(session_id, column_name)
+            )
+            """.trimIndent(),
+        )
+        statement.executeUpdate(
+            """
+            CREATE TABLE IF NOT EXISTS memory_session_filter_presets (
+                session_id TEXT NOT NULL,
+                preset_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                heap_filter TEXT,
+                class_scope TEXT NOT NULL,
+                leak_filter TEXT NOT NULL,
+                arrange_by TEXT NOT NULL,
+                search_text TEXT NOT NULL,
+                match_case INTEGER NOT NULL,
+                use_regex INTEGER NOT NULL,
+                PRIMARY KEY(session_id, preset_id)
+            )
+            """.trimIndent(),
+        )
     }
 
     fun upsert(metadata: MemorySessionMetadata) {

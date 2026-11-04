@@ -86,8 +86,12 @@
     <string name="cluster_count">%1$d 个区间</string>
     <string name="previous_frame">‹ 上一帧</string>
     <string name="next_frame">下一帧 ›</string>
-    <string name="frame_timeline_normal">预算内</string>
-    <string name="frame_timeline_jank">卡顿帧</string>
+    <string name="frame_timeline_normal">正常帧</string>
+    <string name="frame_timeline_high_latency">高延迟</string>
+    <string name="frame_timeline_jank">自身卡顿</string>
+    <string name="frame_timeline_other_jank">SF 导致卡顿</string>
+    <string name="frame_timeline_dropped">丢弃帧</string>
+    <string name="frame_timeline_unknown">未分类</string>
     <string name="frame_timeline_cluster">卡顿区间</string>
     <string name="layout_preview">布局预览</string>
     <string name="frame_screenshot_unavailable">没有已保存的帧截图</string>

@@ -1,19 +1,28 @@
 package com.androidperformancestudio.presentation
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
@@ -29,49 +38,104 @@ internal fun FirefoxTransformNavigator(
     style: FirefoxFlameGraphStyle,
     onUndo: () -> Unit,
     onClear: () -> Unit,
+    onRemoveAfter: ((Int) -> Unit)? = null,
 ) {
-    if (transforms.isEmpty()) return
     val language = currentSimpleperfLanguage()
+    val borderColor = style.viewportBorder.toComposeColor()
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .height(TRANSFORM_ROW_HEIGHT_DP.dp)
+                .testTag("transform-navigator")
+                .clipToBounds()
                 .background(style.panelSurface.toComposeColor())
-                .border(1.dp, style.viewportBorder.toComposeColor())
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .drawBehind { drawLine(borderColor, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_flame_transforms, language),
-            color = style.mutedForeground.toComposeColor(),
-            fontSize = ViewerTypography.label.fontSize,
+        TransformCrumb(
+            label = localizedStringResource(SimpleperfViewerRes.sp_flame_nav_complete, language),
+            isLeaf = transforms.isEmpty(),
+            onClick = if (transforms.isEmpty()) null else ({ onRemoveAfter?.invoke(0) ?: onClear() }),
+            style = style,
+            modifier = Modifier.testTag("transform-crumb-0"),
         )
         transforms.forEachIndexed { index, transform ->
-            if (index > 0) Text("›", color = style.mutedForeground.toComposeColor(), fontSize = ViewerTypography.label.fontSize)
-            Text(
-                transform.navigatorLabel(currentSimpleperfLanguage()),
-                color = style.canvasForeground.toComposeColor(),
-                fontSize = ViewerTypography.label.fontSize,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            val retainedCount = index + 1
+            val isLeaf = retainedCount == transforms.size
+            val onPop: (() -> Unit)? =
+                when {
+                    isLeaf -> null
+                    onRemoveAfter != null -> ({ onRemoveAfter(retainedCount) })
+                    retainedCount == transforms.lastIndex -> onUndo
+                    else -> null
+                }
+            TransformCrumb(
+                label = transform.navigatorLabel(language),
+                isLeaf = isLeaf,
+                onClick = onPop,
+                style = style,
+                modifier = Modifier.weight(1f, fill = false).testTag("transform-crumb-$retainedCount"),
             )
         }
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_flame_undo, language),
-            modifier = Modifier.clickable(onClick = onUndo).padding(horizontal = 5.dp, vertical = 2.dp),
-            color = style.canvasForeground.toComposeColor(),
-            fontSize = ViewerTypography.label.fontSize,
-        )
-        Text(
-            localizedStringResource(SimpleperfViewerRes.sp_details_clear, language),
-            modifier = Modifier.clickable(onClick = onClear).padding(horizontal = 5.dp, vertical = 2.dp),
-            color = style.canvasForeground.toComposeColor(),
-            fontSize = ViewerTypography.label.fontSize,
-        )
     }
+}
+
+@Composable
+@Suppress("FunctionName", "ktlint:standard:function-naming")
+private fun TransformCrumb(
+    label: String,
+    isLeaf: Boolean,
+    onClick: (() -> Unit)?,
+    style: FirefoxFlameGraphStyle,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val foreground = style.canvasForeground.toComposeColor()
+    val separator = style.surfaceBorder.toComposeColor()
+    Text(
+        label,
+        modifier =
+            modifier
+                .height(TRANSFORM_ROW_HEIGHT_DP.dp)
+                .semantics { selected = isLeaf }
+                .then(
+                    if (onClick == null) {
+                        Modifier
+                    } else {
+                        Modifier.hoverable(interaction).clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            role = Role.Button,
+                            onClick = onClick,
+                        )
+                    },
+                ).background(
+                    foreground.copy(
+                        alpha =
+                            if (pressed) {
+                                0.2f
+                            } else if (hovered && onClick != null) {
+                                0.1f
+                            } else {
+                                0f
+                            },
+                    ),
+                ).drawBehind {
+                    if (!isLeaf) {
+                        val inset = 6.dp.toPx()
+                        val center = Offset(size.width - 1.dp.toPx(), size.height / 2)
+                        drawLine(separator, Offset(center.x - inset, 0f), center, 1.dp.toPx())
+                        drawLine(separator, center, Offset(center.x - inset, size.height), 1.dp.toPx())
+                    }
+                }.padding(start = 8.dp, end = if (isLeaf) 8.dp else 16.dp, top = 5.dp),
+        color = if (isLeaf) style.focusOutline.toComposeColor() else foreground,
+        style = ViewerTypography.label,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 internal fun CallStackTransform.navigatorLabel(

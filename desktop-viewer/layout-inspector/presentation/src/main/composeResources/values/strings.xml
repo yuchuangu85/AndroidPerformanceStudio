@@ -87,6 +87,7 @@
     <string name="no_available_windows">No available windows</string>
     <string name="no_snapshot_loaded">No snapshot loaded</string>
     <string name="disconnected">Disconnected</string>
+    <string name="device_online">Device online</string>
     <string name="connecting">Connecting</string>
     <string name="live">Live</string>
     <string name="offline_archive">Offline archive</string>
@@ -180,6 +181,8 @@
     <string name="detail_section_compose_source">COMPOSE SOURCE</string>
     <string name="detail_section_recomposition">RECOMPOSITION</string>
     <string name="detail_section_compose_parameters">PARAMETERS</string>
+    <string name="detail_label_partial_display">Partial display</string>
+    <string name="detail_value_compose_partial_display">Only part of this section is displayed to limit memory use. Original captured evidence has not been deleted.</string>
     <string name="detail_section_compose_modifiers">MODIFIERS</string>
     <string name="detail_section_merged_semantics">MERGED SEMANTICS</string>
     <string name="detail_section_unmerged_semantics">UNMERGED SEMANTICS</string>
@@ -281,4 +284,21 @@ Payload: %4$d bytes</string>
     <string name="detail_label_restartable">Restartable</string>
     <string name="detail_label_skippable">Skippable</string>
     <string name="detail_label_unstable_parameters">Unstable parameters</string>
+    <string name="menu_import_screenshot">Screenshot…</string>
+    <string name="menu_export_capture_archive">Capture Archive…</string>
+    <string name="compose_inspection_project_hint">This project may not use Compose. Only Compose projects need Compose Agent injection.</string>
+    <string name="compose_inspection_show_details">Details</string>
+    <string name="compose_inspection_hide_details">Hide details</string>
+    <string name="compose_agent_title">Compose Agent</string>
+    <string name="compose_agent_authorize">Allow Attach</string>
+    <string name="compose_agent_yes">Yes</string>
+    <string name="compose_agent_no">No</string>
+    <string name="compose_agent_preflight">Device: %1$s
+App: %2$s
+PID: %3$s · Android API: %4$s · ABI: %5$s
+Compose: %6$s
+Inspector source: %7$s
+Download required: %8$s · Restart required: %9$s
+
+Attach the Compose inspector to this process? It may add CPU and memory overhead. Turning off Compose Agent returns to compatible capture without JVMTI injection.</string>
 </resources>

@@ -38,6 +38,7 @@ import com.androidperformancestudio.network.model.HttpCall
 import com.androidperformancestudio.network.model.NetworkEvidenceSource
 import com.androidperformancestudio.network.presentation.generated.resources.*
 import com.androidperformancestudio.network.presentation.generated.resources.Res
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
@@ -97,7 +98,13 @@ internal fun NetworkRequestControls(
         }
     }
     val search: @Composable (Modifier) -> Unit = { modifier ->
-        StudioSearchField(query, onQueryChange, localizedStringResource(Res.string.network_search, language), modifier.testTag("network-request-search"))
+        StudioSearchField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = localizedStringResource(Res.string.network_search, language),
+            modifier = modifier.testTag("network-request-search"),
+            compact = true,
+        )
     }
     if (narrow) {
         Column(Modifier.fillMaxWidth()) {
@@ -120,7 +127,7 @@ internal fun NetworkActivityPanel(calls: List<HttpCall>, language: UiLanguage) {
     StudioPanel(Modifier.fillMaxWidth().testTag("network-activity-panel")) {
         StudioPanelHeader(localizedStringResource(Res.string.network_activity, language))
         if (activity == null) {
-            Text(localizedStringResource(Res.string.network_activity_unavailable, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.network_activity_unavailable, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         } else {
             val measuredPeak = activity.completionBytes.filterNotNull().maxOrNull()
             val peak = measuredPeak?.coerceAtLeast(1) ?: 1
@@ -161,17 +168,18 @@ internal fun NetworkActivityPanel(calls: List<HttpCall>, language: UiLanguage) {
                 Text(formatDurationNs(activity.durationNs), style = ViewerTypography.label, color = colors.secondaryText)
             }
             if (activity.incompleteByteCalls > 0) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.network_partial_bytes, language, activity.incompleteByteCalls),
                     color = colors.warning,
                     style = ViewerTypography.label,
+                    language = language,
                 )
             }
             if (activity.omittedCalls > 0) {
-                Text(localizedStringResource(Res.string.network_activity_omitted, language, activity.omittedCalls), color = colors.warning, style = ViewerTypography.label)
+                CopyableText(localizedStringResource(Res.string.network_activity_omitted, language, activity.omittedCalls), color = colors.warning, style = ViewerTypography.label, language = language)
             }
         }
-        Text(notice, style = ViewerTypography.label, color = colors.secondaryText)
+        CopyableText(notice, style = ViewerTypography.label, color = colors.secondaryText, language = language)
     }
 }
 
@@ -189,7 +197,7 @@ internal fun NetworkDomainsPanel(calls: List<HttpCall>, language: UiLanguage, mo
         modifier = modifier.testTag("network-domains-table"),
     ) {
         if (domains.isEmpty()) {
-            Text(localizedStringResource(Res.string.no_requests, language), style = ViewerTypography.secondary, color = LocalViewerColors.current.secondaryText)
+            CopyableText(localizedStringResource(Res.string.no_requests, language), style = ViewerTypography.secondary, color = LocalViewerColors.current.secondaryText, language = language)
         }
         LazyColumn(Modifier.fillMaxSize()) {
             items(domains, key = { it.domain.orEmpty() }) { domain ->

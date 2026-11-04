@@ -13,8 +13,8 @@ import java.nio.file.StandardOpenOption
  * Performs a bounded structural inspection before the full HPROF parser runs.
  *
  * The probe deliberately does not parse heap objects. Its result is suitable for showing the
- * source format, ID width, file size, record inventory, and structural warnings before an
- * expensive graph analysis starts.
+ * source format, ID width, file size, observed record headers, and structural warnings before an
+ * expensive graph analysis starts. Payloads extending beyond the sample are not treated as EOF.
  */
 public class HprofInputProbe(
     private val maxProbeBytes: Int = DEFAULT_MAX_PROBE_BYTES,
@@ -30,7 +30,7 @@ public class HprofInputProbe(
             }
         }
         sample.flip()
-        return inspect(sample, fileSizeBytes, sampleSize.toLong())
+        return inspect(sample, fileSizeBytes, sample.remaining().toLong())
     }
 
     public fun inspect(bytes: ByteArray): HprofInputProbeResult =
@@ -65,6 +65,8 @@ public class HprofInputProbe(
         var hasHeapDump = false
         var hasHeapDumpSegment = false
         var recordCount = 0
+        var stoppedInRecord = false
+        val inspectionComplete = inspectedBytes >= fileSizeBytes
         while (buffer.remaining() >= RECORD_HEADER_BYTES) {
             val recordOffset = buffer.position().toLong()
             val tag = buffer.get().toInt() and 0xff
@@ -72,10 +74,13 @@ public class HprofInputProbe(
             val length = buffer.int
             if (length < 0) {
                 warnings += "Negative HPROF record length at offset $recordOffset"
+                stoppedInRecord = true
                 break
             }
-            if (length > buffer.remaining()) {
+            // The read budget is not EOF; only the source file bounds establish truncation.
+            if (length.toLong() > fileSizeBytes - buffer.position()) {
                 warnings += "Truncated HPROF record at offset $recordOffset: expected $length bytes"
+                stoppedInRecord = true
                 break
             }
             recordCount++
@@ -84,12 +89,16 @@ public class HprofInputProbe(
                 HEAP_DUMP -> hasHeapDump = true
                 HEAP_DUMP_SEGMENT -> hasHeapDumpSegment = true
             }
+            if (length > buffer.remaining()) {
+                stoppedInRecord = true
+                break
+            }
             buffer.position(buffer.position() + length)
         }
-        if (buffer.hasRemaining() && buffer.remaining() < RECORD_HEADER_BYTES && fileSizeBytes <= maxProbeBytes) {
+        val hasPartialHeader = buffer.hasRemaining() && buffer.remaining() < RECORD_HEADER_BYTES
+        if (inspectionComplete && !stoppedInRecord && hasPartialHeader) {
             warnings += "Trailing incomplete HPROF record header"
         }
-        val inspectionComplete = inspectedBytes >= fileSizeBytes
         if (fileSizeBytes > RECOMMENDED_MATERIALIZED_BYTES) {
             warnings +=
                 "HPROF exceeds the recommended in-memory analysis budget; " +

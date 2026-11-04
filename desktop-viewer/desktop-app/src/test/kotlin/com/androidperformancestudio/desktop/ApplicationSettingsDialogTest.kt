@@ -24,7 +24,9 @@ class ApplicationSettingsDialogTest {
         assertTrue(SettingsPage.entries.indexOf(SettingsPage.AI) < SettingsPage.entries.indexOf(SettingsPage.ABOUT))
         assertTrue(unifiedDialog.contains("SettingsPage.AI ->"))
         assertTrue(unifiedDialog.contains("AiSettingsContent("))
-        assertTrue(unifiedDialog.contains("!runtime.credential(OPENAI_API_KEY).isNullOrBlank()"))
+        assertTrue(unifiedDialog.contains("runtime.providerHasCredential(connection)"))
+        assertTrue(unifiedDialog.contains("runtime.saveAndApplyProviderConnection("))
+        assertTrue(unifiedDialog.contains("settingsStore.update { it.copy(providerId = connection.providerId"))
         assertTrue(unifiedDialog.contains("Res.string.source_ai_key_required"))
         assertTrue(
             unifiedDialog.indexOf("label = SettingsPage.AI.label(language)") <

@@ -21,6 +21,9 @@ class BenchmarkRegressionWorkspaceSourceTest {
         assertTrue(source.contains("BenchmarkReportsScreen("))
         assertTrue(source.contains("BenchmarkReportsActions("))
         assertTrue(source.contains("onNavigateHome = onBack"))
+        val header = source.substringAfter("HeaderToolbar(").substringBefore("HorizontalDivider(")
+        assertTrue(header.contains("BenchmarkHeaderActions("))
+        assertTrue(header.contains("Res.string.open_trace_in_perfetto"))
         assertFalse(source.contains("import androidx.compose.material3.OutlinedButton"))
         assertFalse(source.contains("import androidx.compose.material3.Button"))
     }

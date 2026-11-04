@@ -5,18 +5,14 @@ package com.androidperformancestudio.battery.app
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.battery.battery_app.generated.resources.Res
-import com.androidperformancestudio.battery.battery_app.generated.resources.advanced
-import com.androidperformancestudio.battery.battery_app.generated.resources.clear_recent
-import com.androidperformancestudio.battery.battery_app.generated.resources.export
 import com.androidperformancestudio.battery.battery_app.generated.resources.export_csv
 import com.androidperformancestudio.battery.battery_app.generated.resources.export_json
 import com.androidperformancestudio.battery.battery_app.generated.resources.export_raw_bundle
-import com.androidperformancestudio.battery.battery_app.generated.resources.file
-import com.androidperformancestudio.battery.battery_app.generated.resources.import_analysis
-import com.androidperformancestudio.battery.battery_app.generated.resources.no_recent_files
-import com.androidperformancestudio.battery.battery_app.generated.resources.open_recent
 import com.androidperformancestudio.battery.battery_app.generated.resources.reset_statistics
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.ActivePageMenu
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.PageMenu
+import com.androidperformancestudio.ui.RecentMenu
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
@@ -27,7 +23,6 @@ internal data class BatteryRecentMenuItem(
 )
 
 internal data class BatteryExportMenuModel(
-    val title: String,
     val jsonLabel: String,
     val csvLabel: String,
     val rawEvidenceLabel: String,
@@ -37,15 +32,9 @@ internal data class BatteryExportMenuModel(
 )
 
 internal data class BatteryProfilerMenuModel(
-    val fileTitle: String,
-    val importLabel: String,
     val importEnabled: Boolean,
     val exportMenu: BatteryExportMenuModel,
-    val openRecentTitle: String,
-    val noRecentLabel: String,
-    val clearRecentLabel: String,
     val recentItems: List<BatteryRecentMenuItem>,
-    val advancedTitle: String,
     val resetStatisticsLabel: String,
     val resetEnabled: Boolean,
 )
@@ -60,12 +49,9 @@ internal fun batteryProfilerMenuModel(
     resetEnabled: Boolean,
 ): BatteryProfilerMenuModel =
     BatteryProfilerMenuModel(
-        fileTitle = localizedStringResource(Res.string.file, language),
-        importLabel = localizedStringResource(Res.string.import_analysis, language),
         importEnabled = importEnabled,
         exportMenu =
             BatteryExportMenuModel(
-                title = localizedStringResource(Res.string.export, language),
                 jsonLabel = localizedStringResource(Res.string.export_json, language),
                 csvLabel = localizedStringResource(Res.string.export_csv, language),
                 rawEvidenceLabel = localizedStringResource(Res.string.export_raw_bundle, language),
@@ -73,11 +59,7 @@ internal fun batteryProfilerMenuModel(
                 csvEnabled = csvExportEnabled,
                 rawEvidenceEnabled = rawEvidenceExportEnabled,
             ),
-        openRecentTitle = localizedStringResource(Res.string.open_recent, language),
-        noRecentLabel = localizedStringResource(Res.string.no_recent_files, language),
-        clearRecentLabel = localizedStringResource(Res.string.clear_recent, language),
         recentItems = recentFiles.toBatteryRecentMenuItems(),
-        advancedTitle = localizedStringResource(Res.string.advanced, language),
         resetStatisticsLabel = localizedStringResource(Res.string.reset_statistics, language),
         resetEnabled = resetEnabled,
     )
@@ -93,50 +75,32 @@ internal fun FrameWindowScope.BatteryProfilerMenuBar(
     onClearRecent: () -> Unit,
     onResetStatistics: () -> Unit,
 ) {
-    ActiveWindowMenuBar {
-        Menu(model.fileTitle) {
-            Item(
-                text = model.importLabel,
-                enabled = model.importEnabled,
-                onClick = onImport,
-            )
-            Menu(model.exportMenu.title) {
-                Item(
-                    text = model.exportMenu.jsonLabel,
-                    enabled = model.exportMenu.jsonEnabled,
-                    onClick = onExportJson,
-                )
-                Item(
-                    text = model.exportMenu.csvLabel,
-                    enabled = model.exportMenu.csvEnabled,
-                    onClick = onExportCsv,
-                )
-                Item(
-                    text = model.exportMenu.rawEvidenceLabel,
-                    enabled = model.exportMenu.rawEvidenceEnabled,
-                    onClick = onExportRawEvidence,
-                )
-            }
-            Menu(model.openRecentTitle) {
-                if (model.recentItems.isEmpty()) {
-                    Item(text = model.noRecentLabel, enabled = false, onClick = {})
-                } else {
-                    model.recentItems.forEach { item ->
-                        Item(text = item.label, onClick = { onOpenRecent(item.path) })
-                    }
-                    Separator()
-                    Item(text = model.clearRecentLabel, onClick = onClearRecent)
-                }
-            }
-        }
-        Menu(model.advancedTitle) {
-            Item(
-                text = model.resetStatisticsLabel,
-                enabled = model.resetEnabled,
-                onClick = onResetStatistics,
-            )
-        }
-    }
+    ActivePageMenu(
+        PageMenu(
+            onOpen = onImport,
+            openEnabled = model.importEnabled,
+            recent =
+                RecentMenu(
+                    items = model.recentItems.map { item -> MenuCommand(item.label) { onOpenRecent(item.path) } },
+                    onClear = onClearRecent,
+                ),
+            exportGroups =
+                listOf(
+                    listOf(
+                        MenuCommand(model.exportMenu.jsonLabel, enabled = model.exportMenu.jsonEnabled, onClick = onExportJson),
+                        MenuCommand(model.exportMenu.csvLabel, enabled = model.exportMenu.csvEnabled, onClick = onExportCsv),
+                        MenuCommand(
+                            model.exportMenu.rawEvidenceLabel,
+                            enabled = model.exportMenu.rawEvidenceEnabled,
+                            onClick = onExportRawEvidence,
+                        ),
+                    ),
+                ),
+            tools = {
+                Item(model.resetStatisticsLabel, enabled = model.resetEnabled, onClick = onResetStatistics)
+            },
+        ),
+    )
 }
 
 private fun List<Path>.toBatteryRecentMenuItems(): List<BatteryRecentMenuItem> {

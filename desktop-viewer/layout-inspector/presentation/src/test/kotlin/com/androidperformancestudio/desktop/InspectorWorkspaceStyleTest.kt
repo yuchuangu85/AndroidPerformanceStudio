@@ -14,7 +14,7 @@ class InspectorWorkspaceStyleTest {
     fun `inspector omits the decorative workspace banner without changing pane sizing`() {
         assertFalse(source.contains("StudioWorkspaceHeader("))
         assertTrue(source.indexOf("HeaderToolbar(") < source.indexOf("correlationHint?.let"))
-        assertTrue(source.contains("StudioTokens.compactContentPadding"))
+        assertFalse(source.contains("StudioTokens.compactContentPadding"))
         assertTrue(source.contains("val availableHeightDp = maxHeight.value"))
         assertTrue(source.contains("val availableWidthDp = maxWidth.value"))
         assertTrue(source.contains("showHierarchy = panelVisibility.showHierarchy"))

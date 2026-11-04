@@ -66,10 +66,13 @@ import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.DeviceTargetActions
 import com.androidperformancestudio.presentation.HomeScreen
 import com.androidperformancestudio.presentation.ReportActions
+import com.androidperformancestudio.ui.CopyableText
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -99,10 +102,14 @@ fun FrameWindowScope.SimpleperfMainPage(
             DeviceTargetController(dependencies.deviceGateway, dependencies.captureSession)
         }
     DisposableEffect(controller) { onDispose(controller::close) }
-    val reportController = remember { ReportController() }
+    val reportController = remember {
+        ReportController(selectInitialThread = true, matchFirefoxSampleWeights = true)
+    }
     DisposableEffect(reportController) {
         onDispose(reportController::close)
     }
+    val webBridgeHost = remember { SimpleperfWebBridgeHost() }
+    DisposableEffect(webBridgeHost) { onDispose(webBridgeHost::close) }
     val sessionPackages = remember { SessionPackageService() }
     val reportExports = remember { ReportExportService() }
     val offlineImporter = remember { createOfflineImporter() }
@@ -118,7 +125,11 @@ fun FrameWindowScope.SimpleperfMainPage(
                         session,
                         "FIREFOX_PROFILER_LOCAL_OPEN_FAILED",
                     ) {
-                        firefoxProfilerLaunchers.local.open(session)
+                        reportController.openSession(session)
+                        val canonicalState = reportController.state.value
+                        val canonicalReport = (canonicalState.loadState as? ReportLoadState.Ready)?.report
+                        val bridge = canonicalReport?.let { webBridgeHost.open(it, canonicalState) }
+                        firefoxProfilerLaunchers.local.open(session, bridge)
                     }
                 },
                 openOfficialFirefoxProfiler = { session ->
@@ -134,11 +145,37 @@ fun FrameWindowScope.SimpleperfMainPage(
     val state by controller.state.collectAsState()
     val captureState by controller.captureState.collectAsState()
     val reportState by reportController.state.collectAsState()
+    PublishAiContext("simpleperf", remember(reportState) { simpleperfUiAiContext(reportState) })
     val scope = rememberCoroutineScope()
     var pendingAiAnalysis by remember { mutableStateOf<PendingSimpleperfAiAnalysis?>(null) }
     var aiAnalysisWorking by remember { mutableStateOf(false) }
     var aiAnalysisResult by remember { mutableStateOf<SimpleperfAiInsight?>(null) }
     var aiAnalysisError by remember { mutableStateOf<String?>(null) }
+    var webAiJob by remember { mutableStateOf<Job?>(null) }
+    var webAiCommand by remember { mutableStateOf<SimpleperfWebCommand?>(null) }
+    val currentAiClient by rememberUpdatedState(aiAnalysisClient)
+    LaunchedEffect(reportState) { webBridgeHost.invalidateUnless(reportState) }
+    LaunchedEffect(webBridgeHost, reportController) {
+        webBridgeHost.commands.collect { command ->
+            if (command.event.cancel) {
+                if (webAiCommand?.session === command.session) {
+                    webAiJob?.cancel()
+                    webAiJob = null
+                    pendingAiAnalysis = null
+                    webAiCommand = null
+                }
+            } else {
+                webAiJob?.cancel()
+                webAiCommand = command
+                val selected = applySimpleperfWebSelection(reportController, command)
+                if (selected == null || currentAiClient == null) {
+                    command.session.update(command.event, SimpleperfWebStatus.UNAVAILABLE, if (selected == null) "E_BRIDGE_CONTEXT" else "E_PROVIDER_UNAVAILABLE")
+                } else {
+                    pendingAiAnalysis = PendingSimpleperfAiAnalysis(command.session.report, selected, command)
+                }
+            }
+        }
+    }
     val reportActionFactory =
         remember(reportController, sessionPackages, reportExports, sessionOpener, scope, window) {
             DesktopReportActionFactory(
@@ -253,11 +290,14 @@ fun FrameWindowScope.SimpleperfMainPage(
     pendingAiAnalysis?.let { pending ->
         var performanceOnly by remember(pending) { mutableStateOf(false) }
         AlertDialog(
-            onDismissRequest = { pendingAiAnalysis = null },
-            title = { Text(localizedStringResource(Res.string.sp_ai_run_title, resolvedLanguage)) },
+            onDismissRequest = {
+                pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.CANCELLED, "E_CANCELLED") }
+                pendingAiAnalysis = null
+            },
+            title = { CopyableText(localizedStringResource(Res.string.sp_ai_run_title, resolvedLanguage), language = resolvedLanguage) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
+                    CopyableText(
                         localizedStringResource(
                             Res.string.sp_ai_run_details,
                             resolvedLanguage,
@@ -265,6 +305,7 @@ fun FrameWindowScope.SimpleperfMainPage(
                             extractSimpleperfEvidence(pending.report, pending.state).size,
                             pending.report.overview.sampleCount,
                         ),
+                        language = resolvedLanguage,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = performanceOnly, onCheckedChange = { performanceOnly = it })
@@ -283,7 +324,8 @@ fun FrameWindowScope.SimpleperfMainPage(
                         val evidenceScope = selectedSimpleperfScope(pending.state, pending.report, resolvedLanguage)
                         val evidenceCount = extractSimpleperfEvidence(pending.report, pending.state).size
                         val sampleCount = pending.report.overview.sampleCount
-                        scope.launch {
+                        pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.RUNNING) }
+                        val analysisJob = scope.launch {
                             try {
                                 val result =
                                     withContext(Dispatchers.IO) {
@@ -293,6 +335,8 @@ fun FrameWindowScope.SimpleperfMainPage(
                                             !performanceOnly,
                                         )
                                     }
+                                if (pending.webCommand != null && (webAiCommand !== pending.webCommand || !pending.webCommand.session.isCurrent(pending.webCommand.event))) return@launch
+                                pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.SUCCEEDED) }
                                 aiAnalysisResult =
                                     SimpleperfAiInsight(
                                         result = result,
@@ -302,18 +346,24 @@ fun FrameWindowScope.SimpleperfMainPage(
                                         sampleCount = sampleCount,
                                     )
                             } catch (cancellation: CancellationException) {
+                                pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.CANCELLED, "E_CANCELLED") }
                                 throw cancellation
                             } catch (failure: Throwable) {
+                                pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.FAILED, "E_AI_ANALYSIS_FAILED") }
                                 aiAnalysisError = failure.message ?: failure::class.simpleName
                             } finally {
                                 aiAnalysisWorking = false
                             }
                         }
+                        if (pending.webCommand != null) webAiJob = analysisJob
                     },
                 ) { Text(localizedStringResource(Res.string.sp_ai_analyze, resolvedLanguage)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingAiAnalysis = null }) {
+                TextButton(onClick = {
+                    pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.CANCELLED, "E_CANCELLED") }
+                    pendingAiAnalysis = null
+                }) {
                     Text(localizedStringResource(Res.string.sp_ai_cancel, resolvedLanguage))
                 }
             },
@@ -322,8 +372,8 @@ fun FrameWindowScope.SimpleperfMainPage(
     aiAnalysisError?.let { message ->
         AlertDialog(
             onDismissRequest = { aiAnalysisError = null },
-            title = { Text(localizedStringResource(Res.string.sp_ai_failed_title, resolvedLanguage)) },
-            text = { Text(message) },
+            title = { CopyableText(localizedStringResource(Res.string.sp_ai_failed_title, resolvedLanguage), language = resolvedLanguage) },
+            text = { CopyableText(message, language = resolvedLanguage) },
             confirmButton = {
                 TextButton(onClick = { aiAnalysisError = null }) {
                     Text(localizedStringResource(Res.string.sp_ai_close, resolvedLanguage))
@@ -336,6 +386,7 @@ fun FrameWindowScope.SimpleperfMainPage(
 private data class PendingSimpleperfAiAnalysis(
     val report: com.androidperformancestudio.application.ReportData,
     val state: ReportState,
+    val webCommand: SimpleperfWebCommand? = null,
 )
 
 @Suppress("ReturnCount")
@@ -405,10 +456,10 @@ private fun FrameWindowScope.SimpleperfMenu(
                 language = language,
                 recentSessions = recentSessions,
                 exportEnabled = reportState.loadState is ReportLoadState.Ready,
-                isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true),
                 configurationEnabled = reportState.loadState == ReportLoadState.Closed,
             ),
-        onOpen = reportActions.onOpenSession,
+        onOpen = reportActions.onOpenSessionFile,
+        onOpenFolder = reportActions.onOpenSessionFolder,
         exportActions =
             SimpleperfExportMenuActions(
                 onSessionPackage = reportActions.onExportSession,

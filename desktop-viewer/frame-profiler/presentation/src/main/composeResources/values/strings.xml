@@ -86,8 +86,12 @@
     <string name="cluster_count">%1$d clusters</string>
     <string name="previous_frame">‹ Previous</string>
     <string name="next_frame">Next ›</string>
-    <string name="frame_timeline_normal">Within budget</string>
-    <string name="frame_timeline_jank">Jank</string>
+    <string name="frame_timeline_normal">Good frame</string>
+    <string name="frame_timeline_high_latency">High latency</string>
+    <string name="frame_timeline_jank">Self jank</string>
+    <string name="frame_timeline_other_jank">SF-caused jank</string>
+    <string name="frame_timeline_dropped">Dropped frame</string>
+    <string name="frame_timeline_unknown">Unclassified</string>
     <string name="frame_timeline_cluster">Jank cluster</string>
     <string name="layout_preview">Layout Preview</string>
     <string name="frame_screenshot_unavailable">No saved frame screenshot</string>

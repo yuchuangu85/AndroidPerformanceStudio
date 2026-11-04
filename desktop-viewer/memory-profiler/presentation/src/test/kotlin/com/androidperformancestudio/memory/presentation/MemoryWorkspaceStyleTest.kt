@@ -14,7 +14,7 @@ class MemoryWorkspaceStyleTest {
         assertTrue(source.indexOf("if (presentedState.snapshotSummary") >= 0)
         assertTrue(source.indexOf("when (presentedState.viewMode)") >= 0)
         assertTrue(source.indexOf("when (presentedState.viewMode)") < source.indexOf("MemoryProfilerStatusBar("))
-        assertTrue(source.contains("StudioTokens.compactContentPadding"))
+        assertTrue(source.contains("StudioTokens.workspacePadding"))
     }
 
     @Test
@@ -34,7 +34,50 @@ class MemoryWorkspaceStyleTest {
         assertTrue(source.contains("MemoryProfilerBitmapDumpPage("))
         assertTrue(source.contains("MemoryProfilerNativeHeapPage("))
         assertTrue(source.contains("MemoryProfilerLeakCanaryPage("))
-        assertTrue(source.contains(".clickable { expanded = !expanded }"))
+    }
+
+    @Test
+    fun `card workspaces use uniform four dp exterior spacing without shrinking card content`() {
+        val workspace = source("MemoryInvestigationWorkspace.kt")
+        assertTrue(workspace.contains("modifier.padding(StudioTokens.workspacePadding)"))
+        assertTrue(workspace.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(workspace.contains("contentPadding = 4.dp"))
+        assertTrue(
+            workspace.contains("padding(StudioTokens.compactContentPadding).testTag(\"memory-heap-distribution\")"),
+        )
+        val bitmap = source("MemoryProfilerBitmapDumpPage.kt")
+        assertTrue(bitmap.contains("padding(StudioTokens.workspacePadding)"))
+        assertTrue(bitmap.contains("horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+        val gallery =
+            bitmap
+                .substringAfter("private fun BitmapDumpGalleryContent(")
+                .substringBefore("private fun BitmapDumpSummaryMetrics(")
+        assertTrue(gallery.contains(".padding(StudioTokens.workspacePadding)"))
+        assertTrue(bitmap.contains("contentSpacing = 4.dp"))
+        val overview =
+            source("MemoryProfilerScreen.kt")
+                .substringAfter("private fun Overview(")
+                .substringBefore("private fun MetricCard(")
+        assertFalse(overview.contains(".padding("), "Overview metrics must align with the surrounding histogram")
+        assertTrue(overview.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(overview.contains("Modifier.fillMaxWidth()"))
+    }
+
+    @Test
+    fun `leak analysis keeps compact chrome and horizontally reachable independent panes`() {
+        val page = source("MemoryProfilerLeakCanaryPage.kt")
+        assertTrue(page.contains(".padding(StudioTokens.workspacePadding)"))
+        assertTrue(page.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(page.contains("maxOf(maxWidth, 1120.dp)"))
+        assertTrue(page.contains(".horizontalScroll(scroll)"))
+        assertTrue(page.contains(".requiredWidth(contentWidth)"))
+        assertTrue(page.contains("Modifier.width(280.dp).fillMaxHeight()"))
+        assertTrue(page.contains("Modifier.width(330.dp).fillMaxHeight()"))
+        val panes = source("MemoryLeakInvestigationPanes.kt")
+        assertTrue(panes.contains("LazyColumn("))
+        assertTrue(panes.contains("VerticalScrollbar("))
+        assertFalse(page.contains("verticalScroll("))
+        assertFalse(page.contains("tonalElevation"))
     }
 
     private fun source(file: String): String =

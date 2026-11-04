@@ -37,6 +37,82 @@ class GfxInfoPollingCaptureSessionTest {
         }
 
     @Test
+    fun `header only snapshots after reset and during idle do not warn or interrupt frame collection`() =
+        runBlocking {
+            val snapshots =
+                ArrayDeque(
+                    listOf(
+                        frameStats(emptyList()),
+                        frameStats(listOf(FRAME_ONE)),
+                        frameStats(emptyList()),
+                        frameStats(listOf(FRAME_ONE, FRAME_TWO)),
+                    ),
+                )
+            val runner =
+                AdbShellRunner { _, arguments ->
+                    if (arguments.last() == "reset") "" else snapshots.removeFirst()
+                }
+            val session =
+                GfxInfoPollingCaptureSession(
+                    target = GfxInfoCaptureTarget("device", "com.example", processId = 42),
+                    sessionId = "session",
+                    runner = runner,
+                )
+
+            assertTrue(session.start().isEmpty())
+            val initial = session.poll()
+            assertTrue(initial.frames.isEmpty())
+            assertTrue(initial.warnings.isEmpty())
+
+            val first = session.poll()
+            assertEquals(listOf(0L), first.frames.map { it.frameId })
+            assertTrue(first.warnings.isEmpty())
+
+            val idle = session.poll()
+            assertTrue(idle.frames.isEmpty())
+            assertTrue(idle.warnings.isEmpty())
+
+            val resumed = session.poll()
+            assertEquals(listOf(1L), resumed.frames.map { it.frameId })
+            assertTrue(resumed.warnings.isEmpty())
+        }
+
+    @Test
+    fun `does not recount old frames in a sparse rolling window`() =
+        runBlocking {
+            val rows = (0 until 120).map { index -> frameRow(100_000_000L + index * 10_000_000_000L) }
+            val snapshots =
+                ArrayDeque(
+                    listOf(
+                        frameStats(rows),
+                        frameStats(rows),
+                        frameStats(rows.drop(1) + frameRow(1_200_100_000_000L)),
+                    ),
+                )
+            val runner =
+                AdbShellRunner { _, arguments ->
+                    if (arguments.last() == "reset") "" else snapshots.removeFirst()
+                }
+            val session =
+                GfxInfoPollingCaptureSession(
+                    target = GfxInfoCaptureTarget("device", "com.example", processId = 42),
+                    sessionId = "session",
+                    runner = runner,
+                )
+
+            session.start()
+            assertEquals(120, session.poll().frames.size)
+
+            val repeated = session.poll()
+            assertTrue(repeated.frames.isEmpty())
+            assertTrue(repeated.warnings.isEmpty())
+
+            val advanced = session.poll()
+            assertEquals(listOf(120L), advanced.frames.map { it.frameId })
+            assertTrue(advanced.warnings.isEmpty())
+        }
+
+    @Test
     fun `reset failure is a warning and does not block polling`() =
         runBlocking {
             val runner =

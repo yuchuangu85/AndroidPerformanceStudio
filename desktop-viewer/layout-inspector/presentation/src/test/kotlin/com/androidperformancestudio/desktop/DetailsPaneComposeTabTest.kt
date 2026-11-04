@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import com.androidperformancestudio.application.InspectorState
@@ -91,8 +92,24 @@ class DetailsPaneComposeTabTest {
                 )
             }
 
-            onNodeWithText("Compose inspection unavailable").assertIsDisplayed()
+            onNodeWithText("Compose inspection unavailable", substring = true).assertIsDisplayed()
+            onNodeWithText("Timed out waiting for Compose inspector agent socket", substring = true).assertDoesNotExist()
+            onNodeWithContentDescription("Details").performClick()
             onNodeWithText("Timed out waiting for Compose inspector agent socket", substring = true).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun `selected Compose node does not expose raw failure through property rows`() {
+        runComposeUiTest {
+            val reason = "Agent attach failed (result=1): lib_ui_inspector_agent.so not found"
+            setContent {
+                DetailsPane(state = inspectorState(composeWarning = reason), modifier = Modifier)
+            }
+
+            onNodeWithText("result=1", substring = true).assertDoesNotExist()
+            onNodeWithContentDescription("Details").performClick()
+            onNodeWithText(reason).assertIsDisplayed()
         }
     }
 

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.startup.presentation.StartupProfilerActions
 import com.androidperformancestudio.startup.presentation.StartupProfilerScreen
+import com.androidperformancestudio.startup.presentation.StartupTargetSelectors
 import com.androidperformancestudio.startup.startup_app.generated.resources.Res
 import com.androidperformancestudio.startup.startup_app.generated.resources.cancel
 import com.androidperformancestudio.startup.startup_app.generated.resources.compilation_change_message
@@ -56,11 +57,15 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.impo
 import com.androidperformancestudio.startup.startup_app.generated.resources.import_startup_profiler_report
 import com.androidperformancestudio.startup.startup_app.generated.resources.refresh
 import com.androidperformancestudio.startup.startup_app.generated.resources.status
+import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -80,8 +85,11 @@ public fun FrameWindowScope.StartupProfilerMainPage(
 ) {
     val controller = remember(language) { StartupProfilerController(language = language) }
     val state by controller.state.collectAsState()
+    PublishAiContext("startup", remember(state) { runCatching { startupAiContext(state) }.getOrNull() })
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
+    val targetHost = LocalTitleBarTargetHost.current
+    val selectionReady = targetHost?.deviceReady(state.selectedDeviceSerial) != false
 
     LaunchedEffect(controller) { controller.refreshDevices() }
 
@@ -103,7 +111,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
             onStartStop = {
                 if (state.isRunning) {
                     experimentJob?.cancel()
-                } else if (experimentJob?.isActive != true && state.selectedComponentName != null) {
+                } else if (selectionReady && experimentJob?.isActive != true && state.selectedComponentName != null) {
                     experimentJob = scope.launch { controller.runExperiment() }
                 }
             },
@@ -153,8 +161,8 @@ public fun FrameWindowScope.StartupProfilerMainPage(
     if (state.compilationConfirmationRequired) {
         AlertDialog(
             onDismissRequest = controller::dismissCompilationConfirmation,
-            title = { Text(localizedStringResource(Res.string.compilation_change_title, language)) },
-            text = { Text(localizedStringResource(Res.string.compilation_change_message, language)) },
+            title = { CopyableText(localizedStringResource(Res.string.compilation_change_title, language), language = language) },
+            text = { CopyableText(localizedStringResource(Res.string.compilation_change_message, language), language = language) },
             dismissButton = {
                 TextButton(onClick = controller::dismissCompilationConfirmation) {
                     Text(localizedStringResource(Res.string.cancel, language))
@@ -164,7 +172,7 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                 TextButton(
                     onClick = {
                         controller.dismissCompilationConfirmation()
-                        if (experimentJob?.isActive != true) {
+                        if (selectionReady && experimentJob?.isActive != true) {
                             experimentJob = scope.launch { controller.runExperiment(compilationChangeConfirmed = true) }
                         }
                     },
@@ -188,12 +196,23 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                         .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh, language),
-                    enabled = !state.isRunning && !state.isRefreshing,
-                    onClick = actions.onRefresh,
+                StartupTargetSelectors(
+                    state = state,
+                    actions = actions,
+                    language = language,
                 )
                 HeaderSpacer()
+                TitleBarRefreshOrInline(
+                    enabled = !state.isRunning && !state.isRefreshing,
+                    onRefresh = actions.onRefresh,
+                ) {
+                    ProfilerCompactButton(
+                        text = localizedStringResource(Res.string.refresh, language),
+                        enabled = !state.isRunning && !state.isRefreshing,
+                        onClick = actions.onRefresh,
+                    )
+                }
+                if (targetHost == null) HeaderSpacer()
                 ProfilerCompactButton(
                     text = localizedStringResource(Res.string.import_report, language),
                     enabled = !state.isRunning,
@@ -284,8 +303,9 @@ private fun StartupProfilerStatusBar(
                     maxLines = 1,
                 )
                 Spacer(Modifier.width(4.dp))
-                Text(
+                CopyableText(
                     text = it,
+                    language = language,
                     color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
                     fontSize = ViewerTypography.secondary.fontSize,
                     lineHeight = ViewerTypography.secondary.lineHeight,

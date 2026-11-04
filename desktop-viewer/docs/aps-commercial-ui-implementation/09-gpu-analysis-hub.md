@@ -83,4 +83,10 @@ Open with AGI
 
 上述未完成前不立项内嵌 GPU Analyzer UI。
 
+## 14.6 当前落地与布局说明（2026-10-20）
+
+- 「分析工具」条移动到页面顶部 Header 的最前面（Launch AGI / Import GPU Trace / Open Trace Analyzer / 分析产物选择 / Show in files）。
+- 状态文字和 Refresh AGI、Configure AGI 位于该行末尾，其中 Refresh AGI 在 Configure AGI 之前。
+- GPU 工作区不再重复渲染分析工具条，直接从汇总卡片开始。
+
 ---

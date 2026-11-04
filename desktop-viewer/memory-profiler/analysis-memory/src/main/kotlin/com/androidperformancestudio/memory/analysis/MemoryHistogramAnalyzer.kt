@@ -69,9 +69,8 @@ class MemoryHistogramAnalyzer {
         accumulate(heapDump.objectArrays)
         accumulate(heapDump.primitiveArrays)
 
-        // CLASS_DUMP records are live java.lang.Class objects too. Perflib (and therefore
-        // Android Studio) includes them in its classifier; omitting them makes both the object
-        // count and the java.lang.Class row diverge substantially on real app heaps.
+        // Android Studio's Classes view attributes a CLASS_DUMP object to the class represented
+        // by that object, rather than grouping every one under java.lang.Class.
         val classObjectShallowSize =
             heapDump.classes.firstOrNull { it.name == HeapClass.CLASS_OBJECT_CLASS_NAME }?.instanceSize ?: 0L
         heapDump.classes.forEach { heapClass ->
@@ -79,7 +78,7 @@ class MemoryHistogramAnalyzer {
             objectCount += 1
             shallowSize += classObjectShallowSize
             totalsByClass
-                .getOrPut(HeapClass.CLASS_OBJECT_CLASS_NAME, ::MutableClassTotals)
+                .getOrPut(heapClass.name, ::MutableClassTotals)
                 .add(
                     heapClass.objectId,
                     classObjectShallowSize,

@@ -45,9 +45,11 @@ import com.androidperformancestudio.memory.presentation.generated.resources.nati
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_total
 import com.androidperformancestudio.memory.presentation.generated.resources.native_heap_trace_summary
 import com.androidperformancestudio.memory.presentation.generated.resources.no_native_heap_trace
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 public fun MemoryProfilerNativeHeapPage(
@@ -58,19 +60,23 @@ public fun MemoryProfilerNativeHeapPage(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(8.dp).testTag("memory-profiler-native-heap-page"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(StudioTokens.workspacePadding)
+                .testTag("memory-profiler-native-heap-page"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         Text(localizedStringResource(Res.string.native_heap, language), fontWeight = FontWeight.Bold)
         when {
             trace != null -> NativeHeapDetails(trace, analysis, language, Modifier.weight(1f))
             isLoading ->
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.native_heap_capture_loading, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             else ->
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.no_native_heap_trace, language),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -100,14 +106,14 @@ private fun NativeHeapDetails(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         trace.artifact?.let { artifact ->
-            Text(
+            CopyableText(
                 "Source: ${trace.evidenceSource}; completeness: ${artifact.completeness}; capabilities: " +
                     artifact.availableCapabilities.joinToString { it.value },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = ViewerTypography.bodyCompact.fontSize,
             )
             trace.fallbackReason?.let { reason ->
-                Text(
+                CopyableText(
                     "Best-effort fallback: $reason",
                     color = MaterialTheme.colorScheme.error,
                     fontSize = ViewerTypography.bodyCompact.fontSize,
@@ -125,7 +131,7 @@ private fun NativeHeapDetails(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (analysis.topAllocations.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.native_heap_no_allocations, language),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

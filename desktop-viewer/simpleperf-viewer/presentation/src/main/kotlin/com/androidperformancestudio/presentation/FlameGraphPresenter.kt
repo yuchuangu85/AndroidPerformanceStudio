@@ -74,8 +74,11 @@ internal object FlameGraphPresenter {
         if (eventType != KeyEventType.KeyDown) {
             null
         } else {
+            val modifiersPressed = controlPressed || metaPressed || altPressed
             when {
                 key == Key.Escape -> dismissAction(hasContextMenu, hasTooltip, hasDetails)
+                isContextMenuShortcut(key, shiftPressed, modifiersPressed) ->
+                    selectedNodeId?.let { FlameGraphPanelAction.OpenContextMenu(it, Offset.Zero) }
                 key == Key.Enter -> selectedNodeId?.let(FlameGraphPanelAction::OpenDetails)
                 key == Key.C && (controlPressed || metaPressed) ->
                     selectedNodeId?.let { nodeId ->
@@ -86,13 +89,19 @@ internal object FlameGraphPresenter {
                         key = key,
                         snapshot = snapshot,
                         selectedNodeId = selectedNodeId,
-                        modifiersPressed = controlPressed || metaPressed || altPressed,
+                        modifiersPressed = modifiersPressed,
                         shiftPressed = shiftPressed,
                     ) ?: FlameGraphKeyboardNavigation
                         .commandFor(key, eventType, snapshot.query.direction)
                         ?.let(FlameGraphPanelAction::Navigate)
             }
         }
+
+    private fun isContextMenuShortcut(
+        key: Key,
+        shiftPressed: Boolean,
+        modifiersPressed: Boolean,
+    ): Boolean = key == Key.F10 && shiftPressed && !modifiersPressed
 
     private fun transformAction(
         key: Key,

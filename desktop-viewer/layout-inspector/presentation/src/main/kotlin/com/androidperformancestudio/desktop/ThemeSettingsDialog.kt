@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.roundToInt
 
@@ -182,10 +183,11 @@ private fun ArchiveSnapshotLimitSetting(
                 .fillMaxWidth()
                 .height(24.dp),
         )
-        Text(
+        CopyableText(
             text = localizedStringResource(Res.string.layout_snapshot_archive_limit_hint, language),
             color = colors.mutedText,
             fontSize = ViewerTypography.label.fontSize,
+            language = language,
         )
     }
 }

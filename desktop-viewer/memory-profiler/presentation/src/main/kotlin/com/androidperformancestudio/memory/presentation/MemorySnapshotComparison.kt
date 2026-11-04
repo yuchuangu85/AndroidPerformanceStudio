@@ -52,6 +52,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.memo
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_delta_shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_no_growth
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -143,7 +144,7 @@ internal fun MemorySnapshotComparison(
                 if (before != null && after != null) actions.onCompareSnapshots(before!!, after!!)
             }, enabled = before != null && after != null && before != after && !state.isDumping)
         }
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.memory_compare_limit, language),
             Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -151,7 +152,7 @@ internal fun MemorySnapshotComparison(
         )
         HorizontalDivider()
         if (diff == null) {
-            Text(localizedStringResource(Res.string.memory_compare_empty, language), Modifier.padding(16.dp))
+            CopyableText(localizedStringResource(Res.string.memory_compare_empty, language), Modifier.padding(16.dp))
         } else {
             val beforeName =
                 diff.beforeSnapshot
@@ -221,7 +222,7 @@ internal fun MemorySnapshotComparison(
                     LazyColumn(Modifier.fillMaxWidth().weight(1f), state = list) {
                         if (entries.isEmpty()) {
                             item {
-                                Text(
+                                CopyableText(
                                     localizedStringResource(Res.string.memory_no_growth, language),
                                     Modifier.padding(16.dp),
                                 )

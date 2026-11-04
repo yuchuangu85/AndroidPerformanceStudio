@@ -236,7 +236,7 @@ ProfileSession
 | 符号缺失 | 火焰图大量 unknown | 支持 mapping、unstripped so、binary_cache，引导修复 |
 | 采样误读 | 用户把 sample 当精确耗时 | 所有指标标注 sample/event 权重语义 |
 | UI 性能 | 大型火焰图卡顿 | 分层聚合、虚拟化绘制、渐进加载 |
-| 桌面框架平台缺口 | 特定 CPU 架构或 Linux 无障碍能力不满足 | 第 1 周完成三平台/架构 PoC；不达标时切换 Flutter Desktop |
+| 桌面框架平台缺口 | 特定 CPU 架构或 Linux 无障碍能力不满足 | 单列三平台/架构与无障碍门禁；未通过前不声明支持，是否更换框架另行决策 |
 
 ## 10. 验收标准
 
@@ -255,4 +255,4 @@ V0.1 完成条件：
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
 - AOSP Simpleperf README：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
-- 跨平台技术栈调研：`docs/design/technology-stack-research.md`
+- 当前技术栈与运行时约束：`docs/design/technology-stack-research.md`

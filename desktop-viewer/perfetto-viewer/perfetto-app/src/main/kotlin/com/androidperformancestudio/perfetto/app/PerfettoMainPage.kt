@@ -1,13 +1,13 @@
 package com.androidperformancestudio.perfetto.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,14 +32,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.adb.AdbConfiguration
 import com.androidperformancestudio.adb.AndroidTargetMonitors
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.analysis.DiagnosticCategory
+import com.androidperformancestudio.perfetto.analysis.DiagnosticFindings
 import com.androidperformancestudio.perfetto.analysis.DiagnosticQuery
 import com.androidperformancestudio.perfetto.analysis.DiagnosticResult
+import com.androidperformancestudio.perfetto.analysis.PerfettoDiagnosticPresets
 import com.androidperformancestudio.perfetto.analysis.PerfettoDiagnostics
+import com.androidperformancestudio.perfetto.analysis.TraceSliceSearch
 import com.androidperformancestudio.perfetto.capture.PerfettoCapabilityDetector
 import com.androidperformancestudio.perfetto.capture.PerfettoCaptureSession
 import com.androidperformancestudio.perfetto.capture.PerfettoConfigTextBuilder
@@ -56,14 +60,21 @@ import com.androidperformancestudio.perfetto.presentation.PerfettoCapturePage
 import com.androidperformancestudio.perfetto.presentation.PerfettoCompactButton
 import com.androidperformancestudio.perfetto.presentation.PerfettoCompactTextField
 import com.androidperformancestudio.perfetto.presentation.PerfettoStatusDot
+import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerHeaderActions
 import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerWorkspace
 import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerWorkspaceActions
 import com.androidperformancestudio.perfetto.presentation.TraceAnalyzerWorkspaceState
+import com.androidperformancestudio.perfetto.presentation.TraceBookmarkRequest
+import com.androidperformancestudio.perfetto.presentation.TraceDetailTab
 import com.androidperformancestudio.perfetto.presentation.TraceInsightCategory
 import com.androidperformancestudio.perfetto.presentation.TraceInsightEvidence
+import com.androidperformancestudio.perfetto.presentation.TraceInsightFilter
 import com.androidperformancestudio.perfetto.presentation.TraceInsightSeverity
 import com.androidperformancestudio.perfetto.presentation.TraceWorkspaceArtifact
 import com.androidperformancestudio.perfetto.presentation.TraceWorkspaceSession
+import com.androidperformancestudio.perfetto.presentation.formatTraceTimestamp
+import com.androidperformancestudio.perfetto.storage.TraceBookmark
+import com.androidperformancestudio.perfetto.storage.TraceBookmarkStore
 import com.androidperformancestudio.perfetto.storage.TraceSessionStore
 import com.androidperformancestudio.perfetto.uiserver.PerfettoUiServer
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
@@ -115,7 +126,8 @@ import com.androidperformancestudio.perfetto_app.generated.resources.open
 import com.androidperformancestudio.perfetto_app.generated.resources.open_perfetto_trace
 import com.androidperformancestudio.perfetto_app.generated.resources.perfetto_traces
 import com.androidperformancestudio.perfetto_app.generated.resources.refresh
-import com.androidperformancestudio.perfetto_app.generated.resources.select_device
+import com.androidperformancestudio.perfetto_app.generated.resources.trace_preset_completed
+import com.androidperformancestudio.perfetto_app.generated.resources.trace_severity_heuristic
 import com.androidperformancestudio.platform.adb.AdbCommandFailedException
 import com.androidperformancestudio.platform.adb.AdbCommandTimeoutException
 import com.androidperformancestudio.platform.adb.AdbException
@@ -124,9 +136,16 @@ import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContext
 import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
-import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.DeviceDropdownSelector
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
@@ -153,6 +172,7 @@ import kotlin.io.path.fileSize
 private data class DiagnosticOutcome(
     val result: DiagnosticResult? = null,
     val error: String? = null,
+    val artifactId: String? = null,
 )
 
 internal fun formatRecentSessionTimestamp(
@@ -245,6 +265,7 @@ fun FrameWindowScope.PerfettoMainPage(
     var adbPath by remember(androidSdkPath) { mutableStateOf(defaultPerfettoAdbPath(androidSdkPath)) }
     var devices by remember { mutableStateOf<List<PerfettoDevice>>(emptyList()) }
     var selectedDeviceSerial by remember { mutableStateOf<String?>(null) }
+    val titleBarTargets = LocalTitleBarTargetHost.current
     var deviceCapabilities by remember { mutableStateOf<PerfettoDeviceCapabilities?>(null) }
     var capabilityRefreshKey by remember { mutableStateOf(0) }
     var deviceRefreshInProgress by remember { mutableStateOf(false) }
@@ -258,17 +279,45 @@ fun FrameWindowScope.PerfettoMainPage(
     var sessionSearchQuery by remember { mutableStateOf("") }
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
     var captureVisible by remember { mutableStateOf(false) }
+    val bookmarkStore = remember { TraceBookmarkStore() }
+    var bookmarks by remember { mutableStateOf<List<TraceBookmark>>(emptyList()) }
+    var selectedPresetId by remember { mutableStateOf(PerfettoDiagnosticPresets.core.id) }
+    var presetJob by remember { mutableStateOf<Job?>(null) }
+    var presetStatus by remember { mutableStateOf<String?>(null) }
+    var insightFilter by remember { mutableStateOf(TraceInsightFilter.ALL) }
+    var detailTab by remember { mutableStateOf(TraceDetailTab.RESULT) }
+    var traceSearchQuery by remember { mutableStateOf("") }
+    var searchedTerm by remember { mutableStateOf<String?>(null) }
+    var searchOutcome by remember { mutableStateOf<DiagnosticOutcome?>(null) }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
+    val analysisMutex = remember { Mutex() }
     var fileDialogOpen by remember { mutableStateOf(false) }
     var traceOpenJob by remember { mutableStateOf<Job?>(null) }
+    PublishAiContext("trace", remember(activeArtifact?.id, diagnosticQuery, diagnosticOutcomes) {
+        runCatching {
+            val outcome = diagnosticQuery?.id?.let { diagnosticOutcomes[it] }
+            traceAiContextForArtifact(activeArtifact?.id?.value, outcome?.artifactId, diagnosticQuery, outcome?.result)
+        }.getOrNull()
+    })
     val traceOpenMutex = remember { Mutex() }
     val openTrace: (Path, com.androidperformancestudio.contracts.CaptureArtifact?) -> Unit = { traceFile, artifact ->
         traceOpenJob?.cancel()
         traceOpenJob =
             coroutineScope.launch {
                 traceOpenMutex.withLock {
+                    val prepared =
+                        withContext(Dispatchers.IO) {
+                            prepareTraceArtifact(traceFile, artifact) { source ->
+                                artifactFactory.imported(UUID.randomUUID().toString(), source, Instant.now())
+                            }
+                        }
                     val importedArtifact =
-                        artifact ?: withContext(Dispatchers.IO) {
-                            artifactFactory.imported(UUID.randomUUID().toString(), traceFile, Instant.now())
+                        when (prepared) {
+                            is StudioResult.Success -> prepared.value
+                            is StudioResult.Failure -> {
+                                diagnosticError = prepared.error.message
+                                return@withLock
+                            }
                         }
                     activeTraceFile = traceFile
                     activeArtifact = importedArtifact
@@ -370,6 +419,17 @@ fun FrameWindowScope.PerfettoMainPage(
 
     LaunchedEffect(Unit) { captureSession.state.collect { captureState = it } }
     LaunchedEffect(adbPath) { refreshDevices() }
+    LaunchedEffect(titleBarTargets, titleBarTargets?.selectedDeviceSerial, devices, selectedDeviceSerial) {
+        val host = titleBarTargets ?: return@LaunchedEffect
+        val sharedSerial = host.selectedDeviceSerial
+        if (sharedSerial == null) {
+            devices.firstOrNull { it.serial == selectedDeviceSerial }?.let { device ->
+                host.chooseDevice(device.serial, device.displayName)
+            }
+        } else if (sharedSerial != selectedDeviceSerial && devices.any { it.serial == sharedSerial && it.online }) {
+            selectedDeviceSerial = sharedSerial
+        }
+    }
     LaunchedEffect(adbPath, selectedDeviceSerial, devices, capabilityRefreshKey) {
         deviceCapabilities = null
         val device = devices.firstOrNull { it.serial == selectedDeviceSerial } ?: return@LaunchedEffect
@@ -425,16 +485,70 @@ fun FrameWindowScope.PerfettoMainPage(
             is StudioResult.Failure -> diagnosticError = saved.error.message
         }
     }
+    var presetRunning by remember { mutableStateOf(false) }
+    var searchRunning by remember { mutableStateOf(false) }
+    // Run ids let a cancelled or superseded job's finally block skip resetting state owned by a newer run.
+    var presetRunId by remember { mutableStateOf(0) }
+    var searchRunId by remember { mutableStateOf(0) }
+    val reloadBookmarks: suspend (String) -> Unit = { artifactId ->
+        when (val listed = withContext(Dispatchers.IO) { bookmarkStore.list(artifactId) }) {
+            is StudioResult.Success -> if (activeArtifact?.id?.value == artifactId) bookmarks = listed.value
+            is StudioResult.Failure -> diagnosticError = listed.error.message
+        }
+    }
     LaunchedEffect(activeTraceFile, activeArtifact) {
+        presetJob?.cancel()
+        searchJob?.cancel()
+        presetRunId++
+        searchRunId++
         val contextToClose = analysisContext
         analysisContext = null
         diagnosticOutcomes = emptyMap()
         diagnosticQuery = null
         diagnosticError = null
+        presetStatus = null
+        presetRunning = false
+        searchRunning = false
+        searchedTerm = null
+        searchOutcome = null
+        bookmarks = emptyList()
         withContext(Dispatchers.IO) { contextToClose?.close() }
+        activeArtifact?.id?.value?.let { reloadBookmarks(it) }
     }
-    val runDiagnostic: (DiagnosticQuery) -> Unit = { query ->
-        diagnosticQuery = query
+
+    // One Trace Processor context per active artifact; the mutex stops concurrent preset/search runs from racing.
+    val acquireAnalysisContext:
+        suspend (com.androidperformancestudio.contracts.CaptureArtifact, Path) -> StudioResult<TraceAnalysisContext> =
+        { artifact, traceFile ->
+            analysisMutex.withLock {
+                val cached = analysisContext
+                if (cached != null) {
+                    StudioResult.Success(cached)
+                } else {
+                    when (val located = TraceProcessorToolResolver().resolve()) {
+                        is StudioResult.Failure -> located
+                        is StudioResult.Success -> {
+                            val registry =
+                                analysisContexts ?: TraceAnalysisContexts(located.value).also { analysisContexts = it }
+                            registry.open(artifact, traceFile).also { opened ->
+                                if (opened is StudioResult.Success) {
+                                    if (activeArtifact?.id == artifact.id) {
+                                        analysisContext = opened.value
+                                    } else {
+                                        // The trace changed while it was starting; nobody else owns this
+                                        // Trace Processor, so stop it instead of leaking the process.
+                                        opened.value.close()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    /** Runs one diagnostic against the active artifact; returns true only when Trace Processor returned rows. */
+    val executeDiagnostic: suspend (DiagnosticQuery) -> Boolean = { query ->
         diagnosticOutcomes = diagnosticOutcomes + (query.id to DiagnosticOutcome())
         val artifact = activeArtifact
         val traceFile = activeTraceFile
@@ -442,49 +556,146 @@ fun FrameWindowScope.PerfettoMainPage(
             diagnosticOutcomes =
                 diagnosticOutcomes +
                 (query.id to DiagnosticOutcome(error = "Trace evidence was not registered"))
+            false
         } else {
-            coroutineScope.launch(Dispatchers.IO) {
-                fun recordFailure(message: String) {
-                    if (activeArtifact?.id == artifact.id) {
-                        diagnosticOutcomes =
-                            diagnosticOutcomes +
-                            (query.id to DiagnosticOutcome(error = message))
-                    }
+            fun recordFailure(message: String): Boolean {
+                if (activeArtifact?.id == artifact.id) {
+                    diagnosticOutcomes =
+                        diagnosticOutcomes +
+                        (query.id to DiagnosticOutcome(error = message))
                 }
+                return false
+            }
 
-                val context =
-                    analysisContext ?: when (val located = TraceProcessorToolResolver().resolve()) {
-                        is StudioResult.Failure -> {
-                            recordFailure(located.error.message)
-                            return@launch
-                        }
+            when (val context = acquireAnalysisContext(artifact, traceFile)) {
+                is StudioResult.Failure -> recordFailure(context.error.message)
+                is StudioResult.Success ->
+                    when (val queryResult = context.value.query(query.typedQuery())) {
                         is StudioResult.Success -> {
-                            val registry =
-                                analysisContexts ?: TraceAnalysisContexts(located.value).also { analysisContexts = it }
-                            when (val opened = registry.open(artifact, traceFile)) {
-                                is StudioResult.Failure -> {
-                                    recordFailure(opened.error.message)
-                                    return@launch
-                                }
-                                is StudioResult.Success -> opened.value.also { analysisContext = it }
+                            if (activeArtifact?.id == artifact.id) {
+                                diagnosticOutcomes =
+                                    diagnosticOutcomes +
+                                    (
+                                        query.id to
+                                            DiagnosticOutcome(
+                                                result = DiagnosticResult(query.columns, queryResult.value),
+                                                artifactId = artifact.id.value,
+                                            )
+                                    )
                             }
+                            true
                         }
+                        is StudioResult.Failure -> recordFailure(queryResult.error.message)
                     }
-                when (val queryResult = context.query(query.typedQuery())) {
-                    is StudioResult.Success -> {
-                        if (activeArtifact?.id == artifact.id) {
-                            diagnosticOutcomes =
-                                diagnosticOutcomes +
-                                (
-                                    query.id to
-                                        DiagnosticOutcome(
-                                            result = DiagnosticResult(query.columns, queryResult.value),
-                                        )
+            }
+        }
+    }
+    val runDiagnostic: (DiagnosticQuery) -> Unit = { query ->
+        diagnosticQuery = query
+        detailTab = TraceDetailTab.RESULT
+        coroutineScope.launch(Dispatchers.IO) { executeDiagnostic(query) }
+    }
+    // Preset queries run sequentially; each failure is recorded on its own insight and never closes the trace.
+    val runPreset: () -> Unit = {
+        val preset = PerfettoDiagnosticPresets.byId(selectedPresetId)
+        val queries = preset.queries()
+        val artifactId = activeArtifact?.id
+        if (artifactId != null && queries.isNotEmpty() && !presetRunning) {
+            val runId = ++presetRunId
+            presetRunning = true
+            presetStatus = null
+            diagnosticQuery = queries.first()
+            detailTab = TraceDetailTab.RESULT
+            presetJob =
+                coroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val succeeded = queries.count { query -> executeDiagnostic(query) }
+                        // A run cancelled by a trace switch may still finish its last query; keep its
+                        // summary off the newly opened trace.
+                        if (presetRunId == runId && activeArtifact?.id == artifactId) {
+                            presetStatus =
+                                localizedStringResource(
+                                    Res.string.trace_preset_completed,
+                                    language,
+                                    preset.workspaceOption(language).title,
+                                    succeeded,
+                                    queries.size - succeeded,
                                 )
                         }
+                    } finally {
+                        if (presetRunId == runId) presetRunning = false
                     }
-                    is StudioResult.Failure -> recordFailure(queryResult.error.message)
                 }
+        }
+    }
+    val runTraceSearch: () -> Unit = {
+        val artifact = activeArtifact
+        val traceFile = activeTraceFile
+        val query = TraceSliceSearch.query(traceSearchQuery)
+        if (artifact != null && traceFile != null && query != null) {
+            searchJob?.cancel()
+            val runId = ++searchRunId
+            detailTab = TraceDetailTab.SEARCH
+            searchRunning = true
+            searchedTerm = traceSearchQuery.trim()
+            searchOutcome = null
+            searchJob =
+                coroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val outcome =
+                            when (val context = acquireAnalysisContext(artifact, traceFile)) {
+                                is StudioResult.Failure -> DiagnosticOutcome(error = context.error.message)
+                                is StudioResult.Success ->
+                                    when (val rows = context.value.query(query.typedQuery())) {
+                                        is StudioResult.Success -> DiagnosticOutcome(result = DiagnosticResult(query.columns, rows.value))
+                                        is StudioResult.Failure -> DiagnosticOutcome(error = rows.error.message)
+                                    }
+                            }
+                        // Only the latest search may publish; a superseded one must not overwrite newer hits.
+                        if (searchRunId == runId && activeArtifact?.id == artifact.id) searchOutcome = outcome
+                    } finally {
+                        if (searchRunId == runId) searchRunning = false
+                    }
+                }
+        }
+    }
+    val addBookmark: (TraceBookmarkRequest) -> Unit = { request ->
+        val artifactId = activeArtifact?.id?.value
+        if (artifactId != null) {
+            coroutineScope.launch {
+                val bookmark =
+                    TraceBookmark(
+                        id = UUID.randomUUID().toString(),
+                        artifactId = artifactId,
+                        label = request.label.ifBlank { formatTraceTimestamp(request.timestampNanos) },
+                        timestampNanos = request.timestampNanos,
+                        createdAt = Instant.now(),
+                        sourceQueryId = request.sourceQueryId,
+                    )
+                when (val saved = withContext(Dispatchers.IO) { bookmarkStore.add(bookmark) }) {
+                    is StudioResult.Success -> reloadBookmarks(artifactId)
+                    is StudioResult.Failure -> diagnosticError = saved.error.message
+                }
+            }
+        }
+    }
+    val chooseAndOpenTrace: () -> Unit = {
+        if (!fileDialogOpen) {
+            fileDialogOpen = true
+            try {
+                // The modal chooser must run on the UI thread, or repeated clicks stack
+                // concurrent JFileChoosers (non-modal from a background thread) and deadlock AWT.
+                val file =
+                    chooseOpenFile(
+                        null,
+                        localizedStringResource(Res.string.open_perfetto_trace, language),
+                        localizedStringResource(Res.string.perfetto_traces, language),
+                        "pftrace",
+                        "perfetto-trace",
+                    )
+                if (file != null) openTrace(file.toPath(), null, null)
+            } finally {
+                fileDialogOpen = false
             }
         }
     }
@@ -597,6 +808,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 PerfettoDiagnostics.all.map { query ->
                     val outcome = diagnosticOutcomes[query.id]
                     val result = outcome?.result
+                    val finding = result?.let { DiagnosticFindings.evaluate(query, it) }
                     TraceInsightEvidence(
                         queryId = query.id,
                         artifactId = artifact.id.value,
@@ -608,11 +820,21 @@ fun FrameWindowScope.PerfettoMainPage(
                         limitations =
                             (artifact.limitations.map { it.message } + artifact.warnings).ifEmpty {
                                 listOf(localizedStringResource(Res.string.diagnostic_data_source_limitation, language))
-                            },
+                            } +
+                                listOfNotNull(
+                                    localizedStringResource(Res.string.trace_severity_heuristic, language)
+                                        .takeIf { finding?.heuristic == true },
+                                ),
                         error = outcome?.error,
                         timestampNanos = result?.firstTimelineTimestampNanos(query),
-                        severity = if (outcome?.error != null) TraceInsightSeverity.WARNING else TraceInsightSeverity.INFO,
+                        severity =
+                            when {
+                                outcome?.error != null -> TraceInsightSeverity.WARNING
+                                finding != null -> finding.level.workspaceSeverity()
+                                else -> TraceInsightSeverity.INFO
+                            },
                         category = query.workspaceCategory(),
+                        aggregate = finding?.aggregateText(language)?.takeIf(String::isNotBlank),
                     )
                 }
             }.orEmpty()
@@ -625,8 +847,24 @@ fun FrameWindowScope.PerfettoMainPage(
             insights = workspaceInsights,
             selectedQueryId = diagnosticQuery?.id,
             captureVisible = captureVisible,
-            status = activeTraceFile?.fileName?.toString(),
+            status = presetStatus ?: activeTraceFile?.fileName?.toString(),
             error = diagnosticError,
+            presets = PerfettoDiagnosticPresets.all.map { it.workspaceOption(language) },
+            selectedPresetId = selectedPresetId,
+            presetRunning = presetRunning,
+            insightFilter = insightFilter,
+            detailTab = detailTab,
+            resultTable =
+                diagnosticQuery?.let { query ->
+                    val artifactId = activeArtifact?.id?.value ?: return@let null
+                    diagnosticOutcomes[query.id]?.result?.workspaceTable(query, artifactId, query.localizedTitle(language))
+                },
+            traceSearchQuery = traceSearchQuery,
+            searchedTerm = searchedTerm,
+            searchHits = searchOutcome?.result?.searchHits().orEmpty(),
+            searchRunning = searchRunning,
+            searchError = searchOutcome?.error,
+            bookmarks = bookmarks.map { it.workspaceBookmark() },
         )
     val workspaceActions =
         TraceAnalyzerWorkspaceActions(
@@ -666,6 +904,31 @@ fun FrameWindowScope.PerfettoMainPage(
                 if (traceFile != null) openTrace(traceFile, activeArtifact)
             },
             onExport = { activeTraceFile?.let(exportRawTrace) },
+            onSelectPreset = { selectedPresetId = PerfettoDiagnosticPresets.byId(it).id },
+            onRunPreset = runPreset,
+            onInsightFilterChange = { insightFilter = it },
+            onSelectDetailTab = { detailTab = it },
+            onViewInsightResult = { queryId ->
+                PerfettoDiagnostics.all.firstOrNull { it.id == queryId }?.let { query ->
+                    diagnosticQuery = query
+                    detailTab = TraceDetailTab.RESULT
+                }
+            },
+            onTraceSearchChange = { traceSearchQuery = it },
+            onRunTraceSearch = runTraceSearch,
+            onOpenTimestamp = { timestamp ->
+                val traceFile = activeTraceFile
+                if (traceFile != null) openTrace(traceFile, activeArtifact, timestamp)
+            },
+            onAddBookmark = addBookmark,
+            onDeleteBookmark = { bookmarkId ->
+                coroutineScope.launch {
+                    when (val deleted = withContext(Dispatchers.IO) { bookmarkStore.delete(bookmarkId) }) {
+                        is StudioResult.Success -> activeArtifact?.id?.value?.let { reloadBookmarks(it) }
+                        is StudioResult.Failure -> diagnosticError = deleted.error.message
+                    }
+                }
+            },
         )
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -675,21 +938,39 @@ fun FrameWindowScope.PerfettoMainPage(
                 onNavigateHome = onNavigateHome,
                 onNavigateSettings = null,
             ) {
-                PerfettoToolbarContent(
-                    language = language,
-                    adbPath = adbPath,
-                    onAdbPathChange = { adbPath = it },
-                    devices = devices,
-                    selectedDeviceSerial = selectedDeviceSerial,
-                    onSelectDevice = { selectedDeviceSerial = it },
-                    deviceRefreshInProgress = deviceRefreshInProgress,
-                    onRefreshDevices = { coroutineScope.launch { refreshDevices() } },
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PerfettoToolbarContent(
+                        language = language,
+                        adbPath = adbPath,
+                        onAdbPathChange = { adbPath = it },
+                        devices = devices,
+                        selectedDeviceSerial = selectedDeviceSerial,
+                        onSelectDevice = { serial ->
+                            devices.firstOrNull { it.serial == serial }?.let { device ->
+                                titleBarTargets?.chooseDevice(serial, device.displayName)
+                            }
+                            selectedDeviceSerial = serial
+                        },
+                        deviceRefreshInProgress = deviceRefreshInProgress,
+                        onRefreshDevices = { coroutineScope.launch { refreshDevices() } },
+                    )
+                    HeaderSpacer()
+                    TraceAnalyzerHeaderActions(
+                        state = workspaceState,
+                        actions = workspaceActions,
+                        language = language,
+                    )
+                }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-            deviceRefreshError?.let {
-                Text(
-                    text = localizedStringResource(Res.string.device_refresh_failed, language),
+            deviceRefreshError?.let { error ->
+                CopyableText(
+                    text =
+                        localizedStringResource(Res.string.device_refresh_failed, language) +
+                            "\n${error.code}: ${error.message}",
                     color = MaterialTheme.colorScheme.error,
                     fontSize = ViewerTypography.label.fontSize,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
@@ -711,11 +992,13 @@ fun FrameWindowScope.PerfettoMainPage(
                     PerfettoCapturePage(
                         captureState = captureState,
                         language = language,
-                        selectedDeviceSerial = selectedDeviceSerial,
+                        selectedDeviceSerial = selectedDeviceSerial.takeIf { titleBarTargets?.deviceReady(it) != false },
                         deviceCapabilities = deviceCapabilities,
                         onStartCapture = { config, deviceSerial ->
-                            coroutineScope.launch {
-                                captureSession.startCapture(adbPath, deviceSerial, config)
+                            if (titleBarTargets?.deviceReady(deviceSerial) != false && deviceSerial == selectedDeviceSerial) {
+                                coroutineScope.launch {
+                                    captureSession.startCapture(adbPath, deviceSerial, config)
+                                }
                             }
                         },
                         onStopCapture = { coroutineScope.launch { captureSession.stopCapture() } },
@@ -748,6 +1031,8 @@ fun FrameWindowScope.PerfettoMainPage(
         if (!isActive) {
             traceOpenJob?.cancel()
             traceOpenJob = null
+            presetJob?.cancel()
+            searchJob?.cancel()
             fileDialogOpen = false
             captureSession.cancelCapture()
             uiServer.stop()
@@ -787,11 +1072,12 @@ private fun PerfettoStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
+            CopyableText(
                 text = "${localizedStringResource(Res.string.device_status, language)}:",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
+                language = language,
             )
             PerfettoStatusDot(
                 color =
@@ -801,11 +1087,12 @@ private fun PerfettoStatusBar(
                         MaterialTheme.colorScheme.error
                     },
             )
-            Text(
+            CopyableText(
                 text = statusText,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
+                language = language,
             )
         }
     }
@@ -837,19 +1124,29 @@ private fun RowScope.PerfettoToolbarContent(
         placeholder = localizedStringResource(Res.string.adb, language),
     )
     HeaderSpacer()
-    DeviceSelector(
-        devices = devices,
-        selectedDeviceSerial = selectedDeviceSerial,
-        onSelectDevice = onSelectDevice,
-        language = language,
-    )
-    HeaderSpacer()
-    PerfettoCompactButton(
-        text = localizedStringResource(Res.string.refresh, language),
-        onClick = onRefreshDevices,
+    val inTitleBar = LocalTitleBarTargetHost.current != null
+    val sharedDeviceLabel = LocalTitleBarTargetHost.current?.selectedDeviceLabel
+    TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+        DeviceSelector(
+            devices = devices,
+            selectedDeviceSerial = selectedDeviceSerial,
+            onSelectDevice = onSelectDevice,
+            language = language,
+            inTitleBar = inTitleBar,
+            displayTextOverride = if (inTitleBar) sharedDeviceLabel else null,
+        )
+    }
+    if (!inTitleBar) HeaderSpacer()
+    TitleBarRefreshOrInline(
         enabled = !deviceRefreshInProgress,
-    )
-    Spacer(Modifier.weight(1f))
+        onRefresh = onRefreshDevices,
+    ) {
+        PerfettoCompactButton(
+            text = localizedStringResource(Res.string.refresh, language),
+            onClick = onRefreshDevices,
+            enabled = !deviceRefreshInProgress,
+        )
+    }
 }
 
 @Composable
@@ -859,20 +1156,21 @@ private fun DeviceSelector(
     selectedDeviceSerial: String?,
     onSelectDevice: (String) -> Unit,
     language: UiLanguage,
+    inTitleBar: Boolean,
+    displayTextOverride: String?,
 ) {
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
-    val selectDeviceLabel = localizedStringResource(Res.string.select_device, language)
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = devices,
         selectedItem = selectedDevice,
         onItemSelected = { onSelectDevice(it.serial) },
         itemLabel = PerfettoDevice::displayName,
         selectedItemLabel = PerfettoDevice::displayName,
-        placeholder = selectDeviceLabel,
-        modifier = Modifier.width(170.dp),
-        selectorDescription = selectDeviceLabel,
+        modifier = Modifier.width(if (inTitleBar) TitleBarTargetWidth else 170.dp),
         itemEnabled = PerfettoDevice::online,
         fillWidth = true,
+        displayTextOverride = displayTextOverride,
     )
 }
 
@@ -894,12 +1192,12 @@ private fun InitialTraceNotice(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
+        CopyableText(
             text = traceFile.fileName.toString(),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = ViewerTypography.secondary.fontSize,
         )
-        Text(
+        CopyableText(
             text = notice,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = ViewerTypography.label.fontSize,
@@ -990,12 +1288,8 @@ private fun deviceDiscoveryFailure(
 
 internal fun defaultPerfettoAdbPath(
     androidSdkPath: Path?,
-    isWindows: Boolean = System.getProperty("os.name").contains("windows", ignoreCase = true),
-): String {
-    val executableName = if (isWindows) "adb.exe" else "adb"
-    val configuredExecutable = androidSdkPath?.resolve("platform-tools")?.resolve(executableName)
-    return configuredExecutable?.takeIf(Files::isRegularFile)?.toString() ?: "adb"
-}
+    resolveAdb: (AdbConfiguration) -> Path = ::defaultAdbCommandExecutable,
+): String = resolveAdb(AdbConfiguration(androidSdkPath = androidSdkPath)).toString()
 
 internal fun preferredDeviceSerial(
     selectedSerial: String?,
@@ -1048,10 +1342,7 @@ internal fun formatTraceDuration(durationNanos: Long): String {
 }
 
 internal fun DiagnosticResult.firstTimelineTimestampNanos(query: DiagnosticQuery): Long? {
-    val timestampColumn =
-        query.columns.indexOfFirst { column ->
-            column == "timestamp_ns" || column == "ts" || column.endsWith("_timestamp_ns")
-        }
+    val timestampColumn = query.timelineTimestampColumn()
     if (timestampColumn < 0) return null
     return rows.firstNotNullOfOrNull { row -> row.values.getOrNull(timestampColumn)?.toLongOrNull() }
 }

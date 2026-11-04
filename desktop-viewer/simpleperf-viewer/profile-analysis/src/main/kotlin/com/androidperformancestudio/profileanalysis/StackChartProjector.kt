@@ -6,24 +6,118 @@ object StackChartProjector {
         query: CallStackAnalysisQuery,
         viewportEndNanosExclusive: Long,
     ): StackChartSnapshot {
-        val filtered = CallStackFilter.apply(source, query)
-        val transformed = CallStackTransformer.apply(filtered.table, query.transforms).table
+        val preview = CallStackFilter.apply(source, CallStackAnalysisQuery(previewRange = query.previewRange))
+        val transformed = CallStackTransformer.apply(preview.table, query.transforms)
+        val filtered = CallStackFilter.apply(transformed.table, query.copy(previewRange = null))
+        val visible = filtered.table
+        val nodes = CallTreeProjector.project(visible, query.direction)
+        val callNodes = StackChartCallNodes(nodes)
+        val committedQuery = query.copy(previewRange = null, direction = CallStackDirection.FORWARD)
+        val committedTransformed =
+            if (query.previewRange == null) transformed else CallStackTransformer.apply(source, query.transforms)
+        val committedFiltered =
+            if (query.previewRange == null) {
+                filtered
+            } else {
+                CallStackFilter.apply(committedTransformed.table, committedQuery)
+            }
+        val committedNodes =
+            if (query == committedQuery) {
+                nodes
+            } else {
+                CallTreeProjector.project(committedFiltered.table, CallStackDirection.FORWARD)
+            }
+        val orderedSource = source.stacks.sortedWith(stackChartSampleOrder)
         val orderedStacks =
-            transformed.stacks.sortedWith(
-                compareBy<WeightedCallStack>(WeightedCallStack::timestampNanos).thenBy(WeightedCallStack::sampleId),
-            )
-        val blocks = projectBlocks(orderedStacks, query.direction, viewportEndNanosExclusive)
-        val emptyReason = emptyReason(source, filtered, blocks)
+            if (visible === source) orderedSource else visible.stacks.sortedWith(stackChartSampleOrder)
+        val viewportEnd =
+            minOf(viewportEndNanosExclusive, query.previewRange?.endNanosExclusive ?: viewportEndNanosExclusive)
+        val blocks =
+            projectBlocks(orderedStacks, orderedSource, visible.framesById, query.direction, viewportEnd, callNodes)
+        val emptyReason = emptyReason(source, preview, blocks)
 
         return StackChartSnapshot(
-            framesById = transformed.framesById,
+            framesById = visible.framesById,
             blocks = blocks,
             startNanos = blocks.firstOrNull()?.startNanos,
-            endNanosExclusive = blocks.firstOrNull()?.let { viewportEndNanosExclusive },
+            endNanosExclusive = blocks.firstOrNull()?.let { viewportEnd },
             maxDepth = blocks.maxOfOrNull(StackChartBlock::depth) ?: 0,
             emptyReason = emptyReason,
+            parentCallNodeIds = callNodes.parents,
+            committedAnalysis =
+                committedAnalysis(source, committedQuery, committedTransformed, committedFiltered, committedNodes),
         )
     }
+}
+
+private fun committedAnalysis(
+    source: CallStackTable,
+    query: CallStackAnalysisQuery,
+    transformed: TransformResult,
+    filtered: FilteredCallStacks,
+    nodes: CallNodeTable,
+): FlameGraphSnapshot {
+    var totalWeight = 0L
+    repeat(nodes.size) { index ->
+        if (nodes.parentIndexAt(index) == -1) {
+            totalWeight =
+                StableCallNodeId.saturatingNonNegativeAdd(totalWeight, checkNotNull(nodes.inclusiveWeightAt(index)))
+        }
+    }
+    val stages =
+        FlameGraphStageCounts(
+            sourceStackCount = source.stacks.size,
+            selectedThreadHasNoSamples = source.stacks.isEmpty(),
+            committedRangeExcludedSamples = false,
+            afterPreviewCount = source.stacks.size,
+            afterSearchCount = filtered.afterSearchCount,
+            afterImplementationCount = filtered.afterImplementationCount,
+            afterTransformCount = transformed.outputStackCount,
+            incompleteStackCount = filtered.table.stacks.count { it.frameIdsRootToLeaf.isEmpty() },
+            projectedNodeCount = nodes.size,
+            projectionFailure = null,
+        )
+    return FlameGraphSnapshot(
+        query = query,
+        callNodes = nodes,
+        rows = FlameGraphRowProjector.project(nodes, CallStackDirection.FORWARD),
+        totalWeight = totalWeight,
+        emptyReason = stages.emptyReason(),
+        invalidTransforms = transformed.invalidTransforms,
+        weightType = source.weightType,
+    )
+}
+
+private val stackChartSampleOrder =
+    compareBy<WeightedCallStack>(WeightedCallStack::timestampNanos).thenBy(WeightedCallStack::sampleId)
+
+private data class StackChartCallNodeKey(
+    val parentId: FlameCallNodeId?,
+    val functionId: FlameFunctionId,
+)
+
+private class StackChartCallNodes(
+    private val nodes: CallNodeTable,
+) {
+    val parents = LinkedHashMap<FlameCallNodeId, FlameCallNodeId?>()
+    private val idsByParentAndFunction = HashMap<StackChartCallNodeKey, FlameCallNodeId>()
+
+    init {
+        repeat(nodes.size) { index ->
+            val nodeId = checkNotNull(nodes.nodeIdAt(index))
+            val parentId = nodes.parentIndexAt(index)?.let(nodes::nodeIdAt)
+            val functionId = checkNotNull(nodes.frameAt(index)).functionId
+            parents[nodeId] = parentId
+            idsByParentAndFunction[StackChartCallNodeKey(parentId, functionId)] = nodeId
+        }
+    }
+
+    fun childId(
+        parentId: FlameCallNodeId?,
+        functionId: FlameFunctionId,
+    ): FlameCallNodeId = idsByParentAndFunction.getValue(StackChartCallNodeKey(parentId, functionId))
+
+    fun categoryFor(nodeId: FlameCallNodeId): String? = nodes.indexOf(nodeId)?.let(nodes::categoryAt)
 }
 
 private data class StackChartLane(
@@ -31,18 +125,34 @@ private data class StackChartLane(
     val depth: Int,
 )
 
+@Suppress("LongParameterList")
 private fun projectBlocks(
     stacks: List<WeightedCallStack>,
+    orderedSource: List<WeightedCallStack>,
+    framesById: Map<Long, CallStackFrame>,
     direction: CallStackDirection,
     viewportEndNanosExclusive: Long,
+    callNodes: StackChartCallNodes,
 ): List<StackChartBlock> {
     val blocks = ArrayList<StackChartBlock>()
     val lastBlockIndexByLane = HashMap<StackChartLane, Int>()
-    stacks.forEachIndexed { stackIndex, stack ->
+    var sourceIndex = 0
+    for (stack in stacks) {
+        if (stack.timestampNanos >= viewportEndNanosExclusive) break
+        // Read timing from the unfiltered sequence so excluded samples remain gaps.
+        while (sourceIndex < orderedSource.size && !orderedSource[sourceIndex].sameSample(stack)) sourceIndex += 1
+        check(sourceIndex < orderedSource.size) { "Transformed stack has no source sample: ${stack.sampleId}" }
         val endNanosExclusive =
-            stacks.getOrNull(stackIndex + 1)?.timestampNanos ?: viewportEndNanosExclusive
+            minOf(
+                orderedSource.getOrNull(sourceIndex + 1)?.timestampNanos ?: viewportEndNanosExclusive,
+                viewportEndNanosExclusive,
+            )
+        sourceIndex += 1
+        var parentId: FlameCallNodeId? = null
         stack.visibleFrameIds(direction).forEachIndexed { depth, frameId ->
-            val next = stack.toBlock(frameId, depth, endNanosExclusive)
+            val nodeId = callNodes.childId(parentId, framesById.getValue(frameId).functionId)
+            parentId = nodeId
+            val next = stack.toBlock(frameId, depth, endNanosExclusive, nodeId, callNodes.categoryFor(nodeId))
             val lane = StackChartLane(stack.threadKey, depth)
             val previousIndex = lastBlockIndexByLane[lane]
             val previous = previousIndex?.let(blocks::get)
@@ -61,6 +171,9 @@ private fun projectBlocks(
     return blocks
 }
 
+private fun WeightedCallStack.sameSample(other: WeightedCallStack): Boolean =
+    sampleId == other.sampleId && timestampNanos == other.timestampNanos && threadKey == other.threadKey
+
 private fun WeightedCallStack.visibleFrameIds(direction: CallStackDirection): List<Long> =
     when (direction) {
         CallStackDirection.FORWARD -> frameIdsRootToLeaf
@@ -71,9 +184,11 @@ private fun WeightedCallStack.toBlock(
     frameId: Long,
     depth: Int,
     endNanosExclusive: Long,
+    callNodeId: FlameCallNodeId,
+    category: String?,
 ): StackChartBlock =
     StackChartBlock(
-        id = StackChartBlockId("$threadKey:$depth:$frameId:$timestampNanos"),
+        id = StackChartBlockId("$threadKey:$depth:$frameId:$timestampNanos:$sampleId"),
         sampleId = sampleId,
         startNanos = timestampNanos,
         endNanosExclusive = endNanosExclusive,
@@ -81,10 +196,13 @@ private fun WeightedCallStack.toBlock(
         frameId = frameId,
         threadKey = threadKey,
         weight = weight,
+        callNodeId = callNodeId,
+        category = category,
     )
 
 private fun StackChartBlock.canCoalesce(next: StackChartBlock): Boolean =
-    frameId == next.frameId &&
+    callNodeId != null &&
+        callNodeId == next.callNodeId &&
         threadKey == next.threadKey &&
         depth == next.depth &&
         endNanosExclusive == next.startNanos

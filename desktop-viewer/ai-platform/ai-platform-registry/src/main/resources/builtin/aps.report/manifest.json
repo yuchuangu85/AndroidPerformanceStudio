@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "kind": "AGENT",
+  "id": "aps.report",
+  "version": "1.3.0",
+  "name": "Report Agent",
+  "description": "Summarizes verified findings with evidence provenance and limitations.",
+  "entrypoint": "prompt.md",
+  "inputSchema": "aps.evidence-context.v1",
+  "outputSchema": "aps.analysis.v1",
+  "contextKinds": [
+    "layout-inspector",
+    "simpleperf",
+    "memory",
+    "trace",
+    "frame",
+    "startup",
+    "battery",
+    "network",
+    "gpu",
+    "benchmark",
+    "source-workspace"
+  ],
+  "evidenceKinds": [
+    "layout-snapshot",
+    "simpleperf-hotspots",
+    "memory-selection",
+    "memory-summary",
+    "frame-selection",
+    "frame-summary",
+    "startup-selection",
+    "startup-summary",
+    "battery-selection",
+    "battery-summary",
+    "network-selection",
+    "network-summary",
+    "gpu-selection",
+    "gpu-summary",
+    "benchmark-selection",
+    "benchmark-summary",
+    "trace-selection",
+    "source-workspace-selection"
+  ],
+  "allowedProviders": [
+    "openai",
+    "codex",
+    "claude"
+  ],
+  "allowedSkills": [
+    "aps.evidence-summary",
+    "aps.report-artifact"
+  ],
+  "permissions": [
+    "READ_EVIDENCE",
+    "READ_SOURCE_CANDIDATES",
+    "PROVIDER_NETWORK",
+    "WRITE_ARTIFACT"
+  ],
+  "runtime": "NONE",
+  "artifactFormats": [],
+  "files": {
+    "prompt.md": "87c8a467300a6444013ebd568bc2663e745635cf6be5c37be3c26014fb5635e9"
+  },
+  "budget": {
+    "maxChildDepth": 0
+  }
+}

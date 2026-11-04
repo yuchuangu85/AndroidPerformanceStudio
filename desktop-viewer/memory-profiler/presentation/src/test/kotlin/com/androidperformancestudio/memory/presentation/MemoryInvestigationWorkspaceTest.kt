@@ -1,19 +1,29 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.memory.model.ClassStats
 import com.androidperformancestudio.memory.model.HeapCapability
@@ -23,6 +33,7 @@ import com.androidperformancestudio.memory.model.HeapSegment
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.model.ObjectReference
+import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
 import java.awt.image.BufferedImage
@@ -36,34 +47,415 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class MemoryInvestigationWorkspaceTest {
     @Test
-    fun `default workspace has filters virtualized classes and separate object inspector`() =
+    fun `active class toolbar keeps primary filters above the summary at desktop and narrow widths`() {
+        listOf(1280, 900).forEach { width ->
+            runDesktopComposeUiTest(width = width, height = 720) {
+                var searched = ""
+                var matchCase = false
+                var useRegex = false
+                var selectedHeap: String? = null
+                setContent {
+                    ViewerTheme(darkTheme = false) {
+                        MemoryProfilerScreen(
+                            fixture(),
+                            MemoryProfilerActions(
+                                onSearchChange = { searched = it },
+                                onMatchCaseChange = { matchCase = it },
+                                onUseRegexChange = { useRegex = it },
+                                onHeapFilterChange = { selectedHeap = it },
+                            ),
+                            UiLanguage.ENGLISH,
+                        )
+                    }
+                }
+                val toolbar = onNodeWithTag("memory-primary-filter-bar").fetchSemanticsNode().boundsInRoot
+                val summary = onNodeWithTag("memory-snapshot-summary").fetchSemanticsNode().boundsInRoot
+                assertTrue(toolbar.bottom <= summary.top)
+                onNodeWithContentDescription("Heap").assertExists()
+                onNodeWithContentDescription("Class scope").assertExists()
+                onNodeWithContentDescription("Filter by").assertExists()
+                onNodeWithContentDescription("Arrange by").assertExists()
+                onNodeWithTag("memory-workspace-search").performTextInput("Bitmap")
+                assertEquals("Bitmap", searched)
+                onNodeWithText("Match case").performScrollTo().performClick()
+                assertTrue(matchCase)
+                onNodeWithText("Regex").performScrollTo().performClick()
+                assertTrue(useRegex)
+                onNodeWithContentDescription("Heap").performClick()
+                onNodeWithText("Zygote").performClick()
+                assertEquals("Zygote", selectedHeap)
+            }
+        }
+    }
+
+    @Test
+    fun `instance table fills its card without centered exterior gutters`() {
+        listOf(1280, 1440).forEach { width ->
+            listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+                runDesktopComposeUiTest(width = width, height = 720) {
+                    setContent {
+                        ViewerTheme(darkTheme = language == UiLanguage.SIMPLIFIED_CHINESE) {
+                            MemoryProfilerScreen(fixture(), MemoryProfilerActions(), language)
+                        }
+                    }
+                    val table = onNodeWithTag("memory-instance-list-table-pane").fetchSemanticsNode().boundsInRoot
+                    val inInstances = hasAnyAncestor(hasTestTag("memory-instance-list-table-pane"))
+                    val instanceLabel = if (language == UiLanguage.ENGLISH) "Instance" else "实例"
+                    val retainedLabel = if (language == UiLanguage.ENGLISH) "Retained" else "保留大小"
+                    val firstHeader = onNode(hasText(instanceLabel) and inInstances).fetchSemanticsNode().boundsInRoot
+                    val lastHeader = onNode(hasText(retainedLabel) and inInstances).fetchSemanticsNode().boundsInRoot
+                    val row =
+                        onNodeWithTag("memory-instance-name-42", useUnmergedTree = true).fetchSemanticsNode()
+                    assertEquals(table.left + 8f, firstHeader.left, 0.6f)
+                    assertEquals(table.right - 18f, lastHeader.right, 0.6f)
+                    assertEquals(firstHeader.left, row.boundsInRoot.left, 0.6f)
+                    val rowBounds = onNodeWithTag("memory-instance-row-42").fetchSemanticsNode().boundsInRoot
+                    assertEquals(20f, rowBounds.height, 0.6f)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `narrow instance table scrolls to both ends and retains selection`() =
+        runDesktopComposeUiTest(width = 500, height = 600) {
+            var selected: Long? = null
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    MemoryClassesPane(
+                        fixture(),
+                        MemoryProfilerActions(onSelectInstance = { selected = it }),
+                        UiLanguage.ENGLISH,
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            val table = onNodeWithTag("memory-instance-list-table-pane").fetchSemanticsNode().boundsInRoot
+            val inInstances = hasAnyAncestor(hasTestTag("memory-instance-list-table-pane"))
+            val firstHeader = onNode(hasText("Instance") and inInstances)
+            assertEquals(table.left + 8f, firstHeader.fetchSemanticsNode().boundsInRoot.left, 0.6f)
+            val lastHeader = onNode(hasText("Retained") and inInstances)
+            lastHeader.performScrollTo()
+            assertTrue(lastHeader.fetchSemanticsNode().boundsInRoot.right <= table.right)
+            firstHeader.performScrollTo()
+            val row = onNodeWithTag("memory-instance-name-42", useUnmergedTree = true)
+            row.assertIsDisplayed()
+            val rowBounds = row.fetchSemanticsNode().boundsInRoot
+            val rowY = rowBounds.center.y - table.top
+            onNodeWithTag("memory-instance-list-table-pane").performMouseInput { click(Offset(16f, rowY)) }
+            assertEquals(42L, selected)
+        }
+
+    @Test
+    fun `dominator and comparison analysis cards preserve empty and loaded layouts`() {
+        listOf(MemoryProfilerViewMode.Dominators, MemoryProfilerViewMode.Diff).forEach { mode ->
+            listOf(false, true).forEach { loaded ->
+                runDesktopComposeUiTest(width = 1280, height = 720) {
+                    val state = if (loaded) fixture().copy(viewMode = mode) else MemoryProfilerState(viewMode = mode)
+                    setContent {
+                        ViewerTheme(darkTheme = false) {
+                            MemoryProfilerScreen(state, MemoryProfilerActions())
+                        }
+                    }
+                    val analysisTag =
+                        if (mode == MemoryProfilerViewMode.Dominators) {
+                            "memory-dominator-analysis-card"
+                        } else {
+                            "memory-analysis-card"
+                        }
+                    onNodeWithTag(analysisTag).assertExists()
+                    onNodeWithTag("memory-class-analysis-card").assertDoesNotExist()
+                    onNodeWithTag("memory-filters-card").assertExists()
+                    onNodeWithTag("memory-inspector-card").assertExists()
+                    onNodeWithTag("memory-classes-card").assertDoesNotExist()
+                    if (loaded) {
+                        onNodeWithTag("memory-distribution-card").assertExists()
+                    } else {
+                        onNodeWithTag("memory-distribution-card").assertDoesNotExist()
+                    }
+                    val analysis = onNodeWithTag(analysisTag).fetchSemanticsNode().boundsInRoot
+                    val root = onRoot().fetchSemanticsNode().boundsInRoot
+                    onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
+                    assertTrue(analysis.height > 0f)
+                    assertEquals(4f, root.bottom - analysis.bottom, 0.6f)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `empty class workspace omits filters and retains its tables and inspector`() {
+        listOf(1280, 900).forEach { width ->
+            listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+                runDesktopComposeUiTest(width = width, height = 720) {
+                    setContent {
+                        ViewerTheme(darkTheme = language == UiLanguage.SIMPLIFIED_CHINESE) {
+                            MemoryProfilerScreen(
+                                MemoryProfilerState(viewMode = MemoryProfilerViewMode.ClassList),
+                                MemoryProfilerActions(),
+                                language,
+                            )
+                        }
+                    }
+                    onNodeWithTag("memory-filters-card").assertDoesNotExist()
+                    onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Filters" else "筛选器").assertDoesNotExist()
+                    onNodeWithTag("memory-primary-filter-bar").assertExists()
+                    onNodeWithTag("memory-class-analysis-card").assertExists()
+                    onNodeWithTag("memory-classes-card").assertExists()
+                    onNodeWithTag("memory-instances-card").assertExists()
+                    onNodeWithTag("memory-inspector-card").assertDoesNotExist()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `class workspace combines classes and instance details without filters or an exterior gap`() {
+        listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+            listOf(false, true).forEach { dark ->
+                runDesktopComposeUiTest(width = 1280, height = 720) {
+                    setContent {
+                        ViewerTheme(darkTheme = dark) {
+                            MemoryProfilerScreen(fixture(), MemoryProfilerActions(), language)
+                        }
+                    }
+                    val metrics =
+                        (0..7).map { onNodeWithTag("memory-metric-card-$it").fetchSemanticsNode().boundsInRoot }
+                    metrics.zipWithNext().forEach { (left, right) ->
+                        assertEquals(left.top, right.top)
+                        assertEquals(left.bottom, right.bottom)
+                        assertEquals(4f, right.left - left.right)
+                    }
+                    val distribution = onNodeWithTag("memory-distribution-card").fetchSemanticsNode().boundsInRoot
+                    onNodeWithTag("memory-filters-card").assertDoesNotExist()
+                    onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Filters" else "筛选器").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Columns" else "显示列").assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Saved filters" else "已保存筛选器")
+                        .assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Save filter" else "保存筛选器")
+                        .assertDoesNotExist()
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Delete filter" else "删除筛选器")
+                        .assertDoesNotExist()
+                    val classes = onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot
+                    val instances = onNodeWithTag("memory-instances-card").fetchSemanticsNode().boundsInRoot
+                    val inspector = onNodeWithTag("memory-inspector-card").fetchSemanticsNode().boundsInRoot
+                    val divider = onNodeWithTag("memory-class-instance-divider").fetchSemanticsNode().boundsInRoot
+                    assertEquals(4f, metrics.first().left)
+                    assertEquals(1276f, metrics.last().right)
+                    assertEquals(4f, distribution.top - metrics.first().bottom)
+                    assertTrue(classes.top >= distribution.bottom + 4f)
+                    assertEquals(distribution.left, classes.left)
+                    assertEquals(distribution.right, classes.right)
+                    assertEquals(distribution.left, instances.left)
+                    assertEquals(distribution.right, instances.right)
+                    assertTrue(inspector.top > instances.top)
+                    assertTrue(inspector.left > instances.left)
+                    assertEquals(instances.right, inspector.right)
+                    assertEquals(classes.bottom, divider.top)
+                    assertEquals(7f, divider.height)
+                    val line = onNodeWithTag("memory-class-instance-divider-line").fetchSemanticsNode().boundsInRoot
+                    assertEquals(1f, line.height)
+                    assertEquals(divider.center.y, line.center.y, 0.6f)
+                    assertEquals(divider.bottom, instances.top)
+                    assertEquals(instances.bottom, inspector.bottom)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `analysis cards remain reachable in a narrow workspace`() =
+        runDesktopComposeUiTest(width = 900, height = 720) {
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    MemoryProfilerScreen(fixture(), MemoryProfilerActions())
+                }
+            }
+            onNodeWithTag("memory-inspector-card").performScrollTo()
+            val inspector = onNodeWithTag("memory-inspector-card").fetchSemanticsNode().boundsInRoot
+            assertTrue(inspector.width > 0f)
+            assertTrue(inspector.right <= onRoot().fetchSemanticsNode().boundsInRoot.right)
+            onNodeWithTag("memory-classes-card").performScrollTo()
+            assertTrue(onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot.left >= 0f)
+            onNodeWithTag("memory-filters-card").assertDoesNotExist()
+            onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
+            val analysis = onNodeWithTag("memory-class-analysis-card").fetchSemanticsNode().boundsInRoot
+            assertEquals(4f, onRoot().fetchSemanticsNode().boundsInRoot.bottom - analysis.bottom, 0.6f)
+        }
+
+    @Test
+    fun `snapshot metrics keep labels and values in a compact content sized row`() {
+        listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+            listOf(false, true).forEach { dark ->
+                runDesktopComposeUiTest(width = 1280, height = 860) {
+                    setContent {
+                        ViewerTheme(darkTheme = dark) {
+                            MemoryProfilerScreen(fixture(), MemoryProfilerActions(), language)
+                        }
+                    }
+                    val summary = onNodeWithTag("memory-snapshot-summary").fetchSemanticsNode().boundsInRoot
+                    assertTrue(
+                        summary.height <= 48f,
+                        "Summary should wrap its content, actual height: ${summary.height}",
+                    )
+                    val labels =
+                        if (language == UiLanguage.ENGLISH) {
+                            listOf(
+                                "Leaks",
+                                "Duplicate Bitmaps",
+                                "Classes",
+                                "Count",
+                                "Native Size",
+                                "Shallow",
+                                "Retained Native Size",
+                                "Retained",
+                            )
+                        } else {
+                            listOf(
+                                "泄漏",
+                                "重复 Bitmap",
+                                "类",
+                                "数量",
+                                "Native 大小",
+                                "浅堆大小",
+                                "保留 Native 大小",
+                                "保留大小",
+                            )
+                        }
+                    val unavailable = if (language == UiLanguage.ENGLISH) "Unavailable" else "不可用"
+                    val values = listOf("0", "0", "2", "68,772", unavailable, "57.0 MB", unavailable, unavailable)
+                    labels.zip(values).forEachIndexed { index, (label, value) ->
+                        val inCard = hasAnyAncestor(hasTestTag("memory-metric-card-$index"))
+                        val labelBounds = onNode(hasText(label) and inCard).fetchSemanticsNode().boundsInRoot
+                        val valueBounds = onNode(hasText(value) and inCard).fetchSemanticsNode().boundsInRoot
+                        assertEquals(labelBounds.left, valueBounds.left)
+                        assertTrue(labelBounds.top >= summary.top)
+                        assertTrue(valueBounds.top >= labelBounds.bottom)
+                        assertTrue(valueBounds.bottom <= summary.bottom)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `active class workspace renders source backed native and reachable totals`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            val classes =
+                listOf(
+                    ClassStats(
+                        className = "sample.Item",
+                        instanceCount = 2,
+                        shallowSize = 42,
+                        nativeSize = 64,
+                        reachableShallowSize = 40,
+                        reachableNativeSize = 60,
+                    ),
+                )
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    MemoryProfilerScreen(
+                        fixture().copy(classes = classes, heapBaseClasses = classes),
+                        MemoryProfilerActions(),
+                        UiLanguage.ENGLISH,
+                    )
+                }
+            }
+            onNode(hasText("64 B") and hasAnyAncestor(hasTestTag("memory-metric-card-4"))).assertExists()
+            onNode(hasText("42 B") and hasAnyAncestor(hasTestTag("memory-metric-card-5"))).assertExists()
+            onNode(hasText("60 B") and hasAnyAncestor(hasTestTag("memory-metric-card-6"))).assertExists()
+            onNode(hasText("40 B") and hasAnyAncestor(hasTestTag("memory-metric-card-7"))).assertExists()
+        }
+
+    @Test
+    fun `workspace keeps only mapping even with two snapshots and no file action buttons`() {
+        listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE).forEach { language ->
+            runDesktopComposeUiTest(width = 1280, height = 160) {
+                val state =
+                    fixture().let {
+                        it.copy(snapshotSummaries = it.snapshotSummaries + HeapSnapshotSummary("before.hprof"))
+                    }
+                var mappingClicks = 0
+                setContent {
+                    ViewerTheme(darkTheme = false) {
+                        Column {
+                            HeaderToolbar(
+                                language = language,
+                                onNavigateHome = null,
+                                onNavigateSettings = null,
+                            ) {
+                                Spacer(Modifier.weight(1f))
+                                MemoryWorkspaceActions(
+                                    state = state,
+                                    language = language,
+                                    onMapping = { mappingClicks++ },
+                                )
+                            }
+                            MemoryProfilerSnapshotTabs(state, {}, {}, language)
+                        }
+                    }
+                }
+
+                onNodeWithText(if (language == UiLanguage.ENGLISH) "Import snapshot" else "导入快照").assertDoesNotExist()
+                onNodeWithContentDescription(if (language == UiLanguage.ENGLISH) "Import snapshot" else "导入快照")
+                    .assertDoesNotExist()
+                onNodeWithText(if (language == UiLanguage.ENGLISH) "Export" else "导出").assertDoesNotExist()
+                onNodeWithText("Compare").assertDoesNotExist()
+                onNodeWithText("比较").assertDoesNotExist()
+                onNodeWithContentDescription("Compare").assertDoesNotExist()
+                onNodeWithContentDescription("比较").assertDoesNotExist()
+                val actions = onNodeWithTag("memory-workspace-actions").fetchSemanticsNode().boundsInRoot
+                val mapping =
+                    onNodeWithText(if (language == UiLanguage.ENGLISH) "Mapping" else "混淆映射")
+                        .fetchSemanticsNode()
+                        .boundsInRoot
+                assertEquals(actions.right, mapping.right)
+                assertEquals(onRoot().fetchSemanticsNode().boundsInRoot.right - 10f, mapping.right)
+                onNodeWithText(if (language == UiLanguage.ENGLISH) "Mapping" else "混淆映射").performClick()
+                assertEquals(1, mappingClicks)
+                onNodeWithText("heap-after.hprof").assertExists()
+                onNodeWithText("before.hprof").assertExists()
+            }
+        }
+    }
+
+    @Test
+    fun `default workspace keeps filters classes and nested instance details navigation`() =
         runDesktopComposeUiTest(width = 1440, height = 860) {
             var state by mutableStateOf(fixture())
             val selected = mutableListOf<Long>()
+            val expanded = mutableListOf<Pair<Long, Int>>()
             setContent {
                 ViewerTheme(darkTheme = true) {
                     MemoryProfilerScreen(
                         state,
                         MemoryProfilerActions(
                             onSelectInstance = { selected += it },
+                            onLoadInspectorObject = { id, start -> expanded += id to start },
                             onMatchCaseChange = { state = state.copy(matchCase = it) },
                         ),
                     )
                 }
             }
             onNodeWithTag("memory-investigation-workspace").assertExists()
-            val filters = onNodeWithTag("memory-workspace-filters").fetchSemanticsNode().boundsInRoot
+            onNodeWithTag("memory-workspace-filters").assertDoesNotExist()
+            val classes = onNodeWithTag("memory-classes-card").fetchSemanticsNode().boundsInRoot
             val inspector = onNodeWithTag("memory-object-inspector").fetchSemanticsNode().boundsInRoot
-            assertTrue(filters.right < inspector.left)
+            assertTrue(classes.bottom < inspector.top)
+            assertEquals(classes.right, inspector.right)
             assertTrue(inspector.right <= onRoot().fetchSemanticsNode().boundsInRoot.right)
             onNodeWithText("Match case").performClick()
             assertTrue(state.matchCase)
-            onNodeWithText("sample.Child #2", useUnmergedTree = true).performClick()
-            onNodeWithText("Inbound references").performClick()
-            onNodeWithText("sample.Owner #3", useUnmergedTree = true).performClick()
-            onNodeWithText("GC Root path").performClick()
-            onNodeWithText("1. sample.Root", useUnmergedTree = true).performClick()
-            assertEquals(listOf(2L, 3L, 4L), selected)
+            onNodeWithTag("memory-inspector-row-0").performClick()
+            onNodeWithText("References").performClick()
+            onNodeWithTag("memory-inspector-row-0").performClick()
+            onNodeWithText("Show nearest GC root only").performClick()
+            onNodeWithTag("memory-inspector-reference-root").assertExists()
+            assertTrue(selected.isEmpty())
+            assertEquals(listOf(2L to 0, 3L to 0), expanded)
+            assertEquals(42L, state.selectedInstanceDetail?.objectId)
         }
 
     @Test
@@ -111,26 +503,39 @@ class MemoryInvestigationWorkspaceTest {
         }
 
     @Test
+    @Suppress("LongMethod")
     fun `workspace captures desktop layouts in both languages and themes`() {
-        listOf(1440 to UiLanguage.ENGLISH, 1280 to UiLanguage.SIMPLIFIED_CHINESE).forEach { (width, language) ->
+        listOf(
+            Triple(1440, UiLanguage.ENGLISH, 860),
+            Triple(1280, UiLanguage.SIMPLIFIED_CHINESE, 720),
+            Triple(900, UiLanguage.ENGLISH, 720),
+        ).forEach { (width, language, height) ->
             listOf(false, true).forEach { dark ->
-                runDesktopComposeUiTest(width = width, height = 860) {
+                runDesktopComposeUiTest(width = width, height = height) {
                     setContent {
                         ViewerTheme(darkTheme = dark) {
                             Column(Modifier.fillMaxSize()) {
-                                MemoryWorkspaceActions(fixture(), language, {}, {}, {}, {})
-                                MemoryProfilerSnapshotTabs(fixture(), {}, {}, language, {})
+                                HeaderToolbar(
+                                    language = language,
+                                    onNavigateHome = null,
+                                    onNavigateSettings = null,
+                                ) {
+                                    Spacer(Modifier.weight(1f))
+                                    MemoryWorkspaceActions(fixture(), language, {})
+                                }
+                                MemoryProfilerSnapshotTabs(fixture(), {}, {}, language)
                                 MemoryProfilerScreen(fixture(), MemoryProfilerActions(), language, Modifier.weight(1f))
                             }
                         }
                     }
+                    waitForIdle()
                     val image = onRoot().captureToImage()
                     assertEquals(width, image.width)
                     val pixels = image.toPixelMap()
                     assertTrue(
-                        (50 until 800 step 50)
+                        (16 until height - 60 step 16)
                             .flatMap { y ->
-                                (50 until width step 50).map { x -> pixels[x, y] }
+                                (16 until width step 16).map { x -> pixels[x, y] }
                             }.distinct()
                             .size >
                             3,
@@ -153,8 +558,11 @@ class MemoryInvestigationWorkspaceTest {
                         }
                     }
                     ImageIO.write(bitmap, "png", output.toFile())
-                    val footer = onNodeWithTag("memory-profiler-status-bar").fetchSemanticsNode().boundsInRoot
-                    assertEquals(860f, footer.bottom)
+                    val root = onRoot().fetchSemanticsNode().boundsInRoot
+                    val analysis = onNodeWithTag("memory-class-analysis-card").fetchSemanticsNode().boundsInRoot
+                    onNodeWithTag("memory-profiler-status-bar").assertDoesNotExist()
+                    assertEquals(height.toFloat(), root.bottom)
+                    assertEquals(4f, root.bottom - analysis.bottom, 0.6f)
                 }
             }
         }
@@ -209,7 +617,8 @@ class MemoryInvestigationWorkspaceTest {
             selectedClassifierId = "class:android.graphics.Bitmap",
             availableHeaps = listOf("App", "Zygote"),
             selectedClassName = "android.graphics.Bitmap",
-            selectedClassInstances = listOf(MemoryInstanceRow(42, 1, 48, 4096, 3, true)),
+            selectedClassInstances =
+                listOf(MemoryInstanceRow(42, 1, 48, 4096, 3, true, className = "android.graphics.Bitmap")),
             selectedInstanceDetail =
                 MemoryInstanceDetail(
                     42,

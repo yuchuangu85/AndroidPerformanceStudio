@@ -1,15 +1,113 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.ui.graphics.Color
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
-import androidx.compose.ui.graphics.Color
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class UnifiedSettingsStoreTest {
+    @Test
+    fun `AI settings category defaults safely without repairing absent or invalid stored values`() {
+        assertEquals(AiSettingsCategory.PROVIDER, ApplicationUiSettings().aiSettingsCategory)
+        val empty = mutableMapOf<String, String>()
+        assertEquals(
+            AiSettingsCategory.PROVIDER,
+            ApplicationUiSettingsStore(empty::get, empty::set).load().aiSettingsCategory,
+        )
+        assertTrue(empty.isEmpty())
+
+        listOf("", " ", "unknown", "future-category", "AGENTS", "connection\u0000").forEach { raw ->
+            val values = mutableMapOf("application.aiSettingsCategory" to raw, "application.theme" to "dark")
+            val original = values.toMap()
+            val loaded = ApplicationUiSettingsStore(values::get, values::set).load()
+
+            assertEquals(AiSettingsCategory.PROVIDER, loaded.aiSettingsCategory)
+            assertEquals(ApplicationThemePreference.DARK, loaded.theme)
+            assertEquals(original, values)
+        }
+    }
+
+    @Test
+    fun `all four AI settings categories round trip through fresh application stores under the exact key`() {
+        assertEquals(
+            setOf("PROVIDER", "AGENT", "SKILL", "POLICY"),
+            AiSettingsCategory.entries.map { it.name }.toSet(),
+        )
+        AiSettingsCategory.entries.forEach { category ->
+            val values = mutableMapOf<String, String>()
+            val writes = mutableListOf<String>()
+            var flushes = 0
+            val store =
+                ApplicationUiSettingsStore(
+                    readValue = values::get,
+                    writeValue = { key, value ->
+                        values[key] = value
+                        writes += key
+                    },
+                    flush = { flushes++ },
+                )
+            val settings = ApplicationUiSettings(aiSettingsCategory = category)
+
+            assertTrue(store.save(settings))
+            assertEquals(category.name, values["application.aiSettingsCategory"])
+            assertEquals(settings, ApplicationUiSettingsStore(values::get, values::set).load())
+            assertEquals(1, flushes)
+            assertTrue(writes.all { it.startsWith("application.") })
+
+            values["application.aiSettingsCategory"] = " ${category.name.lowercase()} "
+            assertEquals(category, ApplicationUiSettingsStore(values::get, values::set).load().aiSettingsCategory)
+        }
+    }
+
+    @Test
+    fun `legacy connection and provider categories both open the new provider page without rewriting preferences`() {
+        listOf("CONNECTION", " connection ", "PROVIDER", " provider ").forEach { legacy ->
+            val values = mutableMapOf("application.aiSettingsCategory" to legacy)
+            val original = values.toMap()
+            val loaded = ApplicationUiSettingsStore(values::get, values::set).load()
+            assertEquals(AiSettingsCategory.PROVIDER, loaded.aiSettingsCategory)
+            assertEquals(original, values)
+        }
+    }
+
+    @Test
+    fun `saving other application preferences preserves the selected AI category and leaves provider credentials untouched`() {
+        val independentValues =
+            mapOf(
+                "providerId" to "claude",
+                "model" to "fixture-selected-model",
+                "agentId" to "aps.report",
+                "openai:api-key" to "fixture-opaque-credential-reference",
+                "claude:auth-token" to "fixture-other-opaque-reference",
+                "simpleperf.engine" to "LOCAL",
+            )
+        val values = independentValues.toMutableMap()
+        val store = ApplicationUiSettingsStore(values::get, values::set)
+        assertTrue(store.save(store.load().copy(aiSettingsCategory = AiSettingsCategory.SKILL)))
+
+        val reloaded = ApplicationUiSettingsStore(values::get, values::set)
+        val changed =
+            reloaded.load().copy(
+                theme = ApplicationThemePreference.DARK,
+                displayScale = ApplicationDisplayScale.PERCENT_125,
+                themeColor = ApplicationThemeColor.ROYAL_PURPLE.color,
+                language = ApplicationLanguagePreference.SIMPLIFIED_CHINESE,
+                androidSdkPath = "D:/Android/Sdk",
+                navigationRailCollapsed = false,
+                hprofEngine = HprofEngine.LEGACY,
+            )
+        assertTrue(reloaded.save(changed))
+
+        assertEquals(AiSettingsCategory.SKILL.name, values["application.aiSettingsCategory"])
+        assertEquals(changed, ApplicationUiSettingsStore(values::get, values::set).load())
+        assertEquals(independentValues, values.filterKeys { it in independentValues })
+    }
+
     @Test
     fun `application settings save immediately under stable namespaced keys`() {
         val values = mutableMapOf<String, String>()
@@ -21,6 +119,7 @@ class UnifiedSettingsStoreTest {
                 themeColor = ApplicationThemeColor.ROYAL_PURPLE.color,
                 language = ApplicationLanguagePreference.SIMPLIFIED_CHINESE,
                 androidSdkPath = "D:/Android/Sdk",
+                hprofEngine = HprofEngine.RUST,
             )
 
         assertTrue(store.save(settings))
@@ -31,7 +130,76 @@ class UnifiedSettingsStoreTest {
         assertEquals("simplified_chinese", values["application.language"])
         assertEquals("D:/Android/Sdk", values["application.androidSdkPath"])
         assertEquals("true", values["application.navigationRailCollapsed"])
+        assertEquals("rust", values["application.hprofEngine"])
         assertEquals(settings, store.load())
+    }
+
+    @Test
+    fun `hprof analysis defaults to Rust for fresh and existing profiles without a selection`() {
+        assertEquals(HprofEngine.RUST, HprofEngine.DEFAULT)
+        assertEquals(HprofEngine.RUST, HprofEngine.parse(null))
+        assertEquals(HprofEngine.RUST, ApplicationUiSettings().hprofEngine)
+        assertEquals(HprofEngine.RUST, ApplicationUiSettingsStore({ null }, { _, _ -> }).load().hprofEngine)
+
+        val values = mutableMapOf("application.theme" to "dark", "application.language" to "english")
+        val settings = ApplicationUiSettingsStore(values::get, values::set).load()
+
+        assertEquals(HprofEngine.RUST, settings.hprofEngine)
+        assertEquals(ApplicationThemePreference.DARK, settings.theme)
+        assertEquals(ApplicationLanguagePreference.ENGLISH, settings.language)
+        assertFalse(values.containsKey("application.hprofEngine"))
+    }
+
+    @Test
+    fun `both hprof engines round trip under the stable key without changing other preferences`() {
+        val values = mutableMapOf<String, String>()
+        var flushCount = 0
+        val store = ApplicationUiSettingsStore(values::get, values::set, flush = { flushCount += 1 })
+        val original =
+            ApplicationUiSettings(
+                theme = ApplicationThemePreference.DARK,
+                displayScale = ApplicationDisplayScale.PERCENT_125,
+                androidSdkPath = "D:/Android/Sdk",
+                navigationRailCollapsed = false,
+            )
+
+        listOf(HprofEngine.RUST to "rust", HprofEngine.LEGACY to "legacy").forEach { (engine, storedValue) ->
+            val settings = original.copy(hprofEngine = engine)
+
+            assertTrue(store.save(settings))
+            assertEquals(storedValue, values["application.hprofEngine"])
+            assertEquals(settings, ApplicationUiSettingsStore(values::get, values::set).load())
+        }
+        assertEquals(2, flushCount)
+    }
+
+    @Test
+    fun `unrecognized hprof engine preferences default to Rust without overwriting storage`() {
+        listOf("", "unknown", "future-engine").forEach { storedValue ->
+            val values = mutableMapOf("application.hprofEngine" to storedValue)
+            val store = ApplicationUiSettingsStore(values::get, values::set)
+
+            assertEquals(HprofEngine.RUST, store.load().hprofEngine)
+            assertEquals(storedValue, values["application.hprofEngine"])
+        }
+    }
+
+    @Test
+    fun `saved Legacy preference remains explicit after the default changes to Rust`() {
+        val values = mutableMapOf("application.hprofEngine" to "legacy")
+        val store = ApplicationUiSettingsStore(values::get, values::set)
+
+        assertEquals(HprofEngine.LEGACY, store.load().hprofEngine)
+        assertEquals("legacy", values["application.hprofEngine"])
+    }
+
+    @Test
+    fun `hprof engine storage parsing tolerates capitalization and surrounding whitespace`() {
+        listOf("RUST", "Rust", " rust ").forEach { storedValue ->
+            val values = mutableMapOf("application.hprofEngine" to storedValue)
+            assertEquals(HprofEngine.RUST, ApplicationUiSettingsStore(values::get, values::set).load().hprofEngine)
+        }
+        assertEquals(HprofEngine.LEGACY, HprofEngine.parse("LEGACY"))
     }
 
     @Test

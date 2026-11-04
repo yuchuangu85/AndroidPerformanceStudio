@@ -31,6 +31,7 @@ import com.androidperformancestudio.benchmark.model.GateDecision
 import com.androidperformancestudio.benchmark.model.GateReason
 import com.androidperformancestudio.benchmark.model.RegressionClassification
 import com.androidperformancestudio.benchmark.presentation.generated.resources.*
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -73,18 +74,16 @@ public fun BenchmarkReportsScreen(
     actions: BenchmarkReportsActions = BenchmarkReportsActions(),
 ) {
     val colors = LocalViewerColors.current
-    Column(modifier = modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.compactContentPadding)) {
-        BenchmarkToolbar(state, language, actions)
-        Spacer(Modifier.height(StudioTokens.panelGap))
+    Column(modifier = modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.workspacePadding)) {
         BenchmarkSummaryRow(state, language)
-        Spacer(Modifier.height(StudioTokens.panelGap))
+        Spacer(Modifier.height(StudioTokens.cardGap))
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 BenchmarkComparisonTable(
                     state = state,
@@ -113,99 +112,90 @@ public fun BenchmarkReportsScreen(
     }
 }
 
+/**
+ * Baseline/current build selectors and comparison actions hosted by the page header.
+ *
+ * Keeping this row in the shell header makes the baseline version row the first visible control
+ * while the reports workspace starts directly with its summary and comparison evidence.
+ */
 @Composable
-private fun BenchmarkToolbar(
+@Suppress("ktlint:standard:function-naming")
+public fun BenchmarkHeaderActions(
     state: BenchmarkReportsState,
     language: UiLanguage,
     actions: BenchmarkReportsActions,
 ) {
     val colors = LocalViewerColors.current
-    StudioPanel(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val baseline = state.runOptions.firstOrNull { it.id == state.baselineId }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = localizedStringResource(Res.string.baseline_build, language),
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    lineHeight = ViewerTypography.label.lineHeight,
-                )
-                DropdownSelector(
-                    items = state.runOptions,
-                    selectedItem = baseline,
-                    onItemSelected = { actions.onSelectBaseline(it.id) },
-                    itemLabel = { it.label },
-                    itemSecondary = { it.detail },
-                    selectedItemLabel = { it.label },
-                    placeholder = localizedStringResource(Res.string.select_run, language),
-                    modifier = Modifier.fillMaxWidth(),
-                    fillWidth = true,
-                )
-            }
-            Spacer(Modifier.width(StudioTokens.sectionGap))
-            val current = state.runOptions.firstOrNull { it.id == state.currentId }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = localizedStringResource(Res.string.current_build, language),
-                    color = colors.mutedText,
-                    fontSize = ViewerTypography.label.fontSize,
-                    lineHeight = ViewerTypography.label.lineHeight,
-                )
-                DropdownSelector(
-                    items = state.runOptions,
-                    selectedItem = current,
-                    onItemSelected = { actions.onSelectCurrent(it.id) },
-                    itemLabel = { it.label },
-                    itemSecondary = { it.detail },
-                    selectedItemLabel = { it.label },
-                    placeholder = localizedStringResource(Res.string.select_run, language),
-                    modifier = Modifier.fillMaxWidth(),
-                    fillWidth = true,
-                )
-            }
-            Spacer(Modifier.width(StudioTokens.sectionGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.compare, language),
-                onClick = actions.onCompare,
-                enabled = state.baselineId != null && state.currentId != null && !state.busy,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_run, language),
-                onClick = actions.onImportRun,
-                enabled = !state.busy,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.orchestrate_run, language),
-                onClick = actions.onOrchestrateRun,
-                enabled = !state.busy,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_pdf, language),
-                onClick = actions.onExportPdf,
-                enabled = state.report != null,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.export_csv, language),
-                onClick = actions.onExportCsv,
-                enabled = state.report != null,
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.share_report, language),
-                onClick = actions.onShareReport,
-                enabled = state.recentReports.isNotEmpty(),
-            )
-            Spacer(Modifier.width(StudioTokens.panelGap))
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.compare_settings, language),
-                onClick = actions.onCompareSettings,
-            )
-        }
-    }
+    val baseline = state.runOptions.firstOrNull { it.id == state.baselineId }
+    val current = state.runOptions.firstOrNull { it.id == state.currentId }
+    Text(
+        text = localizedStringResource(Res.string.baseline_build, language),
+        color = colors.mutedText,
+        fontSize = ViewerTypography.label.fontSize,
+        lineHeight = ViewerTypography.label.lineHeight,
+    )
+    DropdownSelector(
+        items = state.runOptions,
+        selectedItem = baseline,
+        onItemSelected = { actions.onSelectBaseline(it.id) },
+        itemLabel = { it.label },
+        itemSecondary = { it.detail },
+        selectedItemLabel = { it.label },
+        placeholder = localizedStringResource(Res.string.select_run, language),
+        modifier = Modifier.width(220.dp),
+        fillWidth = true,
+    )
+    Text(
+        text = localizedStringResource(Res.string.current_build, language),
+        color = colors.mutedText,
+        fontSize = ViewerTypography.label.fontSize,
+        lineHeight = ViewerTypography.label.lineHeight,
+    )
+    DropdownSelector(
+        items = state.runOptions,
+        selectedItem = current,
+        onItemSelected = { actions.onSelectCurrent(it.id) },
+        itemLabel = { it.label },
+        itemSecondary = { it.detail },
+        selectedItemLabel = { it.label },
+        placeholder = localizedStringResource(Res.string.select_run, language),
+        modifier = Modifier.width(220.dp),
+        fillWidth = true,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.compare, language),
+        onClick = actions.onCompare,
+        enabled = state.baselineId != null && state.currentId != null && !state.busy,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.import_run, language),
+        onClick = actions.onImportRun,
+        enabled = !state.busy,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.orchestrate_run, language),
+        onClick = actions.onOrchestrateRun,
+        enabled = !state.busy,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.export_pdf, language),
+        onClick = actions.onExportPdf,
+        enabled = state.report != null,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.export_csv, language),
+        onClick = actions.onExportCsv,
+        enabled = state.report != null,
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.share_report, language),
+        onClick = actions.onShareReport,
+        enabled = state.recentReports.isNotEmpty(),
+    )
+    ProfilerCompactButton(
+        text = localizedStringResource(Res.string.compare_settings, language),
+        onClick = actions.onCompareSettings,
+    )
 }
 
 @Composable
@@ -217,7 +207,7 @@ private fun BenchmarkSummaryRow(
     val gate = state.gate
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioMetricCard(
             label = localizedStringResource(Res.string.compared_benchmarks, language),
@@ -265,17 +255,18 @@ private fun BenchmarkReportColumn(
     val colors = LocalViewerColors.current
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioPanel(Modifier.fillMaxWidth()) {
             StudioPanelHeader(localizedStringResource(Res.string.report_summary, language))
             val gate = state.gate
             if (gate == null) {
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.no_comparisons, language),
                     color = colors.secondaryText,
                     fontSize = ViewerTypography.bodyCompact.fontSize,
                     lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                    language = language,
                 )
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -295,19 +286,21 @@ private fun BenchmarkReportColumn(
                     lineHeight = ViewerTypography.label.lineHeight,
                 )
                 gate.reasons.forEach { reason ->
-                    Text(
+                    CopyableText(
                         text = reason.displayName(language),
                         color = colors.secondaryText,
                         fontSize = ViewerTypography.bodyCompact.fontSize,
                         lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                        language = language,
                     )
                 }
                 if (gate.blockingComparisons.isNotEmpty()) {
-                    Text(
+                    CopyableText(
                         text = localizedStringResource(Res.string.blocking_comparisons, language, gate.blockingComparisons.size),
                         color = colors.error,
                         fontSize = ViewerTypography.label.fontSize,
                         lineHeight = ViewerTypography.label.lineHeight,
+                        language = language,
                     )
                 }
                 HorizontalDivider(color = colors.border)
@@ -326,11 +319,12 @@ private fun BenchmarkReportColumn(
                 )
             }
             if (state.recentReports.isEmpty()) {
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.no_reports, language),
                     color = colors.mutedText,
                     fontSize = ViewerTypography.label.fontSize,
                     lineHeight = ViewerTypography.label.lineHeight,
+                    language = language,
                 )
             } else {
                 state.recentReports.forEach { report ->
@@ -446,11 +440,12 @@ private fun BenchmarkInspector(
     StudioPanel(Modifier.fillMaxWidth()) {
         StudioPanelHeader(localizedStringResource(Res.string.comparison_inspector, language))
         if (comparison == null) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.inspect_hint, language),
                 color = colors.secondaryText,
                 fontSize = ViewerTypography.bodyCompact.fontSize,
                 lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                language = language,
             )
             return@StudioPanel
         }
@@ -490,14 +485,15 @@ private fun BenchmarkInspector(
         )
         val issues = state.compatibilityIssues()
         if (issues.isEmpty()) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.inspector_no_issues, language),
                 color = colors.secondaryText,
                 fontSize = ViewerTypography.label.fontSize,
                 lineHeight = ViewerTypography.label.lineHeight,
+                language = language,
             )
         } else {
-            issues.forEach { issue -> Text(issue.format(), color = colors.warning, fontSize = ViewerTypography.label.fontSize) }
+            issues.forEach { issue -> CopyableText(issue.format(), color = colors.warning, fontSize = ViewerTypography.label.fontSize, language = language) }
         }
         Text(
             text = localizedStringResource(Res.string.inspector_reasons, language),
@@ -507,19 +503,21 @@ private fun BenchmarkInspector(
             fontWeight = FontWeight.SemiBold,
         )
         if (comparison.reasons.isEmpty()) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.inspector_no_issues, language),
                 color = colors.secondaryText,
                 fontSize = ViewerTypography.label.fontSize,
                 lineHeight = ViewerTypography.label.lineHeight,
+                language = language,
             )
         } else {
             comparison.reasons.forEach { reason ->
-                Text(
+                CopyableText(
                     text = reason,
                     color = colors.secondaryText,
                     fontSize = ViewerTypography.label.fontSize,
                     lineHeight = ViewerTypography.label.lineHeight,
+                    language = language,
                 )
             }
         }
@@ -529,9 +527,9 @@ private fun BenchmarkInspector(
 @Composable
 private fun StatusLine(state: BenchmarkReportsState, colors: ViewerColors) {
     val status = state.error ?: state.message ?: return
-    Text(
+    CopyableText(
         text = status,
-        modifier = Modifier.padding(top = StudioTokens.panelGap),
+        modifier = Modifier.padding(top = StudioTokens.cardGap),
         color = if (state.error != null) MaterialTheme.colorScheme.error else colors.secondaryText,
         fontSize = ViewerTypography.label.fontSize,
         lineHeight = ViewerTypography.label.lineHeight,

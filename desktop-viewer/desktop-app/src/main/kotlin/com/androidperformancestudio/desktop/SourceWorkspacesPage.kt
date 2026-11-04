@@ -36,7 +36,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,9 +71,13 @@ import com.androidperformancestudio.source.SourceProviderKind
 import com.androidperformancestudio.source.SourceSnapshotId
 import com.androidperformancestudio.source.SourceWorkspace
 import com.androidperformancestudio.source.SourceWorkspacePhase
+import com.androidperformancestudio.source.VerifiedSourceContent
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
@@ -88,7 +91,7 @@ import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.net.URI
 import java.nio.file.Path
-import javax.swing.JFileChooser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,29 +116,56 @@ internal fun SourceWorkspacesPage(
     val visibleWorkspaces = workspaces.filter { it.config.kind == SourceProviderKind.LOCAL }
     val scope = rememberCoroutineScope()
     var selectedWorkspaceId by remember { mutableStateOf(initialLocation?.workspaceId) }
-    var selectedFile by remember { mutableStateOf<String?>(null) }
+    var selectedFile by remember { mutableStateOf(initialLocation?.relativePath) }
     var selectedLocation by remember { mutableStateOf(initialLocation) }
-    var sourceText by remember { mutableStateOf<String?>(null) }
-    var sourceState by remember { mutableStateOf<SourceContentState?>(null) }
+    var sourceContent by remember { mutableStateOf<VerifiedSourceContent?>(null) }
+    var sourceReadRevision by remember { mutableStateOf(0L) }
     var dialog by remember { mutableStateOf<RemoteWorkspaceDialog?>(null) }
     var pageError by remember { mutableStateOf<String?>(null) }
     var paneWidths by remember { mutableStateOf(SourceWorkspacePaneWidths()) }
     val colors = LocalViewerColors.current
+    val selectedWorkspace = visibleWorkspaces.firstOrNull { it.id == selectedWorkspaceId }
+    val selectedContent = sourceContent?.takeIf { it.location == selectedLocation }
+    val sourceText = selectedContent?.text
+    val sourceState = selectedContent?.state
+    val aiContext = remember(selectedWorkspace, selectedLocation, selectedContent) {
+        val location = selectedLocation
+        if (location == null || selectedContent == null || selectedWorkspace == null ||
+            selectedWorkspace.id != location.workspaceId || selectedWorkspace.activeSnapshotId == null
+        ) {
+            null
+        } else {
+            sourceWorkspaceAiContext(
+                selectedLocation = location,
+                content = selectedContent,
+                snapshot = runtime.repository.snapshot(location.snapshotId),
+                file = runtime.repository.files(location.snapshotId).firstOrNull { it.relativePath == location.relativePath },
+            )
+        }
+    }
+    PublishAiContext("source-workspace", aiContext)
 
     LaunchedEffect(initialLocation) {
         initialLocation?.let { location ->
             selectedWorkspaceId = location.workspaceId
             selectedFile = location.relativePath
             selectedLocation = location
-            sourceText = null
-            sourceState = null
-            runCatching { withContext(Dispatchers.IO) { runtime.service.read(location) } }
-                .onSuccess {
-                    sourceText = it.text
-                    sourceState = it.state
-                }
-                .onFailure { pageError = it.message }
+            sourceContent = null
+            sourceReadRevision++
         }
+    }
+
+    LaunchedEffect(selectedLocation, sourceReadRevision) {
+        sourceContent = null
+        pageError = null
+        val location = selectedLocation ?: return@LaunchedEffect
+        val revision = sourceReadRevision
+        runCatching { withContext(Dispatchers.IO) { runtime.service.read(location) } }
+            .onSuccess { if (selectedLocation == location && sourceReadRevision == revision) sourceContent = it }
+            .onFailure {
+                if (it is CancellationException) throw it
+                if (selectedLocation == location && sourceReadRevision == revision) pageError = it.message
+            }
     }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -180,10 +210,11 @@ internal fun SourceWorkspacesPage(
             }
             HorizontalDivider()
             pageError?.let { message ->
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.source_operation_failed, language, message),
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(12.dp),
+                    language = language,
                 )
             }
             BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -198,8 +229,7 @@ internal fun SourceWorkspacesPage(
                             selectedWorkspaceId = workspace.id
                             selectedFile = null
                             selectedLocation = null
-                            sourceText = null
-                            sourceState = null
+                            sourceContent = null
                         },
                         onRefresh = { workspace ->
                             scope.launch { withContext(Dispatchers.IO) { runtime.service.refresh(workspace.id) } }
@@ -209,7 +239,12 @@ internal fun SourceWorkspacesPage(
                         },
                         onRemove = { workspace ->
                             runtime.service.remove(workspace.id)
-                            if (selectedWorkspaceId == workspace.id) selectedWorkspaceId = null
+                            if (selectedWorkspaceId == workspace.id) {
+                                selectedWorkspaceId = null
+                                selectedFile = null
+                                selectedLocation = null
+                                sourceContent = null
+                            }
                         },
                         modifier = Modifier.width(fittedPaneWidths.workspaces.dp).fillMaxHeight(),
                     )
@@ -223,7 +258,7 @@ internal fun SourceWorkspacesPage(
                     val active = visibleWorkspaces.firstOrNull { it.id == selectedWorkspaceId }
                     if (active?.activeSnapshotId == null) {
                         Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(localizedStringResource(Res.string.source_select_indexed_workspace, language))
+                            CopyableText(localizedStringResource(Res.string.source_select_indexed_workspace, language), language = language)
                         }
                     } else {
                         val activeSnapshotId = requireNotNull(active.activeSnapshotId)
@@ -249,24 +284,8 @@ internal fun SourceWorkspacesPage(
                                 selectedFile = path
                                 val file = runtime.repository.files(browserSnapshotId).first { it.relativePath == path }
                                 selectedLocation = SourceLocation(active.id, browserSnapshotId, path, null, file.contentHash)
-                                scope.launch {
-                                    sourceText = null
-                                    sourceState = null
-                                    runCatching {
-                                        withContext(Dispatchers.IO) { runtime.service.read(
-                                            com.androidperformancestudio.source.SourceLocation(
-                                                active.id,
-                                                browserSnapshotId,
-                                                path,
-                                                null,
-                                                file.contentHash,
-                                            ),
-                                        ) }
-                                    }.onSuccess {
-                                        sourceText = it.text
-                                        sourceState = it.state
-                                    }.onFailure { pageError = it.message }
-                                }
+                                sourceContent = null
+                                sourceReadRevision++
                             },
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
@@ -309,26 +328,31 @@ private fun WorkspaceListPane(
 ) {
     val listState = rememberLazyListState()
     val horizontalScrollState = rememberScrollState()
+    val scrollbarThickness = LocalScrollbarStyle.current.thickness
     BoxWithConstraints(modifier) {
         val contentWidthDp = maxOf(
-            maxWidth.value,
+            (maxWidth - scrollbarThickness).value,
             workspaces.maxOfOrNull { workspace -> workspace.displayName.length * 8f + 48f } ?: 0f,
         )
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) {
+            // Scrollbars own separate chrome space; card insets stay 4dp inside the viewport.
+            Box(
+                Modifier.fillMaxSize()
+                    .padding(end = scrollbarThickness, bottom = scrollbarThickness)
+                    .horizontalScroll(horizontalScrollState),
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier =
                         Modifier
                             .width(contentWidthDp.dp)
                             .fillMaxHeight()
-                            .padding(end = 12.dp, bottom = 12.dp)
-                            .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                            .padding(StudioTokens.workspacePadding),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     if (workspaces.isEmpty()) {
                         item {
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.source_empty_hint, language),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -668,7 +692,9 @@ private fun WorkspaceCard(
         if (workspace.phase !in setOf(SourceWorkspacePhase.READY, SourceWorkspacePhase.FAILED)) {
             LinearProgressIndicator(progress = { workspace.progress }, modifier = Modifier.fillMaxWidth())
         }
-        workspace.localizedMessage(language)?.let { Text(it, color = contentColor, style = MaterialTheme.typography.bodySmall) }
+        workspace.localizedMessage(language)?.let {
+            CopyableText(it, color = contentColor, style = MaterialTheme.typography.bodySmall, language = language)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MacOSTextButton(localizedStringResource(Res.string.source_sync, language), onClick = onRefresh)
             MacOSTextButton(
@@ -756,16 +782,18 @@ private fun SourceBrowser(
                 )
             }
             candidate?.reasons?.takeIf { it.isNotEmpty() }?.let { reasons ->
-                Text(
+                CopyableText(
                     reasons.joinToString(" · ") { it.localizedResolutionReason(language) },
                     style = MaterialTheme.typography.labelSmall,
+                    language = language,
                 )
             }
             if (sourceState == SourceContentState.STALE) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.source_content_stale, language),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
+                    language = language,
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -842,13 +870,13 @@ private fun AddRemoteWorkspaceDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
+                ViewerTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text(localizedStringResource(Res.string.source_name, language)) },
                     colors = viewerOutlinedTextFieldColors(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = first,
                     onValueChange = { first = it },
                     label = {
@@ -866,13 +894,13 @@ private fun AddRemoteWorkspaceDialog(
                     colors = viewerOutlinedTextFieldColors(),
                 )
                 if (kind == RemoteWorkspaceDialog.GITHUB) {
-                    OutlinedTextField(
+                    ViewerTextField(
                         value = second,
                         onValueChange = { second = it },
                         label = { Text(localizedStringResource(Res.string.source_repository, language)) },
                         colors = viewerOutlinedTextFieldColors(),
                     )
-                    OutlinedTextField(
+                    ViewerTextField(
                         value = token,
                         onValueChange = { token = it },
                         label = { Text(localizedStringResource(Res.string.source_token_optional, language)) },
@@ -880,7 +908,7 @@ private fun AddRemoteWorkspaceDialog(
                         colors = viewerOutlinedTextFieldColors(),
                     )
                 }
-                OutlinedTextField(
+                ViewerTextField(
                     value = ref,
                     onValueChange = { ref = it },
                     label = { Text(localizedStringResource(Res.string.source_revision_hint, language)) },
@@ -913,14 +941,8 @@ private fun AddRemoteWorkspaceDialog(
     )
 }
 
-private fun chooseDirectory(title: String): Path? {
-    val chooser = JFileChooser().apply {
-        dialogTitle = title
-        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        isAcceptAllFileFilterUsed = false
-    }
-    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile.toPath() else null
-}
+private fun chooseDirectory(title: String): Path? =
+    com.androidperformancestudio.ui.chooseDirectory(parent = null, title = title)?.toPath()
 
 private fun SourceProviderKind.localizedLabel(language: UiLanguage): String =
     localizedStringResource(

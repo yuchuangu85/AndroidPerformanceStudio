@@ -34,6 +34,7 @@ import com.androidperformancestudio.startup.presentation.generated.resources.met
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_ttid
 import com.androidperformancestudio.startup.presentation.generated.resources.metric_ttid_description
 import com.androidperformancestudio.startup.presentation.generated.resources.startup_metrics
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerAccentPalette
@@ -51,7 +52,7 @@ internal fun StartupMetricOverview(
     val colors = LocalViewerColors.current
     StudioPanel(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = StudioTokens.compactContentPadding,
+        contentPadding = StudioTokens.workspacePadding,
     ) {
         Text(localizedStringResource(Res.string.startup_metrics, language), fontWeight = FontWeight.SemiBold)
         run {
@@ -95,13 +96,16 @@ internal fun StartupMetricOverview(
                     modifier,
                 )
             }
-            Row(Modifier.fillMaxWidth().height(104.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().height(104.dp),
+                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+            ) {
                 // Compact text wraps within weighted cards instead of dropping metrics at smaller widths.
                 metrics(Modifier.weight(1f).fillMaxHeight())
             }
         }
         analysis?.let {
-            Text(
+            CopyableText(
                 "${localizedStringResource(Res.string.median_totaltime, language)}: ${it.totalTime.medianMs.formatMs()} · " +
                     "P90 TTID ${it.firstFrame.p90Ms.formatMs()} · " +
                     localizedStringResource(Res.string.mad, language, it.firstFrame.medianAbsoluteDeviationMs.formatMs()) +

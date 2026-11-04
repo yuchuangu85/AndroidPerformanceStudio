@@ -1,15 +1,27 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.ui.LocalPageMenuHost
+import com.androidperformancestudio.ui.CopyableText
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.MenuShortcuts
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.TitleBarTargetControls
 import com.androidperformancestudio.ui.ViewerTheme
-import com.androidperformancestudio.ui.WindowMenuBarHost
+import com.androidperformancestudio.ui.WindowMenuBar
+import com.androidperformancestudio.ui.WindowMenuChrome
+import com.androidperformancestudio.ui.WindowSurfaceEffect
+import com.androidperformancestudio.ui.chooseOpenFile
+import com.androidperformancestudio.ui.rememberPageMenuHost
+import com.androidperformancestudio.ui.rememberTitleBarTargetHost
 import com.androidperformancestudio.ui.rememberViewerThemeContext
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +58,7 @@ import com.androidperformancestudio.desktop.SimpleperfCaptureSettingsContext
 import com.androidperformancestudio.desktop.SimpleperfThemePreference
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
 import com.androidperformancestudio.desktop.SimpleperfMainPage
+import com.androidperformancestudio.desktop.BatteryNetworkMainPage
 import com.androidperformancestudio.benchmark.app.BenchmarkRegressionMainPage
 import com.androidperformancestudio.frame.app.FrameProfilerMainPage
 import com.androidperformancestudio.gpu.app.GpuIntegrationMainPage
@@ -61,8 +74,8 @@ import com.androidperformancestudio.source.ResolutionConfidence
 import java.util.Locale
 import java.nio.file.Files
 import java.nio.file.Path
-import javax.swing.JFileChooser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -82,13 +95,68 @@ fun FrameWindowScope.DesktopAppMainPage(
     var memoryHighlightClassName by remember { mutableStateOf<String?>(null) }
     var composeSourceCandidates by remember { mutableStateOf<List<ResolutionCandidate>>(emptyList()) }
     var archivedSourceToRebind by remember { mutableStateOf<AiSourceCandidateReference?>(null) }
-    var menuReadyDestination by remember { mutableStateOf<AppDestination?>(null) }
     val applicationSettingsStore = remember { ApplicationUiSettingsStore.desktop() }
     val simpleperfPreferencesStore = remember { SimpleperfPreferencesStore.desktop() }
     val homeLayout = remember { HomeLayoutController.desktop() }
     val externalAnalysisLauncher = remember { ExternalAnalysisLauncher() }
     val userDocumentationLauncher = remember { UserDocumentationLauncher() }
     val sourceWorkspaceRuntime = remember { SourceWorkspaceRuntime.desktop() }
+    val aiSettingsStore = remember { com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore() }
+    val aiCoordinator = remember { DesktopAiCoordinator() }
+    var aiPlatform by remember { mutableStateOf<com.androidperformancestudio.aiplatform.app.AiPlatformRuntime?>(null) }
+    var aiStartupError by remember { mutableStateOf<String?>(null) }
+    var showAiWindow by remember { mutableStateOf(false) }
+    var aiWindowOpenRequestId by remember { mutableStateOf(0L) }
+    var aiWindowContext by remember { mutableStateOf<com.androidperformancestudio.aiplatform.app.BusinessContext?>(null) }
+    aiCoordinator.sourceModel = sourceWorkspaceRuntime::aiModel
+    aiCoordinator.onOpen = { context ->
+        aiWindowContext = context
+        showAiWindow = true
+        aiWindowOpenRequestId++
+    }
+    val aiContextHost = remember {
+        object : com.androidperformancestudio.ui.AiContextHost {
+            override fun publish(context: com.androidperformancestudio.ui.UiAiContext) {
+                val evidence = context.evidence.map { item -> com.androidperformancestudio.ai.PerformanceEvidence(item.id, item.kind, item.summary, item.payloadJson) }
+                aiCoordinator.contexts.publish(com.androidperformancestudio.aiplatform.app.createBusinessContext(context.key, context.title, evidence, context.currentSelection))
+            }
+            override fun remove(key: String) { aiCoordinator.contexts.remove(key) }
+        }
+    }
+    val openGlobalAi: () -> Unit = {
+        aiWindowContext = navigator.destination.aiContextKey()?.let(aiCoordinator.contexts::current)
+        showAiWindow = true
+        aiWindowOpenRequestId++
+    }
+    LaunchedEffect(sourceWorkspaceRuntime) {
+        try {
+            runDesktopAiRuntime(open = {
+                com.androidperformancestudio.aiplatform.app.AiPlatformRuntime.open(
+                    openAiGateway = { model -> sourceWorkspaceRuntime.providerGateway(AiProviderConnection.CUSTOM, model) },
+                    openAiAvailable = { sourceWorkspaceRuntime.providerHasCredential(AiProviderConnection.CUSTOM) },
+                    codexGateway = { model -> sourceWorkspaceRuntime.providerGateway(AiProviderConnection.CODEX, model) },
+                    codexAvailable = { sourceWorkspaceRuntime.providerHasCredential(AiProviderConnection.CODEX) },
+                    claudeEnvironment = sourceWorkspaceRuntime::claudeEnvironment,
+                    connectionRevision = { providerId ->
+                        sourceWorkspaceRuntime.providerConnectionRevision(AiProviderConnection.fromProviderId(providerId))
+                    },
+                    gatewayForRun = { providerId, model, revision ->
+                        sourceWorkspaceRuntime.providerGateway(AiProviderConnection.fromProviderId(providerId), model, revision)
+                    },
+                    claudeEnvironmentForRun = { revision -> sourceWorkspaceRuntime.claudeEnvironment(revision) },
+                    sourceAuthorization = { request -> request.sourceCandidates.all { candidate ->
+                        val resolved = sourceWorkspaceRuntime.candidate(candidate.id)
+                        resolved != null && sourceWorkspaceRuntime.repository.workspace(resolved.location.workspaceId)?.allowAiSourceUpload == true &&
+                            resolved.location.contentHash == candidate.contentHash
+                    } },
+                )
+            }) { platform ->
+                aiPlatform = platform; aiCoordinator.runtime = platform
+            }
+        } catch (failure: kotlinx.coroutines.CancellationException) {
+            throw failure
+        } catch (_: Exception) { aiStartupError = "E_AI_STARTUP" }
+    }
     val coroutineScope = rememberCoroutineScope()
     var applicationSettings by remember { mutableStateOf(applicationSettingsStore.load()) }
     var simpleperfPreferences by remember { mutableStateOf(simpleperfPreferencesStore.load()) }
@@ -107,13 +175,15 @@ fun FrameWindowScope.DesktopAppMainPage(
         settingsPage = page
         navigator.open(AppDestination.SETTINGS)
     }
+    val language = applicationSettings.language.resolve(Locale.getDefault())
     val openTraceFile: () -> Unit = {
-        chooseHomeArtifact()?.let { navigator.openPerfettoTrace(it) }
+        chooseHomeArtifact(window, localizedStringResource(Res.string.open_trace_file, language))
+            ?.let { navigator.openPerfettoTrace(it) }
     }
     val analyzeHprof: () -> Unit = {
-        chooseHomeArtifact()?.let { navigator.openMemoryProfiler(it) }
+        chooseHomeArtifact(window, localizedStringResource(Res.string.analyze_hprof, language))
+            ?.let { navigator.openMemoryProfiler(it) }
     }
-    val language = applicationSettings.language.resolve(Locale.getDefault())
     val darkTheme = applicationSettings.theme.resolveDark(isSystemInDarkTheme())
     val simpleperfSettings =
         SimpleperfUiSettings(
@@ -123,37 +193,66 @@ fun FrameWindowScope.DesktopAppMainPage(
             simpleperfEngine = simpleperfPreferences.simpleperfEngine,
         )
 
-    // Install the native menu bar before composing any retained feature page. Preload the
-    // same first menu title that the feature will render so macOS never flashes the page title.
-    val preloadedMenuTitle =
-        when {
-            navigator.destination == AppDestination.METHOD_RECORDING ->
-                localizedStringResource(Res.string.native_method_recording_menu, language)
-            navigator.destination.hasNativeFeatureMenu() ->
-                localizedStringResource(Res.string.native_file_menu, language)
-            else -> null
+    val openUserGuide: () -> Unit = {
+        coroutineScope.launch(Dispatchers.IO) {
+            runCatching { userDocumentationLauncher.open(language) }
         }
-    WindowMenuBarHost(
-        preloadedMenuKey = navigator.destination,
-        preloadedMenuTitles = preloadedMenuTitle?.let(::listOf) ?: emptyList(),
-        onMenuBarReady = { menuReadyDestination = navigator.destination },
-        // Pages without a feature menu would otherwise leave the native bar with zero menus, which
-        // reads as a missing menu bar on macOS and flashes on every visit.
-        fallbackMenu = {
-            Menu(localizedStringResource(Res.string.native_file_menu, language)) {
-                Item(localizedStringResource(Res.string.open_trace_file, language)) { openTraceFile() }
-                Item(localizedStringResource(Res.string.analyze_hprof, language)) { analyzeHprof() }
-                Separator()
-                Item(localizedStringResource(Res.string.settings, language)) {
-                    openSettings(SettingsPage.GENERAL)
+    }
+
+    // The window owns one fixed menu skeleton; the active page only fills its slots, so switching
+    // destinations never adds or removes a top-level native menu.
+    val pageMenuHost = rememberPageMenuHost()
+    val titleBarTargetHost = rememberTitleBarTargetHost()
+    val canEmbedTitleBarTargets = MacOsWindowChrome.embedsTitleBar()
+    val targetBarSource = remember(applicationSettings.androidSdkPath) {
+        DesktopTargetBarSource(applicationSettings.androidSdkPath)
+    }
+    // The fixed title-bar device/process controls discover their own lists; there is no refresh action.
+    LaunchedEffect(targetBarSource, titleBarTargetHost, canEmbedTitleBarTargets) {
+        if (!canEmbedTitleBarTargets) return@LaunchedEffect
+        while (true) {
+            val devices = targetBarSource.loadDevices()
+            if (devices != null) titleBarTargetHost.updateDevices(devices)
+            val serial = titleBarTargetHost.selectedDeviceSerial
+            if (serial != null) {
+                val processes = targetBarSource.loadProcesses(serial)
+                if (processes != null && titleBarTargetHost.selectedDeviceSerial == serial) {
+                    titleBarTargetHost.updateProcesses(processes)
                 }
             }
-        },
+            delay(DesktopTargetBarSource.REFRESH_INTERVAL_MILLIS)
+        }
+    }
+    LaunchedEffect(targetBarSource, titleBarTargetHost, titleBarTargetHost.selectedDeviceSerial) {
+        val serial = titleBarTargetHost.selectedDeviceSerial ?: return@LaunchedEffect
+        val processes = targetBarSource.loadProcesses(serial) ?: return@LaunchedEffect
+        if (titleBarTargetHost.selectedDeviceSerial == serial) titleBarTargetHost.updateProcesses(processes)
+    }
+    WindowMenuBar(
+        host = pageMenuHost,
+        chrome =
+            WindowMenuChrome(
+                language = language,
+                globalOpenItems =
+                    homeArtifactMenuCommands(navigator.destination, language, openTraceFile, analyzeHprof),
+                // macOS reaches Settings through the application menu (ApplicationSettingsMenuInstaller).
+                onOpenSettings = { openSettings(SettingsPage.GENERAL) }.takeUnless { MenuShortcuts.isMacOs },
+                helpItems =
+                    listOf(
+                        MenuCommand(localizedStringResource(Res.string.user_guide, language), onClick = openUserGuide),
+                        MenuCommand(if (language == UiLanguage.SIMPLIFIED_CHINESE) "AI 分析" else "AI Analysis", onClick = openGlobalAi),
+                    ),
+            ),
     )
 
     LaunchedEffect(settingsRequest?.requestId) {
         if (shouldOpenSettingsForRequest(settingsRequest)) {
-            settingsRequest?.let { openSettings(it.page) }
+            settingsRequest?.let { request ->
+                // The macOS app-menu Preferences honors the active page's own settings section,
+                // matching File > Settings on other platforms.
+                val pageSettings = pageMenuHost.menu?.onOpenSettings
+                if (request.page == SettingsPage.GENERAL && pageSettings != null) pageSettings() else openSettings(request.page)
+            }
         }
     }
     DisposableEffect(userDocumentationLauncher) {
@@ -170,10 +269,8 @@ fun FrameWindowScope.DesktopAppMainPage(
             navigator.clearPerfettoTrace()
         }
     }
-    LaunchedEffect(menuReadyDestination, navigator.destination, language) {
-        if (menuReadyDestination == navigator.destination) {
-            windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
-        }
+    LaunchedEffect(navigator.destination, language) {
+        windowTitle?.value = localizedStringResource(navigator.destination.titleResource, language)
     }
 
     val windowColors =
@@ -181,13 +278,48 @@ fun FrameWindowScope.DesktopAppMainPage(
             darkTheme = darkTheme,
             accentColor = applicationSettings.themeColor,
         )
-    Column(modifier = Modifier.fillMaxSize()) {
+    com.androidperformancestudio.aiplatform.presentation.AiConversationWindowHost(
+        visible = showAiWindow,
+        openRequestId = aiWindowOpenRequestId,
+        runtime = aiPlatform,
+        startupError = aiStartupError,
+        context = aiWindowContext,
+        language = language,
+        darkTheme = darkTheme,
+        defaultModel = sourceWorkspaceRuntime.aiModel(),
+        onClose = { showAiWindow = false; coroutineScope.launch { aiPlatform?.service?.cancel() } },
+        onOpenSourceCandidate = { id -> sourceWorkspaceRuntime.candidate(id)?.takeIf { it.confidence != ResolutionConfidence.WEAK }?.let { navigator.openSource(it.location) } },
+        onOpenSettings = { openSettings(SettingsPage.AI) },
+        windowChrome = { title -> AiConversationWindowChrome(title, windowColors, darkTheme) },
+        loadModels = sourceWorkspaceRuntime::savedProviderModels,
+        selectModel = { providerId, model ->
+            sourceWorkspaceRuntime.selectProviderModel(providerId, model) {
+                aiSettingsStore.update {
+                    check(it.providerId == providerId) { "E_PROVIDER_CONNECTION_CHANGED" }
+                    it.copy(model = model)
+                }
+            }
+        },
+    )
+
+    WindowSurfaceEffect(windowColors.workspace)
+    WindowsWindowChromeEffect(windowColors, darkTheme)
+    Column(modifier = Modifier.fillMaxSize().background(windowColors.workspace)) {
         MacOsTitleBar(
             title = windowTitle?.value ?: APP_DISPLAY_NAME,
             background = windowColors.toolbar,
             // The title text inverts against its own strip so it stays legible in either theme.
             contentColor = windowColors.primaryText,
             dividerColor = windowColors.border,
+            targetControls = {
+                ViewerTheme(
+                    darkTheme = darkTheme,
+                    displayScale = 1f,
+                    accentColor = applicationSettings.themeColor,
+                ) {
+                    TitleBarTargetControls(titleBarTargetHost, language)
+                }
+            },
         )
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             ViewerTheme(
@@ -207,11 +339,18 @@ fun FrameWindowScope.DesktopAppMainPage(
                             )
                         },
                         moduleOrder = homeLayout.moduleOrder,
+                        onOpenAi = openGlobalAi,
                     ) {
                         navigator.retainedDestinations.forEach { destination ->
                             key(destination) {
                                 val active = destination == navigator.destination
-                                CompositionLocalProvider(LocalWindowMenuBarActive provides active) {
+                                CompositionLocalProvider(
+                                    LocalWindowMenuBarActive provides active,
+                                    LocalPageMenuHost provides pageMenuHost,
+                                    com.androidperformancestudio.ui.LocalAiContextHost provides aiContextHost,
+                                    LocalTitleBarTargetHost provides
+                                        titleBarTargetHost.takeIf { canEmbedTitleBarTargets && active },
+                                ) {
                                     Box(
                                         modifier =
                                             Modifier
@@ -276,8 +415,12 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     correlationHint = navigator.inspectorCorrelationHint,
                                     initialArchiveFile = navigator.layoutArchiveRequest?.path,
                                     initialArchiveRequestId = navigator.layoutArchiveRequest?.requestId ?: 0L,
-                                    aiAnalysisClient = remember(sourceWorkspaceRuntime) {
-                                        SourceAwareLayoutAiAnalysisClient(sourceWorkspaceRuntime)
+                                    aiAnalysisClient = remember(sourceWorkspaceRuntime, aiCoordinator, aiSettingsStore) {
+                                        SourceAwareLayoutAiAnalysisClient(
+                                            sourceWorkspaceRuntime,
+                                            globalAnalysis = aiCoordinator::analyze,
+                                            loadSettings = aiSettingsStore::load,
+                                        )
                                     },
                                     onOpenSourceCandidate = { candidateId, archived ->
                                         val current = sourceWorkspaceRuntime.candidate(candidateId)
@@ -320,12 +463,8 @@ fun FrameWindowScope.DesktopAppMainPage(
                                         openSettings(SettingsPage.SIMPLEPERF)
                                     },
                                     onCaptureSettingsContextChanged = { simpleperfCaptureSettingsContext = it },
-                                    onOpenUserGuide = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            runCatching { userDocumentationLauncher.open(language) }
-                                        }
-                                    },
-                                    aiAnalysisClient = null,
+                                    onOpenUserGuide = openUserGuide,
+                                    aiAnalysisClient = remember(sourceWorkspaceRuntime, aiCoordinator) { ProductionSimpleperfAiAnalysisClient(sourceWorkspaceRuntime, aiCoordinator) },
                                     onOpenSourceCandidate = { candidateId ->
                                         sourceWorkspaceRuntime.candidate(candidateId)
                                             ?.takeIf { it.confidence != ResolutionConfidence.WEAK }
@@ -346,15 +485,12 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     initialTraceRequestId = navigator.perfettoTraceRequestId,
                                     initialTraceNotice = navigator.perfettoTraceNotice,
                                     initialTraceTimestampNanos = navigator.perfettoTimestampNanos,
-                                    onOpenUserGuide = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            runCatching { userDocumentationLauncher.open(language) }
-                                        }
-                                    },
+                                    onOpenUserGuide = openUserGuide,
                                 )
                             AppDestination.MEMORY_PROFILER ->
                                 MemoryProfilerMainPage(
                                     language = language,
+                                    hprofEngine = applicationSettings.hprofEngine,
                                     highlightClassName = memoryHighlightClassName,
                                     initialImportFile = navigator.memoryImportFile,
                                     initialImportRequestId = navigator.memoryImportRequestId,
@@ -478,12 +614,10 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     onApplicationSettingsChanged = updateApplicationSettings,
                                     onSimpleperfSettingsChanged = updateSimpleperfPreferences,
                                     onLayoutInspectorSettingsChanged = { layoutInspectorSettingsRevision += 1 },
-                                    onOpenUserGuide = {
-                                        coroutineScope.launch(Dispatchers.IO) {
-                                            runCatching { userDocumentationLauncher.open(language) }
-                                        }
-                                    },
+                                    onOpenUserGuide = openUserGuide,
                                     persistenceErrorPage = settingsPersistenceErrorPage,
+                                    aiPlatformRuntime = aiPlatform,
+                                    aiPlatformSettingsStore = aiSettingsStore,
                                 )
                         }
                                 }
@@ -532,7 +666,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                 text = {
                                     Column {
                                         if (workspaces.isEmpty()) {
-                                            Text(localizedStringResource(Res.string.source_no_rebind_match, language))
+                                            CopyableText(localizedStringResource(Res.string.source_no_rebind_match, language), language = language)
                                         }
                                         workspaces.forEach { workspace ->
                                             TextButton(
@@ -562,15 +696,25 @@ fun FrameWindowScope.DesktopAppMainPage(
     }
 }
 
-private fun chooseHomeArtifact(): Path? =
-    JFileChooser().run {
-        fileSelectionMode = JFileChooser.FILES_ONLY
-        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            selectedFile?.toPath()?.takeIf(Files::isRegularFile)
-        } else {
-            null
-        }
+internal fun homeArtifactMenuCommands(
+    destination: AppDestination,
+    language: UiLanguage,
+    onOpenTraceFile: () -> Unit,
+    onAnalyzeHprof: () -> Unit,
+): List<MenuCommand> =
+    if (destination == AppDestination.HOME) {
+        listOf(
+            MenuCommand(localizedStringResource(Res.string.open_trace_file, language), onClick = onOpenTraceFile),
+            MenuCommand(localizedStringResource(Res.string.analyze_hprof, language), onClick = onAnalyzeHprof),
+        )
+    } else {
+        emptyList()
     }
+
+private fun chooseHomeArtifact(
+    parent: java.awt.Window,
+    title: String,
+): Path? = chooseOpenFile(parent, title)?.toPath()?.takeIf(Files::isRegularFile)
 
 private fun Modifier.blockPointerInputWhenInactive(active: Boolean): Modifier =
     if (active) {

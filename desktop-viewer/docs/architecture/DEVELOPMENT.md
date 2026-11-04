@@ -1,17 +1,14 @@
 # Desktop Viewer Development Guide
 
-## Version matrix
+## Versions and toolchains
 
-| Component | Version / range |
-| --- | --- |
-| Gradle | 9.4.1 |
-| Kotlin | 2.3.21 |
-| Android Gradle Plugin | 9.2.0 |
-| Compose Multiplatform | 1.11.1 |
-| Desktop JVM target | Java 17 bytecode |
-| Android | minSdk 21, compile/target SDK 37 |
+- Use JDK 21 for the desktop build and runtime; `desktop-app` targets Java 21 bytecode.
+- Gradle is pinned in the [wrapper](../../gradle/wrapper/gradle-wrapper.properties).
+- Kotlin, Compose, AGP and library versions are pinned in the [version catalog](../../gradle/libs.versions.toml).
+- Android Agent and sample modules declare their own SDK requirements; the View sample uses minSdk 21 and compile/target SDK 37.
+- Android modules use AGP's built-in Kotlin. Do not re-add `org.jetbrains.kotlin.android`.
 
-AGP 9.2 uses built-in Kotlin for Android modules. Do not re-add `org.jetbrains.kotlin.android`.
+Build files are authoritative; do not maintain a second version table in documentation.
 
 ## Module boundaries
 
@@ -25,7 +22,7 @@ layout-inspector/
     android-agent-view/     traditional View hierarchy collection
     android-agent-frame/    API 24+ FrameMetrics collection and bounded batches
     android-agent-startup/  zero-code AndroidX Startup integration
-  adb-gateway/              pure ADB parsing and argument-vector construction
+  adb-gateway/              inspector capture and transport over shared ADB primitives
   application/              inspector state and selection use cases
   presentation/             embeddable Compose Desktop inspector workspace
   samples/
@@ -34,10 +31,18 @@ simpleperf-viewer/          isolated Simpleperf CPU profiler build
 platform-core/              Capture Artifact, host process, and ADB contracts
 platform-perfetto/          pinned Trace Processor lifecycle and typed query boundary
 frame-profiler/             isolated FrameTimeline/Jank profiler build
-desktop-app/                  process entry, native window, and packaging
+ai-core/                    provider-neutral AI transport and structured results
+source-workspace/           source snapshots, indexing, resolution and read-only viewing
+ui-components/              shared Compose controls, theme and window integration
+desktop-app/                process entry, native window, navigation and packaging
 ```
 
 Dependencies flow inward: UI and platform adapters depend on application/domain modules; protocol and analysis modules do not depend on Android or Compose.
+
+`platform-core/host-toolchain` owns host process execution, binary/text output, cancellation and timeouts.
+`platform-core/adb-core` owns executable resolution and shared ADB primitives over immutable `DeviceTarget` values.
+Feature adapters keep their capture lifecycle and protocol; they do not introduce another process runner or depend
+on Simpleperf for shared ADB models. See [ADR-0007](../adr/0007-stateless-device-target-and-shared-adb.md).
 
 Each immutable Capture or Import persists a versioned **Capture Artifact** envelope. The envelope records
 Provenance, SHA-256, format, privacy-safe Device Target and Process Identity when known, Clock Domains and
@@ -45,7 +50,7 @@ bounded Clock Mappings, requested/available Capabilities, Artifact Completeness,
 Feature-specific HTTP calls, frame samples, heap graphs, method timelines, and battery snapshot deltas remain
 in their existing domain models.
 
-Perfetto-backed adapters use `platform-perfetto` with Trace Processor `v57.2`. A packaged or installed binary
+Perfetto-backed adapters use `platform-perfetto` with Trace Processor `v59.1`. A packaged or installed binary
 must match the host checksum in `platform-perfetto/trace-processor-manifest.json`; an explicit override must
 report the same version. There is no `PATH` fallback. Install the development binary with:
 
@@ -72,19 +77,90 @@ Two layers keep it runnable:
 
 ## Common commands
 
-```bash
-# All JVM and Android unit tests
-./gradlew test
+Run these commands from `desktop-viewer/`. Included builds have their own test and check tasks;
+passing the root desktop task does not mean every feature or Android Agent was tested.
 
-# Android sample
-./gradlew :layout-inspector:samples:android-view-app:assembleDebug
+```bash
+# Unified desktop integration and focused Layout Inspector tests
+./gradlew :desktop-app:test
+./gradlew :layout-inspector:application:test :layout-inspector:presentation:test
+
+# All checks in the isolated Simpleperf build
+./gradlew simpleperfCheck
+
+# Android sample (requires the Android SDK and explicit opt-in)
+./gradlew -PincludeLayoutInspectorAgents=true :layout-inspector-sample-app:assembleDebug
 
 # Desktop app image for this OS
+# Build the host-independent Android inspection runtime first (requires an Android SDK/NDK).
+./gradlew :layout-inspector:compose-agent-build:verifyComposeAgentBundle --no-configuration-cache
 ./gradlew :desktop-app:createDistributable
 
-# Full local verification
-./gradlew clean test assemble
+# Compilation is separate from tests, native-window and device acceptance
+./gradlew :desktop-app:compileKotlin
 ```
+
+## Application-managed ADB
+
+The unified desktop installers include an `adb-tools` resource directory. Device capture does not
+require an SDK installation, SDK environment variables, or an ADB entry on the user's `PATH`.
+USB debugging, device authorization, and host USB access are still required. Explicit executable
+and SDK configuration remain authoritative; automatic system discovery precedes the packaged
+fallback. Every profiler uses the same `adb-core` resolver.
+
+Prepare the tools on the development or packaging host, from the repository root:
+
+```bash
+python3 scripts/install-adb-tools.py
+# Offline development can use a trusted installed copy of the pinned platform-tools version.
+python3 scripts/install-adb-tools.py --source-dir "$HOME/Library/Android/sdk/platform-tools"
+python3 -m unittest discover -s scripts/tests -v
+```
+
+Download URLs and archive checksums are pinned in
+`platform-core/adb-core/adb-tools-manifest.json`. Google archives supply macOS universal, Windows,
+and Linux x64 ADB. Linux arm64 packaging uses the native Ubuntu 24.04 `adb` package on its build
+runner, copies the non-glibc shared-library dependency closure, and sets bundle-relative RPATHs.
+Its actual package / ADB version is recorded, not represented as the Google archive version.
+Only the build host needs Python, `patchelf`, or Ubuntu packaging tools; installed applications do not.
+
+The preparation scripts stage ADB, required companion libraries, license notices, and a versioned
+`manifest.properties` with per-file SHA-256 digests. Packaging fails if the tools are absent, corrupt,
+or incompatible with the target architecture. Runtime fallback also validates the manifest and
+companion files before selecting an application-managed executable. macOS signing refreshes hashes
+for signed ADB files before signing the enclosing app. No tool is installed into system directories,
+and the preparation scripts do not modify the system SDK or `PATH`.
+
+From `desktop-viewer/`, run a probe with an empty `PATH`, no ADB / SDK environment variables, and an
+empty SDK home directory. The optional device probe requires exactly one authorized device and reads
+`/proc/meminfo`; it does not change device configuration or stop an existing ADB server:
+
+```bash
+./gradlew :platform-core:adb-core:smokeBundledAdb
+./gradlew :platform-core:adb-core:smokeBundledAdb -PadbSmokeDevice=true
+./gradlew :desktop-app:verifyPackagedAdbTools :desktop-app:prepareProfilerAppResources
+```
+
+`-PadbSmokeBundle=/absolute/path/to/resources/adb-tools` selects an app image for the same probe.
+Unit tests, a build-host binary probe, real-device capture, native installer acceptance, and signed
+release qualification are separate evidence; passing one does not establish the others.
+
+## Compose inspection runtime in desktop packages
+
+Complete Compose inspection needs the verified `compose-agent-bundle`, not only the version-specific
+Compose inspector downloaded at runtime. Desktop packaging copies this bundle into application
+resources and checks all three device ABIs, the dexed JARs, and their manifest checksums. Packaging
+fails if any required runtime file is missing or corrupt.
+
+Release CI builds the runtime once on Linux x64 using a pinned Android SDK/NDK toolchain, transfers
+it as an internal Actions artifact, and includes the same bundle in every native installer. Windows
+and Linux arm64 packaging do not need their own Android SDK. Ordinary desktop configuration remains
+SDK-independent; explicitly building the inspection agent still requires the toolchain.
+
+The installed application resolves `compose-agent-bundle` from `compose.application.resources.dir`
+before considering development working-directory paths. Explicit `agentperf.compose.agent.bundle`
+or `APC_COMPOSE_AGENT_BUNDLE` configuration remains authoritative. Do not install a bundle at
+`/compose-agent-bundle` to work around a missing packaged resource.
 
 ## Security invariants
 
@@ -99,7 +175,7 @@ Two layers keep it runnable:
 
 - Protocol major changes are incompatible.
 - Unknown minor fields are ignored.
-- Desktop code targets Java 17 bytecode.
+- The unified desktop application targets Java 21 bytecode; library targets are declared in their own builds.
 - Traditional Views use public APIs available from API 21.
 - FrameMetrics Agent capture uses public APIs on API 24+ and degrades to desktop-side `gfxinfo` polling otherwise.
 - Screenshot capture and Compose semantics are intentionally separate adapters so unsupported platform/library versions can degrade without breaking View inspection.

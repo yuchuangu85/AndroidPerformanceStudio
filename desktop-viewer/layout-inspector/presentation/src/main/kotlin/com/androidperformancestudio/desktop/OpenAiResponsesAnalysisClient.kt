@@ -62,6 +62,8 @@ public class PreparedAiAnalysis(
 }
 
 public interface AiAnalysisClient {
+    public val requiresLocalConfirmation: Boolean get() = true
+
     public suspend fun prepare(input: AiAnalysisInput): PreparedAiAnalysis
 
     public suspend fun analyze(prepared: PreparedAiAnalysis): AiAnalysisReport = prepared.execute()

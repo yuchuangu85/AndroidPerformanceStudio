@@ -14,11 +14,13 @@ data class FlameViewport(
     val scrollRow: Int,
     val rowHeightPx: Float = DEFAULT_FLAME_ROW_HEIGHT_PX,
     val overscanRows: Int = DEFAULT_FLAME_OVERSCAN_ROWS,
-    val horizontal: FlameHorizontalViewport = FlameHorizontalViewport(),
+    /** Absolute physical-pixel offset; null preserves the integer scrollRow contract. */
+    val scrollOffsetPx: Float? = null,
 ) {
     init {
         require(rowHeightPx.isFinite() && rowHeightPx > 0f) { "rowHeightPx must be finite and positive" }
         require(overscanRows >= 0) { "overscanRows must not be negative" }
+        require(scrollOffsetPx == null || scrollOffsetPx.isFinite()) { "scrollOffsetPx must be finite" }
     }
 }
 
@@ -111,7 +113,43 @@ object FlameGraphLayout {
         val maximumScrollRow = maximumScrollRow(snapshot.rows.rowCount, viewport)
         return viewport.scrollRow.coerceIn(0, maximumScrollRow)
     }
+
+    fun clampScrollOffset(
+        snapshot: FlameGraphSnapshot,
+        viewport: FlameViewport,
+    ): Float = scrollOffset(snapshot.rows.rowCount, viewport).toFloat()
+
+    fun scrollOffsetToReveal(
+        snapshot: FlameGraphSnapshot,
+        selectedNodeId: FlameCallNodeId,
+        viewport: FlameViewport,
+    ): Float {
+        val offset = scrollOffset(snapshot.rows.rowCount, viewport)
+        val depth =
+            snapshot.callNodes.indexOf(selectedNodeId)?.let(snapshot.callNodes::depthAt) ?: return offset.toFloat()
+        val top = depth * viewport.rowHeightPx.toDouble()
+        val bottom = top + viewport.rowHeightPx
+        val next =
+            when {
+                top < offset -> top
+                bottom > offset + viewport.heightPx -> bottom - viewport.heightPx
+                else -> offset
+            }
+        return next.coerceIn(0.0, maximumScrollOffset(snapshot.rows.rowCount, viewport)).toFloat()
+    }
 }
+
+private fun maximumScrollOffset(
+    rowCount: Int,
+    viewport: FlameViewport,
+): Double = (rowCount * viewport.rowHeightPx.toDouble() - viewport.heightPx.coerceAtLeast(0)).coerceAtLeast(0.0)
+
+private fun scrollOffset(
+    rowCount: Int,
+    viewport: FlameViewport,
+): Double =
+    viewport.scrollOffsetPx?.toDouble()?.coerceIn(0.0, maximumScrollOffset(rowCount, viewport))
+        ?: (viewport.scrollRow.coerceIn(0, maximumScrollRow(rowCount, viewport)) * viewport.rowHeightPx.toDouble())
 
 private fun maximumScrollRow(
     rowCount: Int,
@@ -124,8 +162,21 @@ private fun materializedRows(
 ): IntRange {
     val visibleCount = visibleRowCount(rowCount, viewport.heightPx, viewport.rowHeightPx)
     if (visibleCount == 0) return IntRange.EMPTY
-    val firstVisible = firstVisibleRow(rowCount, visibleCount, viewport.scrollRow)
-    val lastVisible = firstVisible + visibleCount - 1
+    val offset = scrollOffset(rowCount, viewport)
+    val firstVisible =
+        if (viewport.scrollOffsetPx == null) {
+            viewport.scrollRow.coerceIn(0, maximumScrollRow(rowCount, viewport))
+        } else {
+            floor(offset / viewport.rowHeightPx).toInt()
+        }
+    val lastVisible =
+        if (viewport.scrollOffsetPx == null) {
+            firstVisible + visibleCount - 1
+        } else {
+            (ceil((offset + viewport.heightPx) / viewport.rowHeightPx) - 1.0)
+                .coerceAtMost(rowCount.toDouble() - 1.0)
+                .toInt()
+        }
     val firstMaterialized = (firstVisible.toLong() - viewport.overscanRows).coerceAtLeast(0).toInt()
     val lastMaterialized =
         (lastVisible.toLong() + viewport.overscanRows)
@@ -140,13 +191,15 @@ private fun projectVisibleNodes(
     viewport: FlameViewport,
 ): List<VisibleFlameNode> {
     val canvasHeight = viewport.heightPx.coerceAtLeast(0)
-    val visibleRowCount = visibleRowCount(source.rowCount, canvasHeight, viewport.rowHeightPx)
-    val firstVisibleRow = firstVisibleRow(source.rowCount, visibleRowCount, viewport.scrollRow)
+    val offset = scrollOffset(source.rowCount, viewport)
     val nodes = ArrayList<VisibleFlameNode>()
     materializedRows.forEach { rowIndex ->
-        val y = rowY(rowIndex, firstVisibleRow, canvasHeight, viewport.rowHeightPx, source.startsAtBottom)
+        val top = rowTop(rowIndex, offset, canvasHeight, viewport.rowHeightPx, source.startsAtBottom)
+        val y = snapFirefoxDevicePixel(top).toFloat()
+        val bottom = snapFirefoxDevicePixel(top + viewport.rowHeightPx).toFloat()
+        val height = (bottom - y).coerceAtLeast(0f)
         source.nodeIndexesAt(rowIndex)?.forEach { nodeIndex ->
-            projectNode(source, nodeIndex, y, viewport)?.let(nodes::add)
+            projectNode(source, nodeIndex, y, height, viewport)?.let(nodes::add)
         }
     }
     return nodes
@@ -163,31 +216,18 @@ private fun visibleRowCount(
         .toInt()
 }
 
-private fun firstVisibleRow(
-    rowCount: Int,
-    visibleRowCount: Int,
-    requestedScrollRow: Int,
-): Int = requestedScrollRow.coerceIn(0, (rowCount - visibleRowCount).coerceAtLeast(0))
-
-private fun rowY(
+private fun rowTop(
     rowIndex: Int,
-    firstVisibleRow: Int,
+    scrollOffsetPx: Double,
     canvasHeight: Int,
     rowHeightPx: Float,
     startsAtBottom: Boolean,
-): Float {
-    val rowOffset = rowIndex.toDouble() - firstVisibleRow.toDouble()
-    val y =
-        if (startsAtBottom) {
-            canvasHeight.toDouble() - (rowOffset + 1.0) * rowHeightPx
-        } else {
-            rowOffset * rowHeightPx
-        }
-    return if (y.isFinite()) {
-        val bounded = y.coerceIn(Int.MIN_VALUE.toDouble(), Int.MAX_VALUE.toDouble())
-        snapFirefoxDevicePixel(bounded).toFloat()
+): Double {
+    val rowOffsetPx = rowIndex * rowHeightPx.toDouble() - scrollOffsetPx
+    return if (startsAtBottom) {
+        canvasHeight.toDouble() - rowOffsetPx - rowHeightPx
     } else {
-        if (y < 0.0) -Float.MAX_VALUE else Float.MAX_VALUE
+        rowOffsetPx
     }
 }
 
@@ -223,13 +263,14 @@ private fun projectNode(
     source: FlameGraphLayoutSource,
     nodeIndex: Int,
     y: Float,
+    height: Float,
     viewport: FlameViewport,
 ): VisibleFlameNode? {
     val node = source.compactNodeAt(nodeIndex)
     return if (node == null || !node.normalizedStart.isFinite() || !node.normalizedEnd.isFinite()) {
         null
     } else {
-        projectFiniteNode(nodeIndex, node, y, viewport)
+        projectFiniteNode(nodeIndex, node, y, height, viewport)
     }
 }
 
@@ -254,12 +295,13 @@ private fun projectFiniteNode(
     nodeIndex: Int,
     node: CompactFlameNode,
     y: Float,
+    height: Float,
     viewport: FlameViewport,
 ): VisibleFlameNode? {
     val start = node.normalizedStart.coerceIn(0.0, 1.0)
     val end = node.normalizedEnd.coerceIn(0.0, 1.0)
     val canvasWidth = viewport.widthPx.coerceAtLeast(0)
-    val geometry = firefoxHorizontalGeometry(start, end, canvasWidth, viewport.horizontal)
+    val geometry = firefoxHorizontalGeometry(start, end, canvasWidth)
     return if (geometry == null) {
         null
     } else {
@@ -272,7 +314,7 @@ private fun projectFiniteNode(
             x = visibleLeft,
             y = y,
             width = visibleRight - visibleLeft,
-            height = viewport.rowHeightPx,
+            height = height,
         )
     }
 }
@@ -289,19 +331,16 @@ internal fun firefoxHorizontalGeometry(
     normalizedStart: Double,
     normalizedEnd: Double,
     canvasWidthPx: Int,
-    viewport: FlameHorizontalViewport = FlameHorizontalViewport(),
 ): FirefoxHorizontalGeometry? {
     if (!normalizedStart.isFinite() || !normalizedEnd.isFinite() || canvasWidthPx <= 0) return null
     val start = normalizedStart.coerceIn(0.0, 1.0)
     val end = normalizedEnd.coerceIn(0.0, 1.0)
-    return if (end <= viewport.start || start >= viewport.end) {
+    return if (end <= start) {
         null
     } else {
-        val projectedStart = (start - viewport.start) / viewport.span
-        val projectedEnd = (end - viewport.start) / viewport.span
-        val left = snapToDevicePixelMultiple(projectedStart * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX)
+        val left = snapToDevicePixelMultiple(start * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX)
         val right =
-            snapToDevicePixelMultiple(projectedEnd * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX) -
+            snapToDevicePixelMultiple(end * canvasWidthPx, FIREFOX_EDGE_SNAP_MULTIPLE_PX) -
                 FIREFOX_TRANSLUCENT_GAP_PX
         FirefoxHorizontalGeometry(left.toFloat(), right.toFloat()).takeIf { it.widthPx > 0f }
     }

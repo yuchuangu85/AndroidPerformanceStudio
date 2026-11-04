@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
@@ -64,6 +65,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -78,6 +80,7 @@ import com.androidperformancestudio.frame.analysis.FrameAttribution
 import com.androidperformancestudio.frame.analysis.FrameDeadlineVerdict
 import com.androidperformancestudio.frame.analysis.FrameSummary
 import com.androidperformancestudio.frame.analysis.JankSeverity
+import com.androidperformancestudio.frame.analysis.frameTimelineStatus
 import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.presentation.generated.resources.Res
@@ -104,9 +107,6 @@ import com.androidperformancestudio.frame.presentation.generated.resources.frame
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_screenshot_unavailable
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_signal
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline
-import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline_cluster
-import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline_jank
-import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline_normal
 import com.androidperformancestudio.frame.presentation.generated.resources.frame_timeline_vsync_id
 import com.androidperformancestudio.frame.presentation.generated.resources.frames
 import com.androidperformancestudio.frame.presentation.generated.resources.interaction_state
@@ -153,6 +153,7 @@ import com.androidperformancestudio.frame.presentation.generated.resources.verdi
 import com.androidperformancestudio.frame.presentation.generated.resources.waiting_for_live_frame_data
 import com.androidperformancestudio.frame.presentation.generated.resources.window
 import com.androidperformancestudio.frame.presentation.generated.resources.worst
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -160,8 +161,6 @@ import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui.studio.StudioCard
-import com.androidperformancestudio.ui.studio.StudioDataTable
-import com.androidperformancestudio.ui.studio.StudioPanel
 import com.androidperformancestudio.ui.studio.StudioPanelHeader
 import com.androidperformancestudio.ui.studio.StudioTableColumn
 import com.androidperformancestudio.ui.studio.StudioTokens
@@ -174,26 +173,15 @@ public fun FrameProfilerScreen(
     operationMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(modifier.fillMaxSize().background(LocalViewerColors.current.workspace)) {
-        val compactHeight = maxHeight < StudioTokens.workspaceCompactHeight
-        val workspaceScroll = rememberScrollState()
-        Column(
-            Modifier
-                .fillMaxSize()
-                .then(if (compactHeight) Modifier.verticalScroll(workspaceScroll) else Modifier)
-                .padding(StudioTokens.compactContentPadding),
-            verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
-        ) {
-            Box(if (compactHeight) Modifier.fillMaxWidth() else Modifier.weight(1f).fillMaxWidth()) {
-                AnalysisContent(
-                    state = state,
-                    analysis = state.analysis ?: EMPTY_FRAME_ANALYSIS,
-                    actions = actions,
-                    language = language,
-                    compactHeight = compactHeight,
-                    operationMessage = operationMessage,
-                )
-            }
+    Box(modifier.fillMaxSize().background(LocalViewerColors.current.workspace)) {
+        Box(Modifier.fillMaxSize().padding(StudioTokens.workspacePadding)) {
+            AnalysisContent(
+                state = state,
+                analysis = state.analysis ?: EMPTY_FRAME_ANALYSIS,
+                actions = actions,
+                language = language,
+                operationMessage = operationMessage,
+            )
         }
         if (state.isLoading) {
             Box(
@@ -212,7 +200,6 @@ private fun AnalysisContent(
     analysis: FrameAnalysisResult,
     actions: FrameProfilerActions,
     language: UiLanguage,
-    compactHeight: Boolean,
     operationMessage: String?,
 ) {
     val sessionId =
@@ -244,53 +231,54 @@ private fun AnalysisContent(
         }
     }
 
-    Column(
-        modifier = if (compactHeight) Modifier.fillMaxWidth() else Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
-    ) {
+    val filters: @Composable () -> Unit = {
+        FrameFilterControls(
+            sources = availableSources,
+            source = sourceFilter,
+            onSourceSelected = { sourceFilter = it },
+            filter = frameFilter,
+            onFilterSelected = { frameFilter = it },
+            enabled = !state.isCapturing && !state.isLoading,
+            language = language,
+        )
+    }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         SummaryCards(filteredAnalysis, state.observedRefreshRatesHz, language)
-        StudioPanel(modifier = Modifier.fillMaxWidth().testTag("frame-timeline-panel")) {
-            Column {
+        FrameAnalysisWorkspace(
+            language = language,
+            showContext = filteredAnalysis.attributions.isNotEmpty() || state.warnings.isNotEmpty(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            timeline = { paneModifier ->
+                val timelineModifier = paneModifier.testTag("frame-timeline-panel").padding(StudioTokens.compactContentPadding)
                 if (filteredAnalysis.frames.isEmpty()) {
-                    FrameTimelineHeading(
-                        language = language,
-                        filters = {
-                            FrameFilterControls(
-                                sources = availableSources,
-                                source = sourceFilter,
-                                onSourceSelected = { sourceFilter = it },
-                                filter = frameFilter,
-                                onFilterSelected = { frameFilter = it },
-                                enabled = !state.isCapturing && !state.isLoading,
-                                language = language,
-                            )
-                        },
-                    )
-                    Text(
-                        localizedStringResource(Res.string.no_frames_match_filter, language),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (state.analysis == null) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text =
-                                if (state.isCapturing) {
-                                    localizedStringResource(Res.string.waiting_for_live_frame_data, language)
-                                } else {
-                                    localizedStringResource(Res.string.capture_online_or_import_framestats, language)
-                                },
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            localizedStringResource(
-                                Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf,
-                                language,
-                            ),
+                    Column(timelineModifier.verticalScroll(rememberScrollState())) {
+                        FrameTimelineHeading(language = language, filters = filters)
+                        CopyableText(
+                            localizedStringResource(Res.string.no_frames_match_filter, language),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        operationMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
-                        state.errorMessage?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                        if (state.analysis == null) {
+                            Spacer(Modifier.height(8.dp))
+                            CopyableText(
+                                text =
+                                    if (state.isCapturing) {
+                                        localizedStringResource(Res.string.waiting_for_live_frame_data, language)
+                                    } else {
+                                        localizedStringResource(Res.string.capture_online_or_import_framestats, language)
+                                    },
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            CopyableText(
+                                localizedStringResource(
+                                    Res.string.select_a_debuggable_process_framemetrics_agent_is_preferred_and_gfxinf,
+                                    language,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            operationMessage?.let { CopyableText(it, modifier = Modifier.padding(top = 8.dp)) }
+                            state.errorMessage?.let {
+                                CopyableText(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                            }
                         }
                     }
                 } else {
@@ -303,72 +291,69 @@ private fun AnalysisContent(
                             ) { filteredAnalysis.clusters.flatMapTo(mutableSetOf()) { it.deadlineMissFrameIds } },
                         onSelectFrame = actions.onSelectFrame,
                         language = language,
-                        filters = {
-                            FrameFilterControls(
-                                sources = availableSources,
-                                source = sourceFilter,
-                                onSourceSelected = { sourceFilter = it },
-                                filter = frameFilter,
-                                onFilterSelected = { frameFilter = it },
-                                enabled = !state.isCapturing && !state.isLoading,
-                                language = language,
-                            )
-                        },
+                        filters = filters,
+                        modifier = timelineModifier,
                     )
                 }
-            }
-        }
-        Row(
-            modifier = if (compactHeight) Modifier.fillMaxWidth().height(280.dp) else Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
-        ) {
-            ClusterList(
-                analysis = filteredAnalysis,
-                selectedFrameId = selected?.sample?.frameId,
-                onSelectFrame = actions.onSelectFrame,
-                language = language,
-                modifier = Modifier.weight(0.85f).fillMaxSize().testTag("frame-clusters-panel"),
-            )
-            ProblemFramesTable(
-                analysis = filteredAnalysis,
-                selectedFrameId = selected?.sample?.frameId,
-                onSelectFrame = actions.onSelectFrame,
-                language = language,
-                modifier = Modifier.weight(1.45f).fillMaxSize().testTag("frame-problems-panel"),
-            )
-            val selectedIndex = filteredAnalysis.frames.indexOfFirst { it.sample.frameId == selected?.sample?.frameId }
-            FrameDetail(
-                frame = selected,
-                previousFrameId =
-                    filteredAnalysis.frames
-                        .getOrNull(selectedIndex - 1)
-                        ?.sample
-                        ?.frameId,
-                nextFrameId =
-                    filteredAnalysis.frames
-                        .getOrNull(selectedIndex + 1)
-                        ?.sample
-                        ?.frameId,
-                language = language,
-                onSelectFrame = actions.onSelectFrame,
-                onInspectLayout = actions.onInspectLayout,
-                onOpenTrace = actions.onOpenTrace,
-                onCopyEvidence = actions.onCopyEvidence,
-                modifier = Modifier.weight(1f).fillMaxSize().testTag("frame-detail-panel"),
-            )
-        }
-        if (filteredAnalysis.attributions.isNotEmpty() || state.warnings.isNotEmpty()) {
-            StudioPanel(modifier = Modifier.fillMaxWidth().testTag("frame-context-panel")) {
-                SelectionContainer {
-                    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-                        FrameAttributionSection(filteredAnalysis.attributions, language)
-                        state.warnings.forEach { warning ->
-                            Text(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+            },
+            clusters = { paneModifier ->
+                ClusterList(
+                    analysis = filteredAnalysis,
+                    selectedFrameId = selected?.sample?.frameId,
+                    onSelectFrame = actions.onSelectFrame,
+                    language = language,
+                    modifier = paneModifier.testTag("frame-clusters-panel"),
+                )
+            },
+            problems = { paneModifier ->
+                ProblemFramesTable(
+                    analysis = filteredAnalysis,
+                    selectedFrameId = selected?.sample?.frameId,
+                    onSelectFrame = actions.onSelectFrame,
+                    language = language,
+                    modifier = paneModifier.testTag("frame-problems-panel"),
+                )
+            },
+            details = { paneModifier ->
+                val selectedIndex = filteredAnalysis.frames.indexOfFirst { it.sample.frameId == selected?.sample?.frameId }
+                FrameDetail(
+                    frame = selected,
+                    previousFrameId =
+                        filteredAnalysis.frames
+                            .getOrNull(selectedIndex - 1)
+                            ?.sample
+                            ?.frameId,
+                    nextFrameId =
+                        filteredAnalysis.frames
+                            .getOrNull(selectedIndex + 1)
+                            ?.sample
+                            ?.frameId,
+                    language = language,
+                    onSelectFrame = actions.onSelectFrame,
+                    onInspectLayout = actions.onInspectLayout,
+                    onOpenTrace = actions.onOpenTrace,
+                    onCopyEvidence = actions.onCopyEvidence,
+                    modifier = paneModifier.testTag("frame-detail-panel"),
+                )
+            },
+            context = { paneModifier ->
+                Column(
+                    paneModifier
+                        .testTag("frame-context-panel")
+                        .padding(StudioTokens.compactContentPadding)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    SelectionContainer {
+                        Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                            FrameAttributionSection(filteredAnalysis.attributions, language)
+                            state.warnings.forEach { warning ->
+                                CopyableText(warning, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }
-            }
-        }
+            },
+        )
     }
 }
 
@@ -493,7 +478,7 @@ private fun SummaryCards(
             1 -> "%.0f Hz".format(refreshRates.single())
             else -> "%.0f–%.0f Hz".format(refreshRates.first(), refreshRates.last())
         }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         FrameMetricCard(
             localizedStringResource(Res.string.frames, language),
             summary.totalFrames.toString(),
@@ -562,7 +547,7 @@ private fun FrameAttributionSection(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
         StudioPanelHeader(localizedStringResource(Res.string.frame_attribution, language))
         attributions.take(5).forEachIndexed { index, attribution ->
-            Text(
+            CopyableText(
                 localizedStringResource(
                     Res.string.frame_attribution_entry,
                     language,
@@ -663,6 +648,7 @@ private fun FrameTimeline(
     onSelectFrame: (Long) -> Unit,
     language: UiLanguage,
     filters: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val evidenceColors = LocalViewerColors.current
@@ -690,7 +676,7 @@ private fun FrameTimeline(
         firstVisibleIndex = centeredFrameTimelineWindow(frames.size, anchor, count).startIndex
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FrameTimelineHeading(
             language = language,
             filters = filters,
@@ -719,12 +705,10 @@ private fun FrameTimeline(
                         enabled = window.count < maximumVisibleCount,
                         onClick = { zoomTo((window.count * 2).coerceAtMost(maximumVisibleCount)) },
                     )
-                    TimelineLegendItem(localizedStringResource(Res.string.frame_timeline_normal, language), evidenceColors.accent)
-                    TimelineLegendItem(localizedStringResource(Res.string.frame_timeline_jank, language), evidenceColors.warning)
-                    TimelineLegendItem(localizedStringResource(Res.string.frame_timeline_cluster, language), evidenceColors.error)
                 }
             },
         )
+        FrameTimelineLegend(language, evidenceColors.secondaryText)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 localizedStringResource(Res.string.timeline_duration_axis, language),
@@ -744,12 +728,16 @@ private fun FrameTimeline(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        FrameTimelineAxes(durationTicksMs, window, frames, plotHeight = 72.dp) {
+        FrameTimelineAxes(
+            durationTicksMs,
+            window,
+            frames,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        ) {
             Canvas(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
+                        .fillMaxSize()
                         .testTag("frame-timeline-canvas")
                         .onSizeChanged { canvasWidth = it.width.toFloat() }
                         .onPointerEvent(PointerEventType.Move) { event ->
@@ -783,14 +771,7 @@ private fun FrameTimeline(
                 visibleFrames.forEachIndexed { index, frame ->
                     val duration = frame.sample.resolvedDurationNs() ?: 0L
                     val height = (duration / NANOS_PER_MILLISECOND / durationTicksMs.last() * size.height).toFloat().coerceAtLeast(2f)
-                    val color =
-                        when (frame.severity) {
-                            JankSeverity.SMOOTH -> evidenceColors.accent
-                            JankSeverity.MINOR -> evidenceColors.success
-                            JankSeverity.MAJOR -> evidenceColors.warning
-                            JankSeverity.SEVERE, JankSeverity.FROZEN -> evidenceColors.error
-                            JankSeverity.UNKNOWN -> colors.outline
-                        }
+                    val color = frame.sample.frameTimelineStatus().color(evidenceColors.secondaryText)
                     drawRect(
                         color = color,
                         topLeft = Offset(index * barWidth, size.height - height),
@@ -826,7 +807,7 @@ private fun FrameTimeline(
                     frame.deadlineVerdict.name,
                 )
             }
-        Text(
+        CopyableText(
             text = listOfNotNull(clusterHint.takeIf { it.isNotEmpty() }, hoverText).joinToString("  |  "),
             modifier = Modifier.fillMaxWidth().testTag("frame-timeline-caption"),
             style = MaterialTheme.typography.bodySmall,
@@ -834,17 +815,6 @@ private fun FrameTimeline(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-    }
-}
-
-@Composable
-private fun TimelineLegendItem(
-    label: String,
-    color: androidx.compose.ui.graphics.Color,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(Modifier.width(8.dp).height(8.dp).background(color))
-        Text(label, style = ViewerTypography.dense, color = LocalViewerColors.current.secondaryText, maxLines = 1)
     }
 }
 
@@ -867,7 +837,7 @@ private fun FrameDetail(
     modifier: Modifier,
 ) {
     var copySucceeded by remember(frame?.sample?.sessionId, frame?.sample?.frameId) { mutableStateOf<Boolean?>(null) }
-    StudioPanel(modifier = modifier) {
+    Box(modifier.padding(StudioTokens.compactContentPadding)) {
         Column(
             Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -969,6 +939,7 @@ private fun FrameDetail(
                         DetailRow(
                             localizedStringResource(Res.string.surface_flinger_jank, language),
                             it,
+                            copyable = true,
                         )
                     }
                     frame.sample.jankStatsJank?.let { DetailRow(localizedStringResource(Res.string.jank_stats, language), it.toString()) }
@@ -976,10 +947,11 @@ private fun FrameDetail(
                         DetailRow(
                             localizedStringResource(Res.string.jank_stats_reasons, language),
                             frame.sample.jankStatsReasons.joinToString(),
+                            copyable = true,
                         )
                     }
                     frame.largestReportedStage?.let { stage ->
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.stage_investigation_hint, language, stage),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -989,6 +961,7 @@ private fun FrameDetail(
                         DetailRow(
                             localizedStringResource(Res.string.jank_types, language),
                             frame.platformJankTypes.joinToString { it.name },
+                            copyable = true,
                         )
                     }
                     frame.sample.states.forEach { (key, value) ->
@@ -1005,13 +978,13 @@ private fun FrameDetail(
                             text = localizedStringResource(Res.string.copy_evidence, language),
                             onClick = { copySucceeded = copy(frame.copyEvidenceText(language)) },
                         )
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.copy_evidence_privacy_hint, language),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         copySucceeded?.let { succeeded ->
-                            Text(
+                            CopyableText(
                                 localizedStringResource(
                                     if (succeeded) Res.string.evidence_copied else Res.string.clipboard_unavailable,
                                     language,
@@ -1041,48 +1014,64 @@ private fun FrameLayoutPreview(
     modifier: Modifier,
 ) {
     val colors = LocalViewerColors.current
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            localizedStringResource(Res.string.layout_preview, language),
-            style = ViewerTypography.subsectionTitle,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .aspectRatio(0.62f)
-                    .background(colors.previewSurface)
-                    .border(1.dp, colors.border),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        localizedStringResource(Res.string.frame_screenshot_unavailable, language),
-                        color = colors.secondaryText,
-                        style = ViewerTypography.dense,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                    frame.sample.layoutSnapshotId?.let {
-                        Text(it, color = colors.mutedText, style = ViewerTypography.dense, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    BoxWithConstraints(modifier.clipToBounds().testTag("frame-layout-preview-pane")) {
+        val contentHeight = maxOf(maxHeight, 240.dp * LocalDensity.current.fontScale.coerceAtLeast(1f))
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).height(contentHeight),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                localizedStringResource(Res.string.layout_preview, language),
+                style = ViewerTypography.subsectionTitle,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(0.62f)
+                        .testTag("frame-layout-preview-image")
+                        .background(colors.previewSurface)
+                        .border(1.dp, colors.border),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CopyableText(
+                            localizedStringResource(Res.string.frame_screenshot_unavailable, language),
+                            color = colors.secondaryText,
+                            style = ViewerTypography.dense,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                        frame.sample.layoutSnapshotId?.let {
+                            Text(
+                                it,
+                                color = colors.mutedText,
+                                style = ViewerTypography.dense,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
-        }
-        Text(
-            localizedStringResource(Res.string.layout_preview_current_only, language),
-            style = ViewerTypography.dense,
-            color = colors.secondaryText,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (frame.sample.packageName != null) {
-            OutlinedButton(onClick = { onInspectLayout(frame.sample) }, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    localizedStringResource(Res.string.correlate_in_layout_inspector, language),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            CopyableText(
+                localizedStringResource(Res.string.layout_preview_current_only, language),
+                style = ViewerTypography.dense,
+                color = colors.secondaryText,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (frame.sample.packageName != null) {
+                OutlinedButton(
+                    onClick = { onInspectLayout(frame.sample) },
+                    modifier = Modifier.fillMaxWidth().testTag("frame-layout-preview-action"),
+                ) {
+                    Text(
+                        localizedStringResource(Res.string.correlate_in_layout_inspector, language),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -1149,6 +1138,7 @@ private fun FrameStageRow(
 private fun DetailRow(
     label: String,
     value: String,
+    copyable: Boolean = false,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1158,13 +1148,23 @@ private fun DetailRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = ViewerTypography.bodyCompact,
             )
-            Text(
-                value,
-                modifier = Modifier.weight(1f),
-                fontWeight = FontWeight.Medium,
-                style = ViewerTypography.bodyCompact,
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            )
+            if (copyable) {
+                CopyableText(
+                    value,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Medium,
+                    style = ViewerTypography.bodyCompact,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
+            } else {
+                Text(
+                    value,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Medium,
+                    style = ViewerTypography.bodyCompact,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
+            }
         }
         HorizontalDivider(color = LocalViewerColors.current.border, modifier = Modifier.testTag("frame-detail-divider-$label"))
     }
@@ -1179,13 +1179,16 @@ private fun ClusterList(
     modifier: Modifier,
 ) {
     val framesById = remember(analysis) { analysis.frames.associateBy { it.sample.frameId } }
-    StudioPanel(modifier = modifier) {
+    Column(
+        modifier.padding(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+    ) {
         StudioPanelHeader(
             title = localizedStringResource(Res.string.jank_clusters, language),
             subtitle = localizedStringResource(Res.string.cluster_count, language, analysis.clusters.size),
         )
         if (analysis.clusters.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.no_jank_clusters_detected, language),
                 color = LocalViewerColors.current.secondaryText,
             )
@@ -1225,20 +1228,39 @@ private fun ProblemFramesTable(
             problemListState.scrollToItem(selectedIndex)
         }
     }
-    StudioDataTable(
-        columns =
-            listOf(
-                StudioTableColumn(localizedStringResource(Res.string.frame, language), 0.55f),
-                StudioTableColumn(localizedStringResource(Res.string.duration, language), 0.8f),
-                StudioTableColumn(localizedStringResource(Res.string.frame_signal, language), 1.2f),
-                StudioTableColumn(localizedStringResource(Res.string.activity, language), 1f),
-                StudioTableColumn(localizedStringResource(Res.string.largest_reported_stage, language), 1f),
-            ),
-        modifier = modifier,
-        title = localizedStringResource(Res.string.problem_frames, language),
+    val columns =
+        listOf(
+            StudioTableColumn(localizedStringResource(Res.string.frame, language), 0.55f),
+            StudioTableColumn(localizedStringResource(Res.string.duration, language), 0.8f),
+            StudioTableColumn(localizedStringResource(Res.string.frame_signal, language), 1.2f),
+            StudioTableColumn(localizedStringResource(Res.string.activity, language), 1f),
+            StudioTableColumn(localizedStringResource(Res.string.largest_reported_stage, language), 1f),
+        )
+    Column(
+        modifier.padding(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
     ) {
+        StudioPanelHeader(localizedStringResource(Res.string.problem_frames, language))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(LocalViewerColors.current.sectionBackground)
+                .padding(horizontal = StudioTokens.compactContentPadding, vertical = 6.dp),
+        ) {
+            columns.forEach { column ->
+                Text(
+                    column.label,
+                    Modifier.weight(column.weight),
+                    color = LocalViewerColors.current.secondaryText,
+                    style = ViewerTypography.label,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         if (problemFrames.isEmpty()) {
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.no_problem_frames, language),
                 color = LocalViewerColors.current.secondaryText,
             )
@@ -1289,7 +1311,7 @@ private fun ProblemFramesTable(
                                         ).padding(10.dp),
                                 ) {
                                     SelectionContainer {
-                                        Text(
+                                        CopyableText(
                                             frame.problemEvidence(language),
                                             style = ViewerTypography.dense,
                                             color = tooltipColors.primaryText,

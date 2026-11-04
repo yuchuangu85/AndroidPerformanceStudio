@@ -5,6 +5,8 @@ package com.androidperformancestudio.memory.export
 import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapExportContext
+import com.androidperformancestudio.memory.model.HeapExportInstance
+import com.androidperformancestudio.memory.model.HeapExportMetadata
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
@@ -72,6 +74,22 @@ class MemoryExportAdapters {
                         heapDump.objectRetainedSizes[instance.objectId]?.toString().orEmpty(),
                     )
                 }
+        }
+
+    fun exportClassInstancesCsv(
+        instances: Sequence<HeapExportInstance>,
+        outputFile: Path,
+    ): MemoryExportResult =
+        atomicWrite(outputFile) { writer ->
+            writer.writeRow("objectId", "className", "shallowSizeBytes", "retainedSizeBytes")
+            instances.forEach { instance ->
+                writer.writeRow(
+                    "0x${java.lang.Long.toHexString(instance.objectId)}",
+                    instance.className,
+                    instance.shallowSize?.toString().orEmpty(),
+                    instance.retainedSize?.toString().orEmpty(),
+                )
+            }
         }
 
     fun exportHeapDiffCsv(
@@ -164,6 +182,21 @@ class MemoryExportAdapters {
         outputFile: Path,
         snapshotSummary: HeapSnapshotSummary? = null,
         exportContext: HeapExportContext? = null,
+    ): MemoryExportResult =
+        exportHeapSnapshotJson(
+            heapDump.toExportMetadata(),
+            histogram,
+            outputFile,
+            snapshotSummary,
+            exportContext,
+        )
+
+    fun exportHeapSnapshotJson(
+        metadata: HeapExportMetadata,
+        histogram: HeapHistogram,
+        outputFile: Path,
+        snapshotSummary: HeapSnapshotSummary? = null,
+        exportContext: HeapExportContext? = null,
     ): MemoryExportResult {
         val retainedSize = histogram.classes.mapNotNull { it.retainedSize }.sum()
         return atomicWrite(outputFile) { writer ->
@@ -182,19 +215,19 @@ class MemoryExportAdapters {
                         "  \"selectedObjectIds\": " +
                             "${exportContext?.selectedObjectIds?.joinToString(prefix = "[", postfix = "]") ?: "[]"},",
                     )
-                    appendLine("  \"format\": ${heapDump.format.jsonString()},")
-                    appendLine("  \"idSize\": ${heapDump.idSize},")
-                    appendLine("  \"timestampMillis\": ${heapDump.timestampMillis},")
+                    appendLine("  \"format\": ${metadata.format.jsonString()},")
+                    appendLine("  \"idSize\": ${metadata.idSize},")
+                    appendLine("  \"timestampMillis\": ${metadata.timestampMillis},")
                     appendLine("  \"classCount\": ${histogram.summary.classCount},")
                     appendLine("  \"objectCount\": ${histogram.summary.objectCount},")
                     appendLine("  \"shallowSizeBytes\": ${histogram.summary.shallowSize},")
                     appendLine("  \"retainedSizeBytes\": $retainedSize,")
-                    appendLine("  \"instanceCount\": ${heapDump.instances.size},")
-                    appendLine("  \"objectArrayCount\": ${heapDump.objectArrays.size},")
-                    appendLine("  \"primitiveArrayCount\": ${heapDump.primitiveArrays.size},")
-                    appendLine("  \"gcRootCount\": ${heapDump.gcRoots.size},")
+                    appendLine("  \"instanceCount\": ${metadata.instanceCount},")
+                    appendLine("  \"objectArrayCount\": ${metadata.objectArrayCount},")
+                    appendLine("  \"primitiveArrayCount\": ${metadata.primitiveArrayCount},")
+                    appendLine("  \"gcRootCount\": ${metadata.gcRootCount},")
                     appendLine(
-                        "  \"warnings\": ${heapDump.warnings.joinToString(
+                        "  \"warnings\": ${metadata.warnings.joinToString(
                             prefix = "[",
                             postfix = "]",
                             transform = { it.message.jsonString() },
@@ -209,6 +242,24 @@ class MemoryExportAdapters {
     @Suppress("LongParameterList")
     fun exportInvestigationReportMarkdown(
         heapDump: HeapDump,
+        histogram: HeapHistogram,
+        diff: HeapDiff?,
+        outputFile: Path,
+        snapshotSummary: HeapSnapshotSummary? = null,
+        exportContext: HeapExportContext? = null,
+    ): MemoryExportResult =
+        exportInvestigationReportMarkdown(
+            heapDump.toExportMetadata(),
+            histogram,
+            diff,
+            outputFile,
+            snapshotSummary,
+            exportContext,
+        )
+
+    @Suppress("LongParameterList")
+    fun exportInvestigationReportMarkdown(
+        metadata: HeapExportMetadata,
         histogram: HeapHistogram,
         diff: HeapDiff?,
         outputFile: Path,
@@ -234,9 +285,9 @@ class MemoryExportAdapters {
                     "- Filters: `${exportContext.filters.entries.joinToString { "${it.key}=${it.value}" }}`",
                 )
             }
-            writer.appendLine("- Format: `${heapDump.format}`")
-            writer.appendLine("- ID size: `${heapDump.idSize}`")
-            writer.appendLine("- Timestamp: `${heapDump.timestampMillis}`")
+            writer.appendLine("- Format: `${metadata.format}`")
+            writer.appendLine("- ID size: `${metadata.idSize}`")
+            writer.appendLine("- Timestamp: `${metadata.timestampMillis}`")
             writer.appendLine("- Classes: `${histogram.summary.classCount}`")
             writer.appendLine("- Objects: `${histogram.summary.objectCount}`")
             writer.appendLine("- Shallow size: `${histogram.summary.shallowSize}` bytes")
@@ -249,14 +300,26 @@ class MemoryExportAdapters {
                     "Object IDs are not stable across snapshots, and retained paths are evidence of retention " +
                     "rather than proof of a leak.",
             )
-            if (heapDump.warnings.isNotEmpty()) {
+            if (metadata.warnings.isNotEmpty()) {
                 writer.appendLine()
                 writer.appendLine("## Warnings")
-                heapDump.warnings.forEach { warning -> writer.appendLine("- ${warning.message}") }
+                metadata.warnings.forEach { warning -> writer.appendLine("- ${warning.message}") }
             }
             diff?.let { writer.writeClassDiff(it) }
         }
     }
+
+    private fun HeapDump.toExportMetadata(): HeapExportMetadata =
+        HeapExportMetadata(
+            format = format,
+            idSize = idSize,
+            timestampMillis = timestampMillis,
+            instanceCount = instances.size,
+            objectArrayCount = objectArrays.size,
+            primitiveArrayCount = primitiveArrays.size,
+            gcRootCount = gcRoots.size,
+            warnings = warnings,
+        )
 
     private fun BufferedWriter.writeClassDiff(diff: HeapDiff) {
         appendLine()

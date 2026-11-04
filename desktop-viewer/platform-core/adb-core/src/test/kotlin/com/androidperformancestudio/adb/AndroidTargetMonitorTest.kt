@@ -10,6 +10,7 @@ import com.androidperformancestudio.platform.toolchain.HostCommandResult
 import com.androidperformancestudio.platform.toolchain.HostProcessRequest
 import java.nio.file.Path
 import java.time.Instant
+import kotlinx.coroutines.async
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -136,6 +137,58 @@ class AndroidTargetMonitorTest {
         }
 
     @Test
+    fun `device identity is resolved once per connection and re-resolved after reconnect`() =
+        kotlinx.coroutines.test.runTest {
+            var transportId = 1
+            val getpropCalls = mutableListOf<Int>()
+            val monitor =
+                AndroidTargetMonitors.create(Path.of("adb")) { request, _ ->
+                    val stdout =
+                        if (request.arguments == listOf("devices", "-l")) {
+                            "List of devices attached\nserial-1 device model:m transport_id:$transportId\n"
+                        } else {
+                            getpropCalls += transportId
+                            "[ro.product.manufacturer]: [Acme]\n[ro.product.model]: [Phone]\n"
+                        }
+                    completed(request, stdout)
+                }
+
+            monitor.refreshDevices()
+            val second = monitor.refreshDevices()
+            transportId = 2
+            monitor.refreshDevices()
+
+            assertEquals("Acme Phone(serial-1)", (second as StudioResult.Success).value.single().displayName)
+            assertEquals(listOf(1, 2), getpropCalls)
+        }
+
+    @Test
+    fun `concurrent refreshes share one in-flight device discovery`() =
+        kotlinx.coroutines.test.runTest {
+            var discoveries = 0
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val monitor =
+                AndroidTargetMonitor(
+                    object : AndroidTargetDiscovery by FakeDiscovery() {
+                        override suspend fun devices(cancellationSignal: HostCancellationSignal): AdbDevicesResult {
+                            discoveries++
+                            gate.await()
+                            return StudioResult.Success(listOf(AdbDevice("serial-1", AdbDeviceState.ONLINE)))
+                        }
+                    },
+                )
+
+            val first = async { monitor.refreshDevices() }
+            val second = async { monitor.refreshDevices() }
+            testScheduler.runCurrent()
+            gate.complete(Unit)
+
+            assertEquals(first.await(), second.await())
+            assertEquals(1, discoveries)
+            assertEquals(first.await(), monitor.cachedDevices())
+        }
+
+    @Test
     fun `relative adb executable remains a PATH command when refreshing devices`() =
         kotlinx.coroutines.test.runTest {
             var executable: Path? = null
@@ -160,6 +213,22 @@ class AndroidTargetMonitorTest {
             assertEquals(Path.of("adb"), executable)
             assertEquals("serial-1", (devices as StudioResult.Success).value.single().serial)
         }
+
+    private fun completed(
+        request: HostProcessRequest,
+        stdout: String,
+    ): HostCommandResult =
+        HostCommandResult.Completed(
+            HostCommandOutput(
+                pid = 1L,
+                command = request.command,
+                exitCode = 0,
+                stdout = HostCapturedText(stdout, false),
+                stderr = HostCapturedText("", false),
+                startedAt = Instant.EPOCH,
+                finishedAt = Instant.EPOCH,
+            ),
+        )
 
     private class FakeDiscovery : AndroidTargetDiscovery {
         override suspend fun devices(cancellationSignal: HostCancellationSignal): AdbDevicesResult =

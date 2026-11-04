@@ -59,10 +59,12 @@ class UnifiedDesktopShellTest {
         assertFalse(shell.contains("RetainedFeatureLayer"))
 
         assertTrue(shell.contains("BatteryNetworkMainPage("))
+        assertTrue(shell.contains("ReverseNetMainPage("))
         assertTrue(shell.contains("onOpenMemoryProfiler"))
         assertTrue(shell.contains("onOpenFrameProfiler"))
         assertTrue(shell.contains("onOpenStartupProfiler"))
         assertTrue(shell.contains("onOpenBatteryNetwork"))
+        assertTrue(shell.contains("onOpenReverseNet"))
         assertTrue(shell.contains("onOpenGpuInspector"))
         assertTrue(shell.contains("onOpenBenchmarkRegression"))
         assertTrue(shell.contains("GpuIntegrationMainPage("))

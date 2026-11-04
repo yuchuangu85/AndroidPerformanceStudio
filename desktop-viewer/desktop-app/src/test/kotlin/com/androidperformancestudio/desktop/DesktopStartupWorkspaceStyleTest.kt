@@ -15,7 +15,6 @@ class DesktopStartupWorkspaceStyleTest {
             "AppHomePage.kt",
             "DesktopAppSettingsPage.kt",
             "SourceWorkspacesPage.kt",
-            "BatteryNetworkMainPage.kt",
         ).forEach { file ->
             val source = Files.readString(sourceRoot.resolve(file))
             assertFalse(source.contains("StudioWorkspaceHeader("), file)
@@ -29,7 +28,7 @@ class DesktopStartupWorkspaceStyleTest {
         val source = Files.readString(sourceRoot.resolve("AppHomePage.kt"))
         assertFalse(source.contains("StudioWorkspaceHeader("))
         assertTrue(source.contains("if (maxWidth.value >= HOME_TWO_COLUMN_MIN_WIDTH_DP)"))
-        assertTrue(source.contains(".padding(StudioTokens.compactContentPadding)"))
+        assertTrue(source.contains(".padding(StudioTokens.workspacePadding)"))
         assertTrue(source.contains("color = colors.workspace"))
         assertFalse(source.contains("HomeHero("))
         assertFalse(source.contains("Res.string.home_hero_subtitle"))
@@ -45,7 +44,25 @@ class DesktopStartupWorkspaceStyleTest {
         assertTrue(source.contains("SettingsSidebar("))
         assertTrue(source.contains("onPageSelected = onPageSelected"))
         assertTrue(source.contains("if (persistenceErrorPage != null)"))
-        assertTrue(source.contains("Modifier.weight(1f).padding(StudioTokens.compactContentPadding)"))
+        assertTrue(source.contains("Modifier.weight(1f).padding(StudioTokens.workspacePadding)"))
+    }
+
+    @Test
+    fun `desktop card groups use four dp exterior spacing without reducing card content padding`() {
+        val home = Files.readString(sourceRoot.resolve("AppHomePage.kt"))
+        val settings = Files.readString(sourceRoot.resolve("DesktopAppSettingsPage.kt"))
+        val source = Files.readString(sourceRoot.resolve("SourceWorkspacesPage.kt"))
+        assertTrue(home.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(settings.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(settings.contains("contentPadding = StudioTokens.workspacePadding"))
+        assertTrue(source.contains(".padding(StudioTokens.workspacePadding)"))
+        assertTrue(source.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(source.contains("contentPadding = StudioTokens.compactContentPadding"))
+        val workspacePane =
+            source.substringAfter("private fun WorkspaceListPane(").substringBefore("private fun SourceFileListPane(")
+        assertTrue(workspacePane.contains(".padding(end = scrollbarThickness, bottom = scrollbarThickness)"))
+        assertTrue(workspacePane.contains("(maxWidth - scrollbarThickness).value"))
+        assertFalse(workspacePane.contains(".padding(12.dp)"))
     }
 
     @Test
@@ -60,18 +77,5 @@ class DesktopStartupWorkspaceStyleTest {
         assertTrue(source.contains("SourceWorkspacePaneLayout.dragFiles("))
         assertTrue(source.contains("runtime.service.read(location)"))
         assertTrue(source.contains("pageError?.let"))
-    }
-
-    @Test
-    fun `battery network keeps responsive tabs and retained layers without a banner`() {
-        val source = Files.readString(sourceRoot.resolve("BatteryNetworkMainPage.kt"))
-        assertFalse(source.contains("StudioWorkspaceHeader("))
-        assertTrue(source.contains(".widthIn(max = 360.dp).fillMaxWidth()"))
-        assertTrue(source.contains("onItemSelected = onSelectedTabChanged"))
-        assertTrue(source.contains("blockBatteryNetworkPointerInputWhenInactive(active)"))
-        assertTrue(source.contains("blockBatteryNetworkKeyboardInputWhenInactive(active)"))
-        assertTrue(source.contains("LocalWindowMenuBarActive provides menuBarActive"))
-        assertTrue(source.contains("Res.string.correlation_unavailable_message, language"))
-        assertFalse(source.contains("Res.string.battery_network_subtitle"))
     }
 }

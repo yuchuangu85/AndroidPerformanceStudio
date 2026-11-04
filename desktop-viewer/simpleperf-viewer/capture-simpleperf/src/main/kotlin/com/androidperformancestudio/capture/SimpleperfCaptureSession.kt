@@ -1,5 +1,6 @@
 package com.androidperformancestudio.capture
 
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
 import com.androidperformancestudio.contracts.ArtifactAcquisition
 import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
 import com.androidperformancestudio.contracts.ArtifactCompleteness
@@ -115,7 +116,7 @@ class SimpleperfCaptureSession(
     private val adbClient: AdbClient,
     private val simpleperfPreparer: DeviceSimpleperfPreparer,
     private val deviceIdentity: DeviceIdentityPseudonymizer = DeviceIdentityPseudonymizer(),
-    private val adbCommandName: String = "adb",
+    private val adbCommandName: String = defaultAdbCommandExecutable().toString(),
 ) : CaptureSession {
     constructor(
         adbExecutable: Path,

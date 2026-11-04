@@ -14,16 +14,18 @@ class BenchmarkWorkspaceStyleTest {
         )
 
     @Test
-    fun `benchmark starts with its own toolbar and metrics without a decorative banner`() {
+    fun `baseline header actions are hosted above a workspace that starts with metrics`() {
         assertFalse(source.contains("StudioWorkspaceHeader("))
+        assertTrue(source.contains("public fun BenchmarkHeaderActions("))
         val workspace = source.substringAfter("public fun BenchmarkReportsScreen(")
-        assertTrue(workspace.indexOf("BenchmarkToolbar(state, language, actions)") >= 0)
+        assertFalse(workspace.contains("BenchmarkToolbar("))
+        assertTrue(workspace.indexOf("BenchmarkSummaryRow(state, language)") >= 0)
     }
 
     @Test
     fun `benchmark uses compact shared spacing without replacing comparison trend or report layouts`() {
         val workspace = source.substringAfter("public fun BenchmarkReportsScreen(")
-        assertTrue(workspace.contains(".padding(StudioTokens.compactContentPadding)"))
+        assertTrue(workspace.contains(".padding(StudioTokens.workspacePadding)"))
         assertTrue(workspace.contains(".background(colors.workspace)"))
         assertTrue(workspace.contains("BenchmarkComparisonTable("))
         assertTrue(workspace.contains("BenchmarkTrendPanel("))
@@ -32,6 +34,23 @@ class BenchmarkWorkspaceStyleTest {
         assertEquals(4, Regex("StudioMetricCard\\(").findAll(source).count())
         assertFalse(source.contains("CompositionLocalProvider("))
         assertFalse(source.contains("ViewerTheme("))
+    }
+
+    @Test
+    fun `workspace and repeated card exteriors use four dp spacing while rows and table content keep their density`() {
+        assertEquals(4, Regex("Arrangement\\.spacedBy\\(StudioTokens\\.cardGap\\)").findAll(source).count())
+        assertTrue(source.contains("Spacer(Modifier.height(StudioTokens.cardGap))"))
+        assertTrue(source.contains("Modifier.padding(top = StudioTokens.cardGap)"))
+        val summaryCounts = source.substringAfter("private fun SummaryCounts(").substringBefore("private fun CountCell(")
+        assertTrue(summaryCounts.contains("Arrangement.spacedBy(StudioTokens.panelGap)"))
+        val reportRow = source.substringAfter("private fun ReportRow(").substringBefore("private fun BenchmarkInspector(")
+        assertTrue(reportRow.contains("Spacer(Modifier.width(StudioTokens.panelGap))"))
+        val table =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/benchmark/presentation/BenchmarkComparisonTable.kt"),
+            )
+        assertTrue(table.contains("padding(bottom = StudioTokens.panelGap)"))
+        assertTrue(table.contains("padding(horizontal = StudioTokens.compactContentPadding, vertical = 6.dp)"))
     }
 
     @Test

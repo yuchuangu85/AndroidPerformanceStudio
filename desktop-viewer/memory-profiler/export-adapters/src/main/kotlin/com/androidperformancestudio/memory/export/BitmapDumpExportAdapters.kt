@@ -153,7 +153,7 @@ class BitmapDumpExportAdapters {
             output,
             """
             <!doctype html><html><head><meta charset="utf-8"><title>Bitmap dump</title>
-            <style>body{font-family:${ViewerDocumentTheme.systemFontFamily};margin:20px;background:${ViewerDocumentTheme.darkCanvas};color:${ViewerDocumentTheme.primaryText}}.toolbar{display:flex;gap:8px;position:sticky;top:0;background:${ViewerDocumentTheme.darkCanvas};padding:8px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.item{background:${ViewerDocumentTheme.raisedSurface};padding:10px;border-radius:8px}.item img{width:100%;height:180px;object-fit:contain;background:${ViewerDocumentTheme.imageSurface}}</style></head>
+            <style>body{font-family:${ViewerDocumentTheme.systemFontFamily};font-size:${ViewerDocumentTheme.bodyFontSize};margin:20px;background:${ViewerDocumentTheme.darkCanvas};color:${ViewerDocumentTheme.primaryText}}h1{font-size:${ViewerDocumentTheme.titleFontSize}}input,select{font:inherit}.item div{font-size:${ViewerDocumentTheme.supportingFontSize}}.toolbar{display:flex;gap:8px;position:sticky;top:0;background:${ViewerDocumentTheme.darkCanvas};padding:8px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.item{background:${ViewerDocumentTheme.raisedSurface};padding:10px;border-radius:8px}.item img{width:100%;height:180px;object-fit:contain;background:${ViewerDocumentTheme.imageSurface}}</style></head>
             <body><h1>${html(
                 session.packageName,
             )} Bitmap dump</h1><p>${session.summary.exportedImageCount} images · ${session.summary.uniqueImageCount} unique · ${session.summary.estimatedBitmapBytes} estimated bytes</p>

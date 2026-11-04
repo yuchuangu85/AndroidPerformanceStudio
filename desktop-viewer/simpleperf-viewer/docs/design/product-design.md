@@ -4,6 +4,8 @@
 - 创建日期：2026-07-13
 - 关联文档：`docs/requirements/requirements.md`、`docs/design/technology-stack-research.md`、`docs/requirements/development-plan.md`、`docs/requirements/simpleperf_client_development_tracker.xlsx`
 
+本文保留产品契约与路线，当前采集和报告交互于 2026-10-30 按实现核对。历史版本规划不等于所有能力已经交付；代码和测试存在也不代表完成验收，发布状态仍以 [发布门禁](../records/release-checklist.md) 为准。
+
 ## 1. 产品定位
 
 Android Performance Studio 是一个面向 Android CPU Profile 的桌面端分析客户端。第一版以 Simpleperf 为采集与转换内核，以本地 SQLite 为分析索引，以自定义 Timeline、CallTree 和 FlameGraph 为主要交互界面。
@@ -35,26 +37,26 @@ Android Performance Studio
 │   ├── Capability Check
 │   ├── Apps / Processes / PID / Threads
 │   └── Permission Guidance
-├── Capture
+├── Capture Settings（目标与报告工作区的设置入口）
 │   ├── Templates
 │   ├── Advanced Parameters
-│   ├── Command Preview
-│   ├── Live Logs
-│   └── Capture State
+│   └── 采集动作与状态保留在工作区
 ├── Report
+│   ├── Persistent Timeline / Shared Range
 │   ├── Overview
-│   ├── Timeline
-│   ├── Heatmap（V0.2）
+│   │   └── Diagnostics
 │   ├── Top Functions
 │   ├── CallTree
-│   ├── Reverse CallTree
 │   ├── FlameGraph
-│   └── Diagnostics
+│   ├── Stack Chart
+│   ├── Marker Chart
+│   ├── Marker Table
+│   └── Shared Filters / Details
 ├── Export & Validate
 │   ├── Session Package
 │   ├── JSON / CSV / Screenshot
 │   ├── Simpleperf protobuf
-│   ├── Gecko Profile（V0.2）
+│   ├── Gecko Profile
 │   ├── Folded Stacks（V0.2）
 │   └── External Viewer Launch
 └── Settings
@@ -123,6 +125,8 @@ Android Performance Studio
 
 目标：用低成本完成一次高质量采样。
 
+当前目标选择与报告共用工作区，采集配置从设置入口打开，不再经过独立 Capture 页面。采样模板、采集配置和高级参数保持可编辑，获取数据、停止分析和取消操作留在工作区。早期模板与参数双栏页面布局不再是当前界面契约。
+
 #### 4.3.1 采样模板
 
 | 模板 | 默认参数 | 适用场景 |
@@ -145,7 +149,7 @@ Android Performance Studio
 
 #### 4.3.3 一键获取数据
 
-- 采集页上部始终展示 **Get data / 获取数据** 主操作。
+- 工作区保留 **Get data / 获取数据** 主操作。
 - 用户选择目标后可直接点击获取数据；采样模板已提供可执行默认参数。
 - 客户端根据模板、用户可选的高级参数和设备能力自动生成并执行 ADB/Simpleperf 参数数组。
 - UI 不展示需要复制或手动输入的采集命令；最终执行命令仍写入会话目录，用于故障定位和复现。
@@ -212,7 +216,7 @@ Timeline 是 V0.1 P0 功能，不是附属视图。
 
 #### 5.2.1 导航快捷键
 
-Timeline 与 FlameGraph 共享同一套导航动作，优先保持与 Perfetto 一致：
+Timeline 使用 Perfetto 风格导航动作：
 
 | 输入 | 动作 |
 |---|---|
@@ -222,7 +226,7 @@ Timeline 与 FlameGraph 共享同一套导航动作，优先保持与 Perfetto �
 | `D` | 向右平移 |
 | `Ctrl` + 鼠标滚轮 | 以指针位置为中心缩放 |
 
-输入框获得焦点时不得拦截字符键；快捷键映射由 `visualization` 模块统一提供，页面只消费导航动作。
+输入框获得焦点时不得拦截字符键。FlameGraph 的当前交互和相对 Firefox 的差异见 [兼容矩阵](../requirements/firefox-flame-graph-compatibility.md)，不能把两种视图的全部手势混为一谈。
 
 ### 5.3 FlameGraph
 
@@ -231,27 +235,27 @@ FlameGraph 是主要热点探索视图。
 布局：
 
 ```text
-顶部：过滤条件 + 搜索 + 权重口径
-主体：火焰图画布
-右侧：选中 frame 详情
-底部：路径面包屑 / 当前范围统计
+报告级：共享过滤条件、搜索、反转调用栈与详情开关
+面板级：变换导航与火焰图画布
+详情：按当前选中 frame 显示，窄窗口可置于下方
 ```
 
 交互：
 
 | 操作 | 结果 |
 |---|---|
-| 点击 frame | 下钻并更新右侧详情 |
-| 双击空白 | 返回上一级 |
-| 搜索函数/库 | 高亮匹配 frame 并展示命中列表 |
+| 点击 frame / 空白 | 选择 frame / 清除选择 |
+| 双击 frame / Enter | 打开源码、反汇编或有原因的符号详情 |
+| 搜索函数/库 | 在查询层过滤样本栈，与 Call Tree 联动，不仅改变绘图高亮 |
 | 从 Top Functions 跳转 | 定位到对应 frame 或多条路径 |
-| 切换权重 | inclusive / exclusive / event count |
 | 选择线程或时间范围 | 重新聚合火焰图 |
+| 右键 / 变换导航 | Focus、Merge、Drop、Collapse，以及撤销、移除和清空变换 |
 
 提示：
 
 - 火焰图宽度表示采样权重占比，不表示精确耗时。
 - unknown / unresolved symbols 要用特殊颜色和提示引导补充符号。
+- 完整交互、视觉基线、源信息校验和性能验收条件集中在 [兼容矩阵](../requirements/firefox-flame-graph-compatibility.md)。
 
 ### 5.4 Top Functions
 
@@ -283,6 +287,8 @@ FlameGraph 是主要热点探索视图。
 
 ### 5.6 Diagnostics
 
+诊断保留在 Overview 中，不再占用独立标签页；证据和导航能力不因此删除。
+
 诊断卡片结构：
 
 ```text
@@ -303,6 +309,38 @@ V0.1 诊断类型：
 | 线程热点 | 主线程、RenderThread、Binder、线程池集中负载 |
 | 参数建议 | 频率过高导致丢样；callgraph 模式不适合当前 ABI |
 | 符号建议 | native unknown 高，建议补充 unstripped so / binary_cache |
+
+### 5.7 报告工作区与共享状态
+
+- 顶部 Timeline 常驻，高度有界可调整；下部固定七个标签：Overview、Top Functions、Call Tree、Flame Graph、Stack Chart、Marker Chart、Marker Table。缺失数据不能成为隐藏标签的理由。
+- 时间范围、线程、event、筛选、反转状态和详情开关跨标签保留；选择按面板类型和会话隔离，不能把上一面板的选择冒充当前内容。
+- 共享栈工具栏提供 All Frames、Script、Native、Invert Call Stack 和 Filter Stacks。Script 对应 managed/runtime，Native 包含 native 与 kernel；未分类帧只属于 All Frames。
+- 共享栈筛选作用于可兼容的调用栈视图；Marker Chart/Table 使用各自的 marker 工具栏与范围查询，不能误用实现类型或反转筛选。
+- 搜索去抖、查询可取消，更新期间保留稳定结果；过期代次不得覆盖新查询。面板不直接访问 SQLite，失败和重试应隔离在可恢复的面板边界。
+- Show details 控制当前面板的详情区域；关闭不清空选择，重新打开恢复当前有效内容，无选择时给出提示。详情解析失败不得使整个报告失效。
+- 窄窗口保留全部标签、工具和详情入口，通过滚动或上下布局适配；浅色、深色和键盘焦点不能仅依赖颜色区分。
+
+### 5.8 Stack Chart 与 Marker 契约
+
+- Stack Chart 横轴是真实采样时间，纵轴是栈深，不是 Flame Graph 别名。相邻区间合并不得改变时间边界、线程、栈块身份或统计口径。
+- 栈实现类型、反转和搜索在投影前生效；选中块与真实帧/样本区间对应，范围交互与 Timeline 联动。
+- Marker Chart/Table 来自 canonical marker 事实，区分点事件与区间重叠。表格保留名称、起始时间、时长、进程/线程、schema/category 和 payload 入口。
+- Marker 图表、表格与 Timeline 的范围和 marker 身份保持联动；缺失来源、无记录、范围为空、过滤为空、不可用、未授权和解析失败分别呈现，不伪造浏览器事件。
+- 表格虚拟化，Canvas 按视口和可见行组织绘制；大 payload 在需要时加载或格式化，不在每次绘图中重复解析。
+- Stack Chart 的逐块点击覆盖层与全表扫描仍未优化。单独投影成功、百万样本合并成少量块，都不能代替高栈块数原生交互验收；完整待办和建议指标保留在 [未实现的性能方案](2026-10-29-stack-chart-performance-optimization-plan.md)。
+
+### 5.9 验证与尚未闭环条件
+
+`FirefoxReportWorkspaceTest`、`ReportWorkspaceBehaviorTest`、`StackChartComposeUiTest`、`MarkerPanelsComposeUiTest` 和 Flame Graph 测试是实现与回归入口，不是全部通过的当前声明。验收仍需覆盖：
+
+- 七标签、共享范围/工具栏、详情切换、选择隔离、诊断导航和失败恢复；
+- Stack Chart 身份与区间、marker 点/区间语义、排序、payload、筛选与代次取消；
+- 浅色/深色、窄/宽窗口、空/加载/选中/失败状态，详情开关和 Timeline 高度边界；
+- 键盘、屏幕阅读器、可见与选中 Canvas 节点的语义和焦点；
+- 百万样本、高 marker 基数、深栈和高栈块数下的原生输入延迟、内存峰值与掉帧；
+- 格式、静态分析、相关单元/集成/Compose/Golden 回归及跨平台原生验收。
+
+原生能力对齐的其他阶段（Android 多来源、时钟对齐、符号、比较与保存分析状态）继续受 [原生能力路线](2026-07-14-firefox-profiler-native-parity-design.md) 约束，不因清理 UI 实施稿而缩小范围。
 
 ## 6. 导入、导出与外部集成
 
@@ -416,7 +454,7 @@ V0.2+：
 
 - [x] 用户可从 Home 发起采集或导入离线文件。
 - [x] 用户可清楚知道当前设备能采哪些目标、不能采的原因。
-- [x] 采集命令可预览、可复制、可追踪。
+- [x] 采集命令由参数模型自动生成，并在会话日志中可追踪，无需用户复制或输入。
 - [x] 采集失败时仍能保存日志和中间产物。
 - [x] Timeline 与 FlameGraph 支持时间范围联动。
 - [x] Top Functions 与 CallTree / FlameGraph 可互相跳转。
@@ -429,7 +467,7 @@ V0.2+：
 - ChatGPT 共享对话：https://chatgpt.com/share/6a54e924-0698-83ea-a051-ef5ff3b4db94
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
-- 跨平台技术栈调研：`docs/design/technology-stack-research.md`
+- 当前技术栈与运行时约束：`docs/design/technology-stack-research.md`
 
 ## V0.2-V0.4 delivered core (2026-09-21)
 

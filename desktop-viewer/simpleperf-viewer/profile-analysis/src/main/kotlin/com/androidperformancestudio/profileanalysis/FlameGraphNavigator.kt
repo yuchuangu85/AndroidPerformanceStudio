@@ -23,11 +23,9 @@ object FlameGraphNavigator {
     fun parent(
         snapshot: FlameGraphSnapshot,
         nodeId: FlameCallNodeId,
-        minimumNormalizedWidth: Double = MINIMUM_SELECTABLE_NORMALIZED_WIDTH,
     ): FlameCallNodeId? {
-        validateThreshold(minimumNormalizedWidth)
         val parentIndex = snapshot.callNodes.indexOf(nodeId)?.let(snapshot.callNodes::parentIndexAt)
-        return parentIndex?.let { index -> snapshot.eligibleNodeId(index, minimumNormalizedWidth) }
+        return parentIndex?.let(snapshot.callNodes::nodeIdAt)
     }
 
     fun widestChild(
@@ -55,41 +53,35 @@ object FlameGraphNavigator {
         snapshot: FlameGraphSnapshot,
         nodeId: FlameCallNodeId,
         minimumNormalizedWidth: Double = MINIMUM_SELECTABLE_NORMALIZED_WIDTH,
-    ): FlameCallNodeId? = sibling(snapshot, nodeId, minimumNormalizedWidth, searchForward = false)
+    ): FlameCallNodeId? = adjacentInRow(snapshot, nodeId, minimumNormalizedWidth, searchForward = false)
 
     fun nextSibling(
         snapshot: FlameGraphSnapshot,
         nodeId: FlameCallNodeId,
         minimumNormalizedWidth: Double = MINIMUM_SELECTABLE_NORMALIZED_WIDTH,
-    ): FlameCallNodeId? = sibling(snapshot, nodeId, minimumNormalizedWidth, searchForward = true)
+    ): FlameCallNodeId? = adjacentInRow(snapshot, nodeId, minimumNormalizedWidth, searchForward = true)
 }
 
-private fun sibling(
+@Suppress("ReturnCount")
+private fun adjacentInRow(
     snapshot: FlameGraphSnapshot,
     nodeId: FlameCallNodeId,
     minimumNormalizedWidth: Double,
     searchForward: Boolean,
 ): FlameCallNodeId? {
     validateThreshold(minimumNormalizedWidth)
-    val nodeIndex = snapshot.callNodes.indexOf(nodeId)
-    val parentIndex = nodeIndex?.let(snapshot.callNodes::parentIndexAt)
-    return if (nodeIndex == null || parentIndex == null) {
-        null
-    } else {
-        var candidateIndex = snapshot.callNodes.siblingIndexAt(nodeIndex, searchForward)
-        var eligibleNodeId: FlameCallNodeId? = null
-        while (candidateIndex != null && eligibleNodeId == null) {
-            eligibleNodeId = snapshot.eligibleNodeId(candidateIndex, minimumNormalizedWidth)
-            candidateIndex = snapshot.callNodes.siblingIndexAt(candidateIndex, searchForward)
-        }
-        eligibleNodeId
+    val nodeIndex = snapshot.callNodes.indexOf(nodeId) ?: return null
+    val depth = snapshot.callNodes.depthAt(nodeIndex) ?: return null
+    val row = snapshot.rows.nodeIndexesAt(depth) ?: return null
+    val columnIndex = row.indexOf(nodeIndex).takeIf { it >= 0 } ?: return null
+    val step = if (searchForward) 1 else -1
+    var candidateColumn = columnIndex + step
+    while (candidateColumn in row.indices) {
+        snapshot.eligibleNodeId(row[candidateColumn], minimumNormalizedWidth)?.let { return it }
+        candidateColumn += step
     }
+    return null
 }
-
-private fun CallNodeTable.siblingIndexAt(
-    nodeIndex: Int,
-    searchForward: Boolean,
-): Int? = if (searchForward) nextSiblingIndexAt(nodeIndex) else previousSiblingIndexAt(nodeIndex)
 
 private fun FlameGraphSnapshot.eligibleNodeId(
     nodeIndex: Int,
@@ -104,7 +96,7 @@ private fun FlameGraphSnapshot.eligibleNodeId(
 private fun FlameGraphSnapshot.eligibleWidth(
     nodeIndex: Int,
     minimumNormalizedWidth: Double,
-): Double? = rows.normalizedWidthAt(nodeIndex)?.takeIf { width -> width >= minimumNormalizedWidth }
+): Double? = rows.normalizedWidthAt(nodeIndex)?.takeIf { width -> width > minimumNormalizedWidth }
 
 private fun validateThreshold(minimumNormalizedWidth: Double) {
     require(minimumNormalizedWidth.isFinite() && minimumNormalizedWidth >= 0.0) {

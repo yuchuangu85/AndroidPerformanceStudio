@@ -269,11 +269,17 @@ internal class FrameProfilerController(
                     listOf("Unable to close online frame capture cleanly: ${exception.message}")
                 }
             }
+        val emptyCaptureWarning =
+            if (capture != null && onlineFrames.isEmpty() && errorMessage == null) {
+                listOf("No frame samples were collected during the capture interval.")
+            } else {
+                emptyList()
+            }
         mutableState.value =
             mutableState.value.copy(
                 isCapturing = false,
                 operationStatus = FrameOperationStatus.CaptureStopped(onlineFrames.size),
-                warnings = (mutableState.value.warnings + stopWarnings).distinct(),
+                warnings = (mutableState.value.warnings + stopWarnings + emptyCaptureWarning).distinct(),
                 errorMessage = errorMessage,
             )
         if (capture != null && onlineFrames.isNotEmpty()) {

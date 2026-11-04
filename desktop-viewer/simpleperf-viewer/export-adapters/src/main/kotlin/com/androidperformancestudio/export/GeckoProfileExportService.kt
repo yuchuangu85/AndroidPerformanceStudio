@@ -1,8 +1,10 @@
 package com.androidperformancestudio.export
 
+import com.androidperformancestudio.profileanalysis.firefoxCategoryName
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import com.androidperformancestudio.storage.StoredProfileSample
 import com.androidperformancestudio.storage.StoredProfileThread
+import com.androidperformancestudio.storage.firefoxCompatibleSymbolName
 import java.io.BufferedWriter
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -168,8 +170,14 @@ private class GeckoThreadBuilder(
     fun add(sample: StoredProfileSample) {
         var prefix: Int? = null
         sample.framesRootToLeaf.forEach { frame ->
-            val location = "${frame.symbolName} (in ${frame.filePath})"
-            val frameId = internFrame(location)
+            val symbolName =
+                firefoxCompatibleSymbolName(
+                    symbolName = frame.symbolName,
+                    filePath = frame.filePath,
+                    virtualAddress = frame.virtualAddress,
+                )
+            val location = "$symbolName (in ${frame.filePath})"
+            val frameId = internFrame(location, symbolName, frame.filePath)
             prefix = internStack(StackKey(prefix, frameId))
         }
         samples += GeckoSample(prefix, sample.timestampNanos / NANOS_PER_MILLISECOND)
@@ -208,10 +216,14 @@ private class GeckoThreadBuilder(
         writer.append("],\"registerTime\":0,\"unregisterTime\":null,\"processType\":\"default\"}")
     }
 
-    private fun internFrame(location: String): Int =
+    private fun internFrame(
+        location: String,
+        symbolName: String,
+        resource: String,
+    ): Int =
         frameIds.getOrPut(location) {
             val id = frames.size
-            frames += GeckoFrame(internString(location), location.geckoCategory())
+            frames += GeckoFrame(internString(location), geckoCategory(symbolName, resource))
             id
         }
 
@@ -245,13 +257,17 @@ private data class GeckoSample(
     val timeMillis: Double,
 )
 
-private fun String.geckoCategory(): Int =
-    when {
-        "kallsyms" in this || ".ko" in this -> if (startsWith("__schedule ")) OFF_CPU_CATEGORY else KERNEL_CATEGORY
-        ".so" in this -> NATIVE_CATEGORY
-        ".vdex" in this -> DEX_CATEGORY
-        ".oat" in this -> OAT_CATEGORY
-        "[JIT app cache]" in this -> JIT_CATEGORY
+private fun geckoCategory(
+    symbolName: String,
+    resource: String,
+): Int =
+    when (firefoxCategoryName(symbolName, resource)) {
+        "Kernel" -> KERNEL_CATEGORY
+        "Native" -> NATIVE_CATEGORY
+        "DEX" -> DEX_CATEGORY
+        "OAT" -> OAT_CATEGORY
+        "Off-CPU" -> OFF_CPU_CATEGORY
+        "JIT" -> JIT_CATEGORY
         else -> USER_CATEGORY
     }
 

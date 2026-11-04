@@ -17,13 +17,49 @@ class GpuWorkspaceStyleTest {
     private val model = source("GpuHubModel.kt")
 
     @Test
+    fun `device selector and refresh use title bar with inline fallback`() {
+        val panel = hub.substringAfter("private fun GpuDeviceContextPanel(")
+        assertTrue(panel.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(panel.contains("DeviceDropdownSelector("))
+        assertTrue(panel.contains("TitleBarRefreshOrInline("))
+        assertTrue(panel.contains("onRefresh = actions.onRefreshDevices"))
+        assertTrue(panel.contains("onClick = actions.onRefreshDevices"))
+        assertTrue(panel.contains("titleBarTargets?.deviceReady(it.serial) != false"))
+        assertTrue(panel.contains("displayTextOverride = titleBarTargets?.selectedDeviceLabel"))
+    }
+
+    @Test
     fun `hub renders no decorative banner and installs no page local theme`() {
         assertFalse(hub.contains("StudioWorkspaceHeader("))
         assertFalse(hub.contains("Brush.horizontalGradient("))
         assertFalse(hub.contains("CompositionLocalProvider("))
         assertFalse(hub.contains("ViewerTheme("))
         assertTrue(hub.contains(".background(colors.workspace)"))
-        assertTrue(hub.contains(".padding(StudioTokens.compactContentPadding)"))
+        assertTrue(hub.contains(".padding(StudioTokens.workspacePadding)"))
+    }
+
+    @Test
+    fun `card boundaries use four dp spacing without shrinking content or toolbar controls`() {
+        val workspace = hub.substringAfter("public fun GpuAnalysisHubScreen(").substringBefore("public fun GpuAnalysisToolbar(")
+        assertEquals(4, Regex("Arrangement\\.spacedBy\\(StudioTokens\\.cardGap\\)").findAll(workspace).count())
+        assertFalse(workspace.contains("Arrangement.spacedBy(StudioTokens.panelGap)"))
+        val summary = hub.substringAfter("private fun GpuSummaryRow(").substringBefore("private fun GpuSummaryCard(")
+        assertEquals(4, Regex("Arrangement\\.spacedBy\\(StudioTokens\\.cardGap\\)").findAll(summary).count())
+        val toolbar = hub.substringAfter("public fun GpuAnalysisToolbar(").substringBefore("private fun GpuSummaryRow(")
+        assertTrue(toolbar.contains("Arrangement.spacedBy(StudioTokens.panelGap)"))
+        val rail = artifacts.substringAfter("internal fun GpuArtifactRail(").substringBefore("private fun GpuArtifactCard(")
+        assertTrue(rail.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(rail.contains("contentPadding = StudioTokens.workspacePadding"))
+        assertFalse(rail.contains("contentPadding = PaddingValues("))
+        val artifactCard = artifacts.substringAfter("private fun GpuArtifactCard(").substringBefore("private fun PanelBody(")
+        assertTrue(artifactCard.contains("contentPadding = 6.dp"))
+        assertTrue(artifactCard.contains("contentSpacing = 2.dp"))
+        assertTrue(artifactCard.contains("horizontalArrangement = Arrangement.spacedBy(6.dp)"))
+        val legacy = source("GpuIntegrationScreen.kt")
+        assertTrue(legacy.contains("modifier.fillMaxSize().padding(StudioTokens.workspacePadding)"))
+        assertTrue(legacy.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+        assertTrue(legacy.contains("LazyColumn(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap))"))
+        assertTrue(legacy.contains("Modifier.fillMaxWidth().padding(8.dp)"))
     }
 
     @Test
@@ -44,6 +80,17 @@ class GpuWorkspaceStyleTest {
         ).forEach { tag -> assertTrue(artifacts.contains(tag), tag) }
         assertTrue(hub.contains("maxWidth >= GPU_WIDE_WORKSPACE_MIN_WIDTH"))
         assertTrue(hub.contains("maxWidth < GPU_TWO_ROW_SUMMARY_MAX_WIDTH"))
+    }
+
+    @Test
+    fun `analysis toolbar is hosted by the page header instead of the hub body`() {
+        assertTrue(hub.contains("public fun GpuAnalysisToolbar("))
+        val hubBody =
+            hub
+                .substringAfter("public fun GpuAnalysisHubScreen(")
+                .substringBefore("public fun GpuAnalysisToolbar(")
+        assertFalse(hubBody.contains("GpuAnalysisToolbar("))
+        assertTrue(hubBody.contains("GpuSummaryRow("))
     }
 
     @Test
@@ -110,7 +157,8 @@ class GpuWorkspaceStyleTest {
         assertTrue(hub.contains("onItemSelected = actions.onSelectHubTab"))
         assertTrue(artifacts.contains("onValueChange = actions.onFilterArtifacts"))
         assertTrue(hub.contains("onClick = actions.onRefreshDevices"))
-        assertTrue(hub.contains("onItemSelected = { it.serial?.let(actions.onSelectDevice) }"))
+        assertTrue(hub.contains("titleBarTargets?.chooseDevice(serial, device.selectorLabel())"))
+        assertTrue(hub.contains("actions.onSelectDevice(serial)"))
         assertTrue(hub.contains("onItemSelected = { actions.onSelectArtifact(it.id) }"))
         listOf("onOpenArtifact", "onVerifyArtifact", "onRevealArtifact", "onRelocateArtifact").forEach { action ->
             assertTrue(hub.contains("actions.$action") || artifacts.contains("actions.$action"), action)

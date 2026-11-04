@@ -1,6 +1,9 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTextField
+import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.desktop_app.generated.resources.Res
 import com.androidperformancestudio.desktop_app.generated.resources.*
@@ -16,9 +19,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,19 +33,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -50,16 +53,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import java.util.Locale
 import java.io.File
-import javax.swing.JFileChooser
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.presentation.SimpleperfSettingsSectionContent
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.ProvideViewerThemeContext
 import com.androidperformancestudio.ui.ViewerThemeContext
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
@@ -67,7 +73,21 @@ import com.androidperformancestudio.ui.studio.StudioCard
 import com.androidperformancestudio.ui.studio.StudioPanel
 import com.androidperformancestudio.ui.studio.StudioTokens
 import com.androidperformancestudio.ui.switch.MacOSSwitch
+import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.SegmentedSelector
+import com.androidperformancestudio.ui.SegmentedSelectorStyle
+import com.androidperformancestudio.ai.ImportedCredentialKind
+import com.androidperformancestudio.ai.LocalAiConfigSource
+import com.androidperformancestudio.ai.LocalAiConfigurationImport
+import com.androidperformancestudio.ai.LocalAiConfigurationImporter
+import com.androidperformancestudio.ai.LocalAiConfigurationReader
+import com.androidperformancestudio.ai.LocalAiImportFailure
+import com.androidperformancestudio.aiplatform.app.AiPlatformRuntime
+import com.androidperformancestudio.aiplatform.app.AiPlatformSettingsStore
+import com.androidperformancestudio.aiplatform.presentation.AiManagementSection
+import com.androidperformancestudio.aiplatform.presentation.AiPlatformManagementSettings
+import androidx.compose.ui.platform.testTag
 import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_cpu_profiler
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_layout_inspector
@@ -80,6 +100,10 @@ import org.jetbrains.compose.resources.painterResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.androidperformancestudio.ai.AiModelCatalogException
+import com.androidperformancestudio.ai.AiModelCatalogFailure
+import com.androidperformancestudio.ai.AiRequestException
+import com.androidperformancestudio.ai.AiRequestFailureKind
 
 public enum class SettingsPage {
     GENERAL,
@@ -107,6 +131,8 @@ internal fun DesktopAppSettingsPage(
     onLayoutInspectorSettingsChanged: () -> Unit,
     onOpenUserGuide: () -> Unit,
     persistenceErrorPage: SettingsPage?,
+    aiPlatformRuntime: AiPlatformRuntime? = null,
+    aiPlatformSettingsStore: AiPlatformSettingsStore? = null,
 ) {
     ProvideViewerThemeContext(viewerThemeContext) {
         Surface(
@@ -123,11 +149,11 @@ internal fun DesktopAppSettingsPage(
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline)
                     Column(
-                        Modifier.weight(1f).padding(StudioTokens.compactContentPadding),
+                        Modifier.weight(1f).padding(StudioTokens.workspacePadding),
                         verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
                     ) {
                         if (persistenceErrorPage != null) {
-                            Text(
+                            CopyableText(
                                 localizedStringResource(
                                     Res.string.settings_could_not_be_saved_the_current_session_still_uses,
                                     language,
@@ -135,6 +161,7 @@ internal fun DesktopAppSettingsPage(
                                 ),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
+                                language = language,
                             )
                         }
                         when (selectedPage) {
@@ -175,10 +202,16 @@ internal fun DesktopAppSettingsPage(
                                 )
 
                             SettingsPage.AI ->
-                                AiSettingsContent(
+                                AiSettingsPageContent(
                                     language = language,
                                     runtime = sourceWorkspaceRuntime,
+                                    aiPlatformRuntime = aiPlatformRuntime,
                                     modifier = Modifier.weight(1f),
+                                    platformSettingsStore = aiPlatformSettingsStore,
+                                    initialCategory = applicationSettings.aiSettingsCategory,
+                                    onCategorySelected = { category ->
+                                        onApplicationSettingsChanged(applicationSettings.copy(aiSettingsCategory = category))
+                                    },
                                 )
 
                             SettingsPage.ABOUT ->
@@ -198,11 +231,13 @@ internal fun DesktopAppSettingsPage(
 private fun SettingsPageTitle(
     text: String,
     style: TextStyle = MaterialTheme.typography.titleMedium,
+    modifier: Modifier = Modifier,
 ) {
     Text(
         text = text,
         color = LocalViewerColors.current.accent,
         style = style,
+        modifier = modifier,
     )
 }
 
@@ -250,60 +285,345 @@ private fun SettingsSidebar(
     }
 }
 
+internal enum class AiSettingsCategory(val managementSection: AiManagementSection?) {
+    PROVIDER(null),
+    AGENT(AiManagementSection.AGENTS),
+    SKILL(AiManagementSection.SKILLS),
+    POLICY(AiManagementSection.POLICY),
+    ;
+
+    companion object {
+        fun parse(value: String?): AiSettingsCategory {
+            val normalized = value?.trim()?.uppercase(Locale.ROOT)
+            if (normalized == "CONNECTION") return PROVIDER
+            return entries.firstOrNull { it.name == normalized } ?: PROVIDER
+        }
+    }
+}
+
 @Composable
-private fun AiSettingsContent(
+internal fun AiSettingsPageContent(
+    language: UiLanguage,
+    runtime: SourceWorkspaceRuntime,
+    aiPlatformRuntime: AiPlatformRuntime? = null,
+    modifier: Modifier = Modifier,
+    localConfigReader: LocalAiConfigurationReader? = null,
+    platformSettingsStore: AiPlatformSettingsStore? = null,
+    initialCategory: AiSettingsCategory = AiSettingsCategory.PROVIDER,
+    onCategorySelected: (AiSettingsCategory) -> Unit = {},
+) {
+    var category by remember(initialCategory) { mutableStateOf(initialCategory) }
+    Column(
+        modifier.fillMaxSize().testTag("ai-settings-page"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+    ) {
+        SettingsPageTitle(
+            text = localizedStringResource(Res.string.source_ai_settings, language),
+            style = ViewerTypography.pageTitle,
+            modifier = Modifier.testTag("ai-settings-title"),
+        )
+        Box(
+            modifier = Modifier.fillMaxWidth().testTag("ai-settings-category-row"),
+            contentAlignment = Alignment.Center,
+        ) {
+            SegmentedSelector(
+                items = AiSettingsCategory.entries,
+                selectedItem = category,
+                onItemSelected = {
+                    category = it
+                    onCategorySelected(it)
+                },
+                itemLabel = {
+                    when (it) {
+                        AiSettingsCategory.PROVIDER -> "Provider"
+                        AiSettingsCategory.AGENT -> "Agent"
+                        AiSettingsCategory.SKILL -> "Skill"
+                        AiSettingsCategory.POLICY -> if (language == UiLanguage.SIMPLIFIED_CHINESE) "执行策略" else "Policy"
+                    }
+                },
+                selectorDescription = if (language == UiLanguage.SIMPLIFIED_CHINESE) "AI 设置分类" else "AI settings category",
+                modifier = Modifier.testTag("ai-settings-category"),
+                style = SegmentedSelectorStyle.COMPACT_OUTLINED,
+                textStyle = ViewerTypography.body.copy(lineHeight = ViewerTypography.pageTitle.lineHeight),
+                maxWidth = Dp.Infinity,
+            )
+        }
+        val section = category.managementSection
+        if (section == null) {
+            AiSettingsContent(
+                language = language,
+                runtime = runtime,
+                modifier = Modifier.weight(1f),
+                localConfigReader = localConfigReader,
+                platformSettingsStore = platformSettingsStore,
+            )
+        } else {
+            AiPlatformManagementSettings(
+                runtime = aiPlatformRuntime,
+                section = section,
+                language = language,
+                modifier = Modifier.weight(1f),
+                settingsStoreOverride = platformSettingsStore,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun AiSettingsContent(
     language: UiLanguage,
     runtime: SourceWorkspaceRuntime,
     modifier: Modifier = Modifier,
+    localConfigReader: LocalAiConfigurationReader? = null,
+    platformSettingsStore: AiPlatformSettingsStore? = null,
 ) {
-    var configured by remember(runtime) { mutableStateOf(!runtime.credential(OPENAI_API_KEY).isNullOrBlank()) }
-    var apiKey by remember { mutableStateOf("") }
-    var model by remember(runtime) { mutableStateOf(runtime.aiModel()) }
-    var endpoint by remember(runtime) { mutableStateOf(runtime.aiEndpoint()) }
-    var models by remember { mutableStateOf<List<String>>(emptyList()) }
-    var modelsExpanded by remember { mutableStateOf(false) }
-    var working by remember { mutableStateOf(false) }
-    var modelsError by remember { mutableStateOf<String?>(null) }
-    var saveError by remember { mutableStateOf<String?>(null) }
+    val reader = remember(localConfigReader) { localConfigReader ?: LocalAiConfigurationImporter() }
+    val settingsStore = remember(platformSettingsStore) { platformSettingsStore ?: AiPlatformSettingsStore() }
+    val applied by settingsStore.settings.collectAsState()
+    var selected by remember(runtime, settingsStore) { mutableStateOf(AiProviderConnection.fromProviderId(applied.providerId)) }
+    val drafts = remember(runtime) { mutableMapOf<AiProviderConnection, AiProviderDraft>() }
+    val draft = drafts.getOrPut(selected) { AiProviderDraft(runtime, selected) }
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+    ) {
+        DropdownSelector(
+            items = AiProviderConnection.entries,
+            selectedItem = selected,
+            onItemSelected = { selected = it },
+            itemLabel = { providerLabel(it, language) },
+            placeholder = "Provider",
+            selectorDescription = "Provider",
+            modifier = Modifier.width(320.dp).testTag("ai-provider-selector").semantics(mergeDescendants = true) {
+                if (draft.working.value) disabled()
+            },
+            menuModifier = Modifier.width(320.dp).testTag("ai-provider-menu"),
+            fillWidth = true,
+            enabled = !draft.working.value,
+        )
+        Text(
+            text = localizedStringResource(Res.string.source_ai_applied_provider, language, providerLabel(AiProviderConnection.fromProviderId(applied.providerId), language)),
+            modifier = Modifier.testTag("ai-provider-applied"),
+            color = LocalViewerColors.current.secondaryText,
+            style = ViewerTypography.secondary,
+        )
+        key(selected) {
+            AiConnectionSettingsGroup(selected, draft, language, runtime, reader, settingsStore)
+        }
+    }
+}
+
+private class AiProviderDraft(runtime: SourceWorkspaceRuntime, connection: AiProviderConnection) {
+    val configured = mutableStateOf(runCatching { runtime.providerHasCredential(connection) }.getOrDefault(false))
+    val apiKey = mutableStateOf("")
+    val credentialKind = mutableStateOf(runtime.providerCredentialKind(connection))
+    val model = mutableStateOf(runtime.providerModel(connection))
+    val endpoint = mutableStateOf(runtime.providerEndpoint(connection))
+    val modelsEndpoint = mutableStateOf(runtime.providerModelsEndpoint(connection))
+    val models = mutableStateOf<List<String>>(emptyList())
+    val modelsLoaded = mutableStateOf(false)
+    val working = mutableStateOf(false)
+    val modelsError = mutableStateOf<String?>(null)
+    val saveError = mutableStateOf<String?>(null)
+    val importFailure = mutableStateOf<LocalAiImportFailure?>(null)
+    val imported = mutableStateOf(false)
+    val importedWithoutKey = mutableStateOf(false)
+}
+
+private fun providerLabel(connection: AiProviderConnection, language: UiLanguage): String = when (connection) {
+    AiProviderConnection.CODEX -> "Codex"
+    AiProviderConnection.CLAUDE -> "Claude"
+    AiProviderConnection.CUSTOM -> if (language == UiLanguage.SIMPLIFIED_CHINESE) "自定义（OpenAI 兼容）" else "Custom (OpenAI compatible)"
+}
+
+@Composable
+private fun AiConnectionSettingsGroup(
+    connection: AiProviderConnection,
+    draft: AiProviderDraft,
+    language: UiLanguage,
+    runtime: SourceWorkspaceRuntime,
+    reader: LocalAiConfigurationReader,
+    settingsStore: AiPlatformSettingsStore,
+) {
+    val source = connection.localSource
+    val groupId = connection.name.lowercase()
+    val tagPrefix = "ai-$groupId"
+    var configured by draft.configured
+    var apiKey by draft.apiKey
+    var credentialKind by draft.credentialKind
+    var model by draft.model
+    var endpoint by draft.endpoint
+    var modelsEndpoint by draft.modelsEndpoint
+    var models by draft.models
+    var modelsLoaded by draft.modelsLoaded
+    var working by draft.working
+    var modelsError by draft.modelsError
+    var saveError by draft.saveError
+    var importFailure by draft.importFailure
+    var imported by draft.imported
+    var importedWithoutKey by draft.importedWithoutKey
     val scope = rememberCoroutineScope()
 
     suspend fun refreshModels() {
         working = true
         modelsError = null
-        runCatching {
-            withContext(Dispatchers.IO) { runtime.aiModels(apiKey.trim(), endpoint.trim()) }
-        }.onSuccess { models = it }
-            .onFailure { modelsError = it.message ?: it.javaClass.simpleName }
-        working = false
+        val requestedConnection = connection
+        val requestedKey = apiKey.trim()
+        val requestedEndpoint = endpoint.trim()
+        val requestedModelsEndpoint = modelsEndpoint.trim()
+        val requestedKind = credentialKind
+        try {
+            models = withContext(Dispatchers.IO) {
+                runtime.providerModels(requestedConnection, requestedKey, requestedEndpoint, requestedModelsEndpoint, requestedKind)
+            }
+            modelsLoaded = true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            modelsError = modelCatalogFailureMessage(failure, language, requestedConnection)
+        } finally {
+            working = false
+        }
     }
 
-    LaunchedEffect(runtime) {
+    suspend fun importConfiguration() {
+        val selectedSource = source ?: return
+        working = true
+        importFailure = null
+        imported = false
+        try {
+            when (val result = withContext(Dispatchers.IO) { reader.read(selectedSource) }) {
+                is LocalAiConfigurationImport.Success -> {
+                    val config = result.config
+                    if (config.source != source) {
+                        importFailure = LocalAiImportFailure.UNSUPPORTED_CONFIG
+                        return
+                    }
+                    val nextModel = config.model ?: runtime.providerModel(connection)
+                    val nextEndpoint = config.endpoint ?: runtime.providerEndpoint(connection)
+                    val nextModelsEndpoint = modelsEndpoint.takeIf {
+                        connection != AiProviderConnection.CLAUDE && nextEndpoint.trim() == endpoint.trim()
+                    }.orEmpty()
+                    apiKey = config.apiKey.orEmpty()
+                    credentialKind = config.credentialKind
+                    model = nextModel
+                    endpoint = nextEndpoint
+                    modelsEndpoint = nextModelsEndpoint
+                    models = emptyList()
+                    modelsLoaded = false
+                    modelsError = null
+                    saveError = null
+                    // An imported endpoint without a key must not borrow a previous connection's credential.
+                    configured = false
+                    importedWithoutKey = apiKey.isBlank()
+                    imported = true
+                    if (apiKey.isNotBlank()) refreshModels()
+                }
+                is LocalAiConfigurationImport.Failure -> importFailure = result.reason
+            }
+        } catch (failure: kotlinx.coroutines.CancellationException) {
+            throw failure
+        } catch (_: Exception) {
+            importFailure = LocalAiImportFailure.MALFORMED
+        } finally {
+            working = false
+        }
+    }
+
+    LaunchedEffect(runtime, connection) {
         if (configured) refreshModels()
     }
 
-    Column(
-        modifier = modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+    StudioCard(
+        modifier = Modifier.fillMaxWidth().testTag("ai-connection-group-$groupId"),
+        contentSpacing = StudioTokens.compactContentPadding,
     ) {
-        SettingsPageTitle(
-            text = localizedStringResource(Res.string.source_ai_settings, language),
-            style = MaterialTheme.typography.titleLarge,
-        )
-        Text(
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = providerLabel(connection, language),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (source != null) MacOSTextButton(
+                label = localizedStringResource(if (source == LocalAiConfigSource.CODEX) Res.string.source_ai_import_codex else Res.string.source_ai_import_claude, language),
+                modifier = Modifier.testTag("ai-import-$groupId"),
+                enabled = !working,
+                onClick = { scope.launch { importConfiguration() } },
+            )
+        }
+        if (imported) {
+            Text(
+                localizedStringResource(if (importedWithoutKey) Res.string.source_ai_imported_without_key else Res.string.source_ai_imported, language),
+                modifier = Modifier.testTag("$tagPrefix-import-status"),
+            )
+        }
+        importFailure?.let { reason ->
+            val message = when (reason) {
+                LocalAiImportFailure.NOT_FOUND -> Res.string.source_ai_import_not_found
+                LocalAiImportFailure.MALFORMED -> Res.string.source_ai_import_malformed
+                LocalAiImportFailure.PERMISSION_DENIED -> Res.string.source_ai_import_denied
+                LocalAiImportFailure.UNSUPPORTED_AUTH -> Res.string.source_ai_import_auth
+                LocalAiImportFailure.UNSUPPORTED_CONFIG -> Res.string.source_ai_import_unsupported
+            }
+            Text(
+                localizedStringResource(message, language),
+                modifier = Modifier.testTag("$tagPrefix-import-error"),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (connection == AiProviderConnection.CLAUDE) {
+            DropdownSelector(
+                items = ImportedCredentialKind.entries,
+                selectedItem = credentialKind,
+                onItemSelected = {
+                    credentialKind = it
+                    apiKey = ""
+                    configured = runCatching { runtime.providerHasCredential(connection, endpoint, it) }.getOrDefault(false)
+                    models = emptyList()
+                    modelsLoaded = false
+                    modelsError = null
+                    if (configured) scope.launch { refreshModels() }
+                },
+                itemLabel = { localizedStringResource(if (it == ImportedCredentialKind.BEARER_TOKEN) Res.string.source_ai_claude_auth_token else Res.string.source_ai_claude_api_key, language) },
+                placeholder = localizedStringResource(Res.string.source_ai_auth_kind, language),
+                selectorDescription = localizedStringResource(Res.string.source_ai_auth_kind, language),
+                modifier = Modifier.width(320.dp),
+                menuModifier = Modifier.width(320.dp),
+                fillWidth = true,
+                enabled = !working,
+            )
+        }
+        CopyableText(
             localizedStringResource(
                 if (configured) Res.string.source_ai_key_configured else Res.string.source_ai_key_storage_notice,
                 language,
             ),
         )
-        OutlinedTextField(
+        ViewerTextField(
             colors = viewerOutlinedTextFieldColors(),
             value = apiKey,
-            onValueChange = { apiKey = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(localizedStringResource(Res.string.source_openai_api_key, language)) },
+            onValueChange = {
+                apiKey = it
+                models = emptyList()
+                modelsLoaded = false
+                modelsError = null
+            },
+            modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-key"),
+            enabled = !working,
+            label = { Text(localizedStringResource(
+                if (connection != AiProviderConnection.CLAUDE) Res.string.source_openai_api_key
+                else if (credentialKind == ImportedCredentialKind.BEARER_TOKEN) Res.string.source_ai_claude_auth_token
+                else Res.string.source_ai_claude_api_key,
+                language,
+            )) },
             supportingText = {
                 if (!configured && apiKey.isBlank()) {
-                    Text(localizedStringResource(Res.string.source_ai_key_required, language))
+                    CopyableText(localizedStringResource(if (connection != AiProviderConnection.CLAUDE) Res.string.source_ai_key_required else Res.string.source_ai_credential_required, language), language = language)
                 }
             },
             isError = !configured && apiKey.isBlank(),
@@ -311,88 +631,185 @@ private fun AiSettingsContent(
             singleLine = true,
         )
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box {
-                TextButton(
-                    enabled = models.isNotEmpty(),
-                    onClick = { modelsExpanded = true },
-                ) {
-                    Text(localizedStringResource(Res.string.source_choose_model, language, models.size))
-                }
-                DropdownMenu(
-                    expanded = modelsExpanded,
-                    onDismissRequest = { modelsExpanded = false },
-                ) {
-                    models.forEach { modelId ->
-                        DropdownMenuItem(
-                            text = { Text(modelId) },
-                            onClick = {
-                                model = modelId
-                                modelsExpanded = false
-                            },
-                        )
-                    }
-                }
-            }
-            TextButton(
+            DropdownSelector(
+                items = models,
+                selectedItem = model.takeIf(models::contains),
+                onItemSelected = { model = it },
+                itemLabel = { it },
+                placeholder = localizedStringResource(Res.string.source_choose_model, language, models.size),
+                selectorDescription = localizedStringResource(Res.string.source_model, language),
+                enabled = !working && models.isNotEmpty(),
+                modifier = Modifier.weight(1f, fill = false).width(320.dp).testTag("$tagPrefix-model-picker").semantics(mergeDescendants = true) {
+                    if (working || models.isEmpty()) disabled()
+                },
+                menuModifier = Modifier.width(320.dp).heightIn(max = 320.dp).testTag("$tagPrefix-model-menu"),
+                fillWidth = true,
+            )
+            MacOSTextButton(
+                label = localizedStringResource(Res.string.source_refresh_models, language),
+                modifier = Modifier.testTag("$tagPrefix-model-refresh"),
                 enabled = !working && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
                 onClick = { scope.launch { refreshModels() } },
-            ) {
-                Text(localizedStringResource(Res.string.source_refresh_models, language))
-            }
+            )
             if (working) {
                 CircularProgressIndicator(Modifier.size(20.dp))
             }
         }
         modelsError?.let { message ->
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.source_models_load_failed, language, message),
+                modifier = Modifier.testTag("$tagPrefix-model-error"),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
+                language = language,
             )
         }
-        OutlinedTextField(
+        if (modelsLoaded && !working && models.isEmpty() && modelsError == null) {
+            CopyableText(
+                localizedStringResource(Res.string.source_models_empty, language),
+                modifier = Modifier.testTag("$tagPrefix-model-empty"),
+                style = MaterialTheme.typography.bodySmall,
+                language = language,
+            )
+        }
+        ViewerTextField(
             colors = viewerOutlinedTextFieldColors(),
             value = model,
             onValueChange = { model = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-model"),
+            enabled = !working,
             label = { Text(localizedStringResource(Res.string.source_model, language)) },
             singleLine = true,
         )
-        OutlinedTextField(
+        ViewerTextField(
             colors = viewerOutlinedTextFieldColors(),
             value = endpoint,
-            onValueChange = { endpoint = it },
-            modifier = Modifier.fillMaxWidth(),
+            onValueChange = {
+                endpoint = it
+                configured = false
+                modelsEndpoint = ""
+                models = emptyList()
+                modelsLoaded = false
+                modelsError = null
+            },
+            modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-endpoint"),
+            enabled = !working,
             label = { Text(localizedStringResource(Res.string.source_endpoint, language)) },
             singleLine = true,
         )
-        OutlinedButton(
-            enabled = model.isNotBlank() && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
-            onClick = {
-                saveError = null
-                runCatching {
-                    apiKey.trim().takeIf(String::isNotBlank)?.let { runtime.saveCredential(OPENAI_API_KEY, it) }
-                    runtime.saveAiConfiguration(model.trim(), endpoint.trim())
-                }.onSuccess {
-                    configured = true
-                    apiKey = ""
-                }.onFailure { failure ->
-                    saveError = failure.message ?: failure.javaClass.simpleName
-                }
-            },
-        ) {
-            Text(localizedStringResource(Res.string.source_save, language))
-        }
-        saveError?.let { message ->
-            Text(
-                localizedStringResource(Res.string.source_operation_failed, language, message),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
+        if (connection != AiProviderConnection.CLAUDE) {
+            ViewerTextField(
+                colors = viewerOutlinedTextFieldColors(),
+                value = modelsEndpoint,
+                onValueChange = {
+                    modelsEndpoint = it
+                    models = emptyList()
+                    modelsLoaded = false
+                    modelsError = null
+                },
+                modifier = Modifier.width(320.dp).testTag("$tagPrefix-connection-models-endpoint"),
+                enabled = !working,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                label = { Text(localizedStringResource(Res.string.source_ai_models_endpoint, language)) },
+                supportingText = {
+                    Text(
+                        localizedStringResource(Res.string.source_ai_models_endpoint_hint, language),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                singleLine = true,
             )
         }
+        MacOSTextButton(
+            label = localizedStringResource(Res.string.source_ai_save_apply, language),
+            modifier = Modifier.testTag("$tagPrefix-connection-save"),
+            enabled = !working && model.isNotBlank() && endpoint.isNotBlank() && (configured || apiKey.isNotBlank()),
+            onClick = {
+                saveError = null
+                working = true
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            var savedRevision: String? = null
+                            runtime.saveAndApplyProviderConnection(
+                                connection,
+                                model.trim(),
+                                endpoint.trim(),
+                                modelsEndpoint.trim(),
+                                credentialKind,
+                                apiKey.trim().takeIf(String::isNotBlank),
+                            ) {
+                                settingsStore.update { it.copy(providerId = connection.providerId, model = model.trim()) }
+                                savedRevision = runtime.providerConnectionRevision(connection)
+                            }
+                            if (modelsLoaded && modelsError == null) {
+                                // Cache publication must not turn a committed save into a reported failure.
+                                runCatching { runtime.cacheProviderModels(connection, models, expectedRevision = savedRevision) }
+                            }
+                        }
+                        configured = true
+                        apiKey = ""
+                        imported = false
+                    } catch (failure: kotlinx.coroutines.CancellationException) {
+                        throw failure
+                    } catch (_: Exception) {
+                        saveError = "E_AI_CONNECTION_SAVE"
+                    } finally {
+                        working = false
+                    }
+                }
+            },
+        )
+        saveError?.let {
+            CopyableText(
+                localizedStringResource(Res.string.source_ai_save_failed, language),
+                modifier = Modifier.testTag("$tagPrefix-save-error"),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                language = language,
+            )
+        }
+    }
+}
+
+private fun modelCatalogFailureMessage(failure: Exception, language: UiLanguage, connection: AiProviderConnection): String {
+    val chinese = language == UiLanguage.SIMPLIFIED_CHINESE
+    fun text(en: String, zh: String): String = if (chinese) zh else en
+    return when (failure) {
+        is AiModelCredentialException -> if (failure.endpointMismatch) {
+            text("The endpoint changed. Enter a key for this connection before refreshing models.", "接口地址已更改，请先填写此连接的密钥，再刷新模型。")
+        } else {
+            text("Enter an API key before refreshing models.", "请先填写 API Key，再刷新模型。")
+        }
+        is AiModelCatalogException -> when (failure.reason) {
+            AiModelCatalogFailure.HTML_RESPONSE -> if (connection == AiProviderConnection.CLAUDE) text(
+                "The server returned a web page instead of a model list. Check that this gateway supports the Claude model list API, or enter a model manually.",
+                "服务器返回了网页，而不是模型列表。请确认网关支持 Claude 模型列表接口，也可以手动填写模型。",
+            ) else text(
+                "The server returned a web page instead of a model list. Check the gateway's model list URL and access permissions. Keep the Responses URL unchanged, or enter a model manually.",
+                "服务器返回了网页，而不是模型列表。请检查网关独立的模型列表地址及访问权限；请保留原 Responses 地址，也可以手动填写模型。",
+            )
+            AiModelCatalogFailure.INVALID_RESPONSE -> text(
+                "The server response is not a valid model list. Check that this connection supports the provider's model list API.",
+                "服务器响应不是有效的模型列表，请确认该连接支持对应提供方的模型列表接口。",
+            )
+            AiModelCatalogFailure.INVALID_ENDPOINT -> text(
+                "The API or model list address is invalid. Both must use the same origin and HTTPS, or an exact loopback address for local development.",
+                "API 地址或模型列表地址无效。两者必须同源，并使用 HTTPS（本地回环地址除外）。",
+            )
+        }
+        is AiRequestException -> when (failure.kind) {
+            AiRequestFailureKind.AUTHENTICATION -> text("Authentication failed. Check the API key and connection permissions.", "认证失败，请检查 API Key 和连接权限。")
+            AiRequestFailureKind.RATE_LIMIT -> text("The server rate limit was reached. Try again later.", "请求已达到服务器限额，请稍后重试。")
+            AiRequestFailureKind.TIMEOUT -> text("The model request timed out. Check the connection and try again.", "模型请求超时，请检查连接后重试。")
+            AiRequestFailureKind.NETWORK -> text("The server could not be reached. Check the network and API address.", "无法连接服务器，请检查网络和 API 地址。")
+            AiRequestFailureKind.HTTP -> text("The server rejected the model request. Check the API address and gateway status.", "服务器拒绝了模型请求，请检查 API 地址和网关状态。")
+        }
+        else -> text("The model list could not be loaded safely. Check the connection and try again.", "无法安全读取模型列表，请检查连接后重试。")
     }
 }
 
@@ -542,6 +959,22 @@ private fun ConfigurationSettingsContent(
             language = language,
             onSettingsChanged = onSettingsChanged,
         )
+        SettingsChoice(
+            language = language,
+            label = localizedStringResource(Res.string.hprof_analysis_engine, language),
+            current = settings.hprofEngine,
+            options = HprofEngine.entries,
+            optionLabel = { engine ->
+                localizedStringResource(
+                    when (engine) {
+                        HprofEngine.LEGACY -> Res.string.hprof_engine_legacy
+                        HprofEngine.RUST -> Res.string.hprof_engine_rust
+                    },
+                    language,
+                )
+            },
+            onSelected = { onSettingsChanged(settings.copy(hprofEngine = it)) },
+        )
     }
 }
 
@@ -590,11 +1023,11 @@ private fun ThemeColorPresets(
     onSelect: (Color) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         ApplicationThemeColor.entries.chunked(THEME_SWATCH_COLUMNS).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
             ) {
                 row.forEach { preset ->
                     ThemeColorOption(
@@ -657,7 +1090,7 @@ private fun HexThemeColorField(
     LaunchedEffect(color) {
         if (parseHexColor(text) != color) text = color.toHexString()
     }
-    OutlinedTextField(
+    ViewerTextField(
         value = text,
         onValueChange = { next ->
             text = next
@@ -750,14 +1183,14 @@ private fun AndroidSdkPathSetting(
 ) {
     var draftPath by remember(settings.androidSdkPath) { mutableStateOf(settings.androidSdkPath.orEmpty()) }
     Column(modifier = Modifier.padding(8.dp, 0.dp, 8.dp, 0.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+        ViewerTextField(
             colors = viewerOutlinedTextFieldColors(),
             value = draftPath,
             onValueChange = { draftPath = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text(localizedStringResource(Res.string.android_sdk_path, language)) },
-            supportingText = { Text(localizedStringResource(Res.string.android_sdk_path_hint, language)) },
+            supportingText = { CopyableText(localizedStringResource(Res.string.android_sdk_path_hint, language), language = language) },
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
@@ -799,18 +1232,11 @@ private fun chooseAndroidSdkDirectory(
     title: String,
     currentPath: String,
 ): String? =
-    JFileChooser().run {
-        dialogTitle = title
-        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        currentPath.trim().takeIf(String::isNotEmpty)?.let { path ->
-            runCatching { File(path) }.getOrNull()?.takeIf(File::isDirectory)?.let { currentDirectory = it }
-        }
-        if (showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            selectedAndroidSdkDirectoryPath(selectedFile)
-        } else {
-            null
-        }
-    }
+    com.androidperformancestudio.ui.chooseDirectory(
+        parent = null,
+        title = title,
+        startDirectory = currentPath.trim().takeIf(String::isNotEmpty)?.let { path -> runCatching { File(path) }.getOrNull() },
+    )?.let(::selectedAndroidSdkDirectoryPath)
 
 internal fun selectedAndroidSdkDirectoryPath(selectedDirectory: File?): String? =
     selectedDirectory
@@ -857,10 +1283,10 @@ private fun CompleteSimpleperfSettingsContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+            verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
         ) {
             items(CaptureSettingsSection.entries, key = CaptureSettingsSection::name) { section ->
-                StudioPanel(modifier = Modifier.fillMaxWidth()) {
+                StudioPanel(modifier = Modifier.fillMaxWidth(), contentPadding = StudioTokens.workspacePadding) {
                     SimpleperfSettingsSectionContent(
                         section = section,
                         setup = context?.setup,
@@ -947,7 +1373,6 @@ private fun themeColorPreferenceLabel(color: ApplicationThemeColor, language: Ui
         ApplicationThemeColor.ROYAL_PURPLE -> localizedStringResource(Res.string.theme_color_royal_purple, language)
     }
 
-private const val OPENAI_API_KEY = "openai:api-key"
 
 internal const val UNIFIED_SETTINGS_SIDEBAR_WIDTH_DP = 176
 

@@ -5,8 +5,13 @@
          限定符变体（例如 values-zh/strings.xml）可提供区域设置覆盖。 -->
     <string name="back_to_home">返回主页</string>
     <string name="settings">设置</string>
+    <string name="input_error">输入内容无效</string>
     <string name="search_options">搜索选项</string>
     <string name="no_matching_options">没有匹配的选项</string>
+    <string name="no_options_available">暂无可选项</string>
+    <string name="device_selector_placeholder">设备</string>
+    <string name="device_selector_description">设备选择器</string>
+    <string name="device_selector_automatic">自动选择设备</string>
     <string name="evidence_complete">完整</string>
     <string name="evidence_partial">部分</string>
     <string name="evidence_unknown">未知</string>
@@ -16,4 +21,18 @@
     <string name="evidence_estimated">估算</string>
     <string name="evidence_unavailable">不可用</string>
     <string name="evidence_content_description">证据：%1$s</string>
+    <string name="menu_file">文件</string>
+    <string name="menu_view">视图</string>
+    <string name="menu_tools">工具</string>
+    <string name="menu_help">帮助</string>
+    <string name="menu_open">打开…</string>
+    <string name="menu_import">导入</string>
+    <string name="menu_open_recent">最近打开</string>
+    <string name="menu_no_recent">没有最近文件</string>
+    <string name="menu_clear_recent">清除菜单</string>
+    <string name="menu_export">导出</string>
+    <string name="menu_settings">设置…</string>
+    <string name="menu_open_file">打开文件…</string>
+    <string name="menu_open_folder">打开文件夹…</string>
+    <string name="copy_full_message">复制完整提示</string>
 </resources>

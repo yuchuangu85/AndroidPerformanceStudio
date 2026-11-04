@@ -11,8 +11,9 @@ internal fun languagePreferenceLabel(
 ): String =
     when (preference) {
         ApplicationLanguagePreference.SYSTEM -> localizedStringResource(Res.string.system, language)
-        ApplicationLanguagePreference.SIMPLIFIED_CHINESE -> localizedStringResource(Res.string.simplified_chinese, language)
-        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, language)
+        ApplicationLanguagePreference.SIMPLIFIED_CHINESE ->
+            localizedStringResource(Res.string.simplified_chinese, UiLanguage.SIMPLIFIED_CHINESE)
+        ApplicationLanguagePreference.ENGLISH -> localizedStringResource(Res.string.english, UiLanguage.ENGLISH)
     }
 
 internal fun themePreferenceLabel(

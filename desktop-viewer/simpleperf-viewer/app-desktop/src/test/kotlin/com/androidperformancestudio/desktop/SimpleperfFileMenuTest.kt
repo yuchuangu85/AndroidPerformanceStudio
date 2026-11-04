@@ -1,6 +1,5 @@
 package com.androidperformancestudio.desktop
 
-import androidx.compose.ui.input.key.Key
 import com.androidperformancestudio.ui.UiLanguage
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Path
@@ -8,12 +7,11 @@ import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SimpleperfFileMenuTest {
     @Test
-    fun `file menu exposes open export and recent sessions with mac shortcuts`() =
+    fun `file menu exposes export formats configuration and recent sessions`() =
         runTest {
             val sessions = listOf(Path.of("/profiles/session-one"), Path.of("/profiles/session-two"))
             val model =
@@ -21,13 +19,7 @@ class SimpleperfFileMenuTest {
                     language = UiLanguage.fromLocale(Locale.ENGLISH),
                     recentSessions = sessions,
                     exportEnabled = false,
-                    isMacOs = true,
                 )
-
-            assertEquals("File", model.fileTitle)
-            assertEquals("Open…", model.openLabel)
-            assertNull(model.settingsLabel)
-            assertEquals("Export", model.exportMenu.title)
             assertEquals("Session package", model.exportMenu.sessionPackageLabel)
             assertEquals("JSON + CSV", model.exportMenu.reportLabel)
             assertEquals("Firefox Profiler JSON (.json.gz)", model.exportMenu.geckoProfileLabel)
@@ -40,12 +32,8 @@ class SimpleperfFileMenuTest {
             assertEquals("Capture Templates", model.configurationMenu.samplingTemplateLabel)
             assertEquals("Capture Configuration", model.configurationMenu.captureConfigurationLabel)
             assertEquals("Advanced Parameters", model.configurationMenu.advancedParametersLabel)
-            assertEquals("Open Recent", model.openRecentTitle)
             assertEquals(listOf("session-one", "session-two"), model.recentItems.map { it.label })
             assertFalse(model.exportEnabled)
-            assertEquals(SimpleperfMenuShortcut(Key.O, ctrl = false, meta = true), model.openShortcut)
-            assertEquals(SimpleperfMenuShortcut(Key.E, ctrl = false, meta = true), model.exportShortcut)
-            assertNull(model.settingsShortcut)
         }
 
     @Test
@@ -60,12 +48,7 @@ class SimpleperfFileMenuTest {
                             Path.of("/profiles/second/session"),
                         ),
                     exportEnabled = true,
-                    isMacOs = false,
                 )
-
-            assertEquals("文件", model.fileTitle)
-            assertEquals("打开…", model.openLabel)
-            assertEquals("导出", model.exportMenu.title)
             assertEquals("会话包", model.exportMenu.sessionPackageLabel)
             assertEquals("JSON + CSV", model.exportMenu.reportLabel)
             assertEquals("Firefox Profiler JSON (.json.gz)", model.exportMenu.geckoProfileLabel)
@@ -76,11 +59,26 @@ class SimpleperfFileMenuTest {
             assertEquals("采集模板", model.configurationMenu.samplingTemplateLabel)
             assertEquals("采集配置", model.configurationMenu.captureConfigurationLabel)
             assertEquals("高级参数", model.configurationMenu.advancedParametersLabel)
-            assertEquals("最近打开", model.openRecentTitle)
             assertTrue(model.recentItems.all { it.label == it.path.toString() })
             assertTrue(model.exportEnabled)
-            assertEquals(SimpleperfMenuShortcut(Key.O, ctrl = true, meta = false), model.openShortcut)
-            assertEquals("设置…", model.settingsLabel)
-            assertEquals(SimpleperfMenuShortcut(Key.Comma, ctrl = true, meta = false), model.settingsShortcut)
         }
+
+    @Test
+    fun `window menu opens session files and folders with separate native choosers`() {
+        val menu = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfFileMenu.kt"),
+        )
+        val page = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/kotlin/com/androidperformancestudio/desktop/SimpleperfMainPage.kt"),
+        )
+        val actions = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopReportActionFactory.kt"),
+        )
+
+        assertTrue(menu.contains("onOpenFolder = onOpenFolder"))
+        assertTrue(page.contains("onOpen = reportActions.onOpenSessionFile"))
+        assertTrue(page.contains("onOpenFolder = reportActions.onOpenSessionFolder"))
+        assertTrue(actions.contains("chooseFile(SESSION_FILE_DIALOG_TITLE)?.let(::openSession)"))
+        assertTrue(actions.contains("chooseDirectory(SESSION_FOLDER_DIALOG_TITLE)?.let(::openSession)"))
+    }
 }

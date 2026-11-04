@@ -11,6 +11,7 @@ import java.nio.file.Path
 import java.nio.file.Files
 import java.util.zip.ZipInputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CancellationException
 
 data class ComposeInspectionPreflight(
     val serial: String,
@@ -154,6 +155,7 @@ class ComposeInjectionManager(
         val privateFiles = appDataRootFileNames.map { "${prepared.appDataDir}/$it" } + "$privateDir/view.jar"
         val stagedFiles = listOf("agent.so", "service.jar", "payload.jar", "view.jar").map { "$staging-$it" }
         val cleanupPrivatePaths = privateFiles.take(3) + privateDir
+        var forwardedPort: Int? = null
         try {
             listOf(
                 prepared.bundle.nativeAgent,
@@ -180,9 +182,11 @@ class ComposeInjectionManager(
             }
             checked(AdbCommandFactory.removeRemote(target.serial, stagedFiles))
             val options = "${privateFiles[1]};${privateFiles[2]};${target.pid};${token.value}"
+            val attachStartedAt = deviceTime(target.serial)
             checked(AdbCommandFactory.attachAgent(target.serial, target.pid, privateFiles[0], options))
-            waitForSocket(target.serial, target.pid)
+            waitForSocket(target.serial, target.pid, attachStartedAt, token)
             val port = portAllocator()
+            forwardedPort = port
             checked(AdbCommandFactory.forward(target.serial, port, socketName(target.pid)))
             return InjectedComposeSession(
                 serial = target.serial,
@@ -197,11 +201,10 @@ class ComposeInjectionManager(
                 cleanupStagedFiles = stagedFiles,
             )
         } catch (error: Throwable) {
-            processRunner.run(AdbCommandFactory.removeRemote(target.serial, stagedFiles))
-            cleanupPrivatePaths.forEach { path ->
-                processRunner.run(AdbCommandFactory.runAsRemoveTree(target.serial, target.packageName, path))
-            }
-            throw error
+            val cleanupCommands = listOfNotNull(forwardedPort?.let { AdbCommandFactory.removeForward(target.serial, it) }) +
+                listOf(AdbCommandFactory.removeRemote(target.serial, stagedFiles)) +
+                cleanupPrivatePaths.map { AdbCommandFactory.runAsRemoveTree(target.serial, target.packageName, it) }
+            throw requireNotNull(cleanupSession(processRunner, cleanupCommands, token, error))
         }
     }
 
@@ -214,16 +217,49 @@ class ComposeInjectionManager(
         }
     }
 
-    private fun waitForSocket(serial: String, pid: Int) {
+    private fun waitForSocket(serial: String, pid: Int, attachStartedAt: String?, token: InspectorSessionToken) {
         val expected = "@${socketName(pid)}"
+        var diagnostics: ComposeAgentAttachDiagnostics? = null
         repeat(10) { attempt ->
             if (checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains(expected)) return
+            if (attempt >= 2) {
+                readAgentDiagnostics(serial, pid, attachStartedAt, token)?.let { diagnostics = it }
+                // The timestamp only has second precision: even bootstrap errors may belong to a
+                // previous attempt. Wait for the socket instead of aborting a valid delayed attach.
+            }
             sleeper((100L shl attempt.coerceAtMost(3)))
         }
+        if (checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains(expected)) return
+        diagnostics?.let { error(attachFailureMessage(pid, it)) }
         error(
             "Timed out waiting for Compose inspector agent socket for PID $pid; check device logcat for " +
                 "ActivityThread or nativeloader attach errors",
         )
+    }
+
+    private fun attachFailureMessage(pid: Int, diagnostics: ComposeAgentAttachDiagnostics): String =
+        "Failed to attach Compose inspector agent (PID $pid): ${diagnostics.summary}\nDevice logcat:\n${diagnostics.logcat}"
+
+    private fun deviceTime(serial: String): String? = try {
+        checked(AdbCommandFactory.readDeviceTime(serial)).stdout.trim().takeIf(String::isNotEmpty)
+    } catch (error: Throwable) {
+        if (error.isControlFailure()) throw error
+        null
+    }
+
+    private fun readAgentDiagnostics(
+        serial: String,
+        pid: Int,
+        since: String?,
+        token: InspectorSessionToken,
+    ): ComposeAgentAttachDiagnostics? {
+        val output = try {
+            checked(AdbCommandFactory.readAgentLogcat(serial, pid, since)).stdout.trim()
+        } catch (error: Throwable) {
+            if (error.isControlFailure()) throw error
+            ""
+        }
+        return composeAgentAttachDiagnostics(output, token)
     }
 
     private fun checked(arguments: List<String>): ProcessResult = processRunner.run(arguments).also { result ->
@@ -271,14 +307,22 @@ class InjectedComposeSession internal constructor(
         require(resolved.identity.sha256 == resolved.jar.sha256()) { "Compose inspector checksum changed after resolution" }
         val staged = "/data/local/tmp/aps-compose-${resolved.identity.sha256.take(16)}.jar"
         val destination = "$privateDirectory/compose-${resolved.identity.sha256.take(16)}.jar"
-        try {
+        val primary = try {
             checked(AdbCommandFactory.push(serial, resolved.jar.toString(), staged))
             checked(AdbCommandFactory.runAsCopy(serial, packageName, staged, destination))
             checked(AdbCommandFactory.runAsChmod(serial, packageName, "444", destination))
-            return destination
-        } finally {
-            processRunner.run(AdbCommandFactory.removeRemote(serial, listOf(staged)))
+            null
+        } catch (error: Throwable) {
+            error
         }
+        cleanupSession(
+            processRunner,
+            listOf(AdbCommandFactory.removeRemote(serial, listOf(staged))),
+            token,
+            primary,
+            checkExitCodes = false,
+        )?.let { throw it }
+        return destination
     }
 
     fun isTargetAlive(): Boolean = processRunner.run(AdbCommandFactory.pidOf(serial, packageName))
@@ -287,16 +331,64 @@ class InjectedComposeSession internal constructor(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        processRunner.run(AdbCommandFactory.removeForward(serial, hostPort))
-        processRunner.run(AdbCommandFactory.removeRemote(serial, cleanupStagedFiles))
         // ART dexopts deployed jars into an oat subdirectory, so remove the session cache tree.
         // The native agent lives at app-data root for Android's linker and is removed separately.
-        cleanupPrivatePaths.forEach { path ->
-            processRunner.run(AdbCommandFactory.runAsRemoveTree(serial, packageName, path))
-        }
+        val commands = listOf(
+            AdbCommandFactory.removeForward(serial, hostPort),
+            AdbCommandFactory.removeRemote(serial, cleanupStagedFiles),
+        ) + cleanupPrivatePaths.map { AdbCommandFactory.runAsRemoveTree(serial, packageName, it) }
+        cleanupSession(processRunner, commands, token, checkExitCodes = false)?.let { throw it }
     }
 
     private fun checked(arguments: List<String>): ProcessResult = processRunner.run(arguments).also { result ->
         if (result.exitCode != 0) throw AdbCommandException(arguments, result)
     }
+}
+
+/** Attempts every owned resource without exposing token-bearing command exceptions. */
+private fun cleanupSession(
+    processRunner: ProcessRunner,
+    commands: List<List<String>>,
+    token: InspectorSessionToken,
+    primary: Throwable? = null,
+    checkExitCodes: Boolean = true,
+): Throwable? {
+    var failure = primary?.let { sanitizedSessionFailure(it, token) }
+    for (arguments in commands) {
+        try {
+            val result = processRunner.run(arguments)
+            if (checkExitCodes && result.exitCode != 0) throw AdbCommandException(arguments, result)
+        } catch (error: Throwable) {
+            val next = sanitizedSessionFailure(error, token)
+            val previous = failure
+            if (previous == null) {
+                failure = next
+            } else if (next !== previous) {
+                // A cleanup cancellation or fatal error must not become an ordinary UI failure.
+                if (next.failurePriority() > previous.failurePriority()) {
+                    next.addSuppressed(previous)
+                    failure = next
+                } else {
+                    previous.addSuppressed(next)
+                }
+            }
+        }
+    }
+    return failure
+}
+
+private fun sanitizedSessionFailure(error: Throwable, token: InspectorSessionToken): Throwable =
+    if (error.isControlFailure()) {
+        error
+    } else {
+        // Do not keep the original cause or suppressed errors: their messages/argv may contain tokens.
+        IllegalStateException(redactAgentToken(error.message ?: error.javaClass.simpleName, token))
+    }
+
+private fun Throwable.isControlFailure(): Boolean = this is CancellationException || this is InterruptedException || this is Error
+
+private fun Throwable.failurePriority(): Int = when {
+    this is Error -> 2
+    isControlFailure() -> 1
+    else -> 0
 }

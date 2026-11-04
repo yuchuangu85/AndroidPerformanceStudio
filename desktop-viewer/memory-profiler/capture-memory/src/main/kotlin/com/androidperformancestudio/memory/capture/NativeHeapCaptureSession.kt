@@ -136,7 +136,6 @@ class NativeHeapCaptureSession(
             ) as? StudioResult.Success
         )?.value
 
-
     private suspend fun runAdb(
         serial: String,
         arguments: List<String>,

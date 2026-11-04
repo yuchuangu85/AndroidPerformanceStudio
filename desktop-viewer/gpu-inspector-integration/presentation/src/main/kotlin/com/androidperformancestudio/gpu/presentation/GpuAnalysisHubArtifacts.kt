@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +36,7 @@ import com.androidperformancestudio.gpu.model.GpuArtifact
 import com.androidperformancestudio.gpu.model.GpuArtifactKind
 import com.androidperformancestudio.gpu.presentation.generated.resources.*
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
@@ -77,7 +77,8 @@ internal fun GpuArtifactRail(
 ) {
     val colors = LocalViewerColors.current
     val visible = filterArtifacts(state.artifacts, state.artifactFilter)
-    StudioPanel(modifier.testTag("gpu-artifact-rail")) {
+    // This inset surrounds child artifact cards; their own content padding remains unchanged.
+    StudioPanel(modifier.testTag("gpu-artifact-rail"), contentPadding = StudioTokens.workspacePadding) {
         StudioPanelHeader(
             title = localizedStringResource(Res.string.gpu_artifacts, language),
             subtitle = localizedStringResource(Res.string.artifact_count, language, state.artifacts.size),
@@ -90,22 +91,23 @@ internal fun GpuArtifactRail(
         )
         when {
             state.artifacts.isEmpty() ->
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.no_gpu_artifacts, language),
                     color = colors.secondaryText,
                     style = ViewerTypography.secondary,
+                    language = language,
                 )
             visible.isEmpty() ->
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.no_matching_artifacts, language),
                     color = colors.secondaryText,
                     style = ViewerTypography.secondary,
+                    language = language,
                 )
             else ->
                 LazyColumn(
                     Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    contentPadding = PaddingValues(vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     items(visible, key = GpuArtifact::id) { artifact ->
                         GpuArtifactCard(
@@ -165,12 +167,13 @@ private fun GpuArtifactCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
+                CopyableText(
                     "${status?.displayName(language) ?: localizedStringResource(Res.string.unavailable, language)} · ${formatArtifactSize(artifact.sizeBytes)}",
                     color = statusColor,
                     style = ViewerTypography.dense,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    language = language,
                 )
             }
         }
@@ -211,10 +214,11 @@ internal fun GpuArtifactTable(
         // The rows scroll inside the bounded table so the shared header stays visible.
         PanelBody(scrollBody) {
             if (state.artifacts.isEmpty()) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.no_gpu_artifacts, language),
                     color = colors.secondaryText,
                     style = ViewerTypography.secondary,
+                    language = language,
                 )
             } else {
                 state.artifacts.forEach { artifact ->
@@ -332,10 +336,11 @@ internal fun GpuArtifactPreview(
         )
         PanelBody(scrollBody) {
             if (artifact == null) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.artifact_preview_empty, language),
                     color = colors.secondaryText,
                     style = ViewerTypography.secondary,
+                    language = language,
                 )
             } else {
                 Row(
@@ -411,10 +416,11 @@ internal fun GpuRelatedEvidence(
         )
         PanelBody(scrollBody) {
             if (related.isEmpty()) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.no_related_evidence, language),
                     color = colors.secondaryText,
                     style = ViewerTypography.secondary,
+                    language = language,
                 )
             } else {
                 relatedEvidenceGroups(related).forEach { (kind, group) ->
@@ -477,11 +483,12 @@ private fun RelatedEvidenceRow(
             overflow = TextOverflow.Ellipsis,
         )
         Text(artifact.capturedAt.displayTimestamp(), color = colors.secondaryText, style = ViewerTypography.secondary, maxLines = 1)
-        Text(
+        CopyableText(
             status?.displayName(language) ?: localizedStringResource(Res.string.unavailable, language),
             color = status.studioColor(colors),
             style = ViewerTypography.secondary,
             maxLines = 1,
+            language = language,
         )
     }
 }
@@ -524,12 +531,13 @@ internal fun GpuToolCapability(
             HorizontalDivider(color = colors.border)
             SectionTitle(localizedStringResource(Res.string.closed_panels_title, language))
             closedPanels(language).forEach { panel ->
-                Text("• $panel", color = colors.warning, style = ViewerTypography.secondary)
+                CopyableText("• $panel", color = colors.warning, style = ViewerTypography.secondary, language = language)
             }
-            Text(
+            CopyableText(
                 localizedStringResource(Res.string.closed_panels_hint, language),
                 color = colors.secondaryText,
                 style = ViewerTypography.secondary,
+                language = language,
             )
         }
     }

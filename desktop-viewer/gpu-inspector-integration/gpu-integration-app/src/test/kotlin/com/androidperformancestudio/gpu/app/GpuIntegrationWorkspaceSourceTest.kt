@@ -24,6 +24,12 @@ class GpuIntegrationWorkspaceSourceTest {
         assertTrue(mainPage.contains("onNavigateHome = onBack"))
         assertTrue(mainPage.contains("GpuAnalysisHubScreen("))
         assertFalse(mainPage.contains("import androidx.compose.material3.Button"))
+        assertTrue(mainPage.contains("GpuAnalysisToolbar("))
+        val header = mainPage.substringAfter("HeaderToolbar(").substringBefore("HorizontalDivider(")
+        assertTrue(header.contains("GpuAnalysisToolbar("))
+        assertTrue(header.indexOf("GpuAnalysisToolbar(") < header.indexOf("refresh_agi"))
+        assertTrue(header.indexOf("refresh_agi") < header.indexOf("configure_agi"))
+        assertFalse(mainPage.contains("Spacer(Modifier.weight(1f))"))
     }
 
     @Test

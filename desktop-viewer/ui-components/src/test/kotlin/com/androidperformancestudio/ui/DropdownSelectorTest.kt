@@ -22,6 +22,31 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class DropdownSelectorTest {
     @Test
+    fun `shared title bar label does not replace page choices`() =
+        runDesktopComposeUiTest {
+            var selected by mutableStateOf<String?>(null)
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    DropdownSelector(
+                        items = listOf("com.example.app", "com.other.app"),
+                        selectedItem = selected,
+                        onItemSelected = { selected = it },
+                        itemLabel = { it },
+                        placeholder = "Process",
+                        selectorDescription = "Process selector",
+                        displayTextOverride = "com.shared.app",
+                    )
+                }
+            }
+
+            onNodeWithText("com.shared.app").assertExists()
+            onNodeWithContentDescription("Process selector").performClick()
+            onNodeWithText("com.other.app").performClick()
+            assertEquals("com.other.app", selected)
+            onNodeWithText("com.shared.app").assertExists()
+        }
+
+    @Test
     fun `nested viewer theme inherits the enclosing selected accent`() =
         runDesktopComposeUiTest {
             val accent = Color(0xFFD4042D)
@@ -134,6 +159,28 @@ class DropdownSelectorTest {
             onNodeWithTag("dropdown-selector-search").performTextInput("CAMERA")
             onNodeWithText("Camera").assertIsNotEnabled()
             onNodeWithText("Maps").assertDoesNotExist()
+        }
+
+    @Test
+    fun `empty searchable dropdown opens with a no-options hint instead of ignoring the click`() =
+        runDesktopComposeUiTest {
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    DropdownSelector(
+                        items = emptyList<String>(),
+                        selectedItem = null,
+                        onItemSelected = {},
+                        itemLabel = { it },
+                        placeholder = "Process",
+                        selectorDescription = "Process selector",
+                        searchable = true,
+                    )
+                }
+            }
+
+            onNodeWithContentDescription("Process selector").performClick()
+            onNodeWithTag("dropdown-selector-search").assertExists()
+            onNodeWithText("No options available yet").assertExists()
         }
 
     @Test

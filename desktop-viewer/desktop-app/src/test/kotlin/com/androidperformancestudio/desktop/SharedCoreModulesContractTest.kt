@@ -143,12 +143,17 @@ class SharedCoreModulesContractTest {
     @Test
     fun `profiler business modules never construct adb processes directly`() {
         val desktopViewer = Path.of("..").toAbsolutePath().normalize()
-        val allowed = desktopViewer.resolve("platform-core/host-toolchain/src/main/kotlin/com/androidperformancestudio/platform/toolchain/HostProcessRunner.kt")
+        val allowed = setOf(
+            desktopViewer.resolve("platform-core/host-toolchain/src/main/kotlin/com/androidperformancestudio/platform/toolchain/HostProcessRunner.kt"),
+            // This independent provider transport is not a profiler ADB gateway. Its readBounded
+            // helper otherwise triggers the deliberately broad case-insensitive ADB source guard.
+            desktopViewer.resolve("ai-platform/ai-platform-providers/src/main/kotlin/com/androidperformancestudio/aiplatform/providers/ControlledProviderProcess.kt"),
+        )
         val offenders =
             Files.walk(desktopViewer).use { paths ->
                 paths
                     .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") && it.toString().contains("/src/main/") }
-                    .filter { it != allowed }
+                    .filter { it !in allowed }
                     .filter {
                         val source = Files.readString(it)
                         source.contains("ProcessBuilder(") && source.contains("adb", ignoreCase = true)
@@ -200,7 +205,7 @@ class SharedCoreModulesContractTest {
         listOf("macos-x64", "macos-arm64", "linux-x64", "linux-arm64", "windows-x64").forEach { host ->
             assertTrue(manifest.contains("\"$host\""), "Manifest missing $host")
         }
-        assertTrue(manifest.contains("\"version\": \"v57.2\""))
+        assertTrue(manifest.contains("\"version\": \"v59.1\""))
         assertTrue(packaging.contains("JsonSlurper().parse(manifestFile)"))
         assertFalse(packaging.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))
         assertFalse(resolver.contains("c0f61397901da47cbe1bb9a0843624f7c2038ac92176ce15e3736ce9aa0afef0"))

@@ -2,8 +2,14 @@
 <resources>
     <string name="diff_view">差异</string>
     <string name="native_heap_view">Native 堆</string>
+    <string name="sampled_art_view">ART 采样</string>
+    <string name="record_sampled_art">录制 ART 分配采样</string>
+    <string name="menu_import_sampled_art">导入 ART 采样轨迹…</string>
+    <string name="export_sampled_art_trace">导出 ART 采样轨迹</string>
+    <string name="recording_sampled_art_allocations">正在录制 %1$s 的 ART 分配采样…</string>
+    <string name="sampled_art_capture_failed">ART 分配采样失败</string>
     <string name="bitmap_dump_view">Bitmap</string>
-    <string name="dashboard_view">泄漏与位图</string>
+    <string name="dashboard_view">概览</string>
     <string name="class_list_view">类列表</string>
     <string name="dominators_view">支配树</string>
     <string name="file">文件</string>
@@ -58,11 +64,14 @@
     <string name="no_heap_objects_parsed">未能从 %1$s 解析出堆对象。该文件可能使用了不受支持的 HPROF 记录，或不包含堆转储。</string>
     <string name="install_sdk_platform_tools">请安装 SDK Platform Tools，或配置 ANDROID_HOME/ANDROID_SDK_ROOT 以使 adb 可用。</string>
     <string name="hprof_parser_out_of_memory">解析器分析此文件时内存不足。请尝试关闭其他工作区，或增大桌面应用的最大堆内存。</string>
-    <string name="memory_leaks_view">内存泄漏</string>
-    <string name="analyzing_memory_leaks">正在分析内存泄漏…</string>
-    <string name="memory_leaks_analysis_failed">内存泄漏分析失败</string>
+    <string name="memory_leaks_view">泄漏分析</string>
+    <string name="analyzing_memory_leaks">正在进行泄漏分析…</string>
+    <string name="memory_leaks_analysis_failed">泄漏分析失败</string>
     <string name="connecting_leak_canary_agent">正在连接 LeakCanary Agent…</string>
     <string name="monitoring_leak_canary">正在监听 LeakCanary 事件…</string>
     <string name="inject_leak_canary_agent">注入 Agent</string>
     <string name="choose_android_project">选择 Android 工程</string>
+    <string name="menu_import_mapping">ProGuard/R8 映射…</string>
+    <string name="menu_import_native_heap">Native 堆追踪…</string>
+    <string name="menu_import_java_heap">Java 堆…</string>
 </resources>

@@ -23,6 +23,9 @@ class StartupProfilerWorkspaceSourceTest {
         }
         assertTrue(toolbar.contains("ProfilerToolbarStatus("))
         assertTrue(toolbar.contains("SelectionContainer"))
+        assertTrue(toolbar.contains("StartupTargetSelectors("))
+        assertTrue(toolbar.contains("TitleBarRefreshOrInline("))
+        assertTrue(toolbar.contains("onRefresh = actions.onRefresh"))
         assertFalse(toolbar.contains("DropdownSelector"))
         assertFalse(toolbar.contains("Checkbox"))
         assertFalse(toolbar.contains("onStartStop"))
@@ -36,6 +39,52 @@ class StartupProfilerWorkspaceSourceTest {
         assertFalse(source.contains("import androidx.compose.material3.Button"))
         assertTrue(source.contains("StartupProfilerScreen("))
         assertTrue(source.contains("actions = actions"))
+    }
+
+    @Test
+    fun `target selectors publish into the title bar and keep ordered standalone fallbacks`() {
+        val toolbar = toolbarSource()
+        val selectors = toolbar.indexOf("StartupTargetSelectors(")
+        val firstAction = toolbar.indexOf("ProfilerCompactButton(")
+        assertTrue(selectors >= 0 && selectors < firstAction)
+
+        val controls =
+            Files.readString(
+                Path.of(
+                    "..",
+                    "presentation/src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt",
+                ),
+            )
+        val selectorStart = controls.indexOf("public fun StartupTargetSelectors(")
+        val selectorEnd = controls.indexOf("@Composable", selectorStart)
+        val selectorsSource = controls.substring(selectorStart, selectorEnd)
+        val device = selectorsSource.indexOf("testTag(\"startup-device\")")
+        val target = selectorsSource.indexOf("testTag(\"startup-target\")")
+        assertTrue(device >= 0, "The header must expose the device selector")
+        assertTrue(target > device, "Device must come before the application selector")
+        assertTrue(selectorsSource.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selectorsSource.contains("ActiveTitleBarTarget("))
+        assertTrue(selectorsSource.contains("selectedId = state.selectedComponentName"))
+
+        val scenario = controls.substringAfter("internal fun StartupScenarioControls(")
+        assertFalse(scenario.contains("testTag(\"startup-device\")"))
+        assertFalse(scenario.contains("testTag(\"startup-target\")"))
+    }
+
+    @Test
+    fun `start button reuses the shared compact action style`() {
+        val controls =
+            Files.readString(
+                Path.of(
+                    "..",
+                    "presentation/src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt",
+                ),
+            )
+        assertFalse(controls.contains("import androidx.compose.material3.Button"))
+        assertTrue(controls.contains("ProfilerCompactButton("))
+        assertTrue(controls.contains("Modifier.padding(start = 14.dp).testTag(\"startup-start-stop\")"))
+        assertFalse(controls.contains("▶"))
+        assertFalse(controls.contains("■"))
     }
 
     @Test
@@ -74,6 +123,12 @@ class StartupProfilerWorkspaceSourceTest {
         val navigateStart = source.indexOf("onNavigateHome =")
         val navigate = source.substring(source.blockRangeStartingAt(navigateStart))
         assertTrue(navigate.indexOf("experimentJob?.cancel()") < navigate.indexOf("onBack()"))
+    }
+
+    @Test
+    fun `startup launch and compilation confirmation do not require a matching running process`() {
+        assertFalse(source.contains("packageReady("))
+        assertTrue(source.contains("targetHost?.deviceReady(state.selectedDeviceSerial)"))
     }
 
     @Test

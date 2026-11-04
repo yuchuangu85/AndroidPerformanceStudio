@@ -84,12 +84,6 @@ internal fun TimelineReport(
         )
     val tracks = report.firefoxTimelineTracks()
     val groups = tracks.groupBy(ThreadTimelineTrack::processId).toSortedMap()
-    val defaultSelectedTrackId =
-        groups.values
-            .firstOrNull()
-            ?.firefoxOrderedTracks()
-            ?.firstOrNull()
-            ?.id
     val shortcutFocusRequester = remember { FocusRequester() }
 
     fun navigate(action: NavigationAction) {
@@ -133,7 +127,7 @@ internal fun TimelineReport(
                     FirefoxThreadTrack(
                         track = global,
                         local = false,
-                        selected = global.isFirefoxSelected(state, defaultSelectedTrackId),
+                        selected = global.isFirefoxSelected(state),
                         viewport = viewport,
                         previewRange = state.callStackQuery.previewRange,
                         style = style,
@@ -153,7 +147,7 @@ internal fun TimelineReport(
                             FirefoxThreadTrack(
                                 track = local,
                                 local = true,
-                                selected = local.isFirefoxSelected(state, defaultSelectedTrackId),
+                                selected = local.isFirefoxSelected(state),
                                 viewport = viewport,
                                 previewRange = state.callStackQuery.previewRange,
                                 style = style,
@@ -449,7 +443,9 @@ private fun FirefoxTrackGraph(
             onRangePreview = { range ->
                 actions.onFlamePreviewRange(AnalysisTimeRange(range.startNanos, range.endNanosExclusive))
             },
-            onRangeCommit = { range -> actions.onTimeRange(range.startNanos, range.endNanosExclusive) },
+            onRangeCommit = { range ->
+                actions.onFlamePreviewRange(AnalysisTimeRange(range.startNanos, range.endNanosExclusive))
+            },
             onRangeCancel = actions.onCancelFlamePreview,
             modifier = Modifier.fillMaxWidth().height(FIREFOX_ACTIVITY_GRAPH_HEIGHT),
         )
@@ -515,15 +511,7 @@ private fun List<ThreadTimelineTrack>.firefoxOrderedTracks(): List<ThreadTimelin
             ).toList()
 }
 
-private fun ThreadTimelineTrack.isFirefoxSelected(
-    state: ReportState,
-    defaultSelectedTrackId: String?,
-): Boolean =
-    if (state.filter.threadIds.isEmpty()) {
-        id == defaultSelectedTrackId
-    } else {
-        threadId in state.filter.threadIds
-    }
+private fun ThreadTimelineTrack.isFirefoxSelected(state: ReportState): Boolean = threadId in state.filter.threadIds
 
 private fun formatFirefoxTimelineTime(nanos: Long): String {
     val absolute = kotlin.math.abs(nanos)

@@ -1,20 +1,16 @@
 package com.androidperformancestudio.perfetto.app
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
-import com.androidperformancestudio.perfetto_app.generated.resources.clear_menu
-import com.androidperformancestudio.perfetto_app.generated.resources.export
-import com.androidperformancestudio.perfetto_app.generated.resources.file
-import com.androidperformancestudio.perfetto_app.generated.resources.no_recent_files
 import com.androidperformancestudio.perfetto_app.generated.resources.open_in_local_perfetto_ui
-import com.androidperformancestudio.perfetto_app.generated.resources.open_recent
-import com.androidperformancestudio.perfetto_app.generated.resources.open_u2026
 import com.androidperformancestudio.perfetto_app.generated.resources.raw_trace_pftrace
 import com.androidperformancestudio.perfetto_app.generated.resources.session_package_zip
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.ActivePageMenu
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.MenuShortcuts
+import com.androidperformancestudio.ui.PageMenu
+import com.androidperformancestudio.ui.RecentMenu
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
@@ -33,32 +29,41 @@ internal fun FrameWindowScope.PerfettoFileMenuBar(
     onOpenRecent: (Path) -> Unit,
     onClearRecent: () -> Unit,
 ) {
-    val isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true)
-    val openShortcut = KeyShortcut(Key.O, ctrl = !isMacOs, meta = isMacOs)
-
-    ActiveWindowMenuBar {
-        Menu(localizedStringResource(Res.string.file, language)) {
-            Item(localizedStringResource(Res.string.open_u2026, language), shortcut = openShortcut, onClick = onOpen)
-            Item(
-                localizedStringResource(Res.string.open_in_local_perfetto_ui, language),
-                enabled = canOpenLocalPerfettoUi,
-                onClick = onOpenInLocalPerfettoUi,
-            )
-            Menu(localizedStringResource(Res.string.export, language)) {
-                Item(localizedStringResource(Res.string.session_package_zip, language), enabled = canExport, onClick = onExportSession)
-                Item(localizedStringResource(Res.string.raw_trace_pftrace, language), enabled = canExport, onClick = onExportRawTrace)
-            }
-            Menu(localizedStringResource(Res.string.open_recent, language)) {
-                if (recentFiles.isEmpty()) {
-                    Item(localizedStringResource(Res.string.no_recent_files, language), enabled = false, onClick = {})
-                } else {
-                    recentFiles.forEach { path ->
-                        Item(path.fileName?.toString() ?: path.toString(), onClick = { onOpenRecent(path) })
-                    }
-                    Separator()
-                    Item(localizedStringResource(Res.string.clear_menu, language), onClick = onClearRecent)
-                }
-            }
-        }
-    }
+    ActivePageMenu(
+        PageMenu(
+            onOpen = onOpen,
+            extraOpenItems =
+                listOf(
+                    MenuCommand(
+                        localizedStringResource(Res.string.open_in_local_perfetto_ui, language),
+                        enabled = canOpenLocalPerfettoUi,
+                        onClick = onOpenInLocalPerfettoUi,
+                    ),
+                ),
+            recent =
+                RecentMenu(
+                    items =
+                        recentFiles.map { path ->
+                            MenuCommand(path.fileName?.toString() ?: path.toString()) { onOpenRecent(path) }
+                        },
+                    onClear = onClearRecent,
+                ),
+            exportGroups =
+                listOf(
+                    listOf(
+                        MenuCommand(
+                            localizedStringResource(Res.string.session_package_zip, language),
+                            enabled = canExport,
+                            shortcut = MenuShortcuts.export(),
+                            onClick = onExportSession,
+                        ),
+                        MenuCommand(
+                            localizedStringResource(Res.string.raw_trace_pftrace, language),
+                            enabled = canExport,
+                            onClick = onExportRawTrace,
+                        ),
+                    ),
+                ),
+        ),
+    )
 }

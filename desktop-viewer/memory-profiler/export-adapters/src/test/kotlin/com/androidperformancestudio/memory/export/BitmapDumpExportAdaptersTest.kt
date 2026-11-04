@@ -37,6 +37,10 @@ class BitmapDumpExportAdaptersTest {
         assertContains(gallery, "color:${ViewerDocumentTheme.primaryText}")
         assertContains(gallery, "background:${ViewerDocumentTheme.raisedSurface}")
         assertContains(gallery, "background:${ViewerDocumentTheme.imageSurface}")
+        assertContains(gallery, "font-size:${ViewerDocumentTheme.bodyFontSize}")
+        assertContains(gallery, "h1{font-size:${ViewerDocumentTheme.titleFontSize}}")
+        assertContains(gallery, ".item div{font-size:${ViewerDocumentTheme.supportingFontSize}}")
+        assertContains(gallery, "input,select{font:inherit}")
         ZipFile(zip.toFile()).use { archive ->
             assertTrue(archive.getEntry("bitmap.raw.hprof") != null)
             assertTrue(archive.getEntry("images/0001_1x1.png") != null)

@@ -17,13 +17,34 @@ class ProguardMapping(
     val obfuscatedToOriginal: Map<String, String>,
 ) {
     val originalToObfuscated: Map<String, String> by lazy {
-        obfuscatedToOriginal.entries.associate { (obfuscated, original) -> original to obfuscated }
+        obfuscatedToOriginal.entries
+            .groupBy({ it.value }, { it.key })
+            .mapNotNull { (original, obfuscated) ->
+                obfuscated.singleOrNull()?.let { original to it }
+            }.toMap()
     }
 
     val isEmpty: Boolean
         get() = obfuscatedToOriginal.isEmpty()
 
     fun originalName(obfuscated: String): String = obfuscatedToOriginal[obfuscated] ?: obfuscated
+
+    /** Resolve a raw HPROF/Trace Processor class name, including Java and descriptor arrays. */
+    fun originalClassName(rawName: String): String {
+        val arraySuffix = rawName.takeLastWhile { it == '[' || it == ']' }
+        if (arraySuffix.isNotEmpty() && arraySuffix.length % 2 == 0) {
+            return originalName(rawName.dropLast(arraySuffix.length)) + arraySuffix
+        }
+        val dimensions = rawName.takeWhile { it == '[' }
+        if (dimensions.isNotEmpty() && rawName.startsWith("${dimensions}L") && rawName.endsWith(';')) {
+            val descriptorName = rawName.substring(dimensions.length + 1, rawName.length - 1)
+            val usesSlashes = '/' in descriptorName
+            val dotted = descriptorName.replace('/', '.')
+            val original = originalName(dotted).let { if (usesSlashes) it.replace('.', '/') else it }
+            return "${dimensions}L$original;"
+        }
+        return originalName(rawName)
+    }
 
     fun obfuscatedName(original: String): String? = originalToObfuscated[original]
 }
@@ -74,35 +95,19 @@ object ProguardMappingParser {
 /** Returns a copy of the dump with class names resolved back to their pre-obfuscation names. */
 fun HeapDump.withDeobfuscation(mapping: ProguardMapping): HeapDump {
     if (mapping.isEmpty) return this
-
-    fun remap(name: String): String {
-        val arraySuffix = name.takeLastWhile { it == '[' || it == ']' }
-        if (arraySuffix.isNotEmpty() && arraySuffix.length % 2 == 0) {
-            return mapping.originalName(name.dropLast(arraySuffix.length)) + arraySuffix
-        }
-        val dimensions = name.takeWhile { it == '[' }
-        if (dimensions.isNotEmpty() && name.startsWith("${dimensions}L") && name.endsWith(';')) {
-            val descriptorName = name.substring(dimensions.length + 1, name.length - 1)
-            val usesSlashes = '/' in descriptorName
-            val dotted = descriptorName.replace('/', '.')
-            val original = mapping.originalName(dotted).let { if (usesSlashes) it.replace('.', '/') else it }
-            return "${dimensions}L$original;"
-        }
-        return mapping.originalName(name)
-    }
     return copy(
-        classes = classes.map { it.copy(name = remap(it.name)) },
+        classes = classes.map { it.copy(name = mapping.originalClassName(it.name)) },
         instances =
             instances.map { instance ->
                 instance.copy(
-                    className = remap(instance.className),
+                    className = mapping.originalClassName(instance.className),
                     references =
                         instance.references.map { reference ->
-                            reference.copy(targetClassName = remap(reference.targetClassName))
+                            reference.copy(targetClassName = mapping.originalClassName(reference.targetClassName))
                         },
                 )
             },
-        objectArrays = objectArrays.map { it.copy(className = remap(it.className)) },
+        objectArrays = objectArrays.map { it.copy(className = mapping.originalClassName(it.className)) },
         // Primitive-array class names are type descriptors (byte[], int[], ...) and never obfuscate.
     )
 }

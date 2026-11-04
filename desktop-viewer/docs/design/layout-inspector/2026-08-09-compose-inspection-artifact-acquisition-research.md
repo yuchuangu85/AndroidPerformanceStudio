@@ -2,6 +2,17 @@
 
 Date: 2026-08-09
 
+## Current APS build (2026-10-30)
+
+The current [Agent Bundle contract](../../../layout-inspector/compose-inspection-host/AGENT_BUNDLE.md)
+builds all four artifacts inside this repository without an Android Studio installation or a full
+AOSP/Bazel workspace. Use that contract and the [Development guide](../../architecture/DEVELOPMENT.md)
+for the active build and packaging path. The full-checkout Bazel instructions and APS build/distribution
+recommendations below are the original research context; the Bazel path is now an optional upstream
+cross-check, not a prerequisite. APS does not download or hot-update Agent code at runtime. The exact
+Compose Inspector version, auditable provenance, checksums, signatures, ABI validation, and license/
+NOTICE/SBOM requirements in this research remain applicable.
+
 ## Conclusion
 
 - **AOSP UI Inspector Agent Bundle:** there is no documented public prebuilt bundle or Google Maven coordinate for the four artifacts required here. AOSP publishes the source and Bazel targets; the auditable acquisition path is therefore to build them at a pinned `platform/tools/base` revision, then publish APS's own signed, checksummed bundle. Do not treat files copied from an Android Studio installation as a stable distribution API.

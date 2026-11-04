@@ -53,7 +53,6 @@ class NativeViewerMenuBarTest {
             isMacOs = true,
         )
 
-        assertEquals("操作", model.actionsTitle)
         assertEquals(
             ViewerActionMenu.items(language).map { it.action },
             model.actions.map { it.action },
@@ -73,7 +72,6 @@ class NativeViewerMenuBarTest {
             "显示布局 ID",
             model.actions.single { it.action == ViewerAction.TOGGLE_HIERARCHY_IDS }.label,
         )
-        assertEquals("视图", model.viewTitle)
         assertEquals(
             listOf(
                 ViewDisplayOption.HIDE_INVISIBLE_HIERARCHY_VIEWS,
@@ -96,78 +94,11 @@ class NativeViewerMenuBarTest {
         )
         assertEquals(listOf(0, 0, 0, 1, 2), model.viewItems.map { it.group })
         assertEquals(listOf(true, false, true, true, true), model.viewItems.map { it.checked })
-        assertEquals("文件", model.fileTitle)
-        assertEquals("导入归档", model.importLabel)
-        assertEquals("导入截图", model.importScreenshotLabel)
-        assertEquals("导出", model.exportLabel)
-        assertNull(model.settingsLabel)
-        assertTrue(model.importEnabled)
+        assertEquals("截图…", model.importScreenshotLabel)
+        assertEquals("采集归档…", model.exportArchiveLabel)
+        assertTrue(model.openEnabled)
         assertTrue(model.importScreenshotEnabled)
         assertTrue(model.exportEnabled)
-    }
-
-    @Test
-    fun `native file menu pads short localized labels to a minimum width`() {
-        val model = NativeViewerMenuModel(
-            language = UiLanguage.SIMPLIFIED_CHINESE,
-            selectedNodeId = null,
-            autoScanEnabled = false,
-            panelVisibility = PanelVisibility(),
-            viewDisplayOptions = ViewDisplayOptions(),
-            archiveOperationInProgress = false,
-            canExportArchive = true,
-            canImportScreenshot = true,
-            isMacOs = false,
-        )
-
-        assertTrue(model.importMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
-        assertTrue(model.importScreenshotMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
-        assertTrue(model.exportMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
-        val settingsMenuText = checkNotNull(model.settingsMenuText)
-        val settingsLabel = checkNotNull(model.settingsLabel)
-        assertTrue(settingsMenuText.length >= NATIVE_MENU_ITEM_MIN_TEXT_COLUMNS)
-        assertTrue(model.importMenuText.startsWith(model.importLabel))
-        assertTrue(model.importScreenshotMenuText.startsWith(model.importScreenshotLabel))
-        assertTrue(model.exportMenuText.startsWith(model.exportLabel))
-        assertTrue(settingsMenuText.startsWith(settingsLabel))
-    }
-
-    @Test
-    fun `native file shortcuts use the host primary modifier`() {
-        val macModel = NativeViewerMenuModel(
-            language = UiLanguage.ENGLISH,
-            selectedNodeId = null,
-            autoScanEnabled = false,
-            panelVisibility = PanelVisibility(),
-            viewDisplayOptions = ViewDisplayOptions(),
-            archiveOperationInProgress = false,
-            canExportArchive = true,
-            canImportScreenshot = true,
-            isMacOs = true,
-        )
-        val windowsModel = NativeViewerMenuModel(
-            language = UiLanguage.ENGLISH,
-            selectedNodeId = null,
-            autoScanEnabled = false,
-            panelVisibility = PanelVisibility(),
-            viewDisplayOptions = ViewDisplayOptions(),
-            archiveOperationInProgress = false,
-            canExportArchive = true,
-            canImportScreenshot = true,
-            isMacOs = false,
-        )
-
-        assertEquals(NativeMenuShortcut(Key.I, ctrl = false, meta = true), macModel.importShortcut)
-        assertNull(macModel.importScreenshotShortcut)
-        assertEquals(NativeMenuShortcut(Key.E, ctrl = false, meta = true), macModel.exportShortcut)
-        assertNull(macModel.settingsLabel)
-        assertNull(macModel.settingsMenuText)
-        assertNull(macModel.settingsShortcut)
-        assertEquals(NativeMenuShortcut(Key.I, ctrl = true, meta = false), windowsModel.importShortcut)
-        assertNull(windowsModel.importScreenshotShortcut)
-        assertEquals(NativeMenuShortcut(Key.E, ctrl = true, meta = false), windowsModel.exportShortcut)
-        assertEquals("Settings", windowsModel.settingsLabel)
-        assertEquals(NativeMenuShortcut(Key.Comma, ctrl = true, meta = false), windowsModel.settingsShortcut)
     }
 
     @Test
@@ -199,7 +130,7 @@ class NativeViewerMenuBarTest {
             isMacOs = false,
         )
 
-        assertFalse(model.importEnabled)
+        assertFalse(model.openEnabled)
         assertFalse(model.importScreenshotEnabled)
         assertFalse(model.exportEnabled)
     }
@@ -218,8 +149,22 @@ class NativeViewerMenuBarTest {
             isMacOs = false,
         )
 
-        assertTrue(model.importEnabled)
+        assertTrue(model.openEnabled)
         assertFalse(model.importScreenshotEnabled)
         assertFalse(model.exportEnabled)
+    }
+
+    @Test
+    fun `panel toggles live in View and inspector actions in Tools`() {
+        val source = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/kotlin/com/androidperformancestudio/desktop/NativeViewerMenuBar.kt"),
+        )
+
+        assertTrue(source.contains("ActivePageMenu("))
+        assertTrue(source.contains("onOpen = onImportArchive"))
+        assertTrue(source.contains("panelActions.forEach { item -> ActionMenuItem(item, onAction) }"))
+        assertTrue(source.contains("it.action != ViewerAction.OPEN_SETTINGS"))
+        // Open uses the window's shared Cmd/Ctrl+O; the old Cmd/Ctrl+I import shortcut is gone.
+        assertFalse(source.contains("Key.I"))
     }
 }

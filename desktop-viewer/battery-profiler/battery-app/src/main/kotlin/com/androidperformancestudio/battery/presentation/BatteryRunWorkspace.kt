@@ -131,6 +131,7 @@ import com.androidperformancestudio.battery.model.BatteryRun
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatterySnapshot
 import com.androidperformancestudio.battery.model.EvidenceConfidence
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -158,10 +159,10 @@ internal fun BatteryRunWorkspace(
     val names = items.associate { it.id to itemName(it, language) }
     val visible = items.filter { it.matches(query, names.getValue(it.id)) }
     val selected = visible.firstOrNull { it.id == selectedId } ?: visible.firstOrNull()
-    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             if (maxWidth >= 860.dp) {
-                Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     BatterySnapshotChart(capturedRun, language, Modifier.weight(1f))
                     BatteryHistoryChart(run.history, language, Modifier.weight(1f)) { index ->
                         tab = BatteryResourceTab.HISTORY
@@ -170,7 +171,7 @@ internal fun BatteryRunWorkspace(
                     }
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     BatterySnapshotChart(capturedRun, language, Modifier.fillMaxWidth())
                     BatteryHistoryChart(run.history, language, Modifier.fillMaxWidth()) { index ->
                         tab = BatteryResourceTab.HISTORY
@@ -216,7 +217,7 @@ internal fun BatteryRunWorkspace(
             )
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 if (maxWidth >= 860.dp) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                         BatteryEvidenceTable(
                             visible,
                             names,
@@ -227,7 +228,7 @@ internal fun BatteryRunWorkspace(
                         BatteryEvidenceInspector(selected, language, Modifier.width(290.dp))
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                         BatteryEvidenceTable(
                             visible,
                             names,
@@ -261,7 +262,7 @@ private fun BatterySnapshotChart(
             subtitle = localizedStringResource(Res.string.bw_snapshot_clock, language),
         )
         if (samples.isEmpty()) {
-            Text(localizedStringResource(Res.string.bw_no_snapshots, language), Modifier.heightIn(min = 110.dp))
+            CopyableText(localizedStringResource(Res.string.bw_no_snapshots, language), Modifier.heightIn(min = 110.dp), language = language)
         } else {
             val start = samples.first().capturedAt
             val span =
@@ -370,9 +371,10 @@ private fun BatterySnapshotChart(
                     Text("▪ $poweredLabel", color = colors.info, style = MaterialTheme.typography.labelSmall)
                 }
                 if (samples.none { sample -> sample.deviceState.levelPercent?.let { it in 0..100 } == true }) {
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.bw_no_level, language),
                         style = MaterialTheme.typography.bodySmall,
+                        language = language,
                     )
                 }
                 Text(
@@ -443,7 +445,7 @@ private fun BatteryHistoryChart(
             subtitle = localizedStringResource(Res.string.bw_history_clock, language),
         )
         if (tracks.isEmpty()) {
-            Text(localizedStringResource(Res.string.bw_empty, language), Modifier.heightIn(min = 110.dp))
+            CopyableText(localizedStringResource(Res.string.bw_empty, language), Modifier.heightIn(min = 110.dp), language = language)
         }
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             tracks.forEach { (kind, events) ->
@@ -496,10 +498,11 @@ private fun BatteryHistoryChart(
                 Text("$end ms", style = MaterialTheme.typography.labelSmall)
             }
         }
-        Text(
+        CopyableText(
             localizedStringResource(Res.string.bw_track_note, language),
             style = MaterialTheme.typography.labelSmall,
             color = colors.secondaryText,
+            language = language,
         )
     }
 }
@@ -529,7 +532,7 @@ private fun BatteryEvidenceTable(
             ) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
                     if (items.isEmpty()) {
-                        Text(localizedStringResource(Res.string.bw_empty, language), Modifier.padding(8.dp))
+                        CopyableText(localizedStringResource(Res.string.bw_empty, language), Modifier.padding(8.dp), language = language)
                     }
                     items.forEach { item ->
                         Row(
@@ -540,7 +543,18 @@ private fun BatteryEvidenceTable(
                                 .clickable { onSelect(item.id) }
                                 .padding(horizontal = 8.dp, vertical = 9.dp),
                         ) {
-                            EvidenceCell(names.getValue(item.id), 2.5f)
+                            if (item is BatteryWorkspaceItem.Warning) {
+                                CopyableText(
+                                    names.getValue(item.id),
+                                    Modifier.weight(2.5f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    language = language,
+                                )
+                            } else {
+                                EvidenceCell(names.getValue(item.id), 2.5f)
+                            }
                             EvidenceCell(itemValue(item), 1.4f)
                             EvidenceCell(itemCount(item), 0.7f)
                             EvidenceCell(confidenceName(itemConfidence(item), language), 1f)
@@ -561,13 +575,17 @@ private fun BatteryEvidenceInspector(
     StudioPanel(modifier.testTag("battery-evidence-inspector")) {
         StudioPanelHeader(localizedStringResource(Res.string.bw_inspector, language))
         if (item == null) {
-            Text(localizedStringResource(Res.string.bw_select, language), style = MaterialTheme.typography.bodySmall)
+            CopyableText(localizedStringResource(Res.string.bw_select, language), style = MaterialTheme.typography.bodySmall, language = language)
         } else {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 340.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(itemName(item, language), fontWeight = FontWeight.SemiBold)
+                if (item is BatteryWorkspaceItem.Warning) {
+                    CopyableText(itemName(item, language), fontWeight = FontWeight.SemiBold, language = language)
+                } else {
+                    Text(itemName(item, language), fontWeight = FontWeight.SemiBold)
+                }
                 when (item) {
                     is BatteryWorkspaceItem.Timer -> {
                         Detail(Res.string.bw_duration, durationValue(item.timer.durationMs), language)
@@ -578,9 +596,10 @@ private fun BatteryEvidenceInspector(
                             language,
                         )
                         Detail(Res.string.bw_confidence, confidenceName(item.timer.confidence, language), language)
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.bw_timer_note, language),
                             style = MaterialTheme.typography.labelSmall,
+                            language = language,
                         )
                     }
                     is BatteryWorkspaceItem.Energy -> {
@@ -618,9 +637,10 @@ private fun BatteryEvidenceInspector(
                                 localizedStringResource(Res.string.bw_artifact_total, language),
                                 language,
                             )
-                            Text(
+                            CopyableText(
                                 localizedStringResource(Res.string.bw_aggregate_network, language),
                                 style = MaterialTheme.typography.labelSmall,
+                                language = language,
                             )
                         } else {
                             Detail(
@@ -629,16 +649,18 @@ private fun BatteryEvidenceInspector(
                                 language,
                             )
                         }
-                        Text(
+                        CopyableText(
                             localizedStringResource(Res.string.bw_counter_note, language),
                             style = MaterialTheme.typography.labelSmall,
+                            language = language,
                         )
                     }
                     is BatteryWorkspaceItem.Warning ->
-                        Text(
+                        CopyableText(
                             item.message,
                             style = MaterialTheme.typography.bodySmall,
                             color = LocalViewerColors.current.warning,
+                            language = language,
                         )
                 }
             }
@@ -653,7 +675,7 @@ private fun BatteryThermalSummary(
 ) {
     StudioPanel(Modifier.fillMaxWidth()) {
         StudioPanelHeader(localizedStringResource(Res.string.bw_windows, language))
-        Text(
+        CopyableText(
             localizedStringResource(
                 Res.string.thermal_evidence_detail,
                 language,
@@ -662,9 +684,10 @@ private fun BatteryThermalSummary(
                 run.throttledSamples,
             ),
             style = MaterialTheme.typography.bodySmall,
+            language = language,
         )
         run.performanceWindows.forEach { window ->
-            Text(
+            CopyableText(
                 localizedStringResource(
                     Res.string.sustained_performance_window,
                     language,
@@ -674,6 +697,7 @@ private fun BatteryThermalSummary(
                     yesNo(window.throttled, language),
                 ),
                 style = MaterialTheme.typography.bodySmall,
+                language = language,
             )
         }
     }

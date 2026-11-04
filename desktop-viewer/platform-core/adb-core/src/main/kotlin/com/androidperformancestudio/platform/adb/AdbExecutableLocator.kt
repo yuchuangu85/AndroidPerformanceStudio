@@ -17,6 +17,8 @@ enum class AdbLocationSource {
     ANDROID_SDK_ROOT,
     PATH,
     DEFAULT_SDK,
+    BUNDLED,
+    MANAGED_TOOLS,
 }
 
 data class AdbLocation(
@@ -32,6 +34,11 @@ class AdbExecutableLocator(
     private val isUsableExecutable: (Path) -> Boolean = { path ->
         Files.isRegularFile(path) && (isWindows(osName) || Files.isExecutable(path))
     },
+    private val applicationResourcesPath: Path? =
+        System.getProperty("compose.application.resources.dir")?.takeIf(String::isNotBlank)?.let(Path::of),
+    private val managedToolsPath: Path? =
+        System.getProperty("androidperformancestudio.adbToolsDir")?.takeIf(String::isNotBlank)?.let(Path::of),
+    private val osArch: String = System.getProperty("os.arch"),
 ) {
     fun locate(configuration: AdbLocatorConfiguration = AdbLocatorConfiguration()): AdbLocation =
         when {
@@ -75,7 +82,23 @@ class AdbExecutableLocator(
                 .map { it.resolve("platform-tools").resolve(executableName) }
                 .map { AdbLocation(it, AdbLocationSource.DEFAULT_SDK) }
                 .forEach { yield(it) }
+            applicationResourcesPath?.resolve("adb-tools")?.let { root ->
+                bundledCandidate(root, AdbLocationSource.BUNDLED)?.let { yield(it) }
+            }
+            managedToolsPath?.let { root ->
+                bundledCandidate(root, AdbLocationSource.MANAGED_TOOLS)?.let { yield(it) }
+            }
         }.distinctBy { it.executable.normalize() }
+
+    private fun bundledCandidate(
+        root: Path,
+        source: AdbLocationSource,
+    ): AdbLocation? {
+        if (!Files.exists(root)) return null
+        val executable = ManagedAdbBundle(root, osName, osArch).verify()
+        if (!isUsableExecutable(executable)) throw AdbNotExecutableException(executable)
+        return AdbLocation(executable, source)
+    }
 
     private fun sdkCandidate(
         name: String,

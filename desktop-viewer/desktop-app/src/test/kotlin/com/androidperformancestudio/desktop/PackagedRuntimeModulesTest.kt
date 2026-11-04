@@ -18,5 +18,9 @@ class PackagedRuntimeModulesTest {
             buildScript.contains("""modules("java.sql")"""),
             "The minimized runtime must include java.sql for Simpleperf SQLite storage.",
         )
+        assertTrue(
+            buildScript.contains("""modules("java.management")"""),
+            "The minimized runtime must include java.management for AI coroutine CPU metering.",
+        )
     }
 }

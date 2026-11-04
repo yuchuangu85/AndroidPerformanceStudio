@@ -49,7 +49,7 @@ app-desktop
 
 | 决策 | 采用方案 | 理由 | 延后方案 |
 |---|---|---|---|
-| UI 框架 | Compose Multiplatform Desktop/JVM | Desktop 稳定；Android/JVM 生态契合；Canvas/Skia 适合高密度自绘 | Flutter Desktop |
+| UI 框架 | Compose Multiplatform Desktop/JVM | Android/JVM 生态契合；Canvas/Skia 适合高密度自绘 | 平台差异按当前技术栈说明逐项验证，不预设更换框架 |
 | 运行时 | JBR/JDK 21 LTS + 裁剪 runtime | 稳定 LTS；发行包自包含，无需用户安装 JDK | Kotlin/Native |
 | 并发 | kotlinx.coroutines + Flow | 统一取消、进度、后台 I/O/CPU 任务 | 手工线程池 |
 | ADB 集成 | 子进程封装 | 成本低、兼容 SDK 工具链 | 自实现 ADB 协议 |
@@ -142,7 +142,7 @@ V0.1 release candidate 的代码、测试、文档和本机 macOS 发行物已�
 | WBS-093 | 已完成 | `docs/records/release-checklist.md` 分离自动化、真机、三平台安装和签名门禁 |
 | WBS-094 | RC | 功能和本机自动化评审通过；正式 V0.1 仍以 clean CI、真机和签名门禁全勾选为准 |
 
-交互约束补充：Timeline/FlameGraph 导航动作统一由 `visualization` 模块提供，默认采用 Perfetto 风格的 `W/A/S/D` 与 `Ctrl + 鼠标滚轮`。
+当前交互以 [产品契约](../design/product-design.md) 和 [Flame Graph 兼容矩阵](firefox-flame-graph-compatibility.md) 为准；本节保留历史 WBS 实现记录，不作为当前 UI 或验收完成证明。
 
 WBS-008 的可复现任务、原始 JSON 和测量边界见 `docs/records/p0-performance-poc.md`。当前帧指标是交给 Compose Canvas 前的 CPU 侧 viewport/LOD 模型准备耗时；GPU 呈现与真实输入延迟留到 P4 UI 集成时补测。
 
@@ -344,7 +344,7 @@ V0.1 验证重点：
 | 需求文档 | `docs/requirements/requirements.md` |
 | 产品设计文档 | `docs/design/product-design.md` |
 | 开发计划 | `docs/requirements/development-plan.md` |
-| 技术栈调研与 ADR | `docs/design/technology-stack-research.md` |
+| 当前技术栈与运行时约束 | `docs/design/technology-stack-research.md` |
 | 开发跟踪表 | `docs/requirements/simpleperf_client_development_tracker.xlsx` |
 | 安装包 | release artifacts |
 | 示例数据 | test fixtures / sample session package |
@@ -361,7 +361,7 @@ V0.1 验证重点：
 | 符号缺失导致结果不可用 | 中 | unknown 占比高 | 首版引导用户添加 mapping/native libs |
 | UI 渲染卡顿 | 中 | 火焰图节点多、Timeline 点多 | 虚拟化、分层聚合、渐进绘制 |
 | 跨平台 simpleperf 包管理 | 高 | Windows/Linux/macOS executable、权限、路径或版本不一致 | platform-toolchain、工具 manifest、三平台 Golden 验证 |
-| Compose 平台支持缺口 | 高 | Intel Mac 或 Linux 无障碍要求不满足 | 第 1 周 PoC；触发门禁时切换 Flutter Desktop |
+| Compose 平台支持缺口 | 高 | Intel Mac 或 Linux 无障碍要求不满足 | 单列架构和无障碍验证；未通过前不声明支持，是否更换框架另行决策 |
 | 规则误报 | 中 | 诊断结论与证据不一致 | 规则只输出证据型建议，不做绝对根因判断 |
 
 ## 9. Definition of Done
@@ -395,7 +395,7 @@ V0.1 验证重点：
 - Android NDK Simpleperf：https://developer.android.com/ndk/guides/simpleperf
 - AOSP Simpleperf README：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/README.md
 - AOSP Simpleperf View the profile：https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/view_the_profile.md
-- 跨平台技术栈调研：`docs/design/technology-stack-research.md`
+- 当前技术栈与运行时约束：`docs/design/technology-stack-research.md`
 
 ## V0.2-V0.4 implementation status (2026-09-21)
 

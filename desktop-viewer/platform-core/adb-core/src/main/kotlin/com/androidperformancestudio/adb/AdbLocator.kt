@@ -3,6 +3,7 @@ package com.androidperformancestudio.adb
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
+import com.androidperformancestudio.platform.adb.AdbBundleInvalidException
 import com.androidperformancestudio.platform.adb.AdbExecutableLocator
 import com.androidperformancestudio.platform.adb.AdbLocatorConfiguration
 import com.androidperformancestudio.platform.adb.AdbNotExecutableException
@@ -26,6 +27,8 @@ enum class AdbLocationSource {
     ANDROID_SDK_ROOT,
     PATH,
     DEFAULT_SDK,
+    BUNDLED,
+    MANAGED_TOOLS,
 }
 
 data class AdbLocation(
@@ -53,6 +56,7 @@ class SystemAdbLocator(
             osName = platform.operatingSystem.toOsName(),
             pathSeparator = pathSeparator,
             isUsableExecutable = isUsableExecutable,
+            osArch = platform.architecture.resourceName,
         )
 
     fun locate(configuration: AdbConfiguration = AdbConfiguration()): StudioResult<AdbLocation> =
@@ -77,8 +81,16 @@ class SystemAdbLocator(
                             CoreAdbLocationSource.ANDROID_SDK_ROOT -> AdbLocationSource.ANDROID_SDK_ROOT
                             CoreAdbLocationSource.PATH -> AdbLocationSource.PATH
                             CoreAdbLocationSource.DEFAULT_SDK -> AdbLocationSource.DEFAULT_SDK
+                            CoreAdbLocationSource.BUNDLED -> AdbLocationSource.BUNDLED
+                            CoreAdbLocationSource.MANAGED_TOOLS -> AdbLocationSource.MANAGED_TOOLS
                         },
                 ),
+            )
+        } catch (error: AdbBundleInvalidException) {
+            failure(
+                code = "ADB_BUNDLE_INVALID",
+                message = error.message.orEmpty(),
+                cause = error,
             )
         } catch (error: AdbNotExecutableException) {
             val configuredSdk = configuration.androidSdkPath
@@ -95,7 +107,7 @@ class SystemAdbLocator(
         } catch (error: AdbNotFoundException) {
             failure(
                 code = "ADB_NOT_FOUND",
-                message = "adb wasn't found in Android SDK, PATH, or the default SDK directory",
+                message = "adb wasn't found in Android SDK, PATH, the default SDK directory, or application tools",
                 cause = error,
             )
         }

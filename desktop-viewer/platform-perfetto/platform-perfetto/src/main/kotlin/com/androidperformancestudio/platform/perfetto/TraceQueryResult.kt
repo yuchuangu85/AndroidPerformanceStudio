@@ -102,10 +102,13 @@ public data class TraceQuerySchema(
     }
 
     public companion object {
-        public const val PINNED_TRACE_PROCESSOR_VERSION: String = "v57.2"
+        public const val PINNED_TRACE_PROCESSOR_VERSION: String = "v59.1"
 
-        public fun v57_2(vararg columns: TraceColumn<*>): TraceQuerySchema =
+        public fun v59_1(vararg columns: TraceColumn<*>): TraceQuerySchema =
             TraceQuerySchema(PINNED_TRACE_PROCESSOR_VERSION, columns.toList())
+
+        /** Retained for feature adapters; the schema always follows the current pinned processor. */
+        public fun v57_2(vararg columns: TraceColumn<*>): TraceQuerySchema = v59_1(*columns)
     }
 }
 

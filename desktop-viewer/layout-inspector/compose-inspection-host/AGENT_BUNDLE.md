@@ -46,6 +46,20 @@ The runtime never downloads or hot-updates agent code. Only the exact official C
 `inspector.jar` matching the target library version may be resolved and cached after explicit
 authorization.
 
+## Attach diagnostics
+
+An `ActivityThread: Attaching agent with dalvik.system.PathClassLoader...` entry is not the
+complete cause. Android may retry loading with a null classloader after that attempt. APS waits
+for the inspector socket instead of treating the first framework loader message as terminal.
+
+When attachment fails, the warning can be expanded to show selectable, scrollable details.
+The host collects PID-scoped Warning/Error logcat, including ART's `Agent attach failed` reason,
+and redacts inspector session tokens and their session-path prefixes. Command failures are also
+sanitized without retaining secret-bearing causes. The host completes the bounded socket wait even
+after a bootstrap error, because timestamp-scoped logcat can contain older errors from the same
+second. Long diagnostic output is bounded and marked
+when shortened, with its tail retained. These diagnostics do not replace device attach acceptance.
+
 ## Legacy AOSP Bazel path
 
 `tools/build-compose-agent-bundle.sh` builds the same artifacts from a full AOSP Studio checkout. It

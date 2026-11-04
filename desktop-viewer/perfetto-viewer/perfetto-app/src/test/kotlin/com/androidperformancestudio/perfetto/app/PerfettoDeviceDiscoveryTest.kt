@@ -1,12 +1,13 @@
 package com.androidperformancestudio.perfetto.app
 
+import com.androidperformancestudio.adb.AdbConfiguration
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
 import com.androidperformancestudio.model.ErrorCategory
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.perfetto.model.PerfettoDevice
 import com.androidperformancestudio.platform.adb.AdbDeviceState
 import com.androidperformancestudio.platform.adb.AndroidDeviceInfo
 import kotlinx.coroutines.runBlocking
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -122,16 +123,32 @@ class PerfettoDeviceDiscoveryTest {
         }
 
     @Test
-    fun `configured SDK platform tools adb is preferred over PATH lookup`() {
-        val sdk = Files.createTempDirectory("perfetto-sdk")
-        try {
-            val executable = Files.createDirectories(sdk.resolve("platform-tools")).resolve("adb")
-            Files.createFile(executable)
+    fun `configured SDK is passed to shared ADB discovery`() {
+        val sdk = Path.of("configured-sdk")
+        val executable = sdk.resolve("platform-tools/adb")
+        val resolved =
+            defaultPerfettoAdbPath(sdk) { configuration ->
+                assertEquals(AdbConfiguration(androidSdkPath = sdk), configuration)
+                executable
+            }
 
-            assertEquals(executable.toString(), defaultPerfettoAdbPath(sdk, isWindows = false))
-            assertEquals("adb", defaultPerfettoAdbPath(null, isWindows = false))
-        } finally {
-            Files.walk(sdk).sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists)
-        }
+        assertEquals(executable.toString(), resolved)
+    }
+
+    @Test
+    fun `unconfigured SDK delegates to shared ADB discovery instead of requiring adb on PATH`() {
+        val executable = Path.of("/home/test/Library/Android/sdk/platform-tools/adb")
+        val resolved =
+            defaultPerfettoAdbPath(null) { configuration ->
+                assertEquals(AdbConfiguration(), configuration)
+                executable
+            }
+
+        assertEquals(executable.toString(), resolved)
+    }
+
+    @Test
+    fun `default ADB path uses the canonical host resolver`() {
+        assertEquals(defaultAdbCommandExecutable().toString(), defaultPerfettoAdbPath(null))
     }
 }

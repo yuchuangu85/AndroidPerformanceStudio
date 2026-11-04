@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -94,7 +96,7 @@ class ReportWorkspaceBehaviorTest {
                 }
             }
 
-            onNodeWithText("Function / Library").assertExists()
+            onNodeWithText("Library / Path").assertExists()
             onNodeWithText("Navigate").assertExists()
             onNodeWithTag("top-function-row-renderFrame").performClick()
             assertEquals("renderFrame", selected)
@@ -242,11 +244,11 @@ class ReportWorkspaceBehaviorTest {
             assertEquals(2, onAllNodesWithText("/system/lib64/libui.so").fetchSemanticsNodes().size)
             onNodeWithTag("call-tree-row-1").performClick()
             assertEquals(FlameCallNodeId(1), selectedNode)
-            onNodeWithText("renderFrame").assertExists()
+            onNode(hasText("renderFrame") and hasAnyAncestor(hasTestTag("call-tree-list"))).assertExists()
 
             onNodeWithContentDescription("Collapse main").performClick()
 
-            onNodeWithText("renderFrame").assertDoesNotExist()
+            onNode(hasText("renderFrame") and hasAnyAncestor(hasTestTag("call-tree-list"))).assertDoesNotExist()
             onNodeWithContentDescription("Expand main").assertExists()
         }
 
@@ -290,11 +292,12 @@ class ReportWorkspaceBehaviorTest {
         }
 
     @Test
-    fun `Firefox timeline exposes aligned process and thread tracks with selection and range commit`() =
+    fun `Firefox timeline exposes aligned tracks and range dragging previews without committing`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             var selectedThreads = emptySet<Int>()
             var committedRange: Pair<Long?, Long?>? = null
-            val state = sampleReportState()
+            var previewRange: com.androidperformancestudio.profileanalysis.AnalysisTimeRange? = null
+            val state = sampleReportState().let { it.copy(filter = it.filter.copy(threadIds = setOf(7421))) }
             setContent {
                 TimelineReport(
                     state = state,
@@ -303,6 +306,7 @@ class ReportWorkspaceBehaviorTest {
                         goldenActions().copy(
                             onThreads = { selectedThreads = it },
                             onTimeRange = { start, end -> committedRange = start to end },
+                            onFlamePreviewRange = { previewRange = it },
                         ),
                     style = viewerColors(darkTheme = false),
                 )
@@ -324,7 +328,9 @@ class ReportWorkspaceBehaviorTest {
                 moveTo(centerRight)
                 release()
             }
-            assertEquals(true, committedRange?.let { (start, end) -> start != null && end != null && start < end })
+            waitForIdle()
+            assertEquals(null, committedRange)
+            assertEquals(true, previewRange?.let { it.startNanosInclusive < it.endNanosExclusive })
         }
 }
 

@@ -2,9 +2,9 @@ package com.androidperformancestudio.storage
 
 import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.CallStackTable
-import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FrameImplementation
 import com.androidperformancestudio.profileanalysis.WeightedCallStack
+import com.androidperformancestudio.storage.FirefoxSymbolDisplay.FunctionIdentityIndex
 import java.sql.Connection
 import java.sql.ResultSet
 
@@ -19,13 +19,54 @@ internal object SQLiteFlameGraphStackQueries {
                 .replace("/*FILTER*/", filter.whereClause) +
                 " ORDER BY st.sample_id, st.depth DESC"
         val builder = CallStackTableBuilder()
+        val functionIdentities = FunctionIdentityIndex()
         connection.prepareStatement(sql).use { statement ->
             statement.bind(filter.parameters)
             statement.executeQuery().use { result ->
-                while (result.next()) builder.add(result.stackRow())
+                while (result.next()) builder.add(result.stackRow(functionIdentities))
             }
         }
         return builder.build()
+    }
+
+    fun loadTimingSource(
+        connection: Connection,
+        query: ProfileQuery,
+    ): CallStackTable {
+        val filter = query.toSqlFilter("s", "e")
+        val threadKey =
+            if (connection.isLegacySchema()) {
+                "'legacy:' || s.thread_id"
+            } else {
+                "CASE WHEN s.thread_row_id IS NULL THEN 'legacy:' || s.thread_id " +
+                    "ELSE 'canonical:' || s.thread_row_id END"
+            }
+        val sql =
+            "SELECT s.sample_id, s.timestamp_nanos, $threadKey AS thread_key " +
+                "FROM sample s LEFT JOIN event e ON e.event_id=s.event_id ${filter.whereClause} " +
+                "ORDER BY s.sample_id"
+        val stacks =
+            connection.prepareStatement(sql).use { statement ->
+                statement.bind(filter.parameters)
+                statement.executeQuery().use { result ->
+                    buildList {
+                        while (result.next()) {
+                            add(
+                                WeightedCallStack(
+                                    sampleId = result.getLong("sample_id"),
+                                    timestampNanos = result.getLong("timestamp_nanos"),
+                                    weight = 0,
+                                    threadKey = result.getString("thread_key"),
+                                    category = null,
+                                    subcategory = null,
+                                    frameIdsRootToLeaf = emptyList(),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        return CallStackTable(emptyMap(), stacks)
     }
 
     private const val STACK_ROWS_SQL =
@@ -144,7 +185,7 @@ private class CallStackTableBuilder {
 }
 
 @Suppress("MagicNumber")
-private fun ResultSet.stackRow(): FlameStackRow =
+private fun ResultSet.stackRow(functionIdentities: FunctionIdentityIndex): FlameStackRow =
     FlameStackRow(
         sampleId = getLong(1),
         timestampNanos = getLong(2),
@@ -152,30 +193,31 @@ private fun ResultSet.stackRow(): FlameStackRow =
         threadKey = getString(4),
         category = getString(5),
         subcategory = getString(6),
-        frame = callStackFrameOrNull(),
+        frame = callStackFrameOrNull(functionIdentities),
     )
 
 @Suppress("MagicNumber")
-private fun ResultSet.callStackFrameOrNull(): CallStackFrame? {
+private fun ResultSet.callStackFrameOrNull(functionIdentities: FunctionIdentityIndex): CallStackFrame? {
     val frameId = getNullableLong(8)
-    val functionId = getNullableLong(9)
+    val sourceSymbolId = getNullableLong(9)
     val symbolName = getString(10)
     val resource = getString(11)
     val virtualAddress = getNullableLong(12)
     val executionType = getString(13)
-    val identityComplete = frameId != null && functionId != null
+    val identityComplete = frameId != null && sourceSymbolId != null
     val namingComplete = symbolName != null && resource != null
     val metadataComplete = virtualAddress != null && executionType != null
     return if (identityComplete && namingComplete && metadataComplete) {
+        val displayName =
+            firefoxCompatibleSymbolName(
+                symbolName = requireNotNull(symbolName),
+                filePath = requireNotNull(resource),
+                virtualAddress = requireNotNull(virtualAddress),
+            )
         CallStackFrame(
             frameId = requireNotNull(frameId),
-            functionId = FlameFunctionId(requireNotNull(functionId)),
-            symbolName =
-                firefoxCompatibleSymbolName(
-                    symbolName = requireNotNull(symbolName),
-                    filePath = requireNotNull(resource),
-                    virtualAddress = requireNotNull(virtualAddress),
-                ),
+            functionId = functionIdentities.functionId(displayName, requireNotNull(resource)),
+            symbolName = displayName,
             resource = requireNotNull(resource),
             virtualAddress = requireNotNull(virtualAddress),
             implementation = requireNotNull(executionType).toFrameImplementation(),

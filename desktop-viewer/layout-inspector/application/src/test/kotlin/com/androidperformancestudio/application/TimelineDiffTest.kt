@@ -402,6 +402,115 @@ class TimelineDiffTest {
     }
 
     @Test
+    fun `timeline memory budget evicts old PNGs while retaining historical selection and live diff`() {
+        val store = InspectorStore(timelineMemoryBudgetBytes = 16_384)
+        val first = snapshotWithRoot(emptyList(), capturedAtEpochMillis = 1)
+        val second = first.copy(capturedAtEpochMillis = 2)
+        val third = first.copy(capturedAtEpochMillis = 3)
+        store.loadCapture(first, ByteArray(6_000) { 1 })
+        store.loadCapture(second, ByteArray(6_000) { 2 })
+
+        assertEquals(true, store.selectTimelineFrame(0))
+        assertEquals(1, store.state.snapshot?.capturedAtEpochMillis)
+        assertEquals(1.toByte(), store.state.screenshotPng?.first())
+
+        store.loadCapture(third, ByteArray(6_000) { 3 })
+
+        assertEquals(listOf(1, 2), store.state.timelineFrames.map { it.index })
+        assertEquals(2, store.state.selectedTimelineFrameIndex)
+        assertEquals(2, store.state.timelineDiff?.previousCapturedAtEpochMillis)
+        assertEquals(false, store.selectTimelineFrame(0))
+        assertEquals(true, store.selectTimelineFrame(1))
+        assertEquals(2, store.state.snapshot?.capturedAtEpochMillis)
+        assertEquals(2.toByte(), store.state.screenshotPng?.first())
+    }
+
+    @Test
+    fun `timeline budget includes node overhead even without large screenshots`() {
+        val store = InspectorStore(timelineMemoryBudgetBytes = 16_384)
+        val snapshot = snapshotWithRoot(
+            List(20) { ViewNode("child:$it", "View", Bounds(0, 0, 1, 1)) },
+        )
+
+        store.loadCapture(snapshot, byteArrayOf(1))
+        store.loadCapture(snapshot.copy(capturedAtEpochMillis = 2), byteArrayOf(2))
+
+        assertEquals(listOf(1), store.state.timelineFrames.map { it.index })
+        assertEquals(1, store.state.selectedTimelineFrameIndex)
+    }
+
+    @Test
+    fun `timeline budget includes captured property strings`() {
+        val store = InspectorStore(timelineMemoryBudgetBytes = 16_384)
+        val snapshot = snapshotWithRoot(
+            listOf(
+                ComposeNode(
+                    "compose", "Text", Bounds(0, 0, 1, 1),
+                    semanticProperties = mapOf("evidence" to "x".repeat(5_000)),
+                ),
+            ),
+        )
+
+        store.loadCapture(snapshot, byteArrayOf(1))
+        store.loadCapture(snapshot.copy(capturedAtEpochMillis = 2), byteArrayOf(2))
+
+        assertEquals(listOf(1), store.state.timelineFrames.map { it.index })
+    }
+
+    @Test
+    fun `an oversized current frame remains available without retaining older frames`() {
+        val store = InspectorStore(timelineMemoryBudgetBytes = 1_024)
+        val snapshot = snapshotWithRoot(emptyList())
+        store.loadCapture(snapshot, byteArrayOf(1))
+        val screenshot = ByteArray(32_768)
+
+        store.loadCapture(snapshot.copy(capturedAtEpochMillis = 2), screenshot)
+
+        assertEquals(listOf(1), store.state.timelineFrames.map { it.index })
+        assertEquals(1, store.state.selectedTimelineFrameIndex)
+        Assertions.assertSame(screenshot, store.state.screenshotPng)
+        assertEquals(true, store.selectTimelineFrame(1))
+    }
+
+    @Test
+    fun `replacing a historical screenshot applies budget without changing the selected frame`() {
+        val store = InspectorStore(timelineMemoryBudgetBytes = 16_384)
+        val snapshot = snapshotWithRoot(emptyList())
+        repeat(3) { index ->
+            store.loadCapture(snapshot.copy(capturedAtEpochMillis = index.toLong()), byteArrayOf(1))
+        }
+        assertEquals(true, store.selectTimelineFrame(0))
+        val target = requireNotNull(store.manualScreenshotTarget())
+        val screenshot = ByteArray(32_768)
+
+        assertEquals(true, store.loadManualScreenshot(target, screenshot))
+
+        assertEquals(listOf(0), store.state.timelineFrames.map { it.index })
+        assertEquals(0, store.state.selectedTimelineFrameIndex)
+        assertEquals(0, store.state.snapshot?.capturedAtEpochMillis)
+        Assertions.assertSame(screenshot, store.state.screenshotPng)
+    }
+
+    @Test
+    fun `archive history is memory bounded while preserving its current frame`() {
+        val store = InspectorStore(timelineMemoryBudgetBytes = 16_384)
+        val current = snapshotWithRoot(emptyList(), capturedAtEpochMillis = 1)
+        val frames = (0..2).map { index ->
+            TimelineFrame(
+                index = index,
+                snapshot = current.copy(capturedAtEpochMillis = index.toLong()),
+                screenshotPng = ByteArray(6_000),
+            )
+        }
+
+        store.loadArchive(current, frames[1].screenshotPng, timelineFrames = frames)
+
+        assertEquals(listOf(1, 2), store.state.timelineFrames.map { it.index })
+        assertEquals(1, store.state.selectedTimelineFrameIndex)
+        assertEquals(true, store.selectTimelineFrame(2))
+    }
+
+    @Test
     fun `loading archive restores lightweight timeline history and anchors current frame`() {
         val store = InspectorStore()
         val snapshot = SampleSnapshots.dashboard.copy(capturedAtEpochMillis = 2_000)

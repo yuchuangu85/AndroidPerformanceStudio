@@ -4,6 +4,9 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CallStackContractsTest {
     @Test
@@ -88,6 +91,234 @@ class CallStackContractsTest {
         assertContentEquals(intArrayOf(1), table.threadCounts)
         assertEquals(listOf("UI"), table.categories)
         assertEquals(frame(11), table.framesById[11])
+        assertContentEquals(longArrayOf(2), table.selfSampleCounts)
+        assertNull(table.categoryMetricsAt(0))
+    }
+
+    @Test
+    fun `explicit self counts and nested category metrics are immutable value snapshots`() {
+        val selfSamples = longArrayOf(2)
+        val metrics = mutableListOf(CallNodeCategoryMetrics("UI", "Input", 2, 2, 5, 5))
+        val categories = mutableListOf<List<CallNodeCategoryMetrics>>(metrics)
+        val table = callNodeTable(selfSampleCounts = selfSamples, categoryMetrics = categories)
+        val expected = callNodeTable(selfSampleCounts = longArrayOf(2), categoryMetrics = categories)
+
+        selfSamples[0] = 99
+        metrics.clear()
+        categories.clear()
+        table.selfSampleCounts[0] = 99
+
+        assertEquals(2L, table.selfSampleCountAt(0))
+        assertEquals(listOf(CallNodeCategoryMetrics("UI", "Input", 2, 2, 5, 5)), table.categoryMetricsAt(0))
+        assertEquals(expected, table)
+        assertEquals(expected.hashCode(), table.hashCode())
+        assertNotEquals(table, callNodeTable(selfSampleCounts = longArrayOf(1)))
+        assertFailsWith<UnsupportedOperationException> {
+            @Suppress("UNCHECKED_CAST")
+            (table.categoryMetricsAt(0) as MutableList<CallNodeCategoryMetrics>).clear()
+        }
+    }
+
+    @Test
+    fun `legacy self counts derive from direct children without treating grandchildren twice`() {
+        val table =
+            CallNodeTable(
+                ids = longArrayOf(1, 2, 3, 4),
+                parentIndexes = intArrayOf(-1, 0, 1, 0),
+                frameIds = longArrayOf(11, 11, 11, 11),
+                depths = intArrayOf(0, 1, 2, 1),
+                inclusiveWeights = longArrayOf(5, 3, 1, 1),
+                selfWeights = longArrayOf(1, 2, 1, 1),
+                sampleCounts = longArrayOf(5, 3, 1, 1),
+                threadCounts = intArrayOf(1, 1, 1, 1),
+                categories = List(4) { null },
+                framesById = mapOf(11L to frame(11)),
+            )
+
+        assertContentEquals(longArrayOf(1, 2, 1, 1), table.selfSampleCounts)
+    }
+
+    @Test
+    fun `symbol identities distinguish Java string hash collisions and field boundaries`() {
+        assertEquals("Aa".hashCode(), "BB".hashCode())
+        assertNotEquals(FlameFunctionId.fromSymbol("Aa", "lib.so"), FlameFunctionId.fromSymbol("BB", "lib.so"))
+        assertNotEquals(FlameFunctionId.fromSymbol("ab", "c"), FlameFunctionId.fromSymbol("a", "bc"))
+        assertNotEquals(FlameFunctionId.fromSymbol("loopOnce", "a.so"), FlameFunctionId.fromSymbol("loopOnce", "b.so"))
+        assertEquals(FlameFunctionId.fromSymbol("loopOnce", "a.so"), FlameFunctionId.fromSymbol("loopOnce", "a.so"))
+    }
+
+    @Test
+    fun `sample weighting uses source time and sample id order without mutating facts or refilling filter gaps`() {
+        val source =
+            CallStackTable(
+                mapOf(11L to frame(11)),
+                listOf(
+                    weightedStack(listOf(11)).copy(sampleId = 1, timestampNanos = 10_000_000, weight = 9),
+                    weightedStack(listOf(11)).copy(sampleId = 9, timestampNanos = 0, weight = 2),
+                    weightedStack(listOf(11)).copy(sampleId = 2, timestampNanos = 0, weight = 3),
+                ),
+            )
+
+        val samples = source.withWeightType(CallStackWeightType.SAMPLES)
+        assertEquals(CallStackWeightType.NANOSECONDS, source.weightType)
+        assertEquals(listOf(9L, 2L, 3L), source.stacks.map { it.weight })
+        assertTrue(source.stacks.all { it.tracedDurationNanos == null })
+        assertEquals(CallStackWeightType.SAMPLES, samples.weightType)
+        assertEquals(listOf(1L, 1L, 1L), samples.stacks.map { it.weight })
+        assertEquals(listOf(1_000_000L, 10_000_000L, 0L), samples.stacks.map { it.tracedDurationNanos })
+        val filtered = samples.copy(stacks = listOf(samples.stacks.last()))
+        assertEquals(CallStackWeightType.SAMPLES, filtered.weightType)
+        assertEquals(
+            0L,
+            filtered
+                .withWeightType(CallStackWeightType.SAMPLES)
+                .stacks
+                .single()
+                .tracedDurationNanos,
+        )
+        assertEquals(listOf(9L, 2L, 3L), source.withWeightType(CallStackWeightType.EVENTS).stacks.map { it.weight })
+    }
+
+    @Test
+    fun `merged equal timestamps follow reverse exported thread order before sample id`() {
+        val source =
+            CallStackTable(
+                mapOf(11L to frame(11)),
+                listOf(
+                    weightedStack(listOf(11)).copy(sampleId = 1, timestampNanos = 0, threadKey = "canonical:1"),
+                    weightedStack(listOf(11)).copy(sampleId = 2, timestampNanos = 0, threadKey = "canonical:2"),
+                    weightedStack(listOf(11)).copy(
+                        sampleId = 3,
+                        timestampNanos = 10_000_000,
+                        threadKey = "canonical:1",
+                    ),
+                ),
+            )
+        val merged = source.withWeightType(CallStackWeightType.SAMPLES)
+        assertEquals(listOf(10_000_000L, 0L, 1_000_000L), merged.stacks.map { it.tracedDurationNanos })
+        assertEquals(listOf(1L, 2L, 3L), merged.stacks.map { it.sampleId })
+        assertTrue(source.stacks.all { it.tracedDurationNanos == null })
+    }
+
+    @Test
+    fun `Gecko cumulative millisecond reconstruction resolves cross thread ties without editing timestamps`() {
+        val start = 80_000_000_000_000L
+        val source =
+            CallStackTable(
+                mapOf(11L to frame(11)),
+                listOf(
+                    weightedStack(listOf(11)).copy(
+                        sampleId = 1,
+                        timestampNanos = start + 670_487,
+                        threadKey = "canonical:2",
+                    ),
+                    weightedStack(listOf(11)).copy(
+                        sampleId = 2,
+                        timestampNanos = start + 1_090_098,
+                        threadKey = "canonical:2",
+                    ),
+                    weightedStack(listOf(11)).copy(
+                        sampleId = 3,
+                        timestampNanos = start + 1_090_098,
+                        threadKey = "canonical:1",
+                    ),
+                    weightedStack(listOf(11)).copy(
+                        sampleId = 4,
+                        timestampNanos = start + 11_090_098,
+                        threadKey = "canonical:2",
+                    ),
+                ),
+            )
+        val merged = source.withWeightType(CallStackWeightType.SAMPLES)
+        assertEquals(10_000_000, merged.stacks[1].tracedDurationNanos)
+        assertEquals(0, merged.stacks[2].tracedDurationNanos)
+        assertEquals(source.stacks.map { it.timestampNanos }, merged.stacks.map { it.timestampNanos })
+        val preview =
+            source
+                .copy(stacks = source.stacks.drop(1).dropLast(1))
+                .withWeightType(CallStackWeightType.SAMPLES, tracedTimeSource = source)
+        assertEquals(listOf(1_000_000L, 0L), preview.stacks.map { it.tracedDurationNanos })
+    }
+
+    @Test
+    fun `weight type and traced durations survive immutable copies and saturate timestamp overflow`() {
+        val source =
+            CallStackTable(
+                mapOf(11L to frame(11)),
+                listOf(
+                    weightedStack(listOf(11)).copy(sampleId = 1, timestampNanos = Long.MIN_VALUE),
+                    weightedStack(listOf(11)).copy(sampleId = 2, timestampNanos = Long.MAX_VALUE),
+                ),
+            ).withWeightType(CallStackWeightType.SAMPLES)
+        assertEquals(listOf(Long.MAX_VALUE, 1_000_000L), source.stacks.map { it.tracedDurationNanos })
+        assertEquals(
+            Long.MAX_VALUE,
+            source.stacks
+                .first()
+                .copy()
+                .tracedDurationNanos,
+        )
+        assertEquals(
+            CallStackWeightType.SAMPLES,
+            CallStackAnalysisQuery(weightType = source.weightType).copy().weightType,
+        )
+        val snapshot =
+            FlameGraphSnapshot(
+                CallStackAnalysisQuery(),
+                callNodeTable(),
+                emptyRows(),
+                1,
+                null,
+                emptyList(),
+                weightType = CallStackWeightType.SAMPLES,
+            )
+        assertEquals(CallStackWeightType.SAMPLES, snapshot.copy().weightType)
+    }
+
+    @Test
+    fun `sample weighting cannot hide a negative source weight`() {
+        val source = CallStackTable(mapOf(11L to frame(11)), listOf(weightedStack(listOf(11)).copy(weight = -1)))
+
+        assertFailsWith<IllegalArgumentException> { source.withWeightType(CallStackWeightType.SAMPLES) }
+    }
+
+    @Test
+    fun `Gecko module categories keep JIT distinct from managed code`() {
+        val cases =
+            mapOf(
+                "boot.art" to "User",
+                "[kernel.kallsyms]" to "Kernel",
+                "/system/module.ko" to "Kernel",
+                "/system/lib64/libart.so" to "Native",
+                "/data/app/base.vdex" to "DEX",
+                "/system/framework/boot.oat" to "OAT",
+                "[JIT app cache]" to "JIT",
+            )
+        cases.forEach { (resource, expected) ->
+            assertEquals(expected, frame(11).copy(resource = resource).firefoxCategoryName())
+            assertEquals(expected, firefoxCategoryName("work", resource))
+        }
+        assertEquals("Off-CPU", firefoxCategoryName("__schedule", "[kernel.kallsyms]"))
+        assertEquals(
+            "Off-CPU",
+            frame(11).copy(symbolName = "__schedule idle", resource = "[kernel.kallsyms]").firefoxCategoryName(),
+        )
+    }
+
+    @Test
+    fun `Gecko categories use actual resources rather than Kotlin symbols or parent directory text`() {
+        val symbols = listOf("androidx.kotlin.run", "app.something.work", "app.kallsyms.render", "__schedule")
+        symbols.forEach { symbol ->
+            assertEquals("JIT", firefoxCategoryName(symbol, "[JIT app cache]"))
+            assertEquals("User", firefoxCategoryName(symbol, "boot.art"))
+            assertEquals("DEX", firefoxCategoryName(symbol, "/data/app/package.ko.something/base.vdex"))
+            assertEquals(
+                "JIT",
+                frame(11).copy(symbolName = symbol, resource = "[JIT app cache]").firefoxCategoryName(),
+            )
+        }
+        assertEquals("Kernel", firefoxCategoryName("__schedule_work", "/system/module.ko"))
+        assertEquals("Off-CPU", firefoxCategoryName("__schedule idle", "/system/module.ko"))
     }
 
     @Test
@@ -241,20 +472,25 @@ class CallStackContractsTest {
         categoriesRootToLeaf = categoriesRootToLeaf,
     )
 
-    private fun callNodeTable(idsByPath: Map<CallNodePath, FlameCallNodeId> = emptyMap()) =
-        CallNodeTable(
-            ids = longArrayOf(7),
-            parentIndexes = intArrayOf(-1),
-            frameIds = longArrayOf(11),
-            depths = intArrayOf(0),
-            inclusiveWeights = longArrayOf(1),
-            selfWeights = longArrayOf(1),
-            sampleCounts = longArrayOf(1),
-            threadCounts = intArrayOf(1),
-            categories = listOf("UI"),
-            framesById = mapOf(11L to frame(11)),
-            idsByPath = idsByPath,
-        )
+    private fun callNodeTable(
+        idsByPath: Map<CallNodePath, FlameCallNodeId> = emptyMap(),
+        selfSampleCounts: LongArray? = null,
+        categoryMetrics: List<List<CallNodeCategoryMetrics>>? = null,
+    ) = CallNodeTable(
+        ids = longArrayOf(7),
+        parentIndexes = intArrayOf(-1),
+        frameIds = longArrayOf(11),
+        depths = intArrayOf(0),
+        inclusiveWeights = longArrayOf(1),
+        selfWeights = longArrayOf(1),
+        sampleCounts = longArrayOf(1),
+        threadCounts = intArrayOf(1),
+        categories = listOf("UI"),
+        framesById = mapOf(11L to frame(11)),
+        idsByPath = idsByPath,
+        selfSampleCounts = selfSampleCounts,
+        categoryMetrics = categoryMetrics,
+    )
 
     private fun emptyRows() = FlameGraphRows(emptyList(), doubleArrayOf(), doubleArrayOf(), startsAtBottom = true)
 }

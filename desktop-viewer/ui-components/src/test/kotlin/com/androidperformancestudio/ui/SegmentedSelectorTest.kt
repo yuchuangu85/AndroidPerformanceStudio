@@ -1,13 +1,18 @@
 package com.androidperformancestudio.ui
 
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
@@ -16,6 +21,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -23,6 +29,37 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class SegmentedSelectorTest {
+    @Test
+    fun `title typography grows with font scale without changing ordinary compact controls`() =
+        runDesktopComposeUiTest {
+            var fontScale by mutableStateOf(1f)
+            setContent {
+                ViewerTheme(darkTheme = false) {
+                    Column {
+                        SegmentedSelector(
+                            listOf("A", "B"), "A", {}, { it },
+                            modifier = Modifier.testTag("default-selector"),
+                            style = SegmentedSelectorStyle.COMPACT_OUTLINED,
+                        )
+                        val density = LocalDensity.current
+                        CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                            SegmentedSelector(
+                                listOf("Provider", "Agent"), "Provider", {}, { it },
+                                modifier = Modifier.testTag("title-selector"),
+                                style = SegmentedSelectorStyle.COMPACT_OUTLINED,
+                                textStyle = ViewerTypography.pageTitle,
+                            )
+                        }
+                    }
+                }
+            }
+            onNodeWithTag("default-selector").assertHeightIsEqualTo(24.dp)
+            onNodeWithTag("title-selector").assertHeightIsEqualTo(30.dp)
+            runOnIdle { fontScale = 2f }
+            onNodeWithTag("title-selector").assertHeightIsEqualTo(52.dp)
+            onNodeWithTag("default-selector").assertHeightIsEqualTo(24.dp)
+        }
+
     @Test
     fun `two items switch their visible selection without repeating selected callbacks`() =
         runDesktopComposeUiTest {

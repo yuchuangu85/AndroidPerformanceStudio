@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "kind": "AGENT",
+  "id": "aps.simpleperf",
+  "version": "1.1.0",
+  "name": "Simpleperf Agent",
+  "description": "Explains canonical CPU hotspot evidence without reconstructing facts from UI labels.",
+  "entrypoint": "prompt.md",
+  "inputSchema": "aps.evidence-context.v1",
+  "outputSchema": "aps.analysis.v1",
+  "contextKinds": [
+    "simpleperf"
+  ],
+  "evidenceKinds": [
+    "simpleperf-hotspots"
+  ],
+  "allowedProviders": [
+    "openai",
+    "codex",
+    "claude"
+  ],
+  "allowedSkills": [
+    "aps.evidence-summary"
+  ],
+  "permissions": [
+    "READ_EVIDENCE",
+    "READ_SOURCE_CANDIDATES",
+    "PROVIDER_NETWORK"
+  ],
+  "runtime": "NONE",
+  "artifactFormats": [],
+  "files": {
+    "prompt.md": "0f98f953433ad3f192f0de37db1864bfe6af5164c388bf20eb3c36ed10b02e3e"
+  },
+  "budget": {
+    "maxChildDepth": 0
+  }
+}

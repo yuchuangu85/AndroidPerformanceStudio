@@ -2,6 +2,9 @@
 
 package com.androidperformancestudio.startup.presentation
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -31,18 +34,123 @@ import com.androidperformancestudio.startup.analysis.StartupComparison
 import com.androidperformancestudio.startup.analysis.StartupComparisonStatus
 import com.androidperformancestudio.startup.model.CompilationMode
 import com.androidperformancestudio.startup.model.EvidenceConfidence
+import com.androidperformancestudio.startup.model.StartupDevice
 import com.androidperformancestudio.startup.model.StartupMilestoneKind
 import com.androidperformancestudio.startup.model.StartupProfileSource
+import com.androidperformancestudio.startup.model.StartupTarget
 import com.androidperformancestudio.startup.model.StartupType
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarTargetControls
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.rememberTitleBarTargetHost
 import com.androidperformancestudio.ui.viewerColors
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class StartupProfilerWorkspaceTest {
+    @Test
+    fun `startup uses a shared launchable package as the initial target on the shared device`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            val state =
+                mutableStateOf(
+                    StartupProfilerState(
+                        devices = listOf(StartupDevice("first", "First"), StartupDevice("second", "Second")),
+                        selectedDeviceSerial = "first",
+                        targets =
+                            listOf(
+                                StartupTarget("com.old", "com.old/.Main", true),
+                                StartupTarget("com.shared", "com.shared/.Main", true),
+                            ),
+                    ),
+                )
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    val host = rememberTitleBarTargetHost()
+                    LaunchedEffect(host) {
+                        host.chooseDevice("second", "Second")
+                        host.choosePackage("com.shared")
+                    }
+                    CompositionLocalProvider(LocalTitleBarTargetHost provides host) {
+                        val actions =
+                            StartupProfilerActions(
+                                onSelectDevice = { serial -> state.value = state.value.copy(selectedDeviceSerial = serial) },
+                                onSelectTarget = { component -> state.value = state.value.copy(selectedComponentName = component) },
+                            )
+                        Row { StartupTargetSelectors(state.value, actions, UiLanguage.ENGLISH) }
+                        StartupScenarioControls(state.value, actions, UiLanguage.ENGLISH)
+                    }
+                }
+            }
+
+            waitForIdle()
+            assertEquals("second", state.value.selectedDeviceSerial)
+            assertEquals("com.shared/.Main", state.value.selectedComponentName)
+            onNodeWithTag("startup-start-stop").assertIsEnabled()
+        }
+
+    @Test
+    fun `startup can launch its selected activity while an unrelated system process is selected`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            var started = false
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    val host = rememberTitleBarTargetHost()
+                    LaunchedEffect(host) {
+                        host.chooseDevice("phone", "Phone")
+                        host.choosePackage("com.android.systemui")
+                    }
+                    CompositionLocalProvider(LocalTitleBarTargetHost provides host) {
+                        val state =
+                            StartupProfilerState(
+                                devices = listOf(StartupDevice("phone", "Phone")),
+                                selectedDeviceSerial = "phone",
+                                targets = listOf(StartupTarget("com.local", "com.local/.Main", true)),
+                                selectedComponentName = "com.local/.Main",
+                            )
+                        Row { StartupTargetSelectors(state, StartupProfilerActions(), UiLanguage.ENGLISH) }
+                        TitleBarTargetControls(host)
+                        StartupScenarioControls(
+                            state,
+                            StartupProfilerActions(onStartStop = { started = true }),
+                            UiLanguage.ENGLISH,
+                        )
+                    }
+                }
+            }
+
+            waitForIdle()
+            onNodeWithTag("startup-target").assertDoesNotExist()
+            onNodeWithText("com.local / .Main").assertExists()
+            onNodeWithTag("startup-start-stop").assertIsEnabled().performClick()
+            assertTrue(started)
+        }
+
+    @Test
+    fun `hosted device and component targets both use the title bar with inline fallbacks`() {
+        val controls =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/startup/presentation/StartupWorkspaceControls.kt"),
+            )
+        val selectors =
+            controls
+                .substringAfter("public fun StartupTargetSelectors(")
+                .substringBefore("internal fun StartupScenarioControls(")
+        assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE)"))
+        assertTrue(selectors.contains("TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS)"))
+        assertTrue(selectors.contains("ActiveTitleBarTarget("))
+        assertTrue(selectors.contains("DeviceDropdownSelector("))
+        assertTrue(selectors.contains("DropdownSelector("))
+        assertTrue(selectors.contains("clearProcess = true"))
+        assertTrue(selectors.contains("actions.onSelectTarget(it.componentName)"))
+        assertTrue(selectors.contains("Res.string.application"))
+        assertTrue(selectors.contains("if (!inTitleBar) HeaderSpacer()"))
+    }
+
     @Test
     fun `Startup evidence panel uses the shared palette without a second surface tint`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -77,6 +185,26 @@ class StartupProfilerWorkspaceTest {
         }
 
     @Test
+    fun `target selectors put the device before the application`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            setContent {
+                ViewerTheme(darkTheme = true) {
+                    Row {
+                        StartupTargetSelectors(
+                            startupVisualState(),
+                            StartupProfilerActions(),
+                            UiLanguage.ENGLISH,
+                        )
+                    }
+                }
+            }
+
+            val device = onNodeWithTag("startup-device").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val target = onNodeWithTag("startup-target").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(device.right <= target.left)
+        }
+
+    @Test
     fun `running workspace locks configuration but keeps cancellation available`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
             var cancelled = false
@@ -90,7 +218,7 @@ class StartupProfilerWorkspaceTest {
                 }
             }
             onNodeWithTag("startup-type-HOT").assertIsNotEnabled()
-            onNodeWithTag("startup-start-stop").assertIsEnabled().performClick()
+            onNodeWithTag("startup-start-stop").performScrollTo().assertIsEnabled().performClick()
             assertTrue(cancelled)
             onNodeWithTag("startup-main").performMouseInput { scroll(1200f) }
             waitForIdle()
@@ -174,7 +302,17 @@ class StartupProfilerWorkspaceTest {
             onNodeWithTag("startup-waterfall-run-5").assertIsDisplayed()
             val main = onNodeWithTag("startup-main").fetchSemanticsNode().boundsInRoot
             val rail = onNodeWithTag("startup-evidence-rail").fetchSemanticsNode().boundsInRoot
-            assertTrue(main.right <= rail.left)
+            assertEquals(4f, main.left)
+            assertEquals(4f, main.top)
+            assertEquals(1332f, rail.right)
+            assertEquals(4f, rail.left - main.right)
+            val metrics =
+                listOf("TTID", "TTFD", "FIRST_FRAME", "P95").map {
+                    onNodeWithTag("startup-metric-$it").fetchSemanticsNode().boundsInRoot
+                }
+            assertEquals(4f, metrics.first().left - main.left)
+            assertEquals(4f, main.right - metrics.last().right)
+            metrics.zipWithNext().forEach { (left, right) -> assertEquals(4f, right.left - left.right) }
             assertTrue(rail.width >= 280f)
             onNodeWithTag("startup-date").assertDoesNotExist()
         }
@@ -224,9 +362,8 @@ class StartupProfilerWorkspaceTest {
                     )
                 }
             }
-            onNodeWithTag("startup-advanced").performClick()
-            onNodeWithTag("startup-timeout").assertIsDisplayed()
-            onNodeWithTag("startup-perfetto").performClick()
+            onNodeWithTag("startup-timeout").performScrollTo().assertIsDisplayed()
+            onNodeWithTag("startup-perfetto").performScrollTo().performClick()
             assertEquals(true, tracing)
         }
 
@@ -274,11 +411,10 @@ class StartupProfilerWorkspaceTest {
                 }
             }
             onNodeWithTag("startup-waterfall-export").assertIsNotEnabled()
-            onNodeWithTag("startup-advanced").performClick()
             onNode(
                 hasAnyAncestor(hasTestTag("startup-profile-artifact")) and
                     SemanticsMatcher.keyIsDefined(SemanticsProperties.Disabled),
-            ).assertIsNotEnabled()
+            ).performScrollTo().assertIsNotEnabled()
             onNodeWithTag("startup-main").performMouseInput {
                 moveTo(center)
                 scroll(2000f)
@@ -373,8 +509,8 @@ class StartupProfilerWorkspaceTest {
                     )
                 }
             }
-            onNodeWithTag("startup-advanced").performClick()
             onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("startup-profile-artifact")))
+                .performScrollTo()
                 .performTextReplacement("sha256:build-supplied")
             assertEquals("sha256:build-supplied", artifact)
         }

@@ -37,6 +37,7 @@ import com.androidperformancestudio.ui_components.generated.resources.ic_stat_hi
 import com.androidperformancestudio.ui_components.generated.resources.ic_stat_verified
 import com.androidperformancestudio.ui_components.generated.resources.ic_action_play
 import com.androidperformancestudio.ui_components.generated.resources.ic_action_import
+import com.androidperformancestudio.ui_components.generated.resources.ic_settings_ai
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import kotlin.test.Test
@@ -65,6 +66,7 @@ class StudioIconRenderingTest {
             "nav_method_recording" to Res.drawable.ic_nav_method_recording,
             "nav_rail_collapse" to Res.drawable.ic_nav_rail_collapse,
             "nav_rail_expand" to Res.drawable.ic_nav_rail_expand,
+            "ai_analysis" to Res.drawable.ic_settings_ai,
             "stat_device" to Res.drawable.ic_stat_device,
             "stat_history" to Res.drawable.ic_stat_history,
             "stat_artifact" to Res.drawable.ic_stat_artifact,

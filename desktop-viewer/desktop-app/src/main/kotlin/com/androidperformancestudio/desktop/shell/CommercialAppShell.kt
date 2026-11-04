@@ -84,6 +84,7 @@ import org.jetbrains.compose.resources.painterResource
 import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_rail_collapse
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_rail_expand
+import com.androidperformancestudio.ui_components.generated.resources.ic_settings_ai
 import com.androidperformancestudio.ui_components.generated.resources.ic_task_manager
 
 internal data class WorkspaceContext(
@@ -110,6 +111,7 @@ internal fun CommercialAppShell(
     navigationRailCollapsed: Boolean,
     onToggleNavigationRailCollapsed: () -> Unit,
     moduleOrder: List<AppDestination>,
+    onOpenAi: () -> Unit = {},
     modifier: Modifier = Modifier,
     workspaceContext: WorkspaceContext = WorkspaceContext(),
     content: @Composable BoxScope.() -> Unit,
@@ -124,6 +126,7 @@ internal fun CommercialAppShell(
     val destinationTitle = localizedStringResource(navigator.destination.titleResource, language)
     val commandPaletteLabel = localizedStringResource(Res.string.command_palette, language)
     val settingsLabel = localizedStringResource(Res.string.settings, language)
+    val aiLabel = if (language == UiLanguage.SIMPLIFIED_CHINESE) "AI 分析" else "AI Analysis"
     // The collapse/expand toggle's label resolves against the current state; re-resolved on toggle.
     val collapseToggleLabel = localizedStringResource(
         if (navigationRailCollapsed) Res.string.expand_navigation else Res.string.collapse_navigation,
@@ -158,6 +161,9 @@ internal fun CommercialAppShell(
                 .focusRequester(shellFocusRequester)
                 .onPreviewKeyEvent { event ->
                     when {
+                        event.type == KeyEventType.KeyDown && event.key == Key.A && event.isShiftPressed && (event.isCtrlPressed || event.isMetaPressed) -> {
+                            onOpenAi(); true
+                        }
                         event.type == KeyEventType.KeyDown &&
                             event.key == Key.K &&
                             (event.isCtrlPressed || event.isMetaPressed) -> {
@@ -198,6 +204,8 @@ internal fun CommercialAppShell(
                     settingsSelected = navigator.destination == AppDestination.SETTINGS,
                     onDestinationSelected = navigator::open,
                     onOpenSettings = { navigator.open(AppDestination.SETTINGS) },
+                    onOpenAi = onOpenAi,
+                    aiLabel = aiLabel,
                     taskManagerLabel = localizedStringResource(Res.string.task_manager, language),
                     onOpenTaskManager = { showTaskManager = true },
                 )
@@ -253,6 +261,8 @@ private fun StudioNavigationRail(
     settingsSelected: Boolean,
     onDestinationSelected: (AppDestination) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAi: () -> Unit,
+    aiLabel: String,
     taskManagerLabel: String,
     onOpenTaskManager: () -> Unit,
 ) {
@@ -291,6 +301,13 @@ private fun StudioNavigationRail(
             selected = false,
             collapsed = collapsed,
             onClick = onToggleCollapsed,
+        )
+        NavigationRailEntry(
+            icon = UiComponentsRes.drawable.ic_settings_ai,
+            label = aiLabel,
+            selected = false,
+            collapsed = collapsed,
+            onClick = onOpenAi,
         )
         Box(
             modifier =

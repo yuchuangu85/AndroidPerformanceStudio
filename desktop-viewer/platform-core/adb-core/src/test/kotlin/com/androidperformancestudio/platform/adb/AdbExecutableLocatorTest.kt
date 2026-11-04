@@ -8,6 +8,22 @@ import kotlin.test.assertFailsWith
 
 class AdbExecutableLocatorTest {
     @Test
+    fun `macOS GUI launch finds default SDK without adb on PATH or SDK environment variables`() {
+        val home = Files.createTempDirectory("adb-locator-gui-home")
+        val adb = createExecutable(home.resolve("Library/Android/sdk/platform-tools/adb"))
+        try {
+            val result =
+                locator(home, mapOf("PATH" to "/usr/bin:/bin:/usr/sbin:/sbin"))
+                    .locate()
+
+            assertEquals(adb, result.executable)
+            assertEquals(AdbLocationSource.DEFAULT_SDK, result.source)
+        } finally {
+            home.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `explicit executable wins over sdk and path`() {
         val root = Files.createTempDirectory("adb-locator")
         val explicit = createExecutable(root.resolve("configured/adb"))

@@ -72,7 +72,12 @@ class SqliteFrameSessionStoreTest {
                 jankStatsReasons = setOf("slow draw", "missed deadline"),
                 jankStatsRuleId = "androidx.metrics.performance.JankStats.FrameData.isJank.default",
                 jankStatsRuleVersion = "1.0.0",
-                states = mapOf("interaction" to "scroll"),
+                states =
+                    mapOf(
+                        "interaction" to "scroll",
+                        "frameTimelineJankTag" to "Other Jank",
+                        "frameTimelinePresentType" to "Late Present",
+                    ),
             )
 
         SqliteFrameSessionStore.open(database).use { store -> store.save(session, listOf(frame)) }

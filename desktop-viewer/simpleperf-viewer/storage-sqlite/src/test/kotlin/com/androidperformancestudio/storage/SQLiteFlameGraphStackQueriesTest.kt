@@ -14,14 +14,20 @@ import com.androidperformancestudio.model.ProfileSourceKind
 import com.androidperformancestudio.model.ProfileThreadFact
 import com.androidperformancestudio.model.ProfileThreadKey
 import com.androidperformancestudio.model.ProfileTimePoint
+import com.androidperformancestudio.profileanalysis.CallTreeProjector
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
 import com.androidperformancestudio.profileanalysis.FrameImplementation
+import com.androidperformancestudio.profileanalysis.matchesStackSearch
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.DriverManager
 import kotlin.io.path.deleteIfExists
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SQLiteFlameGraphStackQueriesTest {
     @Test
@@ -40,13 +46,10 @@ class SQLiteFlameGraphStackQueriesTest {
                         ).use { result -> buildList { while (result.next()) add(result.getLong(1)) } }
                 }
             val expectedFunctionIds =
-                store.connection.createStatement().use { statement ->
-                    statement
-                        .executeQuery(
-                            "SELECT sy.symbol_id FROM symbol sy " +
-                                "ORDER BY CASE sy.name WHEN 'runLoop' THEN 0 ELSE 1 END",
-                        ).use { result -> buildList { while (result.next()) add(FlameFunctionId(result.getLong(1))) } }
-                }
+                listOf(
+                    FlameFunctionId.fromSymbol("runLoop", "/system/lib64/libui.so"),
+                    FlameFunctionId.fromSymbol("renderFrame", "/system/lib64/librender.so"),
+                )
 
             assertEquals(2, table.stacks.size)
             assertEquals(2, table.framesById.size)
@@ -75,6 +78,23 @@ class SQLiteFlameGraphStackQueriesTest {
         }
 
     @Test
+    fun `canonical loader leaves unavailable source metadata absent without inferring file names`() =
+        withStore { store ->
+            store.importCanonicalRecords(canonicalRecords())
+
+            val table = SQLiteFlameGraphStackQueries.load(store.connection, ProfileQuery())
+
+            table.framesById.values.forEach { frame ->
+                assertNull(frame.sourceFile)
+                assertNull(frame.originalSourceFile)
+                assertTrue(frame.matchesStackSearch(frame.symbolName.uppercase()))
+                assertTrue(frame.matchesStackSearch(frame.resource.uppercase()))
+                assertFalse(frame.matchesStackSearch("${frame.symbolName}.kt"))
+                assertFalse(frame.matchesStackSearch("${frame.symbolName}.java"))
+            }
+        }
+
+    @Test
     fun `loads version one stacks with legacy thread identity and no category`() {
         val database = legacyDatabase()
         try {
@@ -91,8 +111,12 @@ class SQLiteFlameGraphStackQueriesTest {
                 assertEquals(listOf<String?>(null), stack.categoriesRootToLeaf)
                 assertEquals("leaf", frame.symbolName)
                 assertEquals("/example/lib.so", frame.resource)
+                assertNull(frame.sourceFile)
+                assertNull(frame.originalSourceFile)
+                assertTrue(frame.matchesStackSearch("LIB.SO"))
+                assertFalse(frame.matchesStackSearch("leaf.kt"))
                 assertEquals(4096L, frame.virtualAddress)
-                assertEquals(FlameFunctionId(1), frame.functionId)
+                assertEquals(FlameFunctionId.fromSymbol("leaf", "/example/lib.so"), frame.functionId)
             }
         } finally {
             database.deleteIfExists()
@@ -256,6 +280,91 @@ class SQLiteFlameGraphStackQueriesTest {
         }
     }
 
+    @Test
+    fun `display function identity merges duplicate source symbols without merging source frames`() =
+        withLegacyConnection { connection ->
+            connection.executeAll(LOOP_IDENTITY_FIXTURE)
+
+            val table = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
+            val first = table.frame(2)
+            val second = table.frame(3)
+            assertNotEquals(first.frameId, second.frameId)
+            assertNotEquals(first.implementation, second.implementation)
+            assertEquals(first.functionId, second.functionId)
+            assertEquals(
+                FlameFunctionId.fromSymbol("android.os.Looper.loopOnce", "/example/boot.oat"),
+                first.functionId,
+            )
+
+            val nodes = CallTreeProjector.project(table)
+            val loop = (0 until nodes.size).single { nodes.frameAt(it)?.symbolName == "android.os.Looper.loopOnce" }
+            assertEquals(10L, nodes.inclusiveWeightAt(loop))
+            assertEquals(2L, nodes.sampleCountAt(loop))
+            assertEquals(2L, nodes.selfSampleCountAt(loop))
+            assertEquals(
+                2L,
+                connection.singleLong("SELECT COUNT(*) FROM symbol WHERE name='android.os.Looper.loopOnce'"),
+            )
+        }
+
+    @Test
+    fun `function and call node ids survive filtering and source symbol renumbering`() =
+        withLegacyConnection { connection ->
+            connection.executeAll(LOOP_IDENTITY_FIXTURE)
+            val all = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery())
+            val first =
+                SQLiteFlameGraphStackQueries.load(
+                    connection,
+                    ProfileQuery(startNanosInclusive = 40, endNanosExclusive = 50),
+                )
+            val second =
+                SQLiteFlameGraphStackQueries.load(
+                    connection,
+                    ProfileQuery(startNanosInclusive = 50, endNanosExclusive = 60),
+                )
+            val allNodes = CallTreeProjector.project(all)
+            val firstNodes = CallTreeProjector.project(first)
+            val secondNodes = CallTreeProjector.project(second)
+            val loopIndex =
+                (0 until allNodes.size).single { allNodes.frameAt(it)?.symbolName == "android.os.Looper.loopOnce" }
+            assertEquals(allNodes.nodeIdAt(loopIndex), firstNodes.nodeIdAt(0))
+            assertEquals(firstNodes.nodeIdAt(0), secondNodes.nodeIdAt(0))
+
+            connection.executeAll(listOf("UPDATE symbol SET source_symbol_id=source_symbol_id+100"))
+            val renumbered =
+                SQLiteFlameGraphStackQueries.load(
+                    connection,
+                    ProfileQuery(startNanosInclusive = 40, endNanosExclusive = 50),
+                )
+            assertEquals(first.frame(2).functionId, renumbered.frame(2).functionId)
+            assertEquals(firstNodes.nodeIdAt(0), CallTreeProjector.project(renumbered).nodeIdAt(0))
+        }
+
+    @Test
+    fun `unknown addresses sharing one source symbol keep distinct display function identities`() =
+        withLegacyConnection { connection ->
+            connection.executeAll(
+                listOf(
+                    "INSERT INTO symbol VALUES (2, 1, -1, '<unknown-symbol>', NULL)",
+                    "INSERT INTO frame VALUES (2, 32, 1, 2, 'NATIVE')",
+                    "INSERT INTO frame VALUES (3, 48, 1, 2, 'NATIVE')",
+                    "INSERT INTO callsite VALUES (2, NULL, 2)",
+                    "INSERT INTO callsite VALUES (3, NULL, 3)",
+                    "INSERT INTO sample VALUES (4, 40, 100, 104, 1, 9, 2)",
+                    "INSERT INTO sample VALUES (5, 50, 100, 104, 1, 1, 3)",
+                ),
+            )
+
+            val table = SQLiteFlameGraphStackQueries.load(connection, ProfileQuery(startNanosInclusive = 40))
+            assertEquals("lib.so+0x20", table.frame(2).symbolName)
+            assertEquals("lib.so+0x30", table.frame(3).symbolName)
+            assertNotEquals(table.frame(2).functionId, table.frame(3).functionId)
+            val nodes = CallTreeProjector.project(table)
+            assertEquals(2, nodes.size)
+            assertEquals(listOf(9L, 1L), nodes.inclusiveWeights.toList())
+            assertEquals(1L, connection.singleLong("SELECT COUNT(*) FROM symbol WHERE source_symbol_id=-1"))
+        }
+
     private fun canonicalRecords(): Sequence<CanonicalProfileRecord> {
         val sourceId = ProfileSourceId("simpleperf")
         val process = ProfileProcessKey(sourceId, 100)
@@ -380,7 +489,29 @@ class SQLiteFlameGraphStackQueriesTest {
         }
     }
 
+    private fun withLegacyConnection(block: (java.sql.Connection) -> Unit) {
+        val database = legacyDatabase()
+        try {
+            DriverManager.getConnection("jdbc:sqlite:${database.toAbsolutePath()}").use(block)
+        } finally {
+            database.deleteIfExists()
+        }
+    }
+
     private companion object {
+        val LOOP_IDENTITY_FIXTURE =
+            listOf(
+                "INSERT INTO file VALUES (2, '/example/boot.oat')",
+                "INSERT INTO symbol VALUES (2, 2, 10, 'android.os.Looper.loopOnce', NULL)",
+                "INSERT INTO symbol VALUES (3, 2, 11, 'android.os.Looper.loopOnce', NULL)",
+                "INSERT INTO frame VALUES (2, 32, 2, 2, 'NATIVE')",
+                "INSERT INTO frame VALUES (3, 48, 2, 3, 'ART')",
+                "INSERT INTO callsite VALUES (2, NULL, 2)",
+                "INSERT INTO callsite VALUES (3, NULL, 3)",
+                "INSERT INTO sample VALUES (4, 40, 100, 104, 1, 9, 2)",
+                "INSERT INTO sample VALUES (5, 50, 100, 104, 1, 1, 3)",
+            )
+
         val LEGACY_MALFORMED_LEAF_FIXTURE =
             listOf(
                 "INSERT INTO file VALUES (2, '/example/leaf.so')",

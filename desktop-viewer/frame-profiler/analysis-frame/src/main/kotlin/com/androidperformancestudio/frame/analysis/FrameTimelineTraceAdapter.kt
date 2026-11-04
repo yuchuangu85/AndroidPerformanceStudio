@@ -20,9 +20,12 @@ class FrameTimelineTraceAdapter {
     private val surfaceToken = TraceColumn.long("surface_token")
     private val layerName = TraceColumn.string("layer_name")
     private val jankType = TraceColumn.string("jank_type")
+    private val jankTag = TraceColumn.string("jank_tag")
+    private val presentType = TraceColumn.string("present_type")
     private val processName = TraceColumn.string("process_name")
     private val surfaceFlingerJankType = TraceColumn.string("surface_flinger_jank_type")
 
+    @Suppress("LongMethod")
     fun timelineQuery(processId: Int?): TraceQuery<FrameTimelineRow> =
         TraceQuery(
             sql =
@@ -35,6 +38,8 @@ class FrameTimelineTraceAdapter {
                        COALESCE(a.surface_frame_token, e.surface_frame_token) AS surface_token,
                        COALESCE(a.layer_name, e.layer_name) AS layer_name,
                        a.jank_type AS jank_type,
+                       a.jank_tag AS jank_tag,
+                       a.present_type AS present_type,
                        p.name AS process_name,
                        (
                          SELECT sf.jank_type
@@ -65,6 +70,8 @@ class FrameTimelineTraceAdapter {
                     surfaceToken,
                     layerName,
                     jankType,
+                    jankTag,
+                    presentType,
                     processName,
                     surfaceFlingerJankType,
                 ),
@@ -78,6 +85,8 @@ class FrameTimelineTraceAdapter {
                 surfaceToken = row[surfaceToken],
                 layerName = row[layerName],
                 jankType = row[jankType],
+                jankTag = row[jankTag],
+                presentType = row[presentType],
                 processName = row[processName],
                 surfaceFlingerJankType = row[surfaceFlingerJankType],
             )
@@ -89,7 +98,10 @@ class FrameTimelineTraceAdapter {
         FrameTimelineResult(
             frames =
                 rows.map { row ->
-                    val jank = row.jankType?.takeUnless { it.equals("On time", ignoreCase = true) }
+                    val jank =
+                        row.jankType?.takeUnless {
+                            it in setOf("None", "On time", "Buffer Stuffing", "SurfaceFlinger Stuffing")
+                        }
                     FrameSample(
                         frameId = row.frameId,
                         sessionId = "perfetto",
@@ -104,7 +116,7 @@ class FrameTimelineTraceAdapter {
                         expectedDurationSource = ExpectedDurationSource.PLATFORM_DEADLINE,
                         frameTimelineVsyncId = row.frameId,
                         totalDurationNs = row.actualDur,
-                        platformJank = jank != null,
+                        platformJank = row.jankType?.let { jank != null },
                         platformJankTypes = if (jank == null) emptySet() else setOf(JankType.PLATFORM_REPORTED),
                         platformJankRuleId = row.jankType,
                         surfaceFlingerJankType = row.surfaceFlingerJankType,
@@ -112,6 +124,8 @@ class FrameTimelineTraceAdapter {
                             buildMap {
                                 row.surfaceToken?.let { put("surfaceFrameToken", it.toString()) }
                                 row.surfaceFlingerJankType?.let { put("surfaceFlingerJankType", it) }
+                                row.jankTag?.let { put(FRAME_TIMELINE_JANK_TAG, it) }
+                                row.presentType?.let { put(FRAME_TIMELINE_PRESENT_TYPE, it) }
                             },
                     )
                 },
@@ -151,6 +165,8 @@ data class FrameTimelineRow(
     val jankType: String?,
     val processName: String?,
     val surfaceFlingerJankType: String?,
+    val jankTag: String? = null,
+    val presentType: String? = null,
 )
 
 data class FrameTimelineResult(

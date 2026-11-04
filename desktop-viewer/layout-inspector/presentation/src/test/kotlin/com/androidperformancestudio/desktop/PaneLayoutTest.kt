@@ -17,7 +17,7 @@ class PaneLayoutTest {
     fun `dragging separators changes only the adjacent side pane`() {
         val initial = PaneWidths()
         assertEquals(
-            PaneWidths(hierarchy = 360f, properties = 300f),
+            PaneWidths(hierarchy = 400f, properties = 300f),
             PaneLayout.dragHierarchy(initial, deltaDp = 80f, availableWidthDp = 1200f),
         )
         assertEquals(
@@ -30,11 +30,19 @@ class PaneLayoutTest {
     fun `dragging clamps side panes and preserves canvas minimum width`() {
         val initial = PaneWidths()
         assertEquals(PaneWidths(280f, 300f), PaneLayout.dragHierarchy(initial, -1000f, 1100f))
-        assertEquals(PaneWidths(360f, 300f), PaneLayout.dragHierarchy(initial, 1000f, 1100f))
+        assertEquals(PaneWidths(466f, 300f), PaneLayout.dragHierarchy(initial, 1000f, 1100f))
         assertEquals(PaneWidths(320f, 240f), PaneLayout.dragProperties(initial, 1000f, 1100f))
         assertEquals(PaneWidths(320f, 446f), PaneLayout.dragProperties(initial, -1000f, 1100f))
         val hierarchyMaximum = PaneLayout.dragHierarchy(initial, 1000f, 1100f)
         assertEquals(hierarchyMaximum, PaneLayout.dragHierarchy(hierarchyMaximum, 1000f, 1100f))
+    }
+
+    @Test
+    fun `wide windows allow dragging the hierarchy well past the old 360dp cap`() {
+        val dragged = PaneLayout.dragHierarchy(PaneWidths(), deltaDp = 10_000f, availableWidthDp = 1920f)
+        assertEquals(PaneLayout.HIERARCHY_MAX_WIDTH_DP, dragged.hierarchy)
+        assertEquals(300f, dragged.properties)
+        assertEquals(PaneWidths(560f, 300f), PaneLayout.dragHierarchy(PaneWidths(), deltaDp = 240f, availableWidthDp = 1440f))
     }
 
     @Test
@@ -45,7 +53,7 @@ class PaneLayoutTest {
                 availableWidthDp = 1100f,
             )
 
-        assertEquals(PaneWidths(hierarchy = 360f, properties = 406f), fitted)
+        assertEquals(PaneWidths(hierarchy = 500f, properties = 266f), fitted)
         assertEquals(
             PaneLayout.CANVAS_MIN_WIDTH_DP,
             1100f -
@@ -110,7 +118,7 @@ class PaneLayoutTest {
         val preferred = PaneWidths(hierarchy = 350f, properties = 10_000f)
 
         assertEquals(
-            preferred.copy(hierarchy = 360f),
+            preferred.copy(hierarchy = 473f),
             PaneLayout.dragHierarchy(preferred, 10_000f, 800f, showHierarchy = true, showDetails = false),
         )
         assertEquals(
@@ -233,6 +241,8 @@ class PaneLayoutTest {
                 PaneWidths(350f, 380f),
                 PaneWidths(360f, 240f),
                 PaneWidths(361f, 241f),
+                PaneWidths(640f, 240f),
+                PaneWidths(641f, 241f),
                 PaneWidths(10_000f, 20_000f),
             )
         for (showHierarchy in listOf(false, true)) {
@@ -278,7 +288,7 @@ class PaneLayoutTest {
         val compact = available < minimumWorkspaceWidth(showHierarchy, showDetails, compact = false)
         if (showHierarchy) {
             assertTrue(actual.hierarchy >= (if (compact) 180f else 280f), context)
-            assertTrue(actual.hierarchy <= 360f, context)
+            assertTrue(actual.hierarchy <= PaneLayout.HIERARCHY_MAX_WIDTH_DP, context)
         } else {
             assertEquals(preferred.hierarchy, actual.hierarchy, context)
         }

@@ -20,5 +20,7 @@ dependencies {
     testImplementation(compose.desktop.currentOs)
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.compose.ui.test)
+    testImplementation(project(":parser-simpleperf-proto"))
+    testImplementation(libs.aps.host.toolchain)
     implementation(libs.compose.components.resources)
 }

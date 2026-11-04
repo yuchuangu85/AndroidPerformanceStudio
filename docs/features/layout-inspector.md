@@ -62,9 +62,24 @@ layout-inspector/shared-kernel/analysis-engine
 6. 在 Findings 中按规则和严重级别筛选。
 7. 需要离线复核时导出 capture archive。
 
+### 手动启用 Compose Agent
+
+- 工具栏中的 `Compose Agent` 默认关闭，不保存为下次启动时自动开启。关闭时只使用现有兼容采集链路，不准备或注入 Compose JVMTI Agent。
+- 检查 Compose 内部节点时，手动勾选开关。预检完成后，确认框显示设备、包名、PID、Android API、ABI、Compose 版本、Inspector 来源及下载/重启需求；选择“允许注入”后才连接运行时检查器。取消确认会关闭开关。
+- 关闭开关会取消当前检查流程，停止观察并清理会话；切换设备、切换到 System UI 或导入归档也会关闭开关。归档中的 Compose 数据仍可离线查看。
+- 连接中关闭开关时，同一手动刷新可继续走兼容采集；设备、采集模式变化或导入归档则丢弃旧刷新，防止旧结果覆盖新目标。已经被取消或替换的确认框回调不能授权或关闭新请求。
+- 前台应用或进程变化后需要重新确认，失败时回退兼容采集，不静默重新授权。手动刷新同一个已授权目标不重复弹出确认框。
+- 关闭 Agent 后无法获取完整 Composable 树、运行时参数和重组数据；传统 View、截图与可获得的兼容层级仍可使用。关闭开关不代表所有采集路径完全无开销，也不能撤销此前已发生的目标进程副作用。
+- 错误原因和诊断提示支持鼠标选择复制，也可右键“复制完整提示”，复制内容不受界面省略号或折叠状态影响。
+- Compose 附加错误可展开并滚动查看详情，包含 PID 范围内的 Warning/Error 和 ART 原因。单条 `ActivityThread: Attaching agent ... PathClassLoader` 不是最终失败证据；等待有界的 socket 就绪结果，避免首次类加载器尝试或同秒旧日志误判。附加异常及日志中的会话 Token 在显示和复制前脱敏。
+
+此功能的 host 单元测试与 Compose 交互回归不等于 Windows 真机注入验收；实际设备上的 ABI、JVMTI 和 Compose 版本兼容性仍需分别验证。
+
 ## 输出与限制
 
 - 输出包括层级快照、截图、属性、findings 和归档。
+- Capture archive 支持导入/导出快照、截图和时间线历史；`InspectorStore` 保留有界时间线，`TimelineDiff` 对相邻快照生成节点新增、移除和属性变化。
+- 跨帧节点对应必须有可验证身份；不能把路径编号当作稳定身份，也不能把本地隐藏或未绘制节点解释为原始证据不存在。
 - fallback 无法保证获得 Agent 的全部字段、事件和自定义采集能力。
 - 当前实时路径面向一台授权设备；多设备选择仍是待办。
 - Compose 深层语义、State Reads 和调用栈属于独立能力，不应从传统 View snapshot 的结果推断。

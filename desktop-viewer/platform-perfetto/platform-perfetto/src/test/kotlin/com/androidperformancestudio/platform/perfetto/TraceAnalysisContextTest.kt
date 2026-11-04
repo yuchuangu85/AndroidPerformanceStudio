@@ -37,7 +37,7 @@ class TraceAnalysisContextTest {
             val runner = FixtureRunner("process_name,total_dur_ms\ncom.example.app,42\n")
             val contexts =
                 TraceAnalysisContexts(
-                    TraceProcessorTool(Path.of("/tools/trace_processor_shell"), "v57.2", "a".repeat(64)),
+                    TraceProcessorTool(Path.of("/tools/trace_processor_shell"), "v59.1", "a".repeat(64)),
                     runner,
                     isReady = { true },
                 )
@@ -46,7 +46,7 @@ class TraceAnalysisContextTest {
             val query =
                 TraceQuery(
                     sql = "SELECT process_name, total_dur_ms FROM synthetic_trace",
-                    schema = TraceQuerySchema.v57_2(processName, totalDurationMs),
+                    schema = TraceQuerySchema.v59_1(processName, totalDurationMs),
                 ) { row -> row[processName] to row[totalDurationMs] }
 
             val first = assertIs<StudioResult.Success<TraceAnalysisContext>>(contexts.open(artifact("first", trace), trace)).value
@@ -58,6 +58,7 @@ class TraceAnalysisContextTest {
             assertEquals(listOf("com.example.app" to 42L), rows)
             assertEquals(listOf("process_name", "total_dur_ms"), raw.columns)
             assertEquals("com.example.app", raw.rows.single().string("process_name"))
+            assertTrue(runner.queryRequests.all { it.arguments.take(3) == listOf("query", "--format", "csv") })
 
             first.close()
             second.close()
@@ -75,7 +76,7 @@ class TraceAnalysisContextTest {
             val runner = FixtureRunner("")
             val contexts =
                 TraceAnalysisContexts(
-                    TraceProcessorTool(Path.of("/tools/trace_processor_shell"), "v57.2", "a".repeat(64)),
+                    TraceProcessorTool(Path.of("/tools/trace_processor_shell"), "v59.1", "a".repeat(64)),
                     runner,
                     isReady = { true },
                 )
@@ -93,7 +94,7 @@ class TraceAnalysisContextTest {
             val runner = FixtureRunner("")
             val contexts =
                 TraceAnalysisContexts(
-                    TraceProcessorTool(Path.of("/tools/trace_processor_shell"), "v57.2", "a".repeat(64)),
+                    TraceProcessorTool(Path.of("/tools/trace_processor_shell"), "v59.1", "a".repeat(64)),
                     runner,
                     isReady = {
                         delay(75)
@@ -131,7 +132,7 @@ class TraceAnalysisContextTest {
             val query =
                 TraceQuery(
                     sql = "SELECT 7 AS fixture_id, 'synthetic' AS fixture_name",
-                    schema = TraceQuerySchema.v57_2(fixtureId, fixtureName),
+                    schema = TraceQuerySchema.v59_1(fixtureId, fixtureName),
                 ) { row -> requireNotNull(row[fixtureId]) to requireNotNull(row[fixtureName]) }
 
             val context =
@@ -143,6 +144,15 @@ class TraceAnalysisContextTest {
                     listOf(7L to "synthetic"),
                     assertIs<StudioResult.Success<List<Pair<Long, String>>>>(context.query(query)).value,
                 )
+                val unbounded =
+                    assertIs<StudioResult.Success<TraceQueryResult>>(
+                        context.queryRaw(
+                            "WITH RECURSIVE numbers(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM numbers WHERE id < 1100) " +
+                                "SELECT id, printf('%0600d', id) AS long_value FROM numbers ORDER BY id",
+                        ),
+                    ).value
+                assertEquals(1100, unbounded.rows.size)
+                assertEquals(600, unbounded.rows.first().string("long_value")?.length)
             } finally {
                 context.close()
             }
@@ -187,9 +197,10 @@ class TraceAnalysisContextTest {
         private val queryOutput: String,
     ) : HostProcessRunner {
         val processes = mutableListOf<FixtureProcess>()
+        val queryRequests = mutableListOf<HostProcessRequest>()
 
         override suspend fun executeText(request: HostProcessRequest): HostProcessTextResult =
-            HostProcessTextResult(-1, 0, queryOutput, "", Duration.ZERO, false, false)
+            HostProcessTextResult(-1, 0, queryOutput, "", Duration.ZERO, false, false).also { queryRequests += request }
 
         override suspend fun executeBinary(request: HostProcessRequest): HostProcessBinaryResult =
             error("not used")

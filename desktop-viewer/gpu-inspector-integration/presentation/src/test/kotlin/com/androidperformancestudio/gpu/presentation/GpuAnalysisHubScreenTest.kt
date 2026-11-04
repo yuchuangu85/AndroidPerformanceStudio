@@ -1,8 +1,13 @@
 package com.androidperformancestudio.gpu.presentation
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
@@ -10,6 +15,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -41,7 +49,7 @@ class GpuAnalysisHubScreenTest {
     @Test
     fun `wide workspace keeps toolbar, summary, rail, tabs and both insight rails in order`() =
         runDesktopComposeUiTest(width = 1440, height = 900) {
-            setContent { ViewerTheme(darkTheme = true) { GpuAnalysisHubScreen(hubState(), noopActions(), UiLanguage.ENGLISH) } }
+            setContent { ViewerTheme(darkTheme = true) { hubWithToolbar(hubState(), noopActions(), UiLanguage.ENGLISH) } }
 
             val toolbar = onNodeWithTag("gpu-analysis-toolbar").fetchSemanticsNode().boundsInRoot
             val summary = onNodeWithTag("gpu-summary-indexed").fetchSemanticsNode().boundsInRoot
@@ -65,7 +73,7 @@ class GpuAnalysisHubScreenTest {
             var traceAnalyzer = 0
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(
+                    hubWithToolbar(
                         hubState(),
                         noopActions().copy(
                             onLaunchAgi = { launched++ },
@@ -100,7 +108,7 @@ class GpuAnalysisHubScreenTest {
                             missingArtifact.id to ArtifactLocationStatus.MISSING,
                         ),
                 )
-            setContent { ViewerTheme(darkTheme = true) { GpuAnalysisHubScreen(state, noopActions(), UiLanguage.ENGLISH) } }
+            setContent { ViewerTheme(darkTheme = true) { hubWithToolbar(state, noopActions(), UiLanguage.ENGLISH) } }
 
             onNodeWithTag("gpu-summary-indexed").assertContentDescriptionEquals("Indexed artifacts: 3")
             onNodeWithTag("gpu-summary-available").assertContentDescriptionEquals("Verified available: 2")
@@ -121,7 +129,7 @@ class GpuAnalysisHubScreenTest {
             var state by mutableStateOf(hubState(artifacts = listOf(frameArtifact, traceArtifact)))
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(
+                    hubWithToolbar(
                         state,
                         noopActions().copy(onFilterArtifacts = { state = state.copy(artifactFilter = it) }),
                         UiLanguage.ENGLISH,
@@ -148,7 +156,7 @@ class GpuAnalysisHubScreenTest {
             val selected = mutableListOf<String>()
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(
+                    hubWithToolbar(
                         state,
                         noopActions().copy(
                             onSelectArtifact = { id ->
@@ -174,7 +182,7 @@ class GpuAnalysisHubScreenTest {
             var state by mutableStateOf(hubState())
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(state, noopActions().copy(onSelectHubTab = { state = state.copy(hubTab = it) }), UiLanguage.ENGLISH)
+                    hubWithToolbar(state, noopActions().copy(onSelectHubTab = { state = state.copy(hubTab = it) }), UiLanguage.ENGLISH)
                 }
             }
 
@@ -183,7 +191,7 @@ class GpuAnalysisHubScreenTest {
             onNodeWithTag("segmented-selector-item-1").performClick()
             onNodeWithTag("gpu-artifact-table").assertExists()
             listOf("Kind", "File", "Device", "Package", "API", "Captured", "Status", "Action").forEach { column ->
-                onNodeWithText(column).assertExists()
+                onNode(hasText(column) and hasAnyAncestor(hasTestTag("gpu-artifact-table"))).assertExists()
             }
 
             onNodeWithTag("segmented-selector-item-2").performClick()
@@ -218,7 +226,7 @@ class GpuAnalysisHubScreenTest {
             val callbacks = mutableListOf<String>()
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(
+                    hubWithToolbar(
                         state,
                         noopActions().copy(
                             onOpenArtifact = { callbacks += "open" },
@@ -253,7 +261,7 @@ class GpuAnalysisHubScreenTest {
             var state by mutableStateOf(hubState(deviceError = "ADB is unavailable"))
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(state, noopActions().copy(onRefreshDevices = { refreshed++ }), UiLanguage.ENGLISH)
+                    hubWithToolbar(state, noopActions().copy(onRefreshDevices = { refreshed++ }), UiLanguage.ENGLISH)
                 }
             }
 
@@ -277,7 +285,7 @@ class GpuAnalysisHubScreenTest {
             val device = GpuDeviceContext("serial-1", "Test Phone", 34, "Fixture Vendor", "Fixture Renderer", "Fixture Driver")
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(
+                    hubWithToolbar(
                         hubState(devices = listOf(device)),
                         noopActions().copy(onSelectDevice = { selectedSerial = it }),
                         UiLanguage.ENGLISH,
@@ -285,7 +293,7 @@ class GpuAnalysisHubScreenTest {
                 }
             }
 
-            onNodeWithContentDescription("Device / Graphics Context").performClick()
+            onNodeWithContentDescription("Device selector").performClick()
             onNodeWithText("Test Phone · serial-1").performClick()
 
             assertEquals("serial-1", selectedSerial)
@@ -294,7 +302,7 @@ class GpuAnalysisHubScreenTest {
     @Test
     fun `narrow workspace stacks the rail and insights instead of dropping them`() =
         runDesktopComposeUiTest(width = 880, height = 640) {
-            setContent { ViewerTheme(darkTheme = false) { GpuAnalysisHubScreen(hubState(), noopActions(), UiLanguage.ENGLISH) } }
+            setContent { ViewerTheme(darkTheme = false) { hubWithToolbar(hubState(), noopActions(), UiLanguage.ENGLISH) } }
 
             val indexed = onNodeWithTag("gpu-summary-indexed").fetchSemanticsNode().boundsInRoot
             val capabilityCard = onNodeWithTag("gpu-summary-capability").fetchSemanticsNode().boundsInRoot
@@ -312,7 +320,7 @@ class GpuAnalysisHubScreenTest {
     fun `unavailable capability keeps launch disabled without hiding artifact evidence`() =
         runDesktopComposeUiTest(width = 1440, height = 900) {
             val state = hubState(capability = null)
-            setContent { ViewerTheme(darkTheme = true) { GpuAnalysisHubScreen(state, noopActions(), UiLanguage.ENGLISH) } }
+            setContent { ViewerTheme(darkTheme = true) { hubWithToolbar(state, noopActions(), UiLanguage.ENGLISH) } }
 
             onNodeWithText("Launch AGI").assertIsNotEnabled()
             onNodeWithTag("gpu-summary-capability").assertContentDescriptionEquals("AGI capability: AGI is not configured")
@@ -325,7 +333,7 @@ class GpuAnalysisHubScreenTest {
         runDesktopComposeUiTest(width = 1064, height = 560) {
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(hubState(selectedArtifactId = traceArtifact.id), noopActions(), UiLanguage.ENGLISH)
+                    hubWithToolbar(hubState(selectedArtifactId = traceArtifact.id), noopActions(), UiLanguage.ENGLISH)
                 }
             }
 
@@ -342,7 +350,7 @@ class GpuAnalysisHubScreenTest {
             var state by mutableStateOf(hubState())
             setContent {
                 ViewerTheme(darkTheme = true) {
-                    GpuAnalysisHubScreen(state, noopActions().copy(onSelectHubTab = { state = state.copy(hubTab = it) }), UiLanguage.ENGLISH)
+                    hubWithToolbar(state, noopActions().copy(onSelectHubTab = { state = state.copy(hubTab = it) }), UiLanguage.ENGLISH)
                 }
             }
 
@@ -355,6 +363,25 @@ class GpuAnalysisHubScreenTest {
             onNodeWithTag("gpu-artifact-table").assertExists()
             onNodeWithTag("gpu-artifact-row-action-${frameArtifact.id}").assertIsEnabled()
         }
+
+    @Composable
+    private fun hubWithToolbar(
+        state: GpuIntegrationState,
+        actions: GpuIntegrationActions,
+        language: UiLanguage,
+        modifier: Modifier = Modifier,
+    ) {
+        Column(modifier.fillMaxSize()) {
+            GpuAnalysisToolbar(
+                state = state,
+                actions = actions,
+                selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId },
+                language = language,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            GpuAnalysisHubScreen(state, actions, language, Modifier.weight(1f))
+        }
+    }
 
     private fun noopActions() = GpuIntegrationActions(onOpenArtifact = {}, onVerifyArtifact = {}, onRevealArtifact = {}, onRelocateArtifact = {})
 

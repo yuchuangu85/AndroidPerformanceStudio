@@ -50,6 +50,28 @@ class AndroidProcessSelectionTest {
     }
 
     @Test
+    fun `clearing the process keeps the device and discovered processes`() {
+        val selection = AndroidProcessSelection(Process::pid)
+        val events = mutableListOf<AndroidProcessSelectionSnapshot<Process>>()
+        val subscription = selection.register(events::add)
+        selection.selectDevice("device-a")
+        selection.updateProcesses("device-a", listOf(Process(42, "first"), Process(43, "other")))
+        assertTrue(selection.selectProcess(42))
+        val eventsBeforeClear = events.size
+
+        selection.clearProcess()
+
+        assertEquals(null, selection.snapshot.selectedPid)
+        assertEquals("device-a", selection.snapshot.serial)
+        assertEquals(listOf(Process(42, "first"), Process(43, "other")), selection.snapshot.processes)
+        assertEquals(eventsBeforeClear + 1, events.size)
+        // Clearing an already empty choice does not publish again.
+        selection.clearProcess()
+        assertEquals(eventsBeforeClear + 1, events.size)
+        subscription.close()
+    }
+
+    @Test
     fun `refresh retains valid selection and clears disappeared pid`() {
         val selection = AndroidProcessSelection(Process::pid, selectSingleProcess = true)
         selection.selectDevice("device-a")

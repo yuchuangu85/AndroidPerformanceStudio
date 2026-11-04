@@ -88,6 +88,25 @@ data class InspectorScreenModel(
     val selectedWindowId: String?,
 )
 
+/** One shared projection per screen input; hover affects the preview, not this model. */
+internal class InspectorPresentationCache {
+    private var previousState: InspectorState? = null
+    private var previousLanguage: UiLanguage? = null
+    private var previousDeviceOnline: Boolean? = null
+    private var model: InspectorScreenModel? = null
+
+    fun present(state: InspectorState, language: UiLanguage, deviceOnline: Boolean = false): InspectorScreenModel {
+        val input = state.copy(hoveredNodeId = null)
+        if (previousState == input && previousLanguage == language && previousDeviceOnline == deviceOnline) return checkNotNull(model)
+        return InspectorPresenter.present(input, language, deviceOnline).also {
+            previousState = input
+            previousLanguage = language
+            previousDeviceOnline = deviceOnline
+            model = it
+        }
+    }
+}
+
 internal object InspectorPresenter {
     private val authorizedDeviceCountError =
         Regex("""Expected exactly one authorized device, found (\d+)""")
@@ -95,6 +114,7 @@ internal object InspectorPresenter {
     fun present(
         state: InspectorState,
         language: UiLanguage = UiLanguage.ENGLISH,
+        deviceOnline: Boolean = false,
     ): InspectorScreenModel {
         val nodeNumbers = mutableMapOf<String, String>()
         val nextIndexByDepth = mutableMapOf<Int, Int>()
@@ -205,7 +225,10 @@ internal object InspectorPresenter {
                 null
             },
             connectionLabel = when (state.connectionStatus) {
-                ConnectionStatus.DISCONNECTED -> localizedStringResource(Res.string.disconnected, language)
+                ConnectionStatus.DISCONNECTED -> localizedStringResource(
+                    if (deviceOnline) Res.string.device_online else Res.string.disconnected,
+                    language,
+                )
                 ConnectionStatus.CONNECTING -> localizedStringResource(Res.string.connecting, language)
                 ConnectionStatus.CONNECTED -> localizedStringResource(Res.string.live, language)
                 ConnectionStatus.ARCHIVE -> localizedStringResource(Res.string.offline_archive, language)
@@ -214,7 +237,7 @@ internal object InspectorPresenter {
                     ?: localizedStringResource(Res.string.connection_failed, language)
             },
             connectionTone = when (state.connectionStatus) {
-                ConnectionStatus.DISCONNECTED,
+                ConnectionStatus.DISCONNECTED -> if (deviceOnline) ConnectionTone.SUCCESS else ConnectionTone.NEUTRAL
                 ConnectionStatus.CONNECTING,
                 ConnectionStatus.ARCHIVE,
                 -> ConnectionTone.NEUTRAL

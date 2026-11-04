@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.benchmark.presentation.generated.resources.*
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
@@ -77,11 +78,12 @@ internal fun BenchmarkTrendPanel(
         }
         val trend = state.trend
         if (trend == null || trend.points.size < 2) {
-            Text(
+            CopyableText(
                 text = localizedStringResource(Res.string.trend_empty, language),
                 color = colors.secondaryText,
                 fontSize = ViewerTypography.bodyCompact.fontSize,
                 lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                language = language,
             )
             return@StudioPanel
         }
@@ -100,7 +102,7 @@ internal fun BenchmarkTrendPanel(
 
 @Composable
 private fun TrendWarning(text: String, color: androidx.compose.ui.graphics.Color) {
-    Text(
+    CopyableText(
         text = text,
         color = color,
         fontSize = ViewerTypography.label.fontSize,

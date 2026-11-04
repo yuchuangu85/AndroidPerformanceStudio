@@ -1,7 +1,11 @@
 package com.androidperformancestudio.arttrace
 
+import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
+import com.androidperformancestudio.profileanalysis.CallStackFilter
+import com.androidperformancestudio.profileanalysis.matchesStackSearch
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -49,6 +53,106 @@ class ArtTraceAnalysisProjectionTest {
         assertNull(snapshot.emptyReason)
         assertTrue(snapshot.callNodes.size > 0)
         assertTrue(snapshot.rows.rowCount > 0)
+    }
+
+    @Test
+    fun `method source files reach immutable frames and flame graph snapshots unchanged`() {
+        val original = analysis()
+        val methods =
+            original.methods.toMutableMap().apply {
+                this[1L] = getValue(1L).copy(sourceFile = "src/screens/LaunchScreen.kt")
+            }
+        val table = ArtTraceCallStackProjector.toCallStackTable(original.copy(methods = methods))
+        methods.clear()
+        val frame = table.frame(1L)
+
+        assertEquals("src/screens/LaunchScreen.kt", frame.sourceFile)
+        assertEquals("android/app/Activity", frame.resource)
+        assertEquals("android.app.Activity.onCreate", frame.symbolName)
+        assertNull(frame.originalSourceFile)
+        assertTrue(frame.matchesStackSearch("LAUNCHSCREEN.KT"))
+        assertFalse(frame.matchesStackSearch("Activity.java"))
+
+        val snapshot = ArtTraceFlameGraphBuilder.build(table)
+        assertEquals(frame, snapshot.callNodes.framesById.getValue(1L))
+        assertEquals(
+            "View.java",
+            snapshot.callNodes.framesById
+                .getValue(2L)
+                .sourceFile,
+        )
+    }
+
+    @Test
+    fun `source search filters ART intervals with comma AND and per frame OR semantics`() {
+        val table = ArtTraceCallStackProjector.toCallStackTable(analysis())
+        val query = CallStackAnalysisQuery(searchText = " ACTIVITY.JAVA, VIEW.JAVA ")
+
+        val filtered = CallStackFilter.apply(table, query)
+
+        assertEquals(listOf(table.stacks[1]), filtered.table.stacks)
+        assertEquals(
+            listOf(1L, 2L),
+            filtered.table.stacks
+                .single()
+                .frameIdsRootToLeaf,
+        )
+        assertEquals(
+            20_000_000L,
+            filtered.table.stacks
+                .single()
+                .weight,
+        )
+        assertTrue(table.frame(1L).matchesStackSearch("activity.java"))
+        assertFalse(table.frame(1L).matchesStackSearch("view.java"))
+        assertTrue(table.frame(2L).matchesStackSearch("view.java"))
+        assertFalse(table.frame(2L).matchesStackSearch("activity.java"))
+        assertEquals(
+            20_000_000L,
+            ArtTraceFlameGraphBuilder.build(filtered.table, query).totalWeight,
+        )
+        assertTrue(
+            CallStackFilter
+                .apply(table, query.copy(searchText = "activity.java,missing.kt"))
+                .table.stacks
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun `empty method source files stay empty without inferring a file from the class`() {
+        val original = analysis()
+        val methods = original.methods.mapValues { (_, method) -> method.copy(sourceFile = "") }
+        val table = ArtTraceCallStackProjector.toCallStackTable(original.copy(methods = methods))
+
+        original.methods.forEach { (id, method) ->
+            val frame = table.frame(id)
+            assertEquals("", frame.sourceFile)
+            assertNull(frame.originalSourceFile)
+            assertEquals(method.className, frame.resource)
+            assertFalse(frame.matchesStackSearch(method.sourceFile))
+        }
+        assertTrue(
+            CallStackFilter
+                .apply(table, CallStackAnalysisQuery(searchText = ".java"))
+                .table.stacks
+                .isEmpty(),
+        )
+    }
+
+    @Test
+    fun `unknown method fallback has no invented source metadata`() {
+        val original = analysis()
+        val table = ArtTraceCallStackProjector.toCallStackTable(original.copy(methods = original.methods - 2L))
+        val frame = table.frame(2L)
+
+        assertTrue(frame.matchesStackSearch("0x2"))
+        assertEquals("", frame.resource)
+        assertEquals("", frame.sourceFile)
+        assertNull(frame.originalSourceFile)
+        assertFalse(frame.matchesStackSearch("View.java"))
+        assertEquals(listOf(1L, 2L), table.stacks[1].frameIdsRootToLeaf)
+        assertEquals(20_000_000L, table.stacks[1].weight)
     }
 
     @Test

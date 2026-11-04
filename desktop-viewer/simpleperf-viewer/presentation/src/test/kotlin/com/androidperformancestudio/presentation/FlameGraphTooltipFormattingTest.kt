@@ -1,10 +1,40 @@
 package com.androidperformancestudio.presentation
 
+import com.androidperformancestudio.profileanalysis.CallStackWeightType
+import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.ui.UiLanguage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class FlameGraphTooltipFormattingTest {
+    @Test
+    fun `sample based flame width and traced tooltip duration are independent measurements`() {
+        val facts =
+            requireNotNull(accessibilitySnapshot().tooltipFacts(FlameCallNodeId(2))).copy(
+                inclusiveWeight = 3242,
+                sampleCount = 3242,
+                percentage = 99.6006,
+                weightType = CallStackWeightType.SAMPLES,
+                tracedInclusiveNanos = 4_042_000_000,
+            )
+        assertEquals("4,042ms (100%)", firefoxTooltipHeader(facts))
+        assertEquals("3,242 samples", firefoxTooltipWeight(facts.inclusiveWeight, facts.weightType, false))
+        assertEquals("3,242 samples (100%)", firefoxTooltipHeader(facts.copy(tracedInclusiveNanos = null)))
+    }
+
+    @Test
+    fun `non time event weights are never displayed as milliseconds`() {
+        val facts =
+            requireNotNull(accessibilitySnapshot().tooltipFacts(FlameCallNodeId(2))).copy(
+                inclusiveWeight = 9_000_000,
+                percentage = 75.0,
+                weightType = CallStackWeightType.EVENTS,
+            )
+        assertEquals("9,000,000 weight (75%)", firefoxTooltipHeader(facts))
+        assertEquals("9,000,000 weight", firefoxTooltipWeight(9_000_000, CallStackWeightType.EVENTS, false))
+        assertEquals("9.0ms", firefoxTooltipWeight(9_000_000, CallStackWeightType.NANOSECONDS, false))
+    }
+
     @Test
     fun `percentages use Firefox two significant digit formatting`() {
         assertEquals("0%", firefoxTooltipPercent(0.0))

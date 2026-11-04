@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,11 +35,18 @@ import com.androidperformancestudio.gpu.model.GpuDeviceContext
 import com.androidperformancestudio.gpu.model.GraphicsApi
 import com.androidperformancestudio.gpu.presentation.generated.resources.*
 import com.androidperformancestudio.gpu.presentation.generated.resources.Res
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.SegmentedSelector
 import com.androidperformancestudio.ui.SegmentedSelectorStyle
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -80,16 +88,27 @@ public fun GpuAnalysisHubScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
+    val titleBarTargets = LocalTitleBarTargetHost.current
+    LaunchedEffect(titleBarTargets, titleBarTargets?.selectedDeviceSerial, state.devices, state.selectedDeviceSerial) {
+        val host = titleBarTargets ?: return@LaunchedEffect
+        val sharedSerial = host.selectedDeviceSerial
+        if (sharedSerial == null) {
+            state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }?.let { device ->
+                device.serial?.let { host.chooseDevice(it, device.selectorLabel()) }
+            }
+        } else if (sharedSerial != state.selectedDeviceSerial && state.devices.any { it.serial == sharedSerial }) {
+            actions.onSelectDevice(sharedSerial)
+        }
+    }
     val selectedArtifact = state.artifacts.firstOrNull { it.id == state.selectedArtifactId }
     val summary = state.hubSummary()
-    BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.compactContentPadding)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(colors.workspace).padding(StudioTokens.workspacePadding)) {
         val wide = maxWidth >= GPU_WIDE_WORKSPACE_MIN_WIDTH
         val stackedSummary = maxWidth < GPU_TWO_ROW_SUMMARY_MAX_WIDTH
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-            GpuAnalysisToolbar(state, actions, selectedArtifact, language)
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             GpuSummaryRow(summary, state.capability, language, stackedSummary)
             if (wide) {
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                     GpuArtifactRail(state, actions, selectedArtifact, language, Modifier.width(GPU_ARTIFACT_RAIL_WIDTH).fillMaxHeight())
                     GpuHubWorkspace(
                         state,
@@ -101,7 +120,7 @@ public fun GpuAnalysisHubScreen(
                     )
                     Column(
                         Modifier.width(GPU_INSIGHT_RAIL_WIDTH).fillMaxHeight().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                     ) {
                         GpuCapabilityRail(state.capability, language)
                         GpuOpenWithRail(state, actions, selectedArtifact, language)
@@ -110,7 +129,7 @@ public fun GpuAnalysisHubScreen(
             } else {
                 Column(
                     Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+                    verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     GpuArtifactRail(
                         state,
@@ -128,66 +147,68 @@ public fun GpuAnalysisHubScreen(
     }
 }
 
-/** Reference dashboard "analysis tools" strip: the three integration actions plus artifact choice. */
+/**
+ * Reference dashboard "analysis tools" strip: the three integration actions plus artifact choice.
+ *
+ * The desktop shell hosts this row in its top header, ahead of the Refresh AGI / Configure AGI
+ * actions, so the GPU workspace starts directly with its summary evidence.
+ */
 @Composable
-private fun GpuAnalysisToolbar(
+public fun GpuAnalysisToolbar(
     state: GpuIntegrationState,
     actions: GpuIntegrationActions,
     selectedArtifact: GpuArtifact?,
     language: UiLanguage,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalViewerColors.current
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("gpu-analysis-toolbar"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
-        ) {
-            Text(
-                localizedStringResource(Res.string.analysis_tools, language),
-                color = colors.secondaryText,
-                style = ViewerTypography.subsectionTitle,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.launch_agi, language),
-                modifier = Modifier.testTag("gpu-action-launch-agi"),
-                enabled = !state.isBusy && state.capability?.launchSupported == true,
-                onClick = actions.onLaunchAgi,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_gpu_trace, language),
-                modifier = Modifier.testTag("gpu-action-import-artifact"),
-                enabled = !state.isBusy,
-                onClick = actions.onImportArtifact,
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.open_trace_analyzer, language),
-                modifier = Modifier.testTag("gpu-action-open-trace-analyzer"),
-                enabled = !state.isBusy,
-                onClick = actions.onOpenTraceAnalyzer,
-            )
-            DropdownSelector(
-                items = state.artifacts,
-                selectedItem = selectedArtifact,
-                onItemSelected = { actions.onSelectArtifact(it.id) },
-                itemLabel = GpuArtifact::displayTitle,
-                selectedItemLabel = GpuArtifact::displayTitle,
-                placeholder = localizedStringResource(Res.string.select_analysis_artifact, language),
-                selectorDescription = localizedStringResource(Res.string.select_analysis_artifact, language),
-                modifier = Modifier.widthIn(min = 220.dp, max = 380.dp).testTag("gpu-artifact-selector"),
-                enabled = !state.isBusy && state.artifacts.isNotEmpty(),
-            )
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.show_in_files, language),
-                modifier = Modifier.testTag("gpu-action-reveal"),
-                enabled = !state.isBusy && selectedArtifact != null,
-                onClick = { selectedArtifact?.let(actions.onRevealArtifact) },
-            )
-        }
-        state.message?.let { Text(it, color = colors.success, style = ViewerTypography.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        state.error?.let { Text(it, color = colors.error, style = ViewerTypography.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    Row(
+        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("gpu-analysis-toolbar"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
+    ) {
+        Text(
+            localizedStringResource(Res.string.analysis_tools, language),
+            color = colors.secondaryText,
+            style = ViewerTypography.subsectionTitle,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.launch_agi, language),
+            modifier = Modifier.testTag("gpu-action-launch-agi"),
+            enabled = !state.isBusy && state.capability?.launchSupported == true,
+            onClick = actions.onLaunchAgi,
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.import_gpu_trace, language),
+            modifier = Modifier.testTag("gpu-action-import-artifact"),
+            enabled = !state.isBusy,
+            onClick = actions.onImportArtifact,
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.open_trace_analyzer, language),
+            modifier = Modifier.testTag("gpu-action-open-trace-analyzer"),
+            enabled = !state.isBusy,
+            onClick = actions.onOpenTraceAnalyzer,
+        )
+        DropdownSelector(
+            items = state.artifacts,
+            selectedItem = selectedArtifact,
+            onItemSelected = { actions.onSelectArtifact(it.id) },
+            itemLabel = GpuArtifact::displayTitle,
+            selectedItemLabel = GpuArtifact::displayTitle,
+            placeholder = localizedStringResource(Res.string.select_analysis_artifact, language),
+            selectorDescription = localizedStringResource(Res.string.select_analysis_artifact, language),
+            modifier = Modifier.widthIn(min = 220.dp, max = 380.dp).testTag("gpu-artifact-selector"),
+            enabled = !state.isBusy && state.artifacts.isNotEmpty(),
+        )
+        ProfilerCompactButton(
+            text = localizedStringResource(Res.string.show_in_files, language),
+            modifier = Modifier.testTag("gpu-action-reveal"),
+            enabled = !state.isBusy && selectedArtifact != null,
+            onClick = { selectedArtifact?.let(actions.onRevealArtifact) },
+        )
     }
 }
 
@@ -268,17 +289,17 @@ private fun GpuSummaryRow(
     }
 
     if (!stacked) {
-        Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
             // Compact cards wrap their supporting line instead of dropping evidence at narrow widths.
             firstRow(Modifier.weight(1f).fillMaxHeight())
             secondRow(Modifier.weight(1f).fillMaxHeight())
         }
     } else {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
+            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 firstRow(Modifier.weight(1f).fillMaxHeight())
             }
-            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+            Row(Modifier.fillMaxWidth().height(GPU_SUMMARY_CARD_HEIGHT), horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 secondRow(Modifier.weight(1f).fillMaxHeight())
             }
         }
@@ -321,7 +342,7 @@ private fun GpuHubWorkspace(
     modifier: Modifier,
     expandContent: Boolean,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
         GpuDeviceContextPanel(state, actions, language)
         GpuHubTabStrip(state, actions, selectedArtifact, language)
         val contentModifier =
@@ -380,36 +401,52 @@ private fun GpuDeviceContextPanel(
     language: UiLanguage,
 ) {
     val colors = LocalViewerColors.current
+    val titleBarTargets = LocalTitleBarTargetHost.current
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedDeviceSerial }
+        ?.takeIf { titleBarTargets?.deviceReady(it.serial) != false }
     StudioPanel(Modifier.fillMaxWidth()) {
         StudioPanelHeader(
             title = localizedStringResource(Res.string.device_graphics_context, language),
             actions = {
-                DropdownSelector(
-                    items = state.devices,
-                    selectedItem = selectedDevice,
-                    onItemSelected = { it.serial?.let(actions.onSelectDevice) },
-                    itemLabel = GpuDeviceContext::selectorLabel,
-                    selectedItemLabel = GpuDeviceContext::selectorLabel,
-                    placeholder = localizedStringResource(Res.string.select_connected_device, language),
-                    modifier = Modifier.widthIn(min = 200.dp, max = 360.dp),
-                    enabled = !state.isRefreshingDevices && state.devices.isNotEmpty(),
-                    selectorDescription = localizedStringResource(Res.string.device_graphics_context, language),
-                )
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.refresh_devices, language),
+                val inTitleBar = titleBarTargets != null
+                TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                    DeviceDropdownSelector(
+                        language = language,
+                        items = state.devices,
+                        selectedItem = selectedDevice,
+                        onItemSelected = { device ->
+                            device.serial?.let { serial ->
+                                titleBarTargets?.chooseDevice(serial, device.selectorLabel())
+                                actions.onSelectDevice(serial)
+                            }
+                        },
+                        itemLabel = GpuDeviceContext::selectorLabel,
+                        selectedItemLabel = GpuDeviceContext::selectorLabel,
+                        modifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.widthIn(min = 200.dp, max = 360.dp),
+                        fillWidth = inTitleBar,
+                        displayTextOverride = titleBarTargets?.selectedDeviceLabel,
+                        enabled = !state.isRefreshingDevices && state.devices.isNotEmpty(),
+                    )
+                }
+                TitleBarRefreshOrInline(
                     enabled = !state.isRefreshingDevices,
-                    onClick = actions.onRefreshDevices,
-                )
+                    onRefresh = actions.onRefreshDevices,
+                ) {
+                    ProfilerCompactButton(
+                        text = localizedStringResource(Res.string.refresh_devices, language),
+                        enabled = !state.isRefreshingDevices,
+                        onClick = actions.onRefreshDevices,
+                    )
+                }
             },
         )
         if (state.isInspectingDevice || state.isRefreshingDevices) {
-            Text(localizedStringResource(Res.string.reading_device_context, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.reading_device_context, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         }
         if (state.devices.isEmpty() && !state.isRefreshingDevices) {
-            Text(localizedStringResource(Res.string.no_connected_devices, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.no_connected_devices, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         }
-        state.deviceError?.let { Text(it, color = colors.error, style = ViewerTypography.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        state.deviceError?.let { CopyableText(it, color = colors.error, style = ViewerTypography.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, language = language) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.sectionGap)) {
             ContextValue(localizedStringResource(Res.string.gpu_renderer, language), selectedDevice?.gpuRenderer, Modifier.weight(1.3f))
             ContextValue(localizedStringResource(Res.string.gpu_vendor, language), selectedDevice?.gpuVendor, Modifier.weight(1f))
@@ -449,17 +486,17 @@ internal fun GpuCapabilityRail(
         SectionTitle(localizedStringResource(Res.string.capability_supported_arguments, language))
         val arguments = capability?.supportedArguments.orEmpty().sorted()
         if (arguments.isEmpty()) {
-            Text(localizedStringResource(Res.string.capability_no_arguments, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.capability_no_arguments, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         } else {
-            Text(arguments.joinToString(" "), color = colors.primaryText, style = ViewerTypography.secondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            CopyableText(arguments.joinToString(" "), color = colors.primaryText, style = ViewerTypography.secondary, maxLines = 3, overflow = TextOverflow.Ellipsis, language = language)
         }
         SectionTitle(localizedStringResource(Res.string.capability_warnings, language))
         val warnings = capability?.warnings.orEmpty()
         if (warnings.isEmpty()) {
-            Text(localizedStringResource(Res.string.capability_no_warnings, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+            CopyableText(localizedStringResource(Res.string.capability_no_warnings, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         } else {
             warnings.forEach { warning ->
-                Text("• ${localizedWarning(warning, language)}", color = colors.warning, style = ViewerTypography.secondary)
+                CopyableText("• ${localizedWarning(warning, language)}", color = colors.warning, style = ViewerTypography.secondary, language = language)
             }
         }
     }
@@ -486,7 +523,7 @@ internal fun GpuOpenWithRail(
                 )
             },
         )
-        Text(localizedStringResource(Res.string.tool_responsibility_hint, language), color = colors.secondaryText, style = ViewerTypography.secondary)
+        CopyableText(localizedStringResource(Res.string.tool_responsibility_hint, language), color = colors.secondaryText, style = ViewerTypography.secondary, language = language)
         HorizontalDivider(color = colors.border)
         ProfilerCompactButton(
             text = availability?.primaryAction?.displayName(language) ?: localizedStringResource(Res.string.unavailable, language),
@@ -522,11 +559,12 @@ internal fun CapabilityFlag(label: String, supported: Boolean, language: UiLangu
     val colors = LocalViewerColors.current
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), color = colors.secondaryText, style = ViewerTypography.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
+        CopyableText(
             localizedStringResource(if (supported) Res.string.yes else Res.string.no, language),
             color = if (supported) colors.success else colors.warning,
             style = ViewerTypography.secondary,
             fontWeight = FontWeight.Medium,
+            language = language,
         )
     }
 }

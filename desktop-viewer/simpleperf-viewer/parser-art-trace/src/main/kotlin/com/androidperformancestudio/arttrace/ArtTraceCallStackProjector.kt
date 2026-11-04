@@ -90,6 +90,7 @@ object ArtTraceCallStackProjector {
             resource = method.className,
             virtualAddress = method.methodId,
             implementation = FrameImplementation.MANAGED,
+            sourceFile = method.sourceFile,
         )
     }
 

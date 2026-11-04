@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "kind": "AGENT",
+  "id": "aps.main",
+  "version": "1.3.0",
+  "name": "Main Agent",
+  "description": "Coordinates bounded analysis through registered providers and read-only Skills.",
+  "entrypoint": "prompt.md",
+  "inputSchema": "aps.evidence-context.v1",
+  "outputSchema": "aps.analysis.v1",
+  "contextKinds": [
+    "layout-inspector",
+    "simpleperf",
+    "memory",
+    "trace",
+    "frame",
+    "startup",
+    "battery",
+    "network",
+    "gpu",
+    "benchmark",
+    "source-workspace"
+  ],
+  "evidenceKinds": [
+    "layout-snapshot",
+    "simpleperf-hotspots",
+    "memory-selection",
+    "memory-summary",
+    "frame-selection",
+    "frame-summary",
+    "startup-selection",
+    "startup-summary",
+    "battery-selection",
+    "battery-summary",
+    "network-selection",
+    "network-summary",
+    "gpu-selection",
+    "gpu-summary",
+    "benchmark-selection",
+    "benchmark-summary",
+    "trace-selection",
+    "source-workspace-selection"
+  ],
+  "allowedProviders": [
+    "openai",
+    "codex",
+    "claude"
+  ],
+  "allowedSkills": [
+    "aps.evidence-summary",
+    "aps.source-candidates",
+    "aps.report-artifact"
+  ],
+  "permissions": [
+    "READ_EVIDENCE",
+    "READ_SOURCE_CANDIDATES",
+    "SEND_SOURCE_SNIPPETS",
+    "PROVIDER_NETWORK",
+    "WRITE_ARTIFACT"
+  ],
+  "runtime": "NONE",
+  "artifactFormats": [],
+  "files": {
+    "prompt.md": "678c7b8c7fb1974551e8cfbb64083efbe7738dce6e047c7d1194f01459515222"
+  },
+  "allowedAgents": [
+    "aps.simpleperf",
+    "aps.source-evidence",
+    "aps.report"
+  ],
+  "budget": {
+    "maxChildDepth": 1
+  }
+}

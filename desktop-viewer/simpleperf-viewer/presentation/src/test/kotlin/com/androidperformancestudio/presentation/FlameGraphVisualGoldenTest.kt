@@ -57,6 +57,9 @@ class FlameGraphVisualGoldenTest {
         }
         waitForIdle()
         val actual = onNodeWithTag(GOLDEN_TAG).captureToImage()
+        val actualPath = Path.of("build/reports/cpu-parity/flame-golden-actual-$name.png")
+        Files.createDirectories(actualPath.parent)
+        ImageIO.write(actual.toBufferedImage(), "png", actualPath.toFile())
         val goldenPath = Path.of("src/test/resources/goldens/firefox-flame-graph-$name.png")
         if (System.getenv("UPDATE_FLAME_GOLDENS") == "1") {
             Files.createDirectories(goldenPath.parent)

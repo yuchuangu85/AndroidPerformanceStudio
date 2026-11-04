@@ -27,8 +27,10 @@ class PerfettoLocalizationTest {
     fun `native file menu follows the application language`() {
         assertTrue(fileMenuSource.contains("localizedStringResource"))
         assertFalse(fileMenuSource.contains("stringResource("))
-        assertTrue(fileMenuSource.contains("Res.string.file, language"))
-        assertTrue(fileMenuSource.contains("Res.string.open_recent, language"))
+        // Menu titles and the Open/Recent items come from the shared window menu; the page only
+        // localizes its own export formats.
+        assertTrue(fileMenuSource.contains("Res.string.session_package_zip, language"))
+        assertTrue(fileMenuSource.contains("Res.string.raw_trace_pftrace, language"))
     }
 
     @Test

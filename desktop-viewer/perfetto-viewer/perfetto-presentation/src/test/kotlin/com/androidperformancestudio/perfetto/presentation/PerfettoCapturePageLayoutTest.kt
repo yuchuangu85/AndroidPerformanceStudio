@@ -90,6 +90,25 @@ class PerfettoCapturePageLayoutTest {
     }
 
     @Test
+    fun `capture card groups use four dp gaps while preserving card content and splitters`() {
+        listOf("PerfettoTemplatePanel", "PerfettoDataSourcesPanel").forEach { name ->
+            val panel = functionSource(name)
+            assertTrue(panel.contains(".padding(StudioTokens.workspacePadding)"))
+            assertTrue(panel.contains("verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)"))
+            assertFalse(panel.contains("verticalArrangement = Arrangement.spacedBy(6.dp)"))
+        }
+        val card = functionSource("PerfettoDataSourceGroupCard")
+        assertTrue(card.contains("contentPadding = 7.dp"))
+        assertTrue(card.contains("contentSpacing = 4.dp"))
+        assertTrue(card.contains("horizontalArrangement = Arrangement.spacedBy(8.dp)"))
+        val template = functionSource("PerfettoTemplateOption")
+        assertTrue(template.contains(".padding(horizontal = 8.dp, vertical = 7.dp)"))
+        assertTrue(template.contains("verticalArrangement = Arrangement.spacedBy(2.dp)"))
+        assertTrue(source.contains("private val PANEL_DIVIDER_WIDTH = 1.dp"))
+        assertTrue(functionSource("PerfettoConfigurationPanel").contains(".padding(10.dp)"))
+    }
+
+    @Test
     fun `group cards preserve capability target package checked state and checkbox callbacks`() {
         val card = functionSource("PerfettoDataSourceGroupCard")
         val rows = blockSource(card, "probes.chunked(2).forEach { probeRow ->")

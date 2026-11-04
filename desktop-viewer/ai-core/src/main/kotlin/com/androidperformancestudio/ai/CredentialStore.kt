@@ -29,36 +29,40 @@ public class InMemoryCredentialStore : CredentialStore {
     }
 }
 
-public class MacOsKeychainCredentialStore(
-    private val service: String = "AndroidPerformanceStudio",
+public class MacOsKeychainCredentialStore private constructor(
+    private val service: String,
+    private val execute: (List<String>) -> Pair<Int, String>,
 ) : CredentialStore {
-    override fun read(key: String): String? =
-        command("security", "find-generic-password", "-a", key, "-s", service, "-w")
-            .takeIf { it.exitCode == 0 }
-            ?.output
-            ?.trim()
+    public constructor(service: String = "AndroidPerformanceStudio") : this(service, ::executeKeychainCommand)
+
+    internal constructor(execute: (List<String>) -> Pair<Int, String>) : this("AndroidPerformanceStudio", execute)
+
+    override fun read(key: String): String? {
+        val result = execute(listOf("security", "find-generic-password", "-a", key, "-s", service, "-w"))
+        if (result.first == KEYCHAIN_ITEM_NOT_FOUND) return null
+        check(result.first == 0) { "E_CREDENTIAL_READ" }
+        return result.second.trim()
+    }
 
     override fun write(
         key: String,
         value: String,
     ) {
-        val result = command("security", "add-generic-password", "-U", "-a", key, "-s", service, "-w", value)
-        check(result.exitCode == 0) { "Unable to store credential in macOS Keychain" }
+        val result = execute(listOf("security", "add-generic-password", "-U", "-a", key, "-s", service, "-w", value))
+        check(result.first == 0) { "E_CREDENTIAL_WRITE" }
     }
 
     override fun delete(key: String) {
-        command("security", "delete-generic-password", "-a", key, "-s", service)
+        val result = execute(listOf("security", "delete-generic-password", "-a", key, "-s", service))
+        check(result.first == 0 || result.first == KEYCHAIN_ITEM_NOT_FOUND) { "E_CREDENTIAL_DELETE" }
     }
-
-    private fun command(vararg arguments: String): CommandResult =
-        runCatching {
-            val process = ProcessBuilder(arguments.toList()).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().use { it.readText() }
-            CommandResult(process.waitFor(), output)
-        }.getOrElse { CommandResult(-1, "") }
-
-    private data class CommandResult(
-        val exitCode: Int,
-        val output: String,
-    )
 }
+
+private const val KEYCHAIN_ITEM_NOT_FOUND = 44
+
+private fun executeKeychainCommand(arguments: List<String>): Pair<Int, String> =
+    runCatching {
+        val process = ProcessBuilder(arguments).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        process.waitFor() to output
+    }.getOrElse { -1 to "" }

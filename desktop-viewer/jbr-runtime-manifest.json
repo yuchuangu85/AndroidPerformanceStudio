@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "releaseTag": "jbr-release-21.0.11b1163.125",
+  "sourceCommit": "a166c74c11a09930f6b8ddf0e75a867c0b1a5cc6",
+  "releaseUrl": "https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-21.0.11b1163.125",
+  "artifacts": {
+    "windows-x64": {
+      "variant": "jbrsdk",
+      "url": "https://cache-redirector.jetbrains.com/intellij-jbr/jbrsdk-21.0.11-windows-x64-b1163.125.zip",
+      "archiveRoot": "jbrsdk-21.0.11-windows-x64-b1163.125",
+      "sha256": "d638be2ea0f6a04b2b10c08eed28dd6d5664808aeb576a74556b0e48b2e9d71b",
+      "sha256Provenance": "Computed from the archive after verification against JetBrains' published SHA-512; upstream does not publish SHA-256 for this release.",
+      "upstreamChecksum": {
+        "algorithm": "SHA512",
+        "url": "https://cache-redirector.jetbrains.com/intellij-jbr/jbrsdk-21.0.11-windows-x64-b1163.125.zip.checksum",
+        "value": "9d244c480cc3b5b77c06753ad8f32e2f40ded94ee02fc3ff6c2bee06fac3d5f1cc42cb1f7b7fa8f8a6e0b14a7dafa2451cd2781d6d5f1c2f598c511f53e2ffe9"
+      },
+      "release": {
+        "JAVA_VERSION": "21.0.11",
+        "JAVA_RUNTIME_VERSION": "21.0.11+1-b1163.125",
+        "IMPLEMENTOR": "JetBrains s.r.o.",
+        "IMPLEMENTOR_VERSION": "JBRSDK-21.0.11+1-1163.125-nomod",
+        "OS_NAME": "Windows",
+        "OS_ARCH": "x86_64"
+      }
+    }
+  }
+}

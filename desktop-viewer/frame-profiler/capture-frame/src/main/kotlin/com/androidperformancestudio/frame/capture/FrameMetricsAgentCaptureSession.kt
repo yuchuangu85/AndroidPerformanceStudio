@@ -12,7 +12,9 @@ import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.model.FrameSource
 import com.androidperformancestudio.frame.model.FrameStages
 import com.androidperformancestudio.platform.adb.AdbClient
+import com.androidperformancestudio.platform.adb.AdbCommandFailedException
 import com.androidperformancestudio.platform.adb.DefaultAdbClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
@@ -82,7 +84,7 @@ public class FrameMetricsAgentCaptureSession internal constructor(
     public suspend fun stop(): List<String> = transport.stop()
 }
 
-private class SocketAgentFrameTransport(
+internal class SocketAgentFrameTransport(
     private val adbClient: AdbClient,
     private val target: GfxInfoCaptureTarget,
     private val codec: AgentFrameBatchCodec = AgentFrameBatchCodec(),
@@ -94,7 +96,7 @@ private class SocketAgentFrameTransport(
         val session =
             AgentSessionDescriptor.parse(
                 executeShell(
-                    listOf("run-as", target.packageName, "cat", "files/agentperf/session.json"),
+                    listOf("run-as", target.packageName, "cat", AGENT_SESSION_PATH),
                 ),
             )
         if (session.protocolMajor != SUPPORTED_PROTOCOL_MAJOR) {
@@ -167,6 +169,17 @@ private class SocketAgentFrameTransport(
                     timeout = COMMAND_TIMEOUT,
                     maxOutputBytesPerStream = MAX_COMMAND_OUTPUT,
                 ).stdout
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: AdbCommandFailedException) {
+            val message =
+                if (error.standardError.trim() == "cat: $AGENT_SESSION_PATH: No such file or directory") {
+                    "Optional FrameMetrics Agent is not initialized in target app ${target.packageName}; " +
+                        "the Agent session file is missing."
+                } else {
+                    error.message ?: "ADB command failed"
+                }
+            throw FrameMetricsAgentCaptureException(message).also { it.initCause(error) }
         } catch (error: RuntimeException) {
             throw FrameMetricsAgentCaptureException(error.message ?: "ADB command failed").also { it.initCause(error) }
         }
@@ -174,6 +187,7 @@ private class SocketAgentFrameTransport(
     private fun availableLoopbackPort(): Int = ServerSocket(0, 0, InetAddress.getLoopbackAddress()).use { it.localPort }
 
     private companion object {
+        const val AGENT_SESSION_PATH = "files/agentperf/session.json"
         const val SUPPORTED_PROTOCOL_MAJOR = 1
         const val SOCKET_TIMEOUT_MILLIS = 10_000
         const val MAX_COMMAND_OUTPUT = 64 * 1024

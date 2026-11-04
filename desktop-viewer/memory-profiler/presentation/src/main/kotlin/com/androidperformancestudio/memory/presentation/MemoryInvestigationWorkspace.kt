@@ -3,6 +3,7 @@
 package com.androidperformancestudio.memory.presentation
 
 import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.LocalScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,10 +20,8 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,18 +30,30 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.memory.model.HeapSummary
 import com.androidperformancestudio.memory.presentation.generated.resources.Res
 import com.androidperformancestudio.memory.presentation.generated.resources.classes
+import com.androidperformancestudio.memory.presentation.generated.resources.count
+import com.androidperformancestudio.memory.presentation.generated.resources.duplicate_bitmaps
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_size
 import com.androidperformancestudio.memory.presentation.generated.resources.leak_suspects
+import com.androidperformancestudio.memory.presentation.generated.resources.lifecycle_leaks
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_composition
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_distribution
 import com.androidperformancestudio.memory.presentation.generated.resources.memory_no_snapshot
+import com.androidperformancestudio.memory.presentation.generated.resources.native_size
 import com.androidperformancestudio.memory.presentation.generated.resources.objects
+import com.androidperformancestudio.memory.presentation.generated.resources.retained
+import com.androidperformancestudio.memory.presentation.generated.resources.retained_native_size
+import com.androidperformancestudio.memory.presentation.generated.resources.shallow
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
+import com.androidperformancestudio.ui.CopyableText
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
+import com.androidperformancestudio.ui.studio.StudioCard
+import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
 internal fun MemoryInvestigationWorkspace(
@@ -52,74 +63,207 @@ internal fun MemoryInvestigationWorkspace(
     modifier: Modifier = Modifier,
     content: @Composable (Modifier) -> Unit,
 ) {
-    Column(modifier.testTag("memory-investigation-workspace")) {
-        MemorySnapshotSummary(state, language)
-        HorizontalDivider()
-        if (state.summary.heapSegments.isNotEmpty() || state.classes.isNotEmpty()) {
-            MemoryHeapDistribution(state, language)
-            HorizontalDivider()
+    Column(
+        modifier.padding(StudioTokens.workspacePadding).testTag("memory-investigation-workspace"),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+    ) {
+        if (state.viewMode == MemoryProfilerViewMode.ClassList) {
+            MemoryPrimaryFilterBar(state, actions, language)
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val scroll = rememberScrollState()
-            val contentWidth = maxOf(maxWidth, 1120.dp)
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 10.dp)
-                    .horizontalScroll(scroll)
-                    .requiredWidth(contentWidth),
+        MemorySnapshotSummary(state, language)
+        if (state.summary.heapSegments.isNotEmpty() || state.classes.isNotEmpty()) {
+            StudioCard(
+                modifier = Modifier.fillMaxWidth().testTag("memory-distribution-card"),
+                contentPadding = 0.dp,
+                contentSpacing = 0.dp,
             ) {
-                MemoryFiltersPane(
-                    state,
-                    actions,
-                    language,
-                    Modifier.width(190.dp).fillMaxHeight().testTag("memory-workspace-filters"),
-                )
-                VerticalDivider()
-                content(Modifier.weight(1f).fillMaxHeight())
-                VerticalDivider()
-                MemoryObjectInspector(state, actions, language, Modifier.width(330.dp).fillMaxHeight())
+                MemoryHeapDistribution(state, language)
             }
-            HorizontalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.BottomStart).fillMaxWidth())
+        }
+        if (state.viewMode == MemoryProfilerViewMode.ClassList) {
+            StudioCard(
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("memory-class-analysis-card"),
+                contentPadding = 0.dp,
+                contentSpacing = 0.dp,
+            ) {
+                MemoryInvestigationContent(state, actions, language, Modifier.fillMaxSize(), content)
+            }
+        } else {
+            MemoryInvestigationContent(state, actions, language, Modifier.fillMaxWidth().weight(1f), content)
         }
     }
 }
 
 @Composable
+private fun MemoryInvestigationContent(
+    state: MemoryProfilerState,
+    actions: MemoryProfilerActions,
+    language: UiLanguage,
+    modifier: Modifier,
+    content: @Composable (Modifier) -> Unit,
+) {
+    if (state.viewMode == MemoryProfilerViewMode.Dominators) {
+        MemoryDominatorWorkspace(state, actions, language, modifier, content)
+        return
+    }
+    BoxWithConstraints(modifier) {
+        val scroll = rememberScrollState()
+        val classList = state.viewMode == MemoryProfilerViewMode.ClassList
+        val minimumWidth = if (classList) 650.dp else 1120.dp
+        val contentWidth = maxOf(maxWidth, minimumWidth)
+        val scrollbarInset = if (contentWidth > maxWidth) LocalScrollbarStyle.current.thickness else 0.dp
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(bottom = scrollbarInset)
+                .horizontalScroll(scroll)
+                .requiredWidth(contentWidth),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+        ) {
+            if (!classList) {
+                StudioCard(
+                    modifier = Modifier.width(190.dp).fillMaxHeight().testTag("memory-filters-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    MemoryFiltersPane(
+                        state,
+                        actions,
+                        language,
+                        Modifier.fillMaxSize().testTag("memory-workspace-filters"),
+                    )
+                }
+            }
+            if (classList) {
+                content(Modifier.weight(1f).fillMaxHeight())
+            } else {
+                StudioCard(
+                    modifier = Modifier.weight(1f).fillMaxHeight().testTag("memory-analysis-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    content(Modifier.fillMaxSize())
+                }
+                StudioCard(
+                    modifier = Modifier.width(330.dp).fillMaxHeight().testTag("memory-inspector-card"),
+                    contentPadding = 0.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    MemoryObjectInspector(state, actions, language, Modifier.fillMaxSize())
+                }
+            }
+        }
+        if (scrollbarInset > 0.dp) {
+            HorizontalScrollbar(
+                rememberScrollbarAdapter(scroll),
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().testTag("memory-analysis-horizontal-scrollbar"),
+            )
+        }
+    }
+}
+
+@Composable
+@Suppress("CyclomaticComplexMethod")
 private fun MemorySnapshotSummary(
     state: MemoryProfilerState,
     language: UiLanguage,
 ) {
     val loaded = state.snapshotSummary != null || state.classes.isNotEmpty()
     val missing = localizedStringResource(Res.string.unavailable, language)
-    Row(
-        Modifier.fillMaxWidth().height(76.dp).padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        listOf(
-            Res.string.heap_size to if (loaded) formatBytes(state.summary.shallowSize) else missing,
-            Res.string.objects to if (loaded) integer(state.summary.objectCount) else missing,
-            Res.string.classes to if (loaded) integer(state.summary.classCount) else missing,
-            Res.string.leak_suspects to if (loaded) integer(state.leakSuspects.size) else missing,
-        ).forEach { (label, value) ->
-            Column(Modifier.weight(1f)) {
-                Text(
-                    localizedStringResource(label, language),
-                    style = ViewerTypography.secondary,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-                Text(
-                    value,
-                    fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    val metrics = snapshotSummaryMetrics(state)
+
+    fun formatted(value: Long?): String = if (loaded) value?.let(::formatBytes) ?: missing else missing
+
+    val cards =
+        if (state.viewMode == MemoryProfilerViewMode.ClassList) {
+            val summary = state.classListSummary
+            listOf(
+                Res.string.lifecycle_leaks to if (loaded) integer(summary.leakCount) else missing,
+                Res.string.duplicate_bitmaps to if (loaded) integer(summary.duplicateBitmapCount) else missing,
+                Res.string.classes to if (loaded) integer(summary.classCount) else missing,
+                Res.string.count to if (loaded) integer(summary.totalCount) else missing,
+                Res.string.native_size to formatted(summary.totalNativeSize),
+                Res.string.shallow to if (loaded) formatBytes(summary.totalShallowSize) else missing,
+                Res.string.retained_native_size to
+                    formatted(summary.totalRetainedNativeSize),
+                Res.string.retained to formatted(summary.totalRetainedSize),
+            )
+        } else {
+            listOf(
+                Res.string.heap_size to if (loaded) formatBytes(metrics.shallowSize) else missing,
+                Res.string.objects to if (loaded) integer(metrics.objectCount) else missing,
+                Res.string.classes to if (loaded) integer(metrics.classCount) else missing,
+                Res.string.leak_suspects to if (loaded) integer(state.leakSuspects.size) else missing,
+            )
+        }
+    BoxWithConstraints(Modifier.fillMaxWidth().testTag("memory-snapshot-summary")) {
+        val scroll = rememberScrollState()
+        Row(
+            Modifier
+                .horizontalScroll(scroll)
+                .requiredWidth(maxOf(maxWidth, 140.dp * cards.size)),
+            horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
+        ) {
+            cards.forEachIndexed { index, (label, value) ->
+                val hasLeakWarning =
+                    loaded &&
+                        when (label) {
+                            Res.string.lifecycle_leaks -> state.classListSummary.leakCount > 0
+                            Res.string.leak_suspects -> state.leakSuspects.isNotEmpty()
+                            else -> false
+                        }
+                StudioCard(
+                    modifier = Modifier.weight(1f).testTag("memory-metric-card-$index"),
+                    contentPadding = 4.dp,
+                    contentSpacing = 0.dp,
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().testTag("memory-metric-label-row-$index"),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            localizedStringResource(label, language),
+                            Modifier.weight(1f, fill = false).testTag("memory-metric-label-$index"),
+                            style = ViewerTypography.secondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (hasLeakWarning) {
+                            MemoryLeakWarningIcon(language, Modifier.testTag("memory-leak-summary-warning"))
+                        }
+                    }
+                    Text(
+                        value,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleLarge,
+                        color =
+                            if (hasLeakWarning) {
+                                LocalViewerColors.current.warning
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
 }
+
+/** The class-list summary follows the visible heap/scope/search rows, not the all-heap dump. */
+internal fun snapshotSummaryMetrics(state: MemoryProfilerState): HeapSummary =
+    if (state.viewMode == MemoryProfilerViewMode.ClassList) {
+        state.summary.copy(
+            objectCount = state.classListSummary.totalCount,
+            shallowSize = state.classListSummary.totalShallowSize,
+            classCount = state.classListSummary.classCount,
+        )
+    } else {
+        state.summary
+    }
 
 @Composable
 private fun MemoryHeapDistribution(
@@ -139,7 +283,7 @@ private fun MemoryHeapDistribution(
         }
     val total = if (segments.isNotEmpty()) segments.sumOf { it.size } else state.summary.shallowSize
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).testTag("memory-heap-distribution"),
+        Modifier.fillMaxWidth().padding(StudioTokens.compactContentPadding).testTag("memory-heap-distribution"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
@@ -198,7 +342,7 @@ private fun MemoryHeapDistribution(
                 }
             }
             if (rows.isEmpty()) {
-                Text(
+                CopyableText(
                     localizedStringResource(Res.string.memory_no_snapshot, language),
                     style = ViewerTypography.secondary,
                 )

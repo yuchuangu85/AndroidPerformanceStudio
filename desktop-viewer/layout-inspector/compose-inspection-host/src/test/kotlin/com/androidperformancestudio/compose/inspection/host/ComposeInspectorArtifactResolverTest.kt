@@ -9,6 +9,8 @@ import java.util.zip.ZipOutputStream
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertSame
+import java.util.concurrent.CancellationException
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -93,6 +95,23 @@ class ComposeInspectorArtifactResolverTest {
             "https://example.test/maven/androidx/compose/ui/ui-android/1.12.0-rc01/ui-android-1.12.0-rc01.aar",
             requested.toString(),
         )
+    }
+
+    @Test
+    fun `fatal heap failure and cancellation do not try another artifact repository`() {
+        for (failure in listOf(OutOfMemoryError("synthetic heap failure"), CancellationException("cancelled"))) {
+            var attempts = 0
+            val resolver = ComposeInspectorArtifactResolver(
+                cacheDir = tempDir.resolve("cache"),
+                gradleUserHome = tempDir.resolve("gradle"),
+                mavenLocal = tempDir.resolve("m2"),
+                enterpriseRepositories = listOf(URI("https://enterprise.test/maven/")),
+                downloader = { attempts++; throw failure },
+            )
+            val thrown = assertThrows(failure.javaClass) { resolver.resolve("1.11.4") }
+            assertSame(failure, thrown)
+            assertEquals(1, attempts)
+        }
     }
 
     private fun aar(inspector: ByteArray): ByteArray = ByteArrayOutputStream().use { output ->

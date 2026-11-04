@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -17,6 +16,7 @@ import com.androidperformancestudio.storage.MarkerAvailability
 import com.androidperformancestudio.storage.MarkerEmptyReason
 import com.androidperformancestudio.storage.MarkerProjectionSnapshot
 import com.androidperformancestudio.storage.PanelProjection
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerTypography
@@ -61,7 +61,12 @@ internal fun MarkerPanelMessage(
     style: ViewerColors,
 ) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(message, color = style.secondaryText, fontSize = ViewerTypography.secondary.fontSize)
+        CopyableText(
+            message,
+            color = style.secondaryText,
+            fontSize = ViewerTypography.secondary.fontSize,
+            language = currentSimpleperfLanguage(),
+        )
     }
 }
 

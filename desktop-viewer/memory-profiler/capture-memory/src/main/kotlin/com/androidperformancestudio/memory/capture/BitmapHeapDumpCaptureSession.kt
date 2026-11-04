@@ -2,8 +2,8 @@
 
 package com.androidperformancestudio.memory.capture
 
-import com.androidperformancestudio.memory.model.ProcessMemorySnapshot
 import com.androidperformancestudio.adb.AndroidDevicePropertyClient
+import com.androidperformancestudio.memory.model.ProcessMemorySnapshot
 import com.androidperformancestudio.model.StudioError
 import com.androidperformancestudio.model.StudioResult
 import com.androidperformancestudio.platform.adb.AdbClient

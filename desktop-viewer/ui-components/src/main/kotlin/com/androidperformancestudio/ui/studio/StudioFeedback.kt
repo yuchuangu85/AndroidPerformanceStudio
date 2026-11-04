@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import com.androidperformancestudio.ui_components.generated.resources.Res
@@ -154,14 +155,14 @@ private fun StudioFeedbackState(
                 Spacer(Modifier.width(StudioTokens.panelGap))
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
+                CopyableText(
                     text = title,
                     color = tone.color(colors),
                     fontSize = ViewerTypography.subsectionTitle.fontSize,
                     lineHeight = ViewerTypography.subsectionTitle.lineHeight,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
+                CopyableText(
                     text = detail,
                     color = colors.secondaryText,
                     fontSize = ViewerTypography.bodyCompact.fontSize,

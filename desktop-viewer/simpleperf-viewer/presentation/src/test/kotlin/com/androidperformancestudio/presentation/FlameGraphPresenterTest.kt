@@ -170,7 +170,10 @@ class FlameGraphPresenterTest {
         assertEquals(6, facts.selfWeight)
         assertEquals(1, facts.sampleCount)
         assertEquals(1, facts.selfSampleCount)
-        assertEquals(listOf(FlameGraphTooltipCategorySamples("Native", 1, 1)), facts.categorySamples)
+        assertEquals(
+            listOf(FlameGraphTooltipCategorySamples("Native", 1, 1, inclusiveWeight = 6, selfWeight = 6)),
+            facts.categorySamples,
+        )
         assertEquals(1, facts.threadCount)
         assertEquals(0.0, facts.percentage)
         assertEquals(6, facts.previewRangeWeight)
@@ -185,9 +188,9 @@ class FlameGraphPresenterTest {
         assertEquals(0, facts.selfSampleCount)
         assertEquals(
             listOf(
-                FlameGraphTooltipCategorySamples("User", running = 12, self = 0),
-                FlameGraphTooltipCategorySamples("Native", running = 32, self = 0),
-                FlameGraphTooltipCategorySamples("JIT", running = 10, self = 0),
+                FlameGraphTooltipCategorySamples("User", running = 12, self = 0, inclusiveWeight = 12_000_000),
+                FlameGraphTooltipCategorySamples("Native", running = 32, self = 0, inclusiveWeight = 32_000_000),
+                FlameGraphTooltipCategorySamples("JIT", running = 10, self = 0, inclusiveWeight = 10_000_000),
             ),
             facts.categorySamples,
         )

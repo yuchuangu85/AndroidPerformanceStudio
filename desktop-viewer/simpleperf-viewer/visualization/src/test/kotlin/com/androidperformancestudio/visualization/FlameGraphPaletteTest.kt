@@ -50,7 +50,7 @@ class FlameGraphPaletteTest {
     }
 
     @Test
-    fun `highlight states share selected fill text and a non color outline`() {
+    fun `highlight states share selected fill and text without adding an outline`() {
         val style = FirefoxFlameGraphStyle.resolve(FlameTheme.DARK)
         val ordinary = style.nodeColors("managed")
         val selected = style.nodeColors("managed", FlameNodeVisualState(selected = true))
@@ -64,7 +64,7 @@ class FlameGraphPaletteTest {
         assertEquals(selected, context)
         assertEquals(0xFF058B00.toInt(), selected.fill.argb)
         assertEquals(0xFFFFFFFF.toInt(), selected.foreground.argb)
-        assertEquals(style.focusOutline, selected.outline)
+        assertNull(selected.outline)
     }
 
     @Test
@@ -102,10 +102,32 @@ class FlameGraphPaletteTest {
 
         assertEquals(16f, standard.rowHeightPx)
         assertEquals(32f, retina.rowHeightPx)
+        assertEquals(10f, standard.labelFontSizePx)
         assertEquals(20f, retina.labelFontSizePx)
         assertEquals(6f, retina.labelStartOffsetPx)
         assertEquals(22f, retina.labelBaselineOffsetPx)
         assertEquals(standard.categoryStyles, retina.categoryStyles)
+    }
+
+    @Test
+    fun `fractional device scales snap label offsets but keep font and row CSS sizes`() {
+        val style = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT, devicePixelRatio = 1.25f)
+
+        assertEquals(20f, style.rowHeightPx)
+        assertEquals(12.5f, style.labelFontSizePx)
+        assertEquals(4f, style.labelStartOffsetPx)
+        assertEquals(14f, style.labelBaselineOffsetPx)
+    }
+
+    @Test
+    fun `stack chart dimmed colors follow Firefox light and dark neutral styles`() {
+        val light = FirefoxFlameGraphStyle.resolve(FlameTheme.LIGHT)
+        val dark = FirefoxFlameGraphStyle.resolve(FlameTheme.DARK)
+
+        assertEquals(0xFFF9F9FA.toInt(), light.dimmedFill.argb)
+        assertEquals(0xFF737373.toInt(), light.dimmedForeground.argb)
+        assertEquals(0xFF2A2A2E.toInt(), dark.dimmedFill.argb)
+        assertEquals(0xFFB1B1B3.toInt(), dark.dimmedForeground.argb)
     }
 
     private fun frame(

@@ -101,13 +101,20 @@ class DominatorTreeAnalyzer {
         val ancestor = IntArray(count) { -1 }
         val immediate = IntArray(count) { -1 }
         val bucket = Array(count) { mutableListOf<Int>() }
+        val compressPath = IntArray(count)
 
         fun compress(node: Int) {
-            val parentAncestor = ancestor[node].takeIf { it >= 0 }?.let(ancestor::get) ?: -1
-            if (parentAncestor >= 0) {
-                compress(ancestor[node])
-                if (semi[label[ancestor[node]]] < semi[label[node]]) label[node] = label[ancestor[node]]
-                ancestor[node] = ancestor[ancestor[node]]
+            var current = node
+            var pathSize = 0
+            while (ancestor[current] >= 0 && ancestor[ancestor[current]] >= 0) {
+                compressPath[pathSize++] = current
+                current = ancestor[current]
+            }
+            while (pathSize > 0) {
+                val target = compressPath[--pathSize]
+                val parent = ancestor[target]
+                if (semi[label[parent]] < semi[label[target]]) label[target] = label[parent]
+                ancestor[target] = ancestor[parent]
             }
         }
 

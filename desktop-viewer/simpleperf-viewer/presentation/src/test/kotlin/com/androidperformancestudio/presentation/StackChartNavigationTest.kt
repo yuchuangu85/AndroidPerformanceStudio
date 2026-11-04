@@ -2,6 +2,7 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.DesktopComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
@@ -29,44 +30,33 @@ class StackChartNavigationTest {
                         viewport = StackChartViewport(0, 100),
                         selectedBlockId = null,
                         onSelect = {},
-                        onCommitRange = { _, _ -> },
                     )
                 }
             }
 
             val zoomBlock = onNodeWithTag("stack-block-zoom")
             val beforeZoom = zoomBlock.fetchSemanticsNode().boundsInRoot
-            onNodeWithTag("stack-chart-canvas").performKeyInput {
-                keyDown(Key.W)
-                keyUp(Key.W)
-            }
+            mainClock.autoAdvance = false
+            holdNavigationKey(Key.Q)
             waitForIdle()
             val afterZoom = zoomBlock.fetchSemanticsNode().boundsInRoot
-            assertTrue(afterZoom.width > beforeZoom.width, "W should zoom into the Stack Chart")
+            assertTrue(afterZoom.width > beforeZoom.width, "Q should zoom into the Stack Chart")
 
-            onNodeWithTag("stack-chart-canvas").performKeyInput {
-                keyDown(Key.D)
-                keyUp(Key.D)
-            }
+            holdNavigationKey(Key.D)
             waitForIdle()
             val afterHorizontalPan = zoomBlock.fetchSemanticsNode().boundsInRoot
             assertTrue(afterHorizontalPan.left < afterZoom.left, "D should pan the Stack Chart right")
 
-            onNodeWithTag("stack-chart-canvas").performKeyInput {
-                keyDown(Key.A)
-                keyUp(Key.A)
-            }
+            holdNavigationKey(Key.A)
             waitForIdle()
             val afterPanBack = zoomBlock.fetchSemanticsNode().boundsInRoot
             assertTrue(afterPanBack.left > afterHorizontalPan.left, "A should pan the Stack Chart left")
 
-            onNodeWithTag("stack-chart-canvas").performKeyInput {
-                keyDown(Key.S)
-                keyUp(Key.S)
-            }
+            holdNavigationKey(Key.E)
             waitForIdle()
             val afterZoomOut = zoomBlock.fetchSemanticsNode().boundsInRoot
-            assertTrue(afterZoomOut.width < afterPanBack.width, "S should zoom out of the Stack Chart")
+            assertTrue(afterZoomOut.width < afterPanBack.width, "E should zoom out of the Stack Chart")
+            mainClock.autoAdvance = true
 
             val verticalBlock = onNodeWithTag("stack-block-depth-2")
             val beforeVerticalPan = verticalBlock.fetchSemanticsNode().boundsInRoot
@@ -83,6 +73,13 @@ class StackChartNavigationTest {
             val afterVerticalPanBack = verticalBlock.fetchSemanticsNode().boundsInRoot
             assertTrue(afterVerticalPanBack.top > afterVerticalPan.top, "Reverse wheel should pan the Stack Chart back")
         }
+}
+
+@OptIn(ExperimentalTestApi::class)
+private fun DesktopComposeUiTest.holdNavigationKey(key: Key) {
+    onNodeWithTag("stack-chart-canvas").performKeyInput { keyDown(key) }
+    repeat(3) { mainClock.advanceTimeByFrame() }
+    onNodeWithTag("stack-chart-canvas").performKeyInput { keyUp(key) }
 }
 
 private fun navigationSnapshot(): StackChartSnapshot {

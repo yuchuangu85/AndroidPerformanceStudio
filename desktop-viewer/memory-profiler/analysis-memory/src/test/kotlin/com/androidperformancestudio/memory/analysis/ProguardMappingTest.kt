@@ -87,6 +87,18 @@ class ProguardMappingTest {
     }
 
     @Test
+    fun `ambiguous reverse mapping does not invent a unique raw class identity`() {
+        val mapping =
+            ProguardMappingParser.parse(
+                "com.example.Item -> a.b.A:\ncom.example.Item -> a.b.B:\n",
+            )
+
+        assertEquals("com.example.Item", mapping.originalClassName("a.b.A"))
+        assertEquals("com.example.Item", mapping.originalClassName("a.b.B"))
+        assertNull(mapping.obfuscatedName("com.example.Item"))
+    }
+
+    @Test
     fun `obfuscated class heuristic ignores framework classes`() {
         assertTrue(isLikelyObfuscatedClassName("a.b.c"))
         assertTrue(isLikelyObfuscatedClassName("x.y.z.aa"))

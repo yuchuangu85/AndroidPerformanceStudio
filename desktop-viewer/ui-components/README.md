@@ -12,6 +12,11 @@ Public controls live in the `com.androidperformancestudio.ui` package. Applicati
 presentation modules should consume these controls instead of defining profiler-wide variants.
 Domain, capture, parsing, storage, and analysis modules remain UI-independent.
 
+User-visible errors, warnings, failure reasons and operation messages use `CopyableText` with
+the existing text, styles and layout modifiers. It supports ordinary text selection plus a
+localized full-message context-menu and accessibility action, even when the display is ellipsized.
+Pass the page's `UiLanguage` when available. Button labels and navigation are not diagnostic text.
+
 Localized controls accept `UiLanguage` rather than language-specific Boolean flags:
 
 ```kotlin

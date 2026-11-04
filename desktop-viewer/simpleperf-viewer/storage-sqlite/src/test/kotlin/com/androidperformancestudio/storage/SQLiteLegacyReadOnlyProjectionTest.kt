@@ -6,6 +6,7 @@ import com.androidperformancestudio.model.ProfileSample
 import com.androidperformancestudio.profileanalysis.CallStackAnalysisQuery
 import com.androidperformancestudio.profileanalysis.CallStackDirection
 import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
+import com.androidperformancestudio.profileanalysis.StackChartSnapshot
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -18,6 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class SQLiteLegacyReadOnlyProjectionTest {
@@ -103,21 +105,57 @@ class SQLiteLegacyReadOnlyProjectionTest {
                 topSearch = "leaf",
                 topSort = TopFunctionSort.SYMBOL_NAME,
                 topDescending = false,
+                markerSearch = "absent",
                 callStackAnalysis = CallStackAnalysisQuery(direction = CallStackDirection.INVERTED),
             )
 
         val legacyProjection = SQLiteSampleStore.openReadOnlyExpected(legacy, 1).use { it.projectCore(request) }
         val migratedProjection = SQLiteSampleStore.openV2(migrated).use { it.projectCore(request) }
 
-        assertEquals(migratedProjection.copy(markers = legacyProjection.markers), legacyProjection)
         assertEquals(
-            MarkerAvailability.AVAILABLE,
-            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(migratedProjection.markers).value.availability,
+            migratedProjection.copy(markers = legacyProjection.markers, userTimings = legacyProjection.userTimings),
+            legacyProjection,
+        )
+        assertMarkerAvailability(migratedProjection, MarkerAvailability.AVAILABLE)
+        assertMarkerAvailability(legacyProjection, MarkerAvailability.NOT_COLLECTED)
+        listOf(legacyProjection, migratedProjection).forEach { projection ->
+            assertEquals("leaf", projection.callTree.single { it.parentId == null }.symbolName)
+            val chart = assertIs<PanelProjection.Ready<StackChartSnapshot>>(projection.stackChart).value
+            val root = chart.blocks.single { it.depth == 0 }
+            assertEquals("root", chart.framesById.getValue(root.frameId).symbolName)
+        }
+    }
+
+    private fun assertMarkerAvailability(
+        projection: ProfileProjectionSnapshot,
+        expected: MarkerAvailability,
+    ) {
+        assertEquals(
+            expected,
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(projection.markers).value.availability,
         )
         assertEquals(
-            MarkerAvailability.NOT_COLLECTED,
-            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(legacyProjection.markers).value.availability,
+            expected,
+            assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(projection.userTimings).value.availability,
         )
+    }
+
+    @Test
+    fun `legacy user timings remain not collected with and without marker search`() {
+        val database = versionOneDatabase()
+        val before = sha256(database)
+        SQLiteSampleStore.openReadOnlyExpected(database, 1).use { store ->
+            listOf("", "absent").forEach { search ->
+                val projection = store.projectCore(ProfileProjectionRequest(markerSearch = search))
+                val timings = assertIs<PanelProjection.Ready<MarkerProjectionSnapshot>>(projection.userTimings).value
+                assertEquals(MarkerAvailability.NOT_COLLECTED, timings.availability)
+                assertEquals(null, timings.emptyReason)
+                assertTrue(timings.markers.isEmpty())
+                assertEquals(projection.markers, projection.userTimings)
+                if (search.isBlank()) assertSame(projection.markers, projection.userTimings)
+            }
+        }
+        assertEquals(before, sha256(database))
     }
 
     @Test

@@ -63,6 +63,7 @@ import com.androidperformancestudio.battery.battery_app.generated.resources.wake
 import com.androidperformancestudio.battery.model.BatteryRunDelta
 import com.androidperformancestudio.battery.model.BatteryStatistics
 import com.androidperformancestudio.battery.model.ResourceTimer
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
@@ -87,11 +88,11 @@ public fun BatteryProfilerScreen(
         modifier
             .fillMaxSize()
             .background(LocalViewerColors.current.workspace)
-            .padding(StudioTokens.compactContentPadding)
+            .padding(StudioTokens.workspacePadding)
     when {
         state.errorMessage != null && analysis == null ->
             Box(workspaceModifier, contentAlignment = Alignment.Center) {
-                Text(state.errorMessage, color = MaterialTheme.colorScheme.error)
+                CopyableText(state.errorMessage, color = MaterialTheme.colorScheme.error, language = language)
             }
         analysis == null || analysis.runs.isEmpty() -> EmptyPane(state, language, workspaceModifier)
         else -> ResultsPane(state, analysis, actions, language, workspaceModifier)
@@ -106,22 +107,23 @@ private fun EmptyPane(
 ) {
     Column(
         modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         StudioPanel(Modifier.fillMaxWidth()) {
             StudioPanelHeader(localizedStringResource(Res.string.energy_evidence, language))
-            Text(localizedStringResource(Res.string.no_delta_or_unavailable, language))
-            state.operationMessage?.let { Text(it) }
+            CopyableText(localizedStringResource(Res.string.no_delta_or_unavailable, language), language = language)
+            state.operationMessage?.let { CopyableText(it, language = language) }
             state.artifact?.let { artifact ->
-                Text(
+                CopyableText(
                     "Artifact: ${artifact.completeness.name.lowercase()} · " +
                         "${artifact.availableCapabilities.size} capabilities" +
                         if (artifact.limitations.isEmpty()) "" else " · ${artifact.limitations.size} limitation(s)",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    language = language,
                 )
             }
-            state.warnings.forEach { Text(it, color = MaterialTheme.colorScheme.tertiary) }
+            state.warnings.forEach { CopyableText(it, color = MaterialTheme.colorScheme.tertiary, language = language) }
         }
     }
 }
@@ -138,7 +140,7 @@ private fun ResultsPane(
     val colors = LocalViewerColors.current
     Column(
         modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+        verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
     ) {
         val metrics =
             buildList {
@@ -195,11 +197,11 @@ private fun ResultsPane(
             }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val columnCount = ((maxWidth.value + 8) / 176).toInt().coerceIn(1, metrics.size)
-            Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding)) {
+            Column(verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap)) {
                 metrics.chunked(columnCount).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
-                        horizontalArrangement = Arrangement.spacedBy(StudioTokens.compactContentPadding),
+                        horizontalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                     ) {
                         row.forEach { metric ->
                             MetricCard(
@@ -223,7 +225,7 @@ private fun ResultsPane(
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 contentPadding = 0.dp,
             ) {
-                Text(
+                CopyableText(
                     localizedStringResource(
                         Res.string.capability_attribution_uid,
                         language,
@@ -232,6 +234,7 @@ private fun ResultsPane(
                         it.uid,
                     ),
                     modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
+                    language = language,
                 )
             }
         }
@@ -265,14 +268,15 @@ private fun ResultsPane(
             StudioPanel(Modifier.fillMaxWidth()) {
                 StudioPanelHeader(localizedStringResource(Res.string.diagnostics_and_warnings, language))
                 analysis.warnings.forEach {
-                    Text(
+                    CopyableText(
                         localizedStringResource(Res.string.text, language, it),
                         color = MaterialTheme.colorScheme.tertiary,
+                        language = language,
                     )
                 }
             }
         }
-        state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        state.errorMessage?.let { CopyableText(it, color = MaterialTheme.colorScheme.error, language = language) }
     }
 }
 
@@ -323,13 +327,14 @@ private fun BaselineComparison(
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         contentPadding = 0.dp,
     ) {
-        Text(
+        CopyableText(
             localizedStringResource(
                 Res.string.network_use_vs_previous_compatible_experiment_difference_only,
                 language,
                 change.percent(),
             ),
             Modifier.padding(vertical = 6.dp, horizontal = 8.dp),
+            language = language,
         )
     }
 }

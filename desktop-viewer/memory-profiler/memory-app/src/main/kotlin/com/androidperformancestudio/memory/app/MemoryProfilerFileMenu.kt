@@ -5,7 +5,6 @@ package com.androidperformancestudio.memory.app
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.FrameWindowScope
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
-import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_comparison
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_bitmap_dump
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_class_instances
@@ -15,17 +14,18 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.export
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_native_heap_trace
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_object_investigation
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_raw_hprof
+import com.androidperformancestudio.memory.memory_app.generated.resources.export_sampled_art_trace
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_snapshot_json
 import com.androidperformancestudio.memory.memory_app.generated.resources.export_standard_hprof
-import com.androidperformancestudio.memory.memory_app.generated.resources.file
-import com.androidperformancestudio.memory.memory_app.generated.resources.import_hprof_menu
-import com.androidperformancestudio.memory.memory_app.generated.resources.import_java_heap
-import com.androidperformancestudio.memory.memory_app.generated.resources.import_mapping_menu
-import com.androidperformancestudio.memory.memory_app.generated.resources.import_native_heap
-import com.androidperformancestudio.memory.memory_app.generated.resources.no_recent_sessions
-import com.androidperformancestudio.memory.memory_app.generated.resources.recent_sessions
+import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_java_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_mapping
+import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_native_heap
+import com.androidperformancestudio.memory.memory_app.generated.resources.menu_import_sampled_art
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.ActivePageMenu
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.PageMenu
+import com.androidperformancestudio.ui.RecentMenu
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.time.ZoneId
@@ -34,15 +34,14 @@ import java.time.format.DateTimeFormatter
 private const val MAX_RECENT_SESSIONS_IN_MENU = 12
 
 internal data class MemoryProfilerFileMenuModel(
-    val fileTitle: String,
-    val importLabel: String,
-    val importMappingLabel: String = "Import mapping.txt…",
+    val importMappingLabel: String = "ProGuard/R8 Mapping…",
     val importMappingEnabled: Boolean = false,
-    val importNativeHeapLabel: String = "Import native heap trace…",
+    val importNativeHeapLabel: String = "Native Heap Trace…",
     val importNativeHeapEnabled: Boolean = false,
-    val importJavaHeapLabel: String = "Import Java heap…",
+    val importJavaHeapLabel: String = "Java Heap…",
     val importJavaHeapEnabled: Boolean = false,
-    val exportTitle: String,
+    val importSampledArtLabel: String = "ART Sample Trace…",
+    val importSampledArtEnabled: Boolean = false,
     val exportRawHprofLabel: String,
     val exportStandardHprofLabel: String,
     val exportCsvLabel: String,
@@ -66,8 +65,8 @@ internal data class MemoryProfilerFileMenuModel(
     val bitmapComparisonExportEnabled: Boolean = false,
     val exportNativeHeapLabel: String = "Export Native Heap trace",
     val exportNativeHeapEnabled: Boolean = false,
-    val recentSessionsTitle: String = "Recent Sessions",
-    val noRecentSessionsLabel: String = "No recent sessions",
+    val exportSampledArtLabel: String = "Export ART Sample Trace",
+    val exportSampledArtEnabled: Boolean = false,
     val recentSessions: List<MemorySessionMetadata> = emptyList(),
     val recentSessionsEnabled: Boolean = false,
 )
@@ -90,20 +89,23 @@ internal fun memoryProfilerFileMenuModel(
     importMappingEnabled: Boolean = false,
     importNativeHeapEnabled: Boolean = false,
     importJavaHeapEnabled: Boolean = false,
+    importSampledArtEnabled: Boolean = false,
     exportNativeHeapEnabled: Boolean = false,
+    exportSampledArtEnabled: Boolean = false,
 ): MemoryProfilerFileMenuModel =
     MemoryProfilerFileMenuModel(
-        fileTitle = localizedStringResource(Res.string.file, language),
-        importLabel = localizedStringResource(Res.string.import_hprof_menu, language),
-        importMappingLabel = localizedStringResource(Res.string.import_mapping_menu, language),
+        importMappingLabel = localizedStringResource(Res.string.menu_import_mapping, language),
         importMappingEnabled = importMappingEnabled,
-        importNativeHeapLabel = localizedStringResource(Res.string.import_native_heap, language),
+        importNativeHeapLabel = localizedStringResource(Res.string.menu_import_native_heap, language),
         importNativeHeapEnabled = importNativeHeapEnabled,
-        importJavaHeapLabel = localizedStringResource(Res.string.import_java_heap, language),
+        importJavaHeapLabel = localizedStringResource(Res.string.menu_import_java_heap, language),
         importJavaHeapEnabled = importJavaHeapEnabled,
+        importSampledArtLabel = localizedStringResource(Res.string.menu_import_sampled_art, language),
+        importSampledArtEnabled = importSampledArtEnabled,
         exportNativeHeapLabel = localizedStringResource(Res.string.export_native_heap_trace, language),
         exportNativeHeapEnabled = exportNativeHeapEnabled,
-        exportTitle = localizedStringResource(Res.string.export, language),
+        exportSampledArtLabel = localizedStringResource(Res.string.export_sampled_art_trace, language),
+        exportSampledArtEnabled = exportSampledArtEnabled,
         exportRawHprofLabel = localizedStringResource(Res.string.export_raw_hprof, language),
         exportStandardHprofLabel = localizedStringResource(Res.string.export_standard_hprof, language),
         exportCsvLabel = localizedStringResource(Res.string.export_csv, language),
@@ -125,8 +127,6 @@ internal fun memoryProfilerFileMenuModel(
         exportBitmapComparisonLabel = localizedStringResource(Res.string.export_bitmap_comparison, language),
         bitmapDumpExportEnabled = bitmapDumpExportEnabled,
         bitmapComparisonExportEnabled = bitmapComparisonExportEnabled,
-        recentSessionsTitle = localizedStringResource(Res.string.recent_sessions, language),
-        noRecentSessionsLabel = localizedStringResource(Res.string.no_recent_sessions, language),
         // Native desktop menus become noticeably slower when a large recent-session list is
         // materialized at once. Keep the store history intact and only render the menu slice.
         recentSessions = recentSessions.take(MAX_RECENT_SESSIONS_IN_MENU),
@@ -141,6 +141,7 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     onImportMapping: () -> Unit = {},
     onImportNativeHeap: () -> Unit = {},
     onImportJavaHeap: () -> Unit = {},
+    onImportSampledArt: () -> Unit = {},
     onExportRawHprof: () -> Unit,
     onExportStandardHprof: () -> Unit,
     onExportCsv: () -> Unit,
@@ -152,101 +153,108 @@ internal fun FrameWindowScope.MemoryProfilerFileMenuBar(
     onExportBitmapDump: () -> Unit = {},
     onExportBitmapComparison: () -> Unit = {},
     onExportNativeHeap: () -> Unit = {},
+    onExportSampledArt: () -> Unit = {},
     onLoadSession: (MemorySessionMetadata) -> Unit = {},
 ) {
-    ActiveWindowMenuBar {
-        Menu(model.fileTitle) {
-            Item(
-                text = model.importLabel,
-                enabled = model.importEnabled,
-                onClick = onImportHprof,
-            )
-            Item(
-                text = model.importMappingLabel,
-                enabled = model.importMappingEnabled,
-                onClick = onImportMapping,
-            )
-            Item(
-                text = model.importNativeHeapLabel,
-                enabled = model.importNativeHeapEnabled,
-                onClick = onImportNativeHeap,
-            )
-            Item(
-                text = model.importJavaHeapLabel,
-                enabled = model.importJavaHeapEnabled,
-                onClick = onImportJavaHeap,
-            )
-            Menu(model.recentSessionsTitle, enabled = model.recentSessionsEnabled) {
-                if (model.recentSessions.isEmpty()) {
-                    Item(text = model.noRecentSessionsLabel, enabled = false, onClick = {})
-                } else {
-                    model.recentSessions.forEach { session ->
-                        Item(
-                            text = recentSessionLabel(session),
-                            onClick = { onLoadSession(session) },
-                        )
-                    }
-                }
-            }
-            Menu(model.exportTitle) {
-                Item(
-                    text = model.exportRawHprofLabel,
-                    enabled = model.rawHprofExportEnabled,
-                    onClick = onExportRawHprof,
-                )
-                Item(
-                    text = model.exportStandardHprofLabel,
-                    enabled = model.standardHprofExportEnabled,
-                    onClick = onExportStandardHprof,
-                )
-                Item(
-                    text = model.exportCsvLabel,
-                    enabled = model.csvExportEnabled,
-                    onClick = onExportCsv,
-                )
-                Item(
-                    text = model.exportClassInstancesLabel,
-                    enabled = model.exportClassInstancesEnabled,
-                    onClick = onExportClassInstances,
-                )
-                Item(
-                    text = model.exportObjectInvestigationLabel,
-                    enabled = model.exportObjectInvestigationEnabled,
-                    onClick = onExportObjectInvestigation,
-                )
-                Item(
-                    text = model.exportDiffLabel,
-                    enabled = model.exportDiffEnabled,
-                    onClick = onExportDiff,
-                )
-                Item(
-                    text = model.exportSnapshotJsonLabel,
-                    enabled = model.exportSnapshotJsonEnabled,
-                    onClick = onExportSnapshotJson,
-                )
-                Item(
-                    text = model.exportInvestigationReportLabel,
-                    enabled = model.exportInvestigationReportEnabled,
-                    onClick = onExportInvestigationReport,
-                )
-                Item(
-                    text = model.exportBitmapDumpLabel,
-                    enabled = model.bitmapDumpExportEnabled,
-                    onClick = onExportBitmapDump,
-                )
-                Item(
-                    text = model.exportBitmapComparisonLabel,
-                    enabled = model.bitmapComparisonExportEnabled,
-                    onClick = onExportBitmapComparison,
-                )
-                Item(
-                    text = model.exportNativeHeapLabel,
-                    enabled = model.exportNativeHeapEnabled,
-                    onClick = onExportNativeHeap,
-                )
-            }
-        }
-    }
+    ActivePageMenu(
+        PageMenu(
+            onOpen = onImportHprof,
+            openEnabled = model.importEnabled,
+            // Mapping deobfuscates the loaded heap; Java and native heap traces add a dataset to the session.
+            imports =
+                listOf(
+                    MenuCommand(
+                        model.importJavaHeapLabel,
+                        enabled = model.importJavaHeapEnabled,
+                        onClick = onImportJavaHeap,
+                    ),
+                    MenuCommand(
+                        model.importNativeHeapLabel,
+                        enabled = model.importNativeHeapEnabled,
+                        onClick = onImportNativeHeap,
+                    ),
+                    MenuCommand(
+                        model.importSampledArtLabel,
+                        enabled = model.importSampledArtEnabled,
+                        onClick = onImportSampledArt,
+                    ),
+                    MenuCommand(
+                        model.importMappingLabel,
+                        enabled = model.importMappingEnabled,
+                        onClick = onImportMapping,
+                    ),
+                ),
+            recent =
+                RecentMenu(
+                    items =
+                        model.recentSessions.map { session ->
+                            MenuCommand(recentSessionLabel(session)) { onLoadSession(session) }
+                        },
+                    enabled = model.recentSessionsEnabled,
+                ),
+            exportGroups =
+                listOf(
+                    listOf(
+                        MenuCommand(
+                            model.exportRawHprofLabel,
+                            enabled = model.rawHprofExportEnabled,
+                            onClick = onExportRawHprof,
+                        ),
+                        MenuCommand(
+                            model.exportStandardHprofLabel,
+                            enabled = model.standardHprofExportEnabled,
+                            onClick = onExportStandardHprof,
+                        ),
+                        MenuCommand(
+                            model.exportNativeHeapLabel,
+                            enabled = model.exportNativeHeapEnabled,
+                            onClick = onExportNativeHeap,
+                        ),
+                        MenuCommand(
+                            model.exportSampledArtLabel,
+                            enabled = model.exportSampledArtEnabled,
+                            onClick = onExportSampledArt,
+                        ),
+                    ),
+                    listOf(
+                        MenuCommand(model.exportCsvLabel, enabled = model.csvExportEnabled, onClick = onExportCsv),
+                        MenuCommand(
+                            model.exportClassInstancesLabel,
+                            enabled = model.exportClassInstancesEnabled,
+                            onClick = onExportClassInstances,
+                        ),
+                        MenuCommand(
+                            model.exportObjectInvestigationLabel,
+                            enabled = model.exportObjectInvestigationEnabled,
+                            onClick = onExportObjectInvestigation,
+                        ),
+                        MenuCommand(model.exportDiffLabel, enabled = model.exportDiffEnabled, onClick = onExportDiff),
+                        MenuCommand(
+                            model.exportSnapshotJsonLabel,
+                            enabled = model.exportSnapshotJsonEnabled,
+                            onClick = onExportSnapshotJson,
+                        ),
+                        MenuCommand(
+                            model.exportInvestigationReportLabel,
+                            enabled = model.exportInvestigationReportEnabled,
+                            onClick = onExportInvestigationReport,
+                        ),
+                    ),
+                    listOf(
+                        MenuCommand(
+                            model.exportBitmapDumpLabel,
+                            enabled = model.bitmapDumpExportEnabled,
+                            onClick = onExportBitmapDump,
+                        ),
+                        MenuCommand(
+                            model.exportBitmapComparisonLabel,
+                            enabled = model.bitmapComparisonExportEnabled,
+                            onClick = onExportBitmapComparison,
+                        ),
+                    ),
+                ),
+        ),
+    )
 }
 
 private fun recentSessionLabel(session: MemorySessionMetadata): String =

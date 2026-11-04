@@ -48,6 +48,7 @@ data class HeapSnapshotSummary(
     val warningCount: Int = 0,
     val analysisVersion: String = "offline-hprof-viewer-v1",
     val capabilities: Set<HeapCapability> = emptySet(),
+    val engine: HprofEngine = HprofEngine.LEGACY,
 )
 
 data class HeapExportContext(
@@ -85,6 +86,8 @@ data class HeapDump(
     val heapByObjectId: Map<Long, String> = emptyMap(),
     val bitmapInstances: List<BitmapInstanceStats> = emptyList(),
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
+    /** Raw dump-local object IDs matching the reachable Activity/Fragment lifecycle-leak filter. */
+    val activityFragmentLeakObjectIds: Set<Long> = emptySet(),
     val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
     val artifact: CaptureArtifact? = null,
 )
@@ -158,6 +161,16 @@ data class ObjectReference(
     val targetObjectId: Long,
     val targetClassName: String = HeapClass.UNKNOWN_CLASS_NAME,
 )
+
+enum class HeapValueKind {
+    OBJECT,
+    CLASS,
+    ARRAY,
+    STRING,
+    PRIMITIVE,
+    NULL,
+    UNKNOWN,
+}
 
 data class HeapObjectFieldEvidence(
     val name: String,
@@ -235,12 +248,32 @@ data class HeapObjectArray(
             }
 }
 
+/**
+ * Bounded access to raw HPROF values: unsigned 8/16-bit values, sign-extended 32-bit values,
+ * and raw 64-bit values. Floating-point values are returned as bits, not converted numbers.
+ */
+interface HeapPrimitiveArrayValueSource {
+    /**
+     * Returns up to [MAX_READ_ELEMENTS] values, or null for invalid ranges or unavailable evidence.
+     * An empty range is valid at any position from zero through the array length, inclusive.
+     */
+    fun read(
+        start: Int,
+        count: Int,
+    ): LongArray?
+
+    companion object {
+        const val MAX_READ_ELEMENTS = 4096
+    }
+}
+
 data class HeapPrimitiveArray(
     override val objectId: Long,
     val primitiveType: PrimitiveType = PrimitiveType.UNKNOWN,
     val elementCount: Int = 0,
     override val shallowSize: Long = 0L,
     override val shallowSizeKnown: Boolean = true,
+    val valueSource: HeapPrimitiveArrayValueSource? = null,
 ) : HeapObject {
     override val className: String = primitiveType.arrayClassName
 }
@@ -293,6 +326,9 @@ data class ClassStats(
     val allocationCallstack: List<String> = emptyList(),
     val totalCount: Long? = null,
     val heapNames: Set<String> = emptySet(),
+    /** Sum of reachable object self sizes from the same Trace Processor heap, not class dominator retention. */
+    val reachableShallowSize: Long? = null,
+    val reachableNativeSize: Long? = null,
 ) {
     /** Deobfuscated display name; keeps the obfuscated name in parens when a mapping was applied. */
     val displayClassName: String
@@ -432,6 +468,9 @@ data class LeakCanaryReport(
     val applicationLeaks: List<LeakCanaryLeak> = emptyList(),
     val libraryLeaks: List<LeakCanaryLeak> = emptyList(),
     val message: String? = null,
+    /** Object-specific lifecycle / ObjectWatcher candidates found in the raw heap. */
+    val candidateObjectCount: Int = 0,
+    val analysisDurationMillis: Long? = null,
 ) {
     val totalLeaks: Int
         get() = applicationLeaks.size + libraryLeaks.size
@@ -485,6 +524,8 @@ data class LeakCanaryLeak(
     val retainedObjectCount: Int? = null,
     val gcRootType: String? = null,
     val trace: List<LeakCanaryTraceElement> = emptyList(),
+    /** Original HPROF identity; never inferred by matching class names. */
+    val leakingObjectId: Long? = null,
 )
 
 data class LeakCanaryTraceElement(
@@ -493,6 +534,11 @@ data class LeakCanaryTraceElement(
     val referenceType: String? = null,
     val leakingStatus: String? = null,
     val leakingStatusReason: String? = null,
+    /** Original HPROF identity of this path node. */
+    val objectId: Long? = null,
+    val labels: List<String> = emptyList(),
+    /** Whether the outgoing reference is in Shark's suspect reference subpath. */
+    val isSuspect: Boolean = false,
 )
 
 /** A per-Activity-class summary used to report Activity leaks with live/destroyed counts. */

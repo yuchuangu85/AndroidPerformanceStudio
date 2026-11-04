@@ -1,5 +1,7 @@
 package com.androidperformancestudio.capture
 
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
+
 enum class CallGraphMode {
     DWARF,
     FRAME_POINTER,
@@ -115,7 +117,11 @@ data class SimpleperfRecordCommand(
 
     val adbArguments: List<String> = listOf("-s", serial, "shell") + shellArguments
 
-    fun preview(adbExecutable: String = "adb"): String = commandOf(adbExecutable, adbArguments)
+    fun preview(adbExecutable: String = defaultAdbCommandExecutable().toString()): String =
+        commandOf(
+            adbExecutable,
+            adbArguments,
+        )
 }
 
 fun commandOf(

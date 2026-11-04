@@ -8,6 +8,7 @@ import com.androidperformancestudio.memory.model.HeapInstance
 import com.androidperformancestudio.memory.model.HeapObject
 import com.androidperformancestudio.memory.model.HeapObjectArray
 import com.androidperformancestudio.memory.model.HeapPrimitiveArray
+import com.androidperformancestudio.memory.model.HeapValueKind
 import com.androidperformancestudio.memory.model.ObjectReference
 
 /** One row of the instance list shown when a class is selected. */
@@ -20,6 +21,10 @@ data class InstanceQueryRow(
     val reachable: Boolean,
     val nativeSize: Long? = null,
     val shallowSizeKnown: Boolean = true,
+    /** Runtime type of this object, not the class-table group it belongs to. */
+    val className: String? = null,
+    /** Represented type for CLASS_DUMP objects, whose runtime type is java.lang.Class. */
+    val representedClassName: String? = null,
 )
 
 /** A single field value of an instance, either a primitive or an object reference. */
@@ -28,6 +33,16 @@ data class FieldValue(
     val displayValue: String,
     val targetObjectId: Long?,
     val targetClassName: String?,
+    /** Primitive owner depth, object target depth, or inbound source depth. */
+    val depth: Int? = null,
+    val valueKind: HeapValueKind = HeapValueKind.UNKNOWN,
+    val shallowSize: Long? = null,
+    val retainedSize: Long? = null,
+    val nativeSize: Long? = null,
+    val retainedNativeSize: Long? = null,
+    val representedClassName: String? = null,
+    val stringPreview: String? = null,
+    val childCount: Int? = null,
 )
 
 /** Full detail view of one heap object (instance or array). */
@@ -46,6 +61,10 @@ data class InstanceQueryDetail(
     val references: List<FieldValue> = emptyList(),
     val shallowSizeKnown: Boolean = true,
     val nativeSize: Long? = null,
+    val valueKind: HeapValueKind = HeapValueKind.UNKNOWN,
+    val representedClassName: String? = null,
+    val stringPreview: String? = null,
+    val retainedNativeSize: Long? = null,
 )
 
 /**
@@ -72,24 +91,25 @@ class InstanceReferenceQuery(
             heapDump.objectArrays.forEach { put(it.objectId, it) }
             heapDump.primitiveArrays.forEach { put(it.objectId, it) }
         }
-    private val graph = HeapGraph.from(heapDump)
-    private val chainFinder = ReferenceChainFinder(heapDump, graph)
-    private val inboundReferences =
-        buildMap<Long, MutableList<FieldValue>> {
-            graph.references.forEach { (sourceId, references) ->
-                references.forEach { reference ->
-                    if (reference.targetObjectId != 0L) {
-                        getOrPut(reference.targetObjectId, ::mutableListOf) +=
-                            FieldValue(
-                                name = reference.fieldName,
-                                displayValue = renderSourceReference(sourceId),
-                                targetObjectId = sourceId,
-                                targetClassName = graph.classNames[sourceId],
-                            )
-                    }
-                }
-            }
-        }.mapValues { (_, values) -> values.sortedWith(compareBy({ it.targetClassName }, { it.targetObjectId }, { it.name })) }
+
+    // Keep one object lookup for the workspace. A second HeapGraph duplicates millions of
+    // reference lists and class-name entries when the first instance is opened.
+    private val navigator by lazy { OnDemandHeapReferenceNavigator(heapDump, objectById, heapClassById) }
+
+    private val values by lazy {
+        InstanceValueMetadata(objectById, heapClassById, retainedSizes, navigator::depthOf)
+    }
+
+    private fun classNameOf(objectId: Long): String? = heapClassById[objectId]?.name ?: objectById[objectId]?.className
+
+    /** Reuses the query's object index when another view needs a row for a known object id. */
+    fun objectOf(objectId: Long): HeapObject? = objectById[objectId]
+
+    /** Class-table group for an object; a CLASS_DUMP is grouped by the class it represents. */
+    fun groupingClassNameOf(objectId: Long): String? = classNameOf(objectId)
+
+    /** Snapshot-local heap identity, including CLASS_DUMP objects and arrays. */
+    fun heapNameOf(objectId: Long): String? = heapByObjectId[objectId]
 
     /**
      * Instances and arrays of [className], ordered by object id with 1-based row indexes.
@@ -100,39 +120,45 @@ class InstanceReferenceQuery(
         className: String,
         heapName: String? = null,
     ): List<InstanceQueryRow> {
-        if (className == HeapClass.CLASS_OBJECT_CLASS_NAME) {
-            return heapClasses
+        val merged =
+            (instancesByClass[className].orEmpty() + arraysByClass[className].orEmpty())
                 .filter { heapName == null || heapByObjectId[it.objectId] == heapName }
-                .mapIndexed { index, heapClass ->
-                    val depth = chainFinder.depthOf(heapClass.objectId)
+        val objectRows =
+            merged.map { obj ->
+                val depth = navigator.depthOf(obj.objectId)
+                InstanceQueryRow(
+                    objectId = obj.objectId,
+                    index = 0,
+                    shallowSize = obj.shallowSize,
+                    retainedSize = retainedSizes[obj.objectId],
+                    depth = depth,
+                    reachable = depth != null,
+                    nativeSize = (obj as? HeapInstance)?.nativeSizeBytes,
+                    shallowSizeKnown = obj.shallowSizeKnown,
+                    className = obj.className,
+                )
+            }
+        val classObjectRows =
+            heapClasses
+                .asSequence()
+                .filter { it.name == className && (heapName == null || heapByObjectId[it.objectId] == heapName) }
+                .map { heapClass ->
+                    val depth = navigator.depthOf(heapClass.objectId)
                     InstanceQueryRow(
                         objectId = heapClass.objectId,
-                        index = index + 1,
+                        index = 0,
                         shallowSize = classObjectShallowSize,
                         retainedSize = retainedSizes[heapClass.objectId],
                         depth = depth,
                         reachable = depth != null,
-                        shallowSizeKnown = classObjectType != null,
+                        shallowSizeKnown = classObjectType?.instanceSizeKnown == true,
+                        className = HeapClass.CLASS_OBJECT_CLASS_NAME,
+                        representedClassName = heapClass.name,
                     )
-                }
-        }
-        val merged =
-            (instancesByClass[className].orEmpty() + arraysByClass[className].orEmpty())
-                .filter { heapName == null || heapByObjectId[it.objectId] == heapName }
-                .sortedBy(HeapObject::objectId)
-        return merged.mapIndexed { index, obj ->
-            val depth = chainFinder.depthOf(obj.objectId)
-            InstanceQueryRow(
-                objectId = obj.objectId,
-                index = index + 1,
-                shallowSize = obj.shallowSize,
-                retainedSize = retainedSizes[obj.objectId],
-                depth = depth,
-                reachable = depth != null,
-                nativeSize = (obj as? HeapInstance)?.nativeSizeBytes,
-                shallowSizeKnown = obj.shallowSizeKnown,
-            )
-        }
+                }.toList()
+        return (objectRows + classObjectRows)
+            .sortedBy(InstanceQueryRow::objectId)
+            .mapIndexed { index, row -> row.copy(index = index + 1) }
     }
 
     /** Detailed view of a single object, or null when [objectId] is unknown. */
@@ -152,35 +178,33 @@ class InstanceReferenceQuery(
             }
         val fields =
             when (obj) {
-                is HeapInstance -> instanceFields(obj)
+                is HeapInstance -> values.instanceFields(obj)
                 is HeapObjectArray ->
                     obj.elementIds
                         .drop(boundedStart)
                         .take(boundedLimit)
                         .mapIndexed { index, id ->
-                            FieldValue(
-                                name = "[${boundedStart + index}]",
-                                displayValue = renderObjectReference(id),
-                                targetObjectId = id,
-                                targetClassName = graph.classNames[id],
-                            )
+                            values.objectField("[${boundedStart + index}]", id)
                         }
-                else -> emptyList()
+                is HeapPrimitiveArray -> values.primitiveArrayFields(obj, boundedStart, boundedLimit)
             }
         return InstanceQueryDetail(
             objectId = obj.objectId,
             className = obj.className,
             shallowSize = obj.shallowSize,
             retainedSize = retainedSizes[obj.objectId],
-            depth = chainFinder.depthOf(obj.objectId),
+            depth = navigator.depthOf(obj.objectId),
             isArray = obj is HeapObjectArray || obj is HeapPrimitiveArray,
             elementCount = elementCount,
             arrayPageSize = boundedLimit,
             fields = fields,
-            referenceChain = chainFinder.chainTo(objectId),
-            references = inboundReferences[objectId].orEmpty(),
+            referenceChain = navigator.chainTo(objectId),
+            references = inboundReferencesOf(objectId),
             shallowSizeKnown = obj.shallowSizeKnown,
             nativeSize = (obj as? HeapInstance)?.nativeSizeBytes,
+            valueKind = values.valueKindOf(objectId),
+            representedClassName = heapClassById[objectId]?.name,
+            stringPreview = values.stringPreviewOf(objectId),
         )
     }
 
@@ -191,56 +215,41 @@ class InstanceReferenceQuery(
             className = HeapClass.CLASS_OBJECT_CLASS_NAME,
             shallowSize = classObjectShallowSize,
             retainedSize = retainedSizes[objectId],
-            depth = chainFinder.depthOf(objectId),
+            depth = navigator.depthOf(objectId),
             isArray = false,
             elementCount = null,
             fields =
                 heapClass.staticReferences.map { reference ->
-                    FieldValue(
-                        name = reference.fieldName,
-                        displayValue = renderObjectReference(reference.targetObjectId),
-                        targetObjectId = reference.targetObjectId,
-                        targetClassName = graph.classNames[reference.targetObjectId],
-                    )
+                    values.objectField(reference.fieldName, reference.targetObjectId, reference.targetClassName)
                 },
-            referenceChain = chainFinder.chainTo(objectId),
-            references = inboundReferences[objectId].orEmpty(),
-            shallowSizeKnown = classObjectType != null,
+            referenceChain = navigator.chainTo(objectId),
+            references = inboundReferencesOf(objectId),
+            shallowSizeKnown = classObjectType?.instanceSizeKnown == true,
+            valueKind = HeapValueKind.CLASS,
+            representedClassName = heapClass.name,
         )
     }
 
-    private fun instanceFields(instance: HeapInstance): List<FieldValue> =
-        instance.primitiveFields.map { (name, value) ->
-            FieldValue(
-                name = name,
-                displayValue = value.toString(),
-                targetObjectId = null,
-                targetClassName = null,
-            )
-        } +
-            instance.references.map { reference ->
-                FieldValue(
-                    name = reference.fieldName,
-                    displayValue = renderObjectReference(reference.targetObjectId),
-                    targetObjectId = reference.targetObjectId,
-                    targetClassName =
-                        graph.classNames[reference.targetObjectId] ?: reference.targetClassName,
-                )
-            }
-
-    private fun renderObjectReference(objectId: Long): String {
-        if (objectId == 0L) return "null"
-        val className = graph.classNames[objectId].orEmpty()
-        return if (className.isEmpty()) {
-            "0x${objectId.toString(HEX_RADIX)}"
-        } else {
-            "0x${objectId.toString(HEX_RADIX)} · $className"
-        }
+    private fun renderSourceReference(objectId: Long): String {
+        val className = classNameOf(objectId).orEmpty()
+        return if (className.isEmpty()) "0x${objectId.toString(HEX_RADIX)}" else "$className @0x${objectId.toString(HEX_RADIX)}"
     }
 
-    private fun renderSourceReference(objectId: Long): String {
-        val className = graph.classNames[objectId].orEmpty()
-        return if (className.isEmpty()) "0x${objectId.toString(HEX_RADIX)}" else "$className @0x${objectId.toString(HEX_RADIX)}"
+    private fun inboundReferencesOf(objectId: Long): List<FieldValue> {
+        val namesBySource = linkedMapOf<Long, MutableList<String>>()
+        navigator.forEachInboundReference(objectId) { sourceId, reference ->
+            namesBySource.getOrPut(sourceId) { mutableListOf() }.add(reference.fieldName)
+        }
+        return namesBySource
+            .map { (sourceId, names) ->
+                val name =
+                    if (objectById[sourceId] is HeapObjectArray) {
+                        "Index " + names.joinToString(", ") { it.removeSurrounding("[", "]") }
+                    } else {
+                        names.joinToString(", ")
+                    }
+                values.objectField(name, sourceId).copy(displayValue = renderSourceReference(sourceId), childCount = null)
+            }.sortedWith(compareBy<FieldValue> { it.depth ?: Int.MAX_VALUE }.thenBy { it.targetObjectId })
     }
 
     private companion object {

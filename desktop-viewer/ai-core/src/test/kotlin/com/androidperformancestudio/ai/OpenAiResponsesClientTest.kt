@@ -7,6 +7,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class OpenAiResponsesClientTest {
     @Test
@@ -24,7 +30,7 @@ class OpenAiResponsesClientTest {
                             body =
                                 """
                                 {
-                                  "output": [{
+                                  "output": [{"type":"message",
                                     "content": [{"type":"output_text","text":"{\"summary\":\"ok\"}"}]
                                   }]
                                 }
@@ -47,8 +53,82 @@ class OpenAiResponsesClientTest {
         assertEquals(OpenAiResponsesClient.DEFAULT_ENDPOINT, request.url)
         assertEquals("Bearer test-key", request.headers["Authorization"])
         assertTrue(request.body.contains("\"name\":\"analysis\""))
+        val body = Json.parseToJsonElement(request.body).jsonObject
+        assertEquals("none", body.getValue("tool_choice").jsonPrimitive.content)
+        assertEquals(JsonArray(emptyList()), body.getValue("tools"))
+        assertEquals(false, body.getValue("store").jsonPrimitive.boolean)
+        assertEquals(false, body.getValue("parallel_tool_calls").jsonPrimitive.boolean)
+        assertEquals(8192, body.getValue("max_output_tokens").jsonPrimitive.int)
         assertEquals("gpt-test", response.model)
         assertEquals("{\"summary\":\"ok\"}", response.outputText)
+    }
+
+    @Test
+    fun `tool-bearing output is rejected even if the server also provides final text`() = runBlocking {
+        for (type in listOf("function_call", "web_search_call", "computer_call", "file_search_call", "local_shell_call", "unknown_tool")) {
+            val client = OpenAiResponsesClient("fixture", "codex-fixture", transport = AiHttpTransport {
+                AiHttpResponse(200, """{"output_text":"{}","output":[{"type":"$type"}]}""")
+            })
+            val failure = assertFailsWith<IllegalArgumentException> {
+                client.execute(StructuredAiRequest("bounded", "{}", "analysis", """{"type":"object"}"""))
+            }
+            assertEquals("E_AI_TOOL_RESPONSE", failure.message)
+        }
+    }
+
+    @Test
+    fun `incomplete response never publishes partial text`() = runBlocking {
+        val client = OpenAiResponsesClient("fixture", "codex-fixture", transport = AiHttpTransport {
+            AiHttpResponse(200, """{"status":"incomplete","output_text":"{}"}""")
+        })
+        assertEquals("E_AI_RESPONSE_INCOMPLETE", assertFailsWith<IllegalArgumentException> {
+            client.execute(StructuredAiRequest("bounded", "{}", "analysis", """{"type":"object"}"""))
+        }.message)
+    }
+
+    @Test
+    fun `explicit output budget is bounded and sent unchanged`(): Unit = runBlocking {
+        var captured = ""
+        val client = OpenAiResponsesClient("fixture", "codex-fixture", maxOutputTokens = 256, transport = AiHttpTransport {
+            captured = it.body
+            AiHttpResponse(200, """{"output_text":"{}"}""")
+        })
+        client.execute(StructuredAiRequest("bounded", "{}", "analysis", """{"type":"object"}"""))
+        assertEquals(256, Json.parseToJsonElement(captured).jsonObject.getValue("max_output_tokens").jsonPrimitive.int)
+        assertFailsWith<IllegalArgumentException> { OpenAiResponsesClient("fixture", "codex-fixture", maxOutputTokens = 0) }
+    }
+
+    @Test
+    fun `Codex commentary is not mistaken for the final structured answer`() = runBlocking {
+        val client = OpenAiResponsesClient("fixture", "codex-fixture", transport = AiHttpTransport {
+            AiHttpResponse(200, """{"output_text":"wrong alias","output":[
+                {"type":"reasoning","summary":[]},
+                {"type":"message","phase":"commentary","content":[{"type":"output_text","text":"Inspecting synthetic evidence"}]},
+                {"type":"message","phase":"final_answer","content":[{"type":"output_text","text":"{\"summary\":"},{"type":"output_text","text":"\"ok\"}"}]}
+            ]}""")
+        })
+        val response = client.execute(StructuredAiRequest("bounded", "{}", "analysis", """{"type":"object"}"""))
+        assertEquals("""{"summary":"ok"}""", response.outputText)
+    }
+
+    @Test
+    fun `refusal is rejected instead of trusting an output text alias`() = runBlocking {
+        val client = OpenAiResponsesClient("fixture", "codex-fixture", transport = AiHttpTransport {
+            AiHttpResponse(200, """{"output_text":"{}","output":[{"type":"message","phase":"final_answer","content":[{"type":"refusal","refusal":"No"}]}]}""")
+        })
+        assertEquals("E_AI_REFUSAL", assertFailsWith<IllegalArgumentException> {
+            client.execute(StructuredAiRequest("bounded", "{}", "analysis", """{"type":"object"}"""))
+        }.message)
+    }
+
+    @Test
+    fun `commentary only is not a completed analysis`() = runBlocking {
+        val client = OpenAiResponsesClient("fixture", "codex-fixture", transport = AiHttpTransport {
+            AiHttpResponse(200, """{"output_text":"{}","output":[{"type":"message","phase":"commentary","content":[{"type":"output_text","text":"Still analyzing"}]}]}""")
+        })
+        assertEquals("E_AI_FINAL_OUTPUT_MISSING", assertFailsWith<IllegalStateException> {
+            client.execute(StructuredAiRequest("bounded", "{}", "analysis", """{"type":"object"}"""))
+        }.message)
     }
 
     @Test

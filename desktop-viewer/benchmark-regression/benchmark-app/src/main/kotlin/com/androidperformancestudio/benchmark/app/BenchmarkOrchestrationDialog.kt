@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,10 +26,12 @@ import com.androidperformancestudio.benchmark.benchmark_app.generated.resources.
 import com.androidperformancestudio.benchmark.cli.MacrobenchmarkCompilationMode
 import com.androidperformancestudio.benchmark.cli.MacrobenchmarkScenario
 import com.androidperformancestudio.benchmark.cli.MacrobenchmarkStartupMode
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.UiLanguage
+import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.chooseSaveFile
@@ -68,11 +69,12 @@ internal fun BenchmarkOrchestrationDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(StudioTokens.panelGap),
             ) {
-                Text(
+                CopyableText(
                     text = localizedStringResource(Res.string.orchestrate_subtitle, language),
                     color = colors.secondaryText,
                     fontSize = ViewerTypography.bodyCompact.fontSize,
                     lineHeight = ViewerTypography.bodyCompact.lineHeight,
+                    language = language,
                 )
                 PathField(
                     label = localizedStringResource(Res.string.plan_project, language),
@@ -85,7 +87,7 @@ internal fun BenchmarkOrchestrationDialog(
                     },
                     language = language,
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = form.gradleTask,
                     onValueChange = { onFormChange(form.copy(gradleTask = it)) },
                     label = { Text(localizedStringResource(Res.string.plan_task, language)) },
@@ -93,7 +95,7 @@ internal fun BenchmarkOrchestrationDialog(
                     enabled = !running,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
+                ViewerTextField(
                     value = form.benchmarkFilter,
                     onValueChange = { onFormChange(form.copy(benchmarkFilter = it)) },
                     label = { Text(localizedStringResource(Res.string.plan_filter, language)) },
@@ -171,24 +173,27 @@ internal fun BenchmarkOrchestrationDialog(
                     language = language,
                 )
                 problem?.let {
-                    Text(
+                    CopyableText(
                         text = it.message(language),
                         color = MaterialTheme.colorScheme.error,
                         fontSize = ViewerTypography.bodyCompact.fontSize,
+                        language = language,
                     )
                 }
                 if (running) {
-                    Text(
+                    CopyableText(
                         text = localizedStringResource(Res.string.orchestrate_running, language),
                         color = colors.accent,
                         fontSize = ViewerTypography.bodyCompact.fontSize,
+                        language = language,
                     )
                 }
                 status?.let {
-                    Text(
+                    CopyableText(
                         text = it,
                         color = colors.primaryText,
                         fontSize = ViewerTypography.bodyCompact.fontSize,
+                        language = language,
                     )
                 }
                 if (output.isNotBlank()) {
@@ -197,7 +202,7 @@ internal fun BenchmarkOrchestrationDialog(
                         color = colors.secondaryText,
                         fontSize = ViewerTypography.label.fontSize,
                     )
-                    Text(
+                    CopyableText(
                         text = output.takeLast(OUTPUT_TAIL_CHARACTERS),
                         modifier =
                             Modifier
@@ -208,6 +213,7 @@ internal fun BenchmarkOrchestrationDialog(
                         fontFamily = FontFamily.Monospace,
                         fontSize = ViewerTypography.dense.fontSize,
                         lineHeight = ViewerTypography.dense.lineHeight,
+                        language = language,
                     )
                 }
             }
@@ -241,7 +247,7 @@ private fun PathField(
     language: UiLanguage,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(StudioTokens.panelGap)) {
-        OutlinedTextField(
+        ViewerTextField(
             value = value,
             onValueChange = onValueChange,
             label = { Text(label) },
@@ -265,7 +271,7 @@ private fun NumberField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedTextField(
+    ViewerTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },

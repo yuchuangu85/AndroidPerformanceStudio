@@ -18,6 +18,43 @@ import kotlin.test.assertTrue
 
 class FlameGraphLayoutTest {
     @Test
+    fun `fractional pixel scroll preserves partial rows in either orientation`() {
+        listOf(true, false).forEach { startsAtBottom ->
+            val snapshot = rowSnapshot(rowCount = 40, startsAtBottom = startsAtBottom)
+            val viewport =
+                FlameViewport(800, 32, scrollRow = 0, overscanRows = 0, scrollOffsetPx = 16.75f)
+            val layout = FlameGraphLayout.layout(snapshot, viewport)
+            assertEquals(1..3, layout.materializedRowRange)
+            assertEquals(if (startsAtBottom) 17f else -1f, layout.nodes.first().y)
+            assertEquals(16.75f, FlameGraphLayout.clampScrollOffset(snapshot, viewport))
+        }
+    }
+
+    @Test
+    fun `pixel scroll reaches exact edge for a viewport not divisible by row height`() {
+        val snapshot = rowSnapshot(rowCount = 5)
+        val viewport = FlameViewport(100, 35, scrollRow = 0, scrollOffsetPx = 1_000f, overscanRows = 0)
+        assertEquals(45f, FlameGraphLayout.clampScrollOffset(snapshot, viewport))
+        val layout = FlameGraphLayout.layout(snapshot, viewport)
+        assertEquals(2..4, layout.materializedRowRange)
+        assertEquals(0f, layout.nodes.last().y)
+        assertEquals(
+            2,
+            FlameGraphLayout.clampScrollRow(snapshot, viewport.copy(scrollRow = 100, scrollOffsetPx = null)),
+        )
+    }
+
+    @Test
+    fun `pixel reveal retains fractional position unless the target is clipped`() {
+        val snapshot = rowSnapshot(rowCount = 40)
+        val viewport = FlameViewport(100, 35, scrollRow = 0, scrollOffsetPx = 16.75f)
+        assertEquals(16.75f, FlameGraphLayout.scrollOffsetToReveal(snapshot, FlameCallNodeId(1_002), viewport))
+        assertEquals(16f, FlameGraphLayout.scrollOffsetToReveal(snapshot, FlameCallNodeId(1_001), viewport))
+        assertEquals(29f, FlameGraphLayout.scrollOffsetToReveal(snapshot, FlameCallNodeId(1_003), viewport))
+        assertEquals(16.75f, FlameGraphLayout.scrollOffsetToReveal(snapshot, FlameCallNodeId(-1), viewport))
+    }
+
+    @Test
     fun `materializes only visible rows and clamped overscan`() {
         val snapshot = rowSnapshot(rowCount = 40)
 
@@ -87,25 +124,35 @@ class FlameGraphLayoutTest {
     }
 
     @Test
-    fun `horizontal viewport expands visible geometry and omits offscreen nodes`() {
-        val viewport = FlameHorizontalViewport(0.25, 0.75)
+    fun `horizontal geometry always uses the full profile width`() {
+        val visible = requireNotNull(firefoxHorizontalGeometry(0.25, 0.5, 100))
 
-        val visible = requireNotNull(firefoxHorizontalGeometry(0.25, 0.5, 100, viewport))
-
-        assertEquals(0f, visible.leftPx)
+        assertEquals(26f, visible.leftPx)
         assertEquals(49.2f, visible.rightPx, absoluteTolerance = 0.0001f)
-        assertNull(firefoxHorizontalGeometry(0.0, 0.2, 100, viewport))
-        assertNull(firefoxHorizontalGeometry(0.8, 1.0, 100, viewport))
+        assertEquals(23.2f, visible.widthPx, absoluteTolerance = 0.0001f)
+    }
 
-        val clipped =
-            FlameGraphLayout
-                .layout(
-                    snapshot(listOf(intArrayOf(0)), doubleArrayOf(0.0), doubleArrayOf(1.0), longArrayOf(1)),
-                    FlameViewport(widthPx = 100, heightPx = 16, scrollRow = 0, horizontal = viewport),
-                ).nodes
-                .single()
-        assertEquals(0f, clipped.x)
-        assertEquals(100f, clipped.width)
+    @Test
+    fun `fractional DPR snaps row top and bottom independently with one device pixel gap`() {
+        listOf(true, false).forEach { startsAtBottom ->
+            val nodes =
+                FlameGraphLayout
+                    .layout(
+                        rowSnapshot(rowCount = 3, startsAtBottom = startsAtBottom),
+                        FlameViewport(widthPx = 100, heightPx = 65, scrollRow = 0, rowHeightPx = 17.6f),
+                    ).nodes
+            val expectedTops = if (startsAtBottom) listOf(47f, 30f, 12f) else listOf(0f, 18f, 35f)
+            val expectedHeights = listOf(18f, 17f, 18f)
+
+            assertEquals(expectedTops, nodes.map(VisibleFlameNode::y))
+            assertEquals(expectedHeights, nodes.map(VisibleFlameNode::height))
+            nodes.zipWithNext().forEach { (first, second) ->
+                val upper = if (startsAtBottom) second else first
+                val lower = if (startsAtBottom) first else second
+                assertEquals(lower.y, upper.y + upper.height)
+                assertEquals(1f, lower.y - (upper.y + upper.height - 1f))
+            }
+        }
     }
 
     @Test
@@ -180,6 +227,8 @@ class FlameGraphLayoutTest {
         assertFailsWith<IllegalArgumentException> { FlameViewport(1, 1, 0, rowHeightPx = 0f) }
         assertFailsWith<IllegalArgumentException> { FlameViewport(1, 1, 0, rowHeightPx = Float.NaN) }
         assertFailsWith<IllegalArgumentException> { FlameViewport(1, 1, 0, overscanRows = -1) }
+        assertFailsWith<IllegalArgumentException> { FlameViewport(1, 1, 0, scrollOffsetPx = Float.NaN) }
+        assertFailsWith<IllegalArgumentException> { FlameViewport(1, 1, 0, scrollOffsetPx = Float.POSITIVE_INFINITY) }
     }
 
     @Test

@@ -36,7 +36,7 @@ class PerfettoDiagnosticsSchemaCompatibilityTest {
                     TraceAnalysisContexts(tool).open(artifact(trace), trace),
                 ).value
             try {
-                PerfettoDiagnostics.all.forEach { diagnostic ->
+                (PerfettoDiagnostics.all + listOfNotNull(TraceSliceSearch.query("it's main"))).forEach { diagnostic ->
                     assertIs<StudioResult.Success<List<DiagnosticRow>>>(
                         context.query(diagnostic.typedQuery()),
                         diagnostic.id,

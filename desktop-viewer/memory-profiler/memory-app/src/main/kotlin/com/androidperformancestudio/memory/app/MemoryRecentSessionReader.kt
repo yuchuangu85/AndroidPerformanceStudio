@@ -17,9 +17,8 @@ class MemoryRecentSessionReader(
     private val dataRoot: Path = defaultMemoryDataRoot(),
 ) {
     fun listRecent(limit: Int): List<MemoryRecentSession> {
-        if (limit <= 0) return emptyList()
         val database = dataRoot.resolve("memory-sessions.db")
-        if (Files.notExists(database)) return emptyList()
+        if (limit <= 0 || Files.notExists(database)) return emptyList()
         return SqliteMemorySessionStore.openExistingReadOnly(database).use { store ->
             // Scan past stale files before applying the visible-item limit.
             store

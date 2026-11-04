@@ -4,9 +4,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyShortcut
 import androidx.compose.ui.window.FrameWindowScope
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import androidx.compose.ui.window.MenuScope
 import com.androidperformancestudio.presentation.generated.resources.Res
 import com.androidperformancestudio.presentation.generated.resources.*
+import com.androidperformancestudio.ui.ActivePageMenu
+import com.androidperformancestudio.ui.MenuCommand
+import com.androidperformancestudio.ui.MenuShortcuts
+import com.androidperformancestudio.ui.PageMenu
+import com.androidperformancestudio.ui.RecentMenu
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.localizedStringResource
 import java.nio.file.Path
@@ -39,28 +44,12 @@ internal data class NativeRecentArchiveMenuItem(
 )
 
 internal data class NativeViewerMenuModel(
-    val actionsTitle: String,
     val actions: List<NativeActionMenuItem>,
-    val viewTitle: String,
     val viewItems: List<NativeViewMenuItem>,
-    val fileTitle: String,
-    val importLabel: String,
     val importScreenshotLabel: String,
-    val exportLabel: String,
-    val openRecentTitle: String,
-    val noRecentLabel: String,
-    val clearRecentLabel: String,
+    val exportArchiveLabel: String,
     val recentItems: List<NativeRecentArchiveMenuItem>,
-    val settingsLabel: String?,
-    val importMenuText: String,
-    val importScreenshotMenuText: String,
-    val exportMenuText: String,
-    val settingsMenuText: String?,
-    val importShortcut: NativeMenuShortcut,
-    val importScreenshotShortcut: NativeMenuShortcut?,
-    val exportShortcut: NativeMenuShortcut,
-    val settingsShortcut: NativeMenuShortcut?,
-    val importEnabled: Boolean,
+    val openEnabled: Boolean,
     val importScreenshotEnabled: Boolean,
     val exportEnabled: Boolean,
     val recentEnabled: Boolean,
@@ -77,7 +66,6 @@ internal data class NativeViewerMenuModel(
         recentArchives: List<Path> = emptyList(),
         isMacOs: Boolean,
     ) : this(
-        actionsTitle = localizedStringResource(Res.string.actions, language),
         actions = ViewerActionMenu.items(language).map { item ->
             val state = viewerActionUiState(
                 action = item.action,
@@ -95,7 +83,6 @@ internal data class NativeViewerMenuModel(
                 shortcut = viewerActionNativeShortcut(item.action, isMacOs),
             )
         },
-        viewTitle = localizedStringResource(Res.string.view, language),
         viewItems = ViewDisplayOption.entries.map { option ->
             NativeViewMenuItem(
                 option = option,
@@ -129,24 +116,10 @@ internal data class NativeViewerMenuModel(
                 },
             )
         },
-        fileTitle = localizedStringResource(Res.string.file, language),
-        importLabel = localizedStringResource(Res.string.import_archive, language),
-        importScreenshotLabel = localizedStringResource(Res.string.import_screenshot, language),
-        exportLabel = localizedStringResource(Res.string.export_archive, language),
-        openRecentTitle = localizedStringResource(Res.string.sp_layout_inspector_menu_open_recent, language),
-        noRecentLabel = localizedStringResource(Res.string.sp_layout_inspector_recent_empty, language),
-        clearRecentLabel = localizedStringResource(Res.string.sp_layout_inspector_recent_clear_menu, language),
+        importScreenshotLabel = localizedStringResource(Res.string.menu_import_screenshot, language),
+        exportArchiveLabel = localizedStringResource(Res.string.menu_export_capture_archive, language),
         recentItems = recentArchives.toRecentArchiveMenuItems(),
-        settingsLabel = localizedStringResource(Res.string.settings, language).takeUnless { isMacOs },
-        importMenuText = nativeMenuItemText(localizedStringResource(Res.string.import_archive, language)),
-        importScreenshotMenuText = nativeMenuItemText(localizedStringResource(Res.string.import_screenshot, language)),
-        exportMenuText = nativeMenuItemText(localizedStringResource(Res.string.export_archive, language)),
-        settingsMenuText = nativeMenuItemText(localizedStringResource(Res.string.settings, language)).takeUnless { isMacOs },
-        importShortcut = nativePrimaryShortcut(Key.I, isMacOs),
-        importScreenshotShortcut = null,
-        exportShortcut = nativePrimaryShortcut(Key.E, isMacOs),
-        settingsShortcut = nativePrimaryShortcut(Key.Comma, isMacOs).takeUnless { isMacOs },
-        importEnabled = !archiveOperationInProgress,
+        openEnabled = !archiveOperationInProgress,
         importScreenshotEnabled = !archiveOperationInProgress && canImportScreenshot,
         exportEnabled = !archiveOperationInProgress && canExportArchive,
         recentEnabled = !archiveOperationInProgress,
@@ -220,93 +193,90 @@ internal fun FrameWindowScope.NativeViewerMenuBar(
     onImportScreenshot: () -> Unit,
     onExportArchive: () -> Unit,
 ) {
-    ActiveWindowMenuBar {
-        Menu(model.fileTitle) {
-            Item(
-                text = model.importMenuText,
-                enabled = model.importEnabled,
-                shortcut = model.importShortcut.toKeyShortcut(),
-                onClick = onImportArchive,
-            )
-            Item(
-                text = model.importScreenshotMenuText,
-                enabled = model.importScreenshotEnabled,
-                shortcut = model.importScreenshotShortcut?.toKeyShortcut(),
-                onClick = onImportScreenshot,
-            )
-            Menu(model.openRecentTitle, enabled = model.recentEnabled) {
-                if (model.recentItems.isEmpty()) {
-                    Item(text = model.noRecentLabel, enabled = false, onClick = {})
-                } else {
-                    model.recentItems.forEach { item ->
-                        Item(
-                            text = item.label,
-                            onClick = { onOpenRecentArchive(item.path) },
-                        )
-                    }
-                    Separator()
-                    Item(
-                        text = model.clearRecentLabel,
-                        onClick = onClearRecentArchives,
-                    )
-                }
-            }
-            Separator()
-            Item(
-                text = model.exportMenuText,
-                enabled = model.exportEnabled,
-                shortcut = model.exportShortcut.toKeyShortcut(),
-                onClick = onExportArchive,
-            )
-            val settingsMenuText = model.settingsMenuText
-            val settingsShortcut = model.settingsShortcut
-            if (settingsMenuText != null && settingsShortcut != null) {
+    val panelActions = model.actions.filter { it.action.isViewAction() }
+    val toolActions = model.actions.filter { !it.action.isViewAction() && it.action != ViewerAction.OPEN_SETTINGS }
+    ActivePageMenu(
+        PageMenu(
+            onOpen = onImportArchive,
+            openEnabled = model.openEnabled,
+            imports =
+                listOf(
+                    MenuCommand(model.importScreenshotLabel, enabled = model.importScreenshotEnabled, onClick = onImportScreenshot),
+                ),
+            recent =
+                RecentMenu(
+                    items = model.recentItems.map { item -> MenuCommand(item.label) { onOpenRecentArchive(item.path) } },
+                    enabled = model.recentEnabled,
+                    onClear = onClearRecentArchives,
+                ),
+            exportGroups =
+                listOf(
+                    listOf(
+                        MenuCommand(
+                            model.exportArchiveLabel,
+                            enabled = model.exportEnabled,
+                            shortcut = MenuShortcuts.export(),
+                            onClick = onExportArchive,
+                        ),
+                    ),
+                ),
+            onOpenSettings = { onAction(ViewerAction.OPEN_SETTINGS) },
+            view = {
+                panelActions.forEach { item -> ActionMenuItem(item, onAction) }
                 Separator()
-                Item(
-                    text = settingsMenuText,
-                    shortcut = settingsShortcut.toKeyShortcut(),
-                    onClick = { onAction(ViewerAction.OPEN_SETTINGS) },
-                )
-            }
-        }
-        Menu(model.actionsTitle) {
-            model.actions.forEachIndexed { index, item ->
-                if (index > 0 && model.actions[index - 1].group != item.group) {
-                    Separator()
-                }
-                val shortcut = item.shortcut?.toKeyShortcut()
-                if (item.action.isToggleAction()) {
+                model.viewItems.forEachIndexed { index, item ->
+                    if (index > 0 && model.viewItems[index - 1].group != item.group) {
+                        Separator()
+                    }
                     CheckboxItem(
                         text = nativeMenuItemText(item.label),
                         checked = item.checked,
-                        enabled = item.enabled,
-                        shortcut = shortcut,
-                        onCheckedChange = { onAction(item.action) },
-                    )
-                } else {
-                    Item(
-                        text = nativeMenuItemText(item.label),
-                        enabled = item.enabled,
-                        shortcut = shortcut,
-                        onClick = { onAction(item.action) },
+                        onCheckedChange = { onViewOption(item.option) },
                     )
                 }
-            }
-        }
-        Menu(model.viewTitle) {
-            model.viewItems.forEachIndexed { index, item ->
-                if (index > 0 && model.viewItems[index - 1].group != item.group) {
-                    Separator()
+            },
+            tools = {
+                toolActions.forEachIndexed { index, item ->
+                    if (index > 0 && toolActions[index - 1].group != item.group) {
+                        Separator()
+                    }
+                    ActionMenuItem(item, onAction)
                 }
-                CheckboxItem(
-                    text = nativeMenuItemText(item.label),
-                    checked = item.checked,
-                    onCheckedChange = { onViewOption(item.option) },
-                )
-            }
-        }
+            },
+        ),
+    )
+}
+
+@Composable
+private fun MenuScope.ActionMenuItem(
+    item: NativeActionMenuItem,
+    onAction: (ViewerAction) -> Unit,
+) {
+    val shortcut = item.shortcut?.toKeyShortcut()
+    if (item.action.isToggleAction()) {
+        CheckboxItem(
+            text = nativeMenuItemText(item.label),
+            checked = item.checked,
+            enabled = item.enabled,
+            shortcut = shortcut,
+            onCheckedChange = { onAction(item.action) },
+        )
+    } else {
+        Item(
+            text = nativeMenuItemText(item.label),
+            enabled = item.enabled,
+            shortcut = shortcut,
+            onClick = { onAction(item.action) },
+        )
     }
 }
+
+/** Panel and display toggles belong to View; the remaining actions are inspector tools. */
+private fun ViewerAction.isViewAction(): Boolean =
+    this == ViewerAction.TOGGLE_HIERARCHY ||
+        this == ViewerAction.TOGGLE_FINDINGS ||
+        this == ViewerAction.TOGGLE_DETAILS ||
+        this == ViewerAction.TOGGLE_HIERARCHY_IDS
 
 private fun ViewerAction.isToggleAction(): Boolean = when (this) {
     ViewerAction.TOGGLE_AUTO_SCAN,

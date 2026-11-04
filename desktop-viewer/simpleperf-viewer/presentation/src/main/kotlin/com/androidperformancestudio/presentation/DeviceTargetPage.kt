@@ -24,6 +24,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,24 +44,32 @@ import com.androidperformancestudio.application.DeviceOption
 import com.androidperformancestudio.application.DeviceSelection
 import com.androidperformancestudio.application.DeviceTargetState
 import com.androidperformancestudio.application.PackageOption
-import com.androidperformancestudio.application.ProcessOption
 import com.androidperformancestudio.application.ReportLoadState
 import com.androidperformancestudio.application.ReportState
-import com.androidperformancestudio.application.ThreadOption
 import com.androidperformancestudio.capture.CaptureState
 import com.androidperformancestudio.presentation.generated.resources.SimpleperfViewerRes
+import com.androidperformancestudio.ui.ActiveTitleBarTarget
+import com.androidperformancestudio.ui.CopyableText
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
+import com.androidperformancestudio.ui.TitleBarPageTarget
+import com.androidperformancestudio.ui.TitleBarPageTargetOption
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.button.MacOSTextButton
 import com.androidperformancestudio.ui.localizedStringResource
-import com.androidperformancestudio.ui.studio.StudioTokens
 
 @Composable
-@Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
+@Suppress("FunctionName", "LongMethod", "CyclomaticComplexMethod", "ComplexCondition", "MaxLineLength", "ktlint:standard:function-naming")
 internal fun DeviceTargetPage(
     state: DeviceTargetState,
     captureState: CaptureState,
@@ -81,50 +90,125 @@ internal fun DeviceTargetPage(
     val style = currentSimpleperfViewerColors(darkTheme)
     val captureActive = captureState.isCaptureActive()
     val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
-    val selectedThreadId = (state.selectedTarget as? CaptureTarget.Thread)?.tid
+    val titleBarHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current }
+    LaunchedEffect(titleBarHost, titleBarHost?.selectedDeviceSerial, state.devices, state.selectedSerial) {
+        if (titleBarHost != null) {
+            val desired = titleBarHost.selectedDeviceSerial
+            if (desired == null && selectedDevice != null) {
+                titleBarHost.chooseDevice(selectedDevice.serial, selectedDevice.label)
+            } else if (desired != null && desired != state.selectedSerial && state.devices.any { it.serial == desired && it.isOnline }) {
+                actions.onSelectDevice(desired)
+            }
+        }
+    }
+    LaunchedEffect(
+        titleBarHost,
+        titleBarHost?.selectedDeviceSerial,
+        titleBarHost?.selectedPackageName,
+        titleBarHost?.selectedProcessPid,
+        state.selection?.packages,
+        state.selection?.serial,
+        state.selectedPackageName,
+        state.selectedTarget,
+        state.selectedSerial,
+        state.isLoading,
+        captureActive,
+    ) {
+        if (titleBarHost != null &&
+            titleBarHost.selectedDeviceSerial == state.selectedSerial &&
+            state.selection?.serial == state.selectedSerial &&
+            !state.isLoading &&
+            !captureActive
+        ) {
+            val desired = titleBarHost.selectedPackageName
+            val selectedPackageName = state.selectedPackageName
+            val packages =
+                state.selection
+                    ?.packages
+                    .orEmpty()
+                    .map(PackageOption::packageName)
+            if (desired != null && desired in packages) {
+                titleBarHost.choosePackage(desired, clearProcess = true)
+                if (desired != selectedPackageName || state.selectedTarget !is CaptureTarget.App) {
+                    actions.onSelectPackage(desired)
+                }
+            } else if (selectedPackageName != null && selectedPackageName in packages) {
+                titleBarHost.choosePackage(selectedPackageName, clearProcess = true)
+            }
+        }
+    }
+    ActiveTitleBarTarget(
+        TitleBarPageTarget(
+            serial = state.selectedSerial,
+            options =
+                state.selection
+                    ?.packages
+                    .orEmpty()
+                    .map { TitleBarPageTargetOption(it.packageName) },
+            selectedId = state.selectedPackageName,
+            enabled = !captureActive && !state.isLoading && state.selection?.serial == state.selectedSerial,
+            onSelectTarget = { packageName ->
+                titleBarHost?.choosePackage(packageName, clearProcess = true)
+                actions.onSelectPackage(packageName)
+            },
+        ),
+    )
+    val targetReady =
+        titleBarHost?.deviceReady(state.selectedSerial) != false &&
+            titleBarHost?.packageReady(state.selectedPackageName) != false
     Column(Modifier.fillMaxSize().background(style.workspace)) {
         HeaderToolbar(
             language = currentSimpleperfLanguage(),
             onNavigateHome = onNavigateHome,
             onNavigateSettings = { onSettingsSectionChange(CaptureSettingsSection.SAMPLING_TEMPLATE) },
         ) {
-            DeviceSelector(
-                selectedDevice,
-                state.devices,
-                actions.onSelectDevice,
-                style,
-                Modifier.weight(DEVICE_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
+            val language = currentSimpleperfLanguage()
+            val targetsInTitleBar = LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null
+            val deviceModifier =
+                if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(DEVICE_SELECTOR_WEIGHT)
+            val appModifier =
+                if (targetsInTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier.weight(APP_SELECTOR_WEIGHT)
+            TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                SimpleperfLocalization(language) {
+                    DeviceSelector(
+                        selectedDevice,
+                        state.devices,
+                        { serial ->
+                            state.devices.firstOrNull { it.serial == serial }?.let { titleBarHost?.chooseDevice(serial, it.label) }
+                            actions.onSelectDevice(serial)
+                        },
+                        style,
+                        deviceModifier,
+                        !captureActive && !state.isLoading,
+                        titleBarHost?.selectedDeviceLabel,
+                    )
+                }
+            }
+            if (!targetsInTitleBar) HeaderSpacer()
+            TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+                AppSelector(
+                    state.selectedPackageName,
+                    state.selection?.packages.orEmpty(),
+                    { packageName -> actions.onSelectPackage(packageName) },
+                    style,
+                    appModifier,
+                    !captureActive && !state.isLoading,
+                    null,
+                )
+            }
             HeaderSpacer()
-            AppSelector(
-                state.selectedPackageName,
-                state.selection?.packages.orEmpty(),
-                actions.onSelectPackage,
-                style,
-                Modifier.weight(APP_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
+            // Hosted targets live in the title bar; standalone windows keep their inline selectors.
+            if (targetsInTitleBar) Spacer(Modifier.weight(1f))
+            ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading, targetReady)
             HeaderSpacer()
-            ProcessSelector(
-                state.selectedProcessId,
-                state.processesForSelectedPackage,
-                actions.onSelectProcess,
-                style,
-                Modifier.weight(PROCESS_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
-            ThreadSelector(
-                selectedThreadId,
-                state.threadsForSelectedProcess,
-                actions.onSelectThread,
-                style,
-                Modifier.weight(THREAD_SELECTOR_WEIGHT),
-                !captureActive && !state.isLoading,
-            )
-            HeaderSpacer()
-            ToolbarCaptureActions(state, captureState, actions, style, !captureActive && !state.isLoading)
+            Box(Modifier.testTag("cpu-toolbar-import")) {
+                MacOSTextButton(
+                    localizedStringResource(SimpleperfViewerRes.sp_workspace_import, currentSimpleperfLanguage()),
+                    reportActions.onOpenSession,
+                    style,
+                    enabled = !captureActive,
+                )
+            }
             HeaderSpacer()
             CapabilityPopupButton(state.selection, style)
         }
@@ -132,14 +216,10 @@ internal fun DeviceTargetPage(
             state = reportState,
             actions = reportActions,
             style = style,
-            modifier =
-                Modifier.weight(1f).padding(
-                    start = StudioTokens.compactContentPadding,
-                    end = StudioTokens.compactContentPadding,
-                    bottom = StudioTokens.compactContentPadding,
-                ),
+            modifier = Modifier.weight(1f),
             flameTooltipMode = flameTooltipMode,
             onRunAiAnalysis = onRunAiAnalysis,
+            captureState = captureState,
         )
         WorkspaceFooter(state, captureState, reportState, actions, style)
     }
@@ -175,6 +255,7 @@ private fun ToolbarCaptureActions(
     actions: DeviceTargetActions,
     style: ViewerColors,
     enabled: Boolean,
+    targetReady: Boolean,
 ) {
     val language = currentSimpleperfLanguage()
     val captureActive = captureState.isCaptureActive()
@@ -195,14 +276,16 @@ private fun ToolbarCaptureActions(
         )
     // Reserve both labels plus the shared text button's 10.dp horizontal padding per side.
     val refreshButtonWidth = with(LocalDensity.current) { refreshLabelWidth.toDp() } + 20.dp
-    MacOSTextButton(
-        if (state.isLoading) refreshingLabel else refreshLabel,
-        actions.onRefresh,
-        style,
-        enabled = enabled && !state.isLoading,
-        modifier = Modifier.width(refreshButtonWidth),
-    )
-    HeaderSpacer()
+    TitleBarRefreshOrInline(enabled = enabled && !state.isLoading, onRefresh = actions.onRefresh) {
+        MacOSTextButton(
+            if (state.isLoading) refreshingLabel else refreshLabel,
+            actions.onRefresh,
+            style,
+            enabled = enabled && !state.isLoading,
+            modifier = Modifier.width(refreshButtonWidth),
+        )
+    }
+    if (LocalTitleBarTargetHost.current == null || !LocalWindowMenuBarActive.current) HeaderSpacer()
     MacOSTextButton(
         label =
             localizedStringResource(
@@ -224,7 +307,7 @@ private fun ToolbarCaptureActions(
             if (captureActive) {
                 captureState is CaptureState.Recording
             } else {
-                enabled && state.canEnterCapture && state.captureSetup != null
+                enabled && targetReady && state.canEnterCapture && state.captureSetup != null
             },
         primary = true,
     )
@@ -239,17 +322,18 @@ private fun DeviceSelector(
     style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
+    displayTextOverride: String?,
 ) {
     val language = currentSimpleperfLanguage()
-    DropdownSelector(
+    DeviceDropdownSelector(
+        language = language,
         items = devices,
         selectedItem = selected,
         onItemSelected = { onSelect(it.serial) },
         itemLabel = DeviceOption::label,
-        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_device, language),
         modifier = modifier,
         enabled = enabled,
-        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_device_selector, language),
+        displayTextOverride = displayTextOverride,
         colors = style,
         itemSecondary = { device ->
             val status =
@@ -278,6 +362,7 @@ private fun AppSelector(
     style: ViewerColors,
     modifier: Modifier,
     enabled: Boolean,
+    displayTextOverride: String?,
 ) {
     val language = currentSimpleperfLanguage()
     DropdownSelector(
@@ -290,65 +375,9 @@ private fun AppSelector(
         placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_app, language),
         modifier = modifier,
         enabled = enabled,
+        displayTextOverride = displayTextOverride,
         selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_app_selector, language),
         colors = style,
-        fillWidth = true,
-        menuModifier = selectorMenuModifier(),
-    )
-}
-
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun ProcessSelector(
-    selectedPid: Int?,
-    processes: List<ProcessOption>,
-    onSelect: (Int) -> Unit,
-    style: ViewerColors,
-    modifier: Modifier,
-    enabled: Boolean,
-) {
-    val language = currentSimpleperfLanguage()
-    DropdownSelector(
-        items = processes,
-        searchable = true,
-        searchLanguage = language,
-        itemSearchText = { "${it.name} ${it.pid} ${it.user}" },
-        selectedItem = processes.firstOrNull { it.pid == selectedPid },
-        onItemSelected = { onSelect(it.pid) },
-        itemLabel = ProcessOption::name,
-        placeholder = localizedStringResource(SimpleperfViewerRes.sp_target_process, language),
-        modifier = modifier,
-        enabled = enabled,
-        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_process_selector, language),
-        colors = style,
-        itemSecondary = { "PID ${it.pid} · ${it.user}" },
-        fillWidth = true,
-        menuModifier = selectorMenuModifier(),
-    )
-}
-
-@Composable
-@Suppress("FunctionName", "LongParameterList", "ktlint:standard:function-naming")
-private fun ThreadSelector(
-    selectedTid: Int?,
-    threads: List<ThreadOption>,
-    onSelect: (ThreadOption) -> Unit,
-    style: ViewerColors,
-    modifier: Modifier,
-    enabled: Boolean,
-) {
-    val language = currentSimpleperfLanguage()
-    DropdownSelector(
-        items = threads,
-        selectedItem = threads.firstOrNull { it.tid == selectedTid },
-        onItemSelected = onSelect,
-        itemLabel = ThreadOption::name,
-        placeholder = localizedStringResource(SimpleperfViewerRes.sp_diagnostics_thread, language),
-        modifier = modifier,
-        enabled = enabled,
-        selectorDescription = localizedStringResource(SimpleperfViewerRes.sp_target_thread_selector, language),
-        colors = style,
-        itemSecondary = { "TID ${it.tid}" },
         fillWidth = true,
         menuModifier = selectorMenuModifier(),
     )
@@ -404,11 +433,12 @@ private fun CapabilityPopup(
             fontWeight = FontWeight.SemiBold,
         )
         if (selection == null) {
-            Text(
+            CopyableText(
                 localizedStringResource(SimpleperfViewerRes.sp_target_capability_selection_hint, language),
                 color = style.secondaryText,
                 fontSize = ViewerTypography.secondary.fontSize,
                 lineHeight = ViewerTypography.label.lineHeight,
+                language = language,
             )
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -503,12 +533,13 @@ private fun CapabilityPopupFact(
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.secondary.lineHeight,
         )
-        Text(
+        CopyableText(
             value,
             modifier = Modifier.weight(1f),
             color = if (warning) style.warning else style.text,
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.secondary.lineHeight,
+            language = currentSimpleperfLanguage(),
         )
     }
 }
@@ -534,7 +565,7 @@ private fun CapabilityStatusBadge(
     ) {
         StatusDot(color)
         Spacer(Modifier.width(5.dp))
-        Text(
+        CopyableText(
             localizedStringResource(
                 when (status) {
                     CapabilityStatus.READY -> SimpleperfViewerRes.sp_target_ready
@@ -547,6 +578,7 @@ private fun CapabilityStatusBadge(
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.label.lineHeight,
             fontWeight = FontWeight.Bold,
+            language = language,
         )
     }
 }
@@ -601,7 +633,7 @@ private fun CaptureStatus(
         val fileInfo = captureFooterFileInfo(error != null || hasCaptureError, reportState, captureState)
         StatusDot(color)
         Spacer(Modifier.width(7.dp))
-        Text(
+        CopyableText(
             error?.let {
                 if (it.code == ADB_NOT_FOUND_ERROR_CODE) {
                     "$ADB_NOT_FOUND_ERROR_CODE: ${
@@ -620,12 +652,13 @@ private fun CaptureStatus(
             lineHeight = ViewerTypography.secondary.lineHeight,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            language = currentSimpleperfLanguage(),
         )
         fileInfo?.let { info ->
             Spacer(Modifier.width(10.dp))
             Box(Modifier.width(ViewerDimensions.hairline).height(14.dp).background(style.border))
             Spacer(Modifier.width(10.dp))
-            Text(
+            CopyableText(
                 info.name,
                 color = style.text,
                 fontSize = ViewerTypography.label.fontSize,
@@ -633,19 +666,19 @@ private fun CaptureStatus(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                language = currentSimpleperfLanguage(),
             )
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
-                SelectionContainer {
-                    Text(
-                        info.path,
-                        color = style.secondaryText,
-                        fontSize = ViewerTypography.dense.fontSize,
-                        lineHeight = ViewerTypography.label.lineHeight,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                CopyableText(
+                    info.path,
+                    color = style.secondaryText,
+                    fontSize = ViewerTypography.dense.fontSize,
+                    lineHeight = ViewerTypography.label.lineHeight,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    language = currentSimpleperfLanguage(),
+                )
             }
         }
     }
@@ -739,5 +772,3 @@ private const val MAX_VISIBLE_EVENTS = 8
 private const val STATUS_FILL_ALPHA = 0.16f
 private const val DEVICE_SELECTOR_WEIGHT = 0.77f
 private const val APP_SELECTOR_WEIGHT = 1.1f
-private const val PROCESS_SELECTOR_WEIGHT = 1f
-private const val THREAD_SELECTOR_WEIGHT = 0.95f

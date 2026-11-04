@@ -46,7 +46,7 @@ public class GfxInfoPollingCaptureSession internal constructor(
         runner = TypedAdbShellRunner(DefaultAdbClient(adbExecutable)),
     )
 
-    private val seenFrames = linkedMapOf<FrameIdentity, Long>()
+    private val seenFrames = linkedSetOf<FrameIdentity>()
     private var nextFrameId = 0L
     private var hasPolled = false
 
@@ -74,16 +74,21 @@ public class GfxInfoPollingCaptureSession internal constructor(
                 serial = target.serial,
                 arguments = listOf("dumpsys", "gfxinfo", target.packageName, "framestats"),
             )
-        val parsed = parser.parse(output, sessionId = sessionId, packageName = target.packageName)
+        val parsed =
+            parser.parse(
+                output,
+                sessionId = sessionId,
+                packageName = target.packageName,
+                warnOnEmptyFrames = false,
+            )
         var overlappingFrames = 0
         val newFrames =
             parsed.frames.mapNotNull { frame ->
                 val identity = frame.identity()
-                if (identity in seenFrames) {
+                if (!seenFrames.add(identity)) {
                     overlappingFrames += 1
                     null
                 } else {
-                    seenFrames[identity] = frame.intendedVsyncNs ?: nextFrameId
                     frame.copy(
                         frameId = nextFrameId++,
                         processId = target.processId,
@@ -102,10 +107,7 @@ public class GfxInfoPollingCaptureSession internal constructor(
     }
 
     private fun pruneSeenFrames() {
-        val newestTimestamp = seenFrames.values.maxOrNull() ?: return
-        val oldestTimestamp = newestTimestamp - DEDUPLICATION_WINDOW_NS
-        seenFrames.entries.removeAll { (_, timestamp) -> timestamp < oldestTimestamp }
-        while (seenFrames.size > MAX_DEDUPLICATION_IDENTITIES) seenFrames.remove(seenFrames.keys.first())
+        while (seenFrames.size > MAX_DEDUPLICATION_IDENTITIES) seenFrames.remove(seenFrames.first())
     }
 
     private fun FrameSample.identity(): FrameIdentity =
@@ -127,7 +129,6 @@ public class GfxInfoPollingCaptureSession internal constructor(
 
     private companion object {
         const val FRAMESTATS_WINDOW_WARNING_SIZE = 110
-        const val DEDUPLICATION_WINDOW_NS = 5_000_000_000L
         const val MAX_DEDUPLICATION_IDENTITIES = 1_024
     }
 }

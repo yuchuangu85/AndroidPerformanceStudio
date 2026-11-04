@@ -2,6 +2,7 @@ package com.androidperformancestudio.presentation
 
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,6 +34,44 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DeviceTargetPageBehaviorTest {
+    @Test
+    fun `device identity remains visible while details load and after a detail error`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            val state =
+                androidx.compose.runtime.mutableStateOf(
+                    DeviceTargetState(
+                        devices = listOf(DeviceOption("serial-1", "TCL T807D", true)),
+                        selectedSerial = "serial-1",
+                        isLoading = true,
+                    ),
+                )
+            setContent {
+                HomeScreen(
+                    state = state.value,
+                    captureState = CaptureState.Idle,
+                    reportState = ReportState(),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                )
+            }
+
+            onNodeWithText("TCL T807D").assertIsDisplayed()
+            onNodeWithContentDescription("Device selector").assertIsNotEnabled()
+            onNodeWithText("Get data").assertIsNotEnabled()
+
+            runOnIdle {
+                state.value =
+                    state.value.copy(
+                        isLoading = false,
+                        error = StudioError(ErrorCategory.IO, "CAPABILITY_FAILED", "Device capability probe failed"),
+                    )
+            }
+
+            onNodeWithText("TCL T807D").assertIsDisplayed()
+            onNodeWithText("CAPABILITY_FAILED: Device capability probe failed").assertIsDisplayed()
+            onNodeWithText("Get data").assertIsNotEnabled()
+        }
+
     @Test
     fun `empty workspace opens the existing offline session workflow without a connected device`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
@@ -220,8 +259,6 @@ class DeviceTargetPageBehaviorTest {
     fun `cascaded target and capture actions remain wired`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             val packages = mutableListOf<String>()
-            val processes = mutableListOf<Int>()
-            val threads = mutableListOf<ThreadOption>()
             val templates = mutableListOf<SamplingTemplate>()
             var startCount = 0
             val thread = ThreadOption(pid = 42, tid = 43, name = "RenderThread")
@@ -236,26 +273,6 @@ class DeviceTargetPageBehaviorTest {
                                 selectedPackageName = packageName,
                                 selectedTarget = CaptureTarget.App(packageName),
                                 threads = emptyList(),
-                            )
-                    },
-                    onSelectProcess = { pid ->
-                        processes += pid
-                        uiState.value =
-                            uiState.value.copy(
-                                selectedTarget = CaptureTarget.Process(pid, "com.example.second:worker"),
-                                threads = listOf(thread),
-                            )
-                    },
-                    onSelectThread = { selectedThread ->
-                        threads += selectedThread
-                        uiState.value =
-                            uiState.value.copy(
-                                selectedTarget =
-                                    CaptureTarget.Thread(
-                                        selectedThread.pid,
-                                        selectedThread.tid,
-                                        selectedThread.name,
-                                    ),
                             )
                     },
                     onSelectTemplate = templates::add,
@@ -278,18 +295,12 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithContentDescription("App selector").performClick()
             onNodeWithTag("dropdown-selector-search").performTextInput("SECOND")
             onNodeWithText("com.example.second").performClick()
-            onNodeWithContentDescription("Process selector").performClick()
-            onNodeWithTag("dropdown-selector-search").performTextInput("WORKER")
-            onNodeWithText("unrelated.process").assertDoesNotExist()
-            onNodeWithText("com.example.second:worker").performClick()
             assertEquals(
                 "com.example.second",
                 onNodeWithContentDescription("App selector")
                     .fetchSemanticsNode()
                     .config[SemanticsProperties.StateDescription],
             )
-            onNodeWithContentDescription("Thread selector").performClick()
-            onNodeWithText("RenderThread").performClick()
             onNodeWithText("Capabilities").performClick()
             onNodeWithText("Device capability").assertExists()
             onNodeWithText("system-wide").assertExists()
@@ -310,8 +321,6 @@ class DeviceTargetPageBehaviorTest {
             onNodeWithText("Get data").performClick()
 
             assertEquals(listOf("com.example.second"), packages)
-            assertEquals(listOf(42), processes)
-            assertEquals(listOf(thread), threads)
             assertEquals(listOf(SamplingTemplate.LOW_OVERHEAD), templates)
             assertEquals(1, startCount)
         }

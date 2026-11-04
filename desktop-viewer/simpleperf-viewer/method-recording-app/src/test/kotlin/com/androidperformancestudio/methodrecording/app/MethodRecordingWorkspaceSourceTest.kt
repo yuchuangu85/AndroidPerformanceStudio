@@ -20,6 +20,8 @@ class MethodRecordingWorkspaceSourceTest {
         assertTrue(source.contains("ProfilerCompactButton("))
         assertFalse(source.contains("ProfilerMacOsToolbar"))
         assertFalse(source.contains("HomeButton("))
+        assertTrue(source.contains("TitleBarRefreshOrInline("))
+        assertTrue(source.contains("onRefresh = { scope.launch { controller.refreshDevices() } }"))
     }
 
     @Test
@@ -38,7 +40,7 @@ class MethodRecordingWorkspaceSourceTest {
     fun `trace content omits the decorative workspace banner before all content states`() {
         val screen = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/methodrecording/app/MethodRecordingScreen.kt"))
         assertFalse(screen.contains("StudioWorkspaceHeader("))
-        assertTrue(screen.contains("StudioTokens.compactContentPadding"))
+        assertTrue(screen.contains("StudioTokens.workspacePadding"))
         assertFalse(source.contains("StudioWorkspaceHeader("))
     }
 

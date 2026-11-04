@@ -2,6 +2,7 @@
 
 package com.androidperformancestudio.capture
 
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
 import com.androidperformancestudio.contracts.ArtifactAcquisitionKind
 import com.androidperformancestudio.contracts.ArtifactCompleteness
 import com.androidperformancestudio.contracts.CaptureArtifactJson
@@ -104,6 +105,12 @@ class SimpleperfCaptureSessionTest {
             )
             assertEquals(remoteCleanupArguments(), requests.last().arguments)
             assertTrue(completed.sessionDirectory.resolve("capture-command.txt").exists())
+            assertEquals(
+                SimpleperfRecordCommand(request.serial, "simpleperf", request.parameters)
+                    .preview(defaultAdbCommandExecutable().toString())
+                    .replace(request.serial, "<device>"),
+                completed.sessionDirectory.resolve("capture-command.txt").readText(),
+            )
             assertTrue(completed.perfData.exists())
             assertEquals("recorded", completed.sessionDirectory.resolve("record.stdout.log").readText())
             assertEquals("record warning", completed.sessionDirectory.resolve("record.stderr.log").readText())
@@ -130,6 +137,35 @@ class SimpleperfCaptureSessionTest {
             assertTrue("serial-1" !in completed.sessionDirectory.resolve("session.properties").readText())
             assertTrue("serial-1" !in completed.sessionDirectory.resolve("capture-command.txt").readText())
             assertTrue("serial-1" !in completed.sessionDirectory.resolve("record.properties").readText())
+        }
+
+    @Test
+    fun `capture command preserves an explicitly supplied adb executable`() =
+        runBlocking {
+            val root = Files.createTempDirectory("aps-capture-explicit-adb-")
+            val executable = "/custom Android SDK/platform-tools/adb"
+            val session =
+                SimpleperfCaptureSession(
+                    simpleperfPreparer = preparedDeviceSimpleperf(),
+                    adbCommandName = executable,
+                    adbClient =
+                        ProcessInvocationAdbClient { request, _ ->
+                            if ("pull" in request.arguments) {
+                                Files.writeString(Path.of(request.arguments.last()), "perf-data")
+                            }
+                            completed(request, stdout = "ok")
+                        },
+                )
+            val request = captureRequest(root)
+
+            val result = assertIs<CaptureState.Completed>(session.capture(request))
+
+            assertEquals(
+                SimpleperfRecordCommand(request.serial, "simpleperf", request.parameters)
+                    .preview(executable)
+                    .replace(request.serial, "<device>"),
+                result.sessionDirectory.resolve("capture-command.txt").readText(),
+            )
         }
 
     @Test

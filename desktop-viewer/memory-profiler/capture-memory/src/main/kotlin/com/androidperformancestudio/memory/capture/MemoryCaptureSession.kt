@@ -230,7 +230,6 @@ class MemoryHeapDumpCaptureSession(
             ) as? StudioResult.Success
         )?.value
 
-
     private suspend fun convert(
         hprofConv: Path,
         rawHprofFile: Path,

@@ -88,6 +88,21 @@ object AdbCommandFactory {
     fun readUnixSockets(serial: String): List<String> =
         devicePrefix(serial) + listOf("shell", "cat", "/proc/net/unix")
 
+    fun readDeviceTime(serial: String): List<String> =
+        devicePrefix(serial) + listOf("shell", "date", "+\"%m-%d %H:%M:%S.000\"")
+
+    fun readAgentLogcat(serial: String, pid: Int, since: String? = null): List<String> {
+        require(pid > 0)
+        since?.let {
+            require(it.isNotBlank() && !it.contains('\n') && !it.contains('\r') && !it.contains('\'')) {
+                "Unsafe logcat timestamp"
+            }
+        }
+        return devicePrefix(serial) + listOf("shell", "logcat", "-d", "-v", "threadtime") +
+            since?.let { listOf("-t", "'$it'") }.orEmpty() +
+            listOf("--pid=$pid", "*:W")
+    }
+
     fun push(serial: String, localPath: String, remotePath: String): List<String> {
         require(localPath.isNotBlank())
         requireSafeRemotePath(remotePath)
@@ -138,6 +153,12 @@ object AdbCommandFactory {
         require(paths.isNotEmpty())
         paths.forEach(::requireSafeRemotePath)
         return devicePrefix(serial) + listOf("shell", "rm", "-f") + paths
+    }
+
+    /** Reads the most recent device crash entries so a dying target app can be explained. */
+    fun readCrashLog(serial: String, maxLines: Int = 400): List<String> {
+        require(maxLines in 1..2_000) { "Unsafe crash log line count" }
+        return devicePrefix(serial) + listOf("shell", "logcat", "-d", "-b", "crash", "-t", maxLines.toString())
     }
 
     fun attachAgent(serial: String, pid: Int, agentPath: String, options: String): List<String> {

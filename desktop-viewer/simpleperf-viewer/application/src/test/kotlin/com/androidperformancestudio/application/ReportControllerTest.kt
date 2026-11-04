@@ -18,6 +18,7 @@ import com.androidperformancestudio.profileanalysis.CallStackFrame
 import com.androidperformancestudio.profileanalysis.CallStackTransform
 import com.androidperformancestudio.profileanalysis.FlameCallNodeId
 import com.androidperformancestudio.profileanalysis.FlameFunctionId
+import com.androidperformancestudio.profileanalysis.FlameGraphEmptyReason
 import com.androidperformancestudio.profileanalysis.FlameGraphNavigationCommand
 import com.androidperformancestudio.profileanalysis.FlameGraphRowProjector
 import com.androidperformancestudio.profileanalysis.FlameGraphSnapshot
@@ -154,6 +155,128 @@ class ReportControllerTest {
         }
 
     @Test
+    fun `selecting an indexed stack block synchronizes the shared call node selection`() =
+        runTest {
+            val blockId = StackChartBlockId("linked-block")
+            val childId = FlameCallNodeId(CHILD_NODE_ID)
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-stack-selection-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request).copy(stackChart = stackChartWith(blockId, childId)))
+            runCurrent()
+            opening.await()
+            controller.selectCallNode(FlameCallNodeId(ROOT_NODE_ID))
+
+            controller.selectStackChartBlock(blockId)
+
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(childId, controller.state.value.workspace.selections.callNodeId)
+            controller.selectStackChartBlock(null)
+            assertEquals(null, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(null, controller.state.value.workspace.selections.callNodeId)
+            controller.selectCallNode(childId)
+            controller.selectStackChartBlock(StackChartBlockId("missing"))
+            assertEquals(null, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(null, controller.state.value.workspace.selections.callNodeId)
+        }
+
+    @Test
+    fun `same width stack mode updates workspace without requesting a projection`() =
+        runTest {
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-stack-widths-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request))
+            runCurrent()
+            opening.await()
+            controller.selectCallNode(FlameCallNodeId(CHILD_NODE_ID))
+            val before = controller.state.value
+
+            controller.setStackChartSameWidths(true)
+            runCurrent()
+
+            assertEquals(
+                before.copy(workspace = before.workspace.copy(stackChartSameWidths = true)),
+                controller.state.value,
+            )
+            assertTrue(loader.started.tryReceive().isFailure)
+            controller.setStackChartSameWidths(false)
+            runCurrent()
+            assertEquals(before, controller.state.value)
+            assertTrue(loader.started.tryReceive().isFailure)
+        }
+
+    @Test
+    fun `legacy or stale stack node mappings do not replace the shared call node selection`() =
+        runTest {
+            val blockId = StackChartBlockId("legacy-block")
+            val childId = FlameCallNodeId(CHILD_NODE_ID)
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-legacy-stack-selection-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request).copy(stackChart = stackChartWith(blockId)))
+            runCurrent()
+            opening.await()
+            controller.selectCallNode(childId)
+
+            controller.selectStackChartBlock(blockId)
+
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(childId, controller.state.value.workspace.selections.callNodeId)
+
+            val reloading = async { controller.retryProjection() }
+            val next = loader.started.receive()
+            next.succeed(
+                flameSnapshot(next.request).copy(stackChart = stackChartWith(blockId, FlameCallNodeId(Long.MAX_VALUE))),
+            )
+            runCurrent()
+            reloading.await()
+            controller.selectStackChartBlock(blockId)
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(childId, controller.state.value.workspace.selections.callNodeId)
+        }
+
+    @Test
+    fun `retained stack block follows its new node mapping without overriding later call tree selection`() =
+        runTest {
+            val blockId = StackChartBlockId("retained-block")
+            val childId = FlameCallNodeId(CHILD_NODE_ID)
+            val rootId = FlameCallNodeId(ROOT_NODE_ID)
+            val loader = ControlledRequestLoader()
+            val workspace = ProfileWorkspaceController(backgroundScope, loader)
+            val controller = ReportController(scope = backgroundScope, workspaceController = workspace)
+            val opening = async { controller.openSession(Files.createTempDirectory("aps-stack-node-retention-")) }
+            val initial = loader.started.receive()
+            initial.succeed(flameSnapshot(initial.request).copy(stackChart = stackChartWith(blockId, childId)))
+            runCurrent()
+            opening.await()
+            controller.selectStackChartBlock(blockId)
+
+            val reloading = async { controller.retryProjection() }
+            val next = loader.started.receive()
+            next.succeed(flameSnapshot(next.request).copy(stackChart = stackChartWith(blockId, rootId)))
+            runCurrent()
+            reloading.await()
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(rootId, controller.state.value.workspace.selections.callNodeId)
+
+            controller.selectCallNode(childId)
+            val refreshing = async { controller.retryProjection() }
+            val refresh = loader.started.receive()
+            refresh.succeed(flameSnapshot(refresh.request).copy(stackChart = stackChartWith(blockId, rootId)))
+            runCurrent()
+            refreshing.await()
+            assertEquals(blockId, controller.state.value.workspace.selections.stackChartBlockId)
+            assertEquals(childId, controller.state.value.workspace.selections.callNodeId)
+        }
+
+    @Test
     fun `failed optional panels retain selections until a ready projection removes them`() =
         runTest {
             val markerId = ProfileMarkerId(7)
@@ -266,6 +389,7 @@ class ReportControllerTest {
         runTest {
             val controller = ReportController(timelineBucketCount = 2)
             controller.openSession(indexedSession())
+            controller.selectTab(ReportTab.CALL_TREE)
 
             controller.updateTimeRange(15, 30)
             controller.updateThreads(setOf(101))
@@ -287,7 +411,9 @@ class ReportControllerTest {
             assertEquals(CallStackDirection.INVERTED, state.callTreeDirection)
 
             controller.focusCallTreeFunction("renderFrame")
-            val focused = controller.state.first { it.selectedTab == ReportTab.CALL_TREE }
+            val focused = controller.state.first {
+                it.selectedTab == ReportTab.CALL_TREE && it.callStackQuery.searchText == "renderFrame"
+            }
 
             assertEquals("renderFrame", focused.callStackQuery.searchText)
         }
@@ -373,10 +499,11 @@ class ReportControllerTest {
         }
 
     @Test
-    fun `direction changes call tree and flame graph together`() =
+    fun `active call tree direction projects shared nodes without inverting the flame graph preference`() =
         runTest {
             val controller = ReportController()
             controller.openSession(indexedSession())
+            controller.selectTab(ReportTab.CALL_TREE)
             controller.updateThreads(setOf(101))
 
             controller.updateCallStackDirection(CallStackDirection.INVERTED)
@@ -390,6 +517,7 @@ class ReportControllerTest {
             )
             assertEquals(CallStackDirection.INVERTED, report.flameGraph.query.direction)
             assertEquals(CallStackDirection.INVERTED, controller.state.value.callTreeDirection)
+            assertEquals(CallStackDirection.FORWARD, controller.state.value.flameGraphDirection)
         }
 
     @Test
@@ -435,14 +563,43 @@ class ReportControllerTest {
             controller.selectTab(ReportTab.FLAME_GRAPH)
 
             controller.updateTimeRange(0, 40)
-            controller.updateTopFunctions("render", TopFunctionSort.SAMPLE_COUNT, descending = true)
+            controller.updateTopFunctions("runLoop", TopFunctionSort.SAMPLE_COUNT, descending = true)
             controller.applyTransform(CallStackTransform.CollapseFunctionSubtree(rootFunction))
+            controller.retryProjection()
 
             val state = controller.state.value
-            assertIs<ReportLoadState.Ready>(state.loadState)
+            val report = assertIs<ReportLoadState.Ready>(state.loadState).report
             assertEquals(ReportTab.FLAME_GRAPH, state.selectedTab)
             assertEquals(1, state.callStackQuery.transforms.size)
+            assertEquals("runLoop", state.callStackQuery.searchText)
+            assertEquals(listOf("runLoop"), report.callTree.map { it.symbolName })
             assertEquals(FlameCallNodeId(root.id), state.workspace.selections.callNodeId)
+        }
+
+    @Test
+    fun `search that loses its matching frame after a transform clears selection`() =
+        runTest {
+            val controller = ReportController()
+            controller.openSession(indexedSession())
+            val initial = assertIs<ReportLoadState.Ready>(controller.state.value.loadState).report
+            val render = initial.callTree.single { it.symbolName == "renderFrame" }
+            val rootFunction =
+                initial.flameGraph.callNodes.framesById.values
+                    .single { it.symbolName == "runLoop" }
+                    .functionId
+            val transform = CallStackTransform.CollapseFunctionSubtree(rootFunction)
+            controller.selectCallNode(FlameCallNodeId(render.id))
+            controller.updateFlameSearch("render")
+
+            controller.applyTransform(transform)
+
+            val state = controller.state.value
+            val report = assertIs<ReportLoadState.Ready>(state.loadState).report
+            assertEquals(listOf(transform), state.callStackQuery.transforms)
+            assertEquals("render", state.callStackQuery.searchText)
+            assertEquals(FlameGraphEmptyReason.SEARCH_FILTERED_ALL, report.flameGraph.emptyReason)
+            assertTrue(report.callTree.isEmpty())
+            assertEquals(null, state.workspace.selections.callNodeId)
         }
 
     @Test
@@ -1201,10 +1358,17 @@ class ReportControllerTest {
             ),
         )
 
-    private fun stackChartWith(blockId: StackChartBlockId): PanelProjection<StackChartSnapshot> =
+    private fun stackChartWith(
+        blockId: StackChartBlockId,
+        callNodeId: FlameCallNodeId? = null,
+    ): PanelProjection<StackChartSnapshot> =
         PanelProjection.Ready(
             StackChartSnapshot(
-                framesById = emptyMap(),
+                framesById =
+                    mapOf(
+                        1L to testFlameFrame(1, 11, "runLoop", 0x10),
+                        2L to testFlameFrame(2, 22, "renderFrame", 0x20),
+                    ),
                 blocks =
                     listOf(
                         StackChartBlock(
@@ -1213,9 +1377,10 @@ class ReportControllerTest {
                             startNanos = 10,
                             endNanosExclusive = 11,
                             depth = 0,
-                            frameId = 1,
+                            frameId = if (callNodeId == FlameCallNodeId(CHILD_NODE_ID)) 2 else 1,
                             threadKey = "simpleperf:100:101",
                             weight = 1,
+                            callNodeId = callNodeId,
                         ),
                     ),
                 startNanos = 10,

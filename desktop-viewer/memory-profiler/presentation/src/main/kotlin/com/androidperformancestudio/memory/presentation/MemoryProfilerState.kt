@@ -10,6 +10,7 @@ import com.androidperformancestudio.memory.model.HeapDiff
 import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
 import com.androidperformancestudio.memory.model.HeapSummary
+import com.androidperformancestudio.memory.model.HeapValueKind
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryReport
 import com.androidperformancestudio.memory.model.LeakSuspect
@@ -18,7 +19,7 @@ import com.androidperformancestudio.memory.model.NativeHeapTrace
 import com.androidperformancestudio.memory.model.ObjectReference
 
 public enum class MemoryProfilerViewMode {
-    /** Current dashboard: overview cards, leak suspects, native summary, and bitmaps. */
+    /** Heap overview metrics and class histogram; dedicated analysis views own their details. */
     Dashboard,
 
     /** Android Studio-style class list → instance → reference drill-down. */
@@ -35,6 +36,9 @@ public enum class MemoryProfilerViewMode {
 
     /** Android Studio-style native allocation trace workspace. */
     NativeHeap,
+
+    /** Raw Perfetto ART allocation sampling, distinct from Studio Full recording. */
+    SampledArtAllocations,
 
     /** LeakCanary-compatible Shark leak trace workspace. */
     LeakCanary,
@@ -71,15 +75,23 @@ public enum class MemoryClassifierColumn {
     TOTAL_COUNT,
     NATIVE_SIZE,
     SHALLOW_SIZE,
+    RETAINED_NATIVE_SIZE,
     RETAINED_SIZE,
     ALLOCATIONS_SIZE,
     DEALLOCATIONS_SIZE,
     SHALLOW_SIZE_CHANGE,
 }
 
-public enum class MemorySortDirection { ASCENDING, DESCENDING }
+/** Default columns for an HPROF class table; allocation metrics are unavailable without a recording. */
+public val DEFAULT_MEMORY_CLASSIFIER_COLUMNS: Set<MemoryClassifierColumn> =
+    setOf(
+        MemoryClassifierColumn.TOTAL_COUNT,
+        MemoryClassifierColumn.NATIVE_SIZE,
+        MemoryClassifierColumn.SHALLOW_SIZE,
+        MemoryClassifierColumn.RETAINED_SIZE,
+    )
 
-public enum class MemoryWorkspaceExport { REPORT, SNAPSHOT, HISTOGRAM, DIFF, OBJECT }
+public enum class MemorySortDirection { ASCENDING, DESCENDING }
 
 /** One node in the classifier tree shown by the class list. Leaf nodes represent classes. */
 public data class MemoryClassifierRow(
@@ -92,6 +104,7 @@ public data class MemoryClassifierRow(
     val totalCount: Long = 0L,
     val nativeSize: Long? = null,
     val shallowSize: Long = 0L,
+    val retainedNativeSize: Long? = null,
     val retainedSize: Long? = null,
     val allocationsSize: Long? = null,
     val deallocationsSize: Long? = null,
@@ -99,8 +112,10 @@ public data class MemoryClassifierRow(
     val depth: Int = 0,
     val children: List<MemoryClassifierRow> = emptyList(),
     val heapNames: Set<String> = emptySet(),
+    /** Exact heap scope shared by this row and its descendants; null when unavailable. */
+    val heapName: String? = null,
 ) {
-    val isLeaf: Boolean get() = children.isEmpty()
+    val isLeaf: Boolean get() = className != null
 }
 
 /** One row of the instance list shown when a class is selected in [MemoryProfilerViewMode.ClassList]. */
@@ -114,6 +129,12 @@ public data class MemoryInstanceRow(
     /** Estimated native footprint of this instance (Bitmap pixel buffer); null when unknown. */
     val nativeSize: Long? = null,
     val shallowSizeKnown: Boolean = true,
+    /** True when this object is one of the snapshot-local leak candidates. */
+    val isLeakWarning: Boolean = false,
+    /** Runtime type of this object, independent of the selected classifier label. */
+    val className: String? = null,
+    /** Represented type for a java.lang.Class object, distinct from its runtime type. */
+    val representedClassName: String? = null,
 )
 
 public data class MemoryDominatorRow(
@@ -125,12 +146,62 @@ public data class MemoryDominatorRow(
     val parentObjectId: Long?,
 )
 
+/** ART sampling capture receipt. File size is not an allocation metric. */
+public enum class MemorySampledArtOrigin { CAPTURE, IMPORT }
+
+public data class MemorySampledArtTrace(
+    val file: String,
+    val fileSizeBytes: Long,
+    val packageName: String? = null,
+    val pid: Int? = null,
+    val sdkLevel: Int? = null,
+    val samplingIntervalBytes: Int? = null,
+    val durationMs: Long? = null,
+    val source: String,
+    val origin: MemorySampledArtOrigin = MemorySampledArtOrigin.CAPTURE,
+)
+
+public data class MemorySampledArtCallSite(
+    val callsiteId: Long,
+    val sampledObjectCount: Long,
+    val sampledBytes: Long,
+    val callStack: List<String>,
+)
+
+/** Analysis evidence is distinct from the raw trace receipt and from Studio Full recording. */
+public sealed interface MemorySampledArtAnalysis {
+    public data class Analyzed(
+        val sampleRows: Long,
+        val sampledObjectCount: Long,
+        val sampledBytes: Long,
+        val callSites: List<MemorySampledArtCallSite>,
+    ) : MemorySampledArtAnalysis
+
+    public data class Unavailable(
+        val reason: String,
+    ) : MemorySampledArtAnalysis
+
+    public data class Failed(
+        val reason: String,
+    ) : MemorySampledArtAnalysis
+}
+
 /** A single field value of an instance, either a primitive or an object reference. */
 public data class MemoryInstanceField(
     val name: String,
     val displayValue: String,
     val targetObjectId: Long?,
     val targetClassName: String?,
+    /** Primitive owner depth, object target depth, or referring object depth; null if unavailable. */
+    val depth: Int? = null,
+    val valueKind: HeapValueKind = HeapValueKind.UNKNOWN,
+    val shallowSize: Long? = null,
+    val retainedSize: Long? = null,
+    val nativeSize: Long? = null,
+    val retainedNativeSize: Long? = null,
+    val representedClassName: String? = null,
+    val stringPreview: String? = null,
+    val childCount: Int? = null,
 )
 
 public data class MemoryFilterPreset(
@@ -151,9 +222,19 @@ public data class MemoryClassListSummary(
     val leakCount: Int = 0,
     val duplicateBitmapCount: Int = 0,
     val totalCount: Int = 0,
-    val totalNativeSize: Long = 0L,
+    /** Null unless every selected class has native-size evidence. */
+    val totalNativeSize: Long? = null,
+    val totalRetainedNativeSize: Long? = null,
     val totalShallowSize: Long = 0L,
-    val totalRetainedSize: Long = 0L,
+    /** Unavailable while a class filter is active or any selected class lacks retained evidence. */
+    val totalRetainedSize: Long? = null,
+)
+
+/** Object-level Activity/Fragment lifecycle candidate from one HPROF; IDs are snapshot-local. */
+public data class MemoryLifecycleLeakObject(
+    val objectId: Long,
+    val className: String,
+    val heapName: String?,
 )
 
 /** Full detail view of one selected heap object. */
@@ -172,7 +253,26 @@ public data class MemoryInstanceDetail(
     val references: List<MemoryInstanceField> = emptyList(),
     val shallowSizeKnown: Boolean = true,
     val nativeSize: Long? = null,
+    val valueKind: HeapValueKind = HeapValueKind.UNKNOWN,
+    val representedClassName: String? = null,
+    val stringPreview: String? = null,
+    val retainedNativeSize: Long? = null,
 )
+
+public data class MemoryInspectorObjectKey(
+    val objectId: Long,
+    val arrayStart: Int = 0,
+)
+
+public sealed interface MemoryInspectorObjectState {
+    public data object Loading : MemoryInspectorObjectState
+
+    public data object Unavailable : MemoryInspectorObjectState
+
+    public data class Loaded(
+        val detail: MemoryInstanceDetail,
+    ) : MemoryInspectorObjectState
+}
 
 public data class MemoryProfilerState(
     val devices: List<MemoryDeviceOption> = emptyList(),
@@ -201,18 +301,37 @@ public data class MemoryProfilerState(
     val highlightedClassName: String? = null,
     val mappingLoaded: Boolean = false,
     val activityLeaks: List<ActivityLeakEntry> = emptyList(),
+    val lifecycleLeakObjects: List<MemoryLifecycleLeakObject> = emptyList(),
     val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
     val leakCanaryLiveSession: LeakCanaryLiveSession = LeakCanaryLiveSession(),
     val nativeHeapTrace: NativeHeapTrace? = null,
     val nativeHeapAnalysis: NativeHeapAnalysis = NativeHeapAnalysis(),
+    val sampledArtTrace: MemorySampledArtTrace? = null,
+    val sampledArtAnalysis: MemorySampledArtAnalysis? = null,
     val artifact: CaptureArtifact? = null,
     val viewMode: MemoryProfilerViewMode = MemoryProfilerViewMode.ClassList,
     val selectedClassName: String? = null,
     val selectedClassifierId: String? = null,
     val selectedClassifierLabel: String? = null,
     val selectedClassInstances: List<MemoryInstanceRow> = emptyList(),
+    val instancePageOffset: Int = 0,
+    val instanceTotalCount: Int = 0,
+    val instancePageSize: Int = 500,
     val selectedInstanceDetail: MemoryInstanceDetail? = null,
+    /** A class/instance graph query is running off the UI thread. */
+    val isSelectionLoading: Boolean = false,
     val dominatorRows: List<MemoryDominatorRow> = emptyList(),
+    /** Remote rows contain one root page, not a complete flat dominator tree. */
+    val remoteDominators: Boolean = false,
+    val dominatorPageOffset: Int = 0,
+    val dominatorTotalCount: Int = 0,
+    val dominatorPageSize: Int = 500,
+    val dominatorChildren: Map<Long, List<MemoryDominatorRow>> = emptyMap(),
+    /** An absent total is unknown; only an explicit zero proves a leaf. */
+    val dominatorChildTotals: Map<Long, Int> = emptyMap(),
+    val dominatorChildOffsets: Map<Long, Int> = emptyMap(),
+    /** Failed child queries remain distinct from pending queries and proven leaves. */
+    val failedDominatorChildren: Set<Long> = emptySet(),
     /** Object IDs visited in the active snapshot; IDs never cross snapshot boundaries. */
     val instanceHistory: List<Long> = emptyList(),
     val instanceHistoryIndex: Int = -1,
@@ -232,15 +351,18 @@ public data class MemoryProfilerState(
     val activeFilterPresetId: String? = null,
     /** Base class table for the current [heapFilter] (null = all heaps), before scope/leak/search filters. */
     val heapBaseClasses: List<ClassStats> = emptyList(),
+    /** Independent per-heap histograms; never split all-heap totals using class-name membership. */
+    val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
     /** Class rows shown in the class-list table after all filters are applied. */
     val displayedClasses: List<ClassStats> = emptyList(),
     /** Summary metrics derived from [displayedClasses] by the presenter. */
     val classListSummary: MemoryClassListSummary = MemoryClassListSummary(),
     /** Classifier tree; unlike [displayedClasses] this preserves package/callstack hierarchy. */
     val classifierRows: List<MemoryClassifierRow> = emptyList(),
-    val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.NAME,
-    val classifierSortDirection: MemorySortDirection = MemorySortDirection.ASCENDING,
-    val visibleClassifierColumns: Set<MemoryClassifierColumn> = MemoryClassifierColumn.entries.toSet(),
+    val classifierSortColumn: MemoryClassifierColumn = MemoryClassifierColumn.RETAINED_SIZE,
+    val classifierSortDirection: MemorySortDirection = MemorySortDirection.DESCENDING,
+    val visibleClassifierColumns: Set<MemoryClassifierColumn> = DEFAULT_MEMORY_CLASSIFIER_COLUMNS,
+    val inspectorObjects: Map<MemoryInspectorObjectKey, MemoryInspectorObjectState> = emptyMap(),
 )
 
 public data class MemoryDeviceOption(
@@ -295,4 +417,12 @@ public data class MemoryProfilerActions(
     val onToggleClassifierColumn: (MemoryClassifierColumn) -> Unit = {},
     val onClassifierSort: (MemoryClassifierColumn) -> Unit = {},
     val onSelectClassifier: (MemoryClassifierRow) -> Unit = {},
+    val onAnalyzeLeaks: () -> Unit = {},
+    val onStartLiveLeakMonitoring: () -> Unit = {},
+    val onStopLiveLeakMonitoring: () -> Unit = {},
+    val onLoadInspectorObject: (Long, Int) -> Unit = { _, _ -> },
+    val onClearInstanceSelection: () -> Unit = {},
+    val onLoadInstancePage: (Int) -> Unit = {},
+    val onLoadDominatorPage: (Int) -> Unit = {},
+    val onLoadDominatorChildren: (Long, Int) -> Unit = { _, _ -> },
 )

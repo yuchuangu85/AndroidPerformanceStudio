@@ -47,7 +47,7 @@ class StartupStyleAdoptionTest {
     }
 
     @Test
-    fun `combined Battery Network children do not duplicate their parent workspace heading`() {
+    fun `Battery and Network pages do not duplicate a workspace heading`() {
         listOf(
             sourcePath("battery-profiler/battery-app", "battery/presentation/BatteryProfilerScreen.kt"),
             sourcePath("network-profiler/presentation", "network/presentation/NetworkProfilerScreen.kt"),

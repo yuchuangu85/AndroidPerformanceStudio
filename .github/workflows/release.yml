@@ -10,12 +10,29 @@ on:
         description: "Semantic version to publish, for example 0.1.1"
         required: true
         type: string
+      release_qualified:
+        description: "Explicitly request signed, notarized release qualification (never unsigned development publication)"
+        type: boolean
+        default: false
+      run_real_provider:
+        description: "Opt in to required billed real-provider acceptance for this exact source"
+        type: boolean
+        default: false
+      live_provider:
+        description: "Explicit live provider; codex means Responses API with OPENAI_API_KEY, not CLI login"
+        type: choice
+        options: [openai, codex, claude]
+      live_model:
+        description: "Exact model ID for one bounded synthetic request per native host"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Only canonical versions pass resolve; 1.2.3 and v1.2.3 share one workflow-wide lock.
+  group: release-${{ github.repository }}-${{ startsWith(inputs.version || github.ref_name, 'v') && (inputs.version || github.ref_name) || format('v{0}', inputs.version || github.ref_name) }}
   cancel-in-progress: false
 
 jobs:
@@ -34,9 +51,15 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_RELEASE_QUALIFIED: ${{ inputs.release_qualified }}
+          INPUT_REAL_PROVIDER: ${{ inputs.run_real_provider }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$INPUT_RELEASE_QUALIFIED" != true || "$INPUT_REAL_PROVIDER" != true ]]; then
+            echo "::error::Publishing requires explicit manual release_qualified and run_real_provider opt-in. Unsigned development artifacts are not release-qualified; tag pushes alone cannot publish."
+            exit 1
+          fi
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             raw_version="${INPUT_VERSION}"
             manual=true
@@ -51,6 +74,10 @@ jobs:
           fi
 
           version="${raw_version#v}"
+          if [[ "${#version}" -gt 32 || "$version" =~ (^|\.)0[0-9]+(\.|$) ]]; then
+            echo '::error::Version components must be canonical integers without leading zeroes.'
+            exit 1
+          fi
           tag="v${version}"
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" != "${tag}" ]]; then
             echo "::error::Release tag does not match normalized version ${tag}."
@@ -66,16 +93,39 @@ jobs:
             checkout_ref="refs/tags/${tag}"
             tag_exists=true
           fi
+          if [[ "$tag_exists" == true ]]; then
+            tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tag}" --jq .sha)"
+            if [[ "$tag_sha" != "$GITHUB_SHA" ]]; then
+              echo '::error::Existing tag differs from the dispatched source. Dispatch at the exact tag; old SHA evidence cannot qualify new source.'
+              exit 1
+            fi
+          fi
+          # All dependent jobs, including the reusable qualifier, must test immutable identical source.
+          checkout_ref="$GITHUB_SHA"
 
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "manual=${manual}" >> "${GITHUB_OUTPUT}"
-          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
-          echo "tag_exists=${tag_exists}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "manual=${manual}"
+            echo "checkout_ref=${checkout_ref}"
+            echo "tag_exists=${tag_exists}"
+          } >> "${GITHUB_OUTPUT}"
+
+  ai-qualification:
+    name: Required nonpublishing AI qualification
+    needs: resolve
+    uses: ./.github/workflows/ai-qualification.yml
+    with:
+      run_real_provider: true
+      live_provider: ${{ inputs.live_provider }}
+      live_model: ${{ inputs.live_model }}
+    secrets:
+      OPENAI_API_KEY: ${{ (inputs.live_provider == 'openai' || inputs.live_provider == 'codex') && secrets.OPENAI_API_KEY || '' }}
+      ANTHROPIC_API_KEY: ${{ inputs.live_provider == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
 
   test:
     name: Test
-    needs: resolve
+    needs: [resolve, ai-qualification]
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -106,80 +156,33 @@ jobs:
             desktop-viewer/**/build.gradle.kts
       - name: Install pinned Trace Processor
         run: PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
+      - name: Test application-managed ADB preparation
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
+      - name: Test Rust HPROF integration
+        run: ./desktop-viewer/gradlew -p desktop-viewer :memory-profiler:memory-app:test --no-daemon
+      - name: Verify independent AI platform
+        run: ./desktop-viewer/gradlew -p desktop-viewer :ai-platform:checkAll :ai-core:test --no-daemon
       - name: Run tests
         run: |
           ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
 
-  prepare-release:
-    name: Prepare draft GitHub Release
+  build-compose-agent:
+    name: Build verified Compose inspection runtime
     needs: [resolve, test]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Create or reset draft release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve.outputs.tag }}
-          VERSION: ${{ needs.resolve.outputs.version }}
-          MANUAL: ${{ needs.resolve.outputs.manual }}
-          TAG_EXISTS: ${{ needs.resolve.outputs.tag_exists }}
-        run: |
-          set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$TAG" \
-              --draft \
-              --title "AndroidPerfermanceStudio $VERSION" \
-              --repo "$GITHUB_REPOSITORY"
-          elif [[ "$TAG_EXISTS" == "true" ]]; then
-            gh release create "$TAG" \
-              --draft \
-              --verify-tag \
-              --title "AndroidPerfermanceStudio $VERSION" \
-              --generate-notes \
-              --repo "$GITHUB_REPOSITORY"
-          elif [[ "$MANUAL" == "true" ]]; then
-            gh release create "$TAG" \
-              --draft \
-              --target "$GITHUB_SHA" \
-              --title "AndroidPerfermanceStudio $VERSION" \
-              --generate-notes \
-              --repo "$GITHUB_REPOSITORY"
-          else
-            echo "::error::Tag $TAG was expected to exist for tag-triggered releases."
-            exit 1
-          fi
-
-  package-windows:
-    name: Package Windows x64 MSI and EXE
-    needs: [resolve, test, prepare-release]
-    runs-on: windows-latest
-    permissions:
-      contents: write
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.checkout_ref }}
           submodules: recursive
-      - name: Set up Node 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24.19.0"
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - name: Set up pinned npm
-        run: npm install --global npm@11.17.0
-      - name: Build profiler assets
-        shell: bash
-        run: |
-          npm install --global yarn@1
-          ./scripts/firefox-profiler.sh all
-          ./scripts/build-perfetto-ui.sh download
-          PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
@@ -191,12 +194,149 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
+      - name: Install pinned Android agent build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(command -v sdkmanager)"
+          fi
+          sdk_root="$RUNNER_TEMP/compose-agent-sdk"
+          # Reuse the licenses already accepted by the hosted runner. An isolated SDK prevents
+          # preinstalled platform, NDK or CMake versions from changing the selected toolchain.
+          mkdir -p "$sdk_root/licenses"
+          cp "$ANDROID_HOME/licenses/"* "$sdk_root/licenses/"
+          "$sdkmanager" --sdk_root="$sdk_root" --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+      - name: Build and verify Compose agent bundle
+        run: ./desktop-viewer/gradlew -p desktop-viewer :layout-inspector:compose-agent-build:verifyComposeAgentBundle --no-configuration-cache --no-daemon
+      - name: Share verified runtime with native packaging jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: compose-agent-bundle
+          path: desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  prepare-release:
+    name: Check release source and refuse existing releases
+    needs: [resolve, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Check target without creating or resetting a release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          python scripts/ai-release/publication.py check --version "$VERSION" --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --repository "$GITHUB_REPOSITORY"
+
+  package-windows:
+    name: Package Windows x64 MSI and EXE
+    needs: [resolve, test, prepare-release, build-compose-agent]
+    runs-on: windows-latest
+    environment: aps-release-signing
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+          submodules: recursive
+      - name: Download verified Compose inspection runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: compose-agent-bundle
+          path: desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle
+          digest-mismatch: error
+      - name: Set up Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.19.0"
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Require Windows signing credential references
+        env:
+          APS_ENABLE_RELEASE_SIGNING: 'true'
+          APS_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.APS_WINDOWS_CERTIFICATE_BASE64 }}
+          APS_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.APS_WINDOWS_CERTIFICATE_PASSWORD }}
+          APS_WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.APS_WINDOWS_CERTIFICATE_THUMBPRINT }}
+          APS_WINDOWS_TIMESTAMP_URL: ${{ vars.APS_WINDOWS_TIMESTAMP_URL }}
+        run: python scripts/ai-release/sign.py preflight windows
+      - name: Set up pinned npm
+        run: npm install --global npm@11.17.0
+      - name: Build profiler assets
+        shell: bash
+        run: |
+          npm install --global yarn@1
+          ./scripts/firefox-profiler.sh all
+          ./scripts/build-perfetto-ui.sh download
+          PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
+          python3 ./scripts/install-adb-tools.py --host windows-x64
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            desktop-viewer/*.gradle.kts
+            desktop-viewer/gradle/libs.versions.toml
+            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
+            desktop-viewer/**/build.gradle.kts
+      - name: Install pinned Windows JBRSDK
+        shell: pwsh
+        run: ./scripts/install-jbr.ps1
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
+      - name: Test Windows title bar on the packaged JBRSDK
+        shell: pwsh
+        env:
+          APS_REQUIRE_JBR_CHROME: "true"
+        run: |
+          $env:JAVA_HOME = $env:APS_JBR_HOME
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:test `
+            "-Ptarget.javaHome=$env:APS_JBR_HOME" `
+            "-Porg.gradle.java.installations.paths=$env:APS_JBR_HOME" `
+            "-Porg.gradle.java.installations.auto-detect=false" `
+            "-Porg.gradle.java.installations.auto-download=false" `
+            --tests com.androidperformancestudio.desktop.JbrReleaseWorkflowTest `
+            --tests com.androidperformancestudio.desktop.WindowsWindowChromeTest `
+            --tests com.androidperformancestudio.desktop.WindowsWindowChromeIntegrationTest --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Windows JBRSDK title bar tests failed.' }
+      - name: Verify bundled ADB without SDK or PATH
+        shell: bash
+        run: ./desktop-viewer/gradlew -p desktop-viewer :platform-core:adb-core:smokeBundledAdb --no-daemon
       - name: Build MSI and EXE
         shell: pwsh
         run: |
           $version = "${{ needs.resolve.outputs.version }}"
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" "-Ptarget.arch=x64" --no-daemon
-          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" "-Ptarget.arch=x64" --no-daemon
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageMsi "-PappVersion=$version" "-Ptarget.arch=x64" "-Ptarget.javaHome=$env:APS_JBR_HOME" --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Windows MSI packaging failed.' }
+          & .\desktop-viewer\gradlew.bat -p desktop-viewer :desktop-app:packageExe "-PappVersion=$version" "-Ptarget.arch=x64" "-Ptarget.javaHome=$env:APS_JBR_HOME" --no-daemon
+          if ($LASTEXITCODE -ne 0) { throw 'Windows EXE packaging failed.' }
       - name: Prepare Windows assets
         shell: pwsh
         env:
@@ -214,16 +354,40 @@ jobs:
           New-Item -ItemType Directory -Force "release-assets" | Out-Null
           Copy-Item $msiPackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.msi"
           Copy-Item $exePackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.exe"
-      - name: Upload Windows installers to release
+      - name: Sign and verify Windows installers with timestamp
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve.outputs.tag }}
-        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          APS_ENABLE_RELEASE_SIGNING: 'true'
+          APS_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.APS_WINDOWS_CERTIFICATE_BASE64 }}
+          APS_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.APS_WINDOWS_CERTIFICATE_PASSWORD }}
+          APS_WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.APS_WINDOWS_CERTIFICATE_THUMBPRINT }}
+          APS_WINDOWS_TIMESTAMP_URL: ${{ vars.APS_WINDOWS_TIMESTAMP_URL }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          python scripts/ai-release/sign.py sign windows --output release-assets --receipt release-evidence/windows-x64.json --version "$VERSION" --arch x64 --source-sha "$(git rev-parse HEAD)"
+      - name: Seal source-bound Windows candidate receipt
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          python scripts/ai-release/sign.py verify windows --output release-assets --receipt release-evidence/windows-x64.json --version "$VERSION" --arch x64 --source-sha "$(git rev-parse HEAD)"
+          python scripts/ai-release/publication.py record --platform windows --arch x64 --version "$VERSION" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --assets release-assets --candidate release-candidate --signing-receipt release-evidence/windows-x64.json
+      - name: Preserve immutable Windows candidate and receipt in this run
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   package-macos:
     name: Package macOS ${{ matrix.arch }} DMG and PKG
-    needs: [resolve, test, prepare-release]
+    needs: [resolve, test, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
       matrix:
@@ -233,14 +397,19 @@ jobs:
           - arch: x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
+    environment: aps-release-signing
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.checkout_ref }}
           submodules: recursive
+      - name: Download verified Compose inspection runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: compose-agent-bundle
+          path: desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle
+          digest-mismatch: error
       - name: Set up Node 24
         uses: actions/setup-node@v6
         with:
@@ -249,6 +418,17 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Require Developer ID and notarization credential references
+        env:
+          APS_ENABLE_RELEASE_SIGNING: 'true'
+          APS_MACOS_CERTIFICATE_BASE64: ${{ secrets.APS_MACOS_CERTIFICATE_BASE64 }}
+          APS_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.APS_MACOS_CERTIFICATE_PASSWORD }}
+          APS_MACOS_SIGNING_IDENTITY: ${{ secrets.APS_MACOS_SIGNING_IDENTITY }}
+          APS_MACOS_INSTALLER_IDENTITY: ${{ secrets.APS_MACOS_INSTALLER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: python scripts/ai-release/sign.py preflight macos
       - name: Set up pinned npm
         run: npm install --global npm@11.17.0
       - name: Build profiler assets
@@ -269,6 +449,8 @@ jobs:
             desktop-viewer/gradle/libs.versions.toml
             desktop-viewer/gradle/wrapper/gradle-wrapper.properties
             desktop-viewer/**/build.gradle.kts
+      - name: Prepare application-managed macOS ADB
+        run: python3 ./scripts/install-adb-tools.py --host macos-${{ matrix.arch }}
       - name: Verify macOS runner architecture
         shell: bash
         env:
@@ -284,38 +466,61 @@ jobs:
             echo "::error::Expected $EXPECTED_ARCH runner, got $actual_arch."
             exit 1
           fi
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
+      - name: Verify bundled ADB without SDK or PATH
+        run: ./desktop-viewer/gradlew -p desktop-viewer :platform-core:adb-core:smokeBundledAdb --no-daemon
       - name: Build DMG and PKG
         run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
-      - name: Prepare macOS assets
+      - name: Sign Developer ID app and notarize final macOS assets
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          APS_ENABLE_RELEASE_SIGNING: 'true'
+          APS_MACOS_CERTIFICATE_BASE64: ${{ secrets.APS_MACOS_CERTIFICATE_BASE64 }}
+          APS_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.APS_MACOS_CERTIFICATE_PASSWORD }}
+          APS_MACOS_SIGNING_IDENTITY: ${{ secrets.APS_MACOS_SIGNING_IDENTITY }}
+          APS_MACOS_INSTALLER_IDENTITY: ${{ secrets.APS_MACOS_INSTALLER_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python scripts/ai-release/sign.py sign macos \
+            --app desktop-viewer/desktop-app/build/compose/binaries/main/app/AndroidPerfermanceStudio.app \
+            --output release-assets --receipt "release-evidence/macos-$ARCH.json" \
+            --version "$VERSION" --arch "$ARCH" --source-sha "$(git rev-parse HEAD)"
+          test -s "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.dmg"
+          test -s "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.pkg"
+      - name: Seal source-bound macOS candidate receipt
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          dmg_packages=(desktop-viewer/desktop-app/build/compose/binaries/main/dmg/*.dmg)
-          if [[ "${#dmg_packages[@]}" -ne 1 || ! -f "${dmg_packages[0]}" ]]; then
-            echo "::error::Expected exactly one DMG package."
-            exit 1
-          fi
-          pkg_packages=(desktop-viewer/desktop-app/build/compose/binaries/main/pkg/*.pkg)
-          if [[ "${#pkg_packages[@]}" -ne 1 || ! -f "${pkg_packages[0]}" ]]; then
-            echo "::error::Expected exactly one PKG package."
-            exit 1
-          fi
-          mkdir -p release-assets
-          cp "${dmg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.dmg"
-          cp "${pkg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.pkg"
-      - name: Upload macOS installers to release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve.outputs.tag }}
-        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          python scripts/ai-release/sign.py verify macos --output release-assets --receipt "release-evidence/macos-$ARCH.json" --version "$VERSION" --arch "$ARCH" --source-sha "$(git rev-parse HEAD)"
+          python scripts/ai-release/publication.py record --platform macos --arch "$ARCH" --version "$VERSION" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --assets release-assets --candidate release-candidate --signing-receipt "release-evidence/macos-$ARCH.json"
+      - name: Preserve immutable macOS candidate and receipt in this run
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-macos-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   package-linux:
     name: Package Linux ${{ matrix.arch }} DEB and RPM
-    needs: [resolve, test, prepare-release]
+    needs: [resolve, test, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
       matrix:
@@ -325,14 +530,18 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.checkout_ref }}
           submodules: recursive
+      - name: Download verified Compose inspection runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: compose-agent-bundle
+          path: desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle
+          digest-mismatch: error
       - name: Set up Node 24
         uses: actions/setup-node@v6
         with:
@@ -365,6 +574,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y fakeroot rpm
+      - name: Prepare application-managed Linux ADB
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            sudo apt-get install -y adb patchelf
+          fi
+          python3 ./scripts/install-adb-tools.py --host linux-${{ matrix.arch }}
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
+      - name: Verify bundled ADB without SDK or PATH
+        run: ./desktop-viewer/gradlew -p desktop-viewer :platform-core:adb-core:smokeBundledAdb --no-daemon
       - name: Build DEB and RPM
         run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
       - name: Prepare Linux assets
@@ -387,59 +613,56 @@ jobs:
           mkdir -p release-assets
           cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.deb"
           cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.rpm"
-      - name: Upload Linux installers to release
+      - name: Seal source-bound unsigned Linux candidate receipt
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve.outputs.tag }}
-        run: gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          python scripts/ai-release/publication.py record --platform linux --arch "$ARCH" --version "$VERSION" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --assets release-assets --candidate release-candidate
+      - name: Preserve immutable Linux candidate and receipt in this run
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-candidate-linux-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   publish:
     name: Publish GitHub Release
     needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]
     runs-on: ubuntu-latest
+    environment: aps-release-signing
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:
-      - name: Verify and publish release
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Download only this run and attempt's candidate receipts and bytes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-candidate-*-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-candidates
+          merge-multiple: false
+          digest-mismatch: error
+      - name: Verify source tag receipts and uploaded bytes before publication
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          APS_ENABLE_RELEASE_PUBLICATION: 'true'
         run: |
           set -euo pipefail
-          release_json="$(gh release view "$TAG" --json assets,isDraft --repo "$GITHUB_REPOSITORY")"
-          RELEASE_JSON="$release_json" python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          release = json.loads(os.environ["RELEASE_JSON"])
-          expected = {
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-windows-x64.msi",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-windows-x64.exe",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-arm64.dmg",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-arm64.pkg",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.dmg",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-macos-x64.pkg",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.deb",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-x64.rpm",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-arm64.deb",
-              f"AndroidPerfermanceStudio-{os.environ['VERSION']}-linux-arm64.rpm",
-          }
-          actual = {asset["name"] for asset in release["assets"]}
-          missing = sorted(expected - actual)
-          extra = sorted(actual - expected)
-          if missing or extra:
-              print(f"::error::Release asset mismatch. Missing={missing} Extra={extra}")
-              sys.exit(1)
-          if not release["isDraft"]:
-              print("::error::Release should remain draft until all assets are verified.")
-              sys.exit(1)
-          PY
-          gh release edit "$TAG" \
-            --draft=false \
-            --latest \
-            --title "AndroidPerfermanceStudio $VERSION" \
-            --repo "$GITHUB_REPOSITORY"
+          python scripts/ai-release/publication.py publish --version "$VERSION" --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --repository "$GITHUB_REPOSITORY" --candidates release-candidates

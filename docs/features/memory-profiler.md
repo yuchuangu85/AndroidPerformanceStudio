@@ -21,6 +21,7 @@ ADB dumpheap / import HPROF
 
 - `memory-profiler/capture-memory`：ADB dumpheap、pull、hprof-conv、Native trace 和 Agent 连接。
 - `parser-hprof`：Android/Java HPROF 识别、解析、索引和 warning。
+- `hprof-engine-rust`：独立 Rust HPROF 对象索引、强引用图、分析与查询侧车；不生成完整 JVM 对象图。
 - `memory-model`：HeapDump、HeapClass、HeapInstance、snapshot capability、leak report。
 - `analysis-memory`：直方图、Dominator、对象调查、Bitmap、Shark adapter。
 - `memory-storage-sqlite`：最近会话和 session 元数据。
@@ -44,11 +45,23 @@ ADB dumpheap / import HPROF
 
 ### 离线/快照模式
 
+设置 > 配置中的 HPROF 分析引擎可选择 Kotlin（Legacy）或 Rust，默认使用 Rust。
+已明确保存的 Kotlin（Legacy）选择继续保留，可随时在设置中切换。
+切换只影响之后的加载，已经打开的快照保留原引擎及调查状态。Rust 支持 raw Android
+和标准/converted HPROF；实例和支配树使用分页，快照证据显示实际引擎。
+Rust 不可用、来源校验失败或进程异常时明确报错，不静默切回旧引擎。
+
 1. 选择设备和可调试进程，点击 Dump Heap，或导入 `.hprof`。
 2. 等待 probe、转换、解析和分析完成。
 3. 在 Class List 查找类与实例，在 Dominator 查看 retained size。
 4. 打开 Memory Leaks 查看 Shark 引用链。
 5. 需要时导入 `mapping.txt` 并导出调查报告。
+
+开发环境可在 `desktop-viewer` 下执行
+`./gradlew :memory-profiler:memory-app:buildRustHprofEngine`；需要 Rust 1.85.1
+或更新工具链。发行包携带侧车及 SHA-256 校验文件。仅调试时可通过
+`APS_HPROF_ENGINE` 指定本机二进制。实现与验收边界见
+[双引擎实施记录](../../desktop-viewer/docs/design/rust-hprof-engine-implementation.md)。
 
 ### 实时模式
 

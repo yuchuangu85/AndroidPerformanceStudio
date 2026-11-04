@@ -84,8 +84,9 @@ private fun isValidCallNodeTransform(
     transform: CallStackTransform,
 ): Boolean =
     when (transform) {
-        is CallStackTransform.FocusCallNode -> table.containsPath(transform.path)
-        is CallStackTransform.MergeCallNode -> table.containsPath(transform.path)
+        is CallStackTransform.FocusCallNode ->
+            table.containsPath(transform.path, transform.implementation, transform.direction)
+        is CallStackTransform.MergeCallNode -> table.containsPath(transform.path, transform.implementation)
         else -> true
     }
 
@@ -94,10 +95,10 @@ private fun applyTransform(
     transform: CallStackTransform,
 ): CallStackTable =
     when (transform) {
-        is CallStackTransform.FocusCallNode -> table.withStacks(focusCallNode(table, transform.path))
+        is CallStackTransform.FocusCallNode -> table.withStacks(focusCallNode(table, transform))
         is CallStackTransform.FocusFunction -> table.withStacks(focusFunction(table, transform.function))
         is CallStackTransform.FocusFunctionSelf -> table.withStacks(focusFunctionSelf(table, transform.function))
-        is CallStackTransform.MergeCallNode -> table.withStacks(mergeCallNode(table, transform.path))
+        is CallStackTransform.MergeCallNode -> table.withStacks(mergeCallNode(table, transform))
         is CallStackTransform.MergeFunction -> table.withStacks(mergeFunction(table, transform.function))
         is CallStackTransform.DropFunction -> table.withStacks(dropFunction(table, transform.function))
         is CallStackTransform.CollapseResource -> collapseResource(table, transform.resource)
@@ -111,15 +112,19 @@ private fun applyTransform(
 
 private fun focusCallNode(
     table: CallStackTable,
-    path: CallNodePath,
+    transform: CallStackTransform.FocusCallNode,
 ): List<WeightedCallStack> =
     table.stacks.mapNotNull { stack ->
-        val functions = table.functions(stack)
-        if (functions.startsWith(path.functions)) {
-            stack.withNodesOrNull(stack.nodes().drop(path.functions.lastIndex))
-        } else {
-            null
-        }
+        val index =
+            table.callNodeIndex(stack, transform.path, transform.implementation, transform.direction)
+                ?: return@mapNotNull null
+        val retained =
+            if (transform.direction == CallStackDirection.INVERTED) {
+                stack.nodes().take(index + 1)
+            } else {
+                stack.nodes().drop(index)
+            }
+        stack.withNodesOrNull(retained)
     }
 
 private fun focusFunction(
@@ -146,15 +151,11 @@ private fun focusFunctionSelf(
 
 private fun mergeCallNode(
     table: CallStackTable,
-    path: CallNodePath,
+    transform: CallStackTransform.MergeCallNode,
 ): List<WeightedCallStack> =
     table.stacks.mapNotNull { stack ->
-        val functions = table.functions(stack)
-        if (functions.startsWith(path.functions)) {
-            stack.withNodesOrNull(stack.nodes().withoutIndex(path.functions.lastIndex))
-        } else {
-            stack
-        }
+        val index = table.callNodeIndex(stack, transform.path, transform.implementation) ?: return@mapNotNull stack
+        stack.withNodesOrNull(stack.nodes().withoutIndex(index))
     }
 
 private fun mergeFunction(
@@ -250,8 +251,44 @@ private fun focusCategory(
         stack.withNodesOrNull(stack.nodes().filter { node -> node.category == category })
     }
 
-private fun CallStackTable.containsPath(path: CallNodePath): Boolean =
-    path.functions.isNotEmpty() && stacks.any { stack -> functions(stack).startsWith(path.functions) }
+private fun CallStackTable.containsPath(
+    path: CallNodePath,
+    implementation: ImplementationFilter,
+    direction: CallStackDirection = CallStackDirection.FORWARD,
+): Boolean = stacks.any { stack -> callNodeIndex(stack, path, implementation, direction) != null }
+
+@Suppress("ReturnCount")
+private fun CallStackTable.callNodeIndex(
+    stack: WeightedCallStack,
+    path: CallNodePath,
+    implementation: ImplementationFilter,
+    direction: CallStackDirection = CallStackDirection.FORWARD,
+): Int? {
+    if (path.functions.isEmpty()) return null
+    var pathIndex = 0
+    val indexes =
+        if (direction == CallStackDirection.INVERTED) {
+            stack.frameIdsRootToLeaf.indices.reversed()
+        } else {
+            stack.frameIdsRootToLeaf.indices
+        }
+    for (frameIndex in indexes) {
+        val frame = frame(stack.frameIdsRootToLeaf[frameIndex])
+        val visible =
+            when (implementation) {
+                ImplementationFilter.ALL -> true
+                ImplementationFilter.SCRIPT -> frame.implementation == FrameImplementation.MANAGED
+                ImplementationFilter.NATIVE ->
+                    frame.implementation == FrameImplementation.NATIVE ||
+                        frame.implementation == FrameImplementation.KERNEL
+            }
+        if (!visible) continue
+        if (frame.functionId != path.functions[pathIndex]) return null
+        pathIndex += 1
+        if (pathIndex == path.functions.size) return frameIndex
+    }
+    return null
+}
 
 private fun CallStackTable.functions(stack: WeightedCallStack): List<FlameFunctionId> =
     stack.frameIdsRootToLeaf.map { frameId -> frame(frameId).functionId }
@@ -329,9 +366,6 @@ private fun <T> List<T>.collapseConsecutive(matches: (T) -> Boolean): List<T> {
         collapsed
     }
 }
-
-private fun <T> List<T>.startsWith(prefix: List<T>): Boolean =
-    prefix.size <= size && prefix.indices.all { index -> this[index] == prefix[index] }
 
 private fun List<WeightedCallStack>.hasSameInstances(other: List<WeightedCallStack>): Boolean =
     size == other.size && indices.all { index -> this[index] === other[index] }

@@ -1,5 +1,6 @@
 package com.androidperformancestudio.capture
 
+import com.androidperformancestudio.adb.defaultAdbCommandExecutable
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -145,8 +146,21 @@ class SamplingParametersTest {
             )
 
         assertEquals(
-            commandOf("adb", command.adbArguments),
+            commandOf(defaultAdbCommandExecutable().toString(), command.adbArguments),
             command.preview(),
         )
+    }
+
+    @Test
+    fun `command preview preserves an explicitly supplied adb executable`() {
+        val command =
+            SimpleperfRecordCommand(
+                serial = "serial-1",
+                simpleperfPath = "/data/local/tmp/aps/simpleperf",
+                parameters = SamplingParameters(target = SimpleperfTarget.Process(321)),
+            )
+        val executable = "/custom Android SDK/platform-tools/adb"
+
+        assertEquals(commandOf(executable, command.adbArguments), command.preview(executable))
     }
 }

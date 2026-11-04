@@ -1,6 +1,7 @@
 package com.androidperformancestudio.methodrecording.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,12 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,28 +38,79 @@ import com.androidperformancestudio.methodrecording.app.generated.resources.devi
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_offline
 import com.androidperformancestudio.methodrecording.app.generated.resources.device_status
 import com.androidperformancestudio.methodrecording.app.generated.resources.devices_connected
-import com.androidperformancestudio.methodrecording.app.generated.resources.device_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.import_trace
-import com.androidperformancestudio.methodrecording.app.generated.resources.method_recording
 import com.androidperformancestudio.methodrecording.app.generated.resources.no_devices
 import com.androidperformancestudio.methodrecording.app.generated.resources.process_selector
 import com.androidperformancestudio.methodrecording.app.generated.resources.refresh_devices
-import com.androidperformancestudio.methodrecording.app.generated.resources.select_device
 import com.androidperformancestudio.methodrecording.app.generated.resources.select_process
 import com.androidperformancestudio.methodrecording.app.generated.resources.stop
-import com.androidperformancestudio.ui.ActiveWindowMenuBar
+import com.androidperformancestudio.ui.ActivePageMenu
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
+import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.DropdownSelector
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
+import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.LocalWindowMenuBarActive
+import com.androidperformancestudio.ui.PageMenu
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.TitleBarRefreshOrInline
+import com.androidperformancestudio.ui.TitleBarTargetHost
+import com.androidperformancestudio.ui.TitleBarTargetOrInline
+import com.androidperformancestudio.ui.TitleBarTargetSlot
+import com.androidperformancestudio.ui.TitleBarTargetWidth
+import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.nio.file.Path
+
+/** Follows the application-wide device and process target owned by the fixed title bar. */
+@Composable
+@Suppress("FunctionName", "FunctionNaming", "ktlint:standard:function-naming")
+private fun MethodRecordingTargetSync(
+    controller: MethodRecordingController,
+    state: MethodRecordingState,
+    titleBarHost: TitleBarTargetHost?,
+) {
+    LaunchedEffect(
+        titleBarHost,
+        titleBarHost?.selectedDeviceSerial,
+        state.devices,
+        state.selectedSerial,
+    ) {
+        if (titleBarHost != null && !state.isLoading) {
+            val desired = titleBarHost.selectedDeviceSerial
+            val selectedDevice = state.devices.firstOrNull { it.serial == state.selectedSerial }
+            if (desired == null && selectedDevice != null) {
+                titleBarHost.chooseDevice(selectedDevice.serial, selectedDevice.name)
+            } else if (
+                desired != null &&
+                desired != state.selectedSerial &&
+                state.devices.any { it.serial == desired }
+            ) {
+                controller.selectDevice(desired)
+            }
+        }
+    }
+    LaunchedEffect(
+        titleBarHost,
+        titleBarHost?.selectedProcessPid,
+        state.processes,
+        state.selectedPid,
+        state.selectedSerial,
+    ) {
+        if (titleBarHost != null && !state.isLoading && titleBarHost.deviceReady(state.selectedSerial)) {
+            val desired = titleBarHost.selectedProcessPid
+            if (desired != null && desired != state.selectedPid && state.processes.any { it.pid == desired }) {
+                controller.selectProcess(desired)
+            }
+        }
+    }
+}
 
 /** The CPU Method Recording workspace: capture/import an ART `.trace` and analyze it. */
 @Suppress("FunctionName", "LongMethod", "ktlint:standard:function-naming")
@@ -84,16 +135,14 @@ fun FrameWindowScope.MethodRecordingMainPage(
     LaunchedEffect(initialTraceFile) {
         initialTraceFile?.let { file -> controller.importTrace(file) }
     }
+    // The fixed title bar owns the application-wide device and process target; follow it here.
+    MethodRecordingTargetSync(
+        controller = controller,
+        state = state,
+        titleBarHost = LocalTitleBarTargetHost.current.takeIf { LocalWindowMenuBarActive.current },
+    )
 
-    ActiveWindowMenuBar {
-        Menu(localizedStringResource(Res.string.method_recording, language)) {
-            Item(
-                text = localizedStringResource(Res.string.import_trace, language),
-                enabled = !state.isLoading,
-                onClick = { showTraceFileDialog = true },
-            )
-        }
-    }
+    ActivePageMenu(PageMenu(onOpen = { showTraceFileDialog = true }, openEnabled = !state.isLoading))
 
     Column(Modifier.fillMaxSize()) {
         HeaderToolbar(
@@ -101,33 +150,47 @@ fun FrameWindowScope.MethodRecordingMainPage(
             onNavigateHome = onBack,
             onNavigateSettings = null,
         ) {
-            DropdownSelector(
-                items = state.devices,
-                selectedItem = state.devices.firstOrNull { it.serial == state.selectedSerial },
-                onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
-                itemLabel = { device -> device.name },
-                placeholder = localizedStringResource(Res.string.select_device, language),
-                selectorDescription = localizedStringResource(Res.string.device_selector, language),
-                enabled = !state.isLoading,
-            )
-            HeaderSpacer()
-            DropdownSelector(
-                items = state.processes,
-                searchable = true,
-                searchLanguage = language,
-                itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
-                selectedItem = state.processes.firstOrNull { it.pid == state.selectedPid },
-                onItemSelected = { process -> controller.selectProcess(process.pid) },
-                itemLabel = { process -> process.name },
-                placeholder = localizedStringResource(Res.string.select_process, language),
-                selectorDescription = localizedStringResource(Res.string.process_selector, language),
-                enabled = !state.isLoading,
-            )
-            HeaderSpacer()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.refresh_devices, language),
-                onClick = { scope.launch { controller.refreshDevices() } },
-            )
+            val inTitleBar = LocalWindowMenuBarActive.current && LocalTitleBarTargetHost.current != null
+            val selectorModifier = if (inTitleBar) Modifier.width(TitleBarTargetWidth) else Modifier
+            TitleBarTargetOrInline(TitleBarTargetSlot.DEVICE) {
+                DeviceDropdownSelector(
+                    language = language,
+                    items = state.devices,
+                    selectedItem = state.devices.firstOrNull { it.serial == state.selectedSerial },
+                    onItemSelected = { device -> scope.launch { controller.selectDevice(device.serial) } },
+                    itemLabel = { device -> device.name },
+                    enabled = !state.isLoading,
+                    modifier = selectorModifier,
+                    fillWidth = inTitleBar,
+                )
+            }
+            if (!inTitleBar) HeaderSpacer()
+            TitleBarTargetOrInline(TitleBarTargetSlot.PROCESS) {
+                DropdownSelector(
+                    items = state.processes,
+                    searchable = true,
+                    searchLanguage = language,
+                    itemSearchText = { "${it.name} ${it.packageName} ${it.pid}" },
+                    selectedItem = state.processes.firstOrNull { it.pid == state.selectedPid },
+                    onItemSelected = { process -> controller.selectProcess(process.pid) },
+                    itemLabel = { process -> process.name },
+                    placeholder = localizedStringResource(Res.string.select_process, language),
+                    selectorDescription = localizedStringResource(Res.string.process_selector, language),
+                    enabled = !state.isLoading,
+                    modifier = selectorModifier,
+                    fillWidth = inTitleBar,
+                )
+            }
+            if (!inTitleBar) HeaderSpacer()
+            TitleBarRefreshOrInline(
+                enabled = true,
+                onRefresh = { scope.launch { controller.refreshDevices() } },
+            ) {
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.refresh_devices, language),
+                    onClick = { scope.launch { controller.refreshDevices() } },
+                )
+            }
             Spacer(Modifier.weight(1f))
             val isRecording = state.capturePhase is MethodTraceCapturePhase.Recording
             ProfilerCompactButton(
@@ -205,18 +268,20 @@ private fun MethodRecordingStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
+            CopyableText(
                 text = "${localizedStringResource(Res.string.device_status, language)}:",
                 color = colors.mutedText,
                 fontSize = ViewerTypography.label.fontSize,
                 maxLines = 1,
+                language = language,
             )
-            Text(
+            CopyableText(
                 text = deviceStatus,
                 color = if (onlineDeviceCount > 0) colors.secondaryText else colors.mutedText,
                 fontSize = ViewerTypography.secondary.fontSize,
                 lineHeight = ViewerTypography.secondary.lineHeight,
                 maxLines = 1,
+                language = language,
             )
         }
     }
