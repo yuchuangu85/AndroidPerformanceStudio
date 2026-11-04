@@ -25,6 +25,25 @@ class MethodRecordingWorkspaceSourceTest {
     }
 
     @Test
+    fun `workspace publishes canonical method recording context and exposes the shared AI action`() {
+        assertTrue(source.contains("val aiContext = remember(state)"))
+        assertTrue(source.contains("boundedAiContext("))
+        assertTrue(source.contains("PublishAiContext(\"method-recording\", aiContext)"))
+        assertTrue(source.contains("ProfilerAiAnalysisButton("))
+        assertTrue(source.contains("context = aiContext"))
+        val remembered = source.indexOf("val aiContext = remember(state)")
+        val published = source.indexOf("PublishAiContext(\"method-recording\", aiContext)")
+        val toolbar = source.indexOf("HeaderToolbar(")
+        val action = source.indexOf("ProfilerAiAnalysisButton(", toolbar)
+        val screen = source.indexOf("MethodRecordingScreen(", toolbar)
+        assertTrue(remembered < published && published < toolbar)
+        assertTrue(action > toolbar && action < screen)
+        assertFalse(source.contains("simpleperfAiContext"))
+        assertFalse(source.contains("AiDestination.SIMPLEPERF"))
+        assertFalse(source.contains("LocalAiContextHost"))
+    }
+
+    @Test
     fun `trace workspace exposes device connection state in the bottom status bar`() {
         val contentStart = source.indexOf("MethodRecordingScreen(")
         val footerStart = source.indexOf("MethodRecordingStatusBar(", contentStart)

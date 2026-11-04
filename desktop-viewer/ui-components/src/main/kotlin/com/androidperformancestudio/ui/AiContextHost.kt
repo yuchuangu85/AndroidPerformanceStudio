@@ -21,8 +21,18 @@ public data class UiAiContext(
 }
 
 public interface AiContextHost {
+    public val analysisBusy: Boolean get() = false
     public fun publish(context: UiAiContext)
     public fun remove(key: String)
+    public fun analyze(context: UiAiContext)
+}
+
+/** Fail closed on a large summary; callers aggregate facts before reaching this boundary. */
+public fun boundedAiContext(context: UiAiContext?): UiAiContext? {
+    context ?: return null
+    val payloadBytes = context.evidence.sumOf { it.payloadJson.toByteArray(Charsets.UTF_8).size.toLong() }
+    val labelBytes = context.evidence.sumOf { it.summary.toByteArray(Charsets.UTF_8).size.toLong() }
+    return context.takeIf { payloadBytes <= 8 * 1024 && labelBytes <= 2 * 1024 }
 }
 
 public val LocalAiContextHost = staticCompositionLocalOf<AiContextHost?> { null }

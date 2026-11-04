@@ -49,6 +49,8 @@ import com.androidperformancestudio.memory.presentation.MemoryProfilerToolbarSel
 import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import com.androidperformancestudio.memory.presentation.MemoryWorkspaceActions
 import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
@@ -108,7 +110,8 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     SideEffect { controller.changeLanguage(language) }
     LaunchedEffect(controller, hprofEngine) { controller.changeHprofEngine(hprofEngine) }
     val state by controller.state.collectAsState()
-    PublishAiContext("memory", remember(state) { runCatching { memoryAiContext(state) }.getOrNull() })
+    val aiContext = remember(state) { boundedAiContext(runCatching { memoryAiContext(state) }.getOrNull()) }
+    PublishAiContext("memory", aiContext)
     val recentSessions by controller.recentSessions.collectAsState()
     val titleBarHost = LocalTitleBarTargetHost.current
     val selectedPackageName = state.processes.firstOrNull { it.pid == state.selectedProcessId }?.packageName
@@ -399,6 +402,7 @@ fun FrameWindowScope.MemoryProfilerMainPage(
                     language = language,
                     onMapping = { showMappingFileDialog = true },
                 )
+                ProfilerAiAnalysisButton(aiContext, language)
             },
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)

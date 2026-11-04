@@ -11,7 +11,7 @@ internal fun startupAiContext(state: StartupProfilerState): UiAiContext? {
     val analysis = state.analysis ?: return null
     if (state.isRunning || analysis.runs.isEmpty()) return null
     val selected = state.selectedRunId?.let { id -> analysis.runs.firstOrNull { it.id == id } ?: return null }
-    val rows = if (selected != null) listOf(selected) else analysis.runs.take(20)
+    val rows = if (selected != null) listOf(selected) else analysis.runs.take(8)
     val payload = uiAiPayload(
         "timeUnit" to "milliseconds", "runCount" to analysis.runs.size, "includedRuns" to rows.size,
         "omittedRuns" to if (selected == null) (analysis.runs.size - rows.size) else 0,

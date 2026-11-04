@@ -36,6 +36,7 @@ class BuiltinProfilerIntegrationTest {
                     listOf(
                         ProfilerKind.LAYOUT_INSPECTOR to "layout-snapshot",
                         ProfilerKind.SIMPLEPERF to "simpleperf-hotspots",
+                        ProfilerKind.METHOD_RECORDING to "method-recording-summary",
                         ProfilerKind.TRACE to "trace-selection",
                         ProfilerKind.SOURCE_WORKSPACE to "source-workspace-selection",
                     ) +
@@ -91,8 +92,10 @@ class BuiltinProfilerIntegrationTest {
                 shared.forEach { (kind, id) ->
                     val entry = registry.resolve(kind, id)
                     assertTrue(entry.usable, id)
-                    assertEquals("1.3.0", entry.manifest.version, id)
+                    assertEquals("1.4.0", entry.manifest.version, id)
                     assertTrue("source-workspace" in entry.manifest.contextKinds, id)
+                    assertTrue("method-recording" in entry.manifest.contextKinds, id)
+                    assertTrue("method-recording-summary" in entry.manifest.evidenceKinds, id)
                     assertTrue("source-workspace-selection" in entry.manifest.evidenceKinds, id)
                 }
                 val simpleperf = registry.resolve(ExtensionKind.AGENT, "aps.simpleperf").manifest

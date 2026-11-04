@@ -11,7 +11,7 @@ internal fun frameAiContext(state: FrameProfilerState): UiAiContext? {
     val analysis = state.analysis ?: return null
     if (state.isLoading || state.isCapturing || analysis.frames.isEmpty()) return null
     val selected = state.selectedFrameId?.let { id -> analysis.frames.firstOrNull { it.sample.frameId == id } ?: return null }
-    val rows = if (selected != null) listOf(selected) else analysis.frames.take(20)
+    val rows = if (selected != null) listOf(selected) else analysis.frames.take(8)
     val payload = uiAiPayload(
         "timeUnit" to "nanoseconds", "totalFrames" to analysis.summary.totalFrames,
         "deadlineMissFrames" to analysis.summary.deadlineMissFrames, "deadlineUnknownFrames" to analysis.summary.deadlineUnknownFrames,

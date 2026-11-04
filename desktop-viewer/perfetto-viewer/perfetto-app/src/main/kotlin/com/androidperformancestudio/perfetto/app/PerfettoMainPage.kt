@@ -134,6 +134,8 @@ import com.androidperformancestudio.platform.perfetto.TraceAnalysisContexts
 import com.androidperformancestudio.platform.perfetto.TraceProcessorToolResolver
 import com.androidperformancestudio.ui.DeviceDropdownSelector
 import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -250,12 +252,13 @@ fun FrameWindowScope.PerfettoMainPage(
     val analysisMutex = remember { Mutex() }
     var fileDialogOpen by remember { mutableStateOf(false) }
     var traceOpenJob by remember { mutableStateOf<Job?>(null) }
-    PublishAiContext("trace", remember(activeArtifact?.id, diagnosticQuery, diagnosticOutcomes) {
+    val aiContext = remember(activeArtifact?.id, diagnosticQuery, diagnosticOutcomes) {
         runCatching {
             val outcome = diagnosticQuery?.id?.let { diagnosticOutcomes[it] }
-            traceAiContextForArtifact(activeArtifact?.id?.value, outcome?.artifactId, diagnosticQuery, outcome?.result)
+            boundedAiContext(traceAiContextForArtifact(activeArtifact?.id?.value, outcome?.artifactId, diagnosticQuery, outcome?.result))
         }.getOrNull()
-    })
+    }
+    PublishAiContext("trace", aiContext)
     val traceOpenMutex = remember { Mutex() }
     val openTrace: (Path, com.androidperformancestudio.contracts.CaptureArtifact?, Long?) -> Unit = { traceFile, artifact, timestamp ->
         traceOpenJob?.cancel()
@@ -857,6 +860,7 @@ fun FrameWindowScope.PerfettoMainPage(
                         actions = workspaceActions,
                         language = language,
                     )
+                    ProfilerAiAnalysisButton(aiContext, language)
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)

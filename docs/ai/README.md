@@ -28,6 +28,8 @@
 
 - Layout Inspector 与 Simpleperf 已发布选择/报告上下文；统一桌面不再给 Simpleperf 传空 client。旧 Layout 入口使用 `SourceAwareLayoutAiAnalysisClient`，Simpleperf 使用 `ProductionSimpleperfAiAnalysisClient`，两者都经 `DesktopAiCoordinator` 打开同一全局审批窗口并等待对应 run 的结果，不自行绕过确认执行 Provider。
 - Trace/Perfetto 提供当前 artifact 的数值诊断结果；Memory、Frame、Startup、Battery、Network、GPU、Benchmark Regression 已有页面适配器和对应测试。投影保留单位、缺失/覆盖边界、选择/摘要范围与适用的省略计数，不上传原始 profile。Network 排除 URL/header/body，Memory 排除字段运行值，GPU 当前只有 artifact 身份元数据，不提供推测的 GPU timing。
+- 上述页面、方法录制和源码元数据页均提供工具栏“AI 分析”，通过共享 `ProfilerAiAnalysisButton` 提交当前发布的证据，宿主统一预检及确认；无证据、采集中或超预算禁用，独立模式无宿主则隐藏。新入口性能 JSON 总计最多 8 KiB、摘要标签最多 2 KiB，本地聚合只保留关键行及遗漏计数，不批量发送原始报告。
+- 方法录制新增独立 `METHOD_RECORDING` / `method-recording-summary`，保留 ART 方法记录时钟、计量单位和 Top 8 方法，不与 CPU 统计采样混淆。相关共享内置 Agent/Skill manifest 升级到 1.4.0，保持现有源码/网络/脚本权限边界。
 - `source-workspace` 已有 Local/GitHub/AOSP provider、Snapshot、索引、确定性 resolver 和只读 Source Viewer。独立 Source Workspace 已发布可验证选择的快照哈希、语言、大小与行数元信息；缺失/错配内容不可用，不发送路径或源码正文，也不把源码浏览当作性能测量或上传授权。
 
 ## 验证与产品边界

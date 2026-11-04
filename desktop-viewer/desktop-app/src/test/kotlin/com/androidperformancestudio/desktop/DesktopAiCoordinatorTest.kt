@@ -43,6 +43,43 @@ import org.junit.jupiter.api.assertThrows
 
 class DesktopAiCoordinatorTest {
     @Test
+    fun `every page analysis entry reaches saved Provider Agent and fresh approval without sending on click`() = runBlocking {
+        val contexts = listOf(
+            "method-recording" to "method-recording-summary",
+            "memory" to "memory-summary",
+            "trace" to "trace-selection",
+            "frame" to "frame-summary",
+            "startup" to "startup-summary",
+            "battery" to "battery-summary",
+            "network" to "network-summary",
+            "gpu" to "gpu-summary",
+            "benchmark" to "benchmark-summary",
+            "source-workspace" to "source-workspace-selection",
+        )
+        for ((key, kind) in contexts) {
+            withFixture { fixture ->
+                val context = com.androidperformancestudio.ui.UiAiContext(
+                    key, "$key evidence", false,
+                    listOf(com.androidperformancestudio.ui.UiAiEvidence("$key:ref", kind, "Verified facts", "{\"count\":1}")),
+                )
+                val request = profilerAnalysisRequest(context)
+                val before = fixture.requests.size
+                val analysis = async(start = CoroutineStart.UNDISPATCHED) { fixture.coordinator.analyze(request) }
+                val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals("test-model", prepared.model)
+                assertEquals("openai", prepared.providerId)
+                assertEquals(0, prepared.candidateCount)
+                assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
+                assertEquals(before, fixture.requests.size)
+                fixture.runtime.service.approveAndRun(prepared.approval).join()
+                assertEquals(result(request, "test-model"), analysis.await())
+                assertEquals(before + prepared.plannedProviderCallCount, fixture.requests.size)
+                assertTrue(fixture.requests.last().sourceCandidates.isEmpty())
+            }
+        }
+    }
+
+    @Test
     fun `legacy analysis publishes frozen context and waits without executing a provider`() = runBlocking {
         withFixture { fixture ->
             val evidence = request().evidence.toMutableList()

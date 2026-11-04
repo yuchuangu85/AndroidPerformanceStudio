@@ -61,6 +61,17 @@ class BatteryProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `AI button and published context share one bounded instance`() {
+        assertTrue(source.contains("val aiContext = remember(state) { runCatching { boundedAiContext(batteryAiContext(state)) }.getOrNull() }"))
+        assertTrue(source.contains("PublishAiContext(\"battery\", aiContext)"))
+        assertTrue(source.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+        val toolbar = source.headerToolbar()
+        assertTrue(toolbar.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+        assertTrue(toolbar.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(toolbar.indexOf("ProfilerAiAnalysisButton(") < toolbar.indexOf("Spacer(Modifier.weight(1f))"))
+    }
+
+    @Test
     fun `file and advanced actions are removed from the page toolbar`() {
         val primaryToolbar = source.headerToolbar()
 

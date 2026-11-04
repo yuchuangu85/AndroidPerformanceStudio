@@ -54,7 +54,9 @@ import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
 import com.androidperformancestudio.ui.PageMenu
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.TitleBarTargetHost
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
@@ -64,6 +66,7 @@ import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.nio.file.Path
@@ -128,6 +131,8 @@ fun FrameWindowScope.MethodRecordingMainPage(
     val controller = remember(adbExecutable) { MethodRecordingController(adbExecutable, language = language) }
     DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
+    val aiContext = remember(state) { boundedAiContext(runCatching { methodRecordingAiContext(state) }.getOrNull()) }
+    PublishAiContext("method-recording", aiContext)
     val scope = rememberCoroutineScope()
     var showTraceFileDialog by remember { mutableStateOf(false) }
 
@@ -191,6 +196,11 @@ fun FrameWindowScope.MethodRecordingMainPage(
                     onClick = { scope.launch { controller.refreshDevices() } },
                 )
             }
+            ProfilerAiAnalysisButton(
+                context = aiContext,
+                language = language,
+                modifier = Modifier.padding(start = 8.dp),
+            )
             Spacer(Modifier.weight(1f))
             val isRecording = state.capturePhase is MethodTraceCapturePhase.Recording
             ProfilerCompactButton(

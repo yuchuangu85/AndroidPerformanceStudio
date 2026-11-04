@@ -25,8 +25,47 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 
 class SimpleperfAnalysisRequestTest {
+    @Test
+    fun `source resolution uses only retained hotspots and their aggregate evidence identity`() {
+        val report = reportFixture().copy(topFunctions = listOf(
+            TopFunction("Keep", "/lib.so", 9, 4, 3, 1),
+            TopFunction("Omitted", "/lib.so", 7, 2, 2, 1),
+        ))
+        val state = ReportState(loadState = ReportLoadState.Ready(report))
+        val request = simpleperfAnalysisRequest(report, state)
+        val summary = request.evidence.single()
+        val payload = Json.parseToJsonElement(summary.structuredPayload).jsonObject
+        val limited = JsonObject(payload + ("hotspots" to JsonArray(payload.getValue("hotspots").jsonArray.take(1))))
+        val bounded = request.copy(evidence = listOf(summary.copy(structuredPayload = limited.toString())))
+        val candidates = simpleperfSourceEvidence(report, state, bounded)
+
+        assertEquals(listOf("Keep"), candidates.map { it.qualifiedName })
+        assertEquals(listOf(summary.id), candidates.map { it.id.value })
+    }
+
+    @Test
+    fun `large CPU reports reach the Provider as one bounded key facts summary`() {
+        val base = reportFixture()
+        val report = base.copy(topFunctions = List(1000) { index -> TopFunction("render$index", "/private/libui.so", index.toLong(), 1, 1, 1) })
+        val request = simpleperfAnalysisRequest(report, ReportState(loadState = ReportLoadState.Ready(report)))
+        val item = request.evidence.single()
+        val payload = Json.parseToJsonElement(item.structuredPayload).jsonObject
+
+        assertEquals(8, payload.getValue("hotspots").jsonArray.size)
+        assertTrue(item.structuredPayload.toByteArray(Charsets.UTF_8).size <= 8192)
+        assertTrue(request.payloadText().toByteArray(Charsets.UTF_8).size <= 12 * 1024)
+        assertTrue(request.sourceCandidates.isEmpty())
+        assertTrue(!request.payloadText().contains("/private"))
+        assertTrue(!request.payloadText().contains("framesById"))
+    }
+
     @Test
     fun `repeated legacy requests retain the same canonical identity and payload`() {
         val report = reportFixture()

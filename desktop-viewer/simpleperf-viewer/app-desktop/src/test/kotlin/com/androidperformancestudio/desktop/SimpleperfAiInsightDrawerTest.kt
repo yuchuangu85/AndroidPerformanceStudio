@@ -108,7 +108,7 @@ class SimpleperfAiInsightDrawerTest {
             onNodeWithText("AI Analysis · test-model").assertExists()
             onNodeWithText("Session: Gallery capture").assertExists()
             onNodeWithText("Evidence scope: function renderFrame").assertExists()
-            onNodeWithText("Evidence: 1 hotspot(s) · 120 samples").assertExists()
+            onNodeWithText("Evidence: 1 summary · 120 samples").assertExists()
             onNodeWithText("Open Source").performClick()
             assertEquals("candidate-1", sourceId)
             onNodeWithText("Close").performClick()

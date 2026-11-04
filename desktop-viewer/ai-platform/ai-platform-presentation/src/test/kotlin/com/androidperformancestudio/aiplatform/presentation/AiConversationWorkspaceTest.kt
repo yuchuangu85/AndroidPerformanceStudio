@@ -59,6 +59,60 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class AiConversationWorkspaceTest {
     @Test
+    fun `external page analysis keeps its terminal result and conversation after the initial context changes`() {
+        for (fail in listOf(false, true)) {
+            WorkspaceFixture(beforeResult = { if (fail) error("fixture failure") }).use { fixture ->
+                runDesktopComposeUiTest(width = 1280, height = 720) {
+                    val memory = ChatWindowMemory(null)
+                    var active by mutableStateOf<BusinessContext?>(null)
+                    setContent {
+                        ViewerTheme(false) {
+                            ConversationWorkspace(
+                                fixture.runtime,
+                                active,
+                                UiLanguage.ENGLISH,
+                                "fake-model",
+                                {},
+                                {},
+                                fixture.settings,
+                                memory,
+                            )
+                        }
+                    }
+                    val canonical = context("page-entry")
+                    val prepared =
+                        runBlocking {
+                            fixture.runtime.service.prepare(
+                                "external-entry",
+                                canonical.request,
+                                "aps.report",
+                                "openai",
+                                "entry-model",
+                                permissions,
+                            )
+                        }
+                    runOnIdle { active = canonical }
+                    waitForIdle()
+                    onNodeWithTag("ai-bound-context").assertTextContains("Report page-entry")
+                    onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                    onNodeWithTag("ai-confirm").performClick()
+                    val expected = if (fail) RunStatus.PERMANENT_FAILURE else RunStatus.SUCCEEDED
+                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == expected }
+                    waitForIdle()
+                    assertEquals(expected, fixture.runtime.service.state.value.status)
+                    assertEquals("external-entry", fixture.runtime.service.state.value.conversationId)
+                    assertEquals("external-entry", memory.conversationId)
+                    assertEquals(canonical.revision, memory.navigationRevision.value)
+                    assertEquals(1, fixture.calls.get())
+                    if (!fail) onNodeWithTag("ai-summary-${prepared.approval.runId}").assertExists()
+                    onNodeWithTag("ai-question").performTextReplacement("Continue the same analysis")
+                    onNodeWithTag("ai-send").assertIsEnabled()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `confirmed deletion of the current conversation removes history and leaves a fresh usable conversation`() =
         WorkspaceFixture().use { fixture ->
             runDesktopComposeUiTest(width = 1280, height = 720) {

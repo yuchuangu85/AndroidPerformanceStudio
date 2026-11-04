@@ -4,9 +4,13 @@ import com.androidperformancestudio.perfetto.analysis.DiagnosticCategory
 import com.androidperformancestudio.perfetto.analysis.DiagnosticQuery
 import com.androidperformancestudio.perfetto.analysis.DiagnosticResult
 import com.androidperformancestudio.perfetto.analysis.DiagnosticRow
+import com.androidperformancestudio.ui.UiAiContext
+import com.androidperformancestudio.ui.UiAiEvidence
+import com.androidperformancestudio.ui.boundedAiContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TraceAiContextTest {
@@ -19,6 +23,8 @@ class TraceAiContextTest {
         assertEquals(null, traceAiContextForArtifact("artifact-1", null, query, result))
         assertEquals(null, traceAiContextForArtifact(null, "artifact-1", query, result))
         assertEquals(null, traceAiContextForArtifact("artifact-2", "artifact-2", query, null))
+        assertNull(boundedAiContext(traceAiContextForArtifact("artifact-1", "artifact-1", null, result)))
+        assertNull(boundedAiContext(traceAiContextForArtifact("artifact-1", "artifact-1", query, null)))
     }
     @Test
     fun `diagnostic context is trace query bound numeric only and explicitly bounded`() {
@@ -35,5 +41,11 @@ class TraceAiContextTest {
         assertEquals(null, traceAiContext("artifact-1", query, null))
         assertEquals(null, traceAiContext("artifact-1", query, result.copy(columns = listOf("other"))))
         assertFalse(context.evidence.single().id == traceAiContext("artifact-2", query, result)!!.evidence.single().id)
+    }
+
+    @Test
+    fun `bounded context rejects oversized UTF8 payload`() {
+        val oversized = UiAiContext("trace", "title", true, listOf(UiAiEvidence("id", "kind", "ok", "\u4e2d".repeat(3_000))))
+        assertNull(boundedAiContext(oversized))
     }
 }

@@ -43,6 +43,16 @@ class FrameProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `AI button and published context share one bounded instance`() {
+        assertTrue(source.contains("val aiContext = remember(state) { runCatching { boundedAiContext(frameAiContext(state)) }.getOrNull() }"))
+        assertTrue(source.contains("PublishAiContext(\"frame\", aiContext)"))
+        assertTrue(source.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+        val toolbar = source.substringAfter("HeaderToolbar(").substringBefore("HorizontalDivider(")
+        assertTrue(toolbar.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+        assertTrue(toolbar.contains(".horizontalScroll(rememberScrollState())"))
+    }
+
+    @Test
     fun `capture status moves from the toolbar into a Layout Inspector style footer`() {
         val toolbar =
             source.substring(

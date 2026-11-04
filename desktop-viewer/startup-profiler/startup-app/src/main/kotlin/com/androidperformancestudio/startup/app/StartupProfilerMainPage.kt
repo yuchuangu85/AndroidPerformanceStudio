@@ -57,18 +57,20 @@ import com.androidperformancestudio.startup.startup_app.generated.resources.impo
 import com.androidperformancestudio.startup.startup_app.generated.resources.import_startup_profiler_report
 import com.androidperformancestudio.startup.startup_app.generated.resources.refresh
 import com.androidperformancestudio.startup.startup_app.generated.resources.status
-import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
 import com.androidperformancestudio.ui.ProfilerCompactButton
 import com.androidperformancestudio.ui.ProfilerToolbarStatus
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -85,7 +87,8 @@ public fun FrameWindowScope.StartupProfilerMainPage(
 ) {
     val controller = remember(language) { StartupProfilerController(language = language) }
     val state by controller.state.collectAsState()
-    PublishAiContext("startup", remember(state) { runCatching { startupAiContext(state) }.getOrNull() })
+    val aiContext = remember(state) { runCatching { boundedAiContext(startupAiContext(state)) }.getOrNull() }
+    PublishAiContext("startup", aiContext)
     val scope = rememberCoroutineScope()
     var experimentJob by remember { mutableStateOf<Job?>(null) }
     val targetHost = LocalTitleBarTargetHost.current
@@ -230,6 +233,8 @@ public fun FrameWindowScope.StartupProfilerMainPage(
                     enabled = state.analysis != null && !state.isRunning,
                     onClick = actions.onExportJson,
                 )
+                HeaderSpacer()
+                ProfilerAiAnalysisButton(aiContext, language)
                 HeaderSpacer()
                 SelectionContainer {
                     ProfilerToolbarStatus(

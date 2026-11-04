@@ -57,7 +57,6 @@ import com.androidperformancestudio.frame.model.FrameSample
 import com.androidperformancestudio.frame.presentation.FrameOperationStatus
 import com.androidperformancestudio.frame.presentation.FrameProfilerActions
 import com.androidperformancestudio.frame.presentation.FrameProfilerScreen
-import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.DesktopOpenFileDialog
 import com.androidperformancestudio.ui.DeviceDropdownSelector
@@ -67,7 +66,9 @@ import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.LocalWindowMenuBarActive
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
 import com.androidperformancestudio.ui.ProfilerCompactButton
+import com.androidperformancestudio.ui.PublishAiContext
 import com.androidperformancestudio.ui.TitleBarRefreshOrInline
 import com.androidperformancestudio.ui.TitleBarTargetOrInline
 import com.androidperformancestudio.ui.TitleBarTargetSlot
@@ -75,6 +76,7 @@ import com.androidperformancestudio.ui.TitleBarTargetWidth
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerDimensions
 import com.androidperformancestudio.ui.ViewerTypography
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
@@ -95,7 +97,8 @@ public fun FrameWindowScope.FrameProfilerMainPage(
     val controller = remember { FrameProfilerController() }
     DisposableEffect(controller) { onDispose(controller::close) }
     val state by controller.state.collectAsState()
-    PublishAiContext("frame", remember(state) { runCatching { frameAiContext(state) }.getOrNull() })
+    val aiContext = remember(state) { runCatching { boundedAiContext(frameAiContext(state)) }.getOrNull() }
+    PublishAiContext("frame", aiContext)
     val selectedSample =
         state.analysis
             ?.frames
@@ -314,6 +317,8 @@ public fun FrameWindowScope.FrameProfilerMainPage(
                         }
                     },
                 )
+                HeaderSpacer()
+                ProfilerAiAnalysisButton(aiContext, language)
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)

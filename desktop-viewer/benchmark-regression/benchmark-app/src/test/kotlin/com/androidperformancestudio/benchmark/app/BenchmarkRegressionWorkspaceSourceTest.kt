@@ -29,6 +29,15 @@ class BenchmarkRegressionWorkspaceSourceTest {
     }
 
     @Test
+    fun `toolbar uses the canonical published AI context`() {
+        assertTrue(source.contains("val aiContext = remember(state)"))
+        assertTrue(source.contains("boundedAiContext(runCatching { benchmarkAiContext(state) }.getOrNull())"))
+        assertTrue(source.contains("PublishAiContext(\"benchmark\", aiContext)"))
+        val header = source.substringAfter("HeaderToolbar(").substringBefore("HorizontalDivider(")
+        assertTrue(header.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+    }
+
+    @Test
     fun `workspace wires real evidence sources for comparison trend gate and exports`() {
         assertTrue(source.contains("SqliteBenchmarkStore.open(storePath)"))
         assertTrue(source.contains("store.metricHistory("))

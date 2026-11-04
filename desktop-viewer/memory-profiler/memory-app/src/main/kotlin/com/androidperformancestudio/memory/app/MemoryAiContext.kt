@@ -26,7 +26,7 @@ internal fun memoryAiContext(state: MemoryProfilerState): UiAiContext? {
         return UiAiContext("memory", "Memory object evidence", true, listOf(UiAiEvidence(uiAiEvidenceId("memory-selection", snapshot, payload), "memory-selection", "Snapshot-bound object metrics only; runtime values excluded", payload)))
     }
     val selected = state.selectedClassName?.let { name -> state.classes.firstOrNull { it.className == name } ?: return null }
-    val rows = if (selected != null) listOf(selected) else state.displayedClasses.take(20)
+    val rows = if (selected != null) listOf(selected) else state.displayedClasses.take(8)
     val payload = uiAiPayload(
         "scope" to if (selected != null) "class-selection" else "filtered-histogram-summary",
         "sizeUnit" to "bytes", "objectCount" to state.summary.objectCount,

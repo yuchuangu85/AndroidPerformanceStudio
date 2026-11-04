@@ -471,11 +471,13 @@ internal fun ConversationWorkspace(
                     withContext(Dispatchers.IO) {
                         runtime.service.history().find { it.id == prepared.conversationId }
                     }
-                bound =
-                    record?.let {
-                        matchingChatContext(it, context) ?: matchingChatContext(it, previousBound)
+                val currentBinding = record?.let { matchingChatContext(it, context) }
+                bound = currentBinding
+                    ?: record?.let {
+                        matchingChatContext(it, previousBound)
                             ?: matchingChatContext(it, createChatContext())
                     }
+                if (currentBinding != null) navigationRevision = context?.revision
                 boundRunId = prepared.approval.runId.takeIf { bound != null }
                 sourceRequired = bound?.request?.sourceCandidates?.isNotEmpty() == true
             }

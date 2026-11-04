@@ -5,6 +5,8 @@ import com.androidperformancestudio.application.ReportState
 import com.androidperformancestudio.application.ReportTab
 import com.androidperformancestudio.storage.PanelProjection
 
+internal const val SIMPLEPERF_AI_HOTSPOT_LIMIT = 8
+
 fun interface SimpleperfAiAnalysisClient {
     suspend fun analyze(
         report: ReportData,
@@ -46,22 +48,29 @@ data class SimpleperfPerformanceEvidence(
 fun extractSimpleperfEvidence(
     report: ReportData,
     state: ReportState,
-    limit: Int = 20,
+    limit: Int = SIMPLEPERF_AI_HOTSPOT_LIMIT,
 ): List<SimpleperfPerformanceEvidence> {
     val evidence =
         selectedSimpleperfEvidence(report, state)?.let(::listOf)
-            ?: report.topFunctions.take(limit).mapIndexed { index, function ->
-                SimpleperfPerformanceEvidence(
-                    id = "simpleperf:function:$index",
-                    symbolName = function.symbolName,
-                    resource = function.filePath,
-                    implementation = inferImplementation(function.filePath),
-                    inclusiveWeight = function.inclusiveWeight,
-                    exclusiveWeight = function.exclusiveWeight,
-                    sampleCount = function.sampleCount,
-                    threadCount = function.threadCount,
-                )
-            }
+            ?: report.topFunctions
+                .sortedWith(
+                    compareByDescending<com.androidperformancestudio.storage.TopFunction> { it.inclusiveWeight }
+                        .thenByDescending { it.exclusiveWeight }
+                        .thenBy { it.symbolName }
+                        .thenBy { it.filePath },
+                ).take(limit.coerceIn(0, SIMPLEPERF_AI_HOTSPOT_LIMIT))
+                .mapIndexed { index, function ->
+                    SimpleperfPerformanceEvidence(
+                        id = "simpleperf:function:$index",
+                        symbolName = function.symbolName,
+                        resource = function.filePath,
+                        implementation = inferImplementation(function.filePath),
+                        inclusiveWeight = function.inclusiveWeight,
+                        exclusiveWeight = function.exclusiveWeight,
+                        sampleCount = function.sampleCount,
+                        threadCount = function.threadCount,
+                    )
+                }
     return evidence.map { item ->
         item.copy(
             currentSelection = hasSimpleperfSelection(state),
@@ -102,7 +111,7 @@ private fun selectedTopFunctionEvidence(
     state: ReportState,
 ): SimpleperfPerformanceEvidence? {
     val key = state.workspace.selections.topFunctionKey ?: return null
-    return report.topFunctions.firstOrNull { it.symbolName == key }?.let { function ->
+    return report.topFunctions.singleOrNull { it.symbolName == key }?.let { function ->
         SimpleperfPerformanceEvidence(
             id = "simpleperf:function:selected",
             symbolName = function.symbolName,
@@ -164,4 +173,13 @@ private fun selectedStackBlockEvidence(
 }
 
 private fun inferImplementation(resource: String): String =
-    if (resource.endsWith(".so") || resource.startsWith("[kernel")) "NATIVE" else "MANAGED"
+    when {
+        resource.contains("kallsyms") || resource.startsWith("[kernel") || resource.endsWith(".ko") -> "KERNEL"
+        resource.endsWith(".so") || resource.endsWith(".dll") || resource.endsWith(".dylib") -> "NATIVE"
+        resource.endsWith(".dex") ||
+            resource.endsWith(".vdex") ||
+            resource.endsWith(".oat") ||
+            resource.endsWith(".kt") ||
+            resource.endsWith(".java") -> "MANAGED"
+        else -> "UNKNOWN"
+    }

@@ -33,6 +33,8 @@ import com.androidperformancestudio.gpu.presentation.GpuIntegrationActions
 import com.androidperformancestudio.gpu.toolchain.AgiExecutablePreferenceStore
 import com.androidperformancestudio.gpu.toolchain.AgiLocator
 import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -68,7 +70,8 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
         )
     }
     val state by controller.state.collectAsState()
-    PublishAiContext("gpu", remember(state) { runCatching { gpuAiContext(state) }.getOrNull() })
+    val aiContext = remember(state) { boundedAiContext(runCatching { gpuAiContext(state) }.getOrNull()) }
+    PublishAiContext("gpu", aiContext)
     val scope = rememberCoroutineScope()
     LaunchedEffect(controller) { controller.initialize() }
     LaunchedEffect(reader) { controller.refreshDevices() }
@@ -190,6 +193,7 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
                         }
                     },
                 )
+                ProfilerAiAnalysisButton(aiContext, language)
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)

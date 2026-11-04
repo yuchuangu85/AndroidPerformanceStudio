@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "AGENT",
   "id": "aps.source-evidence",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "name": "Source Evidence Agent",
   "description": "Explains deterministic source candidates and their limitations.",
   "entrypoint": "prompt.md",
@@ -11,6 +11,7 @@
   "contextKinds": [
     "layout-inspector",
     "simpleperf",
+    "method-recording",
     "memory",
     "trace",
     "frame",
@@ -24,6 +25,7 @@
   "evidenceKinds": [
     "layout-snapshot",
     "simpleperf-hotspots",
+    "method-recording-summary",
     "memory-selection",
     "memory-summary",
     "frame-selection",

@@ -31,6 +31,15 @@ class MemoryProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `memory toolbar uses the canonical published AI context`() {
+        assertTrue(workspace.contains("val aiContext = remember(state)"))
+        assertTrue(workspace.contains("boundedAiContext(runCatching { memoryAiContext(state) }.getOrNull())"))
+        assertTrue(workspace.contains("PublishAiContext(\"memory\", aiContext)"))
+        val header = workspace.substringAfter("analysisContent = {").substringBefore("HorizontalDivider(")
+        assertTrue(header.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+    }
+
+    @Test
     fun `leak view is accessible offline and monitoring requires its own explicit action`() {
         val leakButton =
             workspace

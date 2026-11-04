@@ -76,6 +76,7 @@ import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.CopyableText
 import com.androidperformancestudio.ui.HEADER_TOOL_BAR_HEIGHT
 import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTextField
 import com.androidperformancestudio.ui.ViewerTypography
@@ -207,6 +208,7 @@ internal fun SourceWorkspacesPage(
                     onClick = onOpenAiSettings,
                     colors
                 )
+                ProfilerAiAnalysisButton(aiContext, language)
             }
             HorizontalDivider()
             pageError?.let { message ->

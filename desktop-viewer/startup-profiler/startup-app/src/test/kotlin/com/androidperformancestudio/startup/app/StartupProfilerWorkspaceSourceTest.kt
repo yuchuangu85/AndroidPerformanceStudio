@@ -42,6 +42,17 @@ class StartupProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `AI button and published context share one bounded instance`() {
+        assertTrue(source.contains("val aiContext = remember(state) { runCatching { boundedAiContext(startupAiContext(state)) }.getOrNull() }"))
+        assertTrue(source.contains("PublishAiContext(\"startup\", aiContext)"))
+        assertTrue(source.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+        val toolbar = toolbarSource()
+        assertTrue(toolbar.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+        assertTrue(toolbar.contains(".horizontalScroll(rememberScrollState())"))
+        assertTrue(toolbar.indexOf("ProfilerAiAnalysisButton(") < toolbar.indexOf("ProfilerToolbarStatus("))
+    }
+
+    @Test
     fun `target selectors publish into the title bar and keep ordered standalone fallbacks`() {
         val toolbar = toolbarSource()
         val selectors = toolbar.indexOf("StartupTargetSelectors(")

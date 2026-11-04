@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 internal fun AppDestination.aiContextKey(): String? = when (this) {
     AppDestination.LAYOUT_INSPECTOR -> "layout-inspector"
     AppDestination.SIMPLEPERF -> "simpleperf"
+    AppDestination.METHOD_RECORDING -> "method-recording"
     AppDestination.PERFETTO -> "trace"
     AppDestination.MEMORY_PROFILER -> "memory"
     AppDestination.FRAME_PROFILER -> "frame"
@@ -30,6 +31,16 @@ internal fun AppDestination.aiContextKey(): String? = when (this) {
     AppDestination.BENCHMARK_REGRESSION -> "benchmark"
     AppDestination.SOURCE_WORKSPACES -> "source-workspace"
     else -> null
+}
+
+internal fun profilerAnalysisRequest(context: com.androidperformancestudio.ui.UiAiContext): AnalysisRequest {
+    require(com.androidperformancestudio.ui.boundedAiContext(context) != null) { "E_EVIDENCE_BUDGET" }
+    return com.androidperformancestudio.aiplatform.app.createBusinessContext(
+        context.key,
+        context.title,
+        context.evidence.map { com.androidperformancestudio.ai.PerformanceEvidence(it.id, it.kind, it.summary, it.payloadJson) },
+        context.currentSelection,
+    ).request
 }
 
 /** One global host owns approval and execution; legacy page actions only publish a frozen context. */

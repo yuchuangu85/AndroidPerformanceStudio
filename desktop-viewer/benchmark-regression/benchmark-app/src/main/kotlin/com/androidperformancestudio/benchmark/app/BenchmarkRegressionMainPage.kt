@@ -46,6 +46,8 @@ import com.androidperformancestudio.benchmark.presentation.BenchmarkTrend
 import com.androidperformancestudio.benchmark.presentation.BenchmarkTrendPoint
 import com.androidperformancestudio.benchmark.storage.SqliteBenchmarkStore
 import com.androidperformancestudio.ui.PublishAiContext
+import com.androidperformancestudio.ui.ProfilerAiAnalysisButton
+import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.ProfilerCompactButton
@@ -84,7 +86,8 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
     val indexStore = remember { BenchmarkReportIndexStore(reportDirectory.resolve("index.json")) }
     val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(BenchmarkReportsState()) }
-    PublishAiContext("benchmark", remember(state) { runCatching { benchmarkAiContext(state) }.getOrNull() })
+    val aiContext = remember(state) { boundedAiContext(runCatching { benchmarkAiContext(state) }.getOrNull()) }
+    PublishAiContext("benchmark", aiContext)
     var settingsVisible by remember { mutableStateOf(false) }
     var orchestrationVisible by remember { mutableStateOf(false) }
     var orchestrationForm by remember { mutableStateOf(BenchmarkRunPlanForm()) }
@@ -327,6 +330,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
                         enabled = state.current?.cases?.any { it.traceArtifacts.isNotEmpty() } == true,
                         onClick = openCurrentTrace,
                     )
+                    ProfilerAiAnalysisButton(aiContext, language)
                 }
                 HeaderSpacer()
                 ProfilerToolbarStatus(state.message, state.error)

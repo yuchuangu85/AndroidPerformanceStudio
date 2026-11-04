@@ -199,7 +199,7 @@ class AiConversationWindowActivationTest {
         assertTrue(host.contains("visible = showAiWindow"))
         assertTrue(host.contains("openRequestId = aiWindowOpenRequestId"))
         assertTrue(desktop.contains("LaunchedEffect(sourceWorkspaceRuntime) {"))
-        val startup = desktop.substringAfter("LaunchedEffect(sourceWorkspaceRuntime) {").substringBefore("val coroutineScope")
+        val startup = desktop.substringAfter("LaunchedEffect(sourceWorkspaceRuntime) {").substringBefore("var applicationSettings by")
         assertFalse(startup.contains("aiWindowOpenRequestId"))
     }
 }

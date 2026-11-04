@@ -11,7 +11,7 @@ internal fun batteryAiContext(state: BatteryProfilerState): UiAiContext? {
     val analysis = state.analysis ?: return null
     if (state.isRunning || state.isInteractiveActive || state.isLoadingSession || analysis.runs.isEmpty()) return null
     val selected = state.selectedRunId?.let { id -> analysis.runs.firstOrNull { it.runId == id } ?: return null }
-    val rows = if (selected != null) listOf(selected) else analysis.runs.take(20)
+    val rows = if (selected != null) listOf(selected) else analysis.runs.take(4)
     val payload = uiAiPayload(
         "durationUnit" to "milliseconds", "networkUnit" to "bytes", "energyUnit" to "mAh or microWattSeconds as declared",
         "runCount" to analysis.runs.size, "includedRuns" to rows.size, "omittedRuns" to if (selected == null) analysis.runs.size - rows.size else 0,

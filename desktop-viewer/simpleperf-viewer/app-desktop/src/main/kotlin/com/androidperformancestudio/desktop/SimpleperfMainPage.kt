@@ -288,7 +288,7 @@ fun FrameWindowScope.SimpleperfMainPage(
     }
 
     pendingAiAnalysis?.let { pending ->
-        var performanceOnly by remember(pending) { mutableStateOf(false) }
+        var performanceOnly by remember(pending) { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = {
                 pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.CANCELLED, "E_CANCELLED") }
@@ -302,7 +302,7 @@ fun FrameWindowScope.SimpleperfMainPage(
                             Res.string.sp_ai_run_details,
                             resolvedLanguage,
                             selectedSimpleperfScope(pending.state, pending.report, resolvedLanguage),
-                            extractSimpleperfEvidence(pending.report, pending.state).size,
+                            if (extractSimpleperfEvidence(pending.report, pending.state).isEmpty()) 0 else 1,
                             pending.report.overview.sampleCount,
                         ),
                         language = resolvedLanguage,
@@ -322,7 +322,7 @@ fun FrameWindowScope.SimpleperfMainPage(
                         aiAnalysisError = null
                         aiAnalysisResult = null
                         val evidenceScope = selectedSimpleperfScope(pending.state, pending.report, resolvedLanguage)
-                        val evidenceCount = extractSimpleperfEvidence(pending.report, pending.state).size
+                        val evidenceCount = 1
                         val sampleCount = pending.report.overview.sampleCount
                         pending.webCommand?.let { it.session.update(it.event, SimpleperfWebStatus.RUNNING) }
                         val analysisJob = scope.launch {

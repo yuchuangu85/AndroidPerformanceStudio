@@ -17,9 +17,10 @@
 对话窗口可以从以下位置打开：
 
 1. Layout Inspector 的 Finding 或当前选中节点。
-2. Simpleperf 的 Finding、函数、调用树节点或 Stack Chart block。
-3. Trace/Frame/Startup/Memory 等后续接入 Profiler 的 Finding。
-4. Analysis Session 历史记录中的“继续分析”。
+2. CPU/Simpleperf 的有界性能摘要、函数、调用树节点或 Stack Chart block。
+3. 方法录制的有界方法耗时/调用次数摘要，以及内存、帧、启动、电量、网络、GPU、基准回归、Trace 诊断和源码元数据页工具栏的“AI 分析”。新入口只提交当前页面发布的同一份有界证据，不读取额外文件或自动授权源码。
+4. Trace/Frame/Startup/Memory 等 Profiler 的 Finding。
+5. Analysis Session 历史记录中的“继续分析”。
 
 没有可用 Analysis Session 时仍可打开空白聊天及历史；输入区应明确提示未绑定证据并禁止发送。
 新建会话或打开窗口不自动创建模型请求，也不把任意工作区路径升级为授权上下文。
@@ -215,7 +216,7 @@ AI 响应应包含结构化部分：
 - 未授权源码、超预算和 stale Snapshot 都会阻止或提示，而不是静默发送。
 - 取消、超时、重试和重新分析都有明确状态。
 - 对话历史能够恢复，但不保存凭证、绝对路径、完整源码或模型原始响应。
-- Simpleperf 接线完成后，同一窗口契约可复用于函数、调用树和 Stack Chart 证据。
+- CPU/Simpleperf 已接入统一窗口：默认仅性能数据，一次发送一份最多 8 KiB（UTF-8）的关键摘要。热点最多 8 个、线程最多 3 个，范围、权重语义和质量只发送一次；候选仅来自已加载投影，不宣称完整全局 Top N。选中对象优先、失效选择不回退；源码需另行显式授权，不默认发送原始样本/调用树/时间线/Marker 或完整报告。
 - 主 Agent 可以在一个问题中调用至少一个内置 Skill，并在窗口中展示调用摘要和结构化输出。
 - “设置 → AI 设置 → 执行策略 → 报告输出”可选择 `HTML (.html)` 或 `Markdown (.md)`，默认 HTML；旧配置和未知格式回退 HTML，不覆盖已有 Provider、模型、Agent 或权限。
 - 报告格式在新预检时冻结并计入确认 hash；设置变更只影响之后的新报告，不替换待确认、运行中或历史报告的格式。格式选择不自动授予 `WRITE_ARTIFACT`，普通聊天仍无报告写入权限。

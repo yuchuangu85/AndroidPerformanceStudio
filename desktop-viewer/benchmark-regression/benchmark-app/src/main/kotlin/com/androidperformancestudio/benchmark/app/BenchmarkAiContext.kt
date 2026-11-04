@@ -12,7 +12,7 @@ internal fun benchmarkAiContext(state: BenchmarkReportsState): UiAiContext? {
     if (state.busy) return null
     val selected = state.selectedComparisonKey?.let { state.selectedComparison ?: return null }
     val visible = state.visibleComparisons()
-    val rows = if (selected != null) listOf(selected) else visible.take(20)
+    val rows = if (selected != null) listOf(selected) else visible.take(8)
     val payload = uiAiPayload(
         "totalComparisons" to report.comparisons.size, "visibleComparisons" to visible.size,
         "includedComparisons" to rows.size, "omittedVisibleComparisons" to if (selected == null) visible.size - rows.size else 0,

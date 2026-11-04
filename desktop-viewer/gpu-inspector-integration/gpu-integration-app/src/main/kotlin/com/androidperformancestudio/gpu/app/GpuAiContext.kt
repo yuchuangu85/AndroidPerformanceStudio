@@ -10,7 +10,7 @@ internal fun gpuAiContext(state: GpuIntegrationState): UiAiContext? {
 
     if (state.isBusy || state.artifacts.isEmpty()) return null
     val selected = state.selectedArtifactId?.let { id -> state.artifacts.firstOrNull { it.id == id } ?: return null }
-    val rows = if (selected != null) listOf(selected) else state.artifacts.take(20)
+    val rows = if (selected != null) listOf(selected) else state.artifacts.take(8)
     val payload = uiAiPayload(
         "scope" to "artifact-metadata-only", "gpuTimingMetricsAvailable" to false,
         "artifactCount" to state.artifacts.size, "includedArtifacts" to rows.size, "omittedArtifacts" to if (selected == null) state.artifacts.size - rows.size else 0,

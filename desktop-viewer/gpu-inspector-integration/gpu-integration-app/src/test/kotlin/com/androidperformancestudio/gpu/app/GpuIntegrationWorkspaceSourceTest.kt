@@ -33,6 +33,15 @@ class GpuIntegrationWorkspaceSourceTest {
     }
 
     @Test
+    fun `toolbar uses the canonical published AI context`() {
+        assertTrue(mainPage.contains("val aiContext = remember(state)"))
+        assertTrue(mainPage.contains("boundedAiContext(runCatching { gpuAiContext(state) }.getOrNull())"))
+        assertTrue(mainPage.contains("PublishAiContext(\"gpu\", aiContext)"))
+        val header = mainPage.substringAfter("HeaderToolbar(").substringBefore("HorizontalDivider(")
+        assertTrue(header.contains("ProfilerAiAnalysisButton(aiContext, language)"))
+    }
+
+    @Test
     fun `artifact IO runs outside the compose thread`() {
         assertTrue(controller.contains("withContext(io)"))
         assertTrue(controller.contains("indexer.import("))
