@@ -53,6 +53,7 @@
     <string name="trace_workspace_no_trace">No trace selected</string>
     <string name="trace_workspace_no_trace_description">Open a recent session or capture a trace to inspect real evidence.</string>
     <string name="trace_workspace_open_viewer">Open in Perfetto UI</string>
+    <string name="trace_workspace_open_native_engine">Open with native engine</string>
     <string name="trace_workspace_source_of_truth">Perfetto remains the source-of-truth timeline. APS opens it through the local UI server or system browser and does not render a synthetic timeline here.</string>
     <string name="trace_workspace_export">Export trace</string>
     <string name="trace_workspace_active_artifact">Location</string>

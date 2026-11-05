@@ -137,3 +137,8 @@ includeBuild("gpu-inspector-integration") {
 includeBuild("benchmark-regression") {
     name = "benchmark-regression"
 }
+
+// In-app device screencasting via an embedded scrcpy protocol client is kept isolated.
+includeBuild("device-screencast") {
+    name = "device-screencast"
+}

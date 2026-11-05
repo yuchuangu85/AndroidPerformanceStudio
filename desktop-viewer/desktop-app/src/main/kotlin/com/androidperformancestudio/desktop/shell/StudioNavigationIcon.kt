@@ -14,6 +14,7 @@ import com.androidperformancestudio.ui_components.generated.resources.ic_nav_net
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_gpu_inspector
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_benchmark
 import com.androidperformancestudio.ui_components.generated.resources.ic_nav_method_recording
+import com.androidperformancestudio.ui_components.generated.resources.ic_nav_screencast
 import com.androidperformancestudio.ui_components.generated.resources.ic_settings
 import com.androidperformancestudio.ui_components.generated.resources.Res as UiComponentsRes
 import org.jetbrains.compose.resources.DrawableResource
@@ -40,6 +41,7 @@ internal val AppDestination.navigationIconResource: DrawableResource
             AppDestination.GPU_INSPECTOR -> UiComponentsRes.drawable.ic_nav_gpu_inspector
             AppDestination.BENCHMARK_REGRESSION -> UiComponentsRes.drawable.ic_nav_benchmark
             AppDestination.METHOD_RECORDING -> UiComponentsRes.drawable.ic_nav_method_recording
+            AppDestination.SCREENCAST -> UiComponentsRes.drawable.ic_nav_screencast
             AppDestination.SETTINGS -> UiComponentsRes.drawable.ic_settings
         }
 

@@ -33,6 +33,10 @@ class StartupStyleAdoptionTest {
                 sourcePath("gpu-inspector-integration/presentation", "gpu/presentation/GpuAnalysisHubScreen.kt"),
             AppDestination.BENCHMARK_REGRESSION to
                 sourcePath("benchmark-regression/presentation", "benchmark/presentation/BenchmarkReportsScreen.kt"),
+            // SCREENCAST renders in its own OS window but is still an AppDestination identity, so its
+            // page source is covered by the per-destination style invariants below.
+            AppDestination.SCREENCAST to
+                sourcePath("device-screencast/screencast-app", "screencast/app/ScreencastMainPage.kt"),
         )
 
     @Test

@@ -102,10 +102,11 @@ class AppHomePageLayoutTest {
     }
 
     @Test
-    fun `reverse net is the last default home entry`() {
-        // The default module order (fresh install / no customization) keeps Reverse Net last, as
-        // the hardcoded layout did before this change.
-        assertEquals(AppDestination.REVERSE_NET, DEFAULT_MODULE_ORDER.last())
+    fun `screencast is the last default home entry`() {
+        // The default module order (fresh install / no customization) keeps Device Screencast last;
+        // it was appended after Reverse Net when the screencast module was added.
+        assertEquals(AppDestination.SCREENCAST, DEFAULT_MODULE_ORDER.last())
+        assertEquals(AppDestination.REVERSE_NET, DEFAULT_MODULE_ORDER[DEFAULT_MODULE_ORDER.lastIndex - 1])
     }
 
     @Test

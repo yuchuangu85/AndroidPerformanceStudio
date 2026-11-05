@@ -89,6 +89,7 @@ class TraceAnalyzerWorkspaceTest {
             var diagnostic: String? = null
             var openedTimeline: String? = null
             var openedArtifact: String? = null
+            var openedNativeEngine: String? = null
             setContent {
                 ViewerTheme(darkTheme = false) {
                     TraceAnalyzerWorkspace(
@@ -101,6 +102,7 @@ class TraceAnalyzerWorkspaceTest {
                                 onRunDiagnostic = { diagnostic = it },
                                 onOpenInTimeline = { openedTimeline = it.queryId },
                                 onOpenViewer = { openedArtifact = it.artifactId },
+                                onOpenNativeEngine = { openedNativeEngine = it.artifactId },
                             ),
                     )
                 }
@@ -112,12 +114,14 @@ class TraceAnalyzerWorkspaceTest {
             onNodeWithTag("run-trace-diagnostic-frame-jank").performClick()
             onNodeWithTag("open-insight-timeline-frame-jank").assertIsEnabled().performClick()
             onNodeWithTag("open-perfetto-viewer").performClick()
+            onNodeWithTag("open-native-engine").assertIsEnabled().performClick()
             assertEquals("session-1", selectedSession)
             assertEquals("session-1", openedSession)
             assertEquals("session-1", deletedSession)
             assertEquals("frame-jank", diagnostic)
             assertEquals("frame-jank", openedTimeline)
             assertEquals("artifact-1", openedArtifact)
+            assertEquals("artifact-1", openedNativeEngine)
             onNodeWithTag("open-insight-timeline-binder-latency").assertIsNotEnabled()
         }
 

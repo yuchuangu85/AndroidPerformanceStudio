@@ -72,6 +72,7 @@ public fun <T> DropdownSelector(
     menuModifier: Modifier = Modifier,
     menuItemHeight: Dp = 32.dp,
     controlFontSize: TextUnit? = null,
+    controlHeight: Dp? = null,
     menuFontSize: TextUnit? = null,
     onControlClick: (() -> Unit)? = null,
     searchable: Boolean = false,
@@ -106,6 +107,7 @@ public fun <T> DropdownSelector(
             modifier =
                 Modifier
                     .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                    .then(controlHeight?.let { Modifier.height(it) } ?: Modifier)
                     .background(colors.sectionBackground, shape)
                     .border(1.dp, colors.accent, shape)
                     .semantics {

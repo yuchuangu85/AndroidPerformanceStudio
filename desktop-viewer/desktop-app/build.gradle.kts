@@ -566,6 +566,7 @@ dependencies {
     implementation(libs.aps.network.app)
     implementation(libs.aps.gpu.integration.app)
     implementation(libs.aps.benchmark.app)
+    implementation(libs.aps.screencast.app)
     when {
         hostOs.contains("mac") && targetArch == "x64" -> implementation(compose.desktop.macos_x64)
         hostOs.contains("mac") && targetArch == "arm64" -> implementation(compose.desktop.macos_arm64)

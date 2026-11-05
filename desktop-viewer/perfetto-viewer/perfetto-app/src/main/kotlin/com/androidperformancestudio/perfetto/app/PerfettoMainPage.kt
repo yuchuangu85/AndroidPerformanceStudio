@@ -76,6 +76,7 @@ import com.androidperformancestudio.perfetto.presentation.formatTraceTimestamp
 import com.androidperformancestudio.perfetto.storage.TraceBookmark
 import com.androidperformancestudio.perfetto.storage.TraceBookmarkStore
 import com.androidperformancestudio.perfetto.storage.TraceSessionStore
+import com.androidperformancestudio.perfetto.uiserver.NativeTraceProcessorServer
 import com.androidperformancestudio.perfetto.uiserver.PerfettoUiServer
 import com.androidperformancestudio.perfetto_app.generated.resources.Res
 import com.androidperformancestudio.perfetto_app.generated.resources.adb
@@ -244,15 +245,18 @@ fun FrameWindowScope.PerfettoMainPage(
     val capabilityDetector = remember { PerfettoCapabilityDetector() }
     val sessionStore = remember { TraceSessionStore() }
     val uiServer = remember { PerfettoUiServer() }
+    val nativeServer = remember { NativeTraceProcessorServer() }
     val exporter = remember { TraceExporter() }
     val artifactFactory = remember { PerfettoArtifactFactory() }
     // Release heavy resources when the page leaves composition (eviction/deactivation): stop the
-    // embedded UI HTTP server so its port frees for a clean reopen, and tear down the capture
-    // session's private coroutine scope so an in-progress capture and its ADB subprocesses do
-    // not outlive the page.
-    DisposableEffect(uiServer, captureSession) {
+    // embedded UI HTTP server so its port frees for a clean reopen, stop the native trace
+    // processor process (its memory footprint is the reason we dispose eagerly), and tear down
+    // the capture session's private coroutine scope so an in-progress capture and its ADB
+    // subprocesses do not outlive the page.
+    DisposableEffect(uiServer, nativeServer, captureSession) {
         onDispose {
             uiServer.stop()
+            nativeServer.stop()
             captureSession.close()
         }
     }
@@ -300,6 +304,11 @@ fun FrameWindowScope.PerfettoMainPage(
         }.getOrNull()
     })
     val traceOpenMutex = remember { Mutex() }
+    // Serializes the "Open in Perfetto UI" and "Open with native engine" actions so rapid
+    // back-and-forth clicks cannot interleave stop/start/browse on port 9001. Each action fully
+    // completes (stops the other server, starts its own, opens the browser) before the next
+    // begins; the last click wins and the running service always matches the last browser tab.
+    val openUiMutex = remember { Mutex() }
     val openTrace: (Path, com.androidperformancestudio.contracts.CaptureArtifact?) -> Unit = { traceFile, artifact ->
         traceOpenJob?.cancel()
         traceOpenJob =
@@ -330,17 +339,22 @@ fun FrameWindowScope.PerfettoMainPage(
     // deactivates so the browser can refresh or switch between the official and local UI.
     val launchInUi: (Path?, PerfettoUiServer.ServeMode, Long?) -> Unit = { requestedTraceFile, mode, timestamp ->
         coroutineScope.launch(Dispatchers.IO) {
-            val traceFile = requestedTraceFile ?: activeTraceFile ?: run {
-                diagnosticError = localizedStringResource(Res.string.no_active_trace, language)
-                return@launch
-            }
-            when (val started = uiServer.start(PerfettoUiServer.tryFindUiAssetsDir(), mode)) {
-                is StudioResult.Failure -> diagnosticError = started.error.message
-                is StudioResult.Success ->
-                    when (val opened = uiServer.openTrace(traceFile, timestamp)) {
-                        is StudioResult.Failure -> diagnosticError = opened.error.message
-                        is StudioResult.Success -> diagnosticError = null
-                    }
+            openUiMutex.withLock {
+                val traceFile = requestedTraceFile ?: activeTraceFile ?: run {
+                    diagnosticError = localizedStringResource(Res.string.no_active_trace, language)
+                    return@withLock
+                }
+                // The byte-serving endpoint and the native engine are mutually exclusive on port
+                // 9001: take the port over from a running native process so this mode can bind.
+                nativeServer.stop()
+                when (val started = uiServer.start(PerfettoUiServer.tryFindUiAssetsDir(), mode)) {
+                    is StudioResult.Failure -> diagnosticError = started.error.message
+                    is StudioResult.Success ->
+                        when (val opened = uiServer.openTrace(traceFile, timestamp)) {
+                            is StudioResult.Failure -> diagnosticError = opened.error.message
+                            is StudioResult.Success -> diagnosticError = null
+                        }
+                }
             }
         }
     }
@@ -349,6 +363,29 @@ fun FrameWindowScope.PerfettoMainPage(
     }
     val openInLocalPerfettoUi: () -> Unit = {
         launchInUi(null, PerfettoUiServer.ServeMode.TRACE_AND_UI, null)
+    }
+    // The native engine and the byte-serving endpoint are mutually exclusive on port 9001: the
+    // native RPC server takes the port over explicitly, and the byte server fails to rebind while
+    // the native process holds it (SERVER_START_FAILED).
+    val openInNativeEngine: () -> Unit = {
+        coroutineScope.launch(Dispatchers.IO) {
+            openUiMutex.withLock {
+                val traceFile =
+                    activeTraceFile ?: run {
+                        diagnosticError = localizedStringResource(Res.string.no_active_trace, language)
+                        return@withLock
+                    }
+                uiServer.stop()
+                when (val resolved = TraceProcessorToolResolver().resolve()) {
+                    is StudioResult.Failure -> diagnosticError = resolved.error.message
+                    is StudioResult.Success ->
+                        when (val started = nativeServer.start(resolved.value, traceFile)) {
+                            is StudioResult.Failure -> diagnosticError = started.error.message
+                            is StudioResult.Success -> diagnosticError = null
+                        }
+                }
+            }
+        }
     }
     val exportRawTrace: (Path) -> Unit = { traceFile ->
         coroutineScope.launch(Dispatchers.IO) {
@@ -901,7 +938,17 @@ fun FrameWindowScope.PerfettoMainPage(
             },
             onOpenViewer = {
                 val traceFile = activeTraceFile
-                if (traceFile != null) openTrace(traceFile, activeArtifact)
+                if (traceFile != null) {
+                    openTrace(traceFile, activeArtifact)
+                    openInPerfettoUi(traceFile, null)
+                }
+            },
+            onOpenNativeEngine = {
+                val traceFile = activeTraceFile
+                if (traceFile != null) {
+                    openTrace(traceFile, activeArtifact)
+                    openInNativeEngine()
+                }
             },
             onExport = { activeTraceFile?.let(exportRawTrace) },
             onSelectPreset = { selectedPresetId = PerfettoDiagnosticPresets.byId(it).id },
@@ -1022,6 +1069,7 @@ fun FrameWindowScope.PerfettoMainPage(
         onDispose {
             captureSession.cancelCapture()
             uiServer.stop()
+            nativeServer.stop()
             analysisContext?.close()
         }
     }
@@ -1036,6 +1084,9 @@ fun FrameWindowScope.PerfettoMainPage(
             fileDialogOpen = false
             captureSession.cancelCapture()
             uiServer.stop()
+            // The native engine's multi-GB footprint and its hold on port 9001 are both released
+            // eagerly on deactivation, unlike the byte server which could in principle stay up.
+            nativeServer.stop()
             activeTraceFile = null
             activeArtifact = null
             diagnosticQuery = null

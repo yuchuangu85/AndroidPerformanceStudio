@@ -99,6 +99,8 @@
     <string name="correlation_provenance">制品来源</string>
     <string name="gpu_inspector">GPU 分析</string>
     <string name="benchmark_regression">基准回归</string>
+    <string name="device_screencast">设备投屏</string>
+    <string name="device_screencast_description">通过内嵌 scrcpy 协议客户端在应用内实时镜像并控制已连接的 Android 设备。</string>
     <string name="view_live_telemetry">查看实时遥测</string>
     <string name="cpu_method_recording">CPU 方法录制</string>
     <string name="java_kotlin_allocations">Java/Kotlin 分配</string>

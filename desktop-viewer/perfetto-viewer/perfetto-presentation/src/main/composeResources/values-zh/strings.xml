@@ -53,6 +53,7 @@
     <string name="trace_workspace_no_trace">未选择跟踪</string>
     <string name="trace_workspace_no_trace_description">打开最近会话或采集跟踪以检查真实证据。</string>
     <string name="trace_workspace_open_viewer">在 Perfetto UI 中打开</string>
+    <string name="trace_workspace_open_native_engine">用原生引擎打开（适合大文件）</string>
     <string name="trace_workspace_source_of_truth">Perfetto 仍是时间轴的事实来源。APS 通过本地 UI 服务或系统浏览器打开它，不在此处绘制虚构时间轴。</string>
     <string name="trace_workspace_export">导出跟踪</string>
     <string name="trace_workspace_active_artifact">位置</string>

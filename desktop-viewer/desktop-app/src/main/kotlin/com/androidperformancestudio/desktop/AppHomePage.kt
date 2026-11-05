@@ -173,6 +173,7 @@ private fun moduleDescriptionResource(destination: AppDestination): StringResour
         AppDestination.BENCHMARK_REGRESSION -> Res.string.compare_androidx_benchmark_baselines_and_current_results_with_ci_regre
         AppDestination.SOURCE_WORKSPACES -> Res.string.source_home_description
         AppDestination.REVERSE_NET -> Res.string.reverse_net_home_description
+        AppDestination.SCREENCAST -> Res.string.device_screencast_description
         // Non-module destinations have no home card description; fall back to the title resource.
         else -> destination.titleResource
     }
@@ -192,6 +193,7 @@ internal fun AppHomePage(
     onOpenReverseNet: () -> Unit,
     onOpenGpuInspector: () -> Unit,
     onOpenBenchmarkRegression: () -> Unit,
+    onOpenScreencast: () -> Unit,
     onOpenRecentArtifact: (StudioRecentItem) -> Unit,
     androidSdkPath: String? = null,
     active: Boolean = true,
@@ -231,6 +233,7 @@ internal fun AppHomePage(
             AppDestination.REVERSE_NET -> onOpenReverseNet()
             AppDestination.GPU_INSPECTOR -> onOpenGpuInspector()
             AppDestination.BENCHMARK_REGRESSION -> onOpenBenchmarkRegression()
+            AppDestination.SCREENCAST -> onOpenScreencast()
             // Home/Settings/MethodRecording are not home cards.
             else -> {}
         }

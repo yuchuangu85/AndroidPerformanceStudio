@@ -60,6 +60,7 @@ import com.androidperformancestudio.perfetto_presentation.generated.resources.tr
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_no_trace_description
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_open
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_open_in_timeline
+import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_open_native_engine
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_open_viewer
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_query_id
 import com.androidperformancestudio.perfetto_presentation.generated.resources.trace_workspace_result
@@ -84,6 +85,123 @@ import com.androidperformancestudio.ui.studio.StudioPanelHeader
 import com.androidperformancestudio.ui.studio.StudioTokens
 
 private const val WIDE_WORKSPACE_BREAKPOINT_DP = 1100
+
+enum class TraceInsightSeverity {
+    CRITICAL,
+    WARNING,
+    INFO,
+    OPPORTUNITY,
+}
+
+enum class TraceInsightCategory {
+    FRAME,
+    BINDER,
+    LONG_TASK,
+    RENDERING,
+    CPU,
+    MEMORY,
+    INPUT,
+    OTHER,
+}
+
+data class TraceWorkspaceArtifact(
+    val artifactId: String,
+    val displayName: String,
+    val locationLabel: String,
+    val completenessLabel: String,
+    val limitations: List<String> = emptyList(),
+    val viewerAvailable: Boolean = true,
+)
+
+data class TraceWorkspaceSession(
+    val sessionId: String,
+    val title: String,
+    val capturedAtLabel: String,
+    val durationLabel: String,
+    val artifact: TraceWorkspaceArtifact? = null,
+)
+
+data class TraceInsightEvidence(
+    val queryId: String,
+    val artifactId: String,
+    val title: String,
+    val resultRowsSummary: String? = null,
+    val limitations: List<String> = emptyList(),
+    val error: String? = null,
+    val timestampNanos: Long? = null,
+    val severity: TraceInsightSeverity = TraceInsightSeverity.INFO,
+    val category: TraceInsightCategory = TraceInsightCategory.OTHER,
+)
+
+data class TraceAnalyzerWorkspaceState(
+    val sessions: List<TraceWorkspaceSession> = emptyList(),
+    val selectedSessionId: String? = null,
+    val searchQuery: String = "",
+    val activeTrace: TraceWorkspaceArtifact? = null,
+    val insights: List<TraceInsightEvidence> = emptyList(),
+    val selectedQueryId: String? = null,
+    val captureVisible: Boolean = false,
+    val status: String? = null,
+    val error: String? = null,
+)
+
+data class TraceAnalyzerWorkspaceActions(
+    val onSearchChange: (String) -> Unit = {},
+    val onSelectSession: (String) -> Unit = {},
+    val onOpenSession: (String) -> Unit = {},
+    val onDeleteSession: (String) -> Unit = {},
+    val onToggleCapture: () -> Unit = {},
+    val onRunDiagnostic: (String) -> Unit = {},
+    val onOpenInTimeline: (TraceInsightEvidence) -> Unit = {},
+    val onOpenViewer: (TraceWorkspaceArtifact) -> Unit = {},
+    val onOpenNativeEngine: (TraceWorkspaceArtifact) -> Unit = {},
+    val onExport: (TraceWorkspaceArtifact) -> Unit = {},
+)
+
+data class TraceWorkspaceSummary(
+    val category: TraceInsightCategory,
+    val value: String?,
+    val severity: TraceInsightSeverity?,
+)
+
+fun filterTraceWorkspaceSessions(
+    sessions: List<TraceWorkspaceSession>,
+    searchQuery: String,
+): List<TraceWorkspaceSession> {
+    val query = searchQuery.trim()
+    if (query.isEmpty()) return sessions
+    return sessions.filter { session ->
+        sequenceOf(
+            session.title,
+            session.capturedAtLabel,
+            session.durationLabel,
+            session.artifact?.artifactId,
+            session.artifact?.displayName,
+        ).filterNotNull().any { value -> value.contains(query, ignoreCase = true) }
+    }
+}
+
+fun buildTraceWorkspaceSummaries(insights: List<TraceInsightEvidence>): List<TraceWorkspaceSummary> =
+    SUMMARY_CATEGORIES.map { category ->
+        val evidence =
+            insights.firstOrNull { insight ->
+                insight.category == category && insight.error == null && !insight.resultRowsSummary.isNullOrBlank()
+            }
+        TraceWorkspaceSummary(
+            category = category,
+            value = evidence?.resultRowsSummary,
+            severity = evidence?.severity,
+        )
+    }
+
+fun canOpenInsightInTimeline(
+    insight: TraceInsightEvidence,
+    activeTrace: TraceWorkspaceArtifact?,
+): Boolean =
+    insight.timestampNanos != null &&
+        insight.error == null &&
+        activeTrace?.viewerAvailable == true &&
+        activeTrace.artifactId == insight.artifactId
 
 @Composable
 @Suppress("LongParameterList", "ktlint:standard:function-naming")
@@ -575,6 +693,13 @@ private fun TraceViewerPanel(
                         enabled = artifact.viewerAvailable,
                         selected = artifact.viewerAvailable,
                         modifier = Modifier.testTag("open-perfetto-viewer"),
+                    )
+                    PerfettoCompactButton(
+                        text = localizedStringResource(Res.string.trace_workspace_open_native_engine, language),
+                        onClick = { actions.onOpenNativeEngine(artifact) },
+                        enabled = artifact.viewerAvailable,
+                        selected = artifact.viewerAvailable,
+                        modifier = Modifier.testTag("open-native-engine"),
                     )
                     PerfettoCompactButton(
                         text = localizedStringResource(Res.string.trace_workspace_export, language),
