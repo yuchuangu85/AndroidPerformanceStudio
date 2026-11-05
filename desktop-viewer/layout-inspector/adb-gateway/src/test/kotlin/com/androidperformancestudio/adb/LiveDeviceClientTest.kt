@@ -222,10 +222,11 @@ class LiveDeviceClientTest {
         }
         session.close()
 
-        assertEquals(
-            "Unable to capture foreground app com.codemx.anrdemo through ADB",
-            error.message,
-        )
+        assertTrue(error.message.orEmpty().startsWith(
+            "Unable to capture foreground app com.codemx.anrdemo through ADB (",
+        ))
+        assertTrue(error.message.orEmpty().contains("visible-window-dump: exit 1"))
+        assertTrue(error.message.orEmpty().contains("uiautomator:"))
     }
 
     @Test

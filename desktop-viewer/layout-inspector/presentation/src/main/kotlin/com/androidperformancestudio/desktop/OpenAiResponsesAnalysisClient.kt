@@ -181,7 +181,7 @@ private fun AiResponseReportDto.toDomain(model: String) = AiAnalysisReport(
 )
 
 private const val SYSTEM_INSTRUCTIONS = """
-You are AndroidPerfermanceStudio's Android UI performance reviewer. Use only the provided layout JSON. Do not infer private user text because text values are redacted. Focus on actionable layout, rendering, accessibility, and hierarchy risks. Keep findings concise and attach each finding to the most relevant nodeId.
+You are AndroidPerformanceStudio's Android UI performance reviewer. Use only the provided layout JSON. Do not infer private user text because text values are redacted. Focus on actionable layout, rendering, accessibility, and hierarchy risks. Keep findings concise and attach each finding to the most relevant nodeId.
 """
 
 private val REPORT_SCHEMA: JsonObject = buildJsonObject {

@@ -2,6 +2,7 @@ package com.androidperformancestudio.protocol
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -149,6 +150,31 @@ class ProtocolCodecTest {
 
         assertEquals(snapshot, codec.decodeSnapshot(codec.encodeSnapshot(snapshot)))
         assertEquals("window:main", snapshot.effectiveDefaultWindowId)
+    }
+
+    @Test
+    fun `non-finite float in snapshot fails with an encode stage reason`() {
+        val snapshot = LayoutSnapshot(
+            protocolVersion = ProtocolVersion(1, 1),
+            packageName = "com.androidperformancestudio.sample",
+            capturedAtEpochMillis = 42,
+            display = DisplayInfo(1080, 2400, 3f),
+            capabilities = AgentCapabilities(viewHierarchy = true, screenshots = true),
+            root = ViewNode(
+                id = "root",
+                className = "android.widget.FrameLayout",
+                bounds = Bounds(0, 0, 1080, 2400),
+                alpha = Float.NaN,
+            ),
+        )
+
+        val error = assertThrows(SnapshotEncodeException::class.java) {
+            codec.encodeSnapshot(snapshot)
+        }
+
+        assertTrue(error.message.orEmpty().startsWith("encode:"))
+        assertTrue(error.message.orEmpty().contains("NaN"))
+        assertInstanceOf(IllegalArgumentException::class.java, error.cause)
     }
 
     @Test

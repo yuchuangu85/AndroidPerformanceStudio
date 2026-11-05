@@ -18,10 +18,45 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 import org.w3c.dom.NodeList
 
+/**
+ * Thrown when no ADB capture stage could produce a usable hierarchy. The message carries a
+ * per-stage failure summary (visible-window-dump / visible-window-parse / uiautomator /
+ * screenshot / encode) so users see why the capture failed instead of an opaque blanket
+ * statement; the underlying cause is preserved for logs.
+ */
 class AdbFallbackUnavailableException(
     packageName: String,
+    stageFailures: List<String> = emptyList(),
     cause: Throwable,
-) : IllegalStateException("Unable to capture foreground app $packageName through ADB", cause)
+) : IllegalStateException(buildString {
+    append("Unable to capture foreground app $packageName through ADB")
+    if (stageFailures.isNotEmpty()) {
+        append(" (")
+        append(stageFailures.joinToString("; ").take(MAX_MESSAGE_LENGTH))
+        append(")")
+    }
+}, cause)
+
+private const val MAX_MESSAGE_LENGTH = 500
+
+/** Collects one reason per capture stage; the latest attempt of each stage wins. */
+internal class CaptureStageFailures {
+    private val stages = linkedMapOf<String, String>()
+
+    fun record(stage: String, detail: Throwable) = record(stage, detail.message ?: detail.javaClass.simpleName)
+
+    fun record(stage: String, detail: String?) {
+        val summary = detail.orEmpty().lineSequence().firstOrNull().orEmpty().trim()
+        if (summary.isNotEmpty()) stages[stage] = summary.take(MAX_STAGE_DETAIL_LENGTH)
+    }
+
+    fun summaries(): List<String> =
+        stages.map { (stage, detail) -> "$stage: $detail" }.ifEmpty { emptyList() }
+
+    private companion object {
+        const val MAX_STAGE_DETAIL_LENGTH = 120
+    }
+}
 
 internal class AdbFallbackCapture(
     private val serial: String,
@@ -30,35 +65,44 @@ internal class AdbFallbackCapture(
     private val protocolCodec: ProtocolCodec = ProtocolCodec(supportedMajor = 1),
     private val retrySleeper: (Long) -> Unit = Thread::sleep,
 ) {
-    fun capture(): CaptureFrame = try {
-        val hierarchy = captureHierarchy()
-        val windows = hierarchy.windows
-        val defaultWindow = windows.maxBy { it.root.nodeCount() }
-        val screenshotCapture = captureScreenshotOrNull()
-        val display = screenshotCapture?.display ?: inferDisplay(windows)
-        val snapshot = LayoutSnapshot(
-            protocolVersion = CURRENT_PROTOCOL_VERSION,
-            packageName = packageName,
-            capturedAtEpochMillis = System.currentTimeMillis(),
-            display = display,
-            capabilities = AgentCapabilities(
-                viewHierarchy = true,
-                composeSemantics = hierarchy.composeSemantics,
-                screenshots = screenshotCapture != null,
-            ),
-            root = defaultWindow.root,
-            windows = windows,
-            defaultWindowId = defaultWindow.id,
-        )
-        CaptureFrame(
-            snapshotJson = protocolCodec.encodeSnapshot(snapshot),
-            screenshotPng = screenshotCapture?.png ?: byteArrayOf(),
-        )
-    } catch (error: Throwable) {
-        throw AdbFallbackUnavailableException(packageName, error)
+    fun capture(): CaptureFrame {
+        val stageFailures = CaptureStageFailures()
+        return try {
+            val hierarchy = captureHierarchy(stageFailures)
+            val windows = hierarchy.windows
+            val defaultWindow = windows.maxBy { it.root.nodeCount() }
+            val screenshotCapture = captureScreenshotOrNull(stageFailures)
+            val display = screenshotCapture?.display ?: inferDisplay(windows)
+            val snapshot = LayoutSnapshot(
+                protocolVersion = CURRENT_PROTOCOL_VERSION,
+                packageName = packageName,
+                capturedAtEpochMillis = System.currentTimeMillis(),
+                display = display,
+                capabilities = AgentCapabilities(
+                    viewHierarchy = true,
+                    composeSemantics = hierarchy.composeSemantics,
+                    screenshots = screenshotCapture != null,
+                ),
+                root = defaultWindow.root,
+                windows = windows,
+                defaultWindowId = defaultWindow.id,
+            )
+            val snapshotJson = try {
+                protocolCodec.encodeSnapshot(snapshot)
+            } catch (error: Throwable) {
+                stageFailures.record("encode", error.message ?: error.javaClass.simpleName)
+                throw error
+            }
+            CaptureFrame(
+                snapshotJson = snapshotJson,
+                screenshotPng = screenshotCapture?.png ?: byteArrayOf(),
+            )
+        } catch (error: Throwable) {
+            throw AdbFallbackUnavailableException(packageName, stageFailures.summaries(), error)
+        }
     }
 
-    private fun captureScreenshotOrNull(): ScreenshotCapture? =
+    private fun captureScreenshotOrNull(stageFailures: CaptureStageFailures): ScreenshotCapture? =
         runCatching {
             val png = checkedRun(AdbCommandFactory.captureScreenshot(serial)).stdoutBytes
             val (width, height) = PngDimensions.read(png)
@@ -66,6 +110,10 @@ internal class AdbFallbackCapture(
                 png = png,
                 display = DisplayInfo(widthPx = width, heightPx = height, density = 1f),
             )
+        }.onFailure { error ->
+            // A missing screenshot degrades the capture instead of failing it; the reason is
+            // still recorded so a failed capture report explains the missing preview too.
+            stageFailures.record("screenshot", error)
         }.getOrNull()
 
     private fun inferDisplay(windows: List<WindowSnapshot>): DisplayInfo =
@@ -79,45 +127,55 @@ internal class AdbFallbackCapture(
             density = 1f,
         )
 
-    private fun captureHierarchy(): CapturedHierarchy {
+    private fun captureHierarchy(stageFailures: CaptureStageFailures): CapturedHierarchy {
         repeat(NATIVE_HIERARCHY_ATTEMPTS) { attempt ->
             val visibleWindows = processRunner.run(
                 AdbCommandFactory.dumpVisibleWindowViews(serial),
             )
-            if (visibleWindows.exitCode == 0) {
+            if (visibleWindows.exitCode != 0) {
+                stageFailures.record(
+                    "visible-window-dump",
+                    commandFailureSummary(visibleWindows),
+                )
+            } else {
                 runCatching {
                     VisibleWindowHierarchyParser.parseWindows(
                         zipBytes = visibleWindows.stdoutBytes,
                         packageName = packageName,
                     )
+                }.onFailure { error ->
+                    stageFailures.record("visible-window-parse", error)
                 }.getOrNull()?.let { nativeWindows ->
-                    return expandShallowComposeHierarchy(nativeWindows)
+                    return expandShallowComposeHierarchy(nativeWindows, stageFailures)
                 }
             }
             if (attempt < NATIVE_HIERARCHY_ATTEMPTS - 1) {
                 retrySleeper(NATIVE_HIERARCHY_RETRY_DELAY_MILLIS)
             }
         }
-        return captureUiAutomatorHierarchy()
+        return captureUiAutomatorHierarchy(stageFailures)
     }
 
-    private fun expandShallowComposeHierarchy(nativeWindows: List<WindowSnapshot>): CapturedHierarchy {
+    private fun expandShallowComposeHierarchy(
+        nativeWindows: List<WindowSnapshot>,
+        stageFailures: CaptureStageFailures,
+    ): CapturedHierarchy {
         val native = CapturedHierarchy(nativeWindows, composeSemantics = false)
         if (nativeWindows.none { it.root.containsComposeHost() }) return native
-        val accessibility = runCatching { captureUiAutomatorHierarchy() }.getOrNull() ?: return native
+        val accessibility = runCatching { captureUiAutomatorHierarchy(stageFailures) }.getOrNull() ?: return native
         return accessibility.takeIf {
             it.composeSemantics && it.windows.sumOf { window -> window.root.nodeCount() } >
                 nativeWindows.sumOf { window -> window.root.nodeCount() }
         } ?: native
     }
 
-    private fun captureUiAutomatorHierarchy(): CapturedHierarchy {
+    private fun captureUiAutomatorHierarchy(stageFailures: CaptureStageFailures): CapturedHierarchy = try {
         val output = checkedRun(AdbCommandFactory.dumpHierarchy(serial)).stdout
         val root = UiAutomatorHierarchyParser.parse(
             output = output,
             expectedPackageName = packageName,
         ).promoteComposeSemantics()
-        return CapturedHierarchy(
+        CapturedHierarchy(
             windows = listOf(
                 WindowSnapshot(
                     id = "window:uiautomator",
@@ -129,7 +187,13 @@ internal class AdbFallbackCapture(
             ),
             composeSemantics = root.containsComposeHost(),
         )
+    } catch (error: Throwable) {
+        stageFailures.record("uiautomator", error)
+        throw error
     }
+
+    private fun commandFailureSummary(result: ProcessResult): String =
+        "exit ${result.exitCode}: ${(result.stderr.ifBlank { result.stdout }).trim()}"
 
     private fun UiNode.nodeCount(): Int = 1 + children.sumOf { it.nodeCount() }
 

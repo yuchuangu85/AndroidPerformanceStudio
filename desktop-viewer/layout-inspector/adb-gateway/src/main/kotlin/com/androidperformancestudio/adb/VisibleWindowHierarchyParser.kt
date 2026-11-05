@@ -356,10 +356,13 @@ private data class EncodedMap(
         val right = properties.int("layout:right")
         val bottom = properties.int("layout:bottom")
         val absoluteLeft = parentLeft - parentScrollX + left +
-            properties.number("drawing:translationX").roundToInt()
+            properties.finiteNumber("drawing:translationX", default = 0f).roundToInt()
         val absoluteTop = parentTop - parentScrollY + top +
-            properties.number("drawing:translationY").roundToInt()
-        val alpha = properties.number("drawing:alpha", default = 1f)
+            properties.finiteNumber("drawing:translationY", default = 0f).roundToInt()
+        // Some ROMs report NaN alpha for SystemUI windows (e.g. ZUI NotificationShade while
+        // expanded); an unknown opacity must not fail the whole capture, so fall back to the
+        // multiplicative identity instead.
+        val alpha = properties.finiteNumber("drawing:alpha", default = 1f)
         val visible = parentVisible &&
             properties.int("misc:visibility") == VISIBLE &&
             alpha > 0f
@@ -418,8 +421,8 @@ private data class EncodedMap(
             .orEmpty()
         val layoutParamsClass = (layoutParams["class"] as? String)
             ?: (encodedLayoutParams?.values?.get(3.toShort()) as? String)
-        val elevation = floatOrNull("drawing:elevation")
-        val translationZ = floatOrNull("drawing:translationZ")
+        val elevation = finiteOrNull("drawing:elevation")
+        val translationZ = finiteOrNull("drawing:translationZ")
         return ViewAttributes(
             visibility = intOrNull("misc:visibility")?.toVisibilityLabel(),
             layoutBounds = Bounds(
@@ -434,16 +437,16 @@ private data class EncodedMap(
             } else {
                 null
             },
-            translationX = floatOrNull("drawing:translationX"),
-            translationY = floatOrNull("drawing:translationY"),
+            translationX = finiteOrNull("drawing:translationX"),
+            translationY = finiteOrNull("drawing:translationY"),
             translationZ = translationZ,
-            rotation = floatOrNull("drawing:rotation"),
-            rotationX = floatOrNull("drawing:rotationX"),
-            rotationY = floatOrNull("drawing:rotationY"),
-            scaleX = floatOrNull("drawing:scaleX"),
-            scaleY = floatOrNull("drawing:scaleY"),
-            pivotX = floatOrNull("drawing:pivotX"),
-            pivotY = floatOrNull("drawing:pivotY"),
+            rotation = finiteOrNull("drawing:rotation"),
+            rotationX = finiteOrNull("drawing:rotationX"),
+            rotationY = finiteOrNull("drawing:rotationY"),
+            scaleX = finiteOrNull("drawing:scaleX"),
+            scaleY = finiteOrNull("drawing:scaleY"),
+            pivotX = finiteOrNull("drawing:pivotX"),
+            pivotY = finiteOrNull("drawing:pivotY"),
             padding = EdgeInsets(
                 left = int("padding:paddingLeft"),
                 top = int("padding:paddingTop"),
@@ -530,16 +533,23 @@ private data class EncodedMap(
     private fun Map<String, Any>.floatOrNull(name: String): Float? =
         (get(name) as? Number)?.toFloat()
 
+    /**
+     * Optional display-only float attributes treat non-finite values as absent rather than
+     * fabricating a zero (e.g. a reported scaleX of 0 would read as an invisible node).
+     */
+    private fun Map<String, Any>.finiteOrNull(name: String): Float? =
+        floatOrNull(name)?.takeIf(Float::isFinite)
+
+    private fun Map<String, Any>.finiteNumber(
+        name: String,
+        default: Float,
+    ): Float = finiteOrNull(name) ?: default
+
     private fun Map<String, Any>.booleanOrNull(name: String): Boolean? =
         get(name) as? Boolean
 
     private fun Map<String, Any>.stringOrNull(name: String): String? =
         (get(name) as? String)?.takeIf(String::isNotBlank)?.takeUnless { it == "null" }
-
-    private fun Map<String, Any>.number(
-        name: String,
-        default: Float = 0f,
-    ): Float = (get(name) as? Number)?.toFloat() ?: default
 
     private companion object {
         const val CHILD_PREFIX = "meta:__child__"

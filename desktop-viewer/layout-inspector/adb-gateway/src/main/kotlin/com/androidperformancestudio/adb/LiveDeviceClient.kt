@@ -24,7 +24,7 @@ class VisibleWindowViewsUnavailableException(message: String) : IllegalStateExce
 class AgentUnavailableException(
     val packageName: String,
     cause: Throwable,
-) : IllegalStateException("Foreground app $packageName is not AndroidPerfermanceStudio-enabled", cause)
+) : IllegalStateException("Foreground app $packageName is not AndroidPerformanceStudio-enabled", cause)
 
 class AdbCommandException(
     val arguments: List<String>,
@@ -193,6 +193,9 @@ class ConnectedDeviceSession internal constructor(
             socket.getOutputStream().flush()
             captureFrameCodec.read(socket.getInputStream())
         }
+        // A malformed or non-finite snapshot (e.g. a float property encoded as NaN by the
+        // in-app agent) must not kill the capture: fall back to forwarding the raw agent
+        // frame, which the viewer can still render without the enriched display info.
         val snapshot = runCatching { protocolCodec.decodeSnapshot(agentFrame.snapshotJson) }
             .getOrNull()
             ?: return agentFrame

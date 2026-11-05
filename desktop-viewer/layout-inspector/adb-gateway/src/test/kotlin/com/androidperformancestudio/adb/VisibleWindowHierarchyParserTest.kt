@@ -123,6 +123,45 @@ class VisibleWindowHierarchyParserTest {
         assertEquals(listOf("StatusBar", "Taskbar"), windows.map { it.title })
         assertTrue(windows.all { window -> window.root.id.startsWith("${window.id}/root") })
     }
+
+    @Test
+    fun `nan alpha and transform values fall back to safe defaults`() {
+        val root = VisibleWindowHierarchyParser.parse(
+            zipBytes = EncodedHierarchyFixture.zip(
+                packageName = "com.android.systemui",
+                alpha = Float.NaN,
+                elevation = Float.NaN,
+                translationZ = Float.NaN,
+                scaleX = Float.NaN,
+                translationX = Float.NaN,
+            ),
+            packageName = "com.android.systemui",
+        )
+
+        assertEquals(1f, root.alpha)
+        // Unknown opacity must not hide the node: alpha falls back to the identity value.
+        assertEquals("VISIBLE", root.attributes.visibility)
+        assertEquals(Bounds(left = 10, top = 20, right = 1090, bottom = 2420), root.bounds)
+        // Optional display-only floats report as absent instead of fabricating zeros.
+        assertEquals(null, root.attributes.elevation)
+        assertEquals(null, root.attributes.scaleX)
+        assertEquals(null, root.attributes.z)
+    }
+
+    @Test
+    fun `windows with non-finite floats still appear alongside healthy windows`() {
+        val windows = VisibleWindowHierarchyParser.parseWindows(
+            zipBytes = EncodedHierarchyFixture.mixedNanAlphaZip(),
+            packageName = "com.android.systemui",
+        )
+
+        assertEquals(listOf("NotificationShade", "StatusBar"), windows.map { it.title })
+        val shade = windows.first { it.title == "NotificationShade" }.root as ViewNode
+        assertEquals(1f, shade.alpha)
+        val healthy = windows.first { it.title == "StatusBar" }.root as ViewNode
+        assertEquals(1f, healthy.alpha)
+        assertEquals("VISIBLE", healthy.attributes.visibility)
+    }
 }
 
 internal object EncodedHierarchyFixture {
@@ -130,11 +169,16 @@ internal object EncodedHierarchyFixture {
         packageName: String,
         rootClassName: String = "com.codemx.ui.RealRootLayout",
         childClassName: String = "com.codemx.ui.RealTitleView",
+        alpha: Float = 1f,
+        elevation: Float = 8f,
+        translationZ: Float = 2f,
+        scaleX: Float = 1f,
+        translationX: Float = 0f,
     ): ByteArray {
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry("$packageName/$packageName.MainActivity"))
-            zip.write(hierarchy(rootClassName, childClassName))
+            zip.write(hierarchy(rootClassName, childClassName, alpha, elevation, translationZ, scaleX, translationX))
             zip.closeEntry()
         }
         return output.toByteArray()
@@ -225,9 +269,27 @@ internal object EncodedHierarchyFixture {
         return output.toByteArray()
     }
 
+    fun mixedNanAlphaZip(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("9223a26 NotificationShade"))
+            zip.write(hierarchy(alpha = Float.NaN))
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("a3db2af StatusBar"))
+            zip.write(hierarchy())
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
     private fun hierarchy(
         rootClassName: String = "com.codemx.ui.RealRootLayout",
         childClassName: String = "com.codemx.ui.RealTitleView",
+        alpha: Float = 1f,
+        elevation: Float = 8f,
+        translationZ: Float = 2f,
+        scaleX: Float = 1f,
+        translationX: Float = 0f,
     ): ByteArray {
         val output = ByteArrayOutputStream()
         val encoder = FixtureEncoder(DataOutputStream(output))
@@ -243,18 +305,18 @@ internal object EncodedHierarchyFixture {
             property("layout:bottom", 2400)
             property("scrolling:scrollX", 0)
             property("scrolling:scrollY", 0)
-            property("drawing:translationX", 0f)
+            property("drawing:translationX", translationX)
             property("drawing:translationY", 0f)
-            property("drawing:translationZ", 2f)
-            property("drawing:elevation", 8f)
+            property("drawing:translationZ", translationZ)
+            property("drawing:elevation", elevation)
             property("drawing:rotation", 5f)
             property("drawing:rotationX", 1f)
             property("drawing:rotationY", 2f)
-            property("drawing:scaleX", 1f)
+            property("drawing:scaleX", scaleX)
             property("drawing:scaleY", 1f)
             property("drawing:pivotX", 540f)
             property("drawing:pivotY", 1200f)
-            property("drawing:alpha", 1f)
+            property("drawing:alpha", alpha)
             property("drawing:clipBounds", "Rect(0, 0 - 1080, 2300)")
             property("drawing:opaque", false)
             property("drawing:willNotDraw", false)

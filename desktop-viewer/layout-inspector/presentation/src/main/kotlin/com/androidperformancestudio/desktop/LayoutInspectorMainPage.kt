@@ -303,7 +303,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     // A dead target is explained with the app's last crash instead of looking like an inspector bug.
     val describeFullComposeFailure: suspend (Throwable) -> String = describe@{ error ->
         if (error !is TargetProcessUnavailableException) {
-            return@describe error.message ?: error.javaClass.simpleName
+            return@describe error.failureReasonSummary()
         }
         val crash =
             withContext(Dispatchers.IO) {
@@ -312,7 +312,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 }.getOrNull()
             }
         crash?.let { reason -> "Target app crashed: " + reason }
-            ?: (error.message ?: error.javaClass.simpleName)
+            ?: error.failureReasonSummary()
     }
     val composeCompilerReportParser = remember { ComposeCompilerReportParser() }
     var composeAgentRequested by remember { mutableStateOf(false) }
