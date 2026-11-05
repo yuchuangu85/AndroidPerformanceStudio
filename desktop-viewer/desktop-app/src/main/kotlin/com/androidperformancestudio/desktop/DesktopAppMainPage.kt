@@ -728,7 +728,6 @@ fun FrameWindowScope.DesktopAppMainPage(
     // server) — without exiting the application.
     if (screencastWindowOpen) {
         val screencastWindowTitle = localizedStringResource(Res.string.device_screencast, language)
-        val closeLabel = localizedStringResource(Res.string.task_manager_close, language)
         Window(
             onCloseRequest = { screencastWindowOpen = false },
             title = screencastWindowTitle,
@@ -740,14 +739,13 @@ fun FrameWindowScope.DesktopAppMainPage(
                 onDispose { screencastWindowRef.value = null }
             }
             window.minimumSize = java.awt.Dimension(360, 640)
-            // Minimal native menu bar so the secondary window never shows an empty/flashy bar on
-            // macOS; ScreencastMainPage publishes no feature menu, so the fallback always applies.
-            WindowMenuBarHost(
-                fallbackMenu = {
-                    Menu(screencastWindowTitle) {
-                        Item(closeLabel) { screencastWindowOpen = false }
-                    }
-                },
+            // Native menu bar for the secondary window so it never shows an empty/flashy bar on
+            // macOS. The screencast window owns its own PageMenuHost: ScreencastMainPage publishes
+            // no feature menu, so the File/View/Tools/Help entries render in their inert defaults.
+            val screencastMenuHost = rememberPageMenuHost()
+            WindowMenuBar(
+                host = screencastMenuHost,
+                chrome = WindowMenuChrome(language = language),
             )
             ViewerTheme(
                 darkTheme = darkTheme,
