@@ -22,6 +22,7 @@
 
 ## Design
 
+- [`design/rust-profiler-migration.md`](design/rust-profiler-migration.md) - CPU、HPROF、HAR 的 Rust 分阶段迁移、旧实现保留、shadow 验证及待验收门禁。
 - [`design/2026-08-01-ai-source-workspace-design.md`](design/2026-08-01-ai-source-workspace-design.md) — AI 分析、Local/GitHub/AOSP 源码工作区和可信源码定位总体方案。
 - [`design/layout-inspector/2026-08-08-compose-inspection-capability-parity-design.md`](design/layout-inspector/2026-08-08-compose-inspection-capability-parity-design.md) — Compose 完整能力、资源预算、隐私及认证门禁。
 - [`design/layout-inspector/2026-08-09-compose-inspection-artifact-acquisition-research.md`](design/layout-inspector/2026-08-09-compose-inspection-artifact-acquisition-research.md) — 固定上游 Agent 构建、精确版本 Inspector 获取和制品分发安全边界。

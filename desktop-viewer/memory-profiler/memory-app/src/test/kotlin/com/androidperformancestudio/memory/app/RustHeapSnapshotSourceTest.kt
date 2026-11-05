@@ -30,6 +30,61 @@ import kotlin.test.assertTrue
 
 class RustHeapSnapshotSourceTest {
     @Test
+    fun `open forwards opt in disk graph separately from persistent parser cache`() {
+        val child = replies()
+        val graphDirectory = Path.of("/private/managed data/hprof-graph-rust")
+        val cacheDirectory = Path.of("/private/managed data/hprof-index-rust")
+        RustHeapSnapshotSource
+            .open(
+                RustHprofProcess(child, TEST_DIGEST),
+                Path.of("/managed/heap.hprof"),
+                cacheDirectory = cacheDirectory,
+                graphStorage = "disk",
+                graphDirectory = graphDirectory,
+            ).use {
+                val args = child.requests().single()["args"] as Map<*, *>
+                assertEquals("disk", args["graphStorage"])
+                assertEquals(graphDirectory.toString(), args["graphDir"])
+                assertEquals(cacheDirectory.toString(), args["cacheDir"])
+                assertEquals(TEST_DIGEST, args["sourceDigest"])
+            }
+        assertFalse(child.isAlive)
+    }
+
+    @Test
+    fun `invalid disk graph configuration closes child without falling back`() {
+        for ((storage, directory) in listOf("disk" to null, "invalid" to Path.of("/managed/graph"))) {
+            val child = replies()
+            assertFailsWith<IllegalArgumentException> {
+                RustHeapSnapshotSource.open(
+                    RustHprofProcess(child, TEST_DIGEST),
+                    Path.of("/managed/heap.hprof"),
+                    graphStorage = storage,
+                    graphDirectory = directory,
+                )
+            }
+            assertFalse(child.isAlive)
+            assertTrue(child.requests().none { it["op"] == "open" })
+        }
+    }
+
+    @Test
+    fun `open forwards configured cache directory without changing snapshot metadata`() {
+        val child = replies()
+        val directory = Path.of("/private/cache path/hprof-index-rust")
+        RustHeapSnapshotSource
+            .open(
+                RustHprofProcess(child, TEST_DIGEST),
+                Path.of("/managed/heap.hprof"),
+                cacheDirectory = directory,
+            ).use {
+                val args = child.requests().single()["args"] as Map<*, *>
+                assertEquals(directory.toString(), args["cacheDir"])
+                assertEquals(TEST_DIGEST, args["sourceDigest"])
+            }
+    }
+
+    @Test
     fun `open sends source and mapping via wire and decodes metadata exactly`() {
         val child = replies()
         val path = Path.of("/managed/heap path; 'not a shell'.hprof")

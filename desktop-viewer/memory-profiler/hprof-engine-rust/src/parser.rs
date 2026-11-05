@@ -85,6 +85,54 @@ pub(crate) fn open(path: &Path) -> Result<Heap, String> {
     Ok(heap)
 }
 
+pub(crate) fn validate_cached(heap: &Heap) -> Result<(), String> {
+    if heap.file_size != heap.source.len() || !matches!(heap.id_size, 4 | 8) {
+        return Err("Invalid cached HPROF header or source size".into());
+    }
+    for class in &heap.classes {
+        if class.id == 0 || (class.heap != usize::MAX && class.heap >= heap.heaps.len()) {
+            return Err("Invalid cached HPROF class identity or heap".into());
+        }
+        for field in &class.fields {
+            width(field.ty, heap.id_size)?;
+        }
+        for value in &class.static_fields {
+            width(value.ty, heap.id_size)?;
+        }
+    }
+    for object in &heap.objects {
+        if object.id == 0
+            || heap.class_by_id.contains_key(&object.id)
+            || object.heap >= heap.heaps.len()
+        {
+            return Err("Invalid cached HPROF object identity or heap".into());
+        }
+        let size = match object.kind {
+            ObjectKind::Instance => u64::from(object.count),
+            ObjectKind::ObjectArray => u64::from(object.count) * u64::from(heap.id_size),
+            ObjectKind::PrimitiveArray { ty, has_data } => {
+                if ty == 2 {
+                    return Err("Invalid cached HPROF primitive array type".into());
+                }
+                let size = u64::from(object.count) * width(ty, heap.id_size)?;
+                if has_data {
+                    size
+                } else {
+                    0
+                }
+            }
+        };
+        if object
+            .payload_offset
+            .checked_add(size)
+            .is_none_or(|end| end > heap.file_size)
+        {
+            return Err("Invalid cached HPROF payload offset".into());
+        }
+    }
+    validate_instance_lengths(heap)
+}
+
 pub(crate) fn values(
     heap: &Heap,
     object: &Object,

@@ -1789,6 +1789,7 @@ internal class MemoryProfilerController(
     @Suppress("TooGenericExceptionCaught")
     suspend fun importHprof(file: Path) {
         activeOperationJob = currentCoroutineContext()[Job]
+        val importStarted = System.nanoTime()
         mutableState.value =
             mutableState.value.copy(
                 isDumping = true,
@@ -1828,6 +1829,9 @@ internal class MemoryProfilerController(
                 )
             }
         applyLoadedResult(result)
+        if (result is MemoryBackendResult.Success) {
+            mutableState.value = mutableState.value.copy(importDurationMillis = (System.nanoTime() - importStarted) / 1_000_000L, importEngine = result.value.engine.name)
+        }
         activeOperationJob = null
     }
 

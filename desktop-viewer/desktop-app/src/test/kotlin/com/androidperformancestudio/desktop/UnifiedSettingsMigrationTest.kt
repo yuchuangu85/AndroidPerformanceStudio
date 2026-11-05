@@ -97,6 +97,14 @@ class UnifiedSettingsMigrationTest {
         assertTrue(configuration.contains("HprofEngine.LEGACY -> Res.string.hprof_engine_legacy"))
         assertTrue(configuration.contains("HprofEngine.RUST -> Res.string.hprof_engine_rust"))
         assertTrue(configuration.contains("onSettingsChanged(settings.copy(hprofEngine = it))"))
+        assertTrue(configuration.contains("current = settings.cpuAnalysisEngine"))
+        assertTrue(configuration.contains("options = CpuAnalysisEngine.entries"))
+        assertTrue(configuration.contains("CpuAnalysisEngine.RUST -> Res.string.cpu_engine_rust_projection"))
+        assertTrue(configuration.contains("onSettingsChanged(settings.copy(cpuAnalysisEngine = it))"))
+        assertTrue(configuration.contains("current = settings.harImportEngine"))
+        assertTrue(configuration.contains("options = HarImportEngine.entries"))
+        assertTrue(configuration.contains("HarImportEngine.RUST -> Res.string.har_engine_rust"))
+        assertTrue(configuration.contains("onSettingsChanged(settings.copy(harImportEngine = it))"))
 
         val english = desktopStrings("values")
         val chinese = desktopStrings("values-zh")
@@ -106,6 +114,14 @@ class UnifiedSettingsMigrationTest {
         assertEquals("Legacy\uFF08\u65E7\u7248\uFF09", chinese["hprof_engine_legacy"])
         assertEquals("Rust", english["hprof_engine_rust"])
         assertEquals("Rust", chinese["hprof_engine_rust"])
+        assertEquals("CPU analysis engine", english["cpu_analysis_engine"])
+        assertEquals("CPU 分析引擎", chinese["cpu_analysis_engine"])
+        assertEquals("Rust projection", english["cpu_engine_rust_projection"])
+        assertEquals("Rust 投影", chinese["cpu_engine_rust_projection"])
+        assertEquals("HAR import engine", english["har_import_engine"])
+        assertEquals("HAR 导入引擎", chinese["har_import_engine"])
+        assertEquals("Rust", english["har_engine_rust"])
+        assertEquals("Rust", chinese["har_engine_rust"])
     }
 
     @Test

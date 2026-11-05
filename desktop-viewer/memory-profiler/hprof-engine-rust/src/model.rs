@@ -83,6 +83,52 @@ impl Heap {
         crate::parser::open(path)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_cached(
+        path: PathBuf,
+        source: Source,
+        format: String,
+        id_size: u8,
+        timestamp: u64,
+        file_size: u64,
+        classes: Vec<Class>,
+        objects: Vec<Object>,
+        roots: Vec<Root>,
+        heaps: Vec<String>,
+        warnings: Vec<Warning>,
+    ) -> Result<Heap, String> {
+        let class_by_id = classes
+            .iter()
+            .enumerate()
+            .map(|(index, class)| (class.id, index))
+            .collect::<HashMap<_, _>>();
+        let object_by_id = objects
+            .iter()
+            .enumerate()
+            .map(|(index, object)| (object.id, index))
+            .collect::<HashMap<_, _>>();
+        if class_by_id.len() != classes.len() || object_by_id.len() != objects.len() {
+            return Err("HPROF cache contains duplicate object identity".into());
+        }
+        let heap = Heap {
+            path,
+            format,
+            id_size,
+            timestamp,
+            file_size,
+            classes,
+            objects,
+            roots,
+            heaps,
+            warnings,
+            class_by_id,
+            object_by_id,
+            source,
+        };
+        crate::parser::validate_cached(&heap)?;
+        Ok(heap)
+    }
+
     /// Returns a bounded page. Missing primitive-array data is an explicit error.
     pub fn values(&self, object: &Object, start: u32, limit: u32) -> Result<Vec<Value>, String> {
         crate::parser::values(self, object, start, limit)

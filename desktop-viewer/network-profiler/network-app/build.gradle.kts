@@ -5,6 +5,7 @@ plugins {
 dependencies {
     implementation(libs.aps.ui.components)
     implementation(libs.aps.profiler.contracts)
+    implementation(libs.aps.host.toolchain)
     implementation(project(":network-model"))
     implementation(project(":network-agent-protocol"))
     implementation(project(":capture-network"))

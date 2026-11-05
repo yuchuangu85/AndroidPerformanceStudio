@@ -1,4 +1,6 @@
 pub mod analysis;
+pub mod cache;
+pub mod edges;
 pub mod findings;
 pub mod model;
 pub mod parser;
@@ -74,9 +76,7 @@ impl Session {
             }
             let path = argument(args, "path")?.as_str()?;
             let digest = argument(args, "sourceDigest")?.as_str()?;
-            if digest.is_empty() || digest.len() > 1024 {
-                return Err("sourceDigest must be a nonempty bounded string".into());
-            }
+            cache::validate_digest(digest)?;
             if let Some(value) = request.as_map()?.get("sourceDigest") {
                 if value.as_str()? != digest {
                     return Err("sourceDigest mismatch".into());
@@ -88,12 +88,39 @@ impl Session {
                 .iter()
                 .map(|(key, value)| Ok((key.clone(), value.as_str()?.to_owned())))
                 .collect::<Result<BTreeMap<_, _>, String>>()?;
-            let heap = model::Heap::open(Path::new(path))?;
-            let engine = Engine::new(heap, mapping)?;
-            let metadata = engine.metadata()?;
+            let cache_dir = args
+                .get("cacheDir")
+                .map(Value::nullable_str)
+                .transpose()?
+                .flatten();
+            let graph_storage = match args
+                .get("graphStorage")
+                .map(Value::as_str)
+                .transpose()?
+                .unwrap_or("memory")
+            {
+                "memory" => edges::GraphStorage::Memory,
+                "disk" => {
+                    let directory = argument(args, "graphDir")?.as_str()?;
+                    if directory.is_empty() {
+                        return Err("graphDir must not be empty".into());
+                    }
+                    edges::GraphStorage::Disk(Path::new(directory))
+                }
+                _ => return Err("graphStorage must be memory or disk".into()),
+            };
+            let (heap, cache_status) =
+                if let Some(cache_dir) = cache_dir.filter(|value| !value.is_empty()) {
+                    cache::open_or_parse(Path::new(path), digest, Path::new(cache_dir))?
+                } else {
+                    (model::Heap::open(Path::new(path))?, cache::Status::Disabled)
+                };
+            let engine = Engine::new_with_storage(heap, mapping, graph_storage)?;
+            let mut metadata = engine.metadata()?.as_map()?.clone();
+            metadata.insert("cacheStatus".into(), cache_status.as_str().into());
             self.engine = Some(engine);
             self.opened = true;
-            return Ok((metadata, false));
+            return Ok((Value::Map(metadata), false));
         }
         for value in [
             request.as_map()?.get("sourceDigest"),
@@ -106,6 +133,12 @@ impl Session {
                 return Err("sourceDigest mismatch".into());
             }
         }
+        if op == "evict" {
+            let cache_dir = argument(args, "cacheDir")?.as_str()?;
+            let digest = argument(args, "sourceDigest")?.as_str()?;
+            cache::evict(Path::new(cache_dir), digest)?;
+            return Ok((Value::Null, false));
+        }
         if op == "close" {
             self.engine = None;
             return Ok((Value::Null, true));
@@ -115,6 +148,7 @@ impl Session {
             .as_ref()
             .ok_or("open a snapshot before querying")?;
         engine.heap.check_source()?;
+        engine.analysis.graph.check_storage()?;
         let payload = match op {
             "histogram" => engine.histogram(argument(args, "heapName")?.nullable_str()?)?,
             "rawHistogram" => engine.raw_histogram(argument(args, "heapName")?.nullable_str()?)?,
@@ -148,6 +182,7 @@ impl Session {
             _ => return Err(format!("unknown operation {op}")),
         };
         engine.heap.check_source()?;
+        engine.analysis.graph.check_storage()?;
         Ok((payload, false))
     }
 }

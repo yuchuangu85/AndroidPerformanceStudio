@@ -975,6 +975,38 @@ private fun ConfigurationSettingsContent(
             },
             onSelected = { onSettingsChanged(settings.copy(hprofEngine = it)) },
         )
+        SettingsChoice(
+            language = language,
+            label = localizedStringResource(Res.string.cpu_analysis_engine, language),
+            current = settings.cpuAnalysisEngine,
+            options = CpuAnalysisEngine.entries,
+            optionLabel = { engine ->
+                localizedStringResource(
+                    when (engine) {
+                        CpuAnalysisEngine.LEGACY -> Res.string.cpu_engine_legacy
+                        CpuAnalysisEngine.RUST -> Res.string.cpu_engine_rust_projection
+                    },
+                    language,
+                )
+            },
+            onSelected = { onSettingsChanged(settings.copy(cpuAnalysisEngine = it)) },
+        )
+        SettingsChoice(
+            language = language,
+            label = localizedStringResource(Res.string.har_import_engine, language),
+            current = settings.harImportEngine,
+            options = HarImportEngine.entries,
+            optionLabel = { engine ->
+                localizedStringResource(
+                    when (engine) {
+                        HarImportEngine.LEGACY -> Res.string.har_engine_legacy
+                        HarImportEngine.RUST -> Res.string.har_engine_rust
+                    },
+                    language,
+                )
+            },
+            onSelected = { onSettingsChanged(settings.copy(harImportEngine = it)) },
+        )
     }
 }
 

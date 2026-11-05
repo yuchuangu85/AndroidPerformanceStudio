@@ -1,5 +1,6 @@
 use aps_hprof_engine::{
     analysis::{id_of, node_of, NONE},
+    cache::sha256_file,
     model::Heap,
     query::{original_name, Engine},
     wire::{self, Value},
@@ -722,10 +723,708 @@ fn open(file: &File) -> Value {
         "open",
         Value::map([
             ("path", file.0.to_str().unwrap().into()),
-            ("sourceDigest", "snapshot-sha256".into()),
+            ("sourceDigest", sha256_file(&file.0).unwrap().into()),
             ("mapping", Value::map([])),
         ]),
     )
+}
+
+struct CacheDirectory(PathBuf);
+impl CacheDirectory {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "aps-cache-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+impl Drop for CacheDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(unix)]
+mod disk_graph {
+    use super::*;
+    use aps_hprof_engine::analysis::{Graph, Traversal};
+    use aps_hprof_engine::edges::GraphStorage;
+
+    fn open_disk(file: &File, directory: &CacheDirectory) -> Value {
+        let mut request = open(file).as_map().unwrap().clone();
+        let mut args = field(&open(file), "args").as_map().unwrap().clone();
+        args.insert("graphStorage".into(), "disk".into());
+        args.insert("graphDir".into(), directory.0.to_str().unwrap().into());
+        request.insert("args".into(), Value::Map(args));
+        Value::Map(request)
+    }
+
+    fn assert_parity(memory: &Engine, disk: &Engine) {
+        assert_eq!(memory.metadata(), disk.metadata());
+        assert_eq!(memory.analysis.graph.offsets, disk.analysis.graph.offsets);
+        assert_eq!(
+            memory.analysis.traversal.depth,
+            disk.analysis.traversal.depth
+        );
+        assert_eq!(
+            memory.analysis.traversal.predecessor,
+            disk.analysis.traversal.predecessor
+        );
+        assert_eq!(memory.analysis.traversal.slot, disk.analysis.traversal.slot);
+        assert_eq!(memory.analysis.immediate, disk.analysis.immediate);
+        assert_eq!(memory.analysis.retained, disk.analysis.retained);
+        let lexical_memory = Traversal::build(&memory.heap, &memory.analysis.graph, true).unwrap();
+        let lexical_disk = Traversal::build(&disk.heap, &disk.analysis.graph, true).unwrap();
+        assert_eq!(lexical_memory.depth, lexical_disk.depth);
+        assert_eq!(lexical_memory.predecessor, lexical_disk.predecessor);
+        assert_eq!(lexical_memory.slot, lexical_disk.slot);
+        for heap in [None, Some("App"), Some("Zygote"), Some("missing")] {
+            assert_eq!(memory.histogram(heap), disk.histogram(heap));
+            assert_eq!(memory.raw_histogram(heap), disk.raw_histogram(heap));
+            for (offset, limit) in [(0, 1), (1, 2), (12, 4096)] {
+                assert_eq!(
+                    memory.instances(&memory.class_names, heap, offset, limit, false, Some(3)),
+                    disk.instances(&disk.class_names, heap, offset, limit, false, Some(3))
+                );
+            }
+        }
+        for node in 0..memory.analysis.retained.len() as u32 {
+            let id = id_of(&memory.heap, node);
+            assert_eq!(memory.identity(id), disk.identity(id));
+            for (start, limit) in [(0, 1), (1, 2), (4096, 4096)] {
+                // Error results (e.g. no-data primitive arrays) must match, not become null.
+                assert_eq!(
+                    memory.detail(id, start, limit),
+                    disk.detail(id, start, limit)
+                );
+                assert_eq!(
+                    memory.dominators(Some(id), start, limit),
+                    disk.dominators(Some(id), start, limit)
+                );
+            }
+        }
+        for offset in [0, 1, 4096] {
+            assert_eq!(
+                memory.dominators(None, offset, 2),
+                disk.dominators(None, offset, 2)
+            );
+        }
+        assert_eq!(memory.findings(), disk.findings());
+    }
+
+    #[test]
+    fn mapped_weak_static_array_and_paged_queries_match_with_cold_and_warm_parser_cache() {
+        use aps_hprof_engine::cache::{open_or_parse, Status};
+        let file = rich();
+        let directory = CacheDirectory::new();
+        let digest = sha256_file(&file.0).unwrap();
+        for mapping in [
+            BTreeMap::new(),
+            BTreeMap::from([
+                ("a".into(), "Original".into()),
+                ("b".into(), "Original".into()),
+            ]),
+            BTreeMap::from([
+                ("java.lang.ref.WeakReference".into(), "RenamedWeak".into()),
+                ("q.a".into(), "sample.ScreenActivity".into()),
+            ]),
+        ] {
+            let memory = Engine::new(Heap::open(&file.0).unwrap(), mapping.clone()).unwrap();
+            for expected in [Status::Miss, Status::Hit] {
+                if expected == Status::Miss {
+                    aps_hprof_engine::cache::evict(&directory.0, &digest).unwrap();
+                }
+                let (heap, status) = open_or_parse(&file.0, &digest, &directory.0).unwrap();
+                assert_eq!(status, expected);
+                let disk = Engine::new_with_storage(
+                    heap,
+                    mapping.clone(),
+                    GraphStorage::Disk(&directory.0),
+                )
+                .unwrap();
+                assert_parity(&memory, &disk);
+            }
+        }
+        let mut entries: Vec<_> = fs::read_dir(&directory.0)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        entries.sort();
+        assert_eq!(
+            entries,
+            vec![std::ffi::OsString::from(format!("{digest}.idx"))]
+        );
+        assert!(file.0.is_file());
+    }
+
+    #[test]
+    fn large_edge_pages_and_lexical_array_traversal_cross_fixed_cache_blocks() {
+        for width in [4, 8] {
+            let mut f = Fixture::new(width);
+            f.class(100, "[LHolder;", 0, 0, &[], &[]);
+            f.class(101, "Holder", 0, 8, &[("next", 2)], &[]);
+            f.class(102, "android.graphics.Bitmap", 0, 16, &[], &[]);
+            let mut elements = vec![2; 25_000];
+            elements[0] = 0;
+            elements[10] = 10;
+            elements[24_999] = 3;
+            f.array(1, 100, &elements);
+            f.instance(2, 101, &[(2, 3)]);
+            f.instance(10, 101, &[(2, 3)]);
+            f.instance(3, 102, &[]);
+            f.root(1);
+            let file = f.file();
+            let directory = CacheDirectory::new();
+            let memory = engine(&file, &[]);
+            let disk = Engine::new_with_storage(
+                Heap::open(&file.0).unwrap(),
+                BTreeMap::new(),
+                GraphStorage::Disk(&directory.0),
+            )
+            .unwrap();
+            assert_parity(&memory, &disk);
+            for start in [0, 4095, 8191, 8192, 16_383, 24_998, 25_000] {
+                assert_eq!(memory.detail(1, start, 4096), disk.detail(1, start, 4096));
+            }
+            assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn invalid_configuration_fails_without_fallback_or_deleting_source_or_cache() {
+        let file = rich();
+        let directory = CacheDirectory::new();
+        let digest = sha256_file(&file.0).unwrap();
+        aps_hprof_engine::cache::open_or_parse(&file.0, &digest, &directory.0).unwrap();
+        let cache = directory.0.join(format!("{digest}.idx"));
+        let original_cache = fs::read(&cache).unwrap();
+        let original_source = fs::read(&file.0).unwrap();
+        let link = directory.0.join("link");
+        std::os::unix::fs::symlink(&directory.0, &link).unwrap();
+        for (storage, graph_dir) in [
+            ("invalid", None),
+            ("disk", None),
+            ("disk", Some(Value::Null)),
+            ("disk", Some("".into())),
+            ("disk", Some(7i64.into())),
+            ("disk", Some(file.0.to_str().unwrap().into())),
+            ("disk", Some(cache.to_str().unwrap().into())),
+            ("disk", Some(link.to_str().unwrap().into())),
+            (
+                "disk",
+                Some(directory.0.join("missing/child").to_str().unwrap().into()),
+            ),
+        ] {
+            let mut bad = open(&file).as_map().unwrap().clone();
+            let mut args = field(&open(&file), "args").as_map().unwrap().clone();
+            args.insert("graphStorage".into(), storage.into());
+            if let Some(value) = graph_dir {
+                args.insert("graphDir".into(), value);
+            }
+            bad.insert("args".into(), Value::Map(args));
+            let mut session = Session::default();
+            let response = session.respond(&Value::Map(bad)).0;
+            assert_eq!(
+                field(&response, "status").as_str().unwrap(),
+                "error",
+                "{response:?}"
+            );
+            assert_eq!(
+                field(
+                    &session
+                        .respond(&request(
+                            2,
+                            "identity",
+                            Value::map([("objectId", 1i64.into())])
+                        ))
+                        .0,
+                    "status"
+                )
+                .as_str()
+                .unwrap(),
+                "error"
+            );
+        }
+        assert_eq!(fs::read(&file.0).unwrap(), original_source);
+        assert_eq!(fs::read(&cache).unwrap(), original_cache);
+    }
+
+    #[test]
+    fn failed_build_close_eof_and_killed_process_leave_no_edge_files() {
+        let file = rich();
+        let directory = CacheDirectory::new();
+        fs::write(directory.0.join("sentinel"), b"not ours").unwrap();
+        let mut heap = Heap::open(&file.0).unwrap();
+        heap.objects[0].count = u32::MAX;
+        assert!(
+            Graph::build_named_with_storage(&heap, &[], GraphStorage::Disk(&directory.0)).is_err()
+        );
+        for kill in [false, true] {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_aps-hprof-engine"))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            wire::write_frame(child.stdin.as_mut().unwrap(), &open_disk(&file, &directory))
+                .unwrap();
+            let response = wire::decode(
+                &wire::read_frame(child.stdout.as_mut().unwrap())
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(field(&response, "status").as_str().unwrap(), "ok");
+            if kill {
+                child.kill().unwrap();
+            } else {
+                drop(child.stdin.take());
+            }
+            let status = child.wait().unwrap();
+            assert_eq!(status.success(), !kill);
+        }
+        let mut session = Session::default();
+        assert_eq!(
+            field(&session.respond(&open_disk(&file, &directory)).0, "status")
+                .as_str()
+                .unwrap(),
+            "ok"
+        );
+        assert!(session.respond(&request(2, "close", Value::map([]))).1);
+        assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+        assert_eq!(fs::read(directory.0.join("sentinel")).unwrap(), b"not ours");
+        assert!(file.0.is_file());
+    }
+
+    #[test]
+    fn disk_open_does_not_relax_cached_source_digest_or_source_mutation_checks() {
+        let file = rich();
+        let directory = CacheDirectory::new();
+        let mut value = open_disk(&file, &directory).as_map().unwrap().clone();
+        let mut args = field(&open_disk(&file, &directory), "args")
+            .as_map()
+            .unwrap()
+            .clone();
+        args.insert("cacheDir".into(), directory.0.to_str().unwrap().into());
+        value.insert("args".into(), Value::Map(args.clone()));
+        let mut session = Session::default();
+        assert_eq!(
+            field(&session.respond(&Value::Map(value.clone())).0, "status")
+                .as_str()
+                .unwrap(),
+            "ok"
+        );
+        args.insert("sourceDigest".into(), "0".repeat(64).into());
+        value.insert("args".into(), Value::Map(args));
+        let failure = Session::default().respond(&Value::Map(value)).0;
+        assert_eq!(field(&failure, "status").as_str().unwrap(), "error");
+        OpenOptions::new()
+            .write(true)
+            .open(&file.0)
+            .unwrap()
+            .set_len(3)
+            .unwrap();
+        let failure = session
+            .respond(&request(
+                3,
+                "identity",
+                Value::map([("objectId", 999i64.into())]),
+            ))
+            .0;
+        assert_eq!(field(&failure, "status").as_str().unwrap(), "error");
+        assert!(!failure.as_map().unwrap().contains_key("payload"));
+    }
+
+    #[test]
+    fn truncated_and_malformed_source_errors_match_memory_without_creating_edges() {
+        for width in [4, 8] {
+            let mut f = Fixture::new(width);
+            let header = f.bytes.len();
+            f.array(1, 100, &[1, 0, 1]);
+            f.root(1);
+            let file = f.file();
+            let original = fs::read(&file.0).unwrap();
+            let directory = CacheDirectory::new();
+            for end in header + 1..original.len() {
+                fs::write(&file.0, &original[..end]).unwrap();
+                let memory = Session::default().respond(&open(&file)).0;
+                let disk = Session::default().respond(&open_disk(&file, &directory)).0;
+                assert_eq!(
+                    field(&memory, "status").as_str().unwrap(),
+                    "error",
+                    "end {end}"
+                );
+                assert_eq!(field(&disk, "error"), field(&memory, "error"));
+            }
+            let mut malformed = original.clone();
+            let count = header + 9 + 1 + width + 4;
+            malformed[count..count + 4].copy_from_slice(&u32::MAX.to_be_bytes());
+            fs::write(&file.0, malformed).unwrap();
+            let memory = Session::default().respond(&open(&file)).0;
+            let disk = Session::default().respond(&open_disk(&file, &directory)).0;
+            assert_eq!(field(&memory, "status").as_str().unwrap(), "error");
+            assert_eq!(field(&disk, "error"), field(&memory, "error"));
+            assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 0);
+        }
+    }
+}
+
+#[test]
+fn cache_roundtrip_preserves_lazy_values_metadata_and_mapped_queries() {
+    use aps_hprof_engine::cache::{open_or_parse, Status};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    let (cold, status) = open_or_parse(&file.0, &digest, &directory.0).unwrap();
+    assert_eq!(status, Status::Miss);
+    let (warm, status) = open_or_parse(&file.0, &digest, &directory.0).unwrap();
+    assert_eq!(status, Status::Hit);
+    assert_eq!(cold.objects, warm.objects);
+    assert_eq!(cold.roots, warm.roots);
+    assert_eq!(cold.warnings, warm.warnings);
+    assert_eq!(cold.heaps, warm.heaps);
+    let cold = Engine::new(cold, BTreeMap::new()).unwrap();
+    let warm = Engine::new(warm, BTreeMap::new()).unwrap();
+    assert_eq!(cold.metadata().unwrap(), warm.metadata().unwrap());
+    assert_eq!(cold.histogram(None).unwrap(), warm.histogram(None).unwrap());
+    for object in &cold.heap.objects {
+        assert_eq!(
+            cold.detail(object.id, 0, 200).unwrap(),
+            warm.detail(object.id, 0, 200).unwrap()
+        );
+    }
+    // Reusing parser metadata must not freeze a previous mapping into the cache.
+    let (heap, _) = open_or_parse(&file.0, &digest, &directory.0).unwrap();
+    let mapped = Engine::new(
+        heap,
+        BTreeMap::from([("a.Node".into(), "example.Node".into())]),
+    )
+    .unwrap();
+    assert_eq!(mapped.heap.objects, cold.heap.objects);
+}
+
+#[test]
+fn cache_protocol_reopen_eviction_and_null_disabled_are_compatible() {
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let mut cached_request = open(&file).as_map().unwrap().clone();
+    let mut args = field(&open(&file), "args").as_map().unwrap().clone();
+    args.insert("cacheDir".into(), directory.0.to_str().unwrap().into());
+    cached_request.insert("args".into(), Value::Map(args));
+    for expected in ["miss", "hit"] {
+        let mut session = Session::default();
+        let response = session.respond(&Value::Map(cached_request.clone())).0;
+        assert_eq!(field(&response, "status").as_str().unwrap(), "ok");
+        let metadata = field(&response, "payload");
+        assert_eq!(field(metadata, "cacheStatus").as_str().unwrap(), expected);
+        assert!(metadata.as_map().unwrap().get("objects").is_none());
+        assert!(metadata.as_map().unwrap().get("graph").is_none());
+        assert!(session.respond(&request(2, "close", Value::map([]))).1);
+    }
+    let mut session = Session::default();
+    let response = session.respond(&Value::Map(cached_request)).0;
+    assert_eq!(field(&response, "status").as_str().unwrap(), "ok");
+    let eviction = request(
+        3,
+        "evict",
+        Value::map([
+            ("cacheDir", directory.0.to_str().unwrap().into()),
+            ("sourceDigest", sha256_file(&file.0).unwrap().into()),
+        ]),
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            field(&session.respond(&eviction).0, "status")
+                .as_str()
+                .unwrap(),
+            "ok"
+        );
+    }
+    assert!(file.0.is_file());
+    assert!(!directory
+        .0
+        .join(format!("{}.idx", sha256_file(&file.0).unwrap()))
+        .exists());
+    assert_eq!(
+        field(
+            &session
+                .respond(&request(
+                    4,
+                    "identity",
+                    Value::map([("objectId", 2i64.into())])
+                ))
+                .0,
+            "status"
+        )
+        .as_str()
+        .unwrap(),
+        "ok"
+    );
+    let mut uncached = open(&file).as_map().unwrap().clone();
+    let mut args = field(&open(&file), "args").as_map().unwrap().clone();
+    args.insert("cacheDir".into(), Value::Null);
+    uncached.insert("args".into(), Value::Map(args));
+    let response = Session::default().respond(&Value::Map(uncached)).0;
+    assert_eq!(
+        field(field(&response, "payload"), "cacheStatus")
+            .as_str()
+            .unwrap(),
+        "disabled"
+    );
+}
+
+#[test]
+fn cache_recovers_truncation_and_rejects_unsafe_keys_and_stale_source_digest() {
+    use aps_hprof_engine::cache::{evict, open_or_parse, Status};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    open_or_parse(&file.0, &digest, &directory.0).unwrap();
+    let cache = directory.0.join(format!("{digest}.idx"));
+    fs::write(&cache, b"APSH").unwrap();
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &directory.0).unwrap().1,
+        Status::Miss
+    );
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &directory.0).unwrap().1,
+        Status::Hit
+    );
+    // A well-formed extra top-level record changes size without breaking HPROF.
+    OpenOptions::new()
+        .append(true)
+        .open(&file.0)
+        .unwrap()
+        .write_all(&[3, 0, 0, 0, 0, 0, 0, 0, 0])
+        .unwrap();
+    assert!(open_or_parse(&file.0, &digest, &directory.0).is_err());
+    let updated_digest = sha256_file(&file.0).unwrap();
+    // A stale index copied under the new digest must not be trusted either.
+    fs::copy(
+        directory.0.join(format!("{digest}.idx")),
+        directory.0.join(format!("{updated_digest}.idx")),
+    )
+    .unwrap();
+    let (_, status) = open_or_parse(&file.0, &updated_digest, &directory.0).unwrap();
+    assert_eq!(status, Status::Miss);
+    for key in [
+        "",
+        "../source",
+        "a/b",
+        "a\\b",
+        &"a".repeat(63),
+        &"f".repeat(65),
+        &"g".repeat(64),
+    ] {
+        assert!(open_or_parse(&file.0, key, &directory.0).is_err());
+        assert!(evict(&directory.0, key).is_err());
+    }
+    evict(&directory.0, &digest).unwrap();
+    evict(&directory.0, &digest).unwrap();
+    assert!(file.0.exists());
+}
+
+#[test]
+fn cache_same_size_corruption_is_a_miss_and_rebuilds_without_losing_queries() {
+    use aps_hprof_engine::cache::{open_or_parse, Status};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    let (heap, _) = open_or_parse(&file.0, &digest, &directory.0).unwrap();
+    let expected = Engine::new(heap, BTreeMap::new())
+        .unwrap()
+        .histogram(None)
+        .unwrap();
+    let cache = directory.0.join(format!("{digest}.idx"));
+    let original = fs::read(&cache).unwrap();
+    for index in [0, 8, original.len() / 2, original.len() - 1] {
+        let mut corrupt = original.clone();
+        corrupt[index] ^= 1;
+        fs::write(&cache, &corrupt).unwrap();
+        let (heap, status) = open_or_parse(&file.0, &digest, &directory.0).unwrap();
+        assert_eq!(status, Status::Miss);
+        assert_eq!(
+            Engine::new(heap, BTreeMap::new())
+                .unwrap()
+                .histogram(None)
+                .unwrap(),
+            expected
+        );
+        assert_eq!(fs::read(&cache).unwrap(), original);
+        assert_eq!(
+            open_or_parse(&file.0, &digest, &directory.0).unwrap().1,
+            Status::Hit
+        );
+    }
+}
+
+#[test]
+fn cache_source_content_change_with_same_size_and_mtime_cannot_hit() {
+    use aps_hprof_engine::cache::{open_or_parse, Status};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    open_or_parse(&file.0, &digest, &directory.0).unwrap();
+    let metadata = fs::metadata(&file.0).unwrap();
+    let modified = metadata.modified().unwrap();
+    let mut content = fs::read(&file.0).unwrap();
+    // Change only the timestamp payload in the HPROF header, not its length.
+    let timestamp = b"JAVA PROFILE 1.0.3\0".len() + 4;
+    content[timestamp + 7] ^= 1;
+    fs::write(&file.0, &content).unwrap();
+    let source = OpenOptions::new().write(true).open(&file.0).unwrap();
+    source
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    assert_eq!(fs::metadata(&file.0).unwrap().len(), metadata.len());
+    assert_eq!(fs::metadata(&file.0).unwrap().modified().unwrap(), modified);
+    assert!(open_or_parse(&file.0, &digest, &directory.0)
+        .unwrap_err()
+        .contains("digest"));
+    let updated_digest = sha256_file(&file.0).unwrap();
+    let (_, status) = open_or_parse(&file.0, &updated_digest, &directory.0).unwrap();
+    assert_eq!(status, Status::Miss);
+    assert_eq!(
+        open_or_parse(&file.0, &updated_digest, &directory.0)
+            .unwrap()
+            .1,
+        Status::Hit
+    );
+}
+
+#[test]
+fn cache_unavailable_directory_and_failed_publication_do_not_block_source_open() {
+    use aps_hprof_engine::cache::{open_or_parse, Status};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    let not_a_directory = directory.0.join("regular-file");
+    fs::write(&not_a_directory, b"untouched").unwrap();
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &not_a_directory).unwrap().1,
+        Status::Miss
+    );
+    assert_eq!(fs::read(&not_a_directory).unwrap(), b"untouched");
+    let target = directory.0.join(format!("{digest}.idx"));
+    fs::create_dir(&target).unwrap();
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &directory.0).unwrap().1,
+        Status::Miss
+    );
+    assert!(target.is_dir());
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 2);
+}
+
+#[test]
+fn cache_concurrent_writers_leave_a_reopenable_entry_and_no_temporary_files() {
+    use aps_hprof_engine::cache::{open_or_parse, Status};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(6));
+    let writers: Vec<_> = (0..6)
+        .map(|_| {
+            let path = file.0.clone();
+            let directory = directory.0.clone();
+            let digest = digest.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let (heap, status) = open_or_parse(&path, &digest, &directory).unwrap();
+                assert!(!heap.objects.is_empty());
+                assert!(matches!(status, Status::Hit | Status::Miss));
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &directory.0).unwrap().1,
+        Status::Hit
+    );
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn cache_permissions_are_private_and_symlink_directory_and_entry_are_not_followed() {
+    use aps_hprof_engine::cache::{evict, open_or_parse, Status};
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let file = rich();
+    let directory = CacheDirectory::new();
+    let digest = sha256_file(&file.0).unwrap();
+    let cache_root = directory.0.join("private-cache");
+    open_or_parse(&file.0, &digest, &cache_root).unwrap();
+    let cache = cache_root.join(format!("{digest}.idx"));
+    assert_eq!(
+        fs::metadata(&cache_root).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&cache).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &cache_root).unwrap().1,
+        Status::Miss
+    );
+    assert_eq!(
+        fs::metadata(&cache).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let outside = directory.0.join("outside");
+    fs::write(&outside, b"do-not-overwrite").unwrap();
+    fs::remove_file(&cache).unwrap();
+    symlink(&outside, &cache).unwrap();
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &cache_root).unwrap().1,
+        Status::Miss
+    );
+    assert!(evict(&cache_root, &digest).is_err());
+    assert_eq!(fs::read(&outside).unwrap(), b"do-not-overwrite");
+    let alias = directory.0.join("directory-alias");
+    symlink(&cache_root, &alias).unwrap();
+    assert_eq!(
+        open_or_parse(&file.0, &digest, &alias).unwrap().1,
+        Status::Miss
+    );
+    assert!(evict(&alias, &digest).is_err());
+    assert!(fs::symlink_metadata(&cache)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}
+
+#[test]
+fn session_rejects_non_sha256_digest_before_open() {
+    let file = rich();
+    for digest in [
+        "snapshot-sha256",
+        &"x".repeat(64),
+        &"a".repeat(63),
+        &"b".repeat(65),
+    ] {
+        let request = request(
+            1,
+            "open",
+            Value::map([
+                ("path", file.0.to_str().unwrap().into()),
+                ("sourceDigest", digest.into()),
+                ("mapping", Value::map([])),
+            ]),
+        );
+        let response = Session::default().respond(&request).0;
+        assert_eq!(field(&response, "status").as_str().unwrap(), "error");
+        assert!(field(&response, "error")
+            .as_str()
+            .unwrap()
+            .contains("64-character"));
+    }
 }
 
 #[test]
@@ -736,7 +1435,7 @@ fn session_rejects_reopen_digest_mismatch_and_source_changes() {
     assert_eq!(field(&response, "status").as_str().unwrap(), "ok");
     assert_eq!(
         field(&response, "sourceDigest").as_str().unwrap(),
-        "snapshot-sha256"
+        sha256_file(&file.0).unwrap()
     );
     assert_eq!(
         field(&session.respond(&open(&file)).0, "status")

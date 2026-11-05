@@ -658,6 +658,16 @@ private fun CaptureStatus(
             Spacer(Modifier.width(10.dp))
             Box(Modifier.width(ViewerDimensions.hairline).height(14.dp).background(style.border))
             Spacer(Modifier.width(10.dp))
+            info.importDurationMillis?.let { duration ->
+                Spacer(Modifier.width(8.dp))
+                CopyableText(
+                    "${info.importEngine ?: "Engine"} · import ${duration} ms",
+                    color = style.text,
+                    fontSize = ViewerTypography.label.fontSize,
+                    fontWeight = FontWeight.Medium,
+                    language = currentSimpleperfLanguage(),
+                )
+            }
             CopyableText(
                 info.name,
                 color = style.text,
@@ -698,6 +708,8 @@ private fun captureFooterFileInfo(
 private data class FooterFileInfo(
     val name: String,
     val path: String,
+    val importDurationMillis: Long? = null,
+    val importEngine: String? = null,
 )
 
 private const val ADB_NOT_FOUND_ERROR_CODE = "ADB_NOT_FOUND"
@@ -720,8 +732,9 @@ private fun ReportState.footerFileInfo(): FooterFileInfo? =
         is ReportLoadState.Ready ->
             FooterFileInfo(
                 current.report.session.name,
-                current.report.session.directory
-                    .toString(),
+                current.report.session.directory.toString(),
+                current.report.session.metadata["importDurationMillis"]?.toLongOrNull(),
+                current.report.session.metadata["importEngine"],
             )
     }
 

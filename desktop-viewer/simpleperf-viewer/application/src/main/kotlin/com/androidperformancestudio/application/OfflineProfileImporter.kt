@@ -30,6 +30,8 @@ import com.androidperformancestudio.parser.SimpleperfReadSummary
 import com.androidperformancestudio.parser.SimpleperfRecordReader
 import com.androidperformancestudio.parser.SimpleperfReportConverter
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.NativeShadowResult
+import com.androidperformancestudio.platform.toolchain.NativeSummaryShadow
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileImportResult
 import com.androidperformancestudio.storage.SQLiteSampleStore
@@ -84,6 +86,8 @@ data class OfflineImportResult(
     val profileImport: ProfileImportResult,
     val quality: DataQualitySummary,
     val artifact: CaptureArtifact? = null,
+    val nativeShadow: NativeShadowResult? = null,
+    val importDurationMillis: Long = 0L,
 )
 
 fun interface HostSimpleperfResolver {
@@ -103,6 +107,9 @@ class OfflineProfileImporter(
     private val perfDataConverter: PerfDataConverter,
     private val recordReader: SimpleperfRecordReader = SimpleperfRecordReader(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val nativeEngineExecutable: () -> Path? = {
+        NativeSummaryShadow.configured("aps.simpleperfEngine.path", "APS_SIMPLEPERF_ENGINE")
+    },
 ) {
     private val geckoProfileReader = GeckoProfileReader()
     constructor(
@@ -231,7 +238,34 @@ class OfflineProfileImporter(
                 is StudioResult.Success -> converted.value
             }
         ensureActive(cancellationSignal)
-        return indexTrace(request, artifacts, prepared, cancellationSignal)
+        val shadowExecutable = nativeEngineExecutable()
+        val shadowDigest = shadowExecutable?.let { ArtifactFileEvidence.sha256(prepared.protobufTrace).value }
+        return when (val result = indexTrace(request, artifacts, prepared, cancellationSignal)) {
+            is StudioResult.Failure -> result
+            is StudioResult.Success -> {
+                val executable = shadowExecutable ?: return result
+                val imported = result.value
+                val shadow =
+                    NativeSummaryShadow().compare(
+                        executable,
+                        prepared.protobufTrace,
+                            mapOf(
+                                "recordCount" to imported.readSummary.recordCount,
+                                "sampleCount" to imported.quality.sampleCount,
+                            ),
+                        expectedSourceDigest = shadowDigest,
+                        isCancellationRequested = { cancellationSignal.isCancelled },
+                    )
+                // A shadow result is diagnostic only; never rewrite the accepted artifact.
+                runCatching {
+                    Files.writeString(
+                        artifacts.sessionDirectory.resolve("rust-shadow.properties"),
+                        shadow.properties(),
+                    )
+                }
+                StudioResult.Success(imported.copy(nativeShadow = shadow))
+            }
+        }
     }
 
     private fun prepareArtifacts(request: OfflineImportRequest): ImportArtifacts {
@@ -303,6 +337,7 @@ class OfflineProfileImporter(
         prepared: PreparedTrace,
         cancellationSignal: HostCancellationSignal,
     ): StudioResult<OfflineImportResult> {
+        val importStarted = System.nanoTime()
         deleteDatabaseArtifacts(artifacts.database)
         val normalizer = SimpleperfProfileNormalizer()
         var readSummary: SimpleperfReadSummary? = null
@@ -356,6 +391,7 @@ class OfflineProfileImporter(
                         profileImport = checkNotNull(profileImport),
                         quality = quality,
                         artifact = createImportArtifact(request, artifacts, prepared.hostSimpleperf, quality),
+                        importDurationMillis = (System.nanoTime() - importStarted) / 1_000_000L,
                     )
                 writeSuccess(request, result)
                 writeArtifact(result)
@@ -372,6 +408,7 @@ class OfflineProfileImporter(
         artifacts: ImportArtifacts,
         cancellationSignal: HostCancellationSignal,
     ): StudioResult<OfflineImportResult> {
+        val importStarted = System.nanoTime()
         deleteDatabaseArtifacts(artifacts.database)
         var readSummary: SimpleperfReadSummary? = null
         var profileImport: ProfileImportResult? = null
@@ -408,6 +445,7 @@ class OfflineProfileImporter(
                         profileImport = checkNotNull(profileImport),
                         quality = quality,
                         artifact = createImportArtifact(request, artifacts, null, quality),
+                        importDurationMillis = (System.nanoTime() - importStarted) / 1_000_000L,
                     )
                 writeSuccess(request, result)
                 writeArtifact(result)
@@ -501,6 +539,8 @@ private fun writeSuccess(
             add("database=${result.database.fileName}")
             add("recordCount=${result.readSummary.recordCount}")
             add("sampleCount=${result.profileImport.importedSamples}")
+            add("importDurationMillis=${result.importDurationMillis}")
+            add("importEngine=${if (result.nativeShadow != null) "Rust" else "Legacy"}")
             host?.let {
                 add("hostSimpleperfVersion=${it.version}")
                 add("hostSimpleperfSha256=${it.sha256}")

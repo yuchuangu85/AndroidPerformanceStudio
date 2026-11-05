@@ -42,7 +42,8 @@ class NetworkProfilerWorkspaceSourceTest {
             "text = localizedStringResource(Res.string.import_har, language)",
             "enabled = !state.capturing",
             "chooseOpenFile(",
-            "HarParser().parse(file.toPath())",
+            "val mode = if (nativeHarEngineEnabled) HarImportMode.NATIVE_WITH_LEGACY_FALLBACK else HarImportMode.SHADOW",
+            "HarImportParser(mode, executable).parse(file.toPath()) { context.ensureActive() }",
             "complete(",
         )
         assertButtonContains(

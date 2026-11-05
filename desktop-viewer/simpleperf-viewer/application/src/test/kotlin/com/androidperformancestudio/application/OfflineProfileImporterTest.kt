@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.androidperformancestudio.application
 
 import com.android.tools.profiler.proto.SimpleperfReport
@@ -18,8 +20,10 @@ import com.androidperformancestudio.parser.HostSimpleperf
 import com.androidperformancestudio.parser.HostSimpleperfSource
 import com.androidperformancestudio.parser.SimpleperfConversionResult
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
+import com.androidperformancestudio.platform.toolchain.NativeShadowStatus
 import com.androidperformancestudio.storage.SQLiteSampleStore
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -37,6 +41,61 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class OfflineProfileImporterTest {
+    @Test
+    fun `native shadow failure preserves the Kotlin result and original parser`() =
+        runTest {
+            val root = Files.createTempDirectory("aps-cpu-shadow-failure-")
+            try {
+                val input = root.resolve("input.trace").apply { writeBytes(profileTrace()) }
+                val importer =
+                    OfflineProfileImporter(
+                        hostSimpleperfResolver = { error("not used") },
+                        perfDataConverter = { _, _, _ -> error("not used") },
+                        nativeEngineExecutable = { root.resolve("missing-engine") },
+                    )
+                val result =
+                    importer.import(
+                        OfflineImportRequest("shadow", root.resolve("sessions"), input, OfflineProfileFormat.SIMPLEPERF_PROTOBUF),
+                    )
+                val imported = assertIs<StudioResult.Success<OfflineImportResult>>(result).value
+                assertEquals(1L, imported.profileImport.importedSamples)
+                assertEquals(NativeShadowStatus.UNAVAILABLE, imported.nativeShadow?.status)
+                assertContentEquals(profileTrace(), input.readBytes())
+                val shadowReport = Files.readString(imported.sessionDirectory.resolve("rust-shadow.properties"))
+                assertTrue(shadowReport.contains("scope=numeric-summary-only"))
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+
+    @Test
+    fun `actual Rust shadow agrees with protobuf imports including late lookups`() =
+        runTest {
+            val binary = System.getenv("APS_SIMPLEPERF_ENGINE_TEST")?.let(Path::of)
+            assumeTrue(binary != null, "Set APS_SIMPLEPERF_ENGINE_TEST to an explicitly built native executable")
+            val root = Files.createTempDirectory("aps-cpu-shadow-parity-")
+            try {
+                for (late in listOf(false, true)) {
+                    val input = root.resolve("input-$late.trace").apply { writeBytes(profileTrace(late)) }
+                    val importer =
+                        OfflineProfileImporter(
+                            hostSimpleperfResolver = { error("not used") },
+                            perfDataConverter = { _, _, _ -> error("not used") },
+                            nativeEngineExecutable = { binary },
+                        )
+                    val result =
+                        importer.import(
+                            OfflineImportRequest("shadow-$late", root.resolve("sessions"), input, OfflineProfileFormat.SIMPLEPERF_PROTOBUF),
+                        )
+                    val imported = assertIs<StudioResult.Success<OfflineImportResult>>(result).value
+                    assertEquals(NativeShadowStatus.SUMMARY_MATCHED, imported.nativeShadow?.status)
+                    assertEquals(1L, imported.profileImport.importedSamples)
+                }
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+
     @Test
     fun `imports existing protobuf without locating host simpleperf and retains raw trace`() =
         runTest {

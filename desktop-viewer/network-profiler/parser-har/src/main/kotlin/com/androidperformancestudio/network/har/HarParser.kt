@@ -3,12 +3,15 @@
 package com.androidperformancestudio.network.har
 
 import com.androidperformancestudio.network.model.*
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.*
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.CancellationException
 
 /**
  * Parses HAR (HTTP Archive) files and converts them into the internal
@@ -60,68 +63,120 @@ public class HarParser(
         isLenient = true
     }
 
-    public fun parse(path: Path): NetworkCaptureResult {
+    public fun parse(path: Path): NetworkCaptureResult = parse(path) {}
+
+    @OptIn(ExperimentalSerializationApi::class)
+    public fun parse(path: Path, checkCancelled: () -> Unit): NetworkCaptureResult {
+        checkCancelled()
         require(Files.isRegularFile(path)) { "HAR file does not exist: $path" }
         require(Files.size(path) <= maxBytes) { "HAR exceeds $maxBytes bytes" }
-        val bytes = Files.readAllBytes(path)
-        val root = json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+        val digest = MessageDigest.getInstance("SHA-256")
+        val root = HarInputStream(Files.newInputStream(path), maxBytes, digest, checkCancelled).use {
+            json.decodeFromStream<JsonElement>(it).jsonObject
+        }
+        checkCancelled()
         val log = root["log"]?.jsonObject ?: error("HAR log object is missing")
         val version = log.string("version") ?: error("HAR log.version is missing")
         require(version in SUPPORTED_VERSIONS) { "Unsupported HAR version: $version" }
         val entries = log["entries"]?.jsonArray ?: error("HAR entries array is missing")
-        val parsedStarts = entries.mapNotNull { it.jsonObject.string("startedDateTime")?.let(::parseInstantOrNull) }
-        val base = parsedStarts.minOrNull() ?: Instant.EPOCH
-        val warnings = mutableListOf<String>()
-        val redactor = NetworkUrlRedactor()
-        var invalidTimingCount = 0
-        val calls = entries.mapIndexedNotNull { index, entry ->
-            runCatching { parseEntry(entry.jsonObject, index, base, redactor) }
-                .onFailure { warnings += "Entry #$index skipped: ${it.message}" }
-                .getOrNull()
-                ?.also { parsed -> invalidTimingCount += parsed.invalidTimingCount }
-                ?.call
+        var base: Instant? = null
+        entries.forEach { entry ->
+            entryStart(entry, checkCancelled)?.let { start ->
+                if (base == null || start < base) base = start
+            }
         }
-        require(calls.isNotEmpty()) { "HAR contains no valid entries" }
-        if (invalidTimingCount > 0) warnings += "HAR contains $invalidTimingCount invalid timing values."
-        val skipped = entries.size - calls.size
-        val completenessStatus = if (skipped == 0 && invalidTimingCount == 0) EvidenceCompleteness.COMPLETE else EvidenceCompleteness.PARTIAL
-        val producerObject = log["creator"] as? JsonObject
-        val producerName = producerObject?.string("name") ?: "unknown HAR producer"
-        val producerVersion = producerObject?.string("version")
-        val endedNs = calls.mapNotNull { it.endedNs }.maxOrNull()
-        return NetworkCaptureResult(
-            session = NetworkSession(
-                id = UUID.randomUUID().toString(),
-                deviceSerial = null,
-                packageName = null,
-                startedAt = base,
-                endedAt = endedNs?.let(base::plusNanos),
-                coverage = NetworkCoverage(
-                    processIds = emptySet(),
-                    observedLibraries = setOf(producerName),
-                    observedInstrumentationIds = emptySet(),
-                    instrumentationMode = InstrumentationMode.HAR_IMPORT,
-                    supportedEventKinds = setOf("HAR $version"),
-                    knownLimitations = setOf("HAR does not identify unrecorded application traffic"),
-                    windowStartedNs = 0,
-                    windowEndedNs = endedNs,
-                ),
-                completeness = NetworkEvidenceCompleteness(completenessStatus, 0, 0, 0, skipped),
-                sourceTimeDomain = NetworkTimeDomain.HAR_WALL_CLOCK,
-                sourceTimeOriginNs = 0,
-                clockMapping = null,
-                status = if (completenessStatus == EvidenceCompleteness.COMPLETE) NetworkSessionStatus.COMPLETE else NetworkSessionStatus.PARTIAL,
-                redactionPolicyVersion = NETWORK_REDACTION_POLICY_VERSION,
-                sourceFormatVersion = version,
-                sourceProducer = listOfNotNull(producerName, producerVersion).joinToString(" "),
-                sourceFingerprint = sha256(bytes),
-                warnings = warnings,
-            ),
-            calls = calls,
-        )
+        val accumulator = EntryAccumulator(base ?: Instant.EPOCH, checkCancelled)
+        entries.forEachIndexed { index, entry -> accumulator.add(entry, index) }
+        checkCancelled()
+        val fingerprint = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return accumulator.finish(version, log["creator"], fingerprint)
     }
 
-    private fun parseEntry(entry: JsonObject, index: Int, base: Instant, redactor: NetworkUrlRedactor): ParsedEntry {
+    internal fun entryStart(entry: JsonElement, checkCancelled: () -> Unit = {}): Instant? {
+        checkCancelled()
+        return runCatching {
+            (entry as? JsonObject)?.string("startedDateTime")?.let(::parseInstantOrNull)
+        }.getOrNull()
+    }
+
+    /** Both backends use this mapping; only already-redacted calls survive add(). */
+    internal inner class EntryAccumulator(
+        private val base: Instant,
+        private val checkCancelled: () -> Unit = {},
+    ) {
+        private val warnings = mutableListOf<String>()
+        private val redactor = NetworkUrlRedactor()
+        private var invalidTimingCount = 0
+        private var entryCount = 0
+        private val calls = mutableListOf<HttpCall>()
+
+        fun add(entry: JsonElement, index: Int) {
+            checkCancelled()
+            entryCount++
+            val parsed = try {
+                parseEntry(entry.jsonObject, index, base, redactor, checkCancelled)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Exception messages can contain JSON snippets, URLs or headers.
+                warnings += "Entry #$index skipped: invalid HAR entry"
+                return
+            }
+            invalidTimingCount += parsed.invalidTimingCount
+            calls += parsed.call
+        }
+
+        fun finish(version: String, creator: JsonElement?, fingerprint: String): NetworkCaptureResult {
+            checkCancelled()
+            require(calls.isNotEmpty()) { "HAR contains no valid entries" }
+            if (invalidTimingCount > 0) warnings += "HAR contains $invalidTimingCount invalid timing values."
+            val skipped = entryCount - calls.size
+            val completenessStatus = if (skipped == 0 && invalidTimingCount == 0) EvidenceCompleteness.COMPLETE else EvidenceCompleteness.PARTIAL
+            val producerObject = creator as? JsonObject
+            val producerName = producerObject?.string("name") ?: "unknown HAR producer"
+            val producerVersion = producerObject?.string("version")
+            var endedNs: Long? = null
+            calls.forEach { call ->
+                checkCancelled()
+                call.endedNs?.let { end ->
+                    val latest = endedNs
+                    if (latest == null || end > latest) endedNs = end
+                }
+            }
+            return NetworkCaptureResult(
+                session = NetworkSession(
+                    id = UUID.randomUUID().toString(),
+                    deviceSerial = null,
+                    packageName = null,
+                    startedAt = base,
+                    endedAt = endedNs?.let(base::plusNanos),
+                    coverage = NetworkCoverage(
+                        processIds = emptySet(),
+                        observedLibraries = setOf(producerName),
+                        observedInstrumentationIds = emptySet(),
+                        instrumentationMode = InstrumentationMode.HAR_IMPORT,
+                        supportedEventKinds = setOf("HAR $version"),
+                        knownLimitations = setOf("HAR does not identify unrecorded application traffic"),
+                        windowStartedNs = 0,
+                        windowEndedNs = endedNs,
+                    ),
+                    completeness = NetworkEvidenceCompleteness(completenessStatus, 0, 0, 0, skipped),
+                    sourceTimeDomain = NetworkTimeDomain.HAR_WALL_CLOCK,
+                    sourceTimeOriginNs = 0,
+                    clockMapping = null,
+                    status = if (completenessStatus == EvidenceCompleteness.COMPLETE) NetworkSessionStatus.COMPLETE else NetworkSessionStatus.PARTIAL,
+                    redactionPolicyVersion = NETWORK_REDACTION_POLICY_VERSION,
+                    sourceFormatVersion = version,
+                    sourceProducer = listOfNotNull(producerName, producerVersion).joinToString(" "),
+                    sourceFingerprint = fingerprint,
+                    warnings = warnings,
+                ),
+                calls = calls,
+            )
+        }
+    }
+
+    private fun parseEntry(entry: JsonObject, index: Int, base: Instant, redactor: NetworkUrlRedactor, checkCancelled: () -> Unit): ParsedEntry {
         val request = entry["request"]?.jsonObject ?: error("request is missing")
         val response = entry["response"] as? JsonObject ?: JsonObject(emptyMap())
         val started = entry.string("startedDateTime")?.let(::parseInstantOrNull) ?: base
@@ -130,6 +185,7 @@ public class HarParser(
         val timings = entry["timings"] as? JsonObject ?: JsonObject(emptyMap())
         var invalidTimingCount = 0
         val phases = HAR_TIMINGS.map { mapping ->
+            checkCancelled()
             val raw = timings.double(mapping.field)
             val availability = when {
                 raw == null -> TimingAvailability.UNAVAILABLE
@@ -159,12 +215,13 @@ public class HarParser(
         val status = response.int("status")?.takeIf { it > 0 }
         val failure = entry.string("_error")?.let { NetworkFailure("HAR_ERROR", "<redacted>", null) }
         val endedNs = totalMs?.let { startedNs + millisecondsToNs(it) }
-        val requestHeaders = NetworkHeaderRedactor.redact(headerPairs(request["headers"]))
-        val responseHeaders = NetworkHeaderRedactor.redact(headerPairs(response["headers"]))
+        val requestHeaders = NetworkHeaderRedactor.redact(headerPairs(request["headers"], checkCancelled))
+        val responseHeaders = NetworkHeaderRedactor.redact(headerPairs(response["headers"], checkCancelled))
         val bodySize = response.long("bodySize")?.takeIf { it >= 0 }
         val decodedSize = (response["content"] as? JsonObject)?.long("size")?.takeIf { it >= 0 }
         val knownTimingNames = HAR_TIMINGS.mapTo(mutableSetOf()) { it.field }
         val unknownTimings = timings.entries.mapNotNull { (name, value) ->
+            checkCancelled()
             if (name in knownTimingNames || (value as? JsonPrimitive)?.doubleOrNull == null) null else "har.timings.$name" to value.content
         }.toMap()
         // Connection reuse detection: dns=-1, connect=-1, ssl=-1 → reused from pool
@@ -212,17 +269,51 @@ public class HarParser(
         return ParsedEntry(call, invalidTimingCount)
     }
 
-    private fun headerPairs(element: JsonElement?): List<Pair<String, String>> = (element as? JsonArray).orEmpty().mapNotNull { value ->
-        val header = value as? JsonObject ?: return@mapNotNull null
-        val name = header.string("name") ?: return@mapNotNull null
-        name to header.string("value").orEmpty()
-    }
+    private fun headerPairs(element: JsonElement?, checkCancelled: () -> Unit): Iterable<Pair<String, String>> =
+        (element as? JsonArray).orEmpty().asSequence().mapNotNull { value ->
+            checkCancelled()
+            val header = value as? JsonObject ?: return@mapNotNull null
+            val name = header.string("name") ?: return@mapNotNull null
+            name to header.string("value").orEmpty()
+        }.asIterable()
 
     private fun parseInstantOrNull(raw: String): Instant? = runCatching { Instant.parse(raw) }.getOrNull()
 
     private fun millisecondsToNs(value: Double): Long = (value * 1_000_000.0).toLong()
 
-    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    /** The decoder refills incrementally; do not accumulate a second full input copy. */
+    private class HarInputStream(
+        private val input: InputStream,
+        private val maxBytes: Long,
+        private val digest: MessageDigest,
+        private val checkCancelled: () -> Unit,
+    ) : InputStream() {
+        private var count = 0L
+
+        override fun read(): Int {
+            checkCancelled()
+            val value = input.read()
+            if (value >= 0) {
+                require(count < maxBytes) { "HAR exceeds $maxBytes bytes" }
+                count++
+                digest.update(value.toByte())
+            }
+            return value
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            checkCancelled()
+            val read = input.read(buffer, offset, minOf(length, 8192))
+            if (read > 0) {
+                require(read.toLong() <= maxBytes - count) { "HAR exceeds $maxBytes bytes" }
+                count += read
+                digest.update(buffer, offset, read)
+            }
+            return read
+        }
+
+        override fun close() = input.close()
+    }
 
     private data class ParsedEntry(
         val call: HttpCall,

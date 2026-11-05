@@ -90,6 +90,8 @@ public data class NetworkProfilerState(
     val message: String? = null,
     val error: String? = null,
     val artifact: CaptureArtifact? = null,
+    val importDurationMillis: Long? = null,
+    val importEngine: String? = null,
 )
 
 public data class NetworkProfilerActions(

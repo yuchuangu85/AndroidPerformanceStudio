@@ -3,6 +3,12 @@
 Status: implemented with local validation, 2026-10-30. The original proposal remains at
 `desktop-viewer/.omx/plans/rust-hprof-engine.md`; this document does not replace it.
 
+The additive 2026-11-05 parser-index cache increment is described in
+[Rust Profiler Migration](rust-profiler-migration.md) and the
+[engine cache contract](../../memory-profiler/hprof-engine-rust/README.md).
+The evidence below remains dated evidence for the original implementation, not
+a new release/package qualification of the cache increment.
+
 ## Requirements
 
 - Keep the Kotlin HPROF parser, deep analyzer, tests and selectable Legacy path.
@@ -45,10 +51,13 @@ Each process owns one immutable, managed snapshot; close/eviction terminates it.
 
 Operations and payloads (all nullable fields use null, not invented zeroes):
 
-- `open`: args `path`, `sourceDigest`, `mapping` (obfuscated-to-original map).
+- `open`: args `path`, `sourceDigest` (64 hex SHA-256), `mapping` (obfuscated-to-original map),
+  optional `cacheDir` (absent/null/empty disables caching), optional `graphStorage`
+  (`memory`, the default, or Unix-only `disk`) and `graphDir` (required for disk).
   Returns metadata: `format`, `idSize`, `timestampMillis`, `classCount`
   (Legacy-compatible classes including LOAD_CLASS-only metadata), `instanceCount`, `objectArrayCount`, `primitiveArrayCount`,
-  `rootCount`, `warnings` (`message`,`offset`), `heaps` (ordered names).
+  `rootCount`, `warnings` (`message`,`offset`), `heaps` (ordered names),
+  `cacheStatus` (`disabled`, `miss`, `hit`).
 - `histogram`: args `heapName` nullable. Returns `{summary:{objectCount,
   shallowSize,classCount,heapSegments:[{name,sizeBytes,objectCount}]},classes:[
   {className,instanceCount,shallowSize,retainedSize,obfuscatedClassName,
@@ -74,11 +83,22 @@ Operations and payloads (all nullable fields use null, not invented zeroes):
 - `findings`: returns `{leakSuspects,bitmapInstances,activityLeaks,
   lifecycleLeakObjects:[{objectId,className,heapName}]}` with Kotlin model names.
 - `close`: returns null, flushes response and exits.
+- `evict`: args `cacheDir`, `sourceDigest`; deletes only the matching disk cache
+  entry. It does not close the current snapshot or delete its source file.
 
 Source files are managed and hashed by Kotlin before opening; the sidecar rejects
 source metadata changes. Shared file-lock leases cover all consumers, including
 Shark, lazy arrays and exports. Last-lease release reclaims managed content without
 deleting user artifacts. No private HPROF fixtures are committed.
+
+With `cacheDir`, Rust independently verifies the actual source SHA-256 before
+loading a checksummed, structurally validated parser index. Cache corruption and
+write failures fall back to source parsing within the selected Rust engine, not
+to a different engine. Cached indices are restored into memory. The second
+increment can stream targets/slots to private temporary disk storage, while
+offsets, predecessor graphs and dominator work arrays still remain in memory;
+neither mode is complete out-of-core analysis. The frozen codec is now shared
+through Kotlin `NativeValueWire`; existing HPROF wire entry points delegate to it.
 
 ## Evidence
 

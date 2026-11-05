@@ -116,6 +116,7 @@ internal class DesktopMemoryProfilerBackend(
     @Volatile private var hprofEngine: com.androidperformancestudio.memory.model.HprofEngine =
         com.androidperformancestudio.memory.model.HprofEngine.DEFAULT,
     private val rustExecutable: () -> Path = RustHprofExecutableLocator::resolve,
+    private val rustGraphStorage: String = System.getProperty("aps.hprof.rust.graphStorage", "memory"),
 ) : MemoryProfilerBackend {
     private val parser = HprofParser()
     private val inputProbe = HprofInputProbe()
@@ -1102,7 +1103,16 @@ internal class DesktopMemoryProfilerBackend(
             onProgress(10)
             val source =
                 runInterruptible(Dispatchers.IO) {
-                    RustHeapSnapshotSource.open(executable, analysisFile, analysisDigest, currentMapping).also { opened = it }
+                    RustHeapSnapshotSource
+                        .open(
+                            executable,
+                            analysisFile,
+                            analysisDigest,
+                            currentMapping,
+                            dataRoot.resolve("hprof-index-rust"),
+                            graphStorage = rustGraphStorage,
+                            graphDirectory = if (rustGraphStorage == "disk") dataRoot.resolve("hprof-graph-rust") else null,
+                        ).also { opened = it }
                 }
             context.ensureActive()
             onProgress(65)

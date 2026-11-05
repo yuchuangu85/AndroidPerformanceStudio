@@ -129,6 +129,32 @@ internal enum class ApplicationLanguagePreference(val storageValue: String) {
     }
 }
 
+internal enum class CpuAnalysisEngine(val storageValue: String) {
+    LEGACY("legacy"),
+    RUST("rust"),
+    ;
+
+    companion object {
+        val DEFAULT: CpuAnalysisEngine = RUST
+
+        fun parse(value: String?): CpuAnalysisEngine =
+            entries.firstOrNull { it.storageValue.equals(value?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+internal enum class HarImportEngine(val storageValue: String) {
+    LEGACY("legacy"),
+    RUST("rust"),
+    ;
+
+    companion object {
+        val DEFAULT: HarImportEngine = RUST
+
+        fun parse(value: String?): HarImportEngine =
+            entries.firstOrNull { it.storageValue.equals(value?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
 internal data class ApplicationUiSettings(
     val theme: ApplicationThemePreference = ApplicationThemePreference.SYSTEM,
     val displayScale: ApplicationDisplayScale = ApplicationDisplayScale.PERCENT_100,
@@ -138,6 +164,8 @@ internal data class ApplicationUiSettings(
     /** The navigation rail starts collapsed and remembers the user's choice. */
     val navigationRailCollapsed: Boolean = true,
     val hprofEngine: HprofEngine = HprofEngine.DEFAULT,
+    val cpuAnalysisEngine: CpuAnalysisEngine = CpuAnalysisEngine.DEFAULT,
+    val harImportEngine: HarImportEngine = HarImportEngine.DEFAULT,
     val aiSettingsCategory: AiSettingsCategory = AiSettingsCategory.PROVIDER,
 )
 
@@ -156,6 +184,8 @@ internal class ApplicationUiSettingsStore(
             navigationRailCollapsed =
                 readValue(NAVIGATION_RAIL_COLLAPSED_KEY)?.toBooleanStrictOrNull() ?: true,
             hprofEngine = HprofEngine.parse(readValue(HPROF_ENGINE_KEY)),
+            cpuAnalysisEngine = CpuAnalysisEngine.parse(readValue(CPU_ANALYSIS_ENGINE_KEY)),
+            harImportEngine = HarImportEngine.parse(readValue(HAR_IMPORT_ENGINE_KEY)),
             aiSettingsCategory = AiSettingsCategory.parse(readValue(AI_SETTINGS_CATEGORY_KEY)),
         )
 
@@ -168,6 +198,8 @@ internal class ApplicationUiSettingsStore(
             writeValue(ANDROID_SDK_PATH_KEY, settings.androidSdkPath.orEmpty())
             writeValue(NAVIGATION_RAIL_COLLAPSED_KEY, settings.navigationRailCollapsed.toString())
             writeValue(HPROF_ENGINE_KEY, settings.hprofEngine.storageValue)
+            writeValue(CPU_ANALYSIS_ENGINE_KEY, settings.cpuAnalysisEngine.storageValue)
+            writeValue(HAR_IMPORT_ENGINE_KEY, settings.harImportEngine.storageValue)
             writeValue(AI_SETTINGS_CATEGORY_KEY, settings.aiSettingsCategory.name)
             flush()
         }.isSuccess
@@ -180,6 +212,8 @@ internal class ApplicationUiSettingsStore(
         private const val ANDROID_SDK_PATH_KEY = "application.androidSdkPath"
         private const val NAVIGATION_RAIL_COLLAPSED_KEY = "application.navigationRailCollapsed"
         private const val HPROF_ENGINE_KEY = "application.hprofEngine"
+        private const val CPU_ANALYSIS_ENGINE_KEY = "application.cpuAnalysisEngine"
+        private const val HAR_IMPORT_ENGINE_KEY = "application.harImportEngine"
         private const val AI_SETTINGS_CATEGORY_KEY = "application.aiSettingsCategory"
 
         fun desktop(): ApplicationUiSettingsStore {

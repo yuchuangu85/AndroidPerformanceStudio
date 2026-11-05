@@ -1,7 +1,12 @@
 use aps_hprof_engine::analysis::{dominators, Graph, Traversal, NONE};
+use aps_hprof_engine::edges::{EdgeStore, GraphStorage};
+use aps_hprof_engine::model::{Heap, Root};
 use std::collections::{HashMap, VecDeque};
 
 fn graph(edges: &[Vec<u32>]) -> Graph {
+    graph_with_storage(edges, GraphStorage::Memory)
+}
+fn graph_with_storage(edges: &[Vec<u32>], storage: GraphStorage<'_>) -> Graph {
     let mut offsets = vec![0];
     let mut targets = Vec::new();
     let mut slots = Vec::new();
@@ -14,8 +19,7 @@ fn graph(edges: &[Vec<u32>]) -> Graph {
     }
     Graph {
         offsets,
-        targets,
-        slots,
+        edges: EdgeStore::from_edges(targets.into_iter().zip(slots).collect(), storage).unwrap(),
         layouts: vec![],
     }
 }
@@ -99,6 +103,64 @@ fn oracle(edges: &[Vec<u32>], roots: &[u32], sizes: &[u64]) -> (Vec<u64>, Vec<u3
     (retained, parents)
 }
 
+struct TraversalHeap {
+    heap: Heap,
+    path: std::path::PathBuf,
+}
+impl TraversalHeap {
+    fn new() -> Self {
+        use std::io::Write;
+        let path = std::env::temp_dir().join(format!(
+            "aps-traversal-oracle-{}-{}.hprof",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut bytes = b"JAVA PROFILE 1.0.3\0".to_vec();
+        bytes.extend(8u32.to_be_bytes());
+        bytes.extend(0u64.to_be_bytes());
+        let mut dump = Vec::new();
+        for id in 1..=9u64 {
+            dump.push(0x23);
+            dump.extend(id.to_be_bytes());
+            dump.extend(0u32.to_be_bytes());
+            dump.extend(0u32.to_be_bytes());
+            dump.push(8);
+        }
+        bytes.push(0x0c);
+        bytes.extend(0u32.to_be_bytes());
+        bytes.extend((dump.len() as u32).to_be_bytes());
+        bytes.extend(dump);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap()
+            .write_all(&bytes)
+            .unwrap();
+        Self {
+            heap: Heap::open(&path).unwrap(),
+            path,
+        }
+    }
+    fn roots(&mut self, roots: &[u32]) {
+        self.heap.roots = roots
+            .iter()
+            .map(|node| Root {
+                id: aps_hprof_engine::analysis::id_of(&self.heap, *node),
+                kind: "oracle".into(),
+            })
+            .collect();
+    }
+}
+impl Drop for TraversalHeap {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 #[test]
 fn diamond_cycles_duplicate_edges_multiple_roots_and_garbage() {
     for roots in [vec![0], vec![0, 2], vec![]] {
@@ -121,6 +183,9 @@ fn diamond_cycles_duplicate_edges_multiple_roots_and_garbage() {
 
 #[test]
 fn lt_matches_independent_vertex_removal_oracle_on_3000_graphs() {
+    #[cfg(unix)]
+    let directory = std::env::temp_dir();
+    let mut fixture = TraversalHeap::new();
     let mut seed = 0x9e3779b97f4a7c15u64;
     let mut random = || {
         seed ^= seed << 13;
@@ -143,11 +208,34 @@ fn lt_matches_independent_vertex_removal_oracle_on_3000_graphs() {
             .map(|i| i as u32)
             .collect();
         let sizes: Vec<_> = (0..n).map(|_| random() % 100).collect();
+        fixture.roots(&roots);
+        let memory_graph = graph(&edges);
+        let memory_walk = Traversal::build(&fixture.heap, &memory_graph, false).unwrap();
+        assert_eq!(memory_walk.depth, traversal(&edges, &roots).depth);
         assert_eq!(
-            dominators(&graph(&edges), &traversal(&edges, &roots), &sizes).unwrap(),
+            dominators(&memory_graph, &memory_walk, &sizes).unwrap(),
             oracle(&edges, &roots, &sizes),
             "case {case}, {edges:?}, roots {roots:?}"
         );
+        #[cfg(unix)]
+        {
+            let disk = graph_with_storage(&edges, GraphStorage::Disk(&directory));
+            let disk_walk = Traversal::build(&fixture.heap, &disk, false).unwrap();
+            assert_eq!(
+                memory_walk.depth, disk_walk.depth,
+                "reachability case {case}"
+            );
+            assert_eq!(
+                memory_walk.predecessor, disk_walk.predecessor,
+                "predecessor case {case}"
+            );
+            assert_eq!(memory_walk.slot, disk_walk.slot, "slot case {case}");
+            assert_eq!(
+                dominators(&disk, &disk_walk, &sizes).unwrap(),
+                oracle(&edges, &roots, &sizes),
+                "disk case {case}, {edges:?}, roots {roots:?}"
+            );
+        }
     }
 }
 
@@ -172,5 +260,36 @@ fn deep_graph_is_iterative_and_retained_overflow_is_an_error() {
         dominators(&graph(&edges), &traversal(&edges, &[0]), &[u64::MAX, 1])
             .unwrap_err()
             .contains("overflow")
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn disk_deep_graph_and_overflow_preserve_memory_results() {
+    let directory = std::env::temp_dir();
+    let n = 100_000;
+    let edges: Vec<_> = (0..n)
+        .map(|i| {
+            if i + 1 < n {
+                vec![(i + 1) as u32]
+            } else {
+                vec![]
+            }
+        })
+        .collect();
+    let disk = graph_with_storage(&edges, GraphStorage::Disk(&directory));
+    let walk = traversal(&edges, &[0]);
+    assert_eq!(
+        dominators(&disk, &walk, &vec![1; n]).unwrap(),
+        dominators(&graph(&edges), &walk, &vec![1; n]).unwrap()
+    );
+    let edges = vec![vec![1], vec![]];
+    assert_eq!(
+        dominators(
+            &graph_with_storage(&edges, GraphStorage::Disk(&directory)),
+            &traversal(&edges, &[0]),
+            &[u64::MAX, 1]
+        ),
+        dominators(&graph(&edges), &traversal(&edges, &[0]), &[u64::MAX, 1])
     );
 }

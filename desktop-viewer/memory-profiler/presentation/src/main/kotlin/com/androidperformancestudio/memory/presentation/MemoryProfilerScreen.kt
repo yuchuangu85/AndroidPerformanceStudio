@@ -426,7 +426,8 @@ private fun MemoryProfilerStatusBar(
 ) {
     val operationMessage = state.operationMessage?.takeIf { it.isNotBlank() }
     val showOperation = state.isDumping || operationMessage != null
-    val hasTask = showOperation || state.isSelectionLoading
+    val hasImportTiming = state.importDurationMillis != null && state.importEngine != null
+    val hasTask = showOperation || state.isSelectionLoading || hasImportTiming
     val hasProblem = state.error != null || !state.cleanupWarning.isNullOrBlank() || !state.warning.isNullOrBlank()
     if (!hasTask && !hasProblem) return
     val colors = LocalViewerColors.current
@@ -448,6 +449,10 @@ private fun MemoryProfilerStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (state.importDurationMillis != null && state.importEngine != null && !showOperation && state.error == null) {
+                CopyableText("${state.importEngine} · import ${state.importDurationMillis} ms", color = colors.secondaryText, fontSize = ViewerTypography.label.fontSize, modifier = Modifier.testTag("memory-import-timing"))
+                hasStatus = true
+            }
             if (showOperation) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),

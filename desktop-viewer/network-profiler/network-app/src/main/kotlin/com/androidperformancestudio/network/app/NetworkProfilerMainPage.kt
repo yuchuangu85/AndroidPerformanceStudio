@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,18 +26,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
+import com.androidperformancestudio.contracts.ArtifactFileEvidence
 import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.contracts.CaptureArtifactJson
 import com.androidperformancestudio.network.analysis.NetworkAnalyzer
 import com.androidperformancestudio.network.capture.NetworkAgentCapture
 import com.androidperformancestudio.network.export.NetworkExporter
-import com.androidperformancestudio.network.har.HarParser
 import com.androidperformancestudio.network.network_app.generated.resources.*
 import com.androidperformancestudio.network.network_app.generated.resources.Res
 import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
+import com.androidperformancestudio.platform.toolchain.NativeSummaryShadow
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -53,8 +56,13 @@ import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.chooseOpenFile
 import com.androidperformancestudio.ui.chooseSaveFile
 import com.androidperformancestudio.ui.localizedStringResource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -62,6 +70,7 @@ import java.nio.file.Path
 public fun FrameWindowScope.NetworkProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
+    nativeHarEngineEnabled: Boolean = true,
 ) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
@@ -79,7 +88,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         state = state.withTitleBarTarget(targetHost)
     }
 
-    fun complete(result: com.androidperformancestudio.network.model.NetworkCaptureResult, message: String, artifact: CaptureArtifact) {
+    fun complete(result: com.androidperformancestudio.network.model.NetworkCaptureResult, message: String, artifact: CaptureArtifact, durationMillis: Long = 0L, engine: String = "Capture") {
         val summary = analyzer.summarize(result.calls)
         runCatching { SqliteNetworkStore.open(db).use { it.save(result) } }
         runCatching {
@@ -87,7 +96,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
             Files.createDirectories(directory)
             Files.writeString(directory.resolve("${artifact.id.value}.capture-artifact.json"), CaptureArtifactJson.encode(artifact))
         }
-        state = state.copy(capturing = false, result = result, summary = summary, selectedCallId = result.calls.firstOrNull()?.callId, message = message, error = null, artifact = artifact)
+        state = state.copy(capturing = false, result = result, summary = summary, selectedCallId = result.calls.firstOrNull()?.callId, message = message, error = null, artifact = artifact, importDurationMillis = durationMillis, importEngine = engine)
     }
 
     fun start() {
@@ -111,7 +120,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                         state = state.copy(liveEventCount = total, message = localizedStringResource(Res.string.captured_raw_events, language, total))
                     },
                     onCompleted = { result ->
-                        complete(result, localizedStringResource(Res.string.capture_completed, language, result.calls.size), NetworkArtifactFactory().agent(result))
+                        complete(result, localizedStringResource(Res.string.capture_completed, language, result.calls.size), NetworkArtifactFactory().agent(result), engine = "Agent")
                     },
                     onFailure = { error -> state = state.copy(error = error.message ?: error.javaClass.simpleName) },
                     onFinished = {
@@ -156,14 +165,48 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                                 "har",
                                 "json",
                             )?.let { file ->
-                                runCatching { HarParser().parse(file.toPath()) }
-                                    .onSuccess { result ->
+                                stopRequested = false
+                                state = state.copy(capturing = true, error = null)
+                                pollJob = scope.launch {
+                                    try {
+                                        val importStarted = System.nanoTime()
+                                        val imported = withContext(Dispatchers.IO) {
+                                            val executable = NativeSummaryShadow.configured("aps.harEngine.path", "APS_HAR_ENGINE")
+                                            val mode = if (nativeHarEngineEnabled) HarImportMode.NATIVE_WITH_LEGACY_FALLBACK else HarImportMode.SHADOW
+                                            val shadowExecutable = executable?.takeIf { !nativeHarEngineEnabled }
+                                            val digest = shadowExecutable?.let { ArtifactFileEvidence.sha256(file.toPath()).value }
+                                            val context = currentCoroutineContext()
+                                            val result = HarImportParser(mode, executable).parse(file.toPath()) { context.ensureActive() }
+                                            val artifact = NetworkArtifactFactory().har(file.toPath(), result)
+                                            shadowExecutable?.let {
+                                                val shadow = NativeSummaryShadow().compare(
+                                                    it, file.toPath(), mapOf("entryCount" to result.calls.size.toLong()),
+                                                    expectedSourceDigest = digest,
+                                                )
+                                                runCatching {
+                                                    val directory = db.toAbsolutePath().parent.resolve("native-shadow")
+                                                    Files.createDirectories(directory)
+                                                    Files.writeString(directory.resolve("${artifact.id.value}.properties"), shadow.properties())
+                                                }
+                                            }
+                                            result to artifact
+                                        }
                                         complete(
-                                            result,
+                                            imported.first,
                                             localizedStringResource(Res.string.imported_redacted, language, file.name),
-                                            NetworkArtifactFactory().har(file.toPath(), result),
+                                            imported.second,
+                                            (System.nanoTime() - importStarted) / 1_000_000L,
+                                            if (nativeHarEngineEnabled) "Rust" else "Legacy",
                                         )
-                                    }.onFailure { state = state.copy(error = it.message) }
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Exception) {
+                                        state = state.copy(error = error.message)
+                                    } finally {
+                                        pollJob = null
+                                        state = state.copy(capturing = false)
+                                    }
+                                }
                             }
                         },
                     )
@@ -255,6 +298,14 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
+        if (state.importDurationMillis != null && state.importEngine != null) {
+            Text(
+                text = "${state.importEngine} · import ${state.importDurationMillis} ms",
+                modifier = Modifier.fillMaxWidth().widthIn(min = 0.dp).padding(horizontal = 12.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 

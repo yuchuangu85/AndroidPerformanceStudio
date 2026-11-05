@@ -1,4 +1,5 @@
 use crate::analysis::{self, id_of, node_of, Analysis, Traversal, NONE, READ_CHUNK};
+use crate::edges::GraphStorage;
 use crate::model::{Heap, ObjectKind, Value as HeapValue};
 use crate::wire::{number, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -52,6 +53,13 @@ pub fn original_name(raw: &str, mapping: &BTreeMap<String, String>) -> String {
 
 impl Engine {
     pub fn new(heap: Heap, mapping: BTreeMap<String, String>) -> Result<Self, String> {
+        Self::new_with_storage(heap, mapping, GraphStorage::Memory)
+    }
+    pub fn new_with_storage(
+        heap: Heap,
+        mapping: BTreeMap<String, String>,
+        storage: GraphStorage<'_>,
+    ) -> Result<Self, String> {
         for object in &heap.objects {
             if object.id == 0 || heap.class_by_id.contains_key(&object.id) {
                 return Err("null or duplicate cross-kind HPROF object identity".into());
@@ -100,7 +108,7 @@ impl Engine {
                 .and_modify(|d: &mut u32| *d = (*d).max(depth))
                 .or_insert(depth);
         }
-        let analysis = Analysis::build_named(&heap, &class_names)?;
+        let analysis = Analysis::build_named_with_storage(&heap, &class_names, storage)?;
         let n = analysis.retained.len();
         let mut sorted: Vec<_> = (0..n as u32).collect();
         sorted.sort_unstable_by_key(|node| id_of(&heap, *node) as i64);
@@ -910,7 +918,7 @@ impl Engine {
                 &self.heap,
                 source,
                 traversal.slot[current as usize],
-            );
+            )?;
             let row = self.reference(&name, current);
             remaining = remaining
                 .checked_sub(crate::wire::encode(&row)?.len())
@@ -938,14 +946,19 @@ impl Engine {
         ])
     }
     fn inbound(&self, target: u32) -> Result<Value, String> {
-        let mut sources: Vec<_> = (0..self.analysis.retained.len() as u32)
-            .filter(|source| {
-                self.analysis
-                    .graph
-                    .range(*source)
-                    .any(|e| self.analysis.graph.targets[e] == target)
-            })
-            .collect();
+        self.analysis.graph.check_storage()?;
+        let mut sources = Vec::new();
+        for source in 0..self.analysis.retained.len() as u32 {
+            for edge in self.analysis.graph.range(source) {
+                if self.analysis.graph.edge(edge)?.0 == target {
+                    sources
+                        .try_reserve(1)
+                        .map_err(|_| "cannot allocate inbound sources")?;
+                    sources.push(source);
+                    break;
+                }
+            }
+        }
         sources.sort_by_key(|n| {
             (
                 self.analysis.traversal.depth[*n as usize],
@@ -966,13 +979,16 @@ impl Engine {
                 .objects
                 .get(source as usize)
                 .is_some_and(|o| matches!(o.kind, ObjectKind::ObjectArray));
-            let mut slots: Vec<_> = self
-                .analysis
-                .graph
-                .range(source)
-                .filter(|e| self.analysis.graph.targets[*e] == target)
-                .map(|e| self.analysis.graph.slots[e])
-                .collect();
+            let mut slots = Vec::new();
+            for edge in self.analysis.graph.range(source) {
+                let (edge_target, slot) = self.analysis.graph.edge(edge)?;
+                if edge_target == target {
+                    slots
+                        .try_reserve(1)
+                        .map_err(|_| "cannot allocate inbound slots")?;
+                    slots.push(slot);
+                }
+            }
             slots.sort_unstable(); // Kotlin inbound names preserve field/element declaration order.
             let mut name = if is_array {
                 "Index ".to_owned()
@@ -983,7 +999,7 @@ impl Engine {
                 let field_name = if is_array {
                     slot.to_string()
                 } else {
-                    self.analysis.graph.field_name(&self.heap, source, slot)
+                    self.analysis.graph.field_name(&self.heap, source, slot)?
                 };
                 if name
                     .len()

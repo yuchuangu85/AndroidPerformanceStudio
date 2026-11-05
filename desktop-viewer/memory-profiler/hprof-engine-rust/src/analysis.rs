@@ -1,4 +1,5 @@
 //! Compact strong graph, shortest-root traversal and reachable-first Lengauer-Tarjan.
+use crate::edges::{EdgeStore, EdgeWriter, GraphStorage};
 use crate::model::{Field, Heap, Object, ObjectKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -79,8 +80,7 @@ pub fn assignable_named(heap: &Heap, names: &[String], base: &str) -> Vec<bool> 
 
 pub struct Graph {
     pub offsets: Vec<u32>,
-    pub targets: Vec<u32>,
-    pub slots: Vec<u32>,
+    pub edges: EdgeStore,
     pub layouts: Vec<Vec<Field>>,
 }
 
@@ -89,6 +89,13 @@ impl Graph {
         Self::build_named(heap, &[])
     }
     pub fn build_named(heap: &Heap, names: &[String]) -> Result<Self, String> {
+        Self::build_named_with_storage(heap, names, GraphStorage::Memory)
+    }
+    pub fn build_named_with_storage(
+        heap: &Heap,
+        names: &[String],
+        storage: GraphStorage<'_>,
+    ) -> Result<Self, String> {
         let count = heap
             .objects
             .len()
@@ -99,17 +106,12 @@ impl Graph {
         }
         let reference_classes = assignable_named(heap, names, "java.lang.ref.Reference");
         let layouts: Vec<_> = heap.classes.iter().map(|c| heap.fields_for(c.id)).collect();
-        let mut graph = Self {
-            offsets: Vec::new(),
-            targets: Vec::new(),
-            slots: Vec::new(),
-            layouts,
-        };
-        graph
-            .offsets
+        let mut edges = EdgeWriter::new(storage)?;
+        let mut offsets = Vec::new();
+        offsets
             .try_reserve_exact(count + 1)
             .map_err(|_| "cannot allocate graph offsets")?;
-        graph.offsets.push(0);
+        offsets.push(0);
         for object in &heap.objects {
             let class_index = heap.class_by_id.get(&object.class_id).copied();
             let is_instance = matches!(object.kind, ObjectKind::Instance);
@@ -129,12 +131,13 @@ impl Graph {
             if !matches!(object.kind, ObjectKind::PrimitiveArray { .. }) {
                 let count = if is_instance {
                     class_index
-                        .map(|i| observed_fields(heap, object, &graph.layouts[i]))
+                        .map(|i| observed_fields(heap, object, &layouts[i]))
                         .unwrap_or(0)
                 } else {
                     object.count as usize
                 };
-                let begin = graph.targets.len();
+                // Only instances need field-name sorting; large arrays stream directly.
+                let mut instance_edges = Vec::new();
                 let mut start = 0;
                 while start < count {
                     let limit = (count - start).min(READ_CHUNK as usize) as u32;
@@ -150,34 +153,36 @@ impl Graph {
                             continue;
                         }
                         if let Some(target) = node_of(heap, value.bits) {
-                            graph.push(target, (start + local) as u32)?;
+                            let slot = (start + local) as u32;
+                            if is_instance {
+                                instance_edges
+                                    .try_reserve(1)
+                                    .map_err(|_| "cannot allocate instance edges")?;
+                                instance_edges.push((target, slot));
+                            } else {
+                                edges.push(target, slot)?;
+                            }
                         }
                     }
                     start += limit as usize;
                 }
                 if is_instance {
                     if let Some(ci) = class_index {
-                        let mut edges: Vec<_> = graph.targets[begin..]
-                            .iter()
-                            .copied()
-                            .zip(graph.slots[begin..].iter().copied())
-                            .collect();
-                        edges.sort_by(|a, b| {
-                            graph.layouts[ci][a.1 as usize]
+                        instance_edges.sort_by(|a, b| {
+                            layouts[ci][a.1 as usize]
                                 .name
-                                .cmp(&graph.layouts[ci][b.1 as usize].name)
+                                .cmp(&layouts[ci][b.1 as usize].name)
                                 .then_with(|| {
                                     (id_of(heap, a.0) as i64).cmp(&(id_of(heap, b.0) as i64))
                                 })
                         });
-                        for (i, (target, slot)) in edges.into_iter().enumerate() {
-                            graph.targets[begin + i] = target;
-                            graph.slots[begin + i] = slot;
+                        for (target, slot) in instance_edges {
+                            edges.push(target, slot)?;
                         }
                     }
                 }
             }
-            graph.offsets.push(graph.targets.len() as u32);
+            offsets.push(edges.len() as u32);
         }
         for class in &heap.classes {
             let mut slots: Vec<_> = class
@@ -194,49 +199,54 @@ impl Graph {
             });
             for (slot, value) in slots {
                 if let Some(target) = node_of(heap, value.bits) {
-                    graph.push(
+                    edges.push(
                         target,
                         u32::try_from(slot).map_err(|_| "too many static fields")?,
                     )?;
                 }
             }
-            graph.offsets.push(graph.targets.len() as u32);
+            offsets.push(edges.len() as u32);
         }
         heap.check_source()?;
-        Ok(graph)
+        Ok(Self {
+            offsets,
+            edges: edges.finish()?,
+            layouts,
+        })
     }
-    fn push(&mut self, target: u32, slot: u32) -> Result<(), String> {
-        if self.targets.len() >= (u32::MAX - 1) as usize {
-            return Err("heap exceeds compact edge index capacity".into());
+    pub fn edge(&self, edge: usize) -> Result<(u32, u32), String> {
+        let (target, slot) = self.edges.get(edge)?;
+        if target as usize >= self.offsets.len().saturating_sub(1) {
+            return Err("HPROF graph edge target out of bounds".into());
         }
-        self.targets
-            .try_reserve(1)
-            .map_err(|_| "cannot allocate graph edges")?;
-        self.slots
-            .try_reserve(1)
-            .map_err(|_| "cannot allocate graph edge slots")?;
-        self.targets.push(target);
-        self.slots.push(slot);
-        Ok(())
+        Ok((target, slot))
+    }
+    pub fn check_storage(&self) -> Result<(), String> {
+        self.edges.check()
     }
     pub fn range(&self, node: u32) -> std::ops::Range<usize> {
         self.offsets[node as usize] as usize..self.offsets[node as usize + 1] as usize
     }
-    pub fn field_name(&self, heap: &Heap, source: u32, slot: u32) -> String {
+    pub fn field_name(&self, heap: &Heap, source: u32, slot: u32) -> Result<String, String> {
         if let Some(object) = heap.objects.get(source as usize) {
             if matches!(object.kind, ObjectKind::ObjectArray) {
-                return format!("[{slot}]");
+                if slot >= object.count {
+                    return Err("HPROF graph array slot out of bounds".into());
+                }
+                return Ok(format!("[{slot}]"));
             }
             return heap
                 .class_by_id
                 .get(&object.class_id)
-                .and_then(|i| self.layouts[*i].get(slot as usize))
+                .and_then(|i| self.layouts.get(*i)?.get(slot as usize))
                 .map(|f| f.name.clone())
-                .unwrap_or_default();
+                .ok_or_else(|| "HPROF graph field slot out of bounds".into());
         }
-        heap.classes[source as usize - heap.objects.len()].static_fields[slot as usize]
-            .name
-            .clone()
+        heap.classes
+            .get(source as usize - heap.objects.len())
+            .and_then(|class| class.static_fields.get(slot as usize))
+            .map(|field| field.name.clone())
+            .ok_or_else(|| "HPROF graph static slot out of bounds".into())
     }
 }
 
@@ -248,6 +258,7 @@ pub struct Traversal {
 }
 impl Traversal {
     pub fn build(heap: &Heap, graph: &Graph, lexical_arrays: bool) -> Result<Self, String> {
+        graph.check_storage()?;
         let n = graph.offsets.len() - 1;
         let mut result = Self {
             depth: filled(n, NONE)?,
@@ -280,14 +291,15 @@ impl Traversal {
         while let Some(source) = queue.pop_front() {
             let visit =
                 |edge: usize, result: &mut Self, queue: &mut VecDeque<u32>| -> Result<(), String> {
-                    let target = graph.targets[edge] as usize;
+                    let (target, slot) = graph.edge(edge)?;
+                    let target = target as usize;
                     if result.depth[target] == NONE {
                         result.depth[target] = result.depth[source as usize]
                             .checked_add(1)
                             .filter(|d| *d != NONE)
                             .ok_or("root depth overflow")?;
                         result.predecessor[target] = source;
-                        result.slot[target] = graph.slots[edge];
+                        result.slot[target] = slot;
                         queue
                             .try_reserve(1)
                             .map_err(|_| "cannot grow root traversal")?;
@@ -301,10 +313,16 @@ impl Traversal {
                     .get(source as usize)
                     .is_some_and(|o| matches!(o.kind, ObjectKind::ObjectArray))
             {
-                let mut order: Vec<_> = graph.range(source).collect();
-                order.sort_unstable_by_key(|e| array_lex_key(graph.slots[*e]));
-                for edge in order {
-                    visit(edge, &mut result, &mut queue)?;
+                let mut order = Vec::new();
+                order
+                    .try_reserve_exact(graph.range(source).len())
+                    .map_err(|_| "cannot allocate array edge order")?;
+                for edge in graph.range(source) {
+                    order.push((graph.edge(edge)?.1, edge as u32));
+                }
+                order.sort_unstable_by_key(|(slot, _)| array_lex_key(*slot));
+                for (_, edge) in order {
+                    visit(edge as usize, &mut result, &mut queue)?;
                 }
             } else {
                 for edge in graph.range(source) {
@@ -312,6 +330,7 @@ impl Traversal {
                 }
             }
         }
+        graph.check_storage()?;
         Ok(result)
     }
 }
@@ -349,7 +368,14 @@ impl Analysis {
         Self::build_named(heap, &[])
     }
     pub fn build_named(heap: &Heap, names: &[String]) -> Result<Self, String> {
-        let graph = Graph::build_named(heap, names)?;
+        Self::build_named_with_storage(heap, names, GraphStorage::Memory)
+    }
+    pub fn build_named_with_storage(
+        heap: &Heap,
+        names: &[String],
+        storage: GraphStorage<'_>,
+    ) -> Result<Self, String> {
+        let graph = Graph::build_named_with_storage(heap, names, storage)?;
         let traversal = Traversal::build(heap, &graph, false)?;
         let shallow: Vec<_> = heap
             .objects
@@ -397,6 +423,7 @@ pub fn dominators(
     traversal: &Traversal,
     shallow: &[u64],
 ) -> Result<(Vec<u64>, Vec<u32>), String> {
+    graph.check_storage()?;
     let n = shallow.len();
     // A direct synthetic-root edge to every node leaves no nontrivial dominators.
     if traversal.roots.is_empty() {
@@ -442,7 +469,7 @@ pub fn dominators(
             let edge = range.start + *next;
             *next += 1;
             if edge < range.end {
-                Some(global_to_local[graph.targets[edge] as usize])
+                Some(global_to_local[graph.edge(edge)?.0 as usize])
             } else {
                 None
             }
@@ -466,7 +493,7 @@ pub fn dominators(
     }
     for &global in local_to_global.iter().skip(1) {
         for edge in graph.range(global) {
-            let target = global_to_local[graph.targets[edge] as usize];
+            let target = global_to_local[graph.edge(edge)?.0 as usize];
             if target != NONE {
                 offsets[target as usize + 1] += 1;
             }
@@ -486,7 +513,7 @@ pub fn dominators(
     }
     for (local, &global) in local_to_global.iter().enumerate().skip(1) {
         for edge in graph.range(global) {
-            let target = global_to_local[graph.targets[edge] as usize];
+            let target = global_to_local[graph.edge(edge)?.0 as usize];
             if target != NONE {
                 let i = target as usize;
                 predecessors[cursors[i]] = local as u32;
@@ -550,5 +577,6 @@ pub fn dominators(
                 .ok_or("retained size overflow")?;
         }
     }
+    graph.check_storage()?;
     Ok((retained, global_immediate))
 }

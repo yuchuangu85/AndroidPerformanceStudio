@@ -309,6 +309,8 @@ public data class MemoryProfilerState(
     val sampledArtTrace: MemorySampledArtTrace? = null,
     val sampledArtAnalysis: MemorySampledArtAnalysis? = null,
     val artifact: CaptureArtifact? = null,
+    val importDurationMillis: Long? = null,
+    val importEngine: String? = null,
     val viewMode: MemoryProfilerViewMode = MemoryProfilerViewMode.ClassList,
     val selectedClassName: String? = null,
     val selectedClassifierId: String? = null,

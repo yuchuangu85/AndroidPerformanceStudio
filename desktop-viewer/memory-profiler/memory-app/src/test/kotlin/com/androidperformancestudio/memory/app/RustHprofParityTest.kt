@@ -16,6 +16,7 @@ import com.androidperformancestudio.memory.presentation.MemoryDominatorRow
 import com.androidperformancestudio.memory.storage.MemorySessionMetadata
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -34,6 +35,48 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RustHprofParityTest {
+    @Test
+    fun `real native disk graph keeps all Kotlin snapshot queries and reclaims only transient edges`() =
+        withRichFixtures { root, file ->
+            try {
+                assumeTrue(Files.getFileStore(root).supportsFileAttributeView("posix"), "Disk graph mode is currently Unix-only")
+                val executable = Path.of(assertNotNull(System.getProperty("aps.hprofEngine.path")))
+                val digest = sha256(file)
+                val cache = root.resolve("parser-cache")
+                val edges = root.resolve("graph-edges")
+                RustHeapSnapshotSource.open(executable, file, digest, cacheDirectory = cache).use { memory ->
+                    RustHeapSnapshotSource
+                        .open(
+                            executable,
+                            file,
+                            digest,
+                            cacheDirectory = cache,
+                            graphStorage = "disk",
+                            graphDirectory = edges,
+                        ).use { disk ->
+                            assertEquals(memory.metadata, disk.metadata)
+                            assertHistogram(memory.histogram(), disk.histogram())
+                            assertEquals(memory.findings(), disk.findings())
+                            assertEquals(dominatorTree(memory), dominatorTree(disk))
+                            RustHprofFixture.objectIds.forEach { id ->
+                                assertEquals(memory.query.identity(id), disk.query.identity(id))
+                                assertEquals(memory.query.detailOf(id), disk.query.detailOf(id))
+                            }
+                            val names = memory.histogram().classes.map { it.className }
+                            for (heap in listOf<String?>(null) + memory.metadata.heaps) {
+                                assertEquals(allInstances(memory.query, names, heap), allInstances(disk.query, names, heap))
+                            }
+                            assertEquals(0L, Files.list(edges).use { it.count() }, "Open disk edges must be anonymous")
+                        }
+                }
+                assertTrue(Files.isRegularFile(file))
+                assertTrue(Files.list(cache).use { it.anyMatch { entry -> entry.fileName.toString().endsWith(".idx") } })
+                assertEquals(0L, Files.list(edges).use { it.count() })
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+
     @Test
     fun `real backend imports rich Android and standard 4 and 8 byte heaps with equal metrics`() =
         withRichFixtures { root, file ->

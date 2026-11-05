@@ -223,13 +223,16 @@ internal class RustHeapSnapshotSource private constructor(
             source: Path,
             sourceDigest: String,
             mapping: ProguardMapping? = null,
+            cacheDirectory: Path? = null,
+            graphStorage: String = "memory",
+            graphDirectory: Path? = null,
         ): RustHeapSnapshotSource {
             val resolved = source.toRealPath()
             require(Files.isRegularFile(resolved) && Files.isReadable(resolved)) {
                 "Rust HPROF source is not a readable regular file: $resolved"
             }
             val process = RustHprofProcess.start(executable, sourceDigest)
-            return open(process, resolved, mapping)
+            return open(process, resolved, mapping, cacheDirectory, graphStorage, graphDirectory)
         }
 
         /** Shared with stream-based transport tests; the caller transfers child ownership. */
@@ -238,16 +241,24 @@ internal class RustHeapSnapshotSource private constructor(
             process: RustHprofProcess,
             source: Path,
             mapping: ProguardMapping? = null,
+            cacheDirectory: Path? = null,
+            graphStorage: String = "memory",
+            graphDirectory: Path? = null,
         ): RustHeapSnapshotSource =
             try {
+                require(graphStorage == "memory" || graphStorage == "disk") { "Invalid Rust HPROF graph storage: $graphStorage" }
+                require(graphStorage != "disk" || graphDirectory != null) { "Disk Rust HPROF graph storage requires graphDirectory" }
                 val response =
                     process.request(
                         "open",
-                        mapOf(
-                            "path" to source.toString(),
-                            "sourceDigest" to process.sourceDigest,
-                            "mapping" to mapping?.obfuscatedToOriginal.orEmpty(),
-                        ),
+                        buildMap {
+                            put("path", source.toString())
+                            put("sourceDigest", process.sourceDigest)
+                            put("mapping", mapping?.obfuscatedToOriginal.orEmpty())
+                            cacheDirectory?.let { put("cacheDir", it.toString()) }
+                            if (graphStorage != "memory") put("graphStorage", graphStorage)
+                            graphDirectory?.let { put("graphDir", it.toString()) }
+                        },
                     )
                 RustHeapSnapshotSource(process, metadata(WireObject(response)))
             } catch (error: Throwable) {
