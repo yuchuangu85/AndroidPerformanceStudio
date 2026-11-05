@@ -730,7 +730,7 @@ fun FrameWindowScope.PerfettoMainPage(
                         "pftrace",
                         "perfetto-trace",
                     )
-                if (file != null) openTrace(file.toPath(), null, null)
+                if (file != null) openTrace(file.toPath(), null)
             } finally {
                 fileDialogOpen = false
             }
@@ -965,7 +965,10 @@ fun FrameWindowScope.PerfettoMainPage(
             onRunTraceSearch = runTraceSearch,
             onOpenTimestamp = { timestamp ->
                 val traceFile = activeTraceFile
-                if (traceFile != null) openTrace(traceFile, activeArtifact, timestamp)
+                if (traceFile != null) {
+                    openTrace(traceFile, activeArtifact)
+                    openInPerfettoUi(traceFile, timestamp)
+                }
             },
             onAddBookmark = addBookmark,
             onDeleteBookmark = { bookmarkId ->
