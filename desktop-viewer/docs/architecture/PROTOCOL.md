@@ -1,4 +1,4 @@
-# AndroidPerfermanceStudio Protocol v1
+# AndroidPerformanceStudio Protocol v1
 
 ## Protocol versions
 

@@ -352,8 +352,8 @@ jobs:
           }
           $VERSION = $env:VERSION
           New-Item -ItemType Directory -Force "release-assets" | Out-Null
-          Copy-Item $msiPackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.msi"
-          Copy-Item $exePackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.exe"
+          Copy-Item $msiPackages[0].FullName "release-assets\AndroidPerformanceStudio-$VERSION-windows-x64.msi"
+          Copy-Item $exePackages[0].FullName "release-assets\AndroidPerformanceStudio-$VERSION-windows-x64.exe"
       - name: Sign and verify Windows installers with timestamp
         shell: bash
         env:
@@ -493,11 +493,11 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/ai-release/sign.py sign macos \
-            --app desktop-viewer/desktop-app/build/compose/binaries/main/app/AndroidPerfermanceStudio.app \
+            --app desktop-viewer/desktop-app/build/compose/binaries/main/app/AndroidPerformanceStudio.app \
             --output release-assets --receipt "release-evidence/macos-$ARCH.json" \
             --version "$VERSION" --arch "$ARCH" --source-sha "$(git rev-parse HEAD)"
-          test -s "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.dmg"
-          test -s "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.pkg"
+          test -s "release-assets/AndroidPerformanceStudio-$VERSION-macos-$ARCH.dmg"
+          test -s "release-assets/AndroidPerformanceStudio-$VERSION-macos-$ARCH.pkg"
       - name: Seal source-bound macOS candidate receipt
         shell: bash
         env:
@@ -611,8 +611,8 @@ jobs:
             exit 1
           fi
           mkdir -p release-assets
-          cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.deb"
-          cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.rpm"
+          cp "${deb_packages[0]}" "release-assets/AndroidPerformanceStudio-$VERSION-linux-$ARCH.deb"
+          cp "${rpm_packages[0]}" "release-assets/AndroidPerformanceStudio-$VERSION-linux-$ARCH.rpm"
       - name: Seal source-bound unsigned Linux candidate receipt
         shell: bash
         env:

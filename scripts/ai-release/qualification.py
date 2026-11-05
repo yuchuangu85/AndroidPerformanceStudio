@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SANDBOX_MODULE = "desktop-app"
 PROVIDER_MODULE = "ai-platform-app"
 SANDBOX_SUITE = "com.androidperformancestudio.desktop.AiReleaseQualificationTest"
+# Filesystem timestamp granularity can exceed the gate's own runtime; a report written in the
+# same tick as `started` must still count as fresh.
+MTIME_TICK_TOLERANCE_SECONDS = 2.0
 PROVIDER_SUITE = "com.androidperformancestudio.aiplatform.app.LiveProviderAcceptanceTest"
 
 
@@ -34,7 +37,10 @@ def require_environment(names, environment=None):
 def verify_junit(directory, suite_name, started, method=None):
     """Only fresh, nonempty, fully executed results of the exact suite count."""
     report = Path(directory) / ("TEST-" + suite_name + ".xml")
-    if not report.is_file() or report.is_symlink() or report.stat().st_mtime < started:
+    # A report written within the same filesystem timestamp tick as `started` can carry an
+    # mtime that rounds to just before `started`; tolerate that sub-tick window instead of
+    # rejecting a report the gate itself just produced.
+    if not report.is_file() or report.is_symlink() or report.stat().st_mtime < started - MTIME_TICK_TOLERANCE_SECONDS:
         raise GateError("Missing or stale qualification report")
     if report.stat().st_size > 4 * 1024 * 1024:
         raise GateError("Oversized qualification report")

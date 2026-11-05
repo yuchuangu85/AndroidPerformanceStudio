@@ -311,9 +311,9 @@ def sign_macos(app, output, version, arch, directory):
         command(["/usr/bin/ditto", "-c", "-k", "--keepParent", copied, archive])
         notarize(archive, copied, keychain)
         command(["/usr/sbin/spctl", "--assess", "--type", "execute", copied])
-        prefix = "AndroidPerfermanceStudio-" + version + "-macos-" + arch
+        prefix = "AndroidPerformanceStudio-" + version + "-macos-" + arch
         dmg, pkg = output / (prefix + ".dmg"), output / (prefix + ".pkg")
-        command(["/usr/bin/hdiutil", "create", "-volname", "AndroidPerfermanceStudio", "-srcfolder", stage,
+        command(["/usr/bin/hdiutil", "create", "-volname", "AndroidPerformanceStudio", "-srcfolder", stage,
                  "-format", "UDZO", dmg])
         command(["/usr/bin/codesign", "--force", "--sign", identity, "--keychain", keychain, "--timestamp", dmg])
         command(["/usr/bin/codesign", "--verify", "--strict", dmg])
@@ -338,7 +338,7 @@ def is_macho(path):
 
 def names(target, version, arch):
     extensions = ("dmg", "pkg") if target == "macos" else ("msi", "exe")
-    return {"AndroidPerfermanceStudio-" + version + "-" + target + "-" + arch + "." + ext for ext in extensions}
+    return {"AndroidPerformanceStudio-" + version + "-" + target + "-" + arch + "." + ext for ext in extensions}
 
 
 def hashes(output, target, version, arch):

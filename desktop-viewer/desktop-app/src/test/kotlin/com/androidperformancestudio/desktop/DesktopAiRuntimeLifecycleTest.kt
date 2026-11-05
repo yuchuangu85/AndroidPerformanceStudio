@@ -177,6 +177,10 @@ class DesktopAiRuntimeLifecycleTest {
                                 navigator = navigator,
                                 language = UiLanguage.ENGLISH,
                                 navigationRailCollapsed = false,
+                                onToggleNavigationRailCollapsed = {},
+                                moduleOrder = emptyList(),
+                                screencastWindowOpen = false,
+                                onOpenScreencastWindow = {},
                                 onOpenAi = { visible = true },
                             ) {
                                 if (visible) {

@@ -4,7 +4,10 @@
 
 Android Performance Studio is a Compose Desktop workstation for collecting, inspecting, and correlating Android performance evidence. Layout, CPU, system traces, memory, frames, startup, battery, network, GPU tooling, and benchmark regression share one desktop shell, while each analyzer keeps its own data model and implementation.
 
-> Some executable and installer names retain the historical `AndroidPerfermanceStudio` spelling for compatibility.
+> Since 0.0.3, the application/package name is spelled `AndroidPerformanceStudio` (the historical
+> `AndroidPerfermanceStudio` typo is fixed). The Linux package/install path changed, so uninstall
+> the old package (`sudo dpkg -r androidperfermancestudio` / `sudo rpm -e AndroidPerfermanceStudio`)
+> before installing a newer build.
 
 ## Highlights
 
@@ -158,7 +161,7 @@ the packaged binary lost its executable bit during packaging. The app self-heals
 binary into a user-writable cache; if that fails, recover manually:
 
 ```bash
-sudo chmod +x /opt/androidperfermancestudio/lib/app/resources/perfetto-tools/trace_processor_shell
+sudo chmod +x /opt/androidperformancestudio/lib/app/resources/perfetto-tools/trace_processor_shell
 # or point at a self-installed copy:
 export PERFETTO_TRACE_PROCESSOR_PATH="$HOME/.android-performance-studio/tools/perfetto/v57.2/trace_processor_shell"
 ```

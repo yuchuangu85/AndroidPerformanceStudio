@@ -22,6 +22,9 @@ val firefoxProfilerDist = rootProject.layout.projectDirectory.dir("../third_part
 val perfettoUiDist = rootProject.layout.projectDirectory.dir("../third_party/perfetto/out/ui/dist")
 val perfettoTools = rootProject.layout.projectDirectory.dir("../build/perfetto-tools")
 val adbTools = rootProject.layout.projectDirectory.dir("../build/adb-tools")
+// Single source of truth for the packaged application name: jpackage packageName, .desktop
+// StartupWMClass, and the window WM_CLASS must all agree or GNOME Dock cannot match the icon.
+val desktopAppClassName = "AndroidPerformanceStudio"
 val adbToolsPreparationScript = rootProject.layout.projectDirectory.file("../scripts/prepare-adb-tools.py")
 val userDocumentationEnglish = rootProject.layout.projectDirectory.dir("../docs-user")
 val userDocumentationChinese = rootProject.layout.projectDirectory.dir("../docs-user-zh")
@@ -65,28 +68,41 @@ tasks
     .configureEach { dependsOn(prepareProfilerAppResources) }
 
 if (!System.getProperty("os.name").lowercase().contains("win")) {
-    // The :desktop-app:run dev runtime reads the Trace Processor straight out of the assembled
-    // app-resources dir, with no intervening jpackage copy. Ensure it is executable there so the
-    // resolver does not reject it in dev mode. (The published .deb/.rpm is fixed separately below.)
+    // Resources the runtime resolves as executables (AdbExecutableLocator, TraceProcessorToolResolver,
+    // RustHprofExecutableLocator, ScriptSandboxLauncherLocator). The Compose packaging plugin copies
+    // resources with Kotlin File.copyTo, which strips the POSIX executable bit, so every one of these
+    // must be repaired after packaging and verified in the final artifact.
+    val packagedExecutableResources = listOf(
+        "adb-tools/adb",
+        "perfetto-tools/trace_processor_shell",
+        "hprof-engine/aps-hprof-engine",
+        "script-sandbox/aps-script-sandbox",
+    )
+    // The :desktop-app:run dev runtime reads the binaries straight out of the assembled app-resources
+    // dir, with no intervening jpackage copy. Ensure they are executable there so the locators accept
+    // them in dev mode. (The published .deb is fixed separately below.)
     prepareProfilerAppResources.configure {
-        val resourcesPath = profilerAppResources.get().asFile.resolve("common/perfetto-tools/trace_processor_shell").absolutePath
+        val resourcesRootPath = profilerAppResources.get().asFile.resolve("common").absolutePath
+        val executables = packagedExecutableResources
         doLast {
-            val binary = File(resourcesPath)
-            check(binary.isFile) { "Packaged Trace Processor is missing from the assembled app resources: $binary" }
-            if (!binary.canExecute()) {
-                check(binary.setExecutable(true, false)) { "Unable to make the packaged Trace Processor executable: $binary" }
+            executables.forEach { relativePath ->
+                val binary = File(resourcesRootPath, relativePath)
+                check(binary.isFile) { "Packaged executable is missing from the assembled app resources: $binary" }
+                if (!binary.canExecute()) {
+                    check(binary.setExecutable(true, false)) { "Unable to make the packaged executable executable: $binary" }
+                }
+                check(binary.canExecute()) { "Packaged executable is not executable after assembly: $binary" }
             }
-            check(binary.canExecute()) { "Packaged Trace Processor is not executable after assembly: $binary" }
         }
     }
 
-    // The Compose packaging plugin copies resources with Kotlin File.copyTo, which strips the POSIX
-    // executable bit, and each packaging task (packageDeb/packageRpm/createDistributable/
-    // createReleaseDistributable) runs jpackage in a single call that builds the app-image and the
-    // package together — there is no Gradle hook between image creation and packaging, so the
-    // published payload ships the binary at 0644. Repack each produced archive after jpackage
-    // finishes: extract, chmod the Trace Processor, repack. CI builds via `packageDeb`/`packageRpm`,
-    // so the hook must cover those (not just createDistributable).
+    // Each packaging task (packageDeb/packageRpm/createDistributable/createReleaseDistributable) runs
+    // jpackage in a single call that builds the app-image and the package together — there is no
+    // Gradle hook between image creation and packaging, so the published payload ships executables
+    // at 0644. Repack each produced .deb after jpackage finishes: extract, repair the executable
+    // bits, patch the .desktop entries, verify the bundled runtime, repack, and verify the result.
+    // App-image outputs (createDistributable) are repaired and verified in place. CI builds via
+    // `packageDeb`/`packageRpm`, so the hook must cover those (not just createDistributable).
     //
     // The doLast action is kept self-contained (only uses the task's own logger/outputs, no script-
     // scope captures) so it is compatible with Gradle's configuration cache.
@@ -98,6 +114,7 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
         .matching { task -> task.name in packageTasks }
         .configureEach {
             val taskOutputs = outputs.files
+            val executableNames = packagedExecutableResources.map { it.substringAfterLast('/') }
             doLast {
                 val task = this
                 fun runCmd(vararg args: String): Int =
@@ -107,6 +124,89 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
                         .start()
                         .waitFor()
 
+                fun checkExecBits(payloadRoot: File, label: String) {
+                    executableNames.forEach { name ->
+                        val matches = payloadRoot.walkTopDown().filter { it.isFile && it.name == name }.toList()
+                        check(matches.isNotEmpty()) { "Packaged executable '$name' not found in payload: $label" }
+                        matches.forEach { binary ->
+                            if (!binary.canExecute()) {
+                                check(binary.setExecutable(true, false)) {
+                                    "Unable to make packaged executable executable in $label: $binary"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                fun checkDesktopEntries(payloadRoot: File, label: String) {
+                    // AWT's X11 toolkit derives the window WM_CLASS from the launcher's main class
+                    // (dots become dashes); the plain JDK ignores awt.appclass, so StartupWMClass
+                    // must match that derived value or GNOME Dock cannot match the running window.
+                    val mainClass = payloadRoot
+                        .walkTopDown()
+                        .filter { it.isFile && it.name.endsWith(".cfg") && it.parentFile.name == "app" }
+                        .firstOrNull()
+                        ?.readLines()
+                        ?.firstOrNull { it.startsWith("app.mainclass=") }
+                        ?.removePrefix("app.mainclass=")
+                        ?: error("No launcher cfg with app.mainclass found in payload: $label")
+                    val windowClass = mainClass.replace('.', '-')
+                    val desktopFiles = payloadRoot
+                        .walkTopDown()
+                        .filter { it.isFile && it.extension == "desktop" }
+                        .toList()
+                    check(desktopFiles.isNotEmpty()) { "No .desktop entries found in payload: $label" }
+                    desktopFiles.forEach { desktopFile ->
+                        val lines = desktopFile.readLines()
+                        val updated = mutableListOf<String>()
+                        var hasStartupWmClass = false
+                        var iconTarget: String? = null
+                        lines.forEach { line ->
+                            when {
+                                line.startsWith("StartupWMClass=") -> {
+                                    hasStartupWmClass = true
+                                    updated += "StartupWMClass=$windowClass"
+                                }
+                                line.startsWith("Icon=") -> {
+                                    iconTarget = line.substringAfter('=')
+                                    updated += line
+                                }
+                                else -> updated += line
+                            }
+                        }
+                        if (!hasStartupWmClass) updated += "StartupWMClass=$windowClass"
+                        desktopFile.writeText(updated.joinToString("\n") + "\n")
+                        val icon = iconTarget
+                        check(icon != null && icon.isNotBlank()) { "Desktop entry has no Icon=: $desktopFile" }
+                        check(File(payloadRoot, icon.removePrefix("/")).isFile) {
+                            "Desktop entry Icon target is missing from the payload: $label ($icon)"
+                        }
+                        task.logger.lifecycle("Verified desktop entry $desktopFile (StartupWMClass=$windowClass).")
+                    }
+                }
+
+                fun checkRuntime(payloadRoot: File, label: String) {
+                    val runtimeRoots = payloadRoot
+                        .walkTopDown()
+                        .filter { it.isDirectory && it.name == "runtime" && File(it, "release").isFile }
+                        .toList()
+                    check(runtimeRoots.isNotEmpty()) { "No bundled Java runtime found in payload: $label" }
+                    runtimeRoots.forEach { runtime ->
+                        // The Compose Desktop plugin's jlink strips the native commands (bin/), so the
+                        // launcher loads the JVM via JNI; verify the runtime's functional core instead.
+                        check(File(runtime, "lib/modules").isFile && File(runtime, "lib/server/libjvm.so").isFile) {
+                            "Bundled Java runtime is incomplete (missing lib/modules or lib/server/libjvm.so) " +
+                                "in $label: $runtime. Rebuild the package with a full JDK."
+                        }
+                    }
+                }
+
+                fun verifyPayload(payloadRoot: File, label: String) {
+                    checkExecBits(payloadRoot, label)
+                    checkDesktopEntries(payloadRoot, label)
+                    checkRuntime(payloadRoot, label)
+                }
+
                 // Each packaging task declares a destination directory; the produced .deb/.rpm lives
                 // there. Scan the output tree for archives.
                 val outDirs = taskOutputs.files.filter { it.isDirectory }
@@ -115,11 +215,10 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
                 } else {
                     taskOutputs.files.filter { it.isFile && (it.extension == "deb" || it.extension == "rpm") }
                 }
-                val binaryName = "trace_processor_shell"
                 archives.forEach { archive ->
                     if (archive.extension == "deb") {
                         if (runCmd("dpkg-deb", "--version") != 0) {
-                            task.logger.warn("dpkg-deb not found; skipping Trace Processor exec-bit repack of $archive (runtime self-heal will cover it).")
+                            task.logger.warn("dpkg-deb not found; skipping exec-bit/desktop/runtime repack of $archive (runtime self-heal will cover the exec bits).")
                             return@forEach
                         }
                         val workdir = Files.createTempDirectory("deb-repack")
@@ -128,13 +227,7 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
                             check(runCmd("dpkg-deb", "-x", archive.absolutePath, root.toString()) == 0) { "dpkg-deb -x failed for $archive" }
                             check(runCmd("dpkg-deb", "-e", archive.absolutePath, root.resolve("DEBIAN").toString()) == 0) { "dpkg-deb -e failed for $archive" }
 
-                            val binaries = File(root.toString()).walkTopDown().filter { it.name == binaryName && it.isFile }.toList()
-                            check(binaries.isNotEmpty()) { "Trace Processor $binaryName not found in .deb payload: $archive" }
-                            binaries.forEach { binary ->
-                                if (!binary.canExecute()) {
-                                    check(binary.setExecutable(true, false)) { "Unable to make Trace Processor executable in .deb: $binary" }
-                                }
-                            }
+                            verifyPayload(root.toFile(), archive.name)
 
                             val repacked = workdir.resolve("repacked.deb")
                             check(runCmd("dpkg-deb", "--build", root.toString(), repacked.toString()) == 0) { "dpkg-deb --build failed for $archive" }
@@ -143,9 +236,8 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
 
                             val verifyRoot = workdir.resolve("verify")
                             check(runCmd("dpkg-deb", "-x", archive.absolutePath, verifyRoot.toString()) == 0) { "verify dpkg-deb -x failed for $archive" }
-                            val verified = File(verifyRoot.toString()).walkTopDown().filter { it.name == binaryName && it.isFile }.toList()
-                            check(verified.all { it.canExecute() }) { "Repacked .deb Trace Processor is not executable: $archive" }
-                            task.logger.lifecycle("Repacked $archive: Trace Processor marked executable.")
+                            verifyPayload(verifyRoot.toFile(), "repacked $archive")
+                            task.logger.lifecycle("Repacked $archive: executables marked executable, desktop entries verified, runtime checked.")
                         } finally {
                             workdir.toFile().deleteRecursively()
                         }
@@ -154,6 +246,19 @@ if (!System.getProperty("os.name").lowercase().contains("win")) {
                         // resolver's runtime self-heal.
                         task.logger.warn("RPM exec-bit repack not implemented for $archive; rpm installs rely on runtime self-heal. (.deb is repacked.)")
                     }
+                }
+
+                // App-image outputs (createDistributable/createReleaseDistributable) are plain
+                // directories: repair and verify them in place so dev/test installs of the image
+                // carry the same integrity guarantees as the .deb.
+                val appImages = outDirs.flatMap { dir ->
+                    dir.walkTopDown()
+                        .filter { it.isDirectory && File(it, "lib/app").isDirectory && File(it, "lib/runtime").isDirectory }
+                        .toList()
+                }
+                appImages.forEach { image ->
+                    verifyPayload(image, image.name)
+                    task.logger.lifecycle("Verified app image $image.")
                 }
             }
         }
@@ -606,7 +711,7 @@ tasks.test {
 compose.desktop {
     application {
         mainClass = "com.androidperformancestudio.desktop.MainKt"
-        jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")
+        jvmArgs("-Dapple.awt.application.name=AndroidPerformanceStudio")
         jvmArgs("-Dagentperf.version=$appVersion")
         // Large HPROF graphs need headroom beyond parsing for class and reference drill-down.
         // Keep a finite cap so oversized imports produce a recoverable Java OOME.
@@ -633,7 +738,7 @@ compose.desktop {
                 TargetFormat.Deb,
                 TargetFormat.Rpm,
             )
-            packageName = "AndroidPerfermanceStudio"
+            packageName = desktopAppClassName
             packageVersion = appVersion
             windows {
                 iconFile.set(project.file("src/main/package/windows/app-icon.ico"))

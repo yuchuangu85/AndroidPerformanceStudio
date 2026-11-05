@@ -45,7 +45,7 @@ def asset_names(target, version, arch):
     if (target, arch) not in TARGETS:
         raise GateError("Unsupported release candidate target")
     if target == "linux":
-        return {"AndroidPerfermanceStudio-" + version + "-linux-" + arch + "." + ext for ext in ("deb", "rpm")}
+        return {"AndroidPerformanceStudio-" + version + "-linux-" + arch + "." + ext for ext in ("deb", "rpm")}
     return sign.names(target, version, arch)
 
 
@@ -233,7 +233,7 @@ def publish(github, root, version, source_sha, run_id, attempt):
             raise GateError("New release tag does not match the qualified source")
     assert_tag(github, tag, frozen, source_sha)
     release = github.request("/releases", "POST", {"tag_name": tag, "target_commitish": source_sha,
-                             "name": "AndroidPerfermanceStudio " + version, "draft": True, "prerelease": False})
+                             "name": "AndroidPerformanceStudio " + version, "draft": True, "prerelease": False})
     release_id = release.get("id") if isinstance(release, dict) else None
     release_metadata(release, release_id, tag, source_sha, True)
     if release.get("assets") != []:

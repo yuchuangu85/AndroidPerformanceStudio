@@ -4,7 +4,9 @@
 
 Android Performance Studio 是一个基于 Compose Desktop 的 Android 性能分析工作台，用于采集、查看和关联性能证据。布局、CPU、系统 Trace、内存、帧耗时、启动、电量、网络、GPU 工具和基准回归分析共用一个桌面应用，同时保持各分析器的数据模型与实现边界。
 
-> 部分可执行文件和安装包文件名沿用历史拼写 `AndroidPerfermanceStudio`，以保持兼容。
+> 自 0.0.3 起应用/安装包名称统一为正确拼写 `AndroidPerformanceStudio`（修正历史笔误
+> `AndroidPerfermanceStudio`）。Linux 包名/安装路径随之变化，安装新构建前请先卸载旧包
+> （`sudo dpkg -r androidperfermancestudio` 或 `sudo rpm -e AndroidPerfermanceStudio`）。
 
 ## 特性概览
 
@@ -156,7 +158,7 @@ sdkmanager --sdk_root="${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK}" --
 若轨迹诊断提示 `Trace Processor is not executable: .../perfetto-tools/trace_processor_shell`，说明打包后的二进制在打包过程中丢失了可执行权限位。应用首次运行时会自动自愈（将二进制复制到用户可写的缓存目录并加上执行位）；若自愈失败，可手动恢复：
 
 ```bash
-sudo chmod +x /opt/androidperfermancestudio/lib/app/resources/perfetto-tools/trace_processor_shell
+sudo chmod +x /opt/androidperformancestudio/lib/app/resources/perfetto-tools/trace_processor_shell
 # 或指向自行安装的副本：
 export PERFETTO_TRACE_PROCESSOR_PATH="$HOME/.android-performance-studio/tools/perfetto/v57.2/trace_processor_shell"
 ```

@@ -32,7 +32,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AndroidPerfermanceStudio"
+rootProject.name = "AndroidPerformanceStudio"
 
 include(":desktop-app")
 

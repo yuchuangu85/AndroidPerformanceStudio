@@ -13,7 +13,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.androidperformancestudio.ui.installDefaultWindowMenuBar
 
-internal const val APP_DISPLAY_NAME = "AndroidPerfermanceStudio"
+internal const val APP_DISPLAY_NAME = "AndroidPerformanceStudio"
 
 fun main() {
     // The window's own menu bar only attaches after the first Compose frame; until then macOS would

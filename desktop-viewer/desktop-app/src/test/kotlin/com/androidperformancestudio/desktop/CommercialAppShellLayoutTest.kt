@@ -44,7 +44,11 @@ class CommercialAppShellLayoutTest {
                                     navigator = navigator,
                                     language = language,
                                     navigationRailCollapsed = collapsed,
+                                    onToggleNavigationRailCollapsed = {},
+                                    moduleOrder = emptyList(),
                                     onOpenAi = { opened++ },
+                                    screencastWindowOpen = false,
+                                    onOpenScreencastWindow = {},
                                 ) { Box(Modifier.fillMaxSize()) }
                             }
                         }
@@ -86,6 +90,10 @@ class CommercialAppShellLayoutTest {
                                         navigator = navigator,
                                         language = language,
                                         navigationRailCollapsed = collapsed,
+                                        onToggleNavigationRailCollapsed = {},
+                                        moduleOrder = emptyList(),
+                                        screencastWindowOpen = false,
+                                        onOpenScreencastWindow = {},
                                         modifier = Modifier.testTag("commercial-shell"),
                                     ) {
                                         Box(Modifier.fillMaxSize().testTag("shell-destination-content"))
@@ -114,11 +122,12 @@ class CommercialAppShellLayoutTest {
 
         assertEquals(root, shell, scenario)
         assertEquals(root.top, rail.top, scenario)
-        assertEquals(root.bottom, rail.bottom, "$scenario: rail must not reserve the old 28dp footer")
         assertEquals(root.left, rail.left, scenario)
         assertEquals(expectedRailWidth, rail.right - rail.left, scenario)
         assertEquals(root.top, content.top, scenario)
-        assertEquals(root.bottom, content.bottom, "$scenario: content must not reserve the old 28dp footer")
+        // Rail and content share the region above the shell's functional status bar (destination
+        // title + workspace context); the removed 28dp footer gutter must not come back.
+        assertEquals(rail.bottom, content.bottom, "$scenario: rail and content end together above the status bar")
         assertEquals(rail.right, content.left, scenario)
         assertEquals(root.right, content.right, scenario)
         onNodeWithTag("studio-navigation-rail").assertIsDisplayed()

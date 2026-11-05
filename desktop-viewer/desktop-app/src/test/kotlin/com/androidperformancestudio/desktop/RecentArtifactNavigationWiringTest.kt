@@ -30,8 +30,10 @@ class RecentArtifactNavigationWiringTest {
 
         // The fallback menu's file picker routes selected artifacts into the Perfetto and Memory
         // import flows (the Quick Actions row that used to host these has been removed).
-        assertTrue(app.contains("chooseHomeArtifact()?.let { navigator.openPerfettoTrace(it) }"))
-        assertTrue(app.contains("chooseHomeArtifact()?.let { navigator.openMemoryProfiler(it) }"))
+        assertTrue(app.contains("""chooseHomeArtifact(window, localizedStringResource(Res.string.open_trace_file, language))"""))
+        assertTrue(app.contains("""?.let { navigator.openPerfettoTrace(it) }"""))
+        assertTrue(app.contains("""chooseHomeArtifact(window, localizedStringResource(Res.string.analyze_hprof, language))"""))
+        assertTrue(app.contains("""?.let { navigator.openMemoryProfiler(it) }"""))
         assertTrue(app.contains("initialTraceRequestId = navigator.perfettoTraceRequestId"))
         assertTrue(app.contains("initialImportRequestId = navigator.memoryImportRequestId"))
     }

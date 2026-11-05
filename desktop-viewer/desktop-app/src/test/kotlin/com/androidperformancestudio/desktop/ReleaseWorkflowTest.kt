@@ -86,12 +86,12 @@ class ReleaseWorkflowTest {
 
         assertTrue(workflow.contains("permissions:\n  contents: read"))
         assertTrue(workflow.contains("permissions:\n      contents: write"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-windows-x64.msi"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-windows-x64.exe"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-macos-${'$'}ARCH.dmg"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-macos-${'$'}ARCH.pkg"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-${'$'}ARCH.deb"))
-        assertTrue(workflow.contains("AndroidPerfermanceStudio-${'$'}VERSION-linux-${'$'}ARCH.rpm"))
+        assertTrue(workflow.contains("AndroidPerformanceStudio-${'$'}VERSION-windows-x64.msi"))
+        assertTrue(workflow.contains("AndroidPerformanceStudio-${'$'}VERSION-windows-x64.exe"))
+        assertTrue(workflow.contains("AndroidPerformanceStudio-${'$'}VERSION-macos-${'$'}ARCH.dmg"))
+        assertTrue(workflow.contains("AndroidPerformanceStudio-${'$'}VERSION-macos-${'$'}ARCH.pkg"))
+        assertTrue(workflow.contains("AndroidPerformanceStudio-${'$'}VERSION-linux-${'$'}ARCH.deb"))
+        assertTrue(workflow.contains("AndroidPerformanceStudio-${'$'}VERSION-linux-${'$'}ARCH.rpm"))
         assertTrue(publication.contains("Release asset mismatch"))
         assertTrue(workflowJob(workflow, "publish").contains("publication.py publish"))
         assertTrue(workflow.contains("tag_exists=${'$'}{tag_exists}"))
@@ -119,7 +119,7 @@ class ReleaseWorkflowTest {
         val expected = listOf(
             "windows-x64.msi", "windows-x64.exe", "macos-arm64.dmg", "macos-arm64.pkg", "macos-x64.dmg", "macos-x64.pkg",
             "linux-x64.deb", "linux-x64.rpm", "linux-arm64.deb", "linux-arm64.rpm",
-        ).map { "AndroidPerfermanceStudio-1.2.3-$it" }.sorted()
+        ).map { "AndroidPerformanceStudio-1.2.3-$it" }.sorted()
         assertEquals(expected, assets)
     }
 

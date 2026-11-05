@@ -8,17 +8,20 @@ import org.junit.jupiter.api.Test
 
 class ApplicationDisplayNameTest {
     @Test
-    fun `runtime and distribution use AndroidPerfermanceStudio`() {
-        assertEquals("AndroidPerfermanceStudio", APP_DISPLAY_NAME)
+    fun `runtime and distribution use AndroidPerformanceStudio`() {
+        assertEquals("AndroidPerformanceStudio", APP_DISPLAY_NAME)
 
         val buildScript = Files.readString(Path.of("build.gradle.kts"))
         assertTrue(
             buildScript.contains(
-                """jvmArgs("-Dapple.awt.application.name=AndroidPerfermanceStudio")""",
+                """jvmArgs("-Dapple.awt.application.name=AndroidPerformanceStudio")""",
             ),
         )
         assertTrue(
-            buildScript.contains("""packageName = "AndroidPerfermanceStudio""""),
+            buildScript.contains("""packageName = desktopAppClassName"""),
+        )
+        assertTrue(
+            buildScript.contains("""val desktopAppClassName = "AndroidPerformanceStudio""""),
         )
     }
 }

@@ -125,7 +125,7 @@ Provider 进程、通用独立 child/脚本图与 11 类业务上下文。Codex 
   不改生产过滤行为；原失败与重验日志分别归档，最终计数见证据 summary。
 - `checkAll` 包含 10 个模块的编译、tests 和 ktlint。桌面编译及本机
   `createDistributable` 通过，产物位于
-  `desktop-viewer/desktop-app/build/compose/binaries/main/app/AndroidPerfermanceStudio.app`。
+  `desktop-viewer/desktop-app/build/compose/binaries/main/app/AndroidPerformanceStudio.app`。
 - 40 张 Compose 截图位于
   `desktop-viewer/ai-platform/ai-platform-presentation/build/reports/ai-workspace/`，覆盖 Chat、
   Provider、Agent、Skill、Policy 的 8 种语言/主题/尺寸组合。已检查窄/宽聊天页及设置页图像，

@@ -153,8 +153,8 @@ jobs:
             exit 1
           fi
           mkdir -p release-assets
-          cp "${deb_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.deb"
-          cp "${rpm_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-linux-$ARCH.rpm"
+          cp "${deb_packages[0]}" "release-assets/AndroidPerformanceStudio-$VERSION-linux-$ARCH.deb"
+          cp "${rpm_packages[0]}" "release-assets/AndroidPerformanceStudio-$VERSION-linux-$ARCH.rpm"
 
       - name: Upload Linux installers as workflow artifact
         uses: actions/upload-artifact@v4

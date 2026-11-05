@@ -44,9 +44,10 @@ class ProfilerThemeSupportTest {
     fun `feature pages inherit the shell theme while title bar targets use fixed scale`() {
         val shell = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"))
 
-        // Two ViewerTheme roots: the main shell (feature pages inherit it) and the separate
-        // device-screencast OS window, which is its own composition root and must bring its own theme.
-        assertEquals(2, Regex("ViewerTheme\\(").findAll(shell).count())
+        // Three ViewerTheme roots: the main shell (feature pages inherit it), the title-bar target
+        // controls strip (fixed scale by design), and the separate device-screencast OS window,
+        // which is its own composition root and must bring its own theme.
+        assertEquals(3, Regex("ViewerTheme\\(").findAll(shell).count())
         assertTrue(shell.contains("displayScale = 1f"))
         assertTrue(shell.contains("displayScale = applicationSettings.displayScale.multiplier"))
         featurePageSources().forEach { source ->
