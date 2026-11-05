@@ -96,6 +96,42 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fakeroot rpm
 
+      - name: Prepare application-managed Linux ADB
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/install-adb-tools.py --host linux-x64
+
+      - name: Set up pinned Rust 1.85.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.85.1 --profile minimal
+          rustup run 1.85.1 rustc --version
+          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
+
+      - name: Build and verify Compose agent bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(command -v sdkmanager)"
+          fi
+          sdk_root="$RUNNER_TEMP/compose-agent-sdk"
+          # Reuse the licenses already accepted by the hosted runner. An isolated SDK prevents
+          # preinstalled platform, NDK or CMake versions from changing the selected toolchain.
+          mkdir -p "$sdk_root/licenses"
+          cp "$ANDROID_HOME/licenses/"* "$sdk_root/licenses/"
+          "$sdkmanager" --sdk_root="$sdk_root" --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1"
+          export ANDROID_HOME="$sdk_root"
+          export ANDROID_SDK_ROOT="$sdk_root"
+          ./desktop-viewer/gradlew -p desktop-viewer :layout-inspector:compose-agent-build:verifyComposeAgentBundle --no-configuration-cache --no-daemon
+
       - name: Build DEB and RPM
         run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -PappVersion=${{ steps.ver.outputs.version }} -Ptarget.arch=x64 --no-daemon
 

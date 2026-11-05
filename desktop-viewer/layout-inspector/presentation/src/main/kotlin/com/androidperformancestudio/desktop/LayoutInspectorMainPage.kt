@@ -348,7 +348,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     DisposableEffect(composeSession) {
         onDispose { composeSession?.close() }
     }
-    var availableDevices by remember { mutableStateOf<List<AndroidDeviceInfo>>(emptyList()) }
     var selectedDeviceSerial by remember(correlationHint) { mutableStateOf(correlationHint?.deviceSerial) }
     val titleBarTargets = LocalTitleBarTargetHost.current
     var deviceListRefreshRequest by remember { mutableStateOf(0) }

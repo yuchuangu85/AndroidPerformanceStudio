@@ -137,6 +137,8 @@ data class TraceAnalyzerWorkspaceActions(
     val onRunDiagnostic: (String) -> Unit = {},
     val onOpenInTimeline: (TraceInsightEvidence) -> Unit = {},
     val onOpenViewer: (TraceWorkspaceArtifact) -> Unit = {},
+    /** Opens the trace in the native trace_processor engine (large-trace fallback). */
+    val onOpenNativeEngine: (TraceWorkspaceArtifact) -> Unit = {},
     val onExport: (TraceWorkspaceArtifact) -> Unit = {},
     val onSelectPreset: (String) -> Unit = {},
     val onRunPreset: () -> Unit = {},
