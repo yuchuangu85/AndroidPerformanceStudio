@@ -65,7 +65,6 @@ import com.androidperformancestudio.benchmark.app.BenchmarkRegressionMainPage
 import com.androidperformancestudio.frame.app.FrameProfilerMainPage
 import com.androidperformancestudio.gpu.app.GpuIntegrationMainPage
 import com.androidperformancestudio.memory.app.MemoryProfilerMainPage
-import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.methodrecording.app.MethodRecordingMainPage
 import com.androidperformancestudio.network.app.NetworkProfilerMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
@@ -522,7 +521,6 @@ fun FrameWindowScope.DesktopAppMainPage(
                             AppDestination.MEMORY_PROFILER ->
                                 MemoryProfilerMainPage(
                                     language = language,
-                                    hprofEngine = applicationSettings.hprofEngine,
                                     highlightClassName = memoryHighlightClassName,
                                     initialImportFile = navigator.memoryImportFile,
                                     initialImportRequestId = navigator.memoryImportRequestId,

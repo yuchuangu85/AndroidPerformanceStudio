@@ -37,10 +37,6 @@ import com.androidperformancestudio.memory.export.BitmapDumpExportAdapters
 import com.androidperformancestudio.memory.export.MemoryExportAdapters
 import com.androidperformancestudio.memory.hprof.BitmapDumpParseException
 import com.androidperformancestudio.memory.hprof.BitmapDumpParser
-import com.androidperformancestudio.memory.hprof.HprofInputProbe
-import com.androidperformancestudio.memory.hprof.HprofParseException
-import com.androidperformancestudio.memory.hprof.HprofParser
-import com.androidperformancestudio.memory.hprof.HprofRecordIndexer
 import com.androidperformancestudio.memory.leak.protocol.LeakCanaryAgentResponse
 import com.androidperformancestudio.memory.memory_app.generated.resources.Res
 import com.androidperformancestudio.memory.memory_app.generated.resources.android_sdk_platform_tools_not_found
@@ -113,14 +109,9 @@ internal class DesktopMemoryProfilerBackend(
     private val javaHeapArtifactAnalyzer: JavaHeapArtifactAnalyzer = PerfettoJavaHeapArtifactAnalyzer(),
     private val sampledArtArtifactAnalyzer: SampledArtArtifactAnalyzer = PerfettoSampledArtArtifactAnalyzer(),
     private val hprofClassMetricsAnalyzer: HprofClassMetricsAnalyzer = TraceProcessorHprofClassMetricsAnalyzer(),
-    @Volatile private var hprofEngine: com.androidperformancestudio.memory.model.HprofEngine =
-        com.androidperformancestudio.memory.model.HprofEngine.DEFAULT,
     private val rustExecutable: () -> Path = RustHprofExecutableLocator::resolve,
     private val rustGraphStorage: String = System.getProperty("aps.hprof.rust.graphStorage", "memory"),
 ) : MemoryProfilerBackend {
-    private val parser = HprofParser()
-    private val inputProbe = HprofInputProbe()
-    private val recordIndexer = HprofRecordIndexer()
     private val analyzer = MemoryDeepAnalyzer()
     private val exports = MemoryExportAdapters()
     private val bitmapParser = BitmapDumpParser()
@@ -141,10 +132,6 @@ internal class DesktopMemoryProfilerBackend(
 
     override fun changeLanguage(language: UiLanguage) {
         this.language = language
-    }
-
-    override fun changeHprofEngine(engine: com.androidperformancestudio.memory.model.HprofEngine) {
-        hprofEngine = engine
     }
 
     override fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription {
@@ -506,7 +493,7 @@ internal class DesktopMemoryProfilerBackend(
             }
         }
 
-    override suspend fun importJavaHeap(file: Path): MemoryBackendResult<LoadedHeap> =
+    override suspend fun importJavaHeap(file: Path): MemoryBackendResult<LoadedSnapshot> =
         withContext(Dispatchers.IO) {
             if (!Files.isRegularFile(file)) {
                 MemoryBackendResult.Failure(
@@ -756,7 +743,7 @@ internal class DesktopMemoryProfilerBackend(
             mappingDigest = digestFile(file)
             val last = lastLoadRequest
             if (last == null) {
-                MemoryBackendResult.Success<LoadedHeap?>(null)
+                MemoryBackendResult.Success<LoadedSnapshot?>(null)
             } else {
                 when (val result = loadHeap(last)) {
                     is MemoryBackendResult.Success -> MemoryBackendResult.Success(result.value)
@@ -902,138 +889,18 @@ internal class DesktopMemoryProfilerBackend(
         bitmapExports.exportComparisonMarkdown(comparison, output)
     }
 
-    @Suppress("CyclomaticComplexMethod")
     private suspend fun loadHeap(
         request: HeapLoadRequest,
         onProgress: (Int) -> Unit = {},
-    ): MemoryBackendResult<LoadedSnapshot> =
-        if (hprofEngine == com.androidperformancestudio.memory.model.HprofEngine.RUST) {
-            lastLoadRequest = request
-            loadRustHeap(request, onProgress)
-        } else {
-            loadLegacyHeap(request, onProgress)
-        }
-
-    @Suppress("CyclomaticComplexMethod")
-    private suspend fun loadLegacyHeap(
-        request: HeapLoadRequest,
-        onProgress: (Int) -> Unit,
     ): MemoryBackendResult<LoadedSnapshot> {
-        val previousRequest = lastLoadRequest
         lastLoadRequest = request
-        val previousHeap = lastLoadedHeap
-        return try {
-            val probe = inputProbe.inspect(request.file)
-            val probeWarning = probe.warnings.joinToString(separator = "\n").ifBlank { null }
-            val indexFile = ensureLargeFileIndex(request.file, probe.fileSizeBytes)
-            val analysisSourceDigest = digestFile(request.file)
-            // Re-importing the same unchanged source must not materialize another multi-gigabyte
-            // graph while the previous snapshot is still retained by the workspace.
-            val reusable = reusableLoadedHeap(request, previousRequest, previousHeap as? LoadedHeap, analysisSourceDigest)
-            if (reusable != null) {
-                onProgress(100)
-                require(digestFile(request.file) == analysisSourceDigest) {
-                    "The HPROF source changed during import. Re-import the snapshot before analysis."
-                }
-                val reused =
-                    reusable.copy(
-                        uiSettings = request.sessionMetadata?.sessionId?.let(::loadWorkspaceSettings) ?: reusable.uiSettings,
-                    )
-                lastLoadedHeap = reused
-                return MemoryBackendResult.Success(reused)
-            }
-            val parsedFile =
-                parser.parse(request.file) { parserProgress -> onProgress(parserProgress / 2) }.copy(
-                    rawHprofFile = request.rawFile,
-                    convertedHprofFile = request.convertedFile,
-                )
-            val mappingForLoad = validatedMapping()
-            val mappingWarning = invalidMappingWarning(mappingForLoad)
-            val deobfuscated = mappingForLoad?.let { parsedFile.withDeobfuscation(it) } ?: parsedFile
-            val parserWarning =
-                parsedFile.warnings
-                    .joinToString(separator = "\n", transform = { it.message })
-                    .ifBlank { null }
-            val capturedAt = Instant.now()
-            val analyzed =
-                analyzeAndPackage(
-                    heapDump = deobfuscated,
-                    id = request.sessionMetadata?.sessionId ?: request.file.fileName.toString(),
-                    packageName = request.sessionMetadata?.packageName.orEmpty(),
-                    pid = request.sessionMetadata?.pid ?: 0,
-                    capturedAt = capturedAt,
-                    emptyWarningFileName = request.file.fileName.toString(),
-                    extraWarning =
-                        listOfNotNull(request.warning, probeWarning, mappingWarning, parserWarning)
-                            .joinToString("\n")
-                            .ifBlank { null },
-                    cleanupWarning = request.cleanupWarning,
-                    onAnalysisProgress = { onProgress(50 + it / 2) },
-                    deobfuscator = mappingForLoad,
-                    analysisSourceDigest = analysisSourceDigest,
-                )
-            val loaded =
-                hprofClassMetricsAnalyzer
-                    .analyze(request.file)
-                    ?.let { analyzed.withTraceProcessorNativeSizes(it, parsedFile, mappingForLoad) }
-                    ?: analyzed
-            require(digestFile(request.file) == analysisSourceDigest) {
-                "The HPROF source changed during import. Re-import the snapshot before analysis."
-            }
-            request.sessionMetadata?.let { metadata ->
-                persistSession(
-                    metadata,
-                    capturedAt,
-                    request.rawFile,
-                    request.convertedFile,
-                    loaded.histogram.summary,
-                    mappingFile,
-                    mappingDigest,
-                )
-            }
-            val uiSettings = request.sessionMetadata?.sessionId?.let(::loadWorkspaceSettings) ?: MemorySessionUiSettings()
-            val completed =
-                loaded.copy(
-                    uiSettings = uiSettings,
-                    sourceFileDigest =
-                        if (request.rawFile == request.file) analysisSourceDigest else digestFile(request.rawFile),
-                    mappingDigest = mappingDigest,
-                    indexFile = indexFile,
-                )
-            lastLoadedHeap = completed
-            MemoryBackendResult.Success(completed)
-        } catch (exception: HprofParseException) {
-            lastLoadedHeap = previousHeap
-            analysisFailure(exception)
-        } catch (exception: IOException) {
-            lastLoadedHeap = previousHeap
-            analysisFailure(exception)
-        } catch (exception: IllegalArgumentException) {
-            lastLoadedHeap = previousHeap
-            analysisFailure(exception)
-        } catch (exception: SQLException) {
-            lastLoadedHeap = previousHeap
-            analysisFailure(exception)
-        }
-    }
-
-    private fun reusableLoadedHeap(
-        request: HeapLoadRequest,
-        previousRequest: HeapLoadRequest?,
-        previousHeap: LoadedHeap?,
-        analysisSourceDigest: String,
-    ): LoadedHeap? {
-        if (request.rawFile != request.file || request != previousRequest) return null
-        return previousHeap?.takeIf {
-            it.analysisSourceDigest == analysisSourceDigest && it.mapping === validatedMapping()
-        }
+        return loadRustHeap(request, onProgress)
     }
 
     /** Keep ownership outside the dispatcher boundary so cancelled delivery cannot lose a sidecar. */
     private suspend fun <T : LoadedSnapshot?> snapshotIo(load: suspend () -> MemoryBackendResult<T>): MemoryBackendResult<T> =
         snapshotLoadMutex.withLock {
             val previousHeap = lastLoadedHeap
-            val previousRequest = lastLoadRequest
             val previousMapping = mapping
             val previousMappingFile = mappingFile
             val previousMappingDigest = mappingDigest
@@ -1055,13 +922,10 @@ internal class DesktopMemoryProfilerBackend(
             } finally {
                 if (!delivered) {
                     try {
-                        val abandoned =
-                            acquired
-                                ?.takeIf { it.engine == com.androidperformancestudio.memory.model.HprofEngine.RUST && it !== previousHeap }
+                        val abandoned = acquired?.takeIf { it !== previousHeap }
                         closeHeapResources(listOfNotNull(abandoned), cancellation)
                     } finally {
                         lastLoadedHeap = previousHeap
-                        lastLoadRequest = previousRequest
                         mapping = previousMapping
                         mappingFile = previousMappingFile
                         mappingDigest = previousMappingDigest
@@ -1170,6 +1034,7 @@ internal class DesktopMemoryProfilerBackend(
                 )
             }
             onProgress(100)
+            context.ensureActive()
             lastLoadedHeap = loaded
             opened = null
             transferred = true
@@ -1187,116 +1052,6 @@ internal class DesktopMemoryProfilerBackend(
             closeHeapResources(resources, cancellation)
         }
     }
-
-    /** TP names belong to the raw file; validate them before mapping can merge class identities. */
-    @Suppress("ReturnCount", "CyclomaticComplexMethod")
-    private fun LoadedHeap.withTraceProcessorNativeSizes(
-        metrics: List<HprofClassMetric>,
-        rawHeapDump: HeapDump,
-        classMapping: ProguardMapping?,
-    ): LoadedHeap {
-        if (metrics.isEmpty()) return this
-        val normalized = metrics.groupBy { it.heapName.normalizedHeapName() }
-        if (normalized.keys != availableHeaps.toSet()) return this
-        val validated =
-            availableHeaps.associateWith { heapName ->
-                val rows = normalized[heapName].orEmpty()
-                val rawParsed =
-                    if (classMapping == null) {
-                        perHeapClasses[heapName].orEmpty().associateBy { it.className }
-                    } else {
-                        MemoryHistogramAnalyzer()
-                            .histogram(rawHeapDump, heapName = heapName)
-                            .classes
-                            .associateBy { it.className }
-                    }
-                val rawByClass = rows.associateBy { it.className }
-                if (rawByClass.size != rows.size || rawByClass.keys != rawParsed.keys) return this
-                if (rows.any { row ->
-                        val current = rawParsed[row.className] ?: return@any true
-                        current.instanceCount.toLong() != row.objectCount || current.shallowSize != row.shallowSize
-                    }
-                ) {
-                    return this
-                }
-                val mappedRows =
-                    try {
-                        rows
-                            .groupBy { classMapping?.originalClassName(it.className) ?: it.className }
-                            .mapValues { (className, classRows) ->
-                                classRows
-                                    .reduce { total, row ->
-                                        total.copy(
-                                            className = className,
-                                            objectCount = Math.addExact(total.objectCount, row.objectCount),
-                                            shallowSize = Math.addExact(total.shallowSize, row.shallowSize),
-                                            nativeSize = Math.addExact(total.nativeSize, row.nativeSize),
-                                            reachableShallowSize =
-                                                Math.addExact(total.reachableShallowSize, row.reachableShallowSize),
-                                            reachableNativeSize =
-                                                Math.addExact(total.reachableNativeSize, row.reachableNativeSize),
-                                        )
-                                    }.copy(className = className)
-                            }
-                    } catch (_: ArithmeticException) {
-                        return this
-                    }
-                val parsed = perHeapClasses[heapName].orEmpty()
-                if (mappedRows.keys != parsed.mapTo(mutableSetOf()) { it.className }) return this
-                if (parsed.any { stats ->
-                        val row = mappedRows.getValue(stats.className)
-                        stats.instanceCount.toLong() != row.objectCount || stats.shallowSize != row.shallowSize
-                    }
-                ) {
-                    return this
-                }
-                parsed.map { stats ->
-                    val metric = mappedRows.getValue(stats.className)
-                    stats.copy(
-                        nativeSize = metric.nativeSize,
-                        reachableShallowSize = metric.reachableShallowSize,
-                        reachableNativeSize = metric.reachableNativeSize,
-                    )
-                }
-            }
-        val groupedMetrics = validated.values.flatten().groupBy { it.className }
-        val classTotals =
-            try {
-                groupedMetrics.mapValues { (_, rows) ->
-                    Triple(
-                        rows.fold(0L) { sum, row -> Math.addExact(sum, checkNotNull(row.nativeSize)) },
-                        rows.fold(0L) { sum, row -> Math.addExact(sum, checkNotNull(row.reachableShallowSize)) },
-                        rows.fold(0L) { sum, row -> Math.addExact(sum, checkNotNull(row.reachableNativeSize)) },
-                    )
-                }
-            } catch (_: ArithmeticException) {
-                return this
-            }
-        val updatedHistogram =
-            histogram.copy(
-                classes =
-                    histogram.classes.map { stats ->
-                        stats.copy(
-                            nativeSize = classTotals[stats.className]?.first,
-                            reachableShallowSize = classTotals[stats.className]?.second,
-                            reachableNativeSize = classTotals[stats.className]?.third,
-                        )
-                    },
-            )
-        return copy(
-            histogram = updatedHistogram,
-            perHeapClasses = validated,
-            heapDump = heapDump.copy(topClasses = updatedHistogram.classes),
-        )
-    }
-
-    private fun String.normalizedHeapName(): String =
-        when (lowercase()) {
-            "app" -> "App"
-            "zygote" -> "Zygote"
-            "image" -> "Image"
-            else -> replaceFirstChar(Char::uppercase)
-        }
 
     private fun validatedMapping(): ProguardMapping? {
         val current = mapping
@@ -1322,21 +1077,6 @@ internal class DesktopMemoryProfilerBackend(
             null
         }
 
-    private fun ensureLargeFileIndex(
-        file: Path,
-        fileSizeBytes: Long,
-    ): Path? {
-        if (fileSizeBytes <= HprofInputProbe.RECOMMENDED_MATERIALIZED_BYTES) return null
-        val sourceDigest = digestFile(file)
-        val indexFile = dataRoot.resolve("hprof-index").resolve("$sourceDigest.idx")
-        if (!Files.isRegularFile(indexFile)) {
-            recordIndexer.build(file, indexFile)
-        } else {
-            recordIndexer.read(indexFile)
-        }
-        return indexFile
-    }
-
     private fun digestFile(
         file: Path,
         checkpoint: () -> Unit = {},
@@ -1354,11 +1094,7 @@ internal class DesktopMemoryProfilerBackend(
         return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
-    /**
-     * Runs the deep heap analysis (dominator tree, retained sizes, leak suspects, bitmap/activity
-     * leak detection) and packages the result. Shared by the HPROF load path and the perfetto
-     * `java_hprof` import so both produce an identical [LoadedHeap].
-     */
+    /** Runs deep analysis for non-HPROF graph imports and adapts the result to snapshot APIs. */
     @Suppress("LongParameterList")
     private fun analyzeAndPackage(
         heapDump: HeapDump,
@@ -1372,7 +1108,7 @@ internal class DesktopMemoryProfilerBackend(
         onAnalysisProgress: (Int) -> Unit = {},
         deobfuscator: ProguardMapping? = mapping,
         analysisSourceDigest: String? = null,
-    ): LoadedHeap {
+    ): HeapDumpLoadedSnapshot {
         val deepAnalysis = analyzer.analyze(heapDump, deobfuscator = deobfuscator, onProgress = onAnalysisProgress)
         val histogram = deepAnalysis.histogram
         val emptyHeapWarning =
@@ -1423,10 +1159,18 @@ internal class DesktopMemoryProfilerBackend(
                         message = "LeakCanary analysis has not been run for this snapshot.",
                     ),
             )
+        val source =
+            HeapDumpSnapshotSource(
+                heap = parsed,
+                loadedHistogram = histogram,
+                loadedHeaps = availableHeaps,
+                loadedPerHeapClasses = perHeapClasses,
+            )
         val loaded =
-            LoadedHeap(
+            HeapDumpLoadedSnapshot(
                 heapDump = parsed,
                 histogram = histogram,
+                source = source,
                 mapping = deobfuscator,
                 availableHeaps = availableHeaps,
                 perHeapClasses = perHeapClasses,

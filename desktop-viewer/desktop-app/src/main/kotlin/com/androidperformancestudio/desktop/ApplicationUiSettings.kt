@@ -1,7 +1,6 @@
 package com.androidperformancestudio.desktop
 
 import com.androidperformancestudio.desktop.SimpleperfUiSettings
-import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.presentation.FlameTooltipMode
 import com.androidperformancestudio.presentation.SimpleperfEngine
 import com.androidperformancestudio.ui.UiLanguage
@@ -163,7 +162,6 @@ internal data class ApplicationUiSettings(
     val androidSdkPath: String? = null,
     /** The navigation rail starts collapsed and remembers the user's choice. */
     val navigationRailCollapsed: Boolean = true,
-    val hprofEngine: HprofEngine = HprofEngine.DEFAULT,
     val cpuAnalysisEngine: CpuAnalysisEngine = CpuAnalysisEngine.DEFAULT,
     val harImportEngine: HarImportEngine = HarImportEngine.DEFAULT,
     val aiSettingsCategory: AiSettingsCategory = AiSettingsCategory.PROVIDER,
@@ -183,7 +181,6 @@ internal class ApplicationUiSettingsStore(
             androidSdkPath = readValue(ANDROID_SDK_PATH_KEY)?.trim()?.takeIf(String::isNotEmpty),
             navigationRailCollapsed =
                 readValue(NAVIGATION_RAIL_COLLAPSED_KEY)?.toBooleanStrictOrNull() ?: true,
-            hprofEngine = HprofEngine.parse(readValue(HPROF_ENGINE_KEY)),
             cpuAnalysisEngine = CpuAnalysisEngine.parse(readValue(CPU_ANALYSIS_ENGINE_KEY)),
             harImportEngine = HarImportEngine.parse(readValue(HAR_IMPORT_ENGINE_KEY)),
             aiSettingsCategory = AiSettingsCategory.parse(readValue(AI_SETTINGS_CATEGORY_KEY)),
@@ -197,7 +194,6 @@ internal class ApplicationUiSettingsStore(
             writeValue(LANGUAGE_KEY, settings.language.storageValue)
             writeValue(ANDROID_SDK_PATH_KEY, settings.androidSdkPath.orEmpty())
             writeValue(NAVIGATION_RAIL_COLLAPSED_KEY, settings.navigationRailCollapsed.toString())
-            writeValue(HPROF_ENGINE_KEY, settings.hprofEngine.storageValue)
             writeValue(CPU_ANALYSIS_ENGINE_KEY, settings.cpuAnalysisEngine.storageValue)
             writeValue(HAR_IMPORT_ENGINE_KEY, settings.harImportEngine.storageValue)
             writeValue(AI_SETTINGS_CATEGORY_KEY, settings.aiSettingsCategory.name)
@@ -211,7 +207,6 @@ internal class ApplicationUiSettingsStore(
         private const val LANGUAGE_KEY = "application.language"
         private const val ANDROID_SDK_PATH_KEY = "application.androidSdkPath"
         private const val NAVIGATION_RAIL_COLLAPSED_KEY = "application.navigationRailCollapsed"
-        private const val HPROF_ENGINE_KEY = "application.hprofEngine"
         private const val CPU_ANALYSIS_ENGINE_KEY = "application.cpuAnalysisEngine"
         private const val HAR_IMPORT_ENGINE_KEY = "application.harImportEngine"
         private const val AI_SETTINGS_CATEGORY_KEY = "application.aiSettingsCategory"

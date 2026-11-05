@@ -3,6 +3,7 @@ package com.androidperformancestudio.memory.app
 import com.androidperformancestudio.contracts.CaptureArtifact
 import com.androidperformancestudio.memory.analysis.ProguardMapping
 import com.androidperformancestudio.memory.model.ClassStats
+import com.androidperformancestudio.memory.model.HeapDump
 import com.androidperformancestudio.memory.model.HeapHistogram
 import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.model.LeakCanaryReport
@@ -66,6 +67,32 @@ internal data class RustLoadedSnapshot(
     override fun close() {
         closeHeapResources(listOf(source) + sourceLeases)
     }
+}
+
+internal data class HeapDumpLoadedSnapshot(
+    val heapDump: HeapDump,
+    override val histogram: HeapHistogram,
+    override val source: HeapSnapshotSource,
+    override val warning: String? = null,
+    override val cleanupWarning: String? = null,
+    override val mapping: ProguardMapping? = null,
+    override val availableHeaps: List<String> = emptyList(),
+    override val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
+    override val uiSettings: MemorySessionUiSettings = MemorySessionUiSettings(),
+    override val sourceFileDigest: String? = null,
+    override val analysisSourceDigest: String? = null,
+    override val mappingDigest: String? = null,
+    override val indexFile: Path? = null,
+    override val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
+) : LoadedSnapshot {
+    override val engine: HprofEngine get() = HprofEngine.RUST
+    override val id: String get() = heapDump.id
+    override val rawHprofFile: Path? get() = heapDump.rawHprofFile
+    override val convertedHprofFile: Path? get() = heapDump.convertedHprofFile
+    override val capturedAt: Instant get() = heapDump.capturedAt
+    override val artifact get() = heapDump.artifact
+
+    override fun withLeakReport(report: LeakCanaryReport): LoadedSnapshot = copy(leakCanaryReport = report)
 }
 
 /** Release every owned resource even if an earlier close fails. */

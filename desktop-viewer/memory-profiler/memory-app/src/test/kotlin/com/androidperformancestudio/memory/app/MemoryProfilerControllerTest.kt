@@ -1518,17 +1518,13 @@ class MemoryProfilerControllerTest {
 
             controller.importHprof(Path.of("heap.hprof"))
 
-            val index =
-                assertIs<LoadedHeap>(controller.loadedHeap)
-                    .investigationIndex
-            assertFalse(index.dominatorsInitialized)
+            val loaded = assertNotNull(controller.loadedHeap)
             val initialRows = controller.state.value.dominatorRows
             assertTrue(initialRows.isEmpty())
 
             controller.changeViewMode(MemoryProfilerViewMode.Dominators)
 
-            assertTrue(index.dominatorsInitialized)
-            assertEquals(index.dominators, controller.state.value.dominatorRows)
+            assertEquals(loaded.source.dominatorsPage(0, 500).rows, controller.state.value.dominatorRows)
 
             controller.changeViewMode(MemoryProfilerViewMode.ClassList)
             val classListRows = controller.state.value.dominatorRows
@@ -2033,7 +2029,7 @@ class MemoryProfilerControllerTest {
         override suspend fun capture(
             serial: String,
             process: MemoryProcessOption,
-        ): MemoryBackendResult<LoadedHeap> {
+        ): MemoryBackendResult<LoadedSnapshot> {
             events += "capture:$serial:${process.pid}"
             return MemoryBackendResult.Success(loadedHeap())
         }
@@ -2112,7 +2108,7 @@ class MemoryProfilerControllerTest {
             return MemoryBackendResult.Success(LoadedBitmapDump(session))
         }
 
-        override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedHeap> {
+        override suspend fun importHprof(file: Path): MemoryBackendResult<LoadedSnapshot> {
             if (blockingImport == null || file.fileName.toString() == blockingImport) {
                 importStarted?.complete(Unit)
                 importRelease?.await()
@@ -2124,15 +2120,12 @@ class MemoryProfilerControllerTest {
             } else if (importFails) {
                 MemoryBackendResult.Failure("Unable to analyze HPROF", "truncated")
             } else {
-                val loaded = loadedHeap()
-                MemoryBackendResult.Success(
-                    loaded.copy(heapDump = loaded.heapDump.copy(id = file.fileName.toString(), rawHprofFile = file)),
-                )
+                MemoryBackendResult.Success(loadedHeap(file))
             }
         }
 
         @Suppress("MaxLineLength")
-        override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedHeap?> = MemoryBackendResult.Success(loadedHeap())
+        override suspend fun importMapping(file: Path): MemoryBackendResult<LoadedSnapshot?> = MemoryBackendResult.Success(loadedHeap())
 
         override fun exportRaw(
             heapDump: HeapDump,
@@ -2149,33 +2142,43 @@ class MemoryProfilerControllerTest {
             output: Path,
         ) = Unit
 
-        private fun loadedHeap(): LoadedHeap =
-            LoadedHeap(
+        private fun loadedHeap(sourceFile: Path? = null): HeapDumpLoadedSnapshot {
+            val heap =
+                (heapOverride ?: HeapDump(
+                    instances =
+                        listOf(
+                            HeapInstance(1, 10, "com.example.Item", 8),
+                            HeapInstance(2, 10, "com.example.Item", 8),
+                            HeapInstance(3, 10, "com.example.Item", 8),
+                        ),
+                )).copy(
+                    id = sourceFile?.fileName?.toString().orEmpty(),
+                    rawHprofFile = sourceFile,
+                )
+            val histogram =
+                heapOverride?.let { MemoryHistogramAnalyzer().histogram(it) } ?: HeapHistogram(
+                    summary = HeapSummary(objectCount = 3, classCount = 1, shallowSize = 24),
+                    classes = listOf(ClassStats("com.example.Item", 3, 24, retainedSize = null)),
+                )
+            val availableHeaps = heapOverride?.let { MemoryHistogramAnalyzer().heapNamesOf(it) }.orEmpty()
+            val perHeapClasses =
+                heapOverride
+                    ?.let { sourceHeap ->
+                        val analyzer = MemoryHistogramAnalyzer()
+                        analyzer.heapNamesOf(sourceHeap).associateWith { heapName ->
+                            analyzer.histogram(sourceHeap, heapName = heapName).classes
+                        }
+                    }.orEmpty()
+            return HeapDumpLoadedSnapshot(
                 heapDump =
-                    heapOverride ?: HeapDump(
-                        instances =
-                            listOf(
-                                HeapInstance(1, 10, "com.example.Item", 8),
-                                HeapInstance(2, 10, "com.example.Item", 8),
-                                HeapInstance(3, 10, "com.example.Item", 8),
-                            ),
-                    ),
-                histogram =
-                    heapOverride?.let { MemoryHistogramAnalyzer().histogram(it) } ?: HeapHistogram(
-                        summary = HeapSummary(objectCount = 3, classCount = 1, shallowSize = 24),
-                        classes = listOf(ClassStats("com.example.Item", 3, 24, retainedSize = null)),
-                    ),
-                availableHeaps = heapOverride?.let { MemoryHistogramAnalyzer().heapNamesOf(it) }.orEmpty(),
-                perHeapClasses =
-                    heapOverride
-                        ?.let { heap ->
-                            val analyzer = MemoryHistogramAnalyzer()
-                            analyzer.heapNamesOf(heap).associateWith { heapName ->
-                                analyzer.histogram(heap, heapName = heapName).classes
-                            }
-                        }.orEmpty(),
+                    heap,
+                histogram = histogram,
+                source = HeapDumpSnapshotSource(heap, histogram, availableHeaps, perHeapClasses),
+                availableHeaps = availableHeaps,
+                perHeapClasses = perHeapClasses,
                 warning = "conversion warning",
                 cleanupWarning = "cleanup warning",
             )
+        }
     }
 }

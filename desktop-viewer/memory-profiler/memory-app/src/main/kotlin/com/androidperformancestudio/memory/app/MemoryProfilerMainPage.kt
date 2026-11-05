@@ -37,7 +37,6 @@ import com.androidperformancestudio.memory.memory_app.generated.resources.native
 import com.androidperformancestudio.memory.memory_app.generated.resources.record_sampled_art
 import com.androidperformancestudio.memory.memory_app.generated.resources.refresh_devices
 import com.androidperformancestudio.memory.memory_app.generated.resources.sampled_art_view
-import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.presentation.MemoryProfilerActions
 import com.androidperformancestudio.memory.presentation.MemoryProfilerCaptureNativeHeapButton
 import com.androidperformancestudio.memory.presentation.MemoryProfilerDumpBitmapsButton
@@ -97,19 +96,17 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     initialImportFile: Path? = null,
     initialImportRequestId: Long = 0L,
     initialImportIsJavaHeap: Boolean = false,
-    hprofEngine: HprofEngine = HprofEngine.DEFAULT,
     graphStorage: String = "memory",
 ) {
     val controller =
         remember {
             MemoryProfilerController(
-                DesktopMemoryProfilerBackend(language = language, hprofEngine = hprofEngine),
+                DesktopMemoryProfilerBackend(language = language),
                 language = language,
             )
         }
     DisposableEffect(controller) { onDispose(controller::close) }
     SideEffect { controller.changeLanguage(language) }
-    LaunchedEffect(controller, hprofEngine) { controller.changeHprofEngine(hprofEngine) }
     val state by controller.state.collectAsState()
     val aiContext = remember(state) { boundedAiContext(runCatching { memoryAiContext(state) }.getOrNull()) }
     PublishAiContext("memory", aiContext)

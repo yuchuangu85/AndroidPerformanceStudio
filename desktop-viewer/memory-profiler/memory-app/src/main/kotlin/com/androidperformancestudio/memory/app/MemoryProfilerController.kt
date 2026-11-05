@@ -44,7 +44,6 @@ import com.androidperformancestudio.memory.model.HeapLoadPhase
 import com.androidperformancestudio.memory.model.HeapObjectFieldEvidence
 import com.androidperformancestudio.memory.model.HeapObjectInvestigation
 import com.androidperformancestudio.memory.model.HeapSnapshotSummary
-import com.androidperformancestudio.memory.model.HprofEngine
 import com.androidperformancestudio.memory.model.LeakCanaryLiveSession
 import com.androidperformancestudio.memory.model.LeakCanaryLiveStatus
 import com.androidperformancestudio.memory.model.LeakCanaryReport
@@ -97,34 +96,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 
-internal data class LoadedHeap(
-    val heapDump: HeapDump,
-    override val histogram: HeapHistogram,
-    override val warning: String? = null,
-    override val cleanupWarning: String? = null,
-    override val mapping: ProguardMapping? = null,
-    override val availableHeaps: List<String> = emptyList(),
-    override val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
-    override val uiSettings: MemorySessionUiSettings = MemorySessionUiSettings(),
-    override val sourceFileDigest: String? = null,
-    /** Digest of the raw or converted file whose bytes define this graph's object IDs. */
-    override val analysisSourceDigest: String? = null,
-    override val mappingDigest: String? = null,
-    override val indexFile: Path? = null,
-    val investigationIndex: MemoryHeapInvestigationIndex = MemoryHeapInvestigationIndex(heapDump),
-) : LoadedSnapshot {
-    override val engine: HprofEngine get() = HprofEngine.LEGACY
-    override val id: String get() = heapDump.id
-    override val rawHprofFile: Path? get() = heapDump.rawHprofFile
-    override val convertedHprofFile: Path? get() = heapDump.convertedHprofFile
-    override val capturedAt: Instant get() = heapDump.capturedAt
-    override val artifact get() = heapDump.artifact
-    override val leakCanaryReport: LeakCanaryReport get() = heapDump.leakCanaryReport
-    override val source: HeapSnapshotSource by lazy { LegacyHeapSnapshotSource(this) }
-
-    override fun withLeakReport(report: LeakCanaryReport): LoadedSnapshot = copy(heapDump = heapDump.copy(leakCanaryReport = report))
-}
-
 internal data class LoadedNativeHeap(
     val trace: NativeHeapTrace,
     val analysis: NativeHeapAnalysis,
@@ -155,8 +126,6 @@ internal sealed interface MemoryBackendResult<out T> {
 @Suppress("TooManyFunctions")
 internal interface MemoryProfilerBackend {
     fun changeLanguage(language: UiLanguage) = Unit
-
-    fun changeHprofEngine(engine: HprofEngine) = Unit
 
     fun registerTargetListener(listener: AndroidTargetListener): AndroidTargetSubscription
 
@@ -205,20 +174,14 @@ internal interface MemoryProfilerBackend {
         snapshot: LoadedSnapshot,
         output: Path,
     ) {
-        when (snapshot) {
-            is LoadedHeap -> exportRaw(snapshot.heapDump, output)
-            is RustLoadedSnapshot -> SnapshotSourceExports.copyRaw(snapshot, output)
-        }
+        SnapshotSourceExports.copyRaw(snapshot, output)
     }
 
     fun exportSnapshotConverted(
         snapshot: LoadedSnapshot,
         output: Path,
     ) {
-        when (snapshot) {
-            is LoadedHeap -> exportConverted(snapshot.heapDump, output)
-            is RustLoadedSnapshot -> SnapshotSourceExports.copyConverted(snapshot, output)
-        }
+        SnapshotSourceExports.copyConverted(snapshot, output)
     }
 
     fun exportSnapshotInstances(
@@ -226,10 +189,7 @@ internal interface MemoryProfilerBackend {
         className: String,
         output: Path,
     ) {
-        when (snapshot) {
-            is LoadedHeap -> exportClassInstances(snapshot.heapDump, className, output)
-            is RustLoadedSnapshot -> SnapshotSourceExports.instances(snapshot, className, output)
-        }
+        SnapshotSourceExports.instances(snapshot, className, output)
     }
 
     fun exportSnapshotJson(
@@ -237,10 +197,7 @@ internal interface MemoryProfilerBackend {
         output: Path,
         summary: HeapSnapshotSummary?,
     ) {
-        when (snapshot) {
-            is LoadedHeap -> exportHeapSnapshotJson(snapshot.heapDump, snapshot.histogram, output, summary)
-            is RustLoadedSnapshot -> SnapshotSourceExports.json(snapshot, output, summary)
-        }
+        SnapshotSourceExports.json(snapshot, output, summary)
     }
 
     fun exportSnapshotReport(
@@ -250,10 +207,7 @@ internal interface MemoryProfilerBackend {
         summary: HeapSnapshotSummary?,
         context: HeapExportContext?,
     ) {
-        when (snapshot) {
-            is LoadedHeap -> exportInvestigationReport(snapshot.heapDump, snapshot.histogram, diff, output, summary, context)
-            is RustLoadedSnapshot -> SnapshotSourceExports.report(snapshot, diff, output, summary, context)
-        }
+        SnapshotSourceExports.report(snapshot, diff, output, summary, context)
     }
 
     suspend fun injectLeakCanaryAgent(projectRoot: Path): MemoryBackendResult<String> =
@@ -514,10 +468,6 @@ internal class MemoryProfilerController(
         loadedHeapsBySnapshotId.clear()
     }
 
-    fun changeHprofEngine(engine: HprofEngine) {
-        backend.changeHprofEngine(engine)
-    }
-
     suspend fun refreshDevices() {
         when (val result = backend.listDevices()) {
             is MemoryBackendResult.Failure -> showTargetFailure(result)
@@ -684,7 +634,7 @@ internal class MemoryProfilerController(
     fun changeViewMode(mode: MemoryProfilerViewMode) {
         invalidateSelection()
         val loaded = loadedHeap
-        val remote = loaded?.engine == HprofEngine.RUST
+        val remote = loaded != null
         val page =
             if (mode == MemoryProfilerViewMode.Dominators && remote) {
                 loaded.source.dominatorsPage(0, 500)
@@ -693,7 +643,7 @@ internal class MemoryProfilerController(
             }
         val dominators =
             if (mode == MemoryProfilerViewMode.Dominators) {
-                page?.rows ?: (loaded as? LoadedHeap)?.investigationIndex?.dominators.orEmpty()
+            page?.rows ?: loaded?.source?.dominatorsPage(0, 500)?.rows.orEmpty()
             } else {
                 emptyList()
             }
@@ -713,7 +663,7 @@ internal class MemoryProfilerController(
 
     suspend fun changeViewModeAsync(mode: MemoryProfilerViewMode) {
         val loaded = loadedHeap
-        if (mode != MemoryProfilerViewMode.Dominators || loaded?.engine != HprofEngine.RUST) {
+        if (mode != MemoryProfilerViewMode.Dominators || loaded == null) {
             changeViewMode(mode)
             return
         }
@@ -836,21 +786,12 @@ internal class MemoryProfilerController(
         heapName: String?,
         anchorObjectId: Long? = null,
     ): HeapInstancePage {
-        val legacy = loadedHeap as? LoadedHeap
-        if (legacy != null) {
-            val rows =
-                classNames
-                    .distinct()
-                    .flatMap { legacy.investigationIndex.query.instancesOf(it, heapName) }
-                    .sortedBy { it.objectId }
-            return HeapInstancePage(rows.size, rows)
-        }
         return query.instancesPage(classNames, heapName, 0, 500, anchorObjectId = anchorObjectId)
     }
 
     suspend fun loadDominatorPageAsync(offset: Int) {
         val loaded = loadedHeap ?: return
-        if (loaded.engine != HprofEngine.RUST || offset < 0) return
+        if (offset < 0) return
         querySelection(
             compute = { _, _ -> loaded.source.dominatorsPage(offset, 500) },
             publish = { page ->
@@ -873,7 +814,7 @@ internal class MemoryProfilerController(
         offset: Int,
     ) {
         val loaded = loadedHeap ?: return
-        if (loaded.engine != HprofEngine.RUST || offset < 0) return
+        if (offset < 0) return
         querySelection(
             compute = { _, _ -> loaded.source.dominatorsPage(offset, 500, parentObjectId) },
             publish = { page ->
@@ -2104,7 +2045,7 @@ internal class MemoryProfilerController(
                         selectedClassInstances = emptyList(),
                         instanceTotalCount = 0,
                         instancePageOffset = 0,
-                        remoteDominators = result.value.engine == HprofEngine.RUST,
+                        remoteDominators = true,
                         dominatorChildren = emptyMap(),
                         dominatorChildTotals = emptyMap(),
                         dominatorChildOffsets = emptyMap(),
@@ -2153,10 +2094,7 @@ internal class MemoryProfilerController(
     }
 
     private fun visibleDominatorRows(snapshot: LoadedSnapshot): List<com.androidperformancestudio.memory.presentation.MemoryDominatorRow> =
-        when (snapshot) {
-            is LoadedHeap -> snapshot.investigationIndex.dominators
-            is RustLoadedSnapshot -> snapshot.source.dominatorsPage(0, 500).rows
-        }
+        snapshot.source.dominatorsPage(0, 500).rows
 
     private fun retainSnapshot(
         id: String,

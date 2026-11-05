@@ -68,9 +68,6 @@
     <string name="advanced_parameters">Advanced parameters</string>
     <string name="flame_graph">Flame graph</string>
     <string name="simpleperf_engine">Simpleperf engine</string>
-    <string name="hprof_analysis_engine">HPROF analysis engine</string>
-    <string name="hprof_engine_legacy">Legacy</string>
-    <string name="hprof_engine_rust">Rust</string>
     <string name="cpu_analysis_engine">CPU analysis engine</string>
     <string name="cpu_engine_legacy">Legacy</string>
     <string name="cpu_engine_rust_projection">Rust projection</string>

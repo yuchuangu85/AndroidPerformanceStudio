@@ -88,7 +88,6 @@ class RustEngineLifecycleTest {
                     DesktopMemoryProfilerBackend(
                         root.resolve("data"),
                         adbLocator = { null },
-                        hprofEngine = HprofEngine.RUST,
                         rustExecutable = { Path.of(checkNotNull(System.getProperty("aps.hprofEngine.path"))) },
                         hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
                     )
@@ -108,112 +107,13 @@ class RustEngineLifecycleTest {
                 Files.list(root.resolve("data/hprof-sources")).use { files ->
                     assertEquals(0L, files.filter { it.fileName.toString().endsWith(".hprof") }.count())
                 }
-                val mapping = Files.writeString(root.resolve("mapping.txt"), "example.Node -> a.Node:\n")
-                val result = assertIs<MemoryBackendResult.Success<LoadedSnapshot?>>(backend.importMapping(mapping))
-                assertEquals(null, result.value)
             } finally {
                 release.countDown()
                 root.toFile().deleteRecursively()
             }
         }
 
-    @Test
-    fun `missing default Rust engine fails without Legacy fallback or source copies`() =
-        runBlocking {
-            val root = createTempDirectory("rust-engine-missing")
-            try {
-                val file = RustHprofFixture.write(root.resolve("heap.hprof"), 4, android = true)
-                val backend =
-                    DesktopMemoryProfilerBackend(
-                        root.resolve("data"),
-                        adbLocator = { null },
-                        rustExecutable = { root.resolve("missing-engine") },
-                        hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
-                    )
-                val failure = assertIs<MemoryBackendResult.Failure>(backend.importHprof(file))
-                assertTrue(failure.title.contains("Rust"))
-                assertFalse(Files.exists(root.resolve("data/hprof-sources")))
-                backend.changeHprofEngine(HprofEngine.LEGACY)
-                val legacy = assertIs<MemoryBackendResult.Success<LoadedSnapshot>>(backend.importHprof(file)).value
-                assertIs<LoadedHeap>(legacy)
-                legacy.close()
-            } finally {
-                root.toFile().deleteRecursively()
-            }
-        }
 
-    @Test
-    @Suppress("LongMethod")
-    fun `controller pages Rust objects and branches without changing Legacy list behavior`() =
-        runBlocking {
-            val root = createTempDirectory("rust-controller-pages")
-            val backend =
-                DesktopMemoryProfilerBackend(
-                    root.resolve("data"),
-                    adbLocator = { null },
-                    hprofEngine = HprofEngine.RUST,
-                    rustExecutable = { Path.of(checkNotNull(System.getProperty("aps.hprofEngine.path"))) },
-                    hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
-                )
-            val controller = MemoryProfilerController(backend)
-            try {
-                val file = RustHprofFixture.write(root.resolve("heap.hprof"), 8, android = true, extraNodes = 1200)
-                controller.importHprof(file)
-                val rust = assertIs<RustLoadedSnapshot>(controller.loadedHeap)
-                val managed = assertNotNull(rust.rawHprofFile)
-                assertEquals(
-                    HprofEngine.RUST,
-                    controller.state.value.snapshotSummary
-                        ?.engine,
-                )
-                controller.selectClassAsync("a.Node")
-                val count = controller.state.value.instanceTotalCount
-                assertTrue(count > 1000)
-                assertEquals(500, controller.state.value.selectedClassInstances.size)
-                controller.loadInstancePageAsync(500)
-                assertEquals(500, controller.state.value.instancePageOffset)
-                assertEquals(count, controller.state.value.instanceTotalCount)
 
-                val lastObject = RustHprofFixture.EXTRA_NODE_START + 1199
-                controller.selectInstanceAsync(lastObject)
-                assertEquals(
-                    lastObject,
-                    controller.state.value.selectedInstanceDetail
-                        ?.objectId,
-                )
-                assertEquals(1000, controller.state.value.instancePageOffset)
-                assertTrue(
-                    controller.state.value.selectedClassInstances
-                        .any { it.objectId == lastObject },
-                )
-                controller.changeViewModeAsync(MemoryProfilerViewMode.Dominators)
-                assertTrue(controller.state.value.remoteDominators)
-                assertTrue(
-                    controller.state.value.dominatorRows
-                        .any { it.objectId == RustHprofFixture.ROOT_ARRAY },
-                )
-                controller.loadDominatorChildrenAsync(RustHprofFixture.ROOT_ARRAY, 0)
-                assertEquals(
-                    500,
-                    controller.state.value.dominatorChildren[RustHprofFixture.ROOT_ARRAY]
-                        ?.size,
-                )
-                controller.loadDominatorChildrenAsync(RustHprofFixture.ROOT_ARRAY, 500)
-                assertEquals(500, controller.state.value.dominatorChildOffsets[RustHprofFixture.ROOT_ARRAY])
 
-                controller.changeHprofEngine(HprofEngine.LEGACY)
-                assertSame(rust, controller.loadedHeap)
-                assertNotNull(rust.source.query.detailOf(lastObject))
-                controller.importHprof(file)
-                assertIs<LoadedHeap>(controller.loadedHeap)
-                assertFalse(Files.exists(managed), "Replacing the snapshot must release its managed source")
-                controller.selectClassAsync("a.Node")
-                assertEquals(count, controller.state.value.selectedClassInstances.size)
-                assertEquals(0, controller.state.value.instancePageOffset)
-                assertFalse(controller.state.value.remoteDominators)
-            } finally {
-                controller.close()
-                root.toFile().deleteRecursively()
-            }
-        }
 }

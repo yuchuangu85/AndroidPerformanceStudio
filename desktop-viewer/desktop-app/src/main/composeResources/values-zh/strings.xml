@@ -68,9 +68,6 @@
     <string name="advanced_parameters">高级参数</string>
     <string name="flame_graph">火焰图</string>
     <string name="simpleperf_engine">分析引擎</string>
-    <string name="hprof_analysis_engine">HPROF 分析引擎</string>
-    <string name="hprof_engine_legacy">Legacy（旧版）</string>
-    <string name="hprof_engine_rust">Rust</string>
     <string name="cpu_analysis_engine">CPU 分析引擎</string>
     <string name="cpu_engine_legacy">Legacy（旧版）</string>
     <string name="cpu_engine_rust_projection">Rust 投影</string>
