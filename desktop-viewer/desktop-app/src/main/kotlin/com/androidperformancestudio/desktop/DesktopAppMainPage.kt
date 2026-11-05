@@ -24,6 +24,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -35,8 +36,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
@@ -51,6 +55,7 @@ import com.androidperformancestudio.frame.app.FrameProfilerMainPage
 import com.androidperformancestudio.gpu.app.GpuIntegrationMainPage
 import com.androidperformancestudio.memory.app.MemoryProfilerMainPage
 import com.androidperformancestudio.methodrecording.app.MethodRecordingMainPage
+import com.androidperformancestudio.screencast.app.ScreencastMainPage
 import com.androidperformancestudio.perfetto.app.PerfettoMainPage
 import com.androidperformancestudio.presentation.CaptureSettingsSection
 import com.androidperformancestudio.network.app.ReverseNetMainPage
@@ -71,6 +76,21 @@ fun FrameWindowScope.DesktopAppMainPage(
     settingsRequest: SettingsRequest? = null
 ) {
     val navigator = remember { AppNavigator() }
+    // The device screencast lives in its own OS-level window so it can coexist with any module
+    // surface in the main window. `screencastWindowOpen` gates that secondary Window; the AWT window
+    // ref is kept so the open handler can bring an already-open window to the front.
+    var screencastWindowOpen by remember { mutableStateOf(false) }
+    val screencastWindowState = rememberWindowState()
+    val screencastWindowRef = remember { mutableStateOf<java.awt.Window?>(null) }
+    val openScreencastWindow: () -> Unit = {
+        // Single instance: if already open, just surface the existing window instead of spawning a
+        // second one (one screencast controller / one adb reverse tunnel at a time).
+        if (screencastWindowOpen) {
+            screencastWindowRef.value?.toFront()
+        } else {
+            screencastWindowOpen = true
+        }
+    }
     var settingsPage by remember { mutableStateOf(SettingsPage.GENERAL) }
     var layoutInspectorSettingsRevision by remember { mutableStateOf(0L) }
     var simpleperfCaptureSettingsContext by remember {
@@ -207,6 +227,8 @@ fun FrameWindowScope.DesktopAppMainPage(
                             )
                         },
                         moduleOrder = homeLayout.moduleOrder,
+                        screencastWindowOpen = screencastWindowOpen,
+                        onOpenScreencastWindow = openScreencastWindow,
                     ) {
                         navigator.retainedDestinations.forEach { destination ->
                             key(destination) {
@@ -238,6 +260,7 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     onOpenReverseNet = { navigator.open(AppDestination.REVERSE_NET) },
                                     onOpenGpuInspector = { navigator.open(AppDestination.GPU_INSPECTOR) },
                                     onOpenBenchmarkRegression = { navigator.open(AppDestination.BENCHMARK_REGRESSION) },
+                                    onOpenScreencast = openScreencastWindow,
                                     onOpenRecentArtifact = { item ->
                                         when (item.feature) {
                                             com.androidperformancestudio.desktop.dashboard.StudioFeature.LAYOUT ->
@@ -463,6 +486,10 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     initialTraceFile = navigator.methodRecordingTraceFile,
                                     onBack = { navigator.open(AppDestination.HOME) },
                                 )
+                            // SCREENCAST is no longer an in-window destination; it opens a separate OS
+                            // window (see the screencast Window rendered below). The enum is retained only
+                            // as the identity/icon source for the navigation entry and home card.
+                            AppDestination.SCREENCAST -> Unit
                             AppDestination.SETTINGS ->
                                 DesktopAppSettingsPage(
                                     selectedPage = settingsPage,
@@ -556,6 +583,48 @@ fun FrameWindowScope.DesktopAppMainPage(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // The device screencast runs in its own OS-level window so it can stay visible alongside any
+    // module in the main window. Closing this window ends the screencast session: ScreencastMainPage's
+    // DisposableEffect disposes the controller (removing the adb reverse tunnel, stopping the device
+    // server) — without exiting the application.
+    if (screencastWindowOpen) {
+        val screencastWindowTitle = localizedStringResource(Res.string.device_screencast, language)
+        val closeLabel = localizedStringResource(Res.string.task_manager_close, language)
+        Window(
+            onCloseRequest = { screencastWindowOpen = false },
+            title = screencastWindowTitle,
+            icon = painterResource("icons/app-icon.png"),
+            state = screencastWindowState,
+        ) {
+            SideEffect { screencastWindowRef.value = window }
+            DisposableEffect(Unit) {
+                onDispose { screencastWindowRef.value = null }
+            }
+            window.minimumSize = java.awt.Dimension(360, 640)
+            // Minimal native menu bar so the secondary window never shows an empty/flashy bar on
+            // macOS; ScreencastMainPage publishes no feature menu, so the fallback always applies.
+            WindowMenuBarHost(
+                fallbackMenu = {
+                    Menu(screencastWindowTitle) {
+                        Item(closeLabel) { screencastWindowOpen = false }
+                    }
+                },
+            )
+            ViewerTheme(
+                darkTheme = darkTheme,
+                displayScale = applicationSettings.displayScale.multiplier,
+                accentColor = applicationSettings.themeColor,
+            ) {
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 32.dp) {
+                    ScreencastMainPage(
+                        language = language,
+                        androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
+                    )
                 }
             }
         }

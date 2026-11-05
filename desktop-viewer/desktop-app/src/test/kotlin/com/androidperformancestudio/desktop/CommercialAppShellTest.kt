@@ -283,7 +283,10 @@ class CommercialAppShellTest {
         assertTrue(shell.contains("height(StudioTokens.borderWidth)"))
         assertTrue(shell.contains("StudioStatusBar("))
         assertTrue(shell.contains("StudioCommandPalette("))
-        assertTrue(shell.contains("navigator::open"))
+        // SCREENCAST is dispatched to its own OS window; every other destination still routes through
+        // navigator.open inside the rail/command-palette lambdas.
+        assertTrue(shell.contains("navigator.open(destination)"))
+        assertTrue(shell.contains("onOpenScreencastWindow"))
         assertFalse(shell.contains("UniversalProfilerModel"))
         assertFalse(shell.contains("UniversalTimelineEvent"))
     }

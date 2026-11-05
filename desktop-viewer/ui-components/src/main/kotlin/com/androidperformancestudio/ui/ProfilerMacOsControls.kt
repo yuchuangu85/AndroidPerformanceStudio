@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -29,9 +31,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -93,6 +101,7 @@ public fun ProfilerCompactTextField(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     placeholder: String = "",
+    onSubmit: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(4.dp)
     val contentAlpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA
@@ -116,9 +125,29 @@ public fun ProfilerCompactTextField(
                     .height(24.dp)
                     .background(MaterialTheme.colorScheme.surface, shape)
                     .border(1.dp, MaterialTheme.colorScheme.primary, shape)
-                    .padding(horizontal = 6.dp),
+                    .padding(horizontal = 6.dp)
+                    .then(
+                        if (onSubmit != null) {
+                            // Desktop has no soft-keyboard IME, so the keyboardActions IME "send"
+                            // action is unreliable. Intercept the physical Enter key directly and
+                            // consume it so it neither inserts a newline nor bubbles up.
+                            Modifier.onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
+                                    onSubmit()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
             enabled = enabled,
             singleLine = true,
+            // Mirror the IME action for platforms that do expose a soft keyboard / send key.
+            keyboardOptions = if (onSubmit != null) KeyboardOptions(imeAction = ImeAction.Send) else KeyboardOptions.Default,
+            keyboardActions = if (onSubmit != null) KeyboardActions(onSend = { onSubmit() }) else KeyboardActions.Default,
             textStyle =
                 TextStyle(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),

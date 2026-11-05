@@ -23,6 +23,7 @@ internal val DEFAULT_MODULE_ORDER: List<AppDestination> =
         AppDestination.BENCHMARK_REGRESSION,
         AppDestination.SOURCE_WORKSPACES,
         AppDestination.REVERSE_NET,
+        AppDestination.SCREENCAST,
     )
 
 /** The set of destinations the user is allowed to place in the module grid / rail. */

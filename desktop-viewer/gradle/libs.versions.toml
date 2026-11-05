@@ -9,7 +9,11 @@ compose-material3 = "1.12.0-alpha03"
 compose-fluent = "v0.1.0"
 coroutines = "1.11.0"
 detekt = "1.23.8"
+jcodec = "0.2.5"
 junit = "6.1.3"
+javacpp = "1.5.14"
+javacv = "1.5.14"
+bytedeco-ffmpeg = "8.1.2-1.5.14"
 kotlin = "2.4.20"
 ktlint = "14.2.0"
 okhttp = "5.5.0"
@@ -36,9 +40,15 @@ compose-fluent-icons-extended = { module = "io.github.compose-fluent:fluent-icon
 compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "compose" }
 compose-ui-test-junit4 = { module = "org.jetbrains.compose.ui:ui-test-junit4", version.ref = "compose" }
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+jcodec = { module = "org.jcodec:jcodec", version.ref = "jcodec" }
+jcodec-javase = { module = "org.jcodec:jcodec-javase", version.ref = "jcodec" }
+javacpp = { module = "org.bytedeco:javacpp", version.ref = "javacpp" }
+javacv = { module = "org.bytedeco:javacv", version.ref = "javacv" }
+bytedeco-ffmpeg = { module = "org.bytedeco:ffmpeg", version.ref = "bytedeco-ffmpeg" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 leakcanary-shark = { module = "com.squareup.leakcanary:shark", version.ref = "shark" }
@@ -62,6 +72,9 @@ aps-source-workspace = { module = "com.androidperformancestudio:source-workspace
 aps-ui-components = { module = "com.androidperformancestudio:ui-components", version.ref = "aps" }
 aps-battery-app = { module = "com.androidperformancestudio.battery:battery-app", version.ref = "aps" }
 aps-benchmark-app = { module = "com.androidperformancestudio.benchmark:benchmark-app", version.ref = "aps" }
+aps-screencast-app = { module = "com.androidperformancestudio.screencast:screencast-app", version.ref = "aps" }
+aps-screencast-core = { module = "com.androidperformancestudio.screencast:screencast-core", version.ref = "aps" }
+aps-screencast-presentation = { module = "com.androidperformancestudio.screencast:screencast-presentation", version.ref = "aps" }
 aps-analysis-frame = { module = "com.androidperformancestudio.frame:analysis-frame", version.ref = "aps" }
 aps-frame-agent-protocol = { module = "com.androidperformancestudio.frame:frame-agent-protocol", version.ref = "aps" }
 aps-frame-app = { module = "com.androidperformancestudio.frame:frame-app", version.ref = "aps" }

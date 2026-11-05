@@ -24,6 +24,10 @@ enum class AppDestination {
     GPU_INSPECTOR,
     BENCHMARK_REGRESSION,
     METHOD_RECORDING,
+    // SCREENCAST is kept as a navigation-entry identity (icon/label/home-card source) but is no
+    // longer an in-window destination: opening it spawns a separate OS window instead of switching
+    // the navigator. See DesktopAppMainPage's screencast Window and CommercialAppShell's dispatch.
+    SCREENCAST,
     SETTINGS,
 }
 
@@ -35,6 +39,9 @@ data class AppArtifactOpenRequest(
 internal fun com.androidperformancestudio.desktop.AppDestination.shouldMaximizeWindow(): Boolean =
     when (this) {
         AppDestination.HOME -> false
+        // SCREENCAST opens its own window and is never an in-window destination; guard it anyway so a
+        // stray navigator.open(SCREENCAST) could never trigger a main-window maximize.
+        AppDestination.SCREENCAST -> false
         else -> true
     }
 
@@ -66,6 +73,7 @@ internal val com.androidperformancestudio.desktop.AppDestination.titleResource: 
             AppDestination.GPU_INSPECTOR -> Res.string.gpu_inspector
             AppDestination.BENCHMARK_REGRESSION -> Res.string.benchmark_regression
             AppDestination.METHOD_RECORDING -> Res.string.method_recording
+            AppDestination.SCREENCAST -> Res.string.device_screencast
             AppDestination.SETTINGS -> Res.string.settings
         }
 

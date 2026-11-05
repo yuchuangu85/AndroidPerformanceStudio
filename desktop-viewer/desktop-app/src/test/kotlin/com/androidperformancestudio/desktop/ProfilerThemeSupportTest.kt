@@ -44,7 +44,9 @@ class ProfilerThemeSupportTest {
     fun `feature pages inherit the unified shell viewer theme`() {
         val shell = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/DesktopAppMainPage.kt"))
 
-        assertEquals(1, Regex("ViewerTheme\\(").findAll(shell).count())
+        // Two ViewerTheme roots: the main shell (feature pages inherit it) and the separate
+        // device-screencast OS window, which is its own composition root and must bring its own theme.
+        assertEquals(2, Regex("ViewerTheme\\(").findAll(shell).count())
         featurePageSources().forEach { source ->
             assertFalse(
                 Files.readString(source).contains("ViewerTheme("),

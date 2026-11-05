@@ -43,6 +43,8 @@ class AdbClientTest {
             client.execOut("emulator-5554", listOf("screencap", "-p"))
             client.forward("emulator-5554", "tcp:39123", "localabstract:agentperf")
             client.removeForward("emulator-5554", "tcp:39123")
+            client.reverse("emulator-5554", "localabstract:scrcpy_00000001", "tcp:41235")
+            client.removeReverse("emulator-5554", "localabstract:scrcpy_00000001")
 
             assertEquals(
                 listOf(
@@ -58,6 +60,8 @@ class AdbClientTest {
                     listOf("-s", "emulator-5554", "exec-out", "screencap", "-p"),
                     listOf("-s", "emulator-5554", "forward", "tcp:39123", "localabstract:agentperf"),
                     listOf("-s", "emulator-5554", "forward", "--remove", "tcp:39123"),
+                    listOf("-s", "emulator-5554", "reverse", "localabstract:scrcpy_00000001", "tcp:41235"),
+                    listOf("-s", "emulator-5554", "reverse", "--remove", "localabstract:scrcpy_00000001"),
                 ),
                 runner.commands.map(HostProcessRequest::arguments),
             )
@@ -74,6 +78,12 @@ class AdbClientTest {
             }
             assertFailsWith<AdbInputException> {
                 client.pull("device", "/data/local/tmp/\u0000trace", Path.of("trace"))
+            }
+            assertFailsWith<AdbInputException> {
+                client.reverse("device", "localabstract:bad endpoint", "tcp:41235")
+            }
+            assertFailsWith<AdbInputException> {
+                client.removeReverse("device", "localabstract:bad endpoint")
             }
             assertEquals(emptyList(), runner.commands)
         }

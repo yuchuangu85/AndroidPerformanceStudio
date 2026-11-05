@@ -67,6 +67,23 @@ interface AdbClient {
         isCancellationRequested: () -> Boolean = { false },
     ): AdbTextResult
 
+    suspend fun reverse(
+        serial: String,
+        remote: String,
+        local: String,
+        timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
+    ): AdbTextResult
+
+    suspend fun removeReverse(
+        serial: String,
+        remote: String,
+        timeout: Duration = DEFAULT_TIMEOUT,
+        maxOutputBytesPerStream: Int = AdbCommand.DEFAULT_MAX_OUTPUT_BYTES,
+        isCancellationRequested: () -> Boolean = { false },
+    ): AdbTextResult
+
     suspend fun bugreport(
         serial: String,
         outputPath: Path,
@@ -194,6 +211,46 @@ class DefaultAdbClient(
                 serial,
                 "forward",
                 listOf("--remove", AdbInputValidator.requireForwardEndpoint(local)),
+            ),
+            timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
+        )
+
+    override suspend fun reverse(
+        serial: String,
+        remote: String,
+        local: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult =
+        executeText(
+            adbDeviceArguments(
+                serial,
+                "reverse",
+                listOf(
+                    AdbInputValidator.requireReverseEndpoint(remote),
+                    AdbInputValidator.requireReverseEndpoint(local),
+                ),
+            ),
+            timeout,
+            maxOutputBytesPerStream,
+            isCancellationRequested,
+        )
+
+    override suspend fun removeReverse(
+        serial: String,
+        remote: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult =
+        executeText(
+            adbDeviceArguments(
+                serial,
+                "reverse",
+                listOf("--remove", AdbInputValidator.requireReverseEndpoint(remote)),
             ),
             timeout,
             maxOutputBytesPerStream,

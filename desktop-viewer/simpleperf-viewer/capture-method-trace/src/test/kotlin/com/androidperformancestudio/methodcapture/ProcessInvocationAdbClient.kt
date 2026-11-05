@@ -69,6 +69,23 @@ internal class ProcessInvocationAdbClient(
         isCancellationRequested: () -> Boolean,
     ): AdbTextResult = error("Not used")
 
+    override suspend fun reverse(
+        serial: String,
+        remote: String,
+        local: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = error("Not used")
+
+    override suspend fun removeReverse(
+        serial: String,
+        remote: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = error("Not used")
+
     override suspend fun bugreport(
         serial: String,
         outputPath: Path,

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -110,6 +111,8 @@ internal fun CommercialAppShell(
     navigationRailCollapsed: Boolean,
     onToggleNavigationRailCollapsed: () -> Unit,
     moduleOrder: List<AppDestination>,
+    screencastWindowOpen: Boolean,
+    onOpenScreencastWindow: () -> Unit,
     modifier: Modifier = Modifier,
     workspaceContext: WorkspaceContext = WorkspaceContext(),
     content: @Composable BoxScope.() -> Unit,
@@ -196,7 +199,16 @@ internal fun CommercialAppShell(
                     collapseToggleLabel = collapseToggleLabel,
                     settingsLabel = settingsLabel,
                     settingsSelected = navigator.destination == AppDestination.SETTINGS,
-                    onDestinationSelected = navigator::open,
+                    onDestinationSelected = { destination ->
+                        // SCREENCAST opens a separate OS window rather than becoming an in-window
+                        // destination; everything else switches the navigator as before.
+                        if (destination == AppDestination.SCREENCAST) {
+                            onOpenScreencastWindow()
+                        } else {
+                            navigator.open(destination)
+                        }
+                    },
+                    screencastWindowOpen = screencastWindowOpen,
                     onOpenSettings = { navigator.open(AppDestination.SETTINGS) },
                     taskManagerLabel = localizedStringResource(Res.string.task_manager, language),
                     onOpenTaskManager = { showTaskManager = true },
@@ -221,7 +233,11 @@ internal fun CommercialAppShell(
             items = commandItems,
             onDismiss = { showCommandPalette = false },
             onDestinationSelected = { destination ->
-                navigator.open(destination)
+                if (destination == AppDestination.SCREENCAST) {
+                    onOpenScreencastWindow()
+                } else {
+                    navigator.open(destination)
+                }
                 showCommandPalette = false
             },
             taskManagerLabel = localizedStringResource(Res.string.task_manager, language),
@@ -252,6 +268,7 @@ private fun StudioNavigationRail(
     settingsLabel: String,
     settingsSelected: Boolean,
     onDestinationSelected: (AppDestination) -> Unit,
+    screencastWindowOpen: Boolean,
     onOpenSettings: () -> Unit,
     taskManagerLabel: String,
     onOpenTaskManager: () -> Unit,
@@ -279,6 +296,9 @@ private fun StudioNavigationRail(
                 label = item.label,
                 selected = item.destination == selectedDestination,
                 collapsed = collapsed,
+                // A "running" dot marks the screencast entry while its window is open, so the user can
+                // tell the screencast is live even while looking at another module.
+                running = item.destination == AppDestination.SCREENCAST && screencastWindowOpen,
                 onClick = { onDestinationSelected(item.destination) },
             )
         }
@@ -332,15 +352,16 @@ private fun NavigationRailEntry(
     label: String,
     selected: Boolean,
     collapsed: Boolean,
+    running: Boolean = false,
     onClick: () -> Unit,
 ) {
     if (collapsed) {
         // The collapsed rail is icon-only, so hovering reveals the destination title.
         TooltipArea(tooltip = { RailTooltip(label) }, delayMillis = TOOLTIP_DELAY_MILLIS) {
-            RailEntryButton(icon, label, selected, collapsed, onClick)
+            RailEntryButton(icon, label, selected, collapsed, running, onClick)
         }
     } else {
-        RailEntryButton(icon, label, selected, collapsed, onClick)
+        RailEntryButton(icon, label, selected, collapsed, running, onClick)
     }
 }
 
@@ -350,6 +371,7 @@ private fun RailEntryButton(
     label: String,
     selected: Boolean,
     collapsed: Boolean,
+    running: Boolean,
     onClick: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -377,12 +399,26 @@ private fun RailEntryButton(
                     Arrangement.spacedBy(StudioTokens.navigationIconGap)
                 },
         ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = if (collapsed) label else null,
-                modifier = Modifier.size(StudioTokens.navigationIconSize),
-                tint = iconTint,
-            )
+            // The icon sits in a fixed-size box so a "running" badge dot can overlay its top-end
+            // corner without shifting the label offset.
+            Box(modifier = Modifier.size(StudioTokens.navigationIconSize)) {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = if (collapsed) label else null,
+                    modifier = Modifier.fillMaxSize(),
+                    tint = iconTint,
+                )
+                if (running) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(colors.accent),
+                    )
+                }
+            }
             if (!collapsed) {
                 Text(
                     text = label,

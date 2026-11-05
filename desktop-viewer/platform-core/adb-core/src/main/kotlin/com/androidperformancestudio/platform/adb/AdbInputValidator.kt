@@ -15,4 +15,8 @@ object AdbInputValidator {
     fun requireForwardEndpoint(endpoint: String): String =
         endpoint.takeIf(endpointPattern::matches)
             ?: throw AdbInputException("Invalid ADB forward endpoint")
+
+    fun requireReverseEndpoint(endpoint: String): String =
+        endpoint.takeIf(endpointPattern::matches)
+            ?: throw AdbInputException("Invalid ADB reverse endpoint")
 }

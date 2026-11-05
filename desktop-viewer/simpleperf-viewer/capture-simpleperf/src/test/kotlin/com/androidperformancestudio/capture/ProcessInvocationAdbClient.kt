@@ -77,6 +77,23 @@ internal class ProcessInvocationAdbClient(
         isCancellationRequested: () -> Boolean,
     ): AdbTextResult = execute(serial, listOf("forward", "--remove", local), timeout, isCancellationRequested)
 
+    override suspend fun reverse(
+        serial: String,
+        remote: String,
+        local: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = execute(serial, listOf("reverse", remote, local), timeout, isCancellationRequested)
+
+    override suspend fun removeReverse(
+        serial: String,
+        remote: String,
+        timeout: Duration,
+        maxOutputBytesPerStream: Int,
+        isCancellationRequested: () -> Boolean,
+    ): AdbTextResult = execute(serial, listOf("reverse", "--remove", remote), timeout, isCancellationRequested)
+
     override suspend fun bugreport(
         serial: String,
         outputPath: Path,
