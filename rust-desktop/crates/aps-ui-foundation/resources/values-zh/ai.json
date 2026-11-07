@@ -9,6 +9,7 @@
   "ai_i_approve_sending_this_exact_request_to": "我同意将此完整请求发送到冻结端点",
   "ai_i_approve_uploading_every_displayed_source_candidate": "我同意上传所示全部源码候选／路径／片段",
   "ai_select_actual_profiler_evidence_using_its_ai": "请从分析器的 AI 分析操作选择实际证据；没有证据时无法发送。",
+  "ai_stop_generation": "停止生成",
   "ai_streaming": "流式响应",
   "ai_model_id_placeholder": "模型 ID",
   "ai_optional_question_placeholder": "可选问题，将包含在冻结载荷中",

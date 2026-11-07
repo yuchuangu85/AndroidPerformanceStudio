@@ -4,7 +4,18 @@ use build_support::{load_catalog, placeholders, validate_catalogs, variant};
 use std::{fmt::Write, path::PathBuf};
 
 fn main() {
+    // Watch every catalog file, not only the directory: editing a JSON catalog
+    // does not change its parent directory mtime, so a directory-only watch
+    // leaves TextKey generated from stale resources.
     println!("cargo:rerun-if-changed=resources");
+    for directory in ["resources/values", "resources/values-zh"] {
+        println!("cargo:rerun-if-changed={directory}");
+        if let Ok(entries) = std::fs::read_dir(directory) {
+            for entry in entries.flatten() {
+                println!("cargo:rerun-if-changed={}", entry.path().display());
+            }
+        }
+    }
     println!("cargo:rerun-if-changed=build_support.rs");
     let english =
         load_catalog(std::path::Path::new("resources/values")).expect("invalid English resources");

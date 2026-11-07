@@ -34,7 +34,7 @@ fn badge(label: &'static str, colors: &studio::StudioColors) -> Div {
         .text_size(px(11.))
         .line_height(px(15.))
         .whitespace_nowrap()
-        .child(label)
+        .child(crate::studio::selectable(label))
 }
 
 fn detail_panel(
@@ -203,7 +203,7 @@ pub(super) fn request_detail(
                         .text_color(colors.text)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(language.text(key)),
+                        .child(crate::studio::selectable(language.text(key))),
                 )
                 .child(
                     supporting(language.text(TextKey::NetworkDetailNotRetained), colors)

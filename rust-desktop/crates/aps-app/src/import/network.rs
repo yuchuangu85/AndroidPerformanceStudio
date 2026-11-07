@@ -745,7 +745,7 @@ fn evidence_chip(label: &'static str, tone: Rgba) -> Div {
         .line_height(px(15.))
         .text_color(tone)
         .whitespace_nowrap()
-        .child(label)
+        .child(crate::studio::selectable(label))
 }
 
 fn panel_header(title: &'static str, colors: &studio::StudioColors) -> Div {
@@ -782,7 +782,9 @@ fn coverage_panel(
                         .text_size(px(13.))
                         .line_height(px(17.))
                         .line_clamp(2)
-                        .child(language.text(TextKey::NetworkCoverage)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::NetworkCoverage),
+                        )),
                 ),
         )
         .child(
@@ -806,7 +808,7 @@ fn message_strip(message: String, tone: Rgba, colors: &studio::StudioColors) -> 
             .line_height(px(15.))
             .text_color(tone)
             .line_clamp(2)
-            .child(message),
+            .child(crate::studio::selectable(message)),
     )
 }
 
@@ -914,7 +916,7 @@ fn summary_cards(
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(tone)
                                     .line_clamp(2)
-                                    .child(language.text(key)),
+                                    .child(crate::studio::selectable(language.text(key))),
                             )
                             .child(
                                 div()
@@ -924,7 +926,7 @@ fn summary_cards(
                                     .text_color(colors.text)
                                     .whitespace_nowrap()
                                     .text_ellipsis()
-                                    .child(value),
+                                    .child(crate::studio::selectable(value)),
                             )
                             .child(
                                 studio::supporting(support, colors)
@@ -1000,7 +1002,7 @@ fn table_cell(value: String, column: usize, color: Rgba) -> Div {
         .whitespace_nowrap()
         .text_ellipsis()
         .pr(px(6.))
-        .child(value)
+        .child(crate::studio::selectable(value))
 }
 
 fn number(row: &[String], column: usize) -> Option<f64> {

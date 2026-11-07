@@ -156,6 +156,7 @@
   "trace_workspace_capture": "采集跟踪",
   "trace_workspace_capture_unavailable": "此宿主中没有可用的采集控件。请通过采集插槽接入现有采集界面。",
   "trace_workspace_close_capture": "关闭采集",
+  "trace_workspace_close_trace": "关闭跟踪",
   "trace_workspace_completeness": "完整性",
   "trace_workspace_delete": "删除",
   "trace_workspace_description": "说明",
@@ -167,6 +168,7 @@
   "trace_workspace_empty_sessions": "没有匹配的跟踪会话。",
   "trace_workspace_error": "错误",
   "trace_workspace_export": "导出跟踪",
+  "trace_workspace_export_package": "导出会话包…",
   "trace_workspace_filter_all": "全部 {value1}",
   "trace_workspace_filter_critical": "严重 {value1}",
   "trace_workspace_filter_info": "信息 {value1}",
@@ -219,5 +221,6 @@
   "trace_workspace_category_input": "输入",
   "trace_workspace_category_other": "其他",
   "trace_workspace_copy": "复制",
+  "trace_workspace_copy_sql": "复制 SQL",
   "trace_workspace_truncated": "结果行已被查询上限截断。"
 }

@@ -633,9 +633,11 @@ impl Render for AiWorkspace {
             .child(
                 div()
                     .text_size(px(typography::TITLE))
-                    .child(lang.text(TextKey::AiAiAnalysis)),
+                    .child(crate::studio::selectable(lang.text(TextKey::AiAiAnalysis))),
             )
-            .child(lang.text(TextKey::AiConfigureAnExplicitProviderFreezeActualProfiler))
+            .child(crate::studio::selectable(lang.text(
+                TextKey::AiConfigureAnExplicitProviderFreezeActualProfiler,
+            )))
             .child(Input::new(&self.provider).disabled(busy))
             .child(Input::new(&self.endpoint).disabled(busy))
             .child(Input::new(&self.model).disabled(busy))
@@ -673,17 +675,20 @@ impl Render for AiWorkspace {
                             .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
                     ),
             )
-            .children(
-                self.error
-                    .clone()
-                    .map(|error| div().text_color(cx.theme().danger).child(error)),
-            );
+            .children(self.error.clone().map(|error| {
+                div()
+                    .text_color(cx.theme().danger)
+                    .child(crate::studio::selectable(error))
+            }));
         if busy {
-            body =
-                body.child(lang.text(TextKey::AiWaitingForValidatedResponseCancelStopsPublication));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::AiWaitingForValidatedResponseCancelStopsPublication),
+            ));
         }
         if self.request.is_none() && self.prepared.is_none() && self.result.is_none() {
-            body = body.child(lang.text(TextKey::AiSelectActualProfilerEvidenceUsingItsAi));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::AiSelectActualProfilerEvidenceUsingItsAi),
+            ));
         }
         if let Some(prepared) = &self.prepared {
             let provider = prepared.provider();
@@ -725,11 +730,15 @@ impl Render for AiWorkspace {
                         .bg(cx.theme().muted)
                         .font_family("monospace")
                         .text_size(px(typography::SUPPORTING))
-                        .child(prepared.review_body().to_owned()),
+                        .child(crate::studio::selectable(prepared.review_body().to_owned())),
                 )
-                .child(lang.text(TextKey::AiTheJsonAboveIsTheExactFrozen))
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::AiTheJsonAboveIsTheExactFrozen),
+                ))
                 .child(Input::new(&self.credential).disabled(busy))
-                .child(lang.text(TextKey::AiCredentialIsMaskedAndClearedWhenSending))
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::AiCredentialIsMaskedAndClearedWhenSending),
+                ))
                 .child(
                     Button::new("ai-network-consent")
                         .label(lang.text(TextKey::AiIApproveSendingThisExactRequestTo))
@@ -761,7 +770,9 @@ impl Render for AiWorkspace {
             );
         }
         if self.consumed && !busy {
-            body = body.child(lang.text(TextKey::AiThisEvidenceRequestWasConsumedOrCancelled));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::AiThisEvidenceRequestWasConsumedOrCancelled),
+            ));
         }
         if let Some(result) = &self.result {
             body = body
@@ -823,5 +834,74 @@ impl Render for AiWorkspace {
                 }));
         }
         body
+    }
+}
+
+/// In-window menu bar commands for the Ai workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum AiMenuCommand {
+    Freeze,
+    SendOnce,
+    StopGeneration,
+    ClearEvidence,
+}
+
+impl crate::shell::menubar::MenuHost for AiWorkspace {
+    type Command = AiMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: aps_ui_foundation::Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        use crate::shell::menubar::MenuGroup;
+
+        let has_prepared = self.prepared.is_some();
+        let has_sources = self
+            .prepared
+            .as_ref()
+            .is_some_and(|prepared| !prepared.source_candidates().is_empty());
+        let mut session = MenuGroup::new(TextKey::ShellMenuSession)
+            .item_when(
+                !self.busy && !self.consumed && self.request.is_some(),
+                TextKey::AiFreezeAndReviewRequest,
+                AiMenuCommand::Freeze,
+            )
+            .separator();
+        if has_prepared {
+            // Same rule as the on-page one-shot send button: the exact request
+            // is already frozen, and the user must have ticked every consent
+            // that the frozen payload requires.
+            session = session.item_when(
+                !self.busy && self.network_consent && (!has_sources || self.source_consent),
+                TextKey::AiApproveAndSendOnce,
+                AiMenuCommand::SendOnce,
+            );
+        }
+        session = session
+            .item_when(
+                self.busy || has_prepared || self.request.is_some(),
+                TextKey::AiStopGeneration,
+                AiMenuCommand::StopGeneration,
+            )
+            .item(
+                TextKey::AiClearEvidenceAndResult,
+                AiMenuCommand::ClearEvidence,
+            );
+        vec![session]
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        window: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::Context<Self>,
+    ) {
+        match command {
+            AiMenuCommand::Freeze => self.freeze(cx),
+            AiMenuCommand::SendOnce => self.send(window, cx),
+            AiMenuCommand::StopGeneration => self.cancel(window, cx),
+            AiMenuCommand::ClearEvidence => self.close(window, cx),
+        }
     }
 }

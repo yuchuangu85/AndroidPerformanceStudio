@@ -13,12 +13,33 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+pub mod model;
+pub mod presenter;
+mod regex_lite;
 pub mod worker;
 pub use aps_hprof_engine::wire::Value as MemoryValue;
+pub use model::{
+    ActivityLeak, BitmapInstance, ClassStats, DominatorRow, DominatorsPage, FindingsPage,
+    FindingsSnapshot, HeapSegment, HeapSummary, HeapValueKind, InstanceDetail, InstanceField,
+    InstanceRow, InstancesPage, LeakSuspect, LifecycleLeakObject, MemorySnapshot, ObjectReference,
+    SnapshotMetadata,
+};
+pub use presenter::{
+    ArrangeBy, ClassListSummary, ClassScope, ClassifierColumn, ClassifierRow, DashboardSort,
+    LeakFilter, MemoryFilter, SortDirection, class_list_summary, classifier_rows,
+    displayed_classes, duplicate_bitmap_classes, is_system_class, leak_class_names,
+    leak_object_ids, sort_histogram_classes,
+};
 pub const MAX_PAGE_SIZE: usize = 200;
+/// Bounded UI page size for instance and dominator views.
+pub const MAX_UI_PAGE_SIZE: usize = 500;
 pub const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+/// The combined snapshot payload is one bounded read; it may exceed the page
+/// budget but never the hard 16 MiB presentation ceiling.
+pub const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_INPUT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(120);
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(300);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_QUERY_CACHE_ENTRIES: usize = 8;
 const MAX_QUERY_CACHE_BYTES: usize = 2 * 1024 * 1024;
@@ -108,7 +129,7 @@ impl FindingKind {
 /// inherits the current user's OS rights and is trusted application code.
 pub struct MemorySession {
     child: Option<Child>,
-    requests: Option<SyncSender<Vec<u8>>>,
+    requests: Option<SyncSender<(Vec<u8>, usize)>>,
     responses: Receiver<Result<Value, MemoryError>>,
     io_thread: Option<JoinHandle<()>>,
     source_digest: String,
@@ -166,17 +187,17 @@ impl MemorySession {
             let _ = child.wait();
             return Err(MemoryError::WorkerFailed);
         };
-        let (request_tx, request_rx) = mpsc::sync_channel::<Vec<u8>>(1);
+        let (request_tx, request_rx) = mpsc::sync_channel::<(Vec<u8>, usize)>(1);
         let (response_tx, response_rx) = mpsc::sync_channel(1);
         let io_thread = match thread::Builder::new()
             .name("aps-memory-protocol".into())
             .spawn(move || {
                 let mut stdin = stdin;
                 let mut stdout = stdout;
-                while let Ok(bytes) = request_rx.recv() {
+                while let Ok((bytes, max_response)) = request_rx.recv() {
                     let result = wire::write_encoded(&mut stdin, &bytes)
                         .map_err(|_| MemoryError::WorkerFailed)
-                        .and_then(|_| read_response(&mut stdout));
+                        .and_then(|_| read_response(&mut stdout, max_response));
                     let failed = result.is_err();
                     if response_tx.send(result).is_err() || failed {
                         break;
@@ -358,6 +379,141 @@ impl MemorySession {
         )
     }
 
+    /// One bounded, consistent read: metadata + all-heap histogram + per-heap
+    /// histograms + the first 200 rows (with totals) of every finding kind.
+    /// The combined payload may exceed the 2 MiB page budget but never
+    /// MAX_SNAPSHOT_BYTES; per-heap histograms are omitted before failing.
+    pub fn snapshot(&mut self, cancel: &CancellationToken) -> Result<MemorySnapshot, MemoryError> {
+        let metadata = SnapshotMetadata::from_value(&self.metadata)?;
+        let heaps: Vec<Value> = metadata.heaps.iter().cloned().map(Value::from).collect();
+        let value = self.request_bounded(
+            "snapshot",
+            Value::map([("heaps", Value::List(heaps))]),
+            cancel,
+            SNAPSHOT_TIMEOUT,
+            MAX_SNAPSHOT_BYTES,
+        )?;
+        if value.get("exceeded").and_then(Value::as_bool) == Ok(true) {
+            return Err(MemoryError::ResponseLimit);
+        }
+        MemorySnapshot::decode(&value, &metadata, &self.source_digest)
+    }
+
+    /// Instance rows for every leaf class of one selected classifier row.
+    pub fn instances_page(
+        &mut self,
+        class_names: &[String],
+        heap: Option<&str>,
+        offset: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<InstancesPage, MemoryError> {
+        page_with(offset, limit, MAX_UI_PAGE_SIZE)?;
+        if class_names.is_empty()
+            || class_names.len() > 64
+            || class_names
+                .iter()
+                .any(|name| name.is_empty() || name.len() > 4096)
+        {
+            return Err(MemoryError::InvalidInput);
+        }
+        let value = self.request(
+            "instances",
+            Value::map([
+                (
+                    "classNames",
+                    Value::List(class_names.iter().cloned().map(Value::from).collect()),
+                ),
+                ("heapName", heap.into()),
+                ("offset", (offset as i64).into()),
+                ("limit", (limit as i64).into()),
+                ("ordinaryOnly", false.into()),
+                ("anchorObjectId", Value::Null),
+            ]),
+            cancel,
+            QUERY_TIMEOUT,
+        )?;
+        InstancesPage::from_value(&value, offset)
+    }
+
+    /// Detail of one object; array pages use arrayStart and a limit up to 200.
+    pub fn detail_page(
+        &mut self,
+        object_id: u64,
+        array_start: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Option<InstanceDetail>, MemoryError> {
+        page(array_start, limit)?;
+        let value = self.detail(object_id, array_start, limit, cancel)?;
+        if value == Value::Null {
+            return Ok(None);
+        }
+        InstanceDetail::from_value(&value, object_id, array_start, limit).map(Some)
+    }
+
+    /// One bounded page of dominator children; an absent parent means roots.
+    pub fn dominators_page(
+        &mut self,
+        parent: Option<u64>,
+        offset: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<DominatorsPage, MemoryError> {
+        page_with(offset, limit, MAX_UI_PAGE_SIZE)?;
+        let value = self.request(
+            "dominators",
+            Value::map([
+                ("parentObjectId", parent.map(|id| id as i64).into()),
+                ("offset", (offset as i64).into()),
+                ("limit", (limit as i64).into()),
+            ]),
+            cancel,
+            QUERY_TIMEOUT,
+        )?;
+        DominatorsPage::from_value(&value, offset)
+    }
+
+    pub fn leak_suspects_page(
+        &mut self,
+        offset: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<FindingsPage<LeakSuspect>, MemoryError> {
+        let value = self.findings(FindingKind::LeakSuspects, offset, limit, cancel)?;
+        model::decode_findings_page(&value, LeakSuspect::from_value)
+    }
+
+    pub fn bitmaps_page(
+        &mut self,
+        offset: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<FindingsPage<BitmapInstance>, MemoryError> {
+        let value = self.findings(FindingKind::BitmapInstances, offset, limit, cancel)?;
+        model::decode_findings_page(&value, BitmapInstance::from_value)
+    }
+
+    pub fn activity_leaks_page(
+        &mut self,
+        offset: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<FindingsPage<ActivityLeak>, MemoryError> {
+        let value = self.findings(FindingKind::ActivityLeaks, offset, limit, cancel)?;
+        model::decode_findings_page(&value, ActivityLeak::from_value)
+    }
+
+    pub fn lifecycle_objects_page(
+        &mut self,
+        offset: usize,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<FindingsPage<LifecycleLeakObject>, MemoryError> {
+        let value = self.findings(FindingKind::LifecycleLeakObjects, offset, limit, cancel)?;
+        model::decode_findings_page(&value, LifecycleLeakObject::from_value)
+    }
+
     /// Cancels the whole session rather than leaving an unreachable live worker.
     pub fn close(&mut self) {
         self.stop();
@@ -369,6 +525,19 @@ impl MemorySession {
         args: Value,
         cancel: &CancellationToken,
         timeout: Duration,
+    ) -> Result<Value, MemoryError> {
+        self.request_bounded(op, args, cancel, timeout, MAX_RESPONSE_BYTES)
+    }
+
+    /// A single read whose response frame may use a larger presentation cap.
+    /// Every other operation keeps the 2 MiB page-response guarantee.
+    fn request_bounded(
+        &mut self,
+        op: &str,
+        args: Value,
+        cancel: &CancellationToken,
+        timeout: Duration,
+        max_response: usize,
     ) -> Result<Value, MemoryError> {
         if self.child.is_none() {
             return Err(MemoryError::Closed);
@@ -413,7 +582,7 @@ impl MemorySession {
             .requests
             .as_ref()
             .ok_or(MemoryError::Closed)?
-            .send(bytes)
+            .send((bytes, max_response))
             .is_err()
         {
             self.stop();
@@ -510,8 +679,12 @@ impl Drop for MemorySession {
 }
 
 pub(crate) fn page(offset: usize, limit: usize) -> Result<(), MemoryError> {
+    page_with(offset, limit, MAX_PAGE_SIZE)
+}
+
+pub(crate) fn page_with(offset: usize, limit: usize, max: usize) -> Result<(), MemoryError> {
     if limit == 0
-        || limit > MAX_PAGE_SIZE
+        || limit > max
         || offset.checked_add(limit).is_none()
         || offset > i64::MAX as usize
     {
@@ -520,13 +693,13 @@ pub(crate) fn page(offset: usize, limit: usize) -> Result<(), MemoryError> {
     Ok(())
 }
 
-fn read_response(reader: &mut impl Read) -> Result<Value, MemoryError> {
+fn read_response(reader: &mut impl Read, max_response: usize) -> Result<Value, MemoryError> {
     let mut header = [0; 4];
     reader
         .read_exact(&mut header)
         .map_err(|_| MemoryError::WorkerFailed)?;
     let size = u32::from_be_bytes(header) as usize;
-    if size == 0 || size > MAX_RESPONSE_BYTES {
+    if size == 0 || size > max_response {
         return Err(MemoryError::ResponseLimit);
     }
     let mut bytes = vec![0; size];
@@ -544,4 +717,209 @@ pub(crate) fn write_response(writer: &mut impl Write, response: &Value) -> io::R
         return Err(io::ErrorKind::InvalidData.into());
     }
     wire::write_encoded(writer, &bytes).map_err(|_| io::ErrorKind::BrokenPipe.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aps_hprof_engine::wire::Value;
+    use std::collections::BTreeMap;
+
+    fn metadata_value(id_size: i64) -> Value {
+        Value::map([
+            ("format", "JAVA PROFILE 1.0.3".into()),
+            ("idSize", id_size.into()),
+            ("timestampMillis", 1_700_000_000_000i64.into()),
+            ("classCount", 2i64.into()),
+            ("instanceCount", 7i64.into()),
+            ("objectArrayCount", 1i64.into()),
+            ("primitiveArrayCount", 1i64.into()),
+            ("rootCount", 3i64.into()),
+            (
+                "warnings",
+                Value::List(vec![Value::map([("message", "truncated record".into())])]),
+            ),
+            ("heaps", Value::List(vec!["App".into(), "Zygote".into()])),
+            ("cacheStatus", "disabled".into()),
+        ])
+    }
+
+    fn summary_value() -> Value {
+        Value::map([
+            ("objectCount", 7i64.into()),
+            ("shallowSize", 700i64.into()),
+            ("classCount", 2i64.into()),
+            (
+                "heapSegments",
+                Value::List(vec![Value::map([
+                    ("name", "App".into()),
+                    ("sizeBytes", 500i64.into()),
+                    ("objectCount", 5i64.into()),
+                ])]),
+            ),
+        ])
+    }
+
+    fn class_value(name: &str, count: i64, shallow: i64, retained: Option<i64>) -> Value {
+        Value::map([
+            ("className", name.into()),
+            ("instanceCount", count.into()),
+            ("shallowSize", shallow.into()),
+            (
+                "retainedSize",
+                retained.map(Value::Int).unwrap_or(Value::Null),
+            ),
+            ("obfuscatedClassName", Value::Null),
+            ("hierarchyDepth", 2i64.into()),
+            ("nativeSize", Value::Null),
+            ("totalCount", count.into()),
+            ("heapNames", Value::List(vec!["App".into()])),
+            ("reachableShallowSize", 11i64.into()),
+            ("reachableNativeSize", Value::Null),
+        ])
+    }
+
+    fn page_value(total: i64, rows: Vec<Value>) -> Value {
+        Value::map([("total", total.into()), ("rows", Value::List(rows))])
+    }
+
+    fn findings_value() -> Value {
+        Value::map([
+            (
+                "leakSuspects",
+                page_value(
+                    5,
+                    vec![Value::map([
+                        ("className", "sample.LeakingActivity".into()),
+                        ("reason", "static field retains a Context".into()),
+                        ("instanceCount", 2i64.into()),
+                        ("retainedSize", 4096i64.into()),
+                        ("activityOrFragmentLeak", false.into()),
+                    ])],
+                ),
+            ),
+            (
+                "bitmapInstances",
+                page_value(
+                    3,
+                    vec![Value::map([
+                        ("objectId", 0x10i64.into()),
+                        ("className", "android.graphics.Bitmap".into()),
+                        ("width", 100i64.into()),
+                        ("height", 50i64.into()),
+                        ("estimatedPixelBytes", 20_000i64.into()),
+                        ("retainedSize", 30_000i64.into()),
+                        ("bitmapId", 77i64.into()),
+                        ("bitmapSourceId", 88i64.into()),
+                        ("nativeSizeBytes", Value::Null),
+                    ])],
+                ),
+            ),
+            (
+                "activityLeaks",
+                page_value(
+                    1,
+                    vec![Value::map([
+                        ("className", "sample.Screen".into()),
+                        ("liveInstanceCount", 3i64.into()),
+                        ("destroyedInstanceCount", 2i64.into()),
+                        ("retainedSize", Value::Null),
+                    ])],
+                ),
+            ),
+            (
+                "lifecycleLeakObjects",
+                page_value(
+                    2,
+                    vec![Value::map([
+                        ("objectId", 42i64.into()),
+                        ("className", "sample.Screen".into()),
+                        ("heapName", "App".into()),
+                    ])],
+                ),
+            ),
+        ])
+    }
+
+    fn snapshot_payload(per_heap: Option<Value>, omitted: bool) -> Value {
+        let mut payload = BTreeMap::new();
+        payload.insert("summary".into(), summary_value());
+        payload.insert(
+            "classes".into(),
+            Value::List(vec![
+                class_value("sample.Alpha", 4, 400, Some(900)),
+                class_value("sample.Beta", 3, 300, None),
+            ]),
+        );
+        if let Some(per_heap) = per_heap {
+            payload.insert("perHeap".into(), per_heap);
+        }
+        payload.insert("perHeapOmitted".into(), omitted.into());
+        payload.insert("findings".into(), findings_value());
+        Value::Map(payload)
+    }
+
+    #[test]
+    fn snapshot_payload_decodes_histograms_findings_and_metadata() {
+        let metadata = SnapshotMetadata::from_value(&metadata_value(4)).unwrap();
+        assert_eq!(metadata.format, "JAVA PROFILE 1.0.3");
+        assert_eq!(metadata.id_size, 4);
+        assert_eq!(metadata.heaps, vec!["App", "Zygote"]);
+        assert_eq!(metadata.warnings, vec!["truncated record"]);
+        assert_eq!(metadata.cache_status.as_deref(), Some("disabled"));
+
+        let per_heap = Value::Map(BTreeMap::from([(
+            "App".into(),
+            Value::List(vec![class_value("sample.Alpha", 2, 200, Some(800))]),
+        )]));
+        let payload = snapshot_payload(Some(per_heap), false);
+        let snapshot = MemorySnapshot::decode(&payload, &metadata, "digest").unwrap();
+
+        assert_eq!(snapshot.source_digest, "digest");
+        assert_eq!(snapshot.summary.object_count, 7);
+        assert_eq!(snapshot.summary.heap_segments.len(), 1);
+        assert_eq!(snapshot.summary.heap_segments[0].name, "App");
+        assert_eq!(snapshot.classes.len(), 2);
+        assert_eq!(snapshot.classes[0].retained_size, Some(900));
+        assert_eq!(snapshot.classes[1].retained_size, None);
+        assert_eq!(snapshot.per_heap_classes.len(), 1);
+        assert_eq!(snapshot.per_heap_classes["App"][0].instance_count, 2);
+
+        let findings = &snapshot.findings;
+        assert_eq!(findings.leak_suspects.total, 5);
+        assert_eq!(findings.leak_suspects.rows.len(), 1);
+        assert!(!findings.leak_suspects.rows[0].activity_or_fragment_leak);
+        assert_eq!(findings.bitmaps.total, 3);
+        assert_eq!(
+            findings.bitmaps.rows[0].bitmap_source_id.as_deref(),
+            Some("88")
+        );
+        assert_eq!(findings.bitmaps.rows[0].width, Some(100));
+        assert_eq!(findings.activities.rows[0].destroyed_instance_count, 2);
+        assert_eq!(findings.activities.total, 1);
+        assert_eq!(findings.lifecycle.total, 2);
+        assert_eq!(findings.lifecycle.rows[0].object_id, 42);
+        assert_eq!(findings.lifecycle.rows[0].heap_name.as_deref(), Some("App"));
+    }
+
+    #[test]
+    fn per_heap_fallback_omits_heap_rows_without_failing() {
+        let metadata = SnapshotMetadata::from_value(&metadata_value(8)).unwrap();
+        let payload = snapshot_payload(None, true);
+        let snapshot = MemorySnapshot::decode(&payload, &metadata, "digest").unwrap();
+        assert!(snapshot.per_heap_classes.is_empty());
+        assert_eq!(snapshot.classes.len(), 2);
+        assert_eq!(snapshot.metadata.id_size, 8);
+    }
+
+    #[test]
+    fn snapshot_metadata_rejects_an_unusable_id_size() {
+        assert_eq!(
+            SnapshotMetadata::from_value(&metadata_value(5)),
+            Err(MemoryError::InvalidResponse)
+        );
+        assert_eq!(MAX_UI_PAGE_SIZE, 500);
+        const { assert!(MAX_SNAPSHOT_BYTES <= 16 * 1024 * 1024) };
+        const { assert!(MAX_SNAPSHOT_BYTES > MAX_RESPONSE_BYTES) };
+    }
 }

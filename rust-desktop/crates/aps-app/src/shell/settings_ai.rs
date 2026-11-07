@@ -205,7 +205,9 @@ impl Studio {
                     .flex_shrink_0()
                     .text_size(px(typography::TITLE))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(language.text(TextKey::AiSettingsTitle)),
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::AiSettingsTitle),
+                    )),
             )
             .child(selector)
             .child(

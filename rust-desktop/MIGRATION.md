@@ -574,6 +574,36 @@ acceptance were executed.
   lookups and resolver candidates against the in-memory repository, and the
   ignored `manual_aosp_streaming_smoke` records the large-tree evidence.
 
+### Source semantic navigation (Phase 3) — 2026-11-08
+
+- Settings > Configuration now has an opt-in **Semantic navigation (LSP)**
+  switch. It is off by default. Turning it on shows an inline warning that a
+  local language server process will start and may use hundreds of MB; only
+  explicit **Enable** persists `sourceLspEnabled=true` (settings format v4),
+  **Cancel** leaves it disabled. Older settings files load with it disabled.
+- When enabled, Cmd/Ctrl-click (or Ctrl-click) an identifier in the source
+  viewer to request `textDocument/definition`; Shift+Cmd/Ctrl-click requests
+  `textDocument/references` and shows a bounded usage list (200 entries) above
+  the viewer. Clicking a usage opens it; `×` closes the list. The modifier
+  hint is shown in the source pane only while the feature is enabled.
+- Servers are local-only: the client speaks JSON-RPC over stdio, keeps one
+  session per workspace/language, sends the open document with `didOpen`, and
+  waits with bounded timeouts. No source text leaves the machine and no
+  server is bundled. Discovery: `APS_JDTLS` or `jdtls` on PATH for Java,
+  `APS_KOTLIN_LSP` or `kotlin-lsp` for Kotlin, `APS_CLANGD` or `clangd` for
+  C/C++; extra arguments via `APS_*_ARGS`. Missing servers produce the
+  localized configuration hint instead of silently falling back.
+- The LSP client handles canonical paths returned by servers (for example
+  /private/tmp versus /tmp), UTF-16 positions, Location and LocationLink
+  results, and kills the server when the feature is disabled or the app
+  exits. Tree-sitter remains the highlighter; LSP is used only for semantic
+  definition/reference requests.
+- Verification: unit tests cover identifier/UTF-16/URI conversion, a scripted
+  stdio server for initialize/definition/references, and an ignored clangd
+  smoke test that resolves a definition; the settings warning and persistence
+  were verified in the native app. Java/Kotlin servers are environment
+  installations, not part of this repository. Final gate: 671 passed/0 failed,
+  `cargo check --workspace --all-targets` and `cargo fmt --all --check` clean.
 ### Network digest-bound minimized page cache slice — 2026-11-06
 
 - `HarSession::open` now computes and retains the selected HAR's SHA-256
@@ -633,6 +663,66 @@ Fresh static evidence for the Memory slice: `cargo fmt --all`,
 `cargo check --locked --workspace --all-targets --offline`, and
 `git diff --check` passed. No HPROF worker, test, GUI or package validation was
 executed.
+
+### Memory Profiler Compose-parity workspace — 2026-11-07
+
+- Replaced the generic Memory import table with a typed GPUI workspace that
+  follows the Compose Memory Profiler page: a command toolbar (Import HPROF,
+  capture actions, Overview/Classes/Dominators/Diff tabs, Bitmaps/Native
+  Heap/ART Samples/Leak Analysis entries, Mapping, AI analysis), snapshot tabs,
+  the evidence/warnings strip, and a task/status bar.
+- The Classes view now mirrors `MemoryInvestigationWorkspace` +
+  `MemoryProfilerClassListView`: the primary filter bar (heap, class scope,
+  leak filter, arrange-by, class search, match case, regex), eight KPI cards
+  (Leaks, Duplicate Bitmaps, Classes, Count, Native Size, Shallow, Retained
+  Native Size, Retained), the heap-distribution bar, a resizable classifier
+  tree table (heap/package grouping, lazy expansion, sortable Instances /
+  Native Size / Shallow / Retained / Heap columns, leak and duplicate-bitmap
+  tints) and the instance list with 500-row bounded paging. Selecting instances
+  opens the object inspector inline: Fields / References tabs, sorted rows,
+  object drill-in with back/forward history, pin/unpin, copy object id, string
+  preview, truncation notices, nearest-GC-root-only filtering and 200-element
+  array paging.
+- Dominators follows `MemoryDominatorWorkspace`: whole-snapshot KPI cards,
+  heap distribution, a 190 px filters pane (search, match case, regex), a
+  lazily expanded dominator tree with child pages and leaf/unknown totals, and
+  the 330 px object inspector. Diff adds whole-snapshot KPI/distribution above
+  the class-level A/B comparison table (Class, A/B counts, deltas, A/B retained,
+  Δ retained) with signed deltas and no cross-dump object identity. Leak
+  Analysis presents the HPROF heuristic findings (leak suspects, Activity /
+  Fragment candidates, lifecycle objects) and marks LeakCanary agent/live data
+  explicitly unavailable rather than simulated. Bitmaps, Native Heap and ART
+  Samples use Compose-shaped pages with empty/unavailable states while their
+  Rust artifact adapters and live capture paths are not implemented.
+- New typed domain in `aps-memory`: `model.rs` (snapshot/metadata/class stats,
+  findings, instance/detail/dominator pages), `presenter.rs` (Compose
+  presenter parity: heap and package grouping, scope/leak/search filters,
+  summary null-vs-zero rules, duplicate-bitmap identity, classifier sorting and
+  dashboard ordering) and a dependency-free bounded regex subset. The worker
+  gained one bounded `snapshot` read (metadata + all-heap histogram + per-heap
+  histograms + first 200 rows of each finding kind, 16 MiB budget with
+  per-heap fallback) plus typed 500-row instance/dominator pages and 200-row
+  array/object detail pages. Object ids are handled as unsigned 64-bit values;
+  missing metrics stay unavailable.
+- Verification: `rustfmt` on the changed files, `cargo check --locked
+  --workspace --all-targets --offline`, `cargo test -p aps-memory` (38
+  domain tests), `cargo test -p aps-app memory::` (15
+  tests) and `git diff --check` passed. Native window screenshots with a real
+  8-byte-id HPROF fixture (built from the engine test fixture shape) covered
+  Classes + expanded tree + instance list + object inspector, Overview,
+  Dominators, Diff, Leak Analysis, Bitmaps, Native Heap and ART Samples under
+  `build/memory-profiler/` (parity spec in
+  `build/memory-profiler/parity-spec.md`).
+- Remaining gaps: live device capture (Dump Heap / Capture Native Heap / Record
+  ART Samples / Dump Bitmaps / Inject Agent) and mapping import are visibly
+  disabled, not simulated; LeakCanary agent and live monitoring are not
+  implemented; Native Heap / ART Samples / Bitmap artifact analysis adapters
+  and bitmap capture sessions do not exist in Rust; finding tables are bounded
+  to the worker's first 200 rows (totals exact); dominator child pages beyond
+  the first 500 rows have no paging control; the comparison UI needs two open
+  snapshots for data (verified in the unavailable state); full screenshot
+  pixel comparison, packaged release and device acceptance remain open.
+
 
 ### Frame offline workspace reconstruction — 2026-11-07
 
@@ -946,173 +1036,498 @@ and selected-run panels are the reference; Compose implementations are unchanged
   inspector, thermal/performance windows, diagnostics and a copyable fixed footer.
   Shared Studio colors, typography and 4dp spacing apply. The shell no longer
   adds a duplicate title/AI row or a second vertical viewport to Battery.
-- Sessions use the reference's 1000dp breakpoint, 230dp wide rail and 220dp narrow
-  card. Narrow short windows scroll the whole content to keep results accessible.
-  The run table shares header/body horizontal scrolling below 580dp. Charts and
-  the 290dp inspector stack below 860dp actual results width.
-- Imports use the existing native picker, generation-bound publication and
-  cancellation paths; native File import delegates to the same feature adapter
-  and cancellation preserves navigation. Only the current imported report is
-  listed; Rust does not invent a saved-session index, report status or capture
-  time from file metadata. New closes the current imported report without
-  touching its source, Compose storage or device state.
-- Summary statistics follow the reference's nearest-rank quantiles and preserve
-  signed finite temperatures. Omitted timer arrays/counters remain unknown,
-  explicit empty arrays mean zero reported records, and alarm totals are not
-  relabeled wakeup-only. Energy records with incompatible component/source/
-  scope/confidence are not summed. Empty Energy remains an accessible resource
-  tab; only an unavailable scalar energy card is omitted.
-- Selection uses source run IDs and evidence indices, not duplicate names or
-  filtered positions. Publication keeps the selected run in the displayed page.
-  Resource search filters before bounded materialization; empty searches avoid
-  building search documents, and only displayed rows clone evidence strings.
-  Runs, resources, performance windows and diagnostics are all reachable through
-  bounded 100-item pages. Standard Input/Button controls retain keyboard semantics.
-- Schema-v1 import now preserves optional source metadata, timer confidence,
-  throttled-sample counts and performance windows with strict type/range/calendar
-  validation. Imported labels/diagnostics remain verbatim. Raw snapshots/history
-  clocks are unavailable, not synthetic charts; aggregate network bytes are not
-  request events or inferred Wi-Fi/mobile counters. A comparable baseline cannot
-  be established from this derived schema alone.
-- Configuration opens a real dismissible dialog showing disabled reference
-  controls and explaining that no capture preferences are applied. Live capture,
-  app launch, global reset, Historian/bugreport generation and raw bundles stay
-  disabled with specific reasons. AI continues through explicit preflight, while
-  JSON/CSV export labels accurately disclose the existing published-page format,
-  not a reimportable session archive.
-- Added regression sources for exported fields/nullability, strict malformed
-  metadata, signed statistics, missing-versus-empty evidence, stable paging and
-  selection, lazy row construction, resource tabs, display and layout thresholds.
-  These are compiled only; test execution remains deferred by the rewrite policy.
+### Layout Inspector toolbar and window-menu alignment — 2026-11-07
 
-Validation: `cargo fmt --all --check`, locked offline workspace all-target check,
-focused Battery/App/Foundation Clippy, app build and whitespace checks. Logs:
-`/tmp/aps-battery-ui-check.log`, `/tmp/aps-battery-ui-clippy.log`,
-`/tmp/aps-battery-ui-build.log`. Existing unrelated workspace warnings remain;
-no fresh Battery-file diagnostics are accepted. Native screenshots/pixel fidelity,
-### Source Workspaces Compose-parity slice — 2026-11-07
+The Layout Inspector header and the native window menu now follow the Compose
+page instead of the earlier offline-only approximations. Compose remains the
+behavior oracle; no Compose source changed.
 
-- `aps-source` was rewritten as the Compose `source-workspace` domain:
-  digest-backed workspace/snapshot/candidate/evidence IDs, local/GitHub/AOSP
-  provider configs, the seven workspace phases, snapshot/file/symbol/range/
-  location/candidate/content-state models, a content-addressed cache, a
-  Git-aware local provider (`git rev-parse HEAD`, dirty digest over sorted
-  `path:sha256` lines, symlink-safe walk, 5 MiB and extension allowlists), the
-  `StructuralSourceIndexer` declaration port (validated pattern-for-pattern
-  against the Compose JVM regexes), an in-memory `SourceRepository`, and
-  `IndexedSourceResolver` with Compose confidence tiers, raw reason strings,
-  deterministic candidate IDs, Java `String.hashCode` package matching and the
-  `BuildIdentityMatch` Exact→Probable ceiling.
-- `aps-storage` schema v3 adds workspaces/snapshots/files/symbols/candidates
-  with cascades and bounded validation, implements
-  `aps_source::SourceRepository` for `Storage`, and migrates dev databases by
-  recreating only the old source tables (artifacts and sessions preserved). No
-  Compose database or settings are read.
-- `crates/aps-app/src/source/service.rs` implements the blocking
-  `DefaultSourceWorkspaceService` flow: add/refresh/remove/read/load/snapshot/
-  files/candidate/save_candidates/resolve, Compose's exact phase/progress/
-  message sequence, snapshot id = sha256("<workspace>:<revision>:<manifest>"),
-  cache-every-file indexing, and Current/Stale verification against the working
-  tree. The DB is opened per call; failures persist the Failed phase and keep the
-  previous snapshot.
-- The GPUI page (`source/page.rs`, `source/tree.rs`, `source/layout.rs`,
-  `source/code_viewer.rs`, `source/ai_context.rs`, `source/permissions.rs`)
-  reproduces Compose's toolbar (+Local, AI Settings, Run AI Analysis; GitHub/AOSP
-  hidden), three-pane container-query layout with 360/320/220/220/360 minimums
-  and 7 px draggable splitters, workspace cards (provider·phase, progress,
-  localized ready summary, Sync/AI-source/Remove), the 28 px file search row,
-  20 px / 14 px-indent virtualized collapsed-first directory tree with
-  language-colored icons and disclosure triangles, the source header with
-  path:line, Copy location/Open in IDE, snapshot summary, localized candidate
-  reasons and stale warning, and the One Dark viewer (verbatim palette and
-  tokenizer, 56 px gutter, range band, 28 px search with n/m and prev/next,
-  horizontal/vertical scrolling, drag selection and copy).
-- AI: the page publishes bounded, metadata-only selection evidence (snapshot
-  identity, content hash, language, content state, size, line count/range, no
-  source text). A source candidate is included only while the workspace's
-  Rust-owned upload grant is set; the existing AI preflight still requires its
-  separate explicit source-consent approval before transport. The "AI Settings"
-  button opens the existing Rust AI settings subpage.
-- Localization: `values{,-zh}/source.json` replaced with the Compose
-  `source_*` page/viewer keys (status/phase/confidence/reason/summary
-  templates); no source text, SQL, paths or diagnostics are translated.
+- Capture target is a Compose `DropdownSelector` (accent outline, accent label,
+  trailing chevron) labelled `目标: 前台应用` / `Target: Foreground app`, with
+  `前台应用` and `系统界面` menu items, a check on the selected mode, and the
+  label following the choice. The offline archive adapter has no live capture,
+  so the selection is presentation state and starts no device operation.
+- Manual/automatic scan is a single `SegmentedSelector(COMPACT_OUTLINED)`-style
+  control (`刷新` / `自动扫描`, accent track, selected accent fill, hairline
+  separators) pinned to the right end of the toolbar immediately before the
+  trailing divider, matching Compose's `Refresh | Auto scan` placement. Both
+  segments stay visibly disabled for the same reason the page states live
+  capture is unavailable.
+- The connection dot and label now share the Compose warning tone, and pane
+  toggles use the Compose `PanelToggleButton` metrics (26 x 21, 3 px radius,
+  18% accent tint when visible, no outline) instead of boxed icon buttons.
+- The native window menu is now the Compose skeleton — File, View, Tools, Help
+  plus the macOS application menu — and is route-aware: the shell rebuilds it on
+  navigation, pane visibility changes and layout-preference changes. On the
+  Layout Inspector route File publishes `打开…` and the disabled `导出归档…`
+  placeholder (archive export is not implemented), View publishes the three
+  pane toggles and the five view options with checked state bound to the shared
+  `LayoutPreferences`, Tools publishes `自动扫描` (disabled), `显示层级 ID`
+  (checked from preferences) and `下一个窗口`, and Help opens the AI workspace.
+  Other routes keep the existing File import/export actions and show disabled
+  View/Tools menus, so no previous action was removed.
+- New locale keys live in both catalogs: `inspector_capture_target`,
+  `inspector_refresh`, `inspector_auto_scan`, `shell_menu_view`,
+  `shell_menu_tools`, `shell_menu_help` and `shell_menu_open`; the pane-toggle
+  strings now use Compose's `隐藏左侧栏/隐藏底部栏/隐藏右侧栏` wording.
+- Source-inspection regression updated: the native menu actions are asserted in
+  `shell.rs`'s menu builder, and `main.rs` must not install menus directly.
 
-Verification (initial pass): `cargo fmt --all --check`, `cargo check --workspace
---all-targets --offline`, `cargo build -p aps-app` and a focused Clippy pass
-completed. A native dark-English smoke run opened the page with a seeded local
-fixture workspace (selected card, auto-expanded tree, C++ file open in the One
-Dark viewer) without panic; capture at
-`build/source-workspace/source-workspaces-preview.png`, fixture seeding script
-beside it. The full interactive verification pass is recorded below.
+Evidence: `cargo fmt --all`, `cargo check --locked --workspace --all-targets
+--offline`, `cargo build --locked --offline -p aps-app`, and a native debug run
+with screenshots of the empty page, the open capture-target dropdown (both
+modes), the View menu checkmarks before/after a toggle, the Tools/Help menus and
+the non-inspector File fallback. The native run used a workspace-local
+`APS_RUST_DATA_DIR` copy of the Rust settings because the agent sandbox cannot
+write the real application-support directory; settings reads, menu rebuilding,
+preference persistence and the resulting banner-free UI were verified that way.
+No test was executed; live capture, archive export and node-navigation tools
+remain unimplemented.
 
-### Source Workspaces verification pass — 2026-11-07
+### Layout Inspector canvas-header modes — 2026-11-07
 
-The user explicitly requested "检测所有功能" (verify every function) in this
-pass, so the previously deferred test execution was performed for this slice.
-Unrelated rewrite work keeps the deferred-test policy.
+The preview panel now exposes the two Compose canvas-header controls that were
+missing from the Rust port. Compose remains the behavior oracle; no Compose
+source changed.
 
-- `cargo test --workspace --offline --no-fail-fast`: **392 passed, 0 failed**
-  across 69 test binaries. New source coverage: aps-source integration tests
-  (provider/paths/cache/indexer/resolver/repository, 11), aps-storage
-  repository+read-only+contract tests (8 + 6), aps-app unit tests including nine
-  One Dark lexer/search tests, five AI-context contract tests, four service
-  end-to-end tests (add/refresh/read Current+Stale/candidates/remove/failure),
-  a runtime navigation-evidence test and two page localization-mapping tests,
-  plus the existing tree/layout/permissions suites, and the localization
-  catalog/source-scan suite (7).
-- Defects found by detection and fixed:
-  - The page's AI Analysis action panicked ("cannot read aps_app::source::
-    SourceWorkspace while it is already being updated") because it re-read the
-    updating entity from the shell; the page now computes the request in its own
-    listener and applies it through `Studio::present_ai_request`.
-  - The pending add card used the "+ Local" label; the runtime now carries the
-    pending directory name and the live card shows it.
-  - After Sync replaced the active snapshot, AI preflight and the snapshot
-    summary used the new snapshot instead of the selected location's immutable
-    one; the runtime now caches the selected location's snapshot and files
-    (Compose resolves the browser snapshot from the location first).
-  - AI evidence identity now uses Compose's source-specific
-    `source-selection`/`source-workspace-selection` instead of the generic
-    selection id, and resolver output is unbounded like Compose (the previous
-    100-candidate cap was removed).
-  - AI findings gained an "Open source" action per persisted candidate id; the
-    shell selects the Source page and only non-Weak candidates navigate.
-  - Pre-existing suite failures fixed while running tests: aps-ai now checks
-    cancellation before resolving the credential; the aps-network HAR fixture
-    gained the required `startedDateTime`; the settings color placeholder is a
-    constant so the bi-lingual-source scan passes; the read-only metadata open
-    canonicalizes symlinked ancestors (macOS /var, /tmp) before SQLite's
-    NOFOLLOW open; the storage test compares `SCHEMA_VERSION`.
-- Native interaction verification (isolated `/tmp/aps-src-preview` data root with
-  a seeded local fixture; real OS mouse/keyboard events; screenshots under
-  `build/source-workspace/`): workspace selection; Sync with live progress and
-  retained selection; AI-upload toggle persisted to
-  `source-upload-permissions-v1.json`; Copy location clipboard
-  `<workspace>@<revision>:<path>:<line>`; directory expand/collapse; file
-  search filtering paths and revealing ancestors; file switching with
-  header/language/viewer update; code search n/m, Enter navigation and highlight;
-  drag selection + Cmd/Ctrl+C copying exact source bytes; stale warning after a
-  working-tree edit while immutable content stays readable; Remove cascading the
-  database and showing the empty state; AI Settings opening the Rust AI settings
-  page; AI Analysis freezing a metadata-only request (no source text; 0 source
-  candidates without a candidate and 1 with a persisted candidate); CPU-style
-  symbol navigation resolving a Probable candidate with Compose reason strings
-  and highlighting its line; "+ Local" opening the native directory picker, and
-  an end-to-end add showing the pending card with the real directory name and the
-  Ready card afterwards.
-- Not exercised interactively: Open in IDE (it would launch the user's default
-  application), GitHub/AOSP providers (hidden in the Compose UI), Layout
-  Inspector Compose-source and AI archived-source rebinding (still open), and
-  packaged/IME/accessibility acceptance beyond real keyboard input and the
-  native picker. This pass is functional and visual smoke verification, not the
-  full acceptance matrix.
+- `仅应用` chip defaults to on and crops the preview source to the active
+  window bounds, clamped to the display, exactly like
+  `CanvasGeometry.sourceRect` / `CanvasWindowSource.sourceRect`; invalid or
+  empty bounds fall back to the full display. Dimensions show the source size
+  (`1080 × 2160` with the app window, `1080 × 2400` when off), the frame corner
+  radius follows Compose (`12` on / `2` off), and pointer hit testing maps back
+  into display space before `canvas_hit`, so selection stays accurate below the
+  status bar offset.
+- `小面积优先 / Z 序优先` chip toggles the persisted
+  `LayoutPreferences.hit_smallest`, reusing the existing
+  `InspectorPreferencesChanged` shell persistence and the existing smallest-area
+  hit ordering. Compose labels and tints match: 18%/8% accent surface for
+  app-only on/off, 14% for hit order, bold accent 4dp chip at 8 x 4 padding.
+- New locale keys in both catalogs: `inspector_app_only_on`,
+  `inspector_app_only_off`, `inspector_small_area_hits`,
+  `inspector_z_order_hits`.
+- Added a debug-only `APS_RUST_OPEN_INSPECTOR` launch seam (alongside the
+  existing `APS_RUST_OPEN_HPROF` seam) so native visual checks can load a real
+  archive zip without driving the platform file picker. Release builds never
+  compile it.
+- Authored (not executed, per the validation policy) regression coverage:
+  `preview_source_crops_to_app_bounds_only_when_app_only_is_on`,
+  `preview_source_clamps_app_bounds_and_falls_back_when_empty` and a
+  source-inspection assertion for the two chip ids / `preview_source`.
 
-Honest gaps:
-- Only the Local provider is implemented. Compose hides GitHub/AOSP behind
-  `REMOTE_SOURCE_WORKSPACES_VISIBLE = false`; Rust lists only Local workspaces
-  and a persisted remote row fails refresh with an explicit unavailable error.
-- CPU symbol navigation and AI-result candidate opening are wired (non-Weak
-  candidates only). Layout Inspector Compose-source candidates and
-  archived-source rebinding still need their Rust UI surfaces.
-- `SourceWorkspacePhase::Partial` exists but is never emitted (as in Compose).
-- Workspace IDs are digest-derived instead of Compose UUIDs (not user-visible).
+Evidence: `cargo fmt --all --check`, `cargo check --locked --workspace
+--all-targets --offline`, `cargo build --locked --offline -p aps-app`, and
+native window captures with a locally generated one-frame archive:
+`build/layout-inspector-toolbar/preview-canvas-chips.png` (app-only on,
+1080 × 2160), `preview-app-only-off.png` (off, 1080 × 2400) and
+`preview-hit-order-z.png` (`Z 序优先`). No test was executed; live capture,
+screenshot display and node navigation remain unimplemented.
+
+### Layout Inspector property parity, screenshot canvas and zoom overlay — 2026-11-07
+
+The Node Properties pane now matches the Compose detail projection instead of the
+initial structural subset, the imported screenshot is rendered in the canvas,
+and the zoom control moved to Compose's bottom-right overlay. Compose remains
+the behavior oracle; no Compose source changed.
+
+- `aps-layout-inspector` now retains the bounded data those sections display:
+  node `text` (<=64 KiB), `semanticsRole`, and the protocol `ViewAttributes`
+  fields. `rawProperties`/`semanticProperties` are capped per node (256 entries,
+  512-byte names, 8 KiB values) and by a 4 MiB archive-wide budget; later nodes
+  keep structural attributes without property maps. Screenshot PNG bytes are
+  retained after the existing digest/size validation for host-side decoding; the
+  adapter still never decodes pixels. The crate README's old "runtime values not
+  retained" boundary was updated accordingly.
+- Properties pane categories are now Overview / Layout / Drawing / Accessibility
+  / Evidence, each rendering Compose's sections and rows: IDENTITY
+  (class/id/resource/text); LAYOUT (bounds, size, local layout bounds/size,
+  visibility, tree depth, direct children, descendants, subtree depth, layout
+  width/height, params class, measured/min size, padding, margin, scroll,
+  layout requested); DRAWING (alpha, z, elevation, translation, rotation, scale,
+  pivot, background/backgroundColor/foreground, clip bounds/children/toPadding,
+  opaque, willNotDraw, hardware accelerated, layer type); INTERACTION (content
+  description, semantics role, enabled/clickable/longClickable/focusable/focused/
+  selected); EVIDENCE (render risks: overdraw estimate, subtree complexity,
+  hidden descendants, blending, layer cost; plus sorted RAW PROPERTIES). Missing
+  values render "—", floats use Kotlin `Float.toString` shape, dimensions map
+  -1/-2 to MATCH_PARENT/WRAP_CONTENT, values use monospace 11 sp, and risk rows
+  use Compose's warning/info tones. Section headers are 29 dp with a hairline.
+  The five category tabs render through the same COMPACT_OUTLINED segmented
+  track as the header Refresh/Auto scan control (single accent outline, selected
+  accent fill with accentText, 1 px accent hairlines, equal-width items).
+- Property rows now use Compose's alternating stripe backgrounds: even rows
+  `detailRowDeep` (#1C1C1E dark, white light) and odd rows `detailRowLight`
+  (#2C2C2E dark, white light), with a 6% tone tint layered over the stripe for
+  warning/info rows. Stripe colors were added to `StudioColors` and the row
+  index is scoped per section, matching `DetailRowStripe.usesDeepBackground`.
+- Fixed a regression the new attribute retention introduced for previously
+  saved archives: Compose encodes `EdgeInsets` with `encodeDefaults=false`, so
+  zero sides are omitted, nullable/defaulted fields may be omitted or null, and
+  Compose nodes keep `semanticProperties` on the node. Optional attribute
+  readers now treat missing/null as absent, omitted EdgeInsets sides default to
+  0, node-level semantic properties are merged into the Evidence map, and a
+  malformed display-only attribute falls back to defaults instead of rejecting
+  the archive (structural fields remain strict). Regression coverage was added
+  for the omitted-inset/node-semantics shape, and a matching archive was loaded
+  natively without the "snapshot structure is invalid" error.
+- The canvas paints the decoded archive screenshot before the node overlays,
+  using the same app-only source crop and 12/2 radius as the layout rectangles;
+  the image is decoded once per published frame and any decode failure keeps the
+  layout-only canvas. Android bounds selection/hover mapping is unchanged.
+- Zoom/fit controls moved from a centered footer row into Compose's bottom-right
+  overlay: radius 8, panel @90% fill, border @65%, padding 6/4, 24 x 24 buttons,
+  42-wide monospace value, accent/muted glyph states, 50%-250% range in 25%
+  steps. The footer row and its "geometry" label were removed.
+- Locale keys were added to both catalogs for the new sections, labels, and risk
+  values (`inspector_detail_section_*`, `inspector_detail_*`,
+  `inspector_details_evidence`, `inspector_value_unavailable`,
+  `inspector_no_high_overlap_pairs`, `inspector_overlap_pairs`,
+  `inspector_subtree_complexity`, `inspector_blending_alpha`,
+  `inspector_alpha_one`). `inspector_detail_alpha`/`inspector_detail_size`/
+  `inspector_details_overview` now use Compose's wording.
+
+Evidence: `cargo fmt --all --check`, `cargo check --locked -p
+aps-layout-inspector --all-targets --offline`, `cargo check --locked -p aps-app
+--bin aps-app --offline` and `cargo build --locked --offline -p aps-app --bin
+aps-app`. The aps-app all-targets check is currently blocked by an unrelated
+in-flight `shell/menubar.rs` test-target recursion-limit error in the shared
+working tree; the binary target itself compiles. Native verification used a
+locally generated archive with full attributes, text, raw properties and a
+1080 x 2400 screenshot: screenshots are in
+`build/layout-inspector-parity/`. No test was executed (per the deferred
+validation policy); authored coverage includes the attribute-retention test and
+the earlier preview-source/chip assertions.
+
+### Route menu bar — 2026-11-07
+
+The Compose window published a native File/View/Tools/Help menu per page. The
+Rust shell now publishes the menus of the active route and, on macOS, installs
+them as the native application menu bar at the top of the screen, keeping the
+platform menu placement and native rendering (disabled rows, checkmarks and the
+application menu). This departs from Compose in content, not in placement: no
+Windows-style menu row is drawn inside the window on macOS. Other platforms
+fall back to an in-window strip built from the same data.
+
+- `shell/menubar.rs` owns the route menu model. `MenuGroup`, `MenuEntry` and
+  `MenuLabel` build menu data (catalog keys and runtime strings such as imported
+  HPROF filenames); `MenuHost` publishes a typed command enum per workspace; and
+  `RouteMenuBuild` turns the groups into both the native `Menu` tree and the
+  fallback strip rows. Menu rows carry a `RouteMenuAction` id into a dispatch
+  table built with the menus, so typed commands run without string encoding.
+  Menus are rebuilt from live workspace state and reinstalled only when the
+  localized content signature changes, so notifications do not flicker the open
+  menu.
+- The shell composes `route_menu_build` per route: Home publishes its import
+  surface, Settings publishes its sections, the Layout Inspector publishes
+  archive, pane, view and window tools, and one shared Analyze menu plus the
+  Help menu close every profiler route. Commands route back into the workspace
+  that published them, so a route never sees another screen's state.
+- Route menus: CPU File/View/Tools, Trace File/Trace/View/Session, Frame
+  File/Frames/View, Memory File/View, and the import-backed workspaces
+  (Network/Startup/Battery/Benchmark/GPU) publish one File menu with their own
+  import, page-export and baseline/artifact rows. Source Workspaces publishes
+  Workspace/View, and AI publishes Session. Menu rows use `item_when`/`check`
+  against live state, so page exports stay disabled until a page exists, memory
+  snapshot tabs appear by filename, and pane toggles show their current
+  checkmark. The screens that only offer file/import operations share the File
+  title so the command location stays predictable.
+- Empty menus are not published. The macOS application menu stays first in the
+  bar. Menu commands are dispatched through `window.defer`, so a workspace
+  command can write back through its shell handle without re-entering the shell
+  update that owns the menu action.
+- Locale keys: shell menu titles (`shell_menu_profile`, `shell_menu_heap`,
+  `shell_menu_frames`, `shell_menu_startup`, `shell_menu_battery`,
+  `shell_menu_network`, `shell_menu_gpu`, `shell_menu_benchmark`,
+  `shell_menu_trace`, `shell_menu_workspace`, `shell_menu_session`,
+  `shell_menu_analyze`, `shell_menu_settings_page`) plus per-workspace action
+  labels added to their own catalogs.
+- `main.rs` installs no menus; `Studio::new` performs the first route menu
+  refresh. `shell/menubar.rs` unit tests cover group composition, empty-group
+  suppression, dispatch-id assignment and the content signature.
+- Evidence: `cargo fmt --all`, `cargo check --locked --offline --workspace
+  --all-targets`, `cargo test --locked --offline -p aps-app` (291 passed), and a
+  native run with screenshots in `build/menubar-verification/` of the macOS
+  menu bar for Home (File/Help), Trace (File/Trace/View/Session/Analyze/Help),
+  CPU Profile (Profile/View/Tools/Analyze/Help with its native Profile menu
+  open) and Settings, plus the absence of an in-window menu row.
+
+### Compose Agent toggle and offline Compose inspection — 2026-11-07
+
+The Layout Inspector header now exposes the Compose toolbar's Compose Agent
+opt-in and uses it to surface Compose inspection data captured in the current
+archive. Compose remains the behavior oracle; no Compose source changed.
+
+- `Compose Agent` checkbox (18 dp box + 11 sp label) sits immediately before the
+  Refresh/Auto scan segmented control, matching Compose's toolbar order. Offline
+  builds cannot inject or authorize a live agent, so it is enabled only when the
+  loaded archive contains `capture/compose-inspection.json`; otherwise it stays
+  disabled and dimmed. Checking it is presentation state only and never starts
+  a device operation.
+- While checked, Compose nodes gain the Compose category between Accessibility
+  and Evidence (categories without data stay hidden, as Compose does), and the
+  Overview tab gains a COMPOSE SUMMARY section (source location, parameter
+  count, modifier count, merged/unmerged semantics counts). The Compose category
+  renders COMPOSE INSPECTION (mode/generation/completeness), COMPOSE SOURCE
+  (file/line/offset/package hash), RECOMPOSITION (recompose/skip counts), STATE
+  READS (recomposition number, value, invalidated flag, top frame), PARAMETERS,
+  MODIFIERS, MERGED SEMANTICS, UNMERGED SEMANTICS (nested values flattened as
+  dotted labels with type/value/truncation), and DETAIL COVERAGE records for the
+  selected node. Node lookup uses the archive's `compose-inspection:<id>`
+  prefix.
+- `aps-layout-inspector` now retains that bounded per-node Compose projection
+  from the sidecar: nodes (name, source, recompose/skip counts, systemCreated,
+  flags), details (four value lists; <=8 depth, <=512 rows per list,
+  <=200k retained values total, 4 KiB per string) and state-read groups
+  (<=20k reads), plus the existing coverage records and capability states.
+  `details_available` now reflects whether per-node data was retained. Optional
+  sidecar parsing failures fall back to an empty projection instead of rejecting
+  the saved archive.
+- New locale keys cover the checkbox, category, sections, labels, and state-read
+  row format in both catalogs.
+
+Evidence: `cargo fmt --all`, `cargo check --offline -p aps-layout-inspector
+--all-targets`, `cargo build --offline -p aps-app --bin aps-app`, and a native
+run with an archive containing a v2 Compose inspection sidecar (root Card node,
+parameters/modifiers/merged semantics, coverage and state reads). Screenshots:
+`build/layout-inspector-parity/compose-agent-off.png` (disabled-looking
+unchecked entry with sidecar present), `compose-agent-on.png` (checked box plus
+COMPOSE SUMMARY) and `compose-category.png` (Compose category with source,
+recomposition, state reads and parameter rows). No test was executed; live
+Compose Agent injection, authorization, and recomposition controls remain
+unimplemented.
+
+### Hierarchy depth-index numbering — 2026-11-07
+
+Hierarchy rows now use Compose's node numbering instead of a global preorder
+counter. Compose remains the behavior oracle; no Compose source changed.
+
+- The first token is `{depth}-{index}` with a per-depth preorder counter
+  (`nextIndexByDepth`), so a root is `0-0`, its children `1-0`, `1-1`, and
+  grandchildren `2-0`… The counter runs over the full preorder before
+  collapsing/invisible/search filtering, so filtered rows keep their original
+  number, exactly like Compose's `TreeRowModel.number`.
+- The class token is now the simple class name (`FrameLayout` instead of
+  `android.widget.FrameLayout`), and the `show-ids` token renders
+  `id/{last resource segment}` (e.g. `id/content`) like Compose's
+  `resourceLabel`; `hide-indices` still removes the number token.
+- Authored (not executed) coverage: `hierarchy_numbers_use_per_depth_preorder`
+  and the updated preference test asserting the `depth-index`, `id/...` and
+  simple-class tokens.
+
+Evidence: `cargo fmt --all --check`, `cargo check --offline -p aps-app
+--bin aps-app`, `cargo build --offline -p aps-app --bin aps-app`, and a native
+capture showing `0-0 FrameLayout / 1-0 Toolbar / 1-1 FrameLayout / 2-0
+LinearLayout / 2-1 RecyclerView / 2-2 View / 2-3 Composable / 2-4 View` at
+`build/layout-inspector-parity/hierarchy-depth-index.png`. No test was executed.
+
+### Resizable inspector panes — 2026-11-07
+
+The hierarchy, preview, properties and findings panes were fixed sizes; their
+splitters only showed a resize cursor. They now drag like the Compose page.
+Compose remains the behavior oracle; no Compose source changed.
+
+- Hierarchy width and properties width are drag-resizable via the two vertical
+  splitters; findings height via the horizontal splitter above the table.
+  Composer drags start from the pointer-down position and apply deltas against
+  the drag-start size, so clamped panes never accumulate drift. Sizes are session
+  state only, matching Compose's `remember`-scoped `paneWidths` /
+  `findingsHeightDp`.
+- Clamps mirror Compose: hierarchy 180–640 dp, properties 200–600 dp, canvas
+  keeps at least 320 dp (both widths are additionally limited by the window
+  width at drag start), findings 56 dp up to 50% of the window height. The
+  preview flexes between the panes, so all three resizes stay interactive.
+- Splitter ids are now distinct (`inspector-splitter-hierarchy`,
+  `inspector-splitter-properties`, `inspector-splitter-findings`); the
+  workspace root owns the drag-move/up handlers and clears the drag state.
+
+Evidence: `cargo fmt --all --check`, `cargo check --offline -p aps-app
+--bin aps-app`, `cargo build --offline -p aps-app --bin aps-app`, plus native
+synthetic drags on all three splitters: `build/layout-inspector-parity/pane-
+resize-hierarchy.png` (hierarchy widened), `pane-resize-findings.png`
+(findings taller), `pane-resize-properties.png` (properties wider). No test was
+executed.
+
+### Scrollable hierarchy and preview pan/scrollbars — 2026-11-08
+
+The hierarchy list and the preview canvas were fixed-viewport with no visible
+scroll chrome. Compose remains the behavior oracle; no Compose source changed.
+
+- Hierarchy rows now live in one scroller on both axes, like Compose's
+  `horizontalScroll` + `LazyColumn`: the uniform list uses unconstrained
+  horizontal sizing, rows are sized to the longest estimated label
+  (`hierarchy_content_width`), and vertical + horizontal Scrollbar overlays are
+  always shown (`ScrollbarMode::Always`). Deep or long trees pan sideways and
+  tall trees scroll vertically with visible bars.
+- The preview canvas now has Compose `PreviewPanState` panning: wheel pans
+  vertically (shift+wheel horizontally), left-drag pans the canvas (a press
+  without movement still selects the node), and both scrollbars are painted at
+  the canvas edges with thumbs that track the pan. Dragging inside the
+  horizontal/vertical bar track jumps/pans directly. Pan is clamped to
+  `+-(content - viewport) / 2` per axis and resets to centre when content fits;
+  zoom buttons (`+`/`-`/Fit) clamp or reset the pan. Scrollbar thumbs stay
+  visible at 100% as full-length tracks, matching the Compose adapter.
+- Authored (not executed) coverage: `preview_pan_clamps_to_content_overflow`
+  asserts the clamp/limit math for fitting and overflowing content.
+
+Evidence: `cargo fmt --all --check`, `cargo check --offline -p aps-app
+--bin aps-app`, `cargo build --offline -p aps-app --bin aps-app`, and native
+captures: `build/layout-inspector-parity/hierarchy-scrollbars.png` (47-node
+tree with both scrollbars) and `preview-pan-scrollbars.png` (250% preview panned
+to a corner, hierarchy scrolled on both axes, thumb positions moved). No test
+was executed.
+
+### Selectable and copyable properties values — 2026-11-08
+
+Node-properties values were plain text and could not be selected. Compose
+`DetailRow` wraps the value in `SelectionContainer`; the Rust pane now reuses
+the app's window-wide selectable-text helper the same way.
+
+- Every detail-row value (Overview/Layout/Drawing/Accessibility/Compose
+  categories, raw properties and section rows) is now rendered with
+  `crate::studio::selectable`, i.e. a `SelectableText` that joins the shell's
+  `TextSelectionLayer`. Drag to select, Cmd+C (secondary+C) to copy; selection
+  can span multiple runs in the pane. Monospace font, tone colour, size and
+  ellipsis stay inherited from the surrounding row, so layout and the
+  alternate-row stripes are unchanged. Labels stay plain text, matching Compose
+  where only the value is inside `SelectionContainer`.
+- No new state or event plumbing: the existing global selection layer already
+  installed by the shell owns highlight/copy behaviour for every selectable run
+  in the window.
+
+Evidence: `rustfmt --check` on the touched files, `cargo check --offline -p
+aps-app --bin aps-app`, `cargo build --offline -p aps-app --bin aps-app`, and a
+native run showing property values still render in place
+(`build/layout-inspector-parity/selectable-properties.png`). Synthetic
+select-and-copy could not be driven reliably in the concurrent second app
+instance (another session keeps stealing key focus), so copy relies on the
+already-shipped window selection layer rather than new code. No test was
+executed.
+
+### Right-click Copy menu on property rows — 2026-11-08
+
+Selecting property text could already copy via the window selection layer, but
+there was no discoverable action. Compose-style rows now expose a context menu.
+
+- Each node-properties row carries a `ContextMenuExt` context menu with one
+  action, `inspector_copy_value` (复制 / Copy). Right-clicking any row opens the
+  popup at the pointer; choosing 复制 writes to the clipboard:
+  - the current text selection when the window selection layer holds one, so a
+    partially selected value copies just the selected substring;
+  - otherwise the row's full value, so a right-click without a prior drag still
+    copies the property.
+- The menu is per-row (row element ids combine the English section title and
+  row index), so duplicate values in different sections keep independent menu
+  state. Labels remain non-selectable, matching Compose.
+- Locale catalogs gained `inspector_copy_value` (Copy/复制).
+
+Evidence: `rustfmt --check` on the touched file, `cargo check --offline -p
+aps-app --bin aps-app`, `cargo build --offline -p aps-app --bin aps-app`, and a
+native right-click capture showing the 复制 item next to a properties row
+(`build/layout-inspector-parity/property-row-copy-menu.png`). Note: synthetic
+left-click delivery into the menu popup is unreliable in this concurrent
+session (the same synthetic click also fails to open the existing target
+dropdown), so the menu-item activation itself was not reproduced end-to-end;
+the action reuses the standard `cx.write_to_clipboard` path already used across
+the app. No test was executed.
+
+### Layout Inspector menu parity and window-menu shortcuts — 2026-11-08
+
+The Layout Inspector window menu now mirrors Compose NativeViewerMenuBar instead
+of exposing only the pane toggles.
+
+- File publishes Open… (Cmd+O), Import (Import Screenshot…), Open Recent
+  (No recent files, Clear Recent) and Export (Export Capture Archive…), plus
+  Settings on non-macOS platforms; macOS keeps Settings in the application menu.
+  Rust has no archive export, screenshot import or recent-archive persistence, so
+  those rows render disabled exactly where Compose renders an unavailable
+  capability instead of pretending the operation exists.
+- View lists the three pane toggles first (Hide left/bottom/right panel, checked
+  only while that pane is hidden, matching Compose checked = !visible) followed by
+  the five display options in Compose grouping.
+- Tools publishes Auto scan (disabled: live capture is unavailable), Previous
+  Node, Next Node, Toggle Selected Node (enabled only with a node selected), Show
+  hierarchy IDs and the Rust-only Next window row, with Compose separators.
+- The menu model gained submenus (native MenuItem::submenu, flattened into a
+  header plus rows in the non-macOS strip) and optional real GPUI actions per
+  row. Rows backed by actions resolve their key equivalents in the macOS menu
+  bar: Open… uses the route-aware OpenActiveRouteFile action (Cmd+O), pane
+  toggles use ToggleInspectorHierarchy/Findings/Details (Cmd+1/2/3), tree
+  navigation uses PreviousInspectorNode/NextInspectorNode/ToggleSelectedInspectorNode
+  (Up/Down/Enter under the Inspector key context), display options and hierarchy
+  IDs use the existing ToggleLayout* actions.
+- Toggle Selected Node intentionally keeps its command and Enter binding without a
+  shortcut label: the macOS backend renders the multi-character key name enter as
+  a single letter, which would mislead. Up/Down render natively as arrows.
+- Node navigation uses InspectorWorkspace.visible_rows, so collapsed subtrees and
+  hidden invisible views are skipped like Compose adjacentNodeId; toggle expands
+  or collapses the selected node (Compose toggleExpandable), not layer visibility.
+- Evidence: cargo fmt --all, cargo check --locked --offline -p aps-app
+  --all-targets, cargo test --locked --offline -p aps-app (298 passed, 2 ignored),
+  plus native screenshots in build/menubar-verification/ of the File submenus,
+  View menu with Cmd+1/2/3, Tools menu, and Cmd+1/2/3 actually hiding and
+  restoring the three panes.
+
+
+### Full-bleed, equal-width property category tabs — 2026-11-08
+
+The category tabs under the properties header kept an 8 px horizontal inset,
+so the segmented track floated inside the pane. The tabs now use the entire
+pane width.
+
+- Removed the tabs row's horizontal padding; the `COMPACT_OUTLINED` track is
+  flush with the properties pane edges.
+- Every tab keeps `flex_1` plus `min_w_0`, so the visible categories divide the
+  full width evenly regardless of label length; the accent outline, selected
+  fill, hairlines and separators are unchanged.
+
+Evidence: `rustfmt --check`, `cargo check --offline -p aps-app --bin aps-app`,
+`cargo build --offline -p aps-app --bin aps-app`, and a native capture showing
+five equal tabs spanning the pane without side margins
+(`build/layout-inspector-parity/property-tabs-full-bleed.png`). No test was
+executed.
+
+### Window-menu parity with Compose across every page — 2026-11-08
+
+Every page that publishes a Compose PageMenu now publishes the same shape in
+the Rust window menu (native bar on macOS, strip elsewhere). Shortcuts follow
+Compose's reserved set: Open… Cmd+O (route-aware), Open Folder… Cmd+Shift+O
+(CPU), primary Export Cmd+E (CPU report JSON, Trace session package), Settings
+Cmd+, and the Layout Inspector tree keys (Cmd+1/2/3, Up/Down/Enter).
+
+- CPU: File > Open…, Open Folder…, Open Recent (saved-session catalog rows),
+  Export (Compose's three groups: report JSON with Cmd+E, session package,
+  screenshot; raw protobuf, Firefox profile, folded stacks, PProf; simpleperf
+  report, HTML report, open externally), Close session, Settings outside macOS;
+  Tools > Configuration publishes Compose's three capture-settings rows
+  (OpenCaptureSettings action) above the real Rust tools.
+- Trace: File > Open…, Open Recent (session catalog), Export (session package
+  with Cmd+E, raw trace), Close trace; existing Trace/View/Session groups kept.
+- Frame: File > Open…, Import (Perfetto FrameTimeline, Associate Perfetto
+  Trace), Export (CSV/JSON gated on an analysis), keeping the Frames/View
+  groups with capture and timeline rows.
+- Memory: File > Open…, Import (Java Heap, Native Heap, ART Sample, Mapping;
+  only HPROF is wired in Rust so the rest stay disabled), Open Recent
+  (disabled: no persisted memory recents), Export with Compose's three groups
+  and all rows disabled because no memory export is wired to a page control;
+  open-snapshot tabs and the View (view modes) group are kept.
+- Battery: File > Open…, Open Recent (disabled), Export (page JSON/CSV live;
+  raw evidence disabled), Tools > Reset global BatteryStats (disabled: no
+  capture adapter).
+- Startup: File > Open…, Export (page CSV/JSON).
+- Network, Benchmark and GPU Inspector have no Compose page menu; they publish
+  File > Open…, Open Recent (disabled), Export (save/copy page rows), plus the
+  page's real state-driven rows (baseline actions, GPU open/show in files).
+- Help now matches the host: User guide (opens the bundled docs-user site,
+  disabled when absent) and AI analysis; Settings only outside macOS.
+- Menu model: submenu rows can carry real GPUI actions
+  (Submenu::item_action / item_action_when), which is how Cmd+E appears inside
+  File > Export on macOS.
+- Build fix: aps-ui-foundation/build.rs watched only the resources directory
+  mtime, so catalog edits could leave TextKey generated from stale JSON; it now
+  emits rerun-if-changed for every catalog file.
+- Evidence: cargo fmt --all, cargo check --locked --offline --workspace
+  --all-targets, cargo test --locked --offline -p aps-app (310 passed, 3
+  ignored), and native screenshots in build/menubar-verification/ of the CPU
+  File menu and Export submenu (Cmd+O / Cmd+Shift+O / Cmd+E), the Trace File
+  menu and the Memory File menu.
+

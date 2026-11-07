@@ -287,7 +287,7 @@ fn template_card(
                 } else {
                     colors.accent
                 })
-                .child(language.text(template.label())),
+                .child(crate::studio::selectable(language.text(template.label()))),
         )
         .child(
             div()
@@ -297,7 +297,9 @@ fn template_card(
                 } else {
                     colors.secondary_text
                 })
-                .child(language.text(template.description())),
+                .child(crate::studio::selectable(
+                    language.text(template.description()),
+                )),
         )
         .on_click(move |_, _, cx| {
             let _ = entity.update(cx, |this, cx| {
@@ -410,7 +412,7 @@ fn probe_option(
             div()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.error)
-                .child(reason),
+                .child(crate::studio::selectable(reason)),
         );
     }
     div()
@@ -596,7 +598,7 @@ fn capture_status(state: CaptureState, language: Language, colors: StudioColors)
         } else {
             colors.secondary_text
         })
-        .child(text)
+        .child(crate::studio::selectable(text))
 }
 
 fn field_label(text: &'static str, colors: StudioColors) -> Div {
@@ -604,12 +606,12 @@ fn field_label(text: &'static str, colors: StudioColors) -> Div {
         .text_size(px(FONT_SUPPORTING))
         .font_weight(FontWeight::MEDIUM)
         .text_color(colors.secondary_text)
-        .child(text)
+        .child(crate::studio::selectable(text))
 }
 
 fn error_line(text: String, color: Rgba) -> Div {
     div()
         .text_size(px(FONT_SUPPORTING))
         .text_color(color)
-        .child(text)
+        .child(crate::studio::selectable(text))
 }

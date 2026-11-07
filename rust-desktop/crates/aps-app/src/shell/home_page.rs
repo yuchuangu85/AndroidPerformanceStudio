@@ -289,7 +289,7 @@ fn metric(
                         .line_height(px(17.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(tone)
-                        .child(label),
+                        .child(crate::studio::selectable(label)),
                 ),
         )
         .child(
@@ -297,7 +297,7 @@ fn metric(
                 .text_size(px(16.))
                 .line_height(px(21.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(value),
+                .child(crate::studio::selectable(value)),
         )
         .children(supporting.map(|text| studio::supporting(text, colors).line_height(px(15.))))
 }
@@ -370,7 +370,7 @@ fn card_content(
                         .font_weight(FontWeight::SEMIBOLD)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(title),
+                        .child(crate::studio::selectable(title)),
                 )
                 .child(
                     div()
@@ -378,7 +378,7 @@ fn card_content(
                         .line_height(px(15.))
                         .text_color(colors.secondary_text)
                         .line_clamp(2)
-                        .child(description),
+                        .child(crate::studio::selectable(description)),
                 ),
         )
 }
@@ -497,7 +497,7 @@ fn recent_cell(
         })
         .whitespace_nowrap()
         .text_ellipsis()
-        .child(text.into())
+        .child(crate::studio::selectable(text.into()))
 }
 
 fn recent_panel(
@@ -607,9 +607,9 @@ fn recent_panel(
                                                 div()
                                                     .text_size(px(11.))
                                                     .line_height(px(15.))
-                                                    .child(
+                                                    .child(crate::studio::selectable(
                                                         language.text(TextKey::HomeOpenArtifact),
-                                                    ),
+                                                    )),
                                             )
                                             .accessibility_label(format!(
                                                 "{} {}",
@@ -663,7 +663,7 @@ fn state_message(title: &str, detail: &str, error: bool, colors: &StudioColors) 
             div()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if error { colors.error } else { colors.text })
-                .child(title.to_owned()),
+                .child(crate::studio::selectable(title.to_owned())),
         )
         .child(studio::supporting(detail.to_owned(), colors))
 }
@@ -681,7 +681,7 @@ fn status_chip(label: &'static str, tone: Rgba, colors: &StudioColors) -> Div {
         })
         .text_size(px(11.))
         .whitespace_nowrap()
-        .child(label)
+        .child(crate::studio::selectable(label))
 }
 
 fn rail_column(

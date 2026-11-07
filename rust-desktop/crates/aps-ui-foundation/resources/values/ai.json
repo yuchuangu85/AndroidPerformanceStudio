@@ -9,6 +9,7 @@
   "ai_i_approve_sending_this_exact_request_to": "I approve sending this exact request to the frozen endpoint",
   "ai_i_approve_uploading_every_displayed_source_candidate": "I approve uploading every displayed source candidate/path/snippet",
   "ai_select_actual_profiler_evidence_using_its_ai": "Select actual profiler evidence using its AI analysis action. Nothing can be sent without evidence.",
+  "ai_stop_generation": "Stop generation",
   "ai_streaming": "Streaming",
   "ai_model_id_placeholder": "Model ID",
   "ai_optional_question_placeholder": "Optional question — included in the frozen payload",

@@ -1010,31 +1010,21 @@ impl ImportWorkspace {
             div()
                 .flex()
                 .gap_2()
-                .child(
-                    div()
-                        .w(px(58.))
-                        .child(language.text(TextKey::FramePageFrameId)),
-                )
-                .child(
-                    div()
-                        .w(px(100.))
-                        .child(language.text(TextKey::FramePageDuration)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .child(language.text(TextKey::FramePageDeadline)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .child(language.text(TextKey::FramePageWindow)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .child(language.text(TextKey::FramePageLargestStage)),
-                ),
+                .child(div().w(px(58.)).child(crate::studio::selectable(
+                    language.text(TextKey::FramePageFrameId),
+                )))
+                .child(div().w(px(100.)).child(crate::studio::selectable(
+                    language.text(TextKey::FramePageDuration),
+                )))
+                .child(div().flex_1().child(crate::studio::selectable(
+                    language.text(TextKey::FramePageDeadline),
+                )))
+                .child(div().flex_1().child(crate::studio::selectable(
+                    language.text(TextKey::FramePageWindow),
+                )))
+                .child(div().flex_1().child(crate::studio::selectable(
+                    language.text(TextKey::FramePageLargestStage),
+                ))),
         );
         panel
             .child(
@@ -1259,7 +1249,11 @@ impl ImportWorkspace {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().w(px(120.)).child(language.text(key)))
+                    .child(
+                        div()
+                            .w(px(120.))
+                            .child(crate::studio::selectable(language.text(key))),
+                    )
                     .child(
                         div()
                             .w(px(120.))
@@ -1281,8 +1275,17 @@ impl ImportWorkspace {
                 div()
                     .flex()
                     .gap_2()
-                    .child(div().w(px(135.)).child(name.clone()))
-                    .child(div().flex_1().min_w_0().child(value.clone())),
+                    .child(
+                        div()
+                            .w(px(135.))
+                            .child(crate::studio::selectable(name.clone())),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(crate::studio::selectable(value.clone())),
+                    ),
             );
         }
         panel

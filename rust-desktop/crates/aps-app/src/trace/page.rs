@@ -450,7 +450,7 @@ fn message_row(
                 .min_w_0()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(color)
-                .child(text),
+                .child(crate::studio::selectable(text)),
         )
         .child(
             studio::compact_text_button(
@@ -657,7 +657,7 @@ fn summary_card(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(label),
+                .child(crate::studio::selectable(label)),
         )
         .child(
             div()
@@ -667,7 +667,7 @@ fn summary_card(
                 .text_color(value_color)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(value),
+                .child(crate::studio::selectable(value)),
         );
     if let Some(source) = summary.source_title.clone() {
         card = card.child(
@@ -819,7 +819,7 @@ fn sessions_panel(
                 .flex_shrink_0()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.error)
-                .child(error),
+                .child(crate::studio::selectable(error)),
         );
     }
     let list_area = if rows.is_empty() {
@@ -926,10 +926,10 @@ fn session_row(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(format!(
+                .child(crate::studio::selectable(format!(
                     "{}  ·  {}",
                     session.captured_at_label, session.duration_label
-                )),
+                ))),
         )
         .child(
             div()
@@ -1259,13 +1259,17 @@ fn empty_viewer(language: Language, colors: &StudioColors) -> AnyElement {
                 .text_size(px(FONT_TITLE))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
-                .child(language.text(TextKey::TraceWorkspaceNoTrace)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceNoTrace),
+                )),
         )
         .child(
             div()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::TraceWorkspaceNoTraceDescription)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceNoTraceDescription),
+                )),
         )
         .into_any_element()
 }
@@ -1286,7 +1290,7 @@ fn perfetto_mark(colors: &StudioColors) -> AnyElement {
                 .text_size(px(FONT_TITLE))
                 .font_weight(FontWeight::BOLD)
                 .text_color(colors.accent)
-                .child("PF"),
+                .child(crate::studio::selectable("PF")),
         )
         .into_any_element()
 }
@@ -1308,13 +1312,17 @@ fn source_of_truth_card(language: Language, colors: &StudioColors) -> AnyElement
                 .text_size(px(FONT_BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.accent)
-                .child(language.text(TextKey::TraceWorkspaceOpenViewer)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceOpenViewer),
+                )),
         )
         .child(
             div()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::TraceWorkspaceSourceOfTruth)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceSourceOfTruth),
+                )),
         )
         .into_any_element()
 }
@@ -1338,7 +1346,9 @@ fn evidence_anchors(
                 .text_size(px(FONT_BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
-                .child(language.text(TextKey::TraceWorkspaceAnchors)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceAnchors),
+                )),
         );
     if anchors.is_empty() {
         row = row.child(
@@ -1347,7 +1357,9 @@ fn evidence_anchors(
                 .min_w_0()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::TraceWorkspaceNoAnchors)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceNoAnchors),
+                )),
         );
         return row.into_any_element();
     }
@@ -1416,7 +1428,7 @@ fn empty_message(text: impl Into<SharedString>, colors: &StudioColors) -> AnyEle
         .p(px(8.))
         .text_size(px(FONT_SUPPORTING))
         .text_color(colors.secondary_text)
-        .child(text)
+        .child(crate::studio::selectable(text))
         .into_any_element()
 }
 
@@ -1439,7 +1451,7 @@ fn evidence_line(
                 .text_size(px(FONT_SUPPORTING))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(colors.secondary_text)
-                .child(format!("{}:", label)),
+                .child(crate::studio::selectable(format!("{}:", label))),
         )
         .child(
             div()
@@ -1449,7 +1461,7 @@ fn evidence_line(
                 .text_color(value_color)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(value),
+                .child(crate::studio::selectable(value)),
         )
         .into_any_element()
 }
@@ -1510,7 +1522,10 @@ fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
                         .flex_shrink_0()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(format!("{}:", language.text(TextKey::DeviceStatus))),
+                        .child(crate::studio::selectable(format!(
+                            "{}:",
+                            language.text(TextKey::DeviceStatus)
+                        ))),
                 )
                 .child(
                     div()
@@ -1526,7 +1541,7 @@ fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
                         .text_color(colors.secondary_text)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(text),
+                        .child(crate::studio::selectable(text)),
                 ),
         )
         .into_any_element()
@@ -1564,7 +1579,7 @@ fn workspace_status(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement 
             } else {
                 colors.secondary_text
             })
-            .child(message)
+            .child(crate::studio::selectable(message))
             .into_any_element(),
         None => div().into_any_element(),
     }
@@ -2002,7 +2017,7 @@ fn result_tab(
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(title),
+                .child(crate::studio::selectable(title)),
         );
     if table.truncated {
         column = column.child(
@@ -2010,7 +2025,9 @@ fn result_tab(
                 .w_full()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.warning)
-                .child(language.text(TextKey::TraceWorkspaceTruncated)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::TraceWorkspaceTruncated),
+                )),
         );
     }
     if table.rows.is_empty() {
@@ -2213,7 +2230,9 @@ fn query_tab(
                         .min_w_0()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(language.text(TextKey::TraceWorkspaceReadOnlyQuery)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::TraceWorkspaceReadOnlyQuery),
+                        )),
                 )
                 .child(
                     studio::compact_text_button(
@@ -2360,7 +2379,7 @@ fn search_tab(
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(title),
+                .child(crate::studio::selectable(title)),
         )
         .child(table_header_row(&header_cells, colors))
         .child(

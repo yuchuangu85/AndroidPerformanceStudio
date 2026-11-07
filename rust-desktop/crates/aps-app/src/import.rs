@@ -4,8 +4,7 @@ mod frame_page;
 mod gpu;
 pub(crate) use gpu::OpenGpuTrace;
 mod memory;
-mod memory_diff;
-mod memory_page;
+mod menus;
 mod network;
 mod snapshots;
 mod startup;
@@ -15,7 +14,7 @@ use aps_benchmark::{BenchmarkRun, RegressionPolicy, RegressionReport};
 use aps_contracts::SourceDigest;
 use aps_frame::{BudgetSource, DeadlineVerdict, FrameQuery, FrameSession};
 use aps_gpu::{ArtifactKind, GpuArtifact, OpenRoute};
-use aps_memory::{HistogramQuery, MemorySession};
+use aps_memory::MemorySession;
 use aps_network::{HarSession, ImportLimits};
 use aps_perfetto::{QueryPreset, TraceProcessor, TraceSession};
 use aps_platform::CancellationToken;
@@ -30,7 +29,7 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use memory::MemoryView;
+use memory::state::MemoryState;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -42,7 +41,6 @@ use std::{
 };
 
 const PAGE: usize = 100;
-const MAX_MEMORY_HISTORY: usize = 64;
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
@@ -96,47 +94,6 @@ enum TraceView {
     Scheduling,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MemoryPanel {
-    Dashboard,
-    Classes,
-    Dominators,
-    Diff,
-    Findings,
-    NativeHeap,
-    BitmapDump,
-}
-
-impl MemoryPanel {
-    const ALL: [Self; 7] = [
-        Self::Dashboard,
-        Self::Classes,
-        Self::Dominators,
-        Self::Diff,
-        Self::Findings,
-        Self::NativeHeap,
-        Self::BitmapDump,
-    ];
-
-    fn label(self, language: Language) -> &'static str {
-        match (self, language == Language::SimplifiedChinese) {
-            (Self::Dashboard, true) => "概览",
-            (Self::Classes, true) => "类",
-            (Self::Dominators, true) => "支配者",
-            (Self::Diff, true) => "对比",
-            (Self::Findings, true) => "泄漏与位图",
-            (Self::NativeHeap, true) => "Native Heap",
-            (Self::BitmapDump, true) => "Bitmap Dump",
-            (Self::Dashboard, false) => "Dashboard",
-            (Self::Classes, false) => "Classes",
-            (Self::Dominators, false) => "Dominators",
-            (Self::Diff, false) => "Diff",
-            (Self::Findings, false) => "Leaks & Bitmaps",
-            (Self::NativeHeap, false) => "Native Heap",
-            (Self::BitmapDump, false) => "Bitmap Dump",
-        }
-    }
-}
 impl TraceView {
     const ALL: [Self; 4] = [
         Self::Processes,
@@ -219,8 +176,7 @@ struct PageUi {
     columns: Vec<TextKey>,
     warnings: BTreeMap<usize, UiText>,
     cells: BTreeMap<(usize, usize), UiText>,
-    memory_detail: Option<memory::MemoryDetail>,
-    memory_summary: Option<MemorySummary>,
+
     frame_page: Option<aps_frame::FramePage>,
     startup_page: Option<aps_startup::StartupPage>,
     startup_query: Option<StartupQuery>,
@@ -229,14 +185,6 @@ struct PageUi {
     frame_query: Option<FrameQuery>,
     frame_windows: Vec<String>,
     frame_windows_truncated: bool,
-}
-
-#[derive(Clone, Default)]
-struct MemorySummary {
-    shallow_size: Option<u64>,
-    object_count: Option<u64>,
-    class_count: Option<u64>,
-    heap_segments: Vec<(String, u64, u64)>,
 }
 
 impl PageUi {
@@ -262,7 +210,7 @@ struct PageData {
     offset: usize,
     has_more: bool,
     warnings: Vec<String>,
-    row_actions: Vec<Option<MemoryView>>,
+    row_actions: Vec<()>,
     ui: PageUi,
 }
 
@@ -322,15 +270,10 @@ pub struct ImportWorkspace {
     cancel: CancellationToken,
     trace_view: TraceView,
     baseline: Option<Arc<BenchmarkRun>>,
-    memory_view: MemoryView,
-    memory_history: Vec<(MemoryView, usize)>,
-    published_memory_view: MemoryView,
-    memory_panel: MemoryPanel,
-    memory_ui: memory_page::MemoryUi,
+    memory_state: MemoryState,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
-    memory_diff_report: Option<memory_diff::DiffReport>,
-    memory_diff_page: Option<PageData>,
+    studio: Option<WeakEntity<crate::shell::Studio>>,
     comparison_source: Option<Arc<BenchmarkRun>>,
     selected_network: Option<Vec<String>>,
     session_id: Option<String>,
@@ -372,15 +315,10 @@ impl ImportWorkspace {
             cancel: CancellationToken::new(),
             trace_view: TraceView::Processes,
             baseline: None,
-            memory_view: MemoryView::Histogram,
-            memory_history: Vec::new(),
-            published_memory_view: MemoryView::Histogram,
-            memory_panel: MemoryPanel::Dashboard,
-            memory_ui: memory_page::MemoryUi::default(),
+            memory_state: MemoryState::new(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,
-            memory_diff_report: None,
-            memory_diff_page: None,
+            studio: None,
             comparison_source: None,
             selected_network: None,
             session_id: None,
@@ -411,6 +349,9 @@ impl ImportWorkspace {
     pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {
         self.language = language;
         cx.notify();
+    }
+    pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
+        self.studio = Some(studio);
     }
     pub fn pick(&mut self, cx: &mut Context<Self>) {
         if self.kind == Destination::Gpu {
@@ -551,13 +492,9 @@ impl ImportWorkspace {
                         this.page = Some(page);
                         this.session_id = Some(new_session_id());
                         this.memory_snapshot_id = memory_snapshot_id;
-                        this.memory_diff_report = None;
-                        this.memory_diff_page = None;
-                        this.memory_view = MemoryView::Histogram;
-                        this.published_memory_view = MemoryView::Histogram;
-                        this.memory_history.clear();
-                        this.memory_panel = MemoryPanel::Dashboard;
-                        this.memory_ui = memory_page::MemoryUi::default();
+                        if this.kind == Destination::Memory {
+                            this.memory_state = MemoryState::new();
+                        }
                         this.comparison_source = None;
                         this.selected_network = None;
                         this.network.reset();
@@ -581,6 +518,11 @@ impl ImportWorkspace {
                         this.startup_page_offset = 0;
                         this.selected_startup_run_id = None;
                         this.publish_startup_selection();
+                        if this.kind == Destination::Memory
+                            && matches!(this.session, Some(Session::Memory(_)))
+                        {
+                            this.memory_begin_load(cx);
+                        }
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -613,8 +555,6 @@ impl ImportWorkspace {
         self.busy = true;
         self.error = None;
         let view = self.trace_view;
-        let memory_view = self.memory_view.clone();
-        let published_memory_view = memory_view.clone();
         let frame_deadline = self.frame_deadline_filter;
         let frame_window = self.frame_window_filter.clone();
         let frame_limit = self.frame_timeline_count.clamp(20, 500);
@@ -630,7 +570,7 @@ impl ImportWorkspace {
                 limit: frame_limit,
                 ..FrameQuery::default()
             });
-            page_for(&session, view, &memory_view, offset, frame_query, &cancel)
+            page_for(&session, view, offset, frame_query, &cancel)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -641,19 +581,6 @@ impl ImportWorkspace {
                 this.busy = false;
                 match result {
                     Ok(page) => {
-                        if this.kind == Destination::Memory {
-                            match &published_memory_view {
-                                MemoryView::FilteredHistogram(query) => {
-                                    this.memory_ui.published_query = query.clone();
-                                    this.memory_ui.query = query.clone();
-                                }
-                                MemoryView::Histogram => {
-                                    this.memory_ui.published_query = HistogramQuery::default();
-                                    this.memory_ui.query = HistogramQuery::default();
-                                }
-                                _ => {}
-                            }
-                        }
                         this.page = Some(page);
                         this.publish_battery_run_page();
                         if this.kind == Destination::Frame {
@@ -677,14 +604,9 @@ impl ImportWorkspace {
                                 this.frame_select_last_on_publish = false;
                             }
                         }
-                        this.published_memory_view = published_memory_view;
                         this.selected_network = None;
                     }
                     Err(error) => {
-                        this.memory_view = this.published_memory_view.clone();
-                        if this.kind == Destination::Memory {
-                            this.memory_ui.query = this.memory_ui.published_query.clone();
-                        }
                         if this.kind == Destination::Frame {
                             if let Some(query) = this
                                 .page
@@ -713,40 +635,6 @@ impl ImportWorkspace {
         }
         self.trace_view = view;
         self.page(0, cx);
-    }
-    fn memory_view(&mut self, view: MemoryView, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        if self.memory_view != view {
-            if self.memory_history.len() == MAX_MEMORY_HISTORY {
-                self.memory_history.remove(0);
-            }
-            self.memory_history.push((
-                self.memory_view.clone(),
-                self.page.as_ref().map_or(0, |page| page.offset),
-            ));
-            self.memory_view = view;
-            self.page(0, cx);
-        }
-    }
-    fn query_memory_histogram(
-        &mut self,
-        query: HistogramQuery,
-        offset: usize,
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy || !matches!(self.session, Some(Session::Memory(_))) {
-            return;
-        }
-        self.memory_ui.query = query.clone();
-        let view = MemoryView::FilteredHistogram(query);
-        if offset == 0 && self.memory_view != view {
-            self.memory_view(view, cx);
-        } else {
-            self.memory_view = view;
-            self.page(offset, cx);
-        }
     }
     fn use_as_baseline(&mut self, cx: &mut Context<Self>) {
         if let Some(Session::Benchmark(run)) = &self.session {
@@ -778,7 +666,6 @@ impl ImportWorkspace {
                     page_for(
                         &session,
                         TraceView::Processes,
-                        &MemoryView::Histogram,
                         0,
                         None,
                         &CancellationToken::new(),
@@ -822,15 +709,9 @@ impl ImportWorkspace {
         self.path = None;
         self.busy = false;
         self.error = None;
-        self.memory_history.clear();
-        self.published_memory_view = MemoryView::Histogram;
-        self.memory_panel = MemoryPanel::Dashboard;
-        self.memory_view = MemoryView::Histogram;
-        self.memory_ui = memory_page::MemoryUi::default();
+        self.memory_state = MemoryState::new();
         self.memory_snapshots.clear();
         self.memory_snapshot_id = None;
-        self.memory_diff_report = None;
-        self.memory_diff_page = None;
         self.comparison_source = None;
         self.selected_network = None;
         self.network.reset();
@@ -857,15 +738,6 @@ impl ImportWorkspace {
         cx.notify();
     }
 
-    fn memory_back(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        if let Some((view, offset)) = self.memory_history.pop() {
-            self.memory_view = view;
-            self.page(offset, cx);
-        }
-    }
     fn restore_comparison_source(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -882,7 +754,6 @@ impl ImportWorkspace {
             let page = page_for(
                 &session,
                 TraceView::Processes,
-                &MemoryView::Histogram,
                 0,
                 None,
                 &CancellationToken::new(),
@@ -922,8 +793,12 @@ impl ImportWorkspace {
         self.cancel.cancel();
         self.generation += 1;
         self.busy = false;
-        self.memory_view = self.published_memory_view.clone();
-        self.memory_ui.query = self.memory_ui.published_query.clone();
+        if self.kind == Destination::Memory {
+            self.memory_state.load_generation += 1;
+            self.memory_state.loading = false;
+            self.memory_state.loading_message = None;
+            self.memory_state.error = None;
+        }
         if let Some(query) = self
             .page
             .as_ref()
@@ -943,6 +818,9 @@ impl ImportWorkspace {
         if self.busy {
             return Err(self.language.text(TextKey::ImportUiWaitForImport).into());
         }
+        if self.kind == Destination::Memory {
+            return self.memory_analysis_request();
+        }
         let session = self.session_id.as_ref().ok_or_else(|| {
             self.language
                 .text(TextKey::ImportUiImportBeforeAi)
@@ -953,14 +831,6 @@ impl ImportWorkspace {
                 .text(TextKey::ImportUiNoEvidencePage)
                 .to_owned()
         })?;
-        if self.kind == Destination::Memory
-            && matches!(self.published_memory_view, MemoryView::Detail(_))
-        {
-            return Err(self
-                .language
-                .text(TextKey::ImportUiHeapDetailsExcludedFromAi)
-                .into());
-        }
         export::analysis_request(self.kind, session, self.generation, page)
             .map_err(|error| export_error(error).render(self.language))
     }
@@ -1199,7 +1069,7 @@ fn open_selected(
         )),
         _ => return Err(TextKey::ImportUiNoImporter.into()),
     };
-    let page = page_for(&session, view, &MemoryView::Histogram, 0, None, cancel)?;
+    let page = page_for(&session, view, 0, None, cancel)?;
     Ok((session, page))
 }
 
@@ -1229,7 +1099,6 @@ fn locate_trace_processor(cancel: &CancellationToken) -> Result<TraceProcessor, 
 fn page_for(
     session: &Session,
     view: TraceView,
-    memory_view: &MemoryView,
     offset: usize,
     frame_query: Option<FrameQuery>,
     cancel: &CancellationToken,
@@ -1604,7 +1473,16 @@ fn page_for(
                 ],
             })
         }
-        Session::Memory(session) => memory::page(session, memory_view, offset, cancel),
+        Session::Memory(_) => Ok(PageData {
+            summary: String::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            offset,
+            has_more: false,
+            warnings: Vec::new(),
+            row_actions: Vec::new(),
+            ui: PageUi::default(),
+        }),
         Session::Trace(session) => {
             let page = session
                 .query(view.preset(), offset, PAGE, cancel)
@@ -1844,48 +1722,11 @@ impl Render for ImportWorkspace {
                                 })),
                         ),
                 )
-                .child(
-                    div()
-                        .text_size(px(typography::SUPPORTING))
-                        .child(lang.text(TextKey::ImportExportsContainOnlyThePublishedPageNot)),
-                );
-        }
-        if self.kind == Destination::Memory {
-            body = body.child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        Button::new("memory-back")
-                            .label(lang.text(TextKey::CommonBack))
-                            .disabled(busy || self.memory_history.is_empty())
-                            .on_click(cx.listener(|this, _, _, cx| this.memory_back(cx))),
-                    )
-                    .child(
-                        Button::new("memory-histogram")
-                            .label(lang.text(TextKey::ImportClasses))
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.memory_view(MemoryView::Histogram, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("memory-dominators")
-                            .label(lang.text(TextKey::ImportDominators))
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.memory_view(MemoryView::Dominators(None), cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("memory-findings")
-                            .label(lang.text(TextKey::ImportLeakSuspects))
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.memory_view(MemoryView::Findings, cx)
-                            })),
+                .child(div().text_size(px(typography::SUPPORTING)).child(
+                    crate::studio::selectable(
+                        lang.text(TextKey::ImportExportsContainOnlyThePublishedPageNot),
                     ),
-            );
+                ));
         }
         if self.kind == Destination::Benchmark {
             body = body
@@ -1928,11 +1769,11 @@ impl Render for ImportWorkspace {
                                 .on_click(cx.listener(|this, _, _, cx| this.compare_baseline(cx))),
                         ),
                 )
-                .child(
-                    div()
-                        .text_size(px(typography::SUPPORTING))
-                        .child(lang.text(TextKey::ImportSetABaselineImportTheCandidateThen)),
-                );
+                .child(div().text_size(px(typography::SUPPORTING)).child(
+                    crate::studio::selectable(
+                        lang.text(TextKey::ImportSetABaselineImportTheCandidateThen),
+                    ),
+                ));
         }
         if self.kind == Destination::Trace {
             body = body.child(
@@ -1957,11 +1798,13 @@ impl Render for ImportWorkspace {
             body = body.child(
                 div()
                     .text_size(px(typography::SUPPORTING))
-                    .child(path.display().to_string()),
+                    .child(crate::studio::selectable(path.display().to_string())),
             );
         }
         if busy {
-            body = body.child(lang.text(TextKey::ImportLoadingQuerying));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::ImportLoadingQuerying),
+            ));
         }
         if let Some(page) = &self.page {
             body = body.child(
@@ -2020,7 +1863,6 @@ impl Render for ImportWorkspace {
                     .flex()
                     .flex_col()
                     .children(page.rows.iter().enumerate().map(|(index, _row)| {
-                        let action = page.row_actions.get(index).cloned().flatten();
                         div()
                             .flex()
                             .gap_2()
@@ -2033,14 +1875,6 @@ impl Render for ImportWorkspace {
                                     .min_w_0()
                                     .child(page.display_row(index, lang)),
                             )
-                            .children(action.map(|view| {
-                                Button::new(("memory-open", index))
-                                    .label(lang.text(TextKey::ImportInspect))
-                                    .disabled(busy)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.memory_view(view.clone(), cx)
-                                    }))
-                            }))
                     })),
             );
             body = body.child(
@@ -2056,7 +1890,9 @@ impl Render for ImportWorkspace {
                     ),
             );
         } else if !busy {
-            body = body.child(lang.text(TextKey::ImportSelectALocalArtifactThisPageIs));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::ImportSelectALocalArtifactThisPageIs),
+            ));
         }
         body.into_any_element()
     }
@@ -2175,7 +2011,11 @@ impl ImportWorkspace {
                             ]
                             .into_iter()
                             .map(|value| {
-                                div().p_2().bg(cx.theme().muted).rounded_md().child(value)
+                                div()
+                                    .p_2()
+                                    .bg(cx.theme().muted)
+                                    .rounded_md()
+                                    .child(crate::studio::selectable(value))
                             }),
                         ),
                     )
@@ -2248,7 +2088,9 @@ impl ImportWorkspace {
                     .items_center()
                     .justify_center()
                     .text_color(muted)
-                    .child(lang.text(TextKey::ImportSelectALocalArtifactThisPageIs)),
+                    .child(crate::studio::selectable(
+                        lang.text(TextKey::ImportSelectALocalArtifactThisPageIs),
+                    )),
             );
         }
         let sidebar = div()
@@ -2395,6 +2237,9 @@ impl ImportWorkspace {
     }
 
     fn render_specialized(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.kind == Destination::Memory {
+            return self.render_memory_profiler(window, cx);
+        }
         let language = self.language;
         let busy = self.busy;
         let mut root = div()
@@ -2427,85 +2272,14 @@ impl ImportWorkspace {
             );
         }
         if busy {
-            root = root.child(
-                div()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(language.text(TextKey::ImportLoadingQuerying)),
-            );
+            root = root.child(div().text_color(cx.theme().muted_foreground).child(
+                crate::studio::selectable(language.text(TextKey::ImportLoadingQuerying)),
+            ));
         }
-        if self.kind == Destination::Memory {
-            root = root.child(self.render_memory_workspace(window, cx));
-        } else if self.kind == Destination::Frame {
+        if self.kind == Destination::Frame {
             root = root.child(self.render_frame_workspace(cx));
         }
         root.into_any_element()
-    }
-
-    fn memory_panel(&mut self, panel: MemoryPanel, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.memory_panel = panel;
-        match panel {
-            MemoryPanel::Dashboard | MemoryPanel::Classes => {
-                self.memory_view(MemoryView::Histogram, cx)
-            }
-            MemoryPanel::Dominators => self.memory_view(MemoryView::Dominators(None), cx),
-            MemoryPanel::Findings => self.memory_view(MemoryView::Findings, cx),
-            MemoryPanel::Diff => self.compare_memory_snapshots(cx),
-            MemoryPanel::NativeHeap | MemoryPanel::BitmapDump => cx.notify(),
-        }
-    }
-
-    fn compare_memory_snapshots(&mut self, cx: &mut Context<Self>) {
-        let Some((before, after)) = self.memory_comparison_pair() else {
-            self.memory_diff_page = None;
-            self.memory_diff_report = None;
-            cx.notify();
-            return;
-        };
-        self.cancel.cancel();
-        self.cancel = CancellationToken::new();
-        self.generation += 1;
-        let generation = self.generation;
-        self.busy = true;
-        self.error = None;
-        self.memory_diff_page = None;
-        self.memory_diff_report = None;
-        let cancel = self.cancel.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { memory_diff::compare(&before, &after, &cancel) });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.busy = false;
-                match result {
-                    Ok(report) => {
-                        this.memory_diff_page = Some(report.page(0));
-                        this.memory_diff_report = Some(report);
-                    }
-                    Err(error) => this.error = Some(error),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-        cx.notify();
-    }
-
-    fn memory_diff_page(&mut self, offset: usize, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        if let Some(report) = &self.memory_diff_report {
-            self.memory_diff_page = Some(report.page(offset));
-            cx.notify();
-        }
     }
 }
 
@@ -2542,29 +2316,11 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn heap_value_pages_are_rejected_even_if_navigation_intent_changed() {
+    fn memory_ai_request_requires_a_published_snapshot() {
         let mut workspace = ImportWorkspace::new(Destination::Memory, Language::English);
         workspace.session_id = Some("test-heap".into());
         workspace.generation = 3;
-        workspace.page = Some(PageData {
-            ui: PageUi::default(),
-            summary: "Object fields".into(),
-            columns: vec!["displayValue".into()],
-            rows: vec![vec!["sensitive heap value".into()]],
-            offset: 0,
-            has_more: false,
-            warnings: Vec::new(),
-            row_actions: Vec::new(),
-        });
-        workspace.published_memory_view = MemoryView::Detail(1);
-        workspace.memory_view = MemoryView::Histogram;
-        assert!(
-            workspace
-                .analysis_request()
-                .err()
-                .unwrap()
-                .contains("Heap field/value")
-        );
+        assert!(workspace.analysis_request().is_err());
     }
 
     #[::core::prelude::v1::test]

@@ -136,6 +136,11 @@ impl PageUi {
     ) {
         self.language = Some(language);
     }
+
+    /// Mirror of the detail-panel copy feedback, for the menu-bar copy action.
+    pub(in crate::frame) fn set_copy_feedback(&mut self, frame_id: u64, succeeded: bool) {
+        self.copy_feedback = Some((frame_id, succeeded));
+    }
 }
 
 pub(in crate::frame) fn render(
@@ -494,7 +499,10 @@ fn status_bar(this: &FrameWorkspace, colors: &StudioColors) -> AnyElement {
                     .flex_shrink_0()
                     .text_size(px(FONT_SUPPORTING))
                     .text_color(colors.muted_text)
-                    .child(format!("{}:", language.text(TextKey::FrameStatus))),
+                    .child(crate::studio::selectable(format!(
+                        "{}:",
+                        language.text(TextKey::FrameStatus)
+                    ))),
             )
             .child(
                 div()
@@ -508,7 +516,7 @@ fn status_bar(this: &FrameWorkspace, colors: &StudioColors) -> AnyElement {
                     })
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .child(message),
+                    .child(crate::studio::selectable(message)),
             )
             .child(
                 studio::compact_text_button(
@@ -731,7 +739,7 @@ fn metric_card(
                         .text_color(colors.text)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(value),
+                        .child(crate::studio::selectable(value)),
                 ),
         )
         .child(sparkline(samples, tone))
@@ -1230,7 +1238,9 @@ fn timeline_panel(
                 .text_size(px(FONT_TITLE))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
-                .child(language.text(TextKey::FrameTimeline)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::FrameTimeline),
+                )),
         )
         .child(
             div()
@@ -1243,7 +1253,9 @@ fn timeline_panel(
                         .flex_shrink_0()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(language.text(TextKey::FrameSource)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::FrameSource),
+                        )),
                 )
                 .child(source_filter_control(this, colors, cx))
                 .child(
@@ -1251,7 +1263,9 @@ fn timeline_panel(
                         .flex_shrink_0()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(language.text(TextKey::FrameFilter)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::FrameFilter),
+                        )),
                 )
                 .child(view_filter_control(this, colors, cx)),
         )
@@ -1347,7 +1361,9 @@ fn timeline_panel(
                     .w_full()
                     .text_size(px(FONT_BODY))
                     .text_color(colors.secondary_text)
-                    .child(language.text(TextKey::FrameNoFramesMatchFilter)),
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::FrameNoFramesMatchFilter),
+                    )),
             );
         if this.analysis.is_none() {
             let capture_hint = if this.is_capturing {
@@ -1362,16 +1378,16 @@ fn timeline_panel(
                         .text_size(px(FONT_BODY))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.text)
-                        .child(language.text(capture_hint)),
+                        .child(crate::studio::selectable(language.text(capture_hint))),
                 )
                 .child(
                     div()
                         .w_full()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(language.text(
+                        .child(crate::studio::selectable(language.text(
                             TextKey::FrameSelectADebuggableProcessFramemetricsAgentIsPreferredAndGfxinf,
-                        )),
+                        ))),
                 );
             if let Some(message) = this
                 .operation_status
@@ -1384,7 +1400,7 @@ fn timeline_panel(
                         .pt(px(8.))
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(message),
+                        .child(crate::studio::selectable(message)),
                 );
             }
             if let Some(error) = this.error.clone() {
@@ -1394,7 +1410,7 @@ fn timeline_panel(
                         .pt(px(8.))
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.error)
-                        .child(error),
+                        .child(crate::studio::selectable(error)),
                 );
             }
         }
@@ -1472,7 +1488,9 @@ fn timeline_panel(
                         div()
                             .text_size(px(FONT_SUPPORTING))
                             .text_color(colors.secondary_text)
-                            .child(language.text(model::timeline_status_label(status))),
+                            .child(crate::studio::selectable(
+                                language.text(model::timeline_status_label(status)),
+                            )),
                     ),
             );
         }
@@ -1723,7 +1741,7 @@ fn timeline_panel(
                         .pr(px(6.))
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(label)
+                        .child(crate::studio::selectable(label))
                 })),
         )
         .child(plot);
@@ -1738,7 +1756,7 @@ fn timeline_panel(
             div()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(label)
+                .child(crate::studio::selectable(label))
         }));
     div()
         .id("frame-timeline-panel")
@@ -1759,7 +1777,9 @@ fn timeline_panel(
                     div()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child(language.text(TextKey::FrameTimelineDurationAxis)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::FrameTimelineDurationAxis),
+                        )),
                 )
                 .child(
                     div()
@@ -1778,7 +1798,7 @@ fn timeline_panel(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(caption),
+                .child(crate::studio::selectable(caption)),
         )
         .into_any_element()
 }
@@ -1811,7 +1831,7 @@ fn panel_header(
             div()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(subtitle),
+                .child(crate::studio::selectable(subtitle)),
         );
     }
     header
@@ -1974,7 +1994,7 @@ fn cluster_row(
                         .text_size(px(FONT_SUPPORTING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.accent_text)
-                        .child(format!("#{}", cluster.id + 1)),
+                        .child(crate::studio::selectable(format!("#{}", cluster.id + 1))),
                 ),
         )
         .child(
@@ -2005,7 +2025,7 @@ fn cluster_row(
                         .text_color(colors.secondary_text)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(summary),
+                        .child(crate::studio::selectable(summary)),
                 )
                 .child(
                     div()
@@ -2258,7 +2278,7 @@ fn problem_row(
                 } else {
                     FontWeight::NORMAL
                 })
-                .child(format!("#{frame_id}")),
+                .child(crate::studio::selectable(format!("#{frame_id}"))),
         )
         .child(problem_cell(
             model::format_millis(frame.sample.resolved_duration_ns()),
@@ -2315,7 +2335,7 @@ fn context_panel(
                 .w_full()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.warning)
-                .child(warning.clone()),
+                .child(crate::studio::selectable(warning.clone())),
         );
     }
     div()
@@ -2360,7 +2380,9 @@ fn detail_panel(
                         .text_size(px(FONT_BODY))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.text)
-                        .child(language.text(TextKey::FrameDetail)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::FrameDetail),
+                        )),
                 )
                 .child({
                     let subtitle = selected
@@ -2378,7 +2400,7 @@ fn detail_panel(
                         .text_color(colors.secondary_text)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(subtitle)
+                        .child(crate::studio::selectable(subtitle))
                 }),
         )
         .child(
@@ -2532,7 +2554,9 @@ fn detail_body(
                 .text_size(px(FONT_BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
-                .child(language.text(TextKey::FrameStageBreakdown)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::FrameStageBreakdown),
+                )),
         );
         for (index, (name, duration)) in stages.into_iter().enumerate() {
             details = details.child(stage_row(name, duration, maximum, index, colors));
@@ -2687,7 +2711,9 @@ fn detail_body(
                 .w_full()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::FrameCopyEvidencePrivacyHint)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::FrameCopyEvidencePrivacyHint),
+                )),
         );
     if let Some((frame_id, succeeded)) = this.ui.copy_feedback {
         if frame_id == frame.sample.frame_id {
@@ -2700,11 +2726,11 @@ fn detail_body(
                     } else {
                         colors.error
                     })
-                    .child(language.text(if succeeded {
+                    .child(crate::studio::selectable(language.text(if succeeded {
                         TextKey::FrameEvidenceCopied
                     } else {
                         TextKey::FrameClipboardUnavailable
-                    })),
+                    }))),
             );
         }
     }
@@ -2738,7 +2764,7 @@ fn detail_metric(
                 .text_color(value_color)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(value),
+                .child(crate::studio::selectable(value)),
         )
         .into_any_element()
 }
@@ -2820,7 +2846,7 @@ fn stage_row(
                         .text_color(colors.text)
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(name.to_owned()),
+                        .child(crate::studio::selectable(name.to_owned())),
                 )
                 .child(
                     div()
@@ -2869,7 +2895,9 @@ fn layout_preview(
                 .text_size(px(FONT_BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
-                .child(language.text(TextKey::FrameLayoutPreview)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::FrameLayoutPreview),
+                )),
         )
         .child(
             div()
@@ -2895,7 +2923,9 @@ fn layout_preview(
                             div()
                                 .text_size(px(FONT_SUPPORTING))
                                 .text_color(colors.secondary_text)
-                                .child(language.text(TextKey::FrameScreenshotUnavailable)),
+                                .child(crate::studio::selectable(
+                                    language.text(TextKey::FrameScreenshotUnavailable),
+                                )),
                         )
                         .when_some(snapshot, |this, snapshot| {
                             this.child(
@@ -2915,7 +2945,9 @@ fn layout_preview(
                 .w_full()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::FrameLayoutPreviewCurrentOnly)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::FrameLayoutPreviewCurrentOnly),
+                )),
         );
     if has_package {
         column = column.child(

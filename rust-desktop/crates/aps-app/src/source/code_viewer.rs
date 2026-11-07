@@ -10,7 +10,7 @@
 //! content keys are document byte offsets so copying works even for lines that
 //! have scrolled out of the virtualized viewport.
 
-use std::{cell::RefCell, collections::BTreeSet, ops::Range, rc::Rc};
+use std::{cell::RefCell, collections::BTreeSet, ops::Range, rc::Rc, sync::Arc};
 
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
@@ -1595,8 +1595,15 @@ impl Element for SelectionSurface {
 // ---------------------------------------------------------------------------
 
 /// Read-only syntax-highlighted source viewer.
+/// Callback invoked for Cmd/Ctrl-click on the code surface. Arguments are the
+/// identifier, zero-based LSP line/character, whether Shift was held, and the
+/// usual GPUI window/context.
+pub(super) type LspClickHandler = Arc<dyn Fn(String, usize, usize, bool, &mut Window, &mut App)>;
+
 pub(super) struct SourceCodeViewer {
     language: Language,
+    lsp_enabled: bool,
+    lsp_handler: Option<LspClickHandler>,
     document: Option<SourceDocument>,
     lines: Rc<Vec<Rc<HighlightedLine>>>,
     highlight_generation: u64,
@@ -1693,6 +1700,8 @@ impl SourceCodeViewer {
         );
         Self {
             language: Language::System,
+            lsp_enabled: false,
+            lsp_handler: None,
             document: None,
             lines: Rc::new(Vec::new()),
             highlight_generation: 0,
@@ -1713,6 +1722,14 @@ impl SourceCodeViewer {
             geometry,
             focus,
         }
+    }
+
+    pub(super) fn set_lsp_enabled(&mut self, enabled: bool) {
+        self.lsp_enabled = enabled;
+    }
+
+    pub(super) fn set_lsp_handler(&mut self, handler: LspClickHandler) {
+        self.lsp_handler = Some(handler);
     }
 
     pub(super) fn set_document(
@@ -2101,20 +2118,61 @@ impl Render for SourceCodeViewer {
             // The shell owns the single window selection layer; the viewer only
             // projects its runs into the window selection.
             .child(self.search_row(cx))
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .w_full()
-                    .flex()
-                    .child(SelectionSurface {
-                        child: body.into_any_element(),
-                        vertical: self.vertical.clone(),
-                        selection: self.selection.clone(),
-                        geometry: self.geometry.clone(),
-                    }),
-            )
+            .child({
+                let surface =
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .w_full()
+                        .flex()
+                        .child(SelectionSurface {
+                            child: body.into_any_element(),
+                            vertical: self.vertical.clone(),
+                            selection: self.selection.clone(),
+                            geometry: self.geometry.clone(),
+                        });
+                let Some(handler) = self.lsp_handler.clone() else {
+                    return surface.into_any_element();
+                };
+                let enabled = self.lsp_enabled;
+                let text = self.document.as_ref().map(|document| document.text.clone());
+                let geometry = self.geometry.clone();
+                surface
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |_this, event: &MouseDownEvent, window, cx| {
+                            if !enabled || !(event.modifiers.platform || event.modifiers.control) {
+                                return;
+                            }
+                            let Some(text) = text.clone() else {
+                                return;
+                            };
+                            let bounds = geometry.borrow().bounds;
+                            let local = event.position - bounds.origin;
+                            let Some(offset) = geometry.borrow().key_at(local) else {
+                                return;
+                            };
+                            let Some((identifier, start)) =
+                                super::lsp::identifier_at(&text, offset as usize)
+                            else {
+                                return;
+                            };
+                            let (line, character) = super::lsp::position_for_offset(&text, start);
+                            let references = event.modifiers.shift;
+                            handler(
+                                identifier.to_owned(),
+                                line as usize,
+                                character as usize,
+                                references,
+                                window,
+                                cx,
+                            );
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .into_any_element()
+            })
             .into_any_element()
     }
 }

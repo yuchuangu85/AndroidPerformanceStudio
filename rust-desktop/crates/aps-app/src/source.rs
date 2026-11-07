@@ -8,6 +8,7 @@
 mod ai_context;
 mod code_viewer;
 mod layout;
+mod lsp;
 mod page;
 mod permissions;
 mod service;
@@ -60,6 +61,9 @@ pub struct SourceWorkspace {
     pub(in crate::source) selected_location: Option<SourceLocation>,
     pub(in crate::source) content: Option<VerifiedSourceContent>,
     pub(in crate::source) content_generation: u64,
+    pub(in crate::source) lsp_enabled: bool,
+    pub(in crate::source) lsp_usages: Vec<lsp::Location>,
+    lsp: lsp::LspManager,
     pub(in crate::source) candidate: Option<ResolutionCandidate>,
     pub(in crate::source) pending_location: Option<SourceLocation>,
     pub(in crate::source) page_error: Option<String>,
@@ -85,6 +89,11 @@ impl SourceWorkspace {
             }
             None => (permissions::SourcePermissions::default(), None),
         };
+        let lsp_data_dir = paths
+            .data_dir
+            .clone()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("source-lsp");
         let mut this = Self {
             language,
             paths,
@@ -109,6 +118,9 @@ impl SourceWorkspace {
             selected_location: None,
             content: None,
             content_generation: 0,
+            lsp_enabled: false,
+            lsp_usages: Vec::new(),
+            lsp: lsp::LspManager::new(lsp_data_dir),
             candidate: None,
             pending_location: None,
             page_error: None,
@@ -121,6 +133,19 @@ impl SourceWorkspace {
 
     pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
         self.studio = Some(studio);
+    }
+
+    pub fn set_lsp_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.lsp_enabled == enabled {
+            return;
+        }
+        self.lsp_enabled = enabled;
+        if !enabled {
+            self.lsp.shutdown();
+            self.lsp_usages.clear();
+        }
+        self.ui.set_lsp_enabled(enabled, cx);
+        cx.notify();
     }
 
     pub fn set_language(
@@ -812,6 +837,191 @@ impl SourceWorkspace {
         .detach();
     }
 
+    pub(in crate::source) fn handle_lsp_click(
+        &mut self,
+        identifier: String,
+        line: usize,
+        character: usize,
+        references: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.lsp_enabled {
+            return;
+        }
+        let Some(location) = self.selected_location.clone() else {
+            return;
+        };
+        let Some(content) = self.content.as_ref() else {
+            return;
+        };
+        let Some(workspace) = self
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == location.workspace_id)
+        else {
+            return;
+        };
+        let SourceProviderConfig::Local { root } = &workspace.config else {
+            return;
+        };
+        let Some(language_id) = language_id_for_path(&location.relative_path) else {
+            self.page_error = Some(self.language.text(TextKey::SourceLspUnavailable).to_owned());
+            cx.notify();
+            return;
+        };
+        eprintln!(
+            "APS-LSP click identifier={:?} line={} character={} file={}",
+            identifier, line, character, location.relative_path
+        );
+        let root = root.clone();
+        let file_path = root.join(&location.relative_path);
+        let text = content.text.clone();
+        let manager = self.lsp.clone();
+        let kind = if references {
+            lsp::NavigationKind::References
+        } else {
+            lsp::NavigationKind::Definition
+        };
+        let task = cx.background_executor().spawn(async move {
+            manager.navigate(
+                &root,
+                language_id,
+                &file_path,
+                &text,
+                line as u32,
+                character as u32,
+                kind,
+                identifier,
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(result) if result.kind == lsp::NavigationKind::Definition => {
+                        if let Some(target) = result.locations.first() {
+                            this.open_lsp_location(target.clone(), cx);
+                        } else {
+                            this.page_error = Some(
+                                this.language
+                                    .text(TextKey::SourceLspNoDefinition)
+                                    .to_owned(),
+                            );
+                        }
+                    }
+                    Ok(result) => {
+                        this.lsp_usages = dedupe_locations(result.locations)
+                            .into_iter()
+                            .take(200)
+                            .collect();
+                        if this.lsp_usages.is_empty() {
+                            this.page_error =
+                                Some(this.language.text(TextKey::SourceLspNoUsages).to_owned());
+                        } else {
+                            this.page_error = None;
+                        }
+                    }
+                    Err(error) => this.page_error = Some(this.lsp_error(error)),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(in crate::source) fn open_lsp_usage(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(location) = self.lsp_usages.get(index).cloned() else {
+            return;
+        };
+        self.open_lsp_location(location, cx);
+    }
+
+    pub(in crate::source) fn clear_lsp_usages(&mut self, cx: &mut Context<Self>) {
+        self.lsp_usages.clear();
+        cx.notify();
+    }
+
+    fn open_lsp_location(&mut self, location: lsp::Location, cx: &mut Context<Self>) {
+        let Some(root) = self.local_root() else {
+            return;
+        };
+        // Language servers commonly return canonical paths; the workspace
+        // root may be reached through a symlink (for example /tmp on macOS).
+        let canonical_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+        let canonical_target =
+            std::fs::canonicalize(&location.path).unwrap_or_else(|_| location.path.clone());
+        let relative_path = match canonical_target.strip_prefix(&canonical_root) {
+            Ok(path) => path.to_string_lossy().replace('\\', "/"),
+            Err(_) => {
+                self.page_error = Some(
+                    self.language
+                        .text(TextKey::SourceLspNoDefinition)
+                        .to_owned(),
+                );
+                return;
+            }
+        };
+        let Some(file) = self
+            .location_files
+            .iter()
+            .chain(self.files.iter())
+            .find(|file| file.relative_path == relative_path)
+            .cloned()
+        else {
+            self.page_error = Some(
+                self.language
+                    .text(TextKey::SourceLspNoDefinition)
+                    .to_owned(),
+            );
+            return;
+        };
+        let Some(workspace_id) = self.selected_workspace.or_else(|| {
+            self.location_snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.workspace_id)
+        }) else {
+            return;
+        };
+        let line = location.line.saturating_add(1);
+        let target = SourceLocation {
+            workspace_id,
+            snapshot_id: file.snapshot_id,
+            relative_path: file.relative_path,
+            range: Some(SourceRange {
+                start_line: line,
+                end_line: line,
+            }),
+            content_hash: file.content_hash,
+        };
+        self.lsp_usages.clear();
+        self.navigate_to_source(target, cx);
+    }
+
+    fn local_root(&self) -> Option<PathBuf> {
+        let workspace_id = self.selected_location.as_ref()?.workspace_id;
+        let workspace = self
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)?;
+        match &workspace.config {
+            SourceProviderConfig::Local { root } => Some(root.clone()),
+            _ => None,
+        }
+    }
+
+    fn lsp_error(&self, error: String) -> String {
+        if error.contains("not set")
+            || error.contains("no local language server")
+            || error.contains("cannot start language server")
+        {
+            self.language.text(TextKey::SourceLspUnavailable).to_owned()
+        } else {
+            error
+        }
+    }
+
     fn selected_file_record(&self) -> Option<&SourceFile> {
         let location = self.selected_location.as_ref()?;
         self.location_files
@@ -882,6 +1092,25 @@ impl SourceWorkspace {
             self.permissions.allowed(&workspace.id.to_hex()),
         )
     }
+}
+
+fn language_id_for_path(relative_path: &str) -> Option<&'static str> {
+    let extension = relative_path.rsplit('.').next()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "java" => Some("java"),
+        "kt" | "kts" => Some("kotlin"),
+        "c" => Some("c"),
+        "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => Some("cpp"),
+        "m" => Some("objective-c"),
+        "mm" => Some("objective-cpp"),
+        _ => None,
+    }
+}
+
+fn dedupe_locations(mut locations: Vec<lsp::Location>) -> Vec<lsp::Location> {
+    locations.sort_by(|left, right| left.path.cmp(&right.path).then(left.line.cmp(&right.line)));
+    locations.dedup();
+    locations
 }
 
 fn navigation_evidence(symbol: &str, resource: &str) -> Vec<SourceResolutionEvidence> {
@@ -974,6 +1203,106 @@ mod tests {
                 assert!(class_name.is_none())
             }
             other => panic!("unexpected evidence: {other:?}"),
+        }
+    }
+}
+
+/// In-window menu bar commands for the Source workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum SourceMenuCommand {
+    AddLocal,
+    ReloadWorkspaces,
+    SyncSelected,
+    RemoveSelected,
+    ClearSelection,
+    CopyLocation,
+    OpenInIde,
+}
+
+impl crate::shell::menubar::MenuHost for SourceWorkspace {
+    type Command = SourceMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: aps_ui_foundation::Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        use crate::shell::menubar::MenuGroup;
+
+        let selected = self.selected_workspace_record();
+        let syncing = selected
+            .is_some_and(|workspace| self.sync_in_flight.contains_key(&workspace.id.to_hex()));
+        let local_workspace = selected.is_some_and(|workspace| {
+            matches!(&workspace.config, SourceProviderConfig::Local { .. })
+        });
+        let has_location = self.selected_location.is_some();
+        vec![
+            MenuGroup::new(TextKey::ShellMenuWorkspace)
+                .item_when(
+                    !self.add_in_flight,
+                    TextKey::SourceAddLocal,
+                    SourceMenuCommand::AddLocal,
+                )
+                .item(
+                    TextKey::SourceReloadWorkspaces,
+                    SourceMenuCommand::ReloadWorkspaces,
+                )
+                .separator()
+                .item_when(
+                    selected.is_some() && !syncing,
+                    TextKey::SourceSync,
+                    SourceMenuCommand::SyncSelected,
+                )
+                .item_when(
+                    selected.is_some(),
+                    TextKey::SourceRemove,
+                    SourceMenuCommand::RemoveSelected,
+                )
+                .separator()
+                .item_when(
+                    selected.is_some() || self.selected_file.is_some() || has_location,
+                    TextKey::SourceClearSelection,
+                    SourceMenuCommand::ClearSelection,
+                ),
+            MenuGroup::new(TextKey::ShellMenuView)
+                .item_when(
+                    selected.is_some() && has_location,
+                    TextKey::SourceCopyLocation,
+                    SourceMenuCommand::CopyLocation,
+                )
+                .item_when(
+                    local_workspace && has_location,
+                    TextKey::SourceOpenInIde,
+                    SourceMenuCommand::OpenInIde,
+                ),
+        ]
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        _window: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::Context<Self>,
+    ) {
+        match command {
+            SourceMenuCommand::AddLocal => self.pick_local_workspace(cx),
+            SourceMenuCommand::ReloadWorkspaces => self.reload_workspaces(cx),
+            SourceMenuCommand::SyncSelected => {
+                if let Some(id) = self.selected_workspace {
+                    self.sync_workspace(id, cx);
+                }
+            }
+            SourceMenuCommand::RemoveSelected => {
+                if let Some(id) = self.selected_workspace {
+                    self.remove_workspace(id, cx);
+                }
+            }
+            SourceMenuCommand::ClearSelection => {
+                self.clear_selection();
+                cx.notify();
+            }
+            SourceMenuCommand::CopyLocation => self.copy_location(cx),
+            SourceMenuCommand::OpenInIde => self.open_location_in_ide(cx),
         }
     }
 }

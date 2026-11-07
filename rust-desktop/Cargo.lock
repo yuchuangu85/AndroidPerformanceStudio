@@ -231,6 +231,7 @@ dependencies = [
  "aps-storage",
  "aps-ui-foundation",
  "gpui-kit",
+ "serde_json",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-cpp",

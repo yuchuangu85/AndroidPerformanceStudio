@@ -116,6 +116,9 @@ pub struct Settings {
     pub simpleperf_viewer_engine: u8,
     /// 0: Provider, 1: Agent, 2: Skill, 3: Policy.
     pub ai_settings_tab: u8,
+    /// Experimental semantic navigation: launches a local LSP server. Off by
+    /// default because language servers can consume hundreds of MB.
+    pub source_lsp_enabled: bool,
 }
 
 impl Default for Settings {
@@ -133,6 +136,7 @@ impl Default for Settings {
             simpleperf_follow_tooltip: true,
             simpleperf_viewer_engine: 0,
             ai_settings_tab: 0,
+            source_lsp_enabled: false,
         }
     }
 }
@@ -192,13 +196,18 @@ impl Settings {
     fn decode(text: &str) -> Result<Self, SettingsError> {
         let mut lines = text.lines();
         let version = lines.next();
-        if !matches!(version, Some("version=1" | "version=2" | "version=3")) {
+        if !matches!(
+            version,
+            Some("version=1" | "version=2" | "version=3" | "version=4")
+        ) {
             return Err(SettingsError::Invalid(
-                "expected version=1, version=2 or version=3",
+                "expected version=1, version=2, version=3 or version=4",
             ));
         }
         let language = match lines.next() {
-            Some("language=system") if version == Some("version=3") => Language::System,
+            Some("language=system") if matches!(version, Some("version=3" | "version=4")) => {
+                Language::System
+            }
             Some("language=en") => Language::English,
             Some("language=zh-CN") => Language::SimplifiedChinese,
             _ => {
@@ -208,7 +217,9 @@ impl Settings {
             }
         };
         let theme = match lines.next() {
-            Some("theme=system") if version == Some("version=3") => ThemeMode::System,
+            Some("theme=system") if matches!(version, Some("version=3" | "version=4")) => {
+                ThemeMode::System
+            }
             Some("theme=light") => ThemeMode::Light,
             Some("theme=dark") => ThemeMode::Dark,
             _ => {
@@ -233,7 +244,9 @@ impl Settings {
             Some("displayScale=100") => DisplayScale::Percent100,
             Some("displayScale=110") => DisplayScale::Percent110,
             Some("displayScale=125") => DisplayScale::Percent125,
-            Some("displayScale=150") if version == Some("version=3") => DisplayScale::Percent150,
+            Some("displayScale=150") if matches!(version, Some("version=3" | "version=4")) => {
+                DisplayScale::Percent150
+            }
             _ => {
                 return Err(SettingsError::Invalid(
                     "expected a supported displayScale preference",
@@ -255,9 +268,15 @@ impl Settings {
             Some("accent=jade") => AccentColor::Jade,
             Some("accent=orange") => AccentColor::Orange,
             Some("accent=purple") => AccentColor::Purple,
-            Some("accent=bananaRed") if version == Some("version=3") => AccentColor::BananaRed,
-            Some("accent=merlotPink") if version == Some("version=3") => AccentColor::MerlotPink,
-            Some("accent=lemonYellow") if version == Some("version=3") => AccentColor::LemonYellow,
+            Some("accent=bananaRed") if matches!(version, Some("version=3" | "version=4")) => {
+                AccentColor::BananaRed
+            }
+            Some("accent=merlotPink") if matches!(version, Some("version=3" | "version=4")) => {
+                AccentColor::MerlotPink
+            }
+            Some("accent=lemonYellow") if matches!(version, Some("version=3" | "version=4")) => {
+                AccentColor::LemonYellow
+            }
             _ => return Err(SettingsError::Invalid("invalid accent color")),
         };
         let capture_duration_seconds = parse_capture_default(
@@ -284,7 +303,7 @@ impl Settings {
             capture_frequency_hz,
             ..Self::default()
         };
-        if version == Some("version=3") {
+        if matches!(version, Some("version=3" | "version=4")) {
             settings.custom_accent = match parse_value(lines.next(), "customAccent")? {
                 "none" => None,
                 color => Some(parse_argb(color)?),
@@ -312,6 +331,9 @@ impl Settings {
             settings.simpleperf_viewer_engine =
                 parse_index(lines.next(), "simpleperfViewerEngine", 2)?;
             settings.ai_settings_tab = parse_index(lines.next(), "aiSettingsTab", 3)?;
+        }
+        if version == Some("version=4") {
+            settings.source_lsp_enabled = parse_bool(lines.next(), "sourceLspEnabled")?;
         }
         if lines.next().is_some() {
             return Err(SettingsError::Invalid("unexpected preference fields"));
@@ -394,7 +416,7 @@ impl Settings {
         };
         write!(
             file,
-            "version=3\nlanguage={language}\ntheme={theme}\ndisplayScale={display_scale}\nnavigationRail={navigation_rail}\naccent={accent}\ncaptureDuration={}\ncaptureFrequency={}\n",
+            "version=4\nlanguage={language}\ntheme={theme}\ndisplayScale={display_scale}\nnavigationRail={navigation_rail}\naccent={accent}\ncaptureDuration={}\ncaptureFrequency={}\n",
             self.capture_duration_seconds, self.capture_frequency_hz,
         )?;
         let custom_accent = self
@@ -404,7 +426,7 @@ impl Settings {
         let layout = self.layout;
         write!(
             file,
-            "customAccent={custom_accent}\nlayoutHideInvisibleHierarchy={}\nlayoutHideInvisibleFindings={}\nlayoutHideIndices={}\nlayoutShowIds={}\nlayoutShowLayerButtons={}\nlayoutShowVisibleBounds={}\nlayoutHitSmallest={}\nlayoutArchiveMultiplier={}\nlayoutNormalColor={:08X}\nlayoutHoverColor={:08X}\nlayoutSelectedColor={:08X}\nsimpleperfFollowTooltip={}\nsimpleperfViewerEngine={}\naiSettingsTab={}\n",
+            "customAccent={custom_accent}\nlayoutHideInvisibleHierarchy={}\nlayoutHideInvisibleFindings={}\nlayoutHideIndices={}\nlayoutShowIds={}\nlayoutShowLayerButtons={}\nlayoutShowVisibleBounds={}\nlayoutHitSmallest={}\nlayoutArchiveMultiplier={}\nlayoutNormalColor={:08X}\nlayoutHoverColor={:08X}\nlayoutSelectedColor={:08X}\nsimpleperfFollowTooltip={}\nsimpleperfViewerEngine={}\naiSettingsTab={}\nsourceLspEnabled={}\n",
             layout.hide_invisible_hierarchy,
             layout.hide_invisible_findings,
             layout.hide_indices,
@@ -419,6 +441,7 @@ impl Settings {
             self.simpleperf_follow_tooltip,
             self.simpleperf_viewer_engine,
             self.ai_settings_tab,
+            self.source_lsp_enabled,
         )?;
         file.sync_all()?;
         drop(file);
@@ -519,10 +542,16 @@ mod tests {
         assert_eq!(version_two.simpleperf_viewer_engine, 0);
         assert!(version_two.simpleperf_follow_tooltip);
         assert_eq!(version_two.ai_settings_tab, 0);
+        assert!(!version_two.source_lsp_enabled);
+        let version_three = Settings::decode(
+            "version=3\nlanguage=en\ntheme=dark\ndisplayScale=100\nnavigationRail=expanded\naccent=azure\ncaptureDuration=10\ncaptureFrequency=99\ncustomAccent=none\nlayoutHideInvisibleHierarchy=false\nlayoutHideInvisibleFindings=false\nlayoutHideIndices=false\nlayoutShowIds=true\nlayoutShowLayerButtons=true\nlayoutShowVisibleBounds=true\nlayoutHitSmallest=true\nlayoutArchiveMultiplier=1\nlayoutNormalColor=FF7DD3FC\nlayoutHoverColor=FFF59E0B\nlayoutSelectedColor=FFEF4444\nsimpleperfFollowTooltip=true\nsimpleperfViewerEngine=0\naiSettingsTab=0\n",
+        )
+        .unwrap();
+        assert!(!version_three.source_lsp_enabled);
     }
 
     #[test]
-    fn version_three_roundtrips_all_settings_without_losing_argb() {
+    fn version_four_roundtrips_all_settings_without_losing_argb() {
         let temp = TempDirectory::new();
         let settings = Settings {
             language: Language::System,
@@ -546,11 +575,12 @@ mod tests {
             simpleperf_follow_tooltip: false,
             simpleperf_viewer_engine: 2,
             ai_settings_tab: 3,
+            source_lsp_enabled: true,
             ..Settings::default()
         };
         settings.save(&temp.file()).unwrap();
         let text = fs::read_to_string(temp.file()).unwrap();
-        assert!(text.starts_with("version=3\n"));
+        assert!(text.starts_with("version=4\n"));
         assert!(text.len() <= MAX_SETTINGS_BYTES);
         assert_eq!(Settings::load(&temp.file()).unwrap(), settings);
     }
@@ -578,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn version_three_rejects_corrupt_indices_colors_and_extra_fields() {
+    fn version_four_rejects_corrupt_indices_colors_and_extra_fields() {
         let temp = TempDirectory::new();
         Settings::default().save(&temp.file()).unwrap();
         let valid = fs::read_to_string(temp.file()).unwrap();
@@ -592,6 +622,7 @@ mod tests {
             valid.replace("customAccent=none", "customAccent=not-a-color"),
             valid.replace("simpleperfViewerEngine=0", "simpleperfViewerEngine=3"),
             valid.replace("aiSettingsTab=0", "aiSettingsTab=4"),
+            valid.replace("sourceLspEnabled=false", "sourceLspEnabled=1"),
             format!("{valid}unexpected=value\n"),
         ] {
             assert!(matches!(

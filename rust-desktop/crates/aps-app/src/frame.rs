@@ -1218,3 +1218,187 @@ impl Render for FrameWorkspace {
         page::render(self, window, cx)
     }
 }
+
+/// In-window menu bar commands for the Frame workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum FrameMenuCommand {
+    ImportFrameStats,
+    ImportPerfettoTrace,
+    AssociatePerfettoTrace,
+    ExportCsv,
+    ExportJson,
+    RefreshDevices,
+    CaptureFrameTimeline,
+    StartCapture,
+    StopCapture,
+    OpenTrace,
+    SetViewFilter(FrameViewFilter),
+    PreviousFrame,
+    NextFrame,
+    CopyEvidence,
+    InspectLayout,
+}
+
+impl crate::shell::menubar::MenuHost for FrameWorkspace {
+    type Command = FrameMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: aps_ui_foundation::Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        use crate::shell::menubar::MenuGroup;
+
+        // Same predicates the header, filters and detail panel apply; the menu
+        // is built when it opens, so they always describe the current workspace.
+        let busy = self.is_capturing || self.is_loading;
+        let has_analysis = self.analysis.is_some();
+        let process_ready = self.selected_process_pid.is_some();
+        let device_ready = self.selected_device_serial.as_ref().is_some_and(|serial| {
+            self.devices
+                .iter()
+                .any(|device| &device.serial == serial && device.online)
+        });
+        let selected = self.selected_frame();
+        let previous = self
+            .filtered_analysis
+            .as_deref()
+            .and_then(|analysis| model::previous_frame_id(analysis, self.selected_frame_id));
+        let next = self
+            .filtered_analysis
+            .as_deref()
+            .and_then(|analysis| model::next_frame_id(analysis, self.selected_frame_id));
+        let has_package = selected.is_some_and(|frame| frame.sample.package_name.is_some());
+
+        // Compose's Frame Profiler File > Open… imports a FrameStats capture and
+        // its File > Export carries the CSV/JSON reports; the shared action makes
+        // the Open row own Cmd+O for the visible page.
+        let file = MenuGroup::new(TextKey::ShellMenuFile)
+            .item_action_when(
+                !busy,
+                TextKey::ShellMenuOpen,
+                FrameMenuCommand::ImportFrameStats,
+                crate::shell::OpenActiveRouteFile,
+            )
+            .submenu(TextKey::ShellMenuImport, !busy, |menu| {
+                menu.item_when(
+                    !busy,
+                    TextKey::FrameImportPerfettoFrametimeline,
+                    FrameMenuCommand::ImportPerfettoTrace,
+                )
+                .item_when(
+                    !busy && has_analysis,
+                    TextKey::FrameAssociatePerfettoTrace,
+                    FrameMenuCommand::AssociatePerfettoTrace,
+                )
+            })
+            .separator()
+            .submenu(TextKey::ShellMenuExport, true, |menu| {
+                menu.item_when(
+                    has_analysis,
+                    TextKey::FrameExportCsv,
+                    FrameMenuCommand::ExportCsv,
+                )
+                .item_when(
+                    has_analysis,
+                    TextKey::FrameExportJson,
+                    FrameMenuCommand::ExportJson,
+                )
+            });
+
+        let mut frames = MenuGroup::new(TextKey::ShellMenuFrames)
+            .item_when(
+                !busy && !self.is_refreshing_devices,
+                TextKey::FrameRefresh,
+                FrameMenuCommand::RefreshDevices,
+            )
+            .separator()
+            .item_when(
+                !busy && process_ready,
+                TextKey::FrameCaptureFrametimeline,
+                FrameMenuCommand::CaptureFrameTimeline,
+            );
+        frames = if self.is_capturing {
+            frames.item(TextKey::FrameStopCapture, FrameMenuCommand::StopCapture)
+        } else {
+            frames.item_when(
+                process_ready && device_ready && !self.is_loading,
+                TextKey::FrameStartCapture,
+                FrameMenuCommand::StartCapture,
+            )
+        };
+        frames = frames.separator().item_when(
+            self.perfetto_trace_file.is_some(),
+            TextKey::FrameOpenTraceInPerfetto,
+            FrameMenuCommand::OpenTrace,
+        );
+
+        let mut view = MenuGroup::new(TextKey::ShellMenuView);
+        for filter in model::VIEW_FILTERS {
+            view = view.check(
+                model::view_filter_label(filter),
+                self.view_filter == filter,
+                FrameMenuCommand::SetViewFilter(filter),
+            );
+        }
+        view = view
+            .separator()
+            .item_when(
+                previous.is_some(),
+                TextKey::FramePreviousFrame,
+                FrameMenuCommand::PreviousFrame,
+            )
+            .item_when(
+                next.is_some(),
+                TextKey::FrameNextFrame,
+                FrameMenuCommand::NextFrame,
+            )
+            .separator()
+            .item_when(
+                selected.is_some(),
+                TextKey::FrameCopyEvidence,
+                FrameMenuCommand::CopyEvidence,
+            )
+            .item_when(
+                has_package && self.studio.is_some(),
+                TextKey::FrameCorrelateInLayoutInspector,
+                FrameMenuCommand::InspectLayout,
+            );
+
+        vec![file, frames, view]
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        _window: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::Context<Self>,
+    ) {
+        match command {
+            FrameMenuCommand::ImportFrameStats => self.pick_import_frame_stats(cx),
+            FrameMenuCommand::ImportPerfettoTrace => self.pick_import_perfetto(cx),
+            FrameMenuCommand::AssociatePerfettoTrace => self.pick_associate_perfetto(cx),
+            FrameMenuCommand::ExportCsv => self.export_csv(cx),
+            FrameMenuCommand::ExportJson => self.export_json(cx),
+            FrameMenuCommand::RefreshDevices => self.refresh_devices(cx),
+            FrameMenuCommand::CaptureFrameTimeline => self.capture_frame_timeline(cx),
+            FrameMenuCommand::StartCapture => self.start_capture(cx),
+            FrameMenuCommand::StopCapture => self.stop_capture(cx),
+            FrameMenuCommand::OpenTrace => self.open_trace(cx),
+            FrameMenuCommand::SetViewFilter(filter) => self.set_view_filter(filter, cx),
+            FrameMenuCommand::PreviousFrame => self.previous_frame(cx),
+            FrameMenuCommand::NextFrame => self.next_frame(cx),
+            FrameMenuCommand::CopyEvidence => {
+                let Some(frame) = self.selected_frame() else {
+                    return;
+                };
+                let evidence = model::copy_evidence_text(frame, self.language);
+                let frame_id = frame.sample.frame_id;
+                cx.write_to_clipboard(ClipboardItem::new_string(evidence));
+                self.ui.set_copy_feedback(frame_id, true);
+                cx.notify();
+            }
+            FrameMenuCommand::InspectLayout => self.inspect_layout(cx),
+        }
+    }
+}

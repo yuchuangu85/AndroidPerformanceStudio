@@ -11,9 +11,9 @@ use aps_platform::CancellationToken;
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     component::{
-        ActiveTheme,
+        ActiveTheme, IconName, IndexPath,
+        combobox::{Combobox, ComboboxState},
         searchable_list::{SearchableListItem, SearchableVec},
-        select::{Select, SelectState},
     },
     prelude::*,
     *,
@@ -171,8 +171,8 @@ pub struct TargetsWorkspace {
     selected_device: Option<String>,
     selected_process: Option<u32>,
     discovery: DiscoveryStatus,
-    device_select: Entity<SelectState<SearchableVec<DeviceOption>>>,
-    process_select: Entity<SelectState<SearchableVec<ProcessOption>>>,
+    device_select: Entity<ComboboxState<SearchableVec<DeviceOption>>>,
+    process_select: Entity<ComboboxState<SearchableVec<ProcessOption>>>,
     device_items_revision: u64,
     process_items_revision: u64,
     selection_revision: u64,
@@ -188,10 +188,13 @@ impl EventEmitter<TargetSelectionChanged> for TargetsWorkspace {}
 
 impl TargetsWorkspace {
     pub fn new(language: Language, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let device_select: Entity<SelectState<SearchableVec<DeviceOption>>> =
-            cx.new(|cx| SelectState::new(SearchableVec::new(Vec::new()), None, window, cx));
-        let process_select: Entity<SelectState<SearchableVec<ProcessOption>>> = cx.new(|cx| {
-            SelectState::new(SearchableVec::new(Vec::new()), None, window, cx).searchable(true)
+        // The device list stays short enough to browse; only the process target
+        // needs the search field, mirroring the Compose title-bar selectors.
+        let device_select: Entity<ComboboxState<SearchableVec<DeviceOption>>> =
+            cx.new(|cx| ComboboxState::new(SearchableVec::new(Vec::new()), Vec::new(), window, cx));
+        let process_select: Entity<ComboboxState<SearchableVec<ProcessOption>>> = cx.new(|cx| {
+            ComboboxState::new(SearchableVec::new(Vec::new()), Vec::new(), window, cx)
+                .searchable(true)
         });
         let mut this = Self {
             language,
@@ -214,13 +217,13 @@ impl TargetsWorkspace {
         };
         this._subscriptions
             .push(cx.observe(&device_select, |this, state, cx| {
-                if let Some(serial) = state.read(cx).selected_value().cloned() {
+                if let Some(serial) = state.read(cx).selected_value() {
                     this.user_selected_device(serial, cx);
                 }
             }));
         this._subscriptions
             .push(cx.observe(&process_select, |this, state, cx| {
-                if let Some(pid) = state.read(cx).selected_value().cloned() {
+                if let Some(pid) = state.read(cx).selected_value() {
                     this.user_selected_process(pid, cx);
                 }
             }));
@@ -417,30 +420,46 @@ impl TargetsWorkspace {
     }
 
     fn sync_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A combobox keeps the selected values when its items change, but the
+        // selection indices point at the previous list. Re-publishing the
+        // selection after replacing the items keeps both title-bar targets
+        // truthful without clearing a search the user is still typing.
         if self.device_items_revision != self.synced_device_items {
             self.synced_device_items = self.device_items_revision;
             let items = SearchableVec::new(self.device_options());
             self.device_select
                 .update(cx, |state, cx| state.set_items(items, window, cx));
+            self.selection_revision = self.selection_revision.wrapping_add(1);
         }
         if self.process_items_revision != self.synced_process_items {
             self.synced_process_items = self.process_items_revision;
             let items = SearchableVec::new(self.process_options());
             self.process_select
                 .update(cx, |state, cx| state.set_items(items, window, cx));
+            self.selection_revision = self.selection_revision.wrapping_add(1);
         }
         if self.selection_revision != self.synced_selection {
             self.synced_selection = self.selection_revision;
-            let serial = self.selected_device.clone();
-            self.device_select.update(cx, |state, cx| match &serial {
-                Some(serial) => state.set_selected_value(serial, window, cx),
-                None => state.set_selected_index(None, window, cx),
+            let device_index = self.selected_device.as_deref().and_then(|serial| {
+                self.device_options()
+                    .iter()
+                    .position(|option| option.serial == serial)
             });
-            let pid = self.selected_process;
-            self.process_select.update(cx, |state, cx| match pid {
-                Some(pid) => state.set_selected_value(&pid, window, cx),
-                None => state.set_selected_index(None, window, cx),
+            self.device_select
+                .update(cx, |state, cx| match device_index {
+                    Some(row) => state.set_selected_indices([IndexPath::new(row)], window, cx),
+                    None => state.set_selected_indices(Vec::new(), window, cx),
+                });
+            let process_index = self.selected_process.and_then(|pid| {
+                self.process_options()
+                    .iter()
+                    .position(|option| option.pid == pid)
             });
+            self.process_select
+                .update(cx, |state, cx| match process_index {
+                    Some(row) => state.set_selected_indices([IndexPath::new(row)], window, cx),
+                    None => state.set_selected_indices(Vec::new(), window, cx),
+                });
         }
     }
 
@@ -487,26 +506,94 @@ impl Drop for TargetsWorkspace {
     }
 }
 
+/// Compose title-bar target width; both selectors keep the same footprint.
+const TARGET_SELECTOR_WIDTH: f32 = 200.;
+
+/// Fixed-size slot that keeps the combobox popover anchored under its control.
+fn target_slot(id: &'static str, control: impl IntoElement) -> impl IntoElement {
+    div()
+        .id(id)
+        .w(px(TARGET_SELECTOR_WIDTH))
+        .h(px(crate::studio::metrics::COMPACT_CONTROL_HEIGHT))
+        .child(control)
+}
+
+/// Compose `DropdownSelector` row: accent label and a trailing expand chevron.
+/// The title-bar targets use the same surface as every other dropdown instead of
+/// the component library's form-field chrome.
+fn target_trigger(
+    id: &'static str,
+    label: SharedString,
+    accessibility_label: SharedString,
+    open: bool,
+    disabled: bool,
+    colors: &crate::studio::StudioColors,
+) -> AnyElement {
+    let content = if disabled {
+        colors.accent.alpha(0.48)
+    } else {
+        colors.accent
+    };
+    div()
+        .id(id)
+        .role(Role::ComboBox)
+        .aria_label(accessibility_label)
+        .aria_value(label.clone())
+        .aria_expanded(open)
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .text_color(content)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(crate::studio::FONT_SUPPORTING))
+                .line_height(px(15.))
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(label),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_size(px(12.))
+                .child(IconName::ChevronDown),
+        )
+        .into_any_element()
+}
+
+/// Empty-state row shared by both target menus.
+fn target_menu_empty(label: SharedString, cx: &App) -> Div {
+    div()
+        .px_2()
+        .py_1()
+        .text_size(px(12.))
+        .text_color(cx.theme().muted_foreground)
+        .child(label)
+}
+
 impl Render for TargetsWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_selects(window, cx);
         let language = self.language;
         let colors = crate::studio::StudioColors::from_theme(cx);
-        let device_placeholder = self.device_placeholder();
-        let process_placeholder = language.text(TextKey::ShellProcess);
-        let search_placeholder = language.text(TextKey::ShellSearchProcesses);
+        let device_placeholder: SharedString = self.device_placeholder();
+        let process_placeholder: SharedString = language.text(TextKey::ShellProcess).into();
+        let search_placeholder: SharedString = language.text(TextKey::ShellSearchProcesses).into();
         let device_empty = self.device_empty_label();
         let process_empty = self.process_empty_label();
+        let device_accessibility: SharedString = language.text(TextKey::ShellDevice).into();
+        let process_accessibility: SharedString = language.text(TextKey::ShellProcess).into();
         let process_disabled = self.selected_device.is_none();
-        let field = |id: &'static str, content: AnyElement| {
-            div()
-                .id(id)
-                .w(px(200.))
-                .h(px(34.))
-                .border_1()
-                .border_color(colors.border)
-                .rounded(px(6.))
-                .child(content)
+        let (process_border, process_surface) = if process_disabled {
+            (
+                colors.accent.alpha(0.55),
+                colors.section_background.alpha(0.55),
+            )
+        } else {
+            (colors.accent, colors.section_background)
         };
         div()
             .id("titlebar-targets")
@@ -514,43 +601,77 @@ impl Render for TargetsWorkspace {
             .items_center()
             .gap(px(8.))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(field(
+            .child(target_slot(
                 "titlebar-device-slot",
-                Select::new(&self.device_select)
+                Combobox::new(&self.device_select)
+                    .appearance(false)
+                    .w(px(TARGET_SELECTOR_WIDTH))
+                    .h(px(crate::studio::metrics::COMPACT_CONTROL_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(8.))
+                    .bg(colors.section_background)
+                    .border_1()
+                    .border_color(colors.accent)
+                    .rounded(px(crate::studio::metrics::SMALL_RADIUS))
                     .placeholder(device_placeholder)
-                    .accessibility_label(language.text(TextKey::ShellDevice))
                     .menu_width(px(280.))
                     .menu_max_h(px(320.))
-                    .empty(move |_, cx| {
-                        div()
-                            .px_2()
-                            .py_1()
-                            .text_size(px(12.))
-                            .text_color(cx.theme().muted_foreground)
-                            .child(device_empty.clone())
-                            .into_any_element()
-                    })
-                    .into_any_element(),
+                    .empty(move |_, cx| target_menu_empty(device_empty.clone(), cx))
+                    .render_trigger(move |trigger, _, _| {
+                        let label = trigger
+                            .selection()
+                            .first()
+                            .map(|(_, item)| item.title())
+                            .or_else(|| trigger.placeholder().cloned())
+                            .unwrap_or_default();
+                        target_trigger(
+                            "titlebar-device-trigger",
+                            label,
+                            device_accessibility.clone(),
+                            trigger.is_open(),
+                            trigger.is_disabled(),
+                            &colors,
+                        )
+                    }),
             ))
-            .child(field(
+            .child(target_slot(
                 "titlebar-process-slot",
-                Select::new(&self.process_select)
+                Combobox::new(&self.process_select)
+                    .appearance(false)
+                    .w(px(TARGET_SELECTOR_WIDTH))
+                    .h(px(crate::studio::metrics::COMPACT_CONTROL_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(8.))
+                    .bg(process_surface)
+                    .border_1()
+                    .border_color(process_border)
+                    .rounded(px(crate::studio::metrics::SMALL_RADIUS))
                     .placeholder(process_placeholder)
-                    .accessibility_label(language.text(TextKey::ShellProcess))
                     .search_placeholder(search_placeholder)
                     .menu_width(px(320.))
                     .menu_max_h(px(360.))
                     .disabled(process_disabled)
-                    .empty(move |_, cx| {
-                        div()
-                            .px_2()
-                            .py_1()
-                            .text_size(px(12.))
-                            .text_color(cx.theme().muted_foreground)
-                            .child(process_empty.clone())
-                            .into_any_element()
-                    })
-                    .into_any_element(),
+                    .empty(move |_, cx| target_menu_empty(process_empty.clone(), cx))
+                    .render_trigger(move |trigger, _, _| {
+                        let label = trigger
+                            .selection()
+                            .first()
+                            .map(|(_, item)| item.title())
+                            .or_else(|| trigger.placeholder().cloned())
+                            .unwrap_or_default();
+                        target_trigger(
+                            "titlebar-process-trigger",
+                            label,
+                            process_accessibility.clone(),
+                            trigger.is_open(),
+                            trigger.is_disabled(),
+                            &colors,
+                        )
+                    }),
             ))
     }
 }

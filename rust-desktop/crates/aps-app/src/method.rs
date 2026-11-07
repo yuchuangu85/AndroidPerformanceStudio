@@ -21,7 +21,7 @@ const THREAD_PAGE: usize = 32;
 const STACK_PREVIEW: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MethodView {
+pub(crate) enum MethodView {
     TopMethods,
     CallTree,
     Timeline,
@@ -488,46 +488,55 @@ impl Render for MethodWorkspace {
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(cx.theme().muted_foreground)
-                    .child(lang.text(TextKey::MethodOfflineLocalInputBoundedMethodEventsNot)),
+                    .child(crate::studio::selectable(
+                        lang.text(TextKey::MethodOfflineLocalInputBoundedMethodEventsNot),
+                    )),
             )
             .child(
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(cx.theme().warning)
-                    .child(lang.text(TextKey::MethodSupportedExistingBinaryFirstSlowV2V3)),
+                    .child(crate::studio::selectable(
+                        lang.text(TextKey::MethodSupportedExistingBinaryFirstSlowV2V3),
+                    )),
             )
-            .children(
-                self.error
-                    .clone()
-                    .map(|error| div().p_2().text_color(cx.theme().danger).child(error)),
-            );
+            .children(self.error.clone().map(|error| {
+                div()
+                    .p_2()
+                    .text_color(cx.theme().danger)
+                    .child(crate::studio::selectable(error))
+            }));
         if let Some(path) = &self.path {
             body = body.child(
                 div()
                     .text_size(px(typography::SUPPORTING))
-                    .child(path.display().to_string()),
+                    .child(crate::studio::selectable(path.display().to_string())),
             );
         }
         if busy {
-            body = body.child(lang.text(TextKey::MethodReadingReplayingQuerying));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::MethodReadingReplayingQuerying),
+            ));
         }
         if let Some(session) = &self.session {
             let summary = session.summary();
             let header = session.header();
             let clock = clock_label(header.clock_source, lang);
-            body = body
-                .child(div().text_size(px(typography::TITLE)).child(format!(
-                    "{} {} · {} {} · {} {} · {} {}",
-                    summary.event_count,
-                    lang.text(TextKey::MethodEvents),
-                    summary.thread_count,
-                    lang.text(TextKey::MethodThreads),
-                    summary.method_count,
-                    lang.text(TextKey::MethodMethods),
-                    summary.interval_count,
-                    lang.text(TextKey::MethodObservedIntervals)
-                )))
-                .child(format!(
+            body =
+                body.child(div().text_size(px(typography::TITLE)).child(
+                    crate::studio::selectable(format!(
+                        "{} {} · {} {} · {} {} · {} {}",
+                        summary.event_count,
+                        lang.text(TextKey::MethodEvents),
+                        summary.thread_count,
+                        lang.text(TextKey::MethodThreads),
+                        summary.method_count,
+                        lang.text(TextKey::MethodMethods),
+                        summary.interval_count,
+                        lang.text(TextKey::MethodObservedIntervals)
+                    )),
+                ))
+                .child(crate::studio::selectable(format!(
                     "v{} · {} · {} {} ns · {} {} ns",
                     header.version,
                     clock,
@@ -535,12 +544,12 @@ impl Render for MethodWorkspace {
                     header.start_time_nanos,
                     lang.text(TextKey::MethodSumOfActiveThreadDurations),
                     summary.observed_active_time.primary_nanos
+                )))
+                .child(div().text_size(px(typography::SUPPORTING)).child(
+                    crate::studio::selectable(
+                        lang.text(TextKey::MethodHeaderStartIsNotAddedToEvent),
+                    ),
                 ))
-                .child(
-                    div()
-                        .text_size(px(typography::SUPPORTING))
-                        .child(lang.text(TextKey::MethodHeaderStartIsNotAddedToEvent)),
-                )
                 .child(
                     div()
                         .text_size(px(typography::SUPPORTING))
@@ -558,14 +567,16 @@ impl Render for MethodWorkspace {
                         }),
                 );
             if let Some(thread) = self.selected_thread.and_then(|id| session.thread(id)) {
-                body = body.child(format!(
+                body = body.child(crate::studio::selectable(format!(
                     "{} {} · {}",
                     lang.text(TextKey::MethodSelectedThread),
                     thread.id,
                     thread.name
-                ));
+                )));
             } else {
-                body = body.child(lang.text(TextKey::MethodScopeAllThreads));
+                body = body.child(crate::studio::selectable(
+                    lang.text(TextKey::MethodScopeAllThreads),
+                ));
             }
             if let Some(threads) = &self.threads {
                 let offset = threads.offset;
@@ -585,13 +596,13 @@ impl Render for MethodWorkspace {
                                         cx.listener(|this, _, _, cx| this.choose_thread(None, cx)),
                                     ),
                             )
-                            .child(format!(
+                            .child(crate::studio::selectable(format!(
                                 "{} {}–{} / {}",
                                 lang.text(TextKey::MethodThreadCatalog),
                                 offset + usize::from(!threads.rows.is_empty()),
                                 offset + threads.rows.len(),
                                 threads.total
-                            ))
+                            )))
                             .child(
                                 Button::new("method-threads-prev")
                                     .label(lang.text(TextKey::MethodPreviousThreads))
@@ -646,26 +657,31 @@ impl Render for MethodWorkspace {
                     })),
             );
             if self.selected_thread.is_none() {
-                body = body.child(
-                    div()
-                        .text_size(px(typography::SUPPORTING))
-                        .child(lang.text(TextKey::MethodSelectOneThreadToInspectItsCall)),
-                );
+                body = body.child(div().text_size(px(typography::SUPPORTING)).child(
+                    crate::studio::selectable(
+                        lang.text(TextKey::MethodSelectOneThreadToInspectItsCall),
+                    ),
+                ));
             }
             let diagnostics = session.diagnostics();
             if !diagnostics.counts.is_empty() {
                 body = body.child(div().text_size(px(typography::SUPPORTING)).children(
                     diagnostics.counts.iter().map(|(kind, count)| {
-                        div().child(format!("{}: {count}", diagnostic_label(*kind, lang)))
+                        div().child(crate::studio::selectable(format!(
+                            "{}: {count}",
+                            diagnostic_label(*kind, lang)
+                        )))
                     }),
                 ));
             }
             if diagnostics.omitted_entries > 0 {
-                body = body.child(div().text_size(px(typography::SUPPORTING)).child(format!(
-                    "{} {}",
-                    diagnostics.omitted_entries,
-                    lang.text(TextKey::MethodAdditionalDiagnosticMessagesOmittedByImportCap)
-                )));
+                body = body.child(div().text_size(px(typography::SUPPORTING)).child(
+                    crate::studio::selectable(format!(
+                        "{} {}",
+                        diagnostics.omitted_entries,
+                        lang.text(TextKey::MethodAdditionalDiagnosticMessagesOmittedByImportCap)
+                    )),
+                ));
             }
         }
         if let Some(page) = &self.page {
@@ -675,12 +691,12 @@ impl Render for MethodWorkspace {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(format!(
+                    .child(crate::studio::selectable(format!(
                         "{}–{} / {}",
                         offset + usize::from(!page.rows.is_empty()),
                         offset + page.rows.len(),
                         page.total
-                    ))
+                    )))
                     .child(
                         Button::new("method-page-prev")
                             .label(lang.text(TextKey::CommonPrevious))
@@ -748,24 +764,28 @@ impl Render for MethodWorkspace {
                 ),
             );
             if page.rows.is_empty() {
-                body = body.child(lang.text(TextKey::MethodNoRowsInThisScope));
+                body = body.child(crate::studio::selectable(
+                    lang.text(TextKey::MethodNoRowsInThisScope),
+                ));
             }
             if self.view == MethodView::Timeline {
-                body = body.child(
-                    div()
-                        .text_size(px(typography::SUPPORTING))
-                        .child(lang.text(TextKey::MethodIntervalsAreReturnedInEventFileOrder)),
-                );
+                body = body.child(div().text_size(px(typography::SUPPORTING)).child(
+                    crate::studio::selectable(
+                        lang.text(TextKey::MethodIntervalsAreReturnedInEventFileOrder),
+                    ),
+                ));
             }
         }
         if let Some(stack) = &self.stack {
-            body = body
-                .child(div().text_size(px(typography::TITLE)).child(format!(
-                    "{} · {} {}",
-                    lang.text(TextKey::MethodSelectedCallPath),
-                    stack.total,
-                    lang.text(TextKey::MethodFrames)
-                )))
+            body =
+                body.child(div().text_size(px(typography::TITLE)).child(
+                    crate::studio::selectable(format!(
+                        "{} · {} {}",
+                        lang.text(TextKey::MethodSelectedCallPath),
+                        stack.total,
+                        lang.text(TextKey::MethodFrames)
+                    )),
+                ))
                 .child(
                     div()
                         .id("method-selected-stack")
@@ -773,19 +793,25 @@ impl Render for MethodWorkspace {
                         .font_family("monospace")
                         .text_size(px(typography::BODY))
                         .children(stack.frames.iter().enumerate().map(|(index, frame)| {
-                            div().child(format!("{}  {}", index + 1, frame))
+                            div().child(crate::studio::selectable(format!(
+                                "{}  {}",
+                                index + 1,
+                                frame
+                            )))
                         })),
                 );
             if stack.total > stack.frames.len() {
-                body = body.child(format!(
+                body = body.child(crate::studio::selectable(format!(
                     "{} {}",
                     lang.text(TextKey::MethodAdditionalFramesOmittedFromThisPreview),
                     stack.total - stack.frames.len()
-                ));
+                )));
             }
         }
         if self.session.is_none() && !busy {
-            body = body.child(lang.text(TextKey::MethodImportASupportedLocalArtArtifactTo));
+            body = body.child(crate::studio::selectable(
+                lang.text(TextKey::MethodImportASupportedLocalArtArtifactTo),
+            ));
         }
         body
     }
@@ -1095,5 +1121,84 @@ fn diagnostic_label(kind: DiagnosticKind, lang: Language) -> &'static str {
         DiagnosticKind::UnmatchedExit => lang.text(TextKey::MethodExitWithoutMatchingEnter),
         DiagnosticKind::MismatchedExit => lang.text(TextKey::MethodAncestorExitWithOpenChildren),
         DiagnosticKind::UnclosedEnter => lang.text(TextKey::MethodIncompleteInvocation),
+    }
+}
+
+/// In-window menu bar commands for the Method workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum MethodMenuCommand {
+    /// Pick and import a binary-first ART method trace.
+    Import,
+    /// Drop the imported recording and every pending projection.
+    Close,
+    /// Switch the published report projection.
+    ChangeView(MethodView),
+}
+
+/// Locale key of one method report view. The page's view row and the View menu
+/// must name the same projection.
+fn method_view_label_key(view: MethodView) -> TextKey {
+    match view {
+        MethodView::TopMethods => TextKey::MethodTopMethods,
+        MethodView::CallTree => TextKey::MethodCallTree,
+        MethodView::Timeline => TextKey::MethodTimelineIntervals,
+        MethodView::Events => TextKey::MethodMethodEvents,
+        MethodView::Diagnostics => TextKey::MethodDiagnostics,
+    }
+}
+
+impl crate::shell::menubar::MenuHost for MethodWorkspace {
+    type Command = MethodMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        use crate::shell::menubar::MenuGroup;
+        let busy = self.busy;
+        let mut groups = vec![
+            MenuGroup::new(TextKey::ShellMenuFile)
+                .item_when(
+                    !busy,
+                    TextKey::MethodImportArtTrace,
+                    MethodMenuCommand::Import,
+                )
+                .item_when(
+                    self.session.is_some() && !busy,
+                    TextKey::CommonClose,
+                    MethodMenuCommand::Close,
+                ),
+        ];
+        // A report view only describes an imported recording, and the call tree
+        // additionally needs one thread to scope it.
+        if self.session.is_some() {
+            let mut views = MenuGroup::new(TextKey::ShellMenuView);
+            for candidate in MethodView::ALL {
+                if candidate == MethodView::CallTree && self.selected_thread.is_none() {
+                    continue;
+                }
+                views = views.check(
+                    method_view_label_key(candidate),
+                    self.view == candidate,
+                    MethodMenuCommand::ChangeView(candidate),
+                );
+            }
+            groups.push(views);
+        }
+        groups
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match command {
+            MethodMenuCommand::Import => self.pick(cx),
+            MethodMenuCommand::Close => self.close(cx),
+            MethodMenuCommand::ChangeView(view) => self.change_view(view, cx),
+        }
     }
 }

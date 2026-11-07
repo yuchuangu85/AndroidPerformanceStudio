@@ -156,6 +156,7 @@
   "trace_workspace_capture": "Capture trace",
   "trace_workspace_capture_unavailable": "Capture controls are unavailable in this host. Connect the existing capture surface through the capture slot.",
   "trace_workspace_close_capture": "Close capture",
+  "trace_workspace_close_trace": "Close trace",
   "trace_workspace_completeness": "Completeness",
   "trace_workspace_delete": "Delete",
   "trace_workspace_description": "Description",
@@ -167,6 +168,7 @@
   "trace_workspace_empty_sessions": "No matching trace sessions.",
   "trace_workspace_error": "Error",
   "trace_workspace_export": "Export trace",
+  "trace_workspace_export_package": "Export session package…",
   "trace_workspace_filter_all": "All {value1}",
   "trace_workspace_filter_critical": "Critical {value1}",
   "trace_workspace_filter_info": "Info {value1}",
@@ -219,5 +221,6 @@
   "trace_workspace_category_input": "Input",
   "trace_workspace_category_other": "Other",
   "trace_workspace_copy": "Copy",
+  "trace_workspace_copy_sql": "Copy SQL",
   "trace_workspace_truncated": "Result rows were truncated by the query limit."
 }

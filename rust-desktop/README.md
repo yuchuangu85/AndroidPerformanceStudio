@@ -72,10 +72,21 @@ without executing tests. Catalog validation itself also runs on normal builds.
 ## Profiler UI Scope
 
 Memory and Frame now use dedicated GPUI workspaces instead of the generic import
-table. Memory provides HPROF class search/sort, histogram, dominator,
-leak-finding, instance/detail navigation, GC-root/inbound-reference inspection,
-bounded class-level snapshot comparison, paging, export controls, and worker
-cancellation feedback. Frame
+table. Memory follows the Compose Memory Profiler page: a command toolbar
+(import, capture actions, Overview/Classes/Dominators/Diff, auxiliary views,
+Mapping, AI analysis), snapshot tabs, evidence/warnings strip and status bar.
+Classes has the primary filter bar, eight KPI cards, heap distribution,
+resizable classifier tree (heap/package grouping, sorting, expansion, leak and
+duplicate tints), instance list paging and the inline object inspector
+(Fields/References, nearest GC root, drill-in history, pin, copy, array
+paging). Dominators has KPIs, distribution, filters, a lazy dominator tree and
+the inspector; Diff compares class counts/shallow/retained between two dumps
+without cross-dump identity; Leak Analysis renders HPROF heuristic findings.
+Bitmaps, Native Heap and ART Samples use Compose-shaped pages with explicit
+unavailable states. The typed `aps-memory` domain ports the Compose presenter
+(including a bounded dependency-free regex subset) and runs one bounded
+snapshot read plus typed instance/detail/dominator pages through the isolated
+HPROF worker. Frame
 provides offline gfxinfo FrameStats summary cards, deadline filtering, paging,
 window filtering, frame selection, a Canvas-rendered duration timeline with
 bounded paging/zoom/hover, problem-frame navigation, trustworthy budget
@@ -87,10 +98,11 @@ Memory is offline HPROF analysis through the isolated worker; Frame is offline
 gfxinfo FrameStats analysis. Online Android capture, Perfetto FrameTimeline,
 FrameMetrics/JankStats attribution, native heap, ART samples, Bitmap dump files,
 LeakCanary/Shark and multi-source provenance still require separate Rust
-adapters and are shown as unavailable rather than being simulated. Snapshot
-comparison uses only class aggregates from two independent dumps; equal object
-IDs never imply shared identity. Live timeline/GC markers and native/bitmap
-metrics are not inferred from an offline HPROF.
+adapters and are shown as unavailable rather than being simulated. Live capture
+buttons and Mapping are visibly disabled rather than faked. Snapshot comparison
+uses only class aggregates from two independent dumps; equal object IDs never
+imply shared identity. Live timeline/GC markers and native/bitmap metrics are
+not inferred from an offline HPROF.
 
 ## Network workspace
 

@@ -1106,6 +1106,37 @@ impl TraceWorkspace {
         cx.notify();
     }
 
+    /// Primary export of the Trace page (Compose assigns Cmd+E to the session
+    /// package export).
+    ///
+    /// Compose synthesizes a session for a trace that has no stored record; the
+    /// Rust package is built from a persisted session record, so the shortcut
+    /// exports the active trace's saved session (or the selected session row)
+    /// and is only published for those traces.
+    pub(crate) fn export_primary(&mut self, cx: &mut Context<Self>) {
+        if let Some(session_id) = self.export_session_id() {
+            self.export_session_package(session_id, cx);
+        }
+    }
+
+    /// Session that the primary (Cmd+E) export of the active trace acts on: the
+    /// saved record of the loaded trace, otherwise the session list selection.
+    pub(in crate::trace) fn export_session_id(&self) -> Option<String> {
+        let active_path = self.active_trace_path.as_deref();
+        active_path
+            .and_then(|path| {
+                self.sessions
+                    .iter()
+                    .find(|record| record.trace_path.as_path() == path)
+                    .map(|record| record.id.clone())
+            })
+            .or_else(|| {
+                self.selected_session
+                    .clone()
+                    .filter(|id| self.sessions.iter().any(|record| &record.id == id))
+            })
+    }
+
     pub(crate) fn refresh_devices(&mut self, cx: &mut Context<Self>) {
         self.capture.refresh_devices(cx);
     }
@@ -1484,5 +1515,292 @@ fn format_metric_number(value: f64) -> String {
         format!("{}", value as i64)
     } else {
         format!("{value:.1}")
+    }
+}
+
+/// In-window menu bar commands for the Trace workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum TraceMenuCommand {
+    /// A Compose File row whose Rust capability does not exist yet.
+    Unavailable,
+    ImportTrace,
+    /// Primary export: the active trace's session package (Compose Cmd+E).
+    ExportPrimary,
+    ExportTrace,
+    /// Reopens one entry of File > Open Recent, by session id.
+    OpenRecent(String),
+    CloseTrace,
+    RunPreset,
+    RunSelectedDiagnostic,
+    SearchSlices,
+    ToggleCapture,
+    RefreshDevices,
+    ShowResultTab,
+    ShowQueryTab,
+    ShowSearchTab,
+    OpenViewer,
+    OpenInTimeline,
+    CopySql,
+    OpenSelectedSession,
+    DeleteSelectedSession,
+    ExportSessionPackage,
+}
+
+impl crate::shell::menubar::MenuHost for TraceWorkspace {
+    type Command = TraceMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: aps_ui_foundation::Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        use crate::shell::menubar::MenuGroup;
+
+        // Same predicates the toolbar and the panels apply; the menu is built
+        // when it opens, so they always describe the current workspace.
+        let active = self.active_trace.is_some() && !self.importing;
+        let viewer_available = self
+            .workspace_artifact
+            .as_ref()
+            .is_some_and(|artifact| artifact.viewer_available);
+        let selected_query = self.selected_query.as_deref();
+        let selected_query_running =
+            selected_query.is_some_and(|query_id| self.running_queries.contains(query_id));
+        let selected_session_exists = self
+            .selected_session
+            .as_deref()
+            .is_some_and(|session_id| self.sessions.iter().any(|record| record.id == session_id));
+        let selected_insight = self
+            .insights
+            .iter()
+            .find(|insight| Some(insight.query_id.as_str()) == selected_query);
+        let can_open_timeline = selected_insight.is_some_and(|insight| {
+            model::can_open_insight_in_timeline(insight, self.workspace_artifact.as_ref())
+        });
+        let copy_sql = self
+            .result_table
+            .as_ref()
+            .is_some_and(|table| !table.sql.trim().is_empty());
+        let search_enabled =
+            active && !self.trace_search_query.trim().is_empty() && !self.search_running;
+        // Compose keeps the ten most recent trace files in File > Open Recent;
+        // the durable session catalog is the Rust equivalent. Captured traces
+        // live in managed storage under content-addressed file names, so the
+        // readable session title is the row label.
+        let recent: Vec<(String, String)> = self
+            .sessions
+            .iter()
+            .take(10)
+            .map(|record| (record.id.clone(), record.title.clone()))
+            .collect();
+        let export_session = self.export_session_id();
+
+        vec![
+            MenuGroup::new(TextKey::ShellMenuFile)
+                // Compose File > Open… replaces the current trace; the shared
+                // action routes Cmd+O to this workspace's picker.
+                .item_action_when(
+                    !self.picking && !self.importing,
+                    TextKey::ShellMenuOpen,
+                    TraceMenuCommand::ImportTrace,
+                    crate::shell::OpenActiveRouteFile,
+                )
+                .submenu(TextKey::ShellMenuOpenRecent, true, |menu| {
+                    let menu = if recent.is_empty() {
+                        menu.item_when(
+                            false,
+                            TextKey::ShellMenuNoRecent,
+                            TraceMenuCommand::Unavailable,
+                        )
+                    } else {
+                        recent.iter().fold(menu, |menu, (session_id, label)| {
+                            menu.item(
+                                label.clone(),
+                                TraceMenuCommand::OpenRecent(session_id.clone()),
+                            )
+                        })
+                    };
+                    // Compose clears only the in-memory recent list. Here the
+                    // list is the durable captured-session catalog, so clearing
+                    // it would delete saved sessions; keep the row disabled.
+                    menu.separator().item_when(
+                        false,
+                        TextKey::ShellMenuClearRecent,
+                        TraceMenuCommand::Unavailable,
+                    )
+                })
+                .separator()
+                .submenu(TextKey::ShellMenuExport, true, |menu| {
+                    // The package is built from a stored session; a trace that
+                    // was only imported has no capture metadata to export.
+                    menu.item_action_when(
+                        export_session.is_some(),
+                        TextKey::SessionPackageZip,
+                        TraceMenuCommand::ExportPrimary,
+                        crate::shell::ExportActiveRoute,
+                    )
+                    .item_when(
+                        self.active_trace_path.is_some(),
+                        TextKey::RawTracePftrace,
+                        TraceMenuCommand::ExportTrace,
+                    )
+                })
+                .item_when(
+                    self.active_trace.is_some() || self.trace_session.is_some(),
+                    TextKey::TraceWorkspaceCloseTrace,
+                    TraceMenuCommand::CloseTrace,
+                ),
+            MenuGroup::new(TextKey::ShellMenuTrace)
+                .item_when(
+                    self.trace_session.is_some()
+                        && !self.preset_running
+                        && !self.presets.is_empty(),
+                    TextKey::TraceWorkspaceRunPreset,
+                    TraceMenuCommand::RunPreset,
+                )
+                .item_when(
+                    self.trace_session.is_some()
+                        && selected_query.is_some()
+                        && !self.preset_running
+                        && !selected_query_running,
+                    TextKey::TraceWorkspaceRunDiagnostic,
+                    TraceMenuCommand::RunSelectedDiagnostic,
+                )
+                .item_when(
+                    search_enabled,
+                    TextKey::TraceWorkspaceSearch,
+                    TraceMenuCommand::SearchSlices,
+                )
+                .separator()
+                .item_when(
+                    self.capture_visible || self.capture.device_ready(),
+                    TextKey::TraceWorkspaceCapture,
+                    TraceMenuCommand::ToggleCapture,
+                )
+                .item_when(
+                    self.capture_visible && !self.capture.refresh_in_progress(),
+                    TextKey::ShellRefreshDevices,
+                    TraceMenuCommand::RefreshDevices,
+                ),
+            MenuGroup::new(TextKey::ShellMenuView)
+                .check(
+                    TextKey::TraceWorkspaceTabResult,
+                    self.detail_tab == model::TraceDetailTab::Result,
+                    TraceMenuCommand::ShowResultTab,
+                )
+                .check(
+                    TextKey::TraceWorkspaceTabQuery,
+                    self.detail_tab == model::TraceDetailTab::Query,
+                    TraceMenuCommand::ShowQueryTab,
+                )
+                .check(
+                    TextKey::TraceWorkspaceTabSearch,
+                    self.detail_tab == model::TraceDetailTab::Search,
+                    TraceMenuCommand::ShowSearchTab,
+                )
+                .separator()
+                .item_when(
+                    active && viewer_available,
+                    TextKey::TraceWorkspaceOpenViewer,
+                    TraceMenuCommand::OpenViewer,
+                )
+                .item_when(
+                    can_open_timeline,
+                    TextKey::TraceWorkspaceOpenInTimeline,
+                    TraceMenuCommand::OpenInTimeline,
+                )
+                .item_when(
+                    copy_sql,
+                    TextKey::TraceWorkspaceCopySql,
+                    TraceMenuCommand::CopySql,
+                ),
+            MenuGroup::new(TextKey::ShellMenuSession)
+                .item_when(
+                    selected_session_exists,
+                    TextKey::TraceWorkspaceOpen,
+                    TraceMenuCommand::OpenSelectedSession,
+                )
+                .item_when(
+                    selected_session_exists,
+                    TextKey::TraceWorkspaceDelete,
+                    TraceMenuCommand::DeleteSelectedSession,
+                )
+                .separator()
+                .item_when(
+                    selected_session_exists,
+                    TextKey::TraceWorkspaceExportPackage,
+                    TraceMenuCommand::ExportSessionPackage,
+                ),
+        ]
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        _window: &mut gpui_kit::Window,
+        cx: &mut gpui_kit::Context<Self>,
+    ) {
+        match command {
+            TraceMenuCommand::Unavailable => {}
+            TraceMenuCommand::ImportTrace => self.pick_trace(cx),
+            TraceMenuCommand::ExportPrimary => self.export_primary(cx),
+            TraceMenuCommand::ExportTrace => self.export_raw_trace(cx),
+            TraceMenuCommand::OpenRecent(session_id) => self.open_session(session_id, cx),
+            TraceMenuCommand::CloseTrace => self.close_trace(cx),
+            TraceMenuCommand::RunPreset => self.run_preset(cx),
+            TraceMenuCommand::RunSelectedDiagnostic => {
+                if let Some(query_id) = self.selected_query.clone() {
+                    self.run_diagnostic(query_id, cx);
+                }
+            }
+            TraceMenuCommand::SearchSlices => self.run_trace_search(cx),
+            TraceMenuCommand::ToggleCapture => self.toggle_capture(cx),
+            TraceMenuCommand::RefreshDevices => self.refresh_devices(cx),
+            TraceMenuCommand::ShowResultTab => {
+                self.set_detail_tab(model::TraceDetailTab::Result, cx)
+            }
+            TraceMenuCommand::ShowQueryTab => self.set_detail_tab(model::TraceDetailTab::Query, cx),
+            TraceMenuCommand::ShowSearchTab => {
+                self.set_detail_tab(model::TraceDetailTab::Search, cx)
+            }
+            TraceMenuCommand::OpenViewer => self.open_viewer(cx),
+            TraceMenuCommand::OpenInTimeline => {
+                let timestamp = self
+                    .insights
+                    .iter()
+                    .find(|insight| {
+                        Some(insight.query_id.as_str()) == self.selected_query.as_deref()
+                    })
+                    .and_then(|insight| insight.timestamp_nanos);
+                if let Some(timestamp) = timestamp {
+                    self.open_in_timeline(timestamp, cx);
+                }
+            }
+            TraceMenuCommand::CopySql => {
+                let sql = self
+                    .result_table
+                    .as_ref()
+                    .map(|table| table.sql.clone())
+                    .filter(|sql| !sql.trim().is_empty());
+                if let Some(sql) = sql {
+                    cx.write_to_clipboard(ClipboardItem::new_string(sql));
+                }
+            }
+            TraceMenuCommand::OpenSelectedSession => {
+                if let Some(session_id) = self.selected_session.clone() {
+                    self.open_session(session_id, cx);
+                }
+            }
+            TraceMenuCommand::DeleteSelectedSession => {
+                if let Some(session_id) = self.selected_session.clone() {
+                    self.delete_session(session_id, cx);
+                }
+            }
+            TraceMenuCommand::ExportSessionPackage => {
+                if let Some(session_id) = self.selected_session.clone() {
+                    self.export_session_package(session_id, cx);
+                }
+            }
+        }
     }
 }

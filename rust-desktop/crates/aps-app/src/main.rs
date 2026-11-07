@@ -15,7 +15,7 @@ mod studio;
 mod targets;
 mod trace;
 
-use aps_ui_foundation::{Settings, TextKey, ThemeMode as StudioTheme, typography};
+use aps_ui_foundation::{Settings, ThemeMode as StudioTheme, typography};
 use gpui_kit::{
     component::{Theme, ThemeMode},
     prelude::*,
@@ -23,6 +23,7 @@ use gpui_kit::{
 };
 use shell::Studio;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 // Settings live in a separate namespace; no legacy settings are read or migrated.
 fn settings_path() -> Result<PathBuf, String> {
@@ -63,72 +64,8 @@ fn apply_theme_with_appearance(settings: &Settings, appearance: WindowAppearance
         .theme
         .is_dark(ThemeMode::from(appearance).is_dark());
     component::set_locale(settings.language.locale());
-    let language = settings.language;
-    cx.set_menus([
-        Menu::new(language.text(TextKey::FoundationAndroidPerformanceStudio)).items([
-            MenuItem::action(
-                language.text(TextKey::ShellMenuSettings),
-                shell::OpenSettings,
-            ),
-            MenuItem::separator(),
-            MenuItem::action(language.text(TextKey::ShellMenuQuit), shell::Quit),
-        ]),
-        Menu::new(language.text(TextKey::ShellMenuFile)).items([
-            MenuItem::action(
-                language.text(TextKey::ShellMenuImportCpuProfile),
-                shell::OpenProfile,
-            ),
-            MenuItem::action(
-                language.text(TextKey::InspectorImportArchive),
-                shell::OpenInspectorArchive,
-            ),
-            MenuItem::action(
-                language.text(TextKey::BatteryImportAnalysis),
-                shell::OpenBatteryReport,
-            ),
-            MenuItem::separator(),
-            MenuItem::action(
-                language.text(TextKey::HomeImportTrace),
-                shell::OpenHomeTrace,
-            ),
-            MenuItem::action(
-                language.text(TextKey::HomeAnalyzeHprof),
-                shell::OpenHomeHprof,
-            ),
-            MenuItem::separator(),
-            MenuItem::action(
-                language.text(TextKey::FrameImportGfxinfoFramestats),
-                shell::OpenFrameStats,
-            ),
-            MenuItem::action(
-                language.text(TextKey::FrameExportCsv),
-                shell::ExportFrameCsv,
-            ),
-            MenuItem::action(
-                language.text(TextKey::FrameExportJson),
-                shell::ExportFrameJson,
-            ),
-        ]),
-        Menu::new(language.text(TextKey::FoundationLayoutInspector)).items([
-            MenuItem::action(
-                language.text(TextKey::InspectorNextWindow),
-                shell::NextInspectorWindow,
-            ),
-            MenuItem::separator(),
-            MenuItem::action(
-                language.text(TextKey::InspectorToggleHierarchy),
-                shell::ToggleInspectorHierarchy,
-            ),
-            MenuItem::action(
-                language.text(TextKey::InspectorToggleFindings),
-                shell::ToggleInspectorFindings,
-            ),
-            MenuItem::action(
-                language.text(TextKey::InspectorToggleDetails),
-                shell::ToggleInspectorDetails,
-            ),
-        ]),
-    ]);
+    // The shell owns the route menu bar: it installs the native application
+    // menu on macOS and draws the in-window strip on other platforms.
     Theme::change(
         if dark {
             ThemeMode::Dark
@@ -222,24 +159,83 @@ fn main() {
         // `secondary-*` is an OS-resolved alias in GPUI. Use the dynamic loader;
         // `KeyBinding::new` uses the platform-independent parser and panics on it.
         let bindings: Vec<_> = [
-            ("secondary-q", Box::new(shell::Quit) as Box<dyn Action>),
+            (
+                "secondary-q",
+                Box::new(shell::Quit) as Box<dyn Action>,
+                None,
+            ),
+            // Cmd+O opens the file picker of the visible page, matching the
+            // window menu's per-page Open… row.
             (
                 "secondary-o",
-                Box::new(shell::OpenProfile) as Box<dyn Action>,
+                Box::new(shell::OpenActiveRouteFile) as Box<dyn Action>,
+                None,
             ),
+            // Compose reserves Cmd+Shift+O for the page's Open Folder…
             (
                 "secondary-shift-o",
-                Box::new(shell::OpenInspectorArchive) as Box<dyn Action>,
+                Box::new(shell::OpenFolderActiveRoute) as Box<dyn Action>,
+                None,
+            ),
+            // Compose assigns Cmd+E to each page's most common export.
+            (
+                "secondary-e",
+                Box::new(shell::ExportActiveRoute) as Box<dyn Action>,
+                None,
             ),
             (
                 "secondary-,",
                 Box::new(shell::OpenSettings) as Box<dyn Action>,
+                None,
             ),
-            ("/", Box::new(shell::FocusCpuSearch) as Box<dyn Action>),
+            (
+                "/",
+                Box::new(shell::FocusCpuSearch) as Box<dyn Action>,
+                None,
+            ),
+            // Layout Inspector pane toggles, mirroring Compose's Cmd+1/2/3.
+            (
+                "secondary-1",
+                Box::new(shell::ToggleInspectorHierarchy) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
+            (
+                "secondary-2",
+                Box::new(shell::ToggleInspectorFindings) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
+            (
+                "secondary-3",
+                Box::new(shell::ToggleInspectorDetails) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
+            // Hierarchy navigation is scoped to the Layout Inspector page so it
+            // never steals arrows from tables or inputs on other screens.
+            (
+                "up",
+                Box::new(shell::PreviousInspectorNode) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
+            (
+                "down",
+                Box::new(shell::NextInspectorNode) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
+            (
+                "enter",
+                Box::new(shell::ToggleSelectedInspectorNode) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
         ]
         .into_iter()
-        .filter_map(|(keystroke, action)| {
-            KeyBinding::load(keystroke, action, None, false, None, cx)
+        .filter_map(|(keystroke, action, context)| {
+            let context = context.map(|context| {
+                Rc::new(
+                    KeyBindingContextPredicate::parse(context)
+                        .expect("route key context must parse"),
+                )
+            });
+            KeyBinding::load(keystroke, action, context, false, None, cx)
                 .map_err(|error| eprintln!("Ignoring invalid key binding {keystroke}: {error}"))
                 .ok()
         })

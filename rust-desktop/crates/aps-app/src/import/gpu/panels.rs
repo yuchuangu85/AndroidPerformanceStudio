@@ -17,7 +17,7 @@ fn body(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
         .line_height(px(18.))
         .text_color(colors.text)
         .flex_shrink_0()
-        .child(text.into())
+        .child(crate::studio::selectable(text.into()))
 }
 fn context(key: TextKey, value: Option<String>, language: Language, colors: &StudioColors) -> Div {
     div()

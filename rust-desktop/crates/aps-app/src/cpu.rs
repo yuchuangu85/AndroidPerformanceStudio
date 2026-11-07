@@ -1,3 +1,4 @@
+use crate::shell::menubar::MenuGroup;
 use crate::studio::{self, StudioColors};
 use aps_contracts::{
     ArtifactCompleteness, ArtifactId, Capabilities, CapabilityId, CaptureArtifact, ClockDomain,
@@ -125,8 +126,9 @@ struct DisassemblyPanel {
 const MAX_PERF_DATA_INPUT_BYTES: u64 = 512 * 1024 * 1024;
 const PERF_DATA_CONVERSION_TIMEOUT: Duration = Duration::from_secs(180);
 
-#[derive(Clone, Copy)]
-enum ExportKind {
+/// Export format chosen from the toolbar dropdown or the File > Export menu.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExportKind {
     ReportJson,
     Folded,
     Html,
@@ -1215,7 +1217,7 @@ impl CpuWorkspace {
         cx.notify();
     }
 
-    fn save_export(&mut self, kind: ExportKind, _window: &mut Window, cx: &mut Context<Self>) {
+    fn save_export(&mut self, kind: ExportKind, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
@@ -1613,6 +1615,20 @@ impl CpuWorkspace {
                 studio.open_source_symbol(symbol, resource, window, cx)
             })
             .ok();
+    }
+
+    /// Primary export of the CPU page: Compose assigns Cmd+E to the page's most
+    /// common export, which is the JSON/CSV report. Runs the same report export
+    /// as File > Export > Report JSON and the toolbar dropdown.
+    pub(crate) fn export_primary(&mut self, cx: &mut Context<Self>) {
+        self.save_export(ExportKind::ReportJson, cx);
+    }
+
+    /// Open Folder… of the CPU page (Compose Cmd+Shift+O): the page's folder
+    /// picker selects the folder that holds the symbols/binary_cache artifacts,
+    /// which is the only folder this screen can open today.
+    pub(crate) fn open_folder_primary(&mut self, cx: &mut Context<Self>) {
+        self.pick_binary_root(cx);
     }
 
     pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2050,7 +2066,7 @@ impl CpuWorkspace {
                     })
                     .when(highlighted, |this| this.font_weight(FontWeight::SEMIBOLD))
                     .whitespace_nowrap()
-                    .child(name),
+                    .child(crate::studio::selectable(name)),
             );
             if !resource.is_empty() {
                 function = function.child(
@@ -2382,7 +2398,7 @@ fn disassembly_panel(
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(symbol),
+                .child(crate::studio::selectable(symbol)),
         )
         .child(div().flex_1())
         .child(
@@ -2492,7 +2508,7 @@ fn message_line(text: impl Into<SharedString>, color: Rgba) -> Div {
         .text_color(color)
         .whitespace_nowrap()
         .text_ellipsis()
-        .child(text.into())
+        .child(crate::studio::selectable(text.into()))
 }
 
 fn workspace_toolbar(
@@ -3159,7 +3175,7 @@ fn timeline_panel(
                         div()
                             .text_size(px(studio::FONT_SUPPORTING))
                             .text_color(colors.secondary_text)
-                            .child("▾"),
+                            .child(crate::studio::selectable("▾")),
                     ),
             )
             .child(ruler),
@@ -3247,7 +3263,7 @@ fn timeline_panel(
                                         .when(active, |this| this.font_weight(FontWeight::SEMIBOLD))
                                         .whitespace_nowrap()
                                         .text_ellipsis()
-                                        .child(name),
+                                        .child(crate::studio::selectable(name)),
                                 )
                                 .child(
                                     div()
@@ -3564,8 +3580,8 @@ fn export_button(
             menu = menu.item(
                 PopupMenuItem::new(label.clone())
                     .disabled(!enabled)
-                    .on_click(move |_, window, cx| {
-                        entity.update(cx, |this, cx| this.save_export(kind, window, cx));
+                    .on_click(move |_, _, cx| {
+                        entity.update(cx, |this, cx| this.save_export(kind, cx));
                     }),
             );
         }
@@ -3702,7 +3718,9 @@ fn filter_toolbar(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
-                .child(lang.text(TextKey::CpuWorkspaceFilterStacks)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuWorkspaceFilterStacks),
+                )),
         )
         .child(div().w(px(220.)).child(Input::new(&ws.search).h(px(22.))))
         .into_any_element()
@@ -3722,7 +3740,9 @@ fn breadcrumb(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspac
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
-                .child(lang.text(TextKey::CpuWorkspaceSelectedPath)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuWorkspaceSelectedPath),
+                )),
         );
     let path = selected_path(ws);
     if path.is_empty() {
@@ -3730,7 +3750,9 @@ fn breadcrumb(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspac
             div()
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(lang.text(TextKey::CpuWorkspaceNoSelectionPath)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuWorkspaceNoSelectionPath),
+                )),
         );
     } else {
         let current = ws.row_selected.as_deref();
@@ -3740,7 +3762,7 @@ fn breadcrumb(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspac
                     div()
                         .text_size(px(studio::FONT_SUPPORTING))
                         .text_color(colors.secondary_text)
-                        .child("›"),
+                        .child(crate::studio::selectable("›")),
                 );
             }
             let is_current = current == Some(id.as_str());
@@ -3758,7 +3780,7 @@ fn breadcrumb(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspac
                     })
                     .when(is_current, |this| this.font_weight(FontWeight::SEMIBOLD))
                     .whitespace_nowrap()
-                    .child(name.clone())
+                    .child(crate::studio::selectable(name.clone()))
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.select_row(target.clone(), cx)),
                     ),
@@ -3864,7 +3886,7 @@ fn panel_message(ws: &CpuWorkspace, colors: &StudioColors, text: &str) -> AnyEle
         .p(px(16.))
         .text_size(px(studio::FONT_BODY))
         .text_color(colors.secondary_text)
-        .child(text.to_owned())
+        .child(crate::studio::selectable(text.to_owned()))
         .into_any_element()
 }
 
@@ -4102,7 +4124,7 @@ fn table_value(text: impl Into<SharedString>, width: f32, color: Rgba) -> Div {
         .text_color(color)
         .whitespace_nowrap()
         .text_ellipsis()
-        .child(text.into())
+        .child(crate::studio::selectable(text.into()))
 }
 
 fn call_tree_panel(
@@ -4181,7 +4203,9 @@ fn call_tree_panel(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.secondary_text)
-                .child(lang.text(TextKey::CpuCallTreeFunction)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuCallTreeFunction),
+                )),
         );
     let list = div()
         .id("cpu-call-tree")
@@ -4351,7 +4375,9 @@ fn top_functions_panel(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.secondary_text)
-                .child(lang.text(TextKey::CpuReportTopFunctionsTableFunction)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuReportTopFunctionsTableFunction),
+                )),
         )
         .child(
             div()
@@ -4360,7 +4386,9 @@ fn top_functions_panel(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.secondary_text)
-                .child(lang.text(TextKey::CpuReportTopFunctionsTablePath)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuReportTopFunctionsTablePath),
+                )),
         )
         .child(studio::table_header_cell(
             Some(110.),
@@ -4586,7 +4614,9 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
         div()
             .text_size(px(studio::FONT_SUPPORTING))
             .text_color(colors.secondary_text)
-            .child(lang.text(TextKey::CpuWidthIsStatisticalWeightNotTime)),
+            .child(crate::studio::selectable(
+                lang.text(TextKey::CpuWidthIsStatisticalWeightNotTime),
+            )),
     );
     if ws.zoom_start > 0.0 || ws.zoom_end < 1.0 {
         note = note.child(div().flex_1()).child(
@@ -4608,11 +4638,13 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
     }
     column = column.child(note);
     if frame.truncated {
-        column = column.child(div().text_size(px(studio::FONT_SUPPORTING)).child(format!(
-            "{} {}",
-            lang.text(TextKey::CpuChartOutputOmittedBlocks),
-            frame.omitted_blocks
-        )));
+        column = column.child(div().text_size(px(studio::FONT_SUPPORTING)).child(
+            crate::studio::selectable(format!(
+                "{} {}",
+                lang.text(TextKey::CpuChartOutputOmittedBlocks),
+                frame.omitted_blocks
+            )),
+        ));
     }
     column = column.child(chart_scroll(
         ws,
@@ -4630,7 +4662,7 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
                 .rounded(px(studio::metrics::SMALL_RADIUS))
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.text)
-                .child(format!(
+                .child(crate::studio::selectable(format!(
                     "{} · {} · {} {} · {} {}",
                     block.label,
                     block.resource,
@@ -4638,7 +4670,7 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
                     block.inclusive_weight,
                     lang.text(TextKey::CpuKpiSamples),
                     block.sample_count
-                )),
+                ))),
         );
     }
     column.into_any_element()
@@ -4662,7 +4694,9 @@ fn stack_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
             div()
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(lang.text(TextKey::CpuOnePixelSamplePointsIntervalsAreNot)),
+                .child(crate::studio::selectable(
+                    lang.text(TextKey::CpuOnePixelSamplePointsIntervalsAreNot),
+                )),
         )
         .child(div().flex_1());
     if ws.query.start.is_some() || ws.query.end.is_some() {
@@ -4703,14 +4737,14 @@ fn stack_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
                 .rounded(px(studio::metrics::SMALL_RADIUS))
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.text)
-                .child(format!(
+                .child(crate::studio::selectable(format!(
                     "{} · {} {} · {} {}",
                     block.label,
                     lang.text(TextKey::CpuKpiSamples),
                     block.sample_count,
                     lang.text(TextKey::CpuDetailsInclusive),
                     block.inclusive_weight
-                )),
+                ))),
         );
     }
     column.into_any_element()
@@ -4783,7 +4817,7 @@ fn transform_bar(
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.remove_transform(index, cx)),
                         )
-                        .child("×"),
+                        .child(crate::studio::selectable("×")),
                 ),
         );
     }
@@ -5074,7 +5108,7 @@ fn chart_canvas(
                     label_color
                 })
                 .whitespace_nowrap()
-                .child(label),
+                .child(crate::studio::selectable(label)),
         );
     }
     container.into_any_element()
@@ -5153,7 +5187,7 @@ fn chart_context_menu(
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(label.clone()),
+                .child(crate::studio::selectable(label.clone())),
         );
     if can_focus {
         menu = menu.child(
@@ -5356,25 +5390,31 @@ fn chart_tooltip(
         );
     }
     card = card
-        .child(div().text_color(colors.secondary_text).child(format!(
-            "{} {} · {} {}",
-            lang.text(TextKey::CpuDetailsInclusive),
-            format_count(block.inclusive_weight),
-            lang.text(TextKey::CpuDetailsSelf),
-            format_count(block.self_weight)
-        )))
-        .child(div().text_color(colors.secondary_text).child(format!(
-            "{} {} · {}",
-            lang.text(TextKey::CpuKpiSamples),
-            format_count(block.sample_count),
-            share
-        )));
-    if let Some(thread) = block.thread_id {
-        card = card.child(
+        .child(
             div()
                 .text_color(colors.secondary_text)
-                .child(format!("{} {thread}", lang.text(TextKey::CpuThread))),
+                .child(crate::studio::selectable(format!(
+                    "{} {} · {} {}",
+                    lang.text(TextKey::CpuDetailsInclusive),
+                    format_count(block.inclusive_weight),
+                    lang.text(TextKey::CpuDetailsSelf),
+                    format_count(block.self_weight)
+                ))),
+        )
+        .child(
+            div()
+                .text_color(colors.secondary_text)
+                .child(crate::studio::selectable(format!(
+                    "{} {} · {}",
+                    lang.text(TextKey::CpuKpiSamples),
+                    format_count(block.sample_count),
+                    share
+                ))),
         );
+    if let Some(thread) = block.thread_id {
+        card = card.child(div().text_color(colors.secondary_text).child(
+            crate::studio::selectable(format!("{} {thread}", lang.text(TextKey::CpuThread))),
+        ));
     }
     if let Some(event) = &block.event_type {
         card = card.child(
@@ -5382,18 +5422,23 @@ fn chart_tooltip(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(format!("{} {event}", lang.text(TextKey::CpuEvent))),
+                .child(crate::studio::selectable(format!(
+                    "{} {event}",
+                    lang.text(TextKey::CpuEvent)
+                ))),
         );
     }
     if let (Some(first), Some(last)) = (block.first_timestamp_nanos, block.last_timestamp_nanos) {
         let origin = source_start(ws);
-        card = card.child(div().text_color(colors.secondary_text).child(format!(
-            "{} {} · {} {}",
-            lang.text(TextKey::CpuMarkerStart),
-            format_duration(first.saturating_sub(origin)),
-            lang.text(TextKey::CpuMarkerEnd),
-            format_duration(last.saturating_sub(origin))
-        )));
+        card = card.child(div().text_color(colors.secondary_text).child(
+            crate::studio::selectable(format!(
+                "{} {} · {} {}",
+                lang.text(TextKey::CpuMarkerStart),
+                format_duration(first.saturating_sub(origin)),
+                lang.text(TextKey::CpuMarkerEnd),
+                format_duration(last.saturating_sub(origin))
+            )),
+        ));
     }
     card.into_any_element()
 }
@@ -5894,7 +5939,7 @@ fn details_frame(
                             })
                             .whitespace_nowrap()
                             .text_ellipsis()
-                            .child(name.clone())
+                            .child(crate::studio::selectable(name.clone()))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.select_row(target.clone(), cx)
                             })),
@@ -6184,8 +6229,8 @@ enum CpuResult {
 } // CPU import metadata is content-addressed and intentionally has no persisted
 // source locator. The file path is session-local display state only. Reopening
 // requires explicit reselection plus digest/length and DB-generation checks.
-#[derive(Clone, Debug)]
-struct RecentCpu {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RecentCpu {
     binding: QueryBinding,
     artifact_id: ArtifactId,
     byte_length: u64,
@@ -7268,4 +7313,401 @@ mod metadata_tests {
         assert!(associate_cpu(&wrong, digest, 4, None).is_err());
         assert!(!wrong.exists());
     }
+}
+
+/// In-window menu bar commands for the Cpu workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum CpuMenuCommand {
+    /// Open the active route's file picker (Compose File > Open…, Cmd+O).
+    OpenFile,
+    /// Open the CPU page's folder picker (Compose File > Open Folder…,
+    /// Cmd+Shift+O).
+    OpenFolder,
+    /// Reopen the saved session an Open Recent row names.
+    OpenRecent(RecentCpu),
+    /// Save one export format of the open session.
+    Export(ExportKind),
+    /// Save the Firefox profiler JSON of the open session.
+    ExportFirefox,
+    /// Open one capture-configuration section (Compose Tools > Configuration).
+    Configuration(u8),
+    /// Shell Settings page. macOS reaches Settings through the application menu,
+    /// so this row only exists on the other platforms.
+    #[cfg(not(target_os = "macos"))]
+    OpenSettings,
+    /// Layout row whose capability this page does not implement; stays disabled.
+    Unavailable,
+    /// Reload the bounded saved-session catalog page.
+    RefreshRecentMetadata,
+    /// Pick the host simpleperf used to convert perf.data.
+    SelectSimpleperf,
+    /// Copy the active call-tree / top-functions page as CSV.
+    CopyCsv,
+    /// Copy the selected row or chart block's symbol.
+    CopySymbol,
+    /// Drop the parsed session and every published projection.
+    CloseSession,
+    /// Focus the stack filter input.
+    FocusSearch,
+    /// Expand every call-tree row.
+    ExpandAll,
+    /// Collapse every call-tree row that has children.
+    CollapseAll,
+    /// Show or hide the details pane.
+    ToggleDetails,
+    /// Clear the sample-time range filter.
+    ResetTimeRange,
+    /// Clear the flame-graph zoom.
+    ResetZoom,
+    /// Clear every applied transform.
+    ResetTransforms,
+    /// Open the indexed source of the selected function.
+    OpenSource,
+    /// Disassemble the selected function.
+    Disassemble,
+    /// Pick the folder that holds the symbols/binary_cache artifacts.
+    SelectBinaryFolder,
+    /// Copy the rendered disassembly lines.
+    CopyDisassembly,
+    /// Close the disassembly panel.
+    CloseDisassembly,
+}
+
+/// Symbol and library of the row or chart block the user selected, for menu
+/// commands that act on the current selection. Mirrors the details pane, which
+/// reads the tree row, the top-functions row or the chart block per tab.
+fn cpu_selected_function(ws: &CpuWorkspace) -> Option<(String, String)> {
+    let selected = ws.row_selected.as_deref();
+    if let Some(tree) = ws.tree.as_ref()
+        && let Some(row) = tree
+            .rows
+            .iter()
+            .find(|row| Some(row.id.as_str()) == selected)
+    {
+        return Some((row.name.clone(), row.resource.clone()));
+    }
+    if let Some(page) = ws.top.as_ref()
+        && let Some(row) = page
+            .rows
+            .iter()
+            .find(|row| Some(row.id.as_str()) == selected)
+    {
+        return Some((row.name.clone(), row.resource.clone()));
+    }
+    selected_chart_block(ws).map(|block| (block.label.clone(), block.resource.clone()))
+}
+
+impl crate::shell::menubar::MenuHost for CpuWorkspace {
+    type Command = CpuMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        vec![
+            cpu_file_menu(self),
+            cpu_view_menu(self),
+            cpu_tools_menu(self),
+        ]
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match command {
+            // Shell rows run their bound action, so the native menu and the
+            // fallback strip share one implementation. The window defers the
+            // dispatch, so this never re-enters the shell update.
+            CpuMenuCommand::OpenFile => {
+                window.dispatch_action(Box::new(crate::shell::OpenActiveRouteFile), cx)
+            }
+            CpuMenuCommand::OpenFolder => {
+                window.dispatch_action(Box::new(crate::shell::OpenFolderActiveRoute), cx)
+            }
+            CpuMenuCommand::OpenRecent(recent) => self.open_recent(recent, cx),
+            CpuMenuCommand::Export(kind) => self.save_export(kind, cx),
+            CpuMenuCommand::ExportFirefox => self.save_firefox(cx),
+            CpuMenuCommand::Configuration(section) => {
+                window.dispatch_action(Box::new(crate::shell::OpenCaptureSettings { section }), cx)
+            }
+            #[cfg(not(target_os = "macos"))]
+            CpuMenuCommand::OpenSettings => {
+                window.dispatch_action(Box::new(crate::shell::OpenSettings), cx)
+            }
+            CpuMenuCommand::Unavailable => {}
+            CpuMenuCommand::RefreshRecentMetadata => self.refresh_recent(0, cx),
+            CpuMenuCommand::SelectSimpleperf => self.pick_converter(cx),
+            CpuMenuCommand::CopyCsv => self.copy_csv(cx),
+            CpuMenuCommand::CopySymbol => {
+                if let Some((symbol, _)) = cpu_selected_function(self) {
+                    self.copy_symbol(symbol, cx);
+                }
+            }
+            CpuMenuCommand::CloseSession => self.close(cx),
+            CpuMenuCommand::FocusSearch => self.focus_search(window, cx),
+            CpuMenuCommand::ExpandAll => self.expand_all(cx),
+            CpuMenuCommand::CollapseAll => self.collapse_all(cx),
+            CpuMenuCommand::ToggleDetails => self.set_details_visible(!self.details_visible, cx),
+            CpuMenuCommand::ResetTimeRange => self.reset_time_range(cx),
+            CpuMenuCommand::ResetZoom => self.reset_zoom(cx),
+            CpuMenuCommand::ResetTransforms => self.reset_transforms(cx),
+            CpuMenuCommand::OpenSource => {
+                if let Some((symbol, resource)) = cpu_selected_function(self) {
+                    self.open_source(symbol, resource, window, cx);
+                }
+            }
+            CpuMenuCommand::Disassemble => {
+                if let Some((symbol, resource)) = cpu_selected_function(self) {
+                    self.disassemble(symbol, resource, cx);
+                }
+            }
+            CpuMenuCommand::SelectBinaryFolder => self.pick_binary_root(cx),
+            CpuMenuCommand::CopyDisassembly => self.copy_disassembly(cx),
+            CpuMenuCommand::CloseDisassembly => self.close_disassembly(cx),
+        }
+    }
+}
+
+/// File menu of the CPU Profiler page: Compose SimpleperfFileMenu publishes
+/// Open…, Open Folder…, Open Recent, the grouped Export rows and Close session in
+/// that order, and reaches Settings outside macOS.
+fn cpu_file_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
+    let busy = ws.busy;
+    let can_export = !busy && ws.session.is_some();
+    // The saved-session catalog is the page's recent list. Each row carries the
+    // session it names, so a catalog refresh between menu build and click cannot
+    // reopen a different snapshot.
+    let recent = ws
+        .recent
+        .as_ref()
+        .map_or(&[][..], |page| page.rows.as_slice());
+    let file = MenuGroup::new(TextKey::ShellMenuFile)
+        .item_action(
+            TextKey::ShellMenuOpen,
+            CpuMenuCommand::OpenFile,
+            crate::shell::OpenActiveRouteFile,
+        )
+        .item_action_when(
+            !busy,
+            TextKey::CpuMenuOpenFolder,
+            CpuMenuCommand::OpenFolder,
+            crate::shell::OpenFolderActiveRoute,
+        )
+        .submenu(TextKey::ShellMenuOpenRecent, true, |menu| {
+            if recent.is_empty() {
+                return menu.item_when(
+                    false,
+                    TextKey::ShellMenuNoRecent,
+                    CpuMenuCommand::Unavailable,
+                );
+            }
+            let menu = recent.iter().fold(menu, |menu, row| {
+                menu.item_when(
+                    !busy,
+                    cpu_label(row.binding.source_digest),
+                    CpuMenuCommand::OpenRecent(row.clone()),
+                )
+            });
+            // Rust keeps no recent-path list of its own: these rows come from the
+            // shared session catalog, so clearing them would delete saved
+            // sessions. The row keeps Compose's shape and stays disabled.
+            menu.separator().item_when(
+                false,
+                TextKey::ShellMenuClearRecent,
+                CpuMenuCommand::Unavailable,
+            )
+        })
+        .separator()
+        .submenu(TextKey::ShellMenuExport, true, |menu| {
+            menu.item_action_when(
+                can_export,
+                TextKey::CpuWorkspaceExportReportJson,
+                CpuMenuCommand::Export(ExportKind::ReportJson),
+                crate::shell::ExportActiveRoute,
+            )
+            .item_when(
+                can_export,
+                TextKey::CpuWorkspaceExportSessionPackage,
+                CpuMenuCommand::Export(ExportKind::SessionPackage),
+            )
+            .item_when(
+                false,
+                TextKey::CpuWorkspaceExportScreenshot,
+                CpuMenuCommand::Unavailable,
+            )
+            .separator()
+            .item_when(
+                false,
+                TextKey::CpuWorkspaceExportRawProtobuf,
+                CpuMenuCommand::Unavailable,
+            )
+            .item_when(
+                can_export,
+                TextKey::CpuExportFirefoxProfile,
+                CpuMenuCommand::ExportFirefox,
+            )
+            .item_when(
+                can_export,
+                TextKey::CpuWorkspaceExportFolded,
+                CpuMenuCommand::Export(ExportKind::Folded),
+            )
+            .item_when(
+                can_export,
+                TextKey::CpuWorkspaceExportPprof,
+                CpuMenuCommand::Export(ExportKind::Pprof),
+            )
+            .separator()
+            .item_when(
+                false,
+                TextKey::CpuWorkspaceExportSimpleperfReport,
+                CpuMenuCommand::Unavailable,
+            )
+            .item_when(
+                can_export,
+                TextKey::CpuWorkspaceExportHtml,
+                CpuMenuCommand::Export(ExportKind::Html),
+            )
+            .item_when(
+                false,
+                TextKey::CpuWorkspaceExportOpenExternally,
+                CpuMenuCommand::Unavailable,
+            )
+        })
+        .separator()
+        .item_when(
+            !busy && ws.catalog.is_some(),
+            TextKey::CpuWorkspaceCloseSession,
+            CpuMenuCommand::CloseSession,
+        );
+    // macOS reaches Settings through the application menu, matching Compose.
+    #[cfg(not(target_os = "macos"))]
+    let file = file.separator().item_action(
+        TextKey::ShellMenuSettings,
+        CpuMenuCommand::OpenSettings,
+        crate::shell::OpenSettings,
+    );
+    file
+}
+
+/// View menu of the CPU page: the page's existing search, projection, details
+/// and range/zoom/transform rows, which Compose publishes for this screen.
+fn cpu_view_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
+    let busy = ws.busy;
+    let has_tree = ws.tab == CpuTab::CallTree && ws.tree.is_some();
+    let has_range = ws.query.start.is_some() || ws.query.end.is_some();
+    let has_zoom = ws.zoom_start > 0.0 || ws.zoom_end < 1.0;
+    MenuGroup::new(TextKey::ShellMenuView)
+        .item(
+            TextKey::CpuWorkspaceFocusSearch,
+            CpuMenuCommand::FocusSearch,
+        )
+        .separator()
+        .item_when(
+            !busy && has_tree,
+            TextKey::CpuWorkspaceExpandAll,
+            CpuMenuCommand::ExpandAll,
+        )
+        .item_when(
+            !busy && has_tree,
+            TextKey::CpuWorkspaceCollapseAll,
+            CpuMenuCommand::CollapseAll,
+        )
+        .separator()
+        .check(
+            TextKey::CpuDetailsDetails,
+            ws.details_visible,
+            CpuMenuCommand::ToggleDetails,
+        )
+        .separator()
+        .item_when(
+            !busy && has_range,
+            TextKey::CpuWorkspaceResetRange,
+            CpuMenuCommand::ResetTimeRange,
+        )
+        .item_when(
+            !busy && has_zoom,
+            TextKey::CpuWorkspaceResetZoom,
+            CpuMenuCommand::ResetZoom,
+        )
+        .item_when(
+            !ws.transforms.is_empty(),
+            TextKey::CpuTransformReset,
+            CpuMenuCommand::ResetTransforms,
+        )
+}
+
+/// Tools menu of the CPU page: Compose's capture Configuration submenu plus the
+/// page tools this screen can really perform (source/disassembly/binary folder
+/// and the clipboard/converter actions the toolbar already offers).
+fn cpu_tools_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
+    let busy = ws.busy;
+    let has_symbol = cpu_selected_function(ws).is_some_and(|(symbol, _)| !symbol.trim().is_empty());
+    let has_csv = matches!(ws.tab, CpuTab::CallTree | CpuTab::TopFunctions);
+    let has_disassembly = ws
+        .disassembly
+        .as_ref()
+        .is_some_and(|panel| !panel.lines.is_empty());
+    MenuGroup::new(TextKey::ShellMenuTools)
+        .submenu(TextKey::CommonConfiguration, true, |menu| {
+            menu.item(
+                TextKey::SettingsUiTemplates,
+                CpuMenuCommand::Configuration(0),
+            )
+            .item(TextKey::SettingsUiCapture, CpuMenuCommand::Configuration(1))
+            .item(
+                TextKey::SettingsUiAdvanced,
+                CpuMenuCommand::Configuration(2),
+            )
+        })
+        .separator()
+        .item_when(
+            has_symbol && ws.studio.is_some(),
+            TextKey::CpuDetailsOpenSource,
+            CpuMenuCommand::OpenSource,
+        )
+        .item_when(
+            has_symbol,
+            TextKey::CpuDisassemble,
+            CpuMenuCommand::Disassemble,
+        )
+        .item_when(
+            !busy,
+            TextKey::CpuSelectBinaryFolder,
+            CpuMenuCommand::SelectBinaryFolder,
+        )
+        .item_when(
+            has_disassembly,
+            TextKey::CpuCopyDisassembly,
+            CpuMenuCommand::CopyDisassembly,
+        )
+        .item_when(
+            ws.disassembly.is_some() || ws.disassembly_busy,
+            TextKey::CpuCloseDisassembly,
+            CpuMenuCommand::CloseDisassembly,
+        )
+        .separator()
+        .item_when(
+            !busy && has_csv && ws.session.is_some(),
+            TextKey::CpuCopyCurrentQueryCsv,
+            CpuMenuCommand::CopyCsv,
+        )
+        .item_when(
+            !busy && has_symbol,
+            TextKey::CpuWorkspaceCopySymbol,
+            CpuMenuCommand::CopySymbol,
+        )
+        .item_when(
+            !busy,
+            TextKey::CpuSelectSimpleperf,
+            CpuMenuCommand::SelectSimpleperf,
+        )
+        .item_when(
+            !busy && !ws.recent_busy && ws.metadata_path.is_some(),
+            TextKey::CpuRefreshRecentMetadata,
+            CpuMenuCommand::RefreshRecentMetadata,
+        )
 }

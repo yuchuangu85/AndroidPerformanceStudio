@@ -84,7 +84,7 @@ fn table_cell(text: String, column: usize, colors: &studio::StudioColors) -> Div
         .text_color(colors.text)
         .whitespace_nowrap()
         .text_ellipsis()
-        .child(text)
+        .child(crate::studio::selectable(text))
 }
 fn note(text: impl Into<SharedString>, colors: &studio::StudioColors) -> Div {
     studio::supporting(text, colors)
@@ -953,8 +953,8 @@ impl ImportWorkspace {
                                 .items_center()
                                 .justify_between()
                                 .w_full()
-                                .child(language.text(key))
-                                .child("⌄"),
+                                .child(crate::studio::selectable(language.text(key)))
+                                .child(crate::studio::selectable("⌄")),
                         ),
                 );
             }

@@ -1,4 +1,5 @@
 mod home_page;
+pub(crate) mod menubar;
 mod settings_ai;
 mod settings_page;
 
@@ -8,7 +9,7 @@ use crate::{
     cpu::CpuWorkspace,
     frame::FrameWorkspace,
     import::ImportWorkspace,
-    inspector::InspectorWorkspace,
+    inspector::{InspectorPanelVisibility, InspectorPanelsChanged, InspectorWorkspace},
     method::MethodWorkspace,
     source::SourceWorkspace,
     targets::{TargetSelectionChanged, TargetsWorkspace},
@@ -16,9 +17,11 @@ use crate::{
 };
 use aps_ai::{CredentialReference, ModelDescriptor, ProviderCatalog, ProviderConfig};
 use aps_ui_foundation::{
-    AccentColor, Destination, DisplayScale, Language, Settings, TextKey, ThemeMode, typography,
+    AccentColor, Destination, DisplayScale, Language, LayoutPreferences, Settings, TextKey,
+    ThemeMode, typography,
 };
 use gpui_kit::{
+    base::{TextSelection, TextSelectionLayer},
     component::InteractiveElementExt,
     component::{
         ActiveTheme, Disableable, Selectable,
@@ -28,7 +31,8 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use std::{collections::HashMap, path::PathBuf};
+use menubar::MenuGroup;
+use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SettingsPage {
@@ -60,15 +64,21 @@ impl SettingsPage {
         Self::About,
     ];
 
-    fn label(self, language: Language) -> &'static str {
+    /// Locale key of the section; the in-window menubar reuses it for its
+    /// section items so the settings menu cannot drift from the page tabs.
+    const fn text_key(self) -> TextKey {
         match self {
-            Self::General => language.text(TextKey::CommonGeneral),
-            Self::Configuration => language.text(TextKey::CommonConfiguration),
-            Self::LayoutInspector => language.text(TextKey::FoundationLayoutInspector),
-            Self::Simpleperf => language.text(TextKey::CommonSimpleperf),
-            Self::Ai => language.text(TextKey::CommonAi),
-            Self::About => language.text(TextKey::CommonAbout),
+            Self::General => TextKey::CommonGeneral,
+            Self::Configuration => TextKey::CommonConfiguration,
+            Self::LayoutInspector => TextKey::FoundationLayoutInspector,
+            Self::Simpleperf => TextKey::CommonSimpleperf,
+            Self::Ai => TextKey::CommonAi,
+            Self::About => TextKey::CommonAbout,
         }
+    }
+
+    fn label(self, language: Language) -> &'static str {
+        language.text(self.text_key())
     }
 }
 
@@ -91,8 +101,310 @@ gpui_kit::actions!(
         ToggleInspectorHierarchy,
         ToggleInspectorFindings,
         ToggleInspectorDetails,
+        OpenAiWorkspace,
+        ToggleLayoutHideHierarchy,
+        ToggleLayoutHideFindings,
+        ToggleLayoutHideIndices,
+        ToggleLayoutShowLayers,
+        ToggleLayoutShowBounds,
+        ToggleLayoutShowIds,
+        OpenActiveRouteFile,
+        OpenFolderActiveRoute,
+        ExportActiveRoute,
+        PreviousInspectorNode,
+        NextInspectorNode,
+        ToggleSelectedInspectorNode,
     ]
 );
+
+/// Opens one of the capture-configuration sections. Compose publishes three
+/// Tools entries; the Rust settings page exposes one capture section today, so
+/// the value keeps the menu shape while all three open that section.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = studio, no_json)]
+pub struct OpenCaptureSettings {
+    pub section: u8,
+}
+
+/// View-menu toggles that persist through the shared layout preferences.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LayoutMenuToggle {
+    HideInvisibleHierarchy,
+    HideInvisibleFindings,
+    HideHierarchyIndices,
+    ShowLayerButtons,
+    ShowVisibleBounds,
+    ShowIds,
+}
+
+/// Commands published by the shell-owned menus: Home, Settings, Layout
+/// Inspector, Analyze and Help. Workspaces publish their own typed commands;
+/// the inspector, AI and settings surfaces belong to the shell, so they stay
+/// here where their state already lives.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ShellMenu {
+    OpenActiveRouteFile,
+    OpenUserGuide,
+    Unavailable,
+    PreviousInspectorNode,
+    NextInspectorNode,
+    ToggleSelectedInspectorNode,
+    ImportCpuProfile,
+    ImportTrace,
+    ImportHprof,
+    ImportBattery,
+    ImportFrameTimeline,
+    OpenInspectorArchive,
+    OpenCapturedCpu,
+    ToggleInspectorHierarchy,
+    ToggleInspectorFindings,
+    ToggleInspectorDetails,
+    NextInspectorWindow,
+    ToggleLayout(LayoutMenuToggle),
+    PrepareAi,
+    OpenAiWorkspace,
+    OpenSettings,
+    SettingsTab(SettingsPage),
+}
+
+/// Home publishes the import surface that starts every workspace.
+fn home_menu_groups() -> Vec<MenuGroup<ShellMenu>> {
+    vec![
+        MenuGroup::new(TextKey::ShellMenuFile)
+            .item(
+                TextKey::ShellMenuImportCpuProfile,
+                ShellMenu::ImportCpuProfile,
+            )
+            .item(TextKey::HomeImportTrace, ShellMenu::ImportTrace)
+            .item(TextKey::HomeAnalyzeHprof, ShellMenu::ImportHprof)
+            .item(TextKey::BatteryImportAnalysis, ShellMenu::ImportBattery)
+            .item(
+                TextKey::FrameImportGfxinfoFramestats,
+                ShellMenu::ImportFrameTimeline,
+            )
+            .separator()
+            .item(
+                TextKey::InspectorImportArchive,
+                ShellMenu::OpenInspectorArchive,
+            ),
+    ]
+}
+
+/// Settings publishes its own sections instead of repeating the page tabs.
+fn settings_menu_groups(page: SettingsPage) -> Vec<MenuGroup<ShellMenu>> {
+    let mut group = MenuGroup::new(TextKey::ShellMenuSettingsPage);
+    for section in SettingsPage::ALL {
+        group = group.check(
+            section.text_key(),
+            section == page,
+            ShellMenu::SettingsTab(section),
+        );
+    }
+    vec![group]
+}
+
+/// Layout Inspector menus: archive import, pane and view toggles, and the
+/// window and node tools that previously only existed in the native menu.
+fn inspector_menu_groups(
+    panels: InspectorPanelVisibility,
+    layout: LayoutPreferences,
+    state: crate::inspector::InspectorMenuState,
+) -> Vec<MenuGroup<ShellMenu>> {
+    let file = MenuGroup::new(TextKey::ShellMenuFile)
+        .item_action(
+            TextKey::ShellMenuOpen,
+            ShellMenu::OpenInspectorArchive,
+            OpenActiveRouteFile,
+        )
+        .submenu(TextKey::ShellMenuImport, true, |menu| {
+            menu.item_when(
+                false,
+                TextKey::ShellMenuImportScreenshot,
+                ShellMenu::Unavailable,
+            )
+        })
+        .submenu(TextKey::ShellMenuOpenRecent, !state.busy, |menu| {
+            menu.item_when(false, TextKey::ShellMenuNoRecent, ShellMenu::Unavailable)
+                .separator()
+                .item_when(false, TextKey::ShellMenuClearRecent, ShellMenu::Unavailable)
+        })
+        .separator()
+        .submenu(TextKey::ShellMenuExport, !state.busy, |menu| {
+            menu.item_when(
+                false,
+                TextKey::ShellMenuExportArchive,
+                ShellMenu::Unavailable,
+            )
+        });
+    // macOS reaches Settings through the application menu, matching Compose.
+    #[cfg(not(target_os = "macos"))]
+    let file = file.separator().item_action(
+        TextKey::ShellMenuSettings,
+        ShellMenu::OpenSettings,
+        OpenSettings,
+    );
+    vec![
+        file,
+        MenuGroup::new(TextKey::ShellMenuView)
+            .check_action(
+                TextKey::InspectorToggleHierarchy,
+                !panels.hierarchy,
+                ShellMenu::ToggleInspectorHierarchy,
+                ToggleInspectorHierarchy,
+            )
+            .check_action(
+                TextKey::InspectorToggleFindings,
+                !panels.findings,
+                ShellMenu::ToggleInspectorFindings,
+                ToggleInspectorFindings,
+            )
+            .check_action(
+                TextKey::InspectorToggleDetails,
+                !panels.details,
+                ShellMenu::ToggleInspectorDetails,
+                ToggleInspectorDetails,
+            )
+            .separator()
+            .check_action(
+                TextKey::SettingsUiHideHierarchy,
+                layout.hide_invisible_hierarchy,
+                ShellMenu::ToggleLayout(LayoutMenuToggle::HideInvisibleHierarchy),
+                ToggleLayoutHideHierarchy,
+            )
+            .check_action(
+                TextKey::SettingsUiHideFindings,
+                layout.hide_invisible_findings,
+                ShellMenu::ToggleLayout(LayoutMenuToggle::HideInvisibleFindings),
+                ToggleLayoutHideFindings,
+            )
+            .check_action(
+                TextKey::SettingsUiHideIndices,
+                layout.hide_indices,
+                ShellMenu::ToggleLayout(LayoutMenuToggle::HideHierarchyIndices),
+                ToggleLayoutHideIndices,
+            )
+            .separator()
+            .check_action(
+                TextKey::SettingsUiShowLayers,
+                layout.show_layer_buttons,
+                ShellMenu::ToggleLayout(LayoutMenuToggle::ShowLayerButtons),
+                ToggleLayoutShowLayers,
+            )
+            .separator()
+            .check_action(
+                TextKey::SettingsUiShowBounds,
+                layout.show_visible_bounds,
+                ShellMenu::ToggleLayout(LayoutMenuToggle::ShowVisibleBounds),
+                ToggleLayoutShowBounds,
+            ),
+        MenuGroup::new(TextKey::ShellMenuTools)
+            .item_when(false, TextKey::InspectorAutoScan, ShellMenu::Unavailable)
+            .separator()
+            .item_action_when(
+                state.has_selection,
+                TextKey::ShellMenuPreviousNode,
+                ShellMenu::PreviousInspectorNode,
+                PreviousInspectorNode,
+            )
+            .item_action_when(
+                state.has_selection,
+                TextKey::ShellMenuNextNode,
+                ShellMenu::NextInspectorNode,
+                NextInspectorNode,
+            )
+            // gpui renders the Enter key equivalent as a single character, so this
+            // row keeps the command (and its real key binding) without a
+            // misleading shortcut label in the native menu.
+            .item_when(
+                state.has_selection,
+                TextKey::ShellMenuToggleSelectedNode,
+                ShellMenu::ToggleSelectedInspectorNode,
+            )
+            .separator()
+            .check_action(
+                TextKey::SettingsUiShowIds,
+                layout.show_ids,
+                ShellMenu::ToggleLayout(LayoutMenuToggle::ShowIds),
+                ToggleLayoutShowIds,
+            )
+            .separator()
+            .item_action(
+                TextKey::InspectorNextWindow,
+                ShellMenu::NextInspectorWindow,
+                NextInspectorWindow,
+            ),
+    ]
+}
+
+/// Routes that freeze profiler evidence for AI share one Analyze menu.
+fn supports_ai(destination: Destination) -> bool {
+    matches!(
+        destination,
+        Destination::Cpu
+            | Destination::MethodRecording
+            | Destination::LayoutInspector
+            | Destination::Trace
+            | Destination::Frame
+            | Destination::SourceWorkspaces
+            | Destination::Memory
+            | Destination::Network
+            | Destination::Startup
+            | Destination::Battery
+            | Destination::Benchmark
+            | Destination::Gpu
+    )
+}
+
+/// The Analyze menu freezes the active workspace's evidence for the AI panel.
+fn analyze_menu_group() -> MenuGroup<ShellMenu> {
+    MenuGroup::new(TextKey::ShellMenuAnalyze)
+        .item(TextKey::ShellPrepareAiAnalysis, ShellMenu::PrepareAi)
+}
+
+/// The Help menu is the same on every route: AI and settings are application
+/// level, so they stay reachable without a mode-specific menu.
+fn help_menu_group(language: Language) -> MenuGroup<ShellMenu> {
+    // Compose publishes Help > User guide and Help > AI analysis. The bundled
+    // documentation site is opened in the browser; the row stays disabled when
+    // the documentation is not shipped next to the executable.
+    let guide = user_guide_path(language).is_some();
+    let group = MenuGroup::new(TextKey::ShellMenuHelp)
+        .item_when(guide, TextKey::SettingsUiGuide, ShellMenu::OpenUserGuide)
+        .item(TextKey::FoundationAiAnalysis, ShellMenu::OpenAiWorkspace);
+    // macOS reaches Settings through the application menu.
+    #[cfg(not(target_os = "macos"))]
+    let group = group
+        .separator()
+        .item(TextKey::ShellMenuSettings, ShellMenu::OpenSettings);
+    group
+}
+
+/// Locates the bundled documentation landing page for the current language.
+fn user_guide_path(language: Language) -> Option<PathBuf> {
+    let relative = if language == Language::SimplifiedChinese {
+        "docs-user-zh/index.html"
+    } else {
+        "docs-user/index.html"
+    };
+    let mut roots = Vec::new();
+    if let Ok(current) = std::env::current_dir() {
+        roots.push(current);
+    }
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(directory) = executable.parent()
+    {
+        roots.push(directory.to_path_buf());
+    }
+    for root in roots {
+        for ancestor in root.ancestors() {
+            let candidate = ancestor.join(relative);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
 
 /// Request from the Frame Analyzer to correlate a frame with the Layout Inspector.
 #[derive(Clone, Debug)]
@@ -131,6 +443,14 @@ pub struct Studio {
     home_recent_generation: u64,
     home_recent_task: Option<Task<()>>,
     home_import_pending: bool,
+    /// Menus of the active route: native menu data is installed on macOS and the
+    /// fallback strip is rendered elsewhere.
+    route_menu: Vec<menubar::StripMenu>,
+    route_menu_dispatch: Rc<Vec<menubar::RouteDispatch>>,
+    /// Signature of the installed route menus; unchanged state does not reinstall
+    /// the native menu bar.
+    route_menu_signature: String,
+    self_handle: WeakEntity<Self>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -189,7 +509,10 @@ impl Studio {
         });
         // The page owns its "Run AI analysis" and "AI Settings" entries and needs
         // the same upward shell handle as the CPU report.
-        source.update(cx, |source, _| source.set_studio(studio_handle.clone()));
+        source.update(cx, |source, cx| {
+            source.set_studio(studio_handle.clone());
+            source.set_lsp_enabled(settings.source_lsp_enabled, cx);
+        });
         let trace = cx.new(|cx| {
             TraceWorkspace::new(
                 settings.language.resolved(),
@@ -225,31 +548,40 @@ impl Studio {
         ]
         .into_iter()
         .map(|kind| {
-            (
-                kind,
-                cx.new(|_| ImportWorkspace::new(kind, settings.language.resolved())),
-            )
+            let workspace = cx.new(|_| ImportWorkspace::new(kind, settings.language.resolved()));
+            workspace.update(cx, |workspace, _| {
+                workspace.set_studio(studio_handle.clone())
+            });
+            (kind, workspace)
         })
         .collect();
         let mut subscriptions = vec![
-            cx.observe(&cpu, |this, _, cx| this.invalidate_ai(Destination::Cpu, cx)),
+            cx.observe(&cpu, |this, _, cx| {
+                this.invalidate_ai(Destination::Cpu, cx);
+                this.refresh_route_menus(cx);
+            }),
             cx.observe(&method, |this, _, cx| {
-                this.invalidate_ai(Destination::MethodRecording, cx)
+                this.invalidate_ai(Destination::MethodRecording, cx);
+                this.refresh_route_menus(cx);
             }),
             cx.observe(&inspector, |this, _, cx| {
-                this.invalidate_ai(Destination::LayoutInspector, cx)
+                this.invalidate_ai(Destination::LayoutInspector, cx);
+                this.refresh_route_menus(cx);
             }),
             cx.observe(&source, |this, _, cx| {
                 if this.ai_origin.is_some() {
                     this.ai.update(cx, |ai, cx| ai.invalidate_origin(cx));
                     this.ai_origin = None;
                 }
+                this.refresh_route_menus(cx);
             }),
             cx.observe(&trace, |this, _, cx| {
-                this.invalidate_ai(Destination::Trace, cx)
+                this.invalidate_ai(Destination::Trace, cx);
+                this.refresh_route_menus(cx);
             }),
             cx.observe(&frame, |this, _, cx| {
-                this.invalidate_ai(Destination::Frame, cx)
+                this.invalidate_ai(Destination::Frame, cx);
+                this.refresh_route_menus(cx);
             }),
             cx.subscribe(&capture, |this, _, completed: &CaptureCompleted, cx| {
                 this.captured = completed.0.protobuf.clone();
@@ -263,12 +595,22 @@ impl Studio {
                         })
                         .into(),
                 );
+                this.refresh_route_menus(cx);
                 cx.notify();
             }),
         ];
+        // Pane visibility feeds the Layout Inspector View menu checks.
+        subscriptions.push(
+            cx.subscribe(&inspector, |this, _, _: &InspectorPanelsChanged, cx| {
+                this.refresh_route_menus(cx)
+            }),
+        );
         for (kind, import) in &imports {
             let kind = *kind;
-            subscriptions.push(cx.observe(import, move |this, _, cx| this.invalidate_ai(kind, cx)));
+            subscriptions.push(cx.observe(import, move |this, _, cx| {
+                this.invalidate_ai(kind, cx);
+                this.refresh_route_menus(cx);
+            }));
         }
         if let Some(gpu) = imports.get(&Destination::Gpu) {
             subscriptions.push(cx.subscribe(
@@ -343,6 +685,7 @@ impl Studio {
         });
         window.set_rem_size(px(16. * settings.display_scale.multiplier()));
         let focus = cx.focus_handle();
+        let self_handle = cx.weak_entity();
         window.focus(&focus, cx);
         let mut studio = Self {
             settings,
@@ -371,9 +714,38 @@ impl Studio {
             home_recent_generation: 0,
             home_recent_task: None,
             home_import_pending: false,
+            route_menu: Vec::new(),
+            route_menu_dispatch: Rc::new(Vec::new()),
+            route_menu_signature: String::new(),
+            self_handle,
             _subscriptions: subscriptions,
         };
+        studio.refresh_route_menus(cx);
         studio.refresh_home_recent(cx);
+        // Debug-only verification seam: lets a headless/native UI check open a
+        // real HPROF on launch without driving the native file picker. Release
+        // builds never read the variable.
+        #[cfg(debug_assertions)]
+        if let Some(path) = std::env::var_os("APS_RUST_OPEN_HPROF") {
+            let memory = studio.imports.get(&Destination::Memory).cloned();
+            if let Some(memory) = memory {
+                let opened = memory.update(cx, |memory, cx| {
+                    memory.open_home_artifact(std::path::PathBuf::from(path), cx)
+                });
+                if opened {
+                    studio.destination = Destination::Memory;
+                }
+            }
+        }
+        // Debug-only verification seam: opens a real Inspector archive without
+        // driving the platform file picker.
+        #[cfg(debug_assertions)]
+        if let Some(path) = std::env::var_os("APS_RUST_OPEN_INSPECTOR") {
+            studio.destination = Destination::LayoutInspector;
+            studio.inspector.update(cx, |inspector, cx| {
+                inspector.open_debug_archive(std::path::PathBuf::from(path), cx)
+            });
+        }
         studio
     }
 
@@ -473,6 +845,79 @@ impl Studio {
         }
         cx.notify();
     }
+    /// Opens the bundled user documentation in the default browser.
+    fn open_user_guide(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = user_guide_path(self.settings.language) else {
+            return;
+        };
+        let url = format!("file://{}", path.display()).replace(' ', "%20");
+        cx.open_url(&url);
+    }
+
+    /// Opens the active page's folder picker (Compose Open Folder…, Cmd+Shift+O).
+    fn open_folder_active_route(&mut self, cx: &mut Context<Self>) {
+        if self.destination == Destination::Cpu {
+            self.cpu.update(cx, |cpu, cx| cpu.open_folder_primary(cx));
+        }
+    }
+
+    /// Runs the active page's primary export (Compose assigns Cmd+E to the most
+    /// common export of each page). Pages without a Compose export shortcut keep
+    /// the current document instead.
+    fn export_active_route(&mut self, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::Cpu => {
+                self.cpu.update(cx, |cpu, cx| cpu.export_primary(cx));
+            }
+            Destination::Trace => {
+                self.trace.update(cx, |trace, cx| trace.export_primary(cx));
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens the capture-configuration settings section from Tools > Configuration.
+    fn open_capture_settings(&mut self, section: u8, cx: &mut Context<Self>) {
+        let _ = section;
+        self.settings_page = SettingsPage::Simpleperf;
+        self.destination = Destination::Settings;
+        self.refresh_route_menus(cx);
+        cx.notify();
+    }
+
+    /// Opens the file picker of the active route. The window menu publishes one
+    /// Open… row per page, so Cmd+O keeps matching the visible page instead of a
+    /// single global import.
+    fn open_active_route_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::LayoutInspector => {
+                self.open_inspector_archive(&OpenInspectorArchive, window, cx)
+            }
+            Destination::Trace => {
+                self.trace.update(cx, |trace, cx| trace.pick_trace(cx));
+            }
+            Destination::Frame => {
+                self.frame
+                    .update(cx, |frame, cx| frame.pick_import_frame_stats(cx));
+            }
+            Destination::Memory
+            | Destination::Network
+            | Destination::Startup
+            | Destination::Battery
+            | Destination::Benchmark
+            | Destination::Gpu => {
+                if let Some(workspace) = self.imports.get(&self.destination) {
+                    workspace.update(cx, |workspace, cx| workspace.pick(cx));
+                }
+            }
+            Destination::Cpu
+            | Destination::Home
+            | Destination::Capture
+            | Destination::MethodRecording => self.open_cpu(&OpenProfile, window, cx),
+            Destination::SourceWorkspaces | Destination::Ai | Destination::Settings => {}
+        }
+    }
+
     fn open_captured(&mut self, cx: &mut Context<Self>) {
         if let Some(artifact) = &self.captured {
             self.cpu.update(cx, |cpu, cx| {
@@ -526,6 +971,219 @@ impl Studio {
         cx.notify();
     }
 
+    fn toggle_layout_menu(
+        &mut self,
+        toggle: LayoutMenuToggle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let layout = &mut self.settings.layout;
+        match toggle {
+            LayoutMenuToggle::HideInvisibleHierarchy => {
+                layout.hide_invisible_hierarchy = !layout.hide_invisible_hierarchy;
+            }
+            LayoutMenuToggle::HideInvisibleFindings => {
+                layout.hide_invisible_findings = !layout.hide_invisible_findings;
+            }
+            LayoutMenuToggle::HideHierarchyIndices => {
+                layout.hide_indices = !layout.hide_indices;
+            }
+            LayoutMenuToggle::ShowLayerButtons => {
+                layout.show_layer_buttons = !layout.show_layer_buttons;
+            }
+            LayoutMenuToggle::ShowVisibleBounds => {
+                layout.show_visible_bounds = !layout.show_visible_bounds;
+            }
+            LayoutMenuToggle::ShowIds => {
+                layout.show_ids = !layout.show_ids;
+            }
+        }
+        self.persist_settings(window, cx);
+    }
+
+    fn open_ai_workspace(&mut self, _: &OpenAiWorkspace, _: &mut Window, cx: &mut Context<Self>) {
+        self.destination = Destination::Ai;
+        cx.notify();
+    }
+
+    /// Builds the menu bar of the active route from live workspace state.
+    ///
+    /// Each workspace publishes its own groups, so the bar always describes the
+    /// functionality of the screen that is showing; the shell adds the shared
+    /// Analyze and Help menus. One build feeds both the native macOS menu bar and
+    /// the fallback strip, so the two platforms cannot drift apart.
+    fn route_menu_build(&self, language: Language, cx: &App) -> menubar::RouteMenuBuild {
+        let mut build = menubar::RouteMenuBuild::default();
+        match self.destination {
+            Destination::Home => self.push_shell_menus(home_menu_groups(), language, &mut build),
+            Destination::Settings => self.push_shell_menus(
+                settings_menu_groups(self.settings_page),
+                language,
+                &mut build,
+            ),
+            Destination::LayoutInspector => {
+                let inspector = self.inspector.read(cx);
+                let groups = inspector_menu_groups(
+                    inspector.panel_visibility(),
+                    self.settings.layout,
+                    inspector.menu_state(),
+                );
+                self.push_shell_menus(groups, language, &mut build);
+            }
+            Destination::Cpu => self.push_workspace_menus(&self.cpu, language, &mut build, cx),
+            Destination::Trace => self.push_workspace_menus(&self.trace, language, &mut build, cx),
+            Destination::Frame => self.push_workspace_menus(&self.frame, language, &mut build, cx),
+            Destination::SourceWorkspaces => {
+                self.push_workspace_menus(&self.source, language, &mut build, cx)
+            }
+            Destination::Ai => self.push_workspace_menus(&self.ai, language, &mut build, cx),
+            Destination::Capture => {
+                self.push_workspace_menus(&self.capture, language, &mut build, cx)
+            }
+            Destination::MethodRecording => {
+                self.push_workspace_menus(&self.method, language, &mut build, cx)
+            }
+            Destination::Memory
+            | Destination::Network
+            | Destination::Startup
+            | Destination::Battery
+            | Destination::Benchmark
+            | Destination::Gpu => {
+                if let Some(workspace) = self.imports.get(&self.destination) {
+                    self.push_workspace_menus(workspace, language, &mut build, cx);
+                }
+            }
+        }
+        if supports_ai(self.destination) {
+            self.push_shell_menus(vec![analyze_menu_group()], language, &mut build);
+        }
+        self.push_shell_menus(vec![help_menu_group(language)], language, &mut build);
+        build
+    }
+
+    /// Adds a workspace's menus; commands route back into the workspace that
+    /// published them.
+    fn push_workspace_menus<H: menubar::MenuHost>(
+        &self,
+        entity: &Entity<H>,
+        language: Language,
+        build: &mut menubar::RouteMenuBuild,
+        cx: &App,
+    ) {
+        for group in entity.read(cx).menu_groups(language) {
+            let entity = entity.clone();
+            build.push(group, language, move |command, window, cx| {
+                entity.update(cx, |this, cx| this.run_menu_command(command, window, cx));
+            });
+        }
+    }
+
+    /// Adds shell-owned groups (Home, Settings, Layout Inspector, Analyze, Help)
+    /// and routes their commands back to the shell.
+    fn push_shell_menus(
+        &self,
+        groups: Vec<MenuGroup<ShellMenu>>,
+        language: Language,
+        build: &mut menubar::RouteMenuBuild,
+    ) {
+        for group in groups {
+            if group.is_empty() {
+                continue;
+            }
+            let studio = self.self_handle.clone();
+            build.push(group, language, move |command, window, cx| {
+                if let Some(studio) = studio.upgrade() {
+                    studio.update(cx, |this, cx| this.run_shell_menu(command, window, cx));
+                }
+            });
+        }
+    }
+
+    /// Rebuilds the route menus and reinstalls them only when their content
+    /// changed, so notifications do not close the menu the user has open.
+    fn refresh_route_menus(&mut self, cx: &mut Context<Self>) {
+        let mut build = self.route_menu_build(self.settings.language, cx);
+        if build.signature == self.route_menu_signature {
+            return;
+        }
+        self.route_menu_signature = build.signature;
+        self.route_menu_dispatch = Rc::new(std::mem::take(&mut build.dispatch));
+        self.route_menu = std::mem::take(&mut build.strip);
+        #[cfg(target_os = "macos")]
+        menubar::install_native_menus(build.menus, self.settings.language, cx);
+        #[cfg(not(target_os = "macos"))]
+        let _ = build.menus;
+    }
+
+    /// Runs a command chosen in the native menu bar. Deferred to the next frame
+    /// so a workspace command can write back through its shell handle without
+    /// re-entering the shell update that dispatched the menu action.
+    fn run_route_menu(&mut self, id: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(run) = self.route_menu_dispatch.get(id as usize).cloned() else {
+            return;
+        };
+        window.defer(cx, move |window, cx| run(window, cx));
+    }
+
+    fn run_shell_menu(&mut self, command: ShellMenu, window: &mut Window, cx: &mut Context<Self>) {
+        match command {
+            ShellMenu::OpenActiveRouteFile => self.open_active_route_file(window, cx),
+            ShellMenu::OpenUserGuide => self.open_user_guide(cx),
+            ShellMenu::Unavailable => {}
+            ShellMenu::PreviousInspectorNode => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.select_previous_node(cx));
+            }
+            ShellMenu::NextInspectorNode => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.select_next_node(cx));
+            }
+            ShellMenu::ToggleSelectedInspectorNode => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.toggle_selected_node(cx));
+            }
+            ShellMenu::ImportCpuProfile => self.open_cpu(&OpenProfile, window, cx),
+            ShellMenu::ImportTrace => self.open_home_import(Destination::Trace, cx),
+            ShellMenu::ImportHprof => self.open_home_import(Destination::Memory, cx),
+            ShellMenu::ImportBattery => self.open_home_import(Destination::Battery, cx),
+            ShellMenu::ImportFrameTimeline => {
+                self.navigate(Destination::Frame, cx);
+                self.frame
+                    .update(cx, |frame, cx| frame.pick_import_frame_stats(cx));
+            }
+            ShellMenu::OpenInspectorArchive => {
+                self.open_inspector_archive(&OpenInspectorArchive, window, cx)
+            }
+            ShellMenu::OpenCapturedCpu => self.open_captured(cx),
+            ShellMenu::ToggleInspectorHierarchy => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.toggle_hierarchy(cx));
+            }
+            ShellMenu::ToggleInspectorFindings => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.toggle_findings(cx));
+            }
+            ShellMenu::ToggleInspectorDetails => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.toggle_details(cx));
+            }
+            ShellMenu::NextInspectorWindow => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.cycle_window(cx));
+            }
+            ShellMenu::ToggleLayout(toggle) => self.toggle_layout_menu(toggle, window, cx),
+            ShellMenu::PrepareAi => self.prepare_ai(window, cx),
+            ShellMenu::OpenAiWorkspace => self.open_ai_workspace(&OpenAiWorkspace, window, cx),
+            ShellMenu::OpenSettings => self.open_settings(&OpenSettings, window, cx),
+            ShellMenu::SettingsTab(page) => {
+                self.settings_page = page;
+                self.destination = Destination::Settings;
+            }
+        }
+        self.refresh_route_menus(cx);
+        cx.notify();
+    }
+
     fn persist_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         crate::apply_theme(&self.settings, cx);
         window.set_rem_size(px(16. * self.settings.display_scale.multiplier()));
@@ -559,7 +1217,8 @@ impl Studio {
             method.set_language(self.settings.language.resolved(), cx)
         });
         self.source.update(cx, |source, cx| {
-            source.set_language(self.settings.language.resolved(), window, cx)
+            source.set_language(self.settings.language.resolved(), window, cx);
+            source.set_lsp_enabled(self.settings.source_lsp_enabled, cx);
         });
         self.trace.update(cx, |trace, cx| {
             trace.set_language(self.settings.language.resolved(), window, cx)
@@ -605,6 +1264,7 @@ impl Studio {
             })
             .ok();
         }));
+        self.refresh_route_menus(cx);
         cx.notify();
     }
 
@@ -614,6 +1274,7 @@ impl Studio {
         let entering_home = destination == Destination::Home && self.destination != destination;
         let route = destination;
         self.destination = destination;
+        self.refresh_route_menus(cx);
         if self.entered_route(route, cx) {
             cx.notify();
             return;
@@ -903,6 +1564,12 @@ impl Render for Studio {
                 .clone()
                 .into_any_element(),
         };
+        let studio_colors = crate::studio::StudioColors::from_theme(cx);
+        let menubar = menubar::strip(
+            &self.route_menu,
+            self.route_menu_dispatch.clone(),
+            &studio_colors,
+        );
         let titlebar_state = window.use_state(cx, |_, _| TitlebarDragState { should_move: false });
         let titlebar = div()
             .id("studio-titlebar")
@@ -943,15 +1610,67 @@ impl Render for Studio {
                 div()
                     .text_color(primary_text)
                     .text_size(px(typography::BODY))
-                    .child(language.text(TextKey::FoundationAndroidPerformanceStudio)),
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::FoundationAndroidPerformanceStudio),
+                    )),
             )
             .child(div().flex_1())
             .child(self.targets.clone());
         div()
             .id("studio-root")
-            .key_context("Studio")
+            .key_context(if selected == Destination::LayoutInspector {
+                "Inspector"
+            } else {
+                "Studio"
+            })
             .track_focus(&self.focus)
+            // Window-wide text selection: the layer owns the drag/copy state for
+            // every selectable run the pages project into the window.
+            .on_key_down(|event: &KeyDownEvent, window, cx| {
+                if !event.keystroke.modifiers.secondary(cx) {
+                    return;
+                }
+                match event.keystroke.key.to_ascii_lowercase().as_str() {
+                    "c" => {
+                        let text = TextSelection::selected_text(window, cx);
+                        if !text.is_empty() {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text));
+                            cx.stop_propagation();
+                        }
+                    }
+                    _ => {}
+                }
+            })
             .on_action(cx.listener(Self::open_cpu))
+            .on_action(cx.listener(|this, _: &OpenActiveRouteFile, window, cx| {
+                this.open_active_route_file(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenFolderActiveRoute, _, cx| {
+                this.open_folder_active_route(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ExportActiveRoute, _, cx| {
+                this.export_active_route(cx);
+            }))
+            .on_action(cx.listener(|this, action: &OpenCaptureSettings, _, cx| {
+                this.open_capture_settings(action.section, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PreviousInspectorNode, _, cx| {
+                this.inspector
+                    .update(cx, |inspector, cx| inspector.select_previous_node(cx));
+            }))
+            .on_action(cx.listener(|this, _: &NextInspectorNode, _, cx| {
+                this.inspector
+                    .update(cx, |inspector, cx| inspector.select_next_node(cx));
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSelectedInspectorNode, _, cx| {
+                this.inspector
+                    .update(cx, |inspector, cx| inspector.toggle_selected_node(cx));
+            }))
+            .on_action(
+                cx.listener(|this, action: &menubar::RouteMenuAction, window, cx| {
+                    this.run_route_menu(action.id, window, cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &OpenBatteryReport, _, cx| {
                 this.open_home_import(Destination::Battery, cx);
             }))
@@ -1002,6 +1721,31 @@ impl Render for Studio {
                     .update(cx, |inspector, cx| inspector.toggle_details(cx));
                 cx.notify();
             }))
+            .on_action(cx.listener(Self::open_ai_workspace))
+            .on_action(
+                cx.listener(|this, _: &ToggleLayoutHideHierarchy, window, cx| {
+                    this.toggle_layout_menu(LayoutMenuToggle::HideInvisibleHierarchy, window, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &ToggleLayoutHideFindings, window, cx| {
+                    this.toggle_layout_menu(LayoutMenuToggle::HideInvisibleFindings, window, cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &ToggleLayoutHideIndices, window, cx| {
+                    this.toggle_layout_menu(LayoutMenuToggle::HideHierarchyIndices, window, cx);
+                }),
+            )
+            .on_action(cx.listener(|this, _: &ToggleLayoutShowLayers, window, cx| {
+                this.toggle_layout_menu(LayoutMenuToggle::ShowLayerButtons, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleLayoutShowBounds, window, cx| {
+                this.toggle_layout_menu(LayoutMenuToggle::ShowVisibleBounds, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleLayoutShowIds, window, cx| {
+                this.toggle_layout_menu(LayoutMenuToggle::ShowIds, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &FocusCpuSearch, window, cx| {
                 if this.destination == Destination::Cpu {
                     this.cpu.update(cx, |cpu, cx| cpu.focus_search(window, cx));
@@ -1016,7 +1760,9 @@ impl Render for Studio {
             .text_color(primary_text)
             .text_size(px(typography::BODY))
             .flex_col()
+            .child(TextSelectionLayer)
             .child(titlebar)
+            .child(menubar)
             .child(
                 div()
                     .flex_1()
@@ -1140,6 +1886,7 @@ impl Render for Studio {
                             .children(
                                 (selected != Destination::Home
                                     && selected != Destination::Cpu
+                                    && selected != Destination::Memory
                                     && selected != Destination::LayoutInspector
                                     && selected != Destination::Network
                                     && selected != Destination::Startup
@@ -1197,7 +1944,10 @@ impl Render for Studio {
                                     }),
                             )
                             .children(self.notice.clone().map(|notice| {
-                                div().p_3().text_color(cx.theme().danger).child(notice)
+                                div()
+                                    .p_3()
+                                    .text_color(cx.theme().danger)
+                                    .child(crate::studio::selectable(notice))
                             }))
                             .child({
                                 // The CPU report is a fill-height layout with its
@@ -1217,6 +1967,7 @@ impl Render for Studio {
                                         | Destination::Network
                                         | Destination::Startup
                                         | Destination::Cpu
+                                        | Destination::Memory
                                         | Destination::LayoutInspector
                                 ) {
                                     workspace.overflow_hidden()
@@ -1226,5 +1977,129 @@ impl Render for Studio {
                             }),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod menubar_tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn home_menu_publishes_the_import_surface() {
+        let groups = home_menu_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].title(), TextKey::ShellMenuFile);
+        assert_eq!(groups[0].len(), 6);
+    }
+
+    #[::core::prelude::v1::test]
+    fn settings_menu_publishes_every_section_once() {
+        for page in SettingsPage::ALL {
+            let groups = settings_menu_groups(page);
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].title(), TextKey::ShellMenuSettingsPage);
+            assert_eq!(groups[0].len(), SettingsPage::ALL.len());
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn help_menu_is_shared_by_every_route() {
+        let help = help_menu_group(Language::English);
+        assert_eq!(help.title(), TextKey::ShellMenuHelp);
+        // Compose Help publishes the user guide and AI analysis; macOS reaches
+        // Settings through the application menu.
+        #[cfg(target_os = "macos")]
+        assert_eq!(help.len(), 2);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(help.len(), 3);
+    }
+
+    /// The Layout Inspector window menu mirrors Compose NativeViewerMenuBar:
+    /// File (Open/Import/Open Recent/Export), View (panes + display options) and
+    /// Tools (auto scan + tree navigation + hierarchy ids).
+    #[::core::prelude::v1::test]
+    fn layout_inspector_menus_mirror_compose() {
+        let panels = InspectorPanelVisibility {
+            hierarchy: true,
+            findings: true,
+            details: true,
+        };
+        let layout = LayoutPreferences::default();
+        let state = crate::inspector::InspectorMenuState {
+            busy: false,
+            has_selection: false,
+            has_archive: true,
+        };
+        let groups = inspector_menu_groups(panels, layout, state);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].title(), TextKey::ShellMenuFile);
+        assert_eq!(groups[1].title(), TextKey::ShellMenuView);
+        assert_eq!(groups[2].title(), TextKey::ShellMenuTools);
+
+        let mut build = menubar::RouteMenuBuild::default();
+        for group in groups {
+            build.push(group, Language::English, |_command, _window, _cx| {});
+        }
+        let file = &build.menus[0];
+        assert!(matches!(file.items[0], MenuItem::Action { .. }));
+        let submenus = file
+            .items
+            .iter()
+            .filter(|item| matches!(item, MenuItem::Submenu(_)))
+            .count();
+        assert_eq!(submenus, 3, "Import, Open Recent and Export submenus");
+
+        // Hide left panel is checked only while the pane is hidden, and the row
+        // carries the real action so macOS shows Cmd+1.
+        let MenuItem::Action {
+            checked, action, ..
+        } = &build.menus[1].items[0]
+        else {
+            panic!("expected the hierarchy pane row");
+        };
+        assert!(!checked);
+        assert!(action.as_any().is::<ToggleInspectorHierarchy>());
+        // Tree navigation stays disabled without a selection but still owns the
+        // shortcut action that Cmd+S (arrow keys) resolve to.
+        let MenuItem::Action {
+            disabled, action, ..
+        } = &build.menus[2].items[2]
+        else {
+            panic!("expected the previous node row");
+        };
+        assert!(disabled);
+        assert!(action.as_any().is::<PreviousInspectorNode>());
+    }
+
+    /// Every screen owns its menu builder, so the strip follows the route
+    /// instead of publishing one application-wide skeleton.
+    #[::core::prelude::v1::test]
+    fn every_workspace_publishes_its_own_route_menus() {
+        for (source, marker) in [
+            (include_str!("cpu.rs"), "MenuHost for CpuWorkspace"),
+            (include_str!("trace.rs"), "MenuHost for TraceWorkspace"),
+            (include_str!("frame.rs"), "MenuHost for FrameWorkspace"),
+            (include_str!("source.rs"), "MenuHost for SourceWorkspace"),
+            (include_str!("ai.rs"), "MenuHost for AiWorkspace"),
+            (
+                include_str!("import/menus.rs"),
+                "MenuHost for ImportWorkspace",
+            ),
+        ] {
+            assert!(source.contains(marker), "missing route menus: {marker}");
+        }
+    }
+
+    /// macOS shows the route menus in the native application menu bar; other
+    /// platforms fall back to the in-window strip. One build feeds both.
+    #[::core::prelude::v1::test]
+    fn the_route_menus_drive_native_and_fallback_bars() {
+        let source = include_str!("shell.rs");
+        assert!(source.contains("fn route_menu_build("));
+        assert!(source.contains("fn refresh_route_menus("));
+        assert!(source.contains("fn run_route_menu("));
+        assert!(source.contains("menubar::install_native_menus"));
+        assert!(source.contains("menubar::strip("));
+        assert!(source.contains("RouteMenuAction"));
     }
 }

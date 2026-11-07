@@ -418,9 +418,13 @@ impl Render for CaptureWorkspace {
             .child(
                 div()
                     .text_size(px(typography::TITLE))
-                    .child(lang.text(TextKey::CaptureCpuCapture)),
+                    .child(crate::studio::selectable(
+                        lang.text(TextKey::CaptureCpuCapture),
+                    )),
             )
-            .child(lang.text(TextKey::CaptureInspectIsReadOnlyOnlyTheExplicit))
+            .child(crate::studio::selectable(
+                lang.text(TextKey::CaptureInspectIsReadOnlyOnlyTheExplicit),
+            ))
             .child(
                 div()
                     .flex()
@@ -460,11 +464,11 @@ impl Render for CaptureWorkspace {
                             .on_click(cx.listener(|this, _, _, cx| this.clear(cx))),
                     ),
             )
-            .children(
-                self.error
-                    .clone()
-                    .map(|error| div().text_color(cx.theme().danger).child(error)),
-            );
+            .children(self.error.clone().map(|error| {
+                div()
+                    .text_color(cx.theme().danger)
+                    .child(crate::studio::selectable(error))
+            }));
         if busy {
             body = body.child(self.handle.as_ref().map_or_else(
                 || lang.text(TextKey::CaptureObservingTarget).to_owned(),
@@ -523,7 +527,9 @@ impl Render for CaptureWorkspace {
                 .child(
                     div()
                         .text_color(cx.theme().danger)
-                        .child(lang.text(TextKey::CaptureConfirmingCreatesAPrivateLocalRunAnd)),
+                        .child(crate::studio::selectable(
+                            lang.text(TextKey::CaptureConfirmingCreatesAPrivateLocalRunAnd),
+                        )),
                 )
                 .child(
                     Button::new("capture-confirm")
@@ -534,10 +540,11 @@ impl Render for CaptureWorkspace {
                 );
         }
         if self.cancellation_notice {
-            body =
-                body.child(div().text_color(cx.theme().danger).child(
+            body = body.child(div().text_color(cx.theme().danger).child(
+                crate::studio::selectable(
                     lang.text(TextKey::CaptureCaptureCancellationRequestedTheExactRemotePid),
-                ));
+                ),
+            ));
         }
         if let Some(output) = &self.output {
             body = body
@@ -594,6 +601,74 @@ mod tests {
         for run in [first, second] {
             assert!(run.len() <= 64);
             assert!(run.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+        }
+    }
+}
+
+/// In-window menu bar commands for the Capture workspace. Each screen publishes
+/// only the commands its own functionality supports.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum CaptureMenuCommand {
+    /// Inspect the target and freeze the displayed plan. Read-only.
+    Plan,
+    /// Consume the fresh plan and start the one explicit capture.
+    Confirm,
+    /// Stop the running capture at the exact remote PID.
+    Cancel,
+    /// Drop the retained plan/result without starting any device work.
+    Clear,
+}
+
+impl crate::shell::menubar::MenuHost for CaptureWorkspace {
+    type Command = CaptureMenuCommand;
+
+    fn menu_groups(
+        &self,
+        _language: Language,
+    ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
+        use crate::shell::menubar::MenuGroup;
+        let busy = self.busy;
+        // Same preconditions as the page buttons: a plan needs a writable
+        // artifact root and confirmation needs an unexpired plan.
+        let can_plan = !busy && self.artifact_root.is_some();
+        let can_confirm = !busy && self.plan.as_ref().is_some_and(|plan| !plan.is_expired());
+        vec![
+            MenuGroup::new(TextKey::ShellMenuSession)
+                .item_when(
+                    can_plan,
+                    TextKey::CaptureInspectTargetPreparePlan,
+                    CaptureMenuCommand::Plan,
+                )
+                .item_when(
+                    can_confirm,
+                    TextKey::CaptureConfirmDisplayedTargetAndStartCapture,
+                    CaptureMenuCommand::Confirm,
+                )
+                .separator()
+                .item_when(
+                    busy,
+                    TextKey::CaptureCancelHostOperation,
+                    CaptureMenuCommand::Cancel,
+                )
+                .item_when(
+                    !busy,
+                    TextKey::CaptureClearResult,
+                    CaptureMenuCommand::Clear,
+                ),
+        ]
+    }
+
+    fn run_menu_command(
+        &mut self,
+        command: Self::Command,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match command {
+            CaptureMenuCommand::Plan => self.plan(cx),
+            CaptureMenuCommand::Confirm => self.confirm(cx),
+            CaptureMenuCommand::Cancel => self.cancel(cx),
+            CaptureMenuCommand::Clear => self.clear(cx),
         }
     }
 }

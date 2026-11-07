@@ -28,6 +28,7 @@ pub(super) struct SettingsUi {
     hue: Entity<SliderState>,
     hsv: (f32, f32, f32),
     archive: Entity<SliderState>,
+    lsp_confirm: bool,
 }
 
 impl SettingsUi {
@@ -160,6 +161,7 @@ impl SettingsUi {
             hue,
             hsv,
             archive,
+            lsp_confirm: false,
         }
     }
 }
@@ -568,7 +570,11 @@ impl Studio {
                             ),
                     )
                     .when_some(self.settings_ui.sdk_error.clone(), |card, error| {
-                        card.child(div().text_color(colors.error).child(error))
+                        card.child(
+                            div()
+                                .text_color(colors.error)
+                                .child(crate::studio::selectable(error)),
+                        )
                     }),
             )
             .child(
@@ -585,6 +591,76 @@ impl Studio {
                         lang.text(TextKey::SettingsUiEngineHint),
                         &colors,
                     )),
+            )
+            .child(
+                studio::card(&colors)
+                    .child(studio::section_title(
+                        lang.text(TextKey::SettingsUiSemanticNavigation),
+                        &colors,
+                    ))
+                    .child(row(
+                        lang.text(TextKey::SettingsUiSemanticNavigation),
+                        Switch::new("settings-semantic-navigation")
+                            .checked(self.settings.source_lsp_enabled)
+                            .accessibility_label(lang.text(TextKey::SettingsUiSemanticNavigation))
+                            .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                                if *checked && !this.settings.source_lsp_enabled {
+                                    this.settings_ui.lsp_confirm = true;
+                                    cx.notify();
+                                } else if !*checked {
+                                    this.settings.source_lsp_enabled = false;
+                                    this.settings_ui.lsp_confirm = false;
+                                    this.persist_settings(window, cx);
+                                }
+                            })),
+                    ))
+                    .child(studio::supporting(
+                        lang.text(TextKey::SettingsUiSemanticNavigationHint),
+                        &colors,
+                    ))
+                    .when(self.settings_ui.lsp_confirm, |card| {
+                        card.child(div().text_color(colors.warning).child(
+                            crate::studio::selectable(
+                                lang.text(TextKey::SettingsUiSemanticNavigationWarning),
+                            ),
+                        ))
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(8.))
+                                .child(
+                                    studio::text_button(
+                                        "source-lsp-cancel",
+                                        lang.text(TextKey::SettingsUiCancel),
+                                        true,
+                                        false,
+                                        &colors,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.settings_ui.lsp_confirm = false;
+                                            cx.notify();
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    studio::text_button(
+                                        "source-lsp-enable",
+                                        lang.text(TextKey::SettingsUiSemanticNavigationConfirm),
+                                        true,
+                                        true,
+                                        &colors,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            this.settings.source_lsp_enabled = true;
+                                            this.settings_ui.lsp_confirm = false;
+                                            this.persist_settings(window, cx);
+                                        },
+                                    )),
+                                ),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -701,7 +777,11 @@ impl Studio {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(div().w(px(82.)).child(lang.text(key)))
+                            .child(
+                                div()
+                                    .w(px(82.))
+                                    .child(crate::studio::selectable(lang.text(key))),
+                            )
                             .child(self.color_control(index + 1, cx))
                             .child(
                                 studio::text_button(
@@ -1012,7 +1092,9 @@ impl Studio {
         let lang = self.settings.language;
         let colors = StudioColors::from_theme(cx);
         page(lang.text(TextKey::CommonAbout), &colors)
-            .child(div().child(lang.text(TextKey::FoundationAndroidPerformanceStudio)))
+            .child(div().child(crate::studio::selectable(
+                lang.text(TextKey::FoundationAndroidPerformanceStudio),
+            )))
             .child(studio::supporting(
                 format!(
                     "{} {}",
@@ -1062,12 +1144,9 @@ impl Studio {
                     ),
             )
             .when(self.settings_ui.color_error == Some(index), |element| {
-                element.child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(colors.error)
-                        .child(lang.text(TextKey::SettingsUiHexError)),
-                )
+                element.child(div().text_size(px(11.)).text_color(colors.error).child(
+                    crate::studio::selectable(lang.text(TextKey::SettingsUiHexError)),
+                ))
             })
             .into_any_element()
     }
@@ -1317,7 +1396,7 @@ fn page(title: &str, colors: &StudioColors) -> Div {
             div()
                 .text_size(px(16.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(title.to_owned()),
+                .child(crate::studio::selectable(title.to_owned())),
         )
 }
 fn row(label: &str, control: impl IntoElement) -> AnyElement {
@@ -1327,7 +1406,12 @@ fn row(label: &str, control: impl IntoElement) -> AnyElement {
         .justify_between()
         .gap(px(8.))
         .px(px(8.))
-        .child(div().flex_1().min_w_0().child(label.to_owned()))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(crate::studio::selectable(label.to_owned())),
+        )
         .child(control)
         .into_any_element()
 }
@@ -1349,7 +1433,12 @@ fn stepper(label: &str, value: u32, minus: Button, plus: Button) -> AnyElement {
             .items_center()
             .gap(px(8.))
             .child(minus)
-            .child(div().w(px(64.)).text_center().child(value.to_string()))
+            .child(
+                div()
+                    .w(px(64.))
+                    .text_center()
+                    .child(crate::studio::selectable(value.to_string())),
+            )
             .child(plus),
     )
 }

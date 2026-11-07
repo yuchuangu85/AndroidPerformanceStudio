@@ -34,7 +34,7 @@ fn body(text: impl Into<SharedString>, colors: &studio::StudioColors) -> Div {
         .text_size(px(13.))
         .line_height(px(18.))
         .text_color(colors.text)
-        .child(text.into())
+        .child(crate::studio::selectable(text.into()))
 }
 fn detail(
     key: TextKey,

@@ -23,6 +23,7 @@ use gpui_kit::{
     prelude::*,
     *,
 };
+use std::sync::Arc;
 use std::{collections::BTreeSet, rc::Rc};
 
 const TOOLBAR_HEIGHT: f32 = 36.;
@@ -64,7 +65,22 @@ impl PageUi {
                 cx.notify();
             }
         });
-        let viewer = cx.new(|cx| SourceCodeViewer::new(window, cx));
+        let lsp_handler: super::code_viewer::LspClickHandler = {
+            let weak = cx.entity().downgrade();
+            Arc::new(
+                move |identifier, line, character, references, _window, cx| {
+                    weak.update(cx, |this, cx| {
+                        this.handle_lsp_click(identifier, line, character, references, cx)
+                    })
+                    .ok();
+                },
+            )
+        };
+        let viewer = cx.new(|cx| {
+            let mut viewer = SourceCodeViewer::new(window, cx);
+            viewer.set_lsp_handler(lsp_handler);
+            viewer
+        });
         Self {
             pane_widths: layout::PaneWidths::default(),
             collapsed_directories: BTreeSet::new(),
@@ -81,6 +97,11 @@ impl PageUi {
             scroll_tree_top: false,
             document: None,
         }
+    }
+
+    pub(super) fn set_lsp_enabled(&mut self, enabled: bool, cx: &mut App) {
+        self.viewer
+            .update(cx, |viewer, _cx| viewer.set_lsp_enabled(enabled));
     }
 
     pub(super) fn set_language(&mut self, language: Language, window: &mut Window, cx: &mut App) {
@@ -442,7 +463,7 @@ fn body(
     this: &SourceWorkspace,
     size: Size<Pixels>,
     colors: &StudioColors,
-    cx: &Context<SourceWorkspace>,
+    cx: &mut Context<SourceWorkspace>,
 ) -> AnyElement {
     // BoxWithConstraints: the panes are fitted to the measured body width.
     let available = f32::from(size.width);
@@ -639,7 +660,7 @@ fn add_progress_card(
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(display_name.to_owned()),
+                .child(crate::studio::selectable(display_name.to_owned())),
         )
         .child(
             div()
@@ -648,7 +669,7 @@ fn add_progress_card(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(status),
+                .child(crate::studio::selectable(status)),
         );
     let fraction = if progress.progress.is_finite() {
         progress.progress.clamp(0., 1.)
@@ -731,7 +752,7 @@ fn workspace_card(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(status),
+                .child(crate::studio::selectable(status)),
         );
     if !matches!(
         workspace.phase,
@@ -904,7 +925,9 @@ fn files_pane(
                 div()
                     .text_size(px(FONT_SUPPORTING))
                     .text_color(colors.secondary_text)
-                    .child(language.text(TextKey::SourceReadingIndexing)),
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::SourceReadingIndexing),
+                    )),
             );
     }
     div()
@@ -938,7 +961,7 @@ fn tree_row(
         .text_color(colors.text)
         .whitespace_nowrap()
         .text_ellipsis()
-        .child(name);
+        .child(crate::studio::selectable(name));
     let path = row.path.clone();
     let mut element = div()
         .id(("source-tree-row", index))
@@ -1001,7 +1024,7 @@ fn tree_row(
 fn source_pane(
     this: &SourceWorkspace,
     colors: &StudioColors,
-    cx: &Context<SourceWorkspace>,
+    cx: &mut Context<SourceWorkspace>,
 ) -> AnyElement {
     let language = this.language;
     let location = this.selected_location.as_ref();
@@ -1094,7 +1117,7 @@ fn source_pane(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(summary),
+                .child(crate::studio::selectable(summary)),
         );
     }
 
@@ -1126,7 +1149,21 @@ fn source_pane(
                 .w_full()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.error)
-                .child(language.text(TextKey::SourceContentStale)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::SourceContentStale),
+                )),
+        );
+    }
+
+    if this.lsp_enabled {
+        column = column.child(
+            div()
+                .w_full()
+                .text_size(px(FONT_SUPPORTING))
+                .text_color(colors.secondary_text)
+                .child(crate::studio::selectable(
+                    language.text(TextKey::SourceLspHint),
+                )),
         );
     }
 
@@ -1143,9 +1180,14 @@ fn source_pane(
                 .justify_center()
                 .text_size(px(FONT_SUPPORTING))
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::SourceReadingIndexing)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::SourceReadingIndexing),
+                )),
         );
     } else if !no_selection {
+        if !this.lsp_usages.is_empty() {
+            column = column.child(lsp_usages_panel(this, language, &colors, cx));
+        }
         column = column.child(
             div()
                 .flex_1()
@@ -1190,6 +1232,47 @@ fn splitter(
         .into_any_element()
 }
 
+fn lsp_usages_panel(
+    this: &SourceWorkspace,
+    language: Language,
+    colors: &StudioColors,
+    cx: &mut Context<SourceWorkspace>,
+) -> AnyElement {
+    let count = this.lsp_usages.len();
+    let title = language.format(TextKey::SourceLspUsages, &[("count", &count)]);
+    let mut card = studio::card(colors).child(
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .child(studio::section_title(title, colors))
+            .child(
+                studio::text_button("source-lsp-usages-close", "×", true, false, colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.clear_lsp_usages(cx))),
+            ),
+    );
+    let root = this.local_root();
+    for (index, location) in this.lsp_usages.iter().enumerate() {
+        let label = match &root {
+            Some(root) => format!(
+                "{}:{}",
+                location
+                    .path
+                    .strip_prefix(root)
+                    .map(|path| path.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| location.path.to_string_lossy().into_owned()),
+                location.line + 1
+            ),
+            None => format!("{}:{}", location.path.display(), location.line + 1),
+        };
+        card = card.child(
+            studio::text_button(("source-lsp-usage", index), label, true, false, colors)
+                .on_click(cx.listener(move |this, _, _, cx| this.open_lsp_usage(index, cx))),
+        );
+    }
+    card.into_any_element()
+}
+
 fn message_line(message: String, color: Rgba) -> AnyElement {
     div()
         .w_full()
@@ -1198,7 +1281,7 @@ fn message_line(message: String, color: Rgba) -> AnyElement {
         .py(px(8.))
         .text_size(px(FONT_SUPPORTING))
         .text_color(color)
-        .child(message)
+        .child(crate::studio::selectable(message))
         .into_any_element()
 }
 

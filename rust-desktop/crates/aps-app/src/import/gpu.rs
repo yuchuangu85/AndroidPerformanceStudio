@@ -468,7 +468,9 @@ impl ImportWorkspace {
                                                 .text_color(*tone)
                                                 .min_w_0()
                                                 .text_ellipsis()
-                                                .child(language.text(*key)),
+                                                .child(crate::studio::selectable(
+                                                    language.text(*key),
+                                                )),
                                         ),
                                 )
                                 .child(
@@ -477,7 +479,7 @@ impl ImportWorkspace {
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .min_w_0()
                                         .text_ellipsis()
-                                        .child(value.clone()),
+                                        .child(crate::studio::selectable(value.clone())),
                                 )
                                 .child(gpu_note(support.clone(), colors))
                         },

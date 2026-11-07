@@ -820,7 +820,7 @@ fn note(text: impl Into<SharedString>, color: Rgba) -> Div {
         .text_size(px(studio::FONT_SUPPORTING))
         .text_color(color)
         .line_height(px(16.))
-        .child(text.into())
+        .child(crate::studio::selectable(text.into()))
 }
 
 fn bounded(value: &str, language: Language) -> String {
@@ -1060,7 +1060,11 @@ fn waterfall(
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(div().flex_1().child(language.text(key)))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(crate::studio::selectable(language.text(key))),
+                )
                 .child(note("—", colors.muted_text)),
         );
     }
@@ -1076,7 +1080,7 @@ fn cell(text: String, column: usize, colors: &studio::StudioColors) -> Div {
         .text_color(colors.text)
         .whitespace_nowrap()
         .text_ellipsis()
-        .child(text)
+        .child(crate::studio::selectable(text))
 }
 
 fn evidence_label(key: &str) -> TextKey {

@@ -28,6 +28,7 @@ aps-storage = { path = "../aps-storage" }
 aps-ai = { path = "../aps-ai" }
 aps-json = { path = "../aps-json" }
 aps-capture = { path = "../aps-capture" }
+serde_json.workspace = true
 tree-sitter.workspace = true
 tree-sitter-c.workspace = true
 tree-sitter-cpp.workspace = true

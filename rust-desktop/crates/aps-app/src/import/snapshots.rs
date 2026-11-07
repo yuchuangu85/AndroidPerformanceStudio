@@ -1,6 +1,8 @@
 //! Bounded, in-memory HPROF tab ownership. Each tab owns its worker-backed
-//! session; switching never reopens or reparses the source file.
+//! session and its typed workspace state; switching never reopens or reparses
+//! the source file.
 use super::*;
+use crate::import::memory::state::MemoryState;
 
 pub(super) const MAX_OPEN_MEMORY_SNAPSHOTS: usize = 3;
 static NEXT_MEMORY_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
@@ -31,13 +33,8 @@ pub(super) struct MemorySnapshot {
     pub id: u64,
     pub path: PathBuf,
     pub session: Arc<Mutex<MemorySession>>,
-    pub page: PageData,
+    pub state: MemoryState,
     pub session_id: String,
-    pub view: MemoryView,
-    pub published_view: MemoryView,
-    pub history: Vec<(MemoryView, usize)>,
-    pub panel: MemoryPanel,
-    pub ui: memory_page::MemoryUi,
 }
 
 fn label(path: &Path) -> String {
@@ -75,7 +72,6 @@ impl ImportWorkspace {
         if self.kind != Destination::Memory
             || self.memory_snapshot_id.is_none()
             || self.path.is_none()
-            || self.page.is_none()
             || self.session_id.is_none()
             || !matches!(self.session, Some(Session::Memory(_)))
         {
@@ -88,16 +84,8 @@ impl ImportWorkspace {
             id: self.memory_snapshot_id.take()?,
             path: self.path.take()?,
             session,
-            page: self.page.take()?,
+            state: std::mem::take(&mut self.memory_state),
             session_id: self.session_id.take()?,
-            view: std::mem::replace(&mut self.memory_view, MemoryView::Histogram),
-            published_view: std::mem::replace(
-                &mut self.published_memory_view,
-                MemoryView::Histogram,
-            ),
-            history: std::mem::take(&mut self.memory_history),
-            panel: std::mem::replace(&mut self.memory_panel, MemoryPanel::Dashboard),
-            ui: std::mem::take(&mut self.memory_ui),
         })
     }
 
@@ -105,17 +93,12 @@ impl ImportWorkspace {
         self.memory_snapshot_id = Some(snapshot.id);
         self.path = Some(snapshot.path);
         self.session = Some(Session::Memory(snapshot.session));
-        self.page = Some(snapshot.page);
         self.session_id = Some(snapshot.session_id);
-        self.memory_view = snapshot.view;
-        self.published_memory_view = snapshot.published_view;
-        self.memory_history = snapshot.history;
-        self.memory_panel = snapshot.panel;
-        self.memory_ui = snapshot.ui;
+        self.memory_state = snapshot.state;
     }
 
     pub(super) fn select_memory_snapshot(&mut self, id: u64, cx: &mut Context<Self>) {
-        if self.kind != Destination::Memory || self.busy || self.memory_snapshot_id == Some(id) {
+        if self.kind != Destination::Memory || self.memory_snapshot_id == Some(id) {
             return;
         }
         let Some(index) = self
@@ -129,19 +112,9 @@ impl ImportWorkspace {
         if let Some(previous) = self.take_active_memory_snapshot() {
             self.memory_snapshots.push(previous);
         }
-        self.cancel.cancel();
-        self.cancel = CancellationToken::new();
-        self.generation += 1;
-        self.export_generation += 1;
-        self.export_busy = false;
-        self.error = None;
-        self.notice = None;
-        self.memory_diff_report = None;
-        self.memory_diff_page = None;
+        self.memory_state.error = None;
+        self.memory_state.notice = None;
         self.restore_memory_snapshot(selected);
-        if self.memory_panel == MemoryPanel::Diff {
-            self.compare_memory_snapshots(cx);
-        }
         cx.notify();
     }
 
@@ -150,9 +123,6 @@ impl ImportWorkspace {
             return;
         }
         if self.memory_snapshot_id != Some(id) {
-            if self.busy {
-                return;
-            }
             if let Some(index) = self
                 .memory_snapshots
                 .iter()
@@ -160,57 +130,42 @@ impl ImportWorkspace {
             {
                 // Dropping the last Arc kills and reaps this tab's worker.
                 self.memory_snapshots.remove(index);
-                self.memory_diff_report = None;
-                self.memory_diff_page = None;
-                if self.memory_panel == MemoryPanel::Diff {
-                    self.compare_memory_snapshots(cx);
-                }
                 cx.notify();
             }
             return;
         }
-        self.cancel.cancel();
-        self.cancel = CancellationToken::new();
-        self.generation += 1;
-        self.export_generation += 1;
-        self.export_busy = false;
-        self.busy = false;
         drop(self.take_active_memory_snapshot());
-        self.error = None;
-        self.notice = None;
-        self.memory_diff_report = None;
-        self.memory_diff_page = None;
+        self.memory_state = MemoryState::new();
+        self.memory_state.error = None;
+        self.memory_state.notice = None;
+        self.session = None;
+        self.path = None;
+        self.page = None;
+        self.session_id = None;
         if let Some(previous) = self.memory_snapshots.pop() {
             self.restore_memory_snapshot(previous);
-        } else {
-            self.memory_snapshot_id = None;
-            self.session = None;
-            self.path = None;
-            self.page = None;
-            self.session_id = None;
-            self.memory_view = MemoryView::Histogram;
-            self.published_memory_view = MemoryView::Histogram;
-            self.memory_history.clear();
-            self.memory_panel = MemoryPanel::Dashboard;
-            self.memory_ui = memory_page::MemoryUi::default();
-        }
-        if self.memory_panel == MemoryPanel::Diff {
-            self.compare_memory_snapshots(cx);
         }
         cx.notify();
     }
 
     /// The newest inactive tab is the candidate baseline, the active tab is the
-    /// candidate comparison. Callers must compare class aggregates/provenance,
-    /// never treat equal object IDs from two dumps as the same object.
+    /// candidate comparison. Object IDs never cross the snapshot boundary.
     pub(super) fn memory_comparison_pair(
         &self,
-    ) -> Option<(Arc<Mutex<MemorySession>>, Arc<Mutex<MemorySession>>)> {
-        let before = self.memory_snapshots.last()?.session.clone();
-        let Some(Session::Memory(after)) = &self.session else {
-            return None;
-        };
-        Some((before, after.clone()))
+    ) -> Option<(
+        Arc<aps_memory::MemorySnapshot>,
+        Arc<aps_memory::MemorySnapshot>,
+        String,
+        String,
+    )> {
+        let before = self.memory_snapshots.last()?;
+        let after: Arc<aps_memory::MemorySnapshot> = self.memory_state.snapshot.clone()?;
+        Some((
+            before.state.snapshot.clone()?,
+            after,
+            label(&before.path),
+            self.memory_state.snapshot_label.clone(),
+        ))
     }
 }
 
