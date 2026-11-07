@@ -6,11 +6,13 @@ use crate::{
     ai::AiWorkspace,
     capture::{CaptureCompleted, CaptureWorkspace},
     cpu::CpuWorkspace,
+    frame::FrameWorkspace,
     import::ImportWorkspace,
     inspector::InspectorWorkspace,
     method::MethodWorkspace,
     source::SourceWorkspace,
     targets::{TargetSelectionChanged, TargetsWorkspace},
+    trace::TraceWorkspace,
 };
 use aps_ai::{CredentialReference, ModelDescriptor, ProviderCatalog, ProviderConfig};
 use aps_ui_foundation::{
@@ -78,6 +80,9 @@ gpui_kit::actions!(
         OpenHomeTrace,
         OpenHomeHprof,
         OpenBatteryReport,
+        OpenFrameStats,
+        ExportFrameCsv,
+        ExportFrameJson,
         OpenSettings,
         FocusCpuSearch,
         PrepareCurrentAi,
@@ -89,6 +94,16 @@ gpui_kit::actions!(
     ]
 );
 
+/// Request from the Frame Analyzer to correlate a frame with the Layout Inspector.
+#[derive(Clone, Debug)]
+pub(crate) struct FrameLayoutInspectionRequest {
+    pub device_serial: Option<String>,
+    pub package_name: String,
+    pub activity_name: Option<String>,
+    pub window_id: Option<String>,
+    pub frame_id: u64,
+}
+
 pub struct Studio {
     settings: Settings,
     settings_path: Option<PathBuf>,
@@ -98,6 +113,8 @@ pub struct Studio {
     capture: Entity<CaptureWorkspace>,
     method: Entity<MethodWorkspace>,
     source: Entity<SourceWorkspace>,
+    trace: Entity<TraceWorkspace>,
+    frame: Entity<FrameWorkspace>,
     inspector: Entity<InspectorWorkspace>,
     imports: HashMap<Destination, Entity<ImportWorkspace>>,
     focus: FocusHandle,
@@ -173,16 +190,34 @@ impl Studio {
         // The page owns its "Run AI analysis" and "AI Settings" entries and needs
         // the same upward shell handle as the CPU report.
         source.update(cx, |source, _| source.set_studio(studio_handle.clone()));
+        let trace = cx.new(|cx| {
+            TraceWorkspace::new(
+                settings.language.resolved(),
+                settings_path.as_deref(),
+                window,
+                cx,
+            )
+        });
+        trace.update(cx, |trace, _| trace.set_studio(studio_handle.clone()));
+        let frame = cx.new(|cx| {
+            FrameWorkspace::new(
+                settings.language.resolved(),
+                settings_path.as_deref(),
+                window,
+                cx,
+            )
+        });
+        frame.update(cx, |frame, _| frame.set_studio(studio_handle.clone()));
         let inspector =
             cx.new(|cx| InspectorWorkspace::new(settings.language.resolved(), window, cx));
         // The Inspector findings pane owns its "Run AI analysis" entry and needs the
         // same upward preflight handle as the CPU report.
-        inspector.update(cx, |inspector, _| inspector.set_studio(studio_handle));
+        inspector.update(cx, |inspector, _| {
+            inspector.set_studio(studio_handle.clone())
+        });
         let imports: HashMap<Destination, Entity<ImportWorkspace>> = [
             Destination::Memory,
-            Destination::Trace,
             Destination::Network,
-            Destination::Frame,
             Destination::Startup,
             Destination::Battery,
             Destination::Benchmark,
@@ -210,6 +245,12 @@ impl Studio {
                     this.ai_origin = None;
                 }
             }),
+            cx.observe(&trace, |this, _, cx| {
+                this.invalidate_ai(Destination::Trace, cx)
+            }),
+            cx.observe(&frame, |this, _, cx| {
+                this.invalidate_ai(Destination::Frame, cx)
+            }),
             cx.subscribe(&capture, |this, _, completed: &CaptureCompleted, cx| {
                 this.captured = completed.0.protobuf.clone();
                 this.notice = Some(
@@ -233,14 +274,10 @@ impl Studio {
             subscriptions.push(cx.subscribe(
                 gpu,
                 |this, _, event: &crate::import::OpenGpuTrace, cx| {
-                    if let Some(path) = &event.0 {
-                        if let Some(trace) = this.imports.get(&Destination::Trace) {
-                            if !trace
-                                .update(cx, |trace, cx| trace.open_home_artifact(path.clone(), cx))
-                            {
-                                return;
-                            }
-                        }
+                    if let Some(path) = event.0.clone() {
+                        this.trace.update(cx, |trace, cx| {
+                            trace.open_trace_path(path, cx);
+                        });
                     }
                     this.navigate(Destination::Trace, cx);
                 },
@@ -266,11 +303,23 @@ impl Studio {
             |this, _, event: &TargetSelectionChanged, cx| {
                 let serial = event.serial.clone();
                 let pid = event.pid;
-                this.capture
-                    .update(cx, |capture, cx| capture.set_shared_target(serial, pid, cx));
+                this.capture.update(cx, |capture, cx| {
+                    capture.set_shared_target(serial.clone(), pid, cx)
+                });
                 this.inspector.update(cx, |inspector, cx| {
                     inspector.set_target(event.serial.clone(), event.pid, cx)
                 });
+                this.trace.update(cx, |trace, cx| {
+                    trace.select_capture_device(serial.clone(), cx)
+                });
+                if let Some(serial) = event.serial.clone() {
+                    this.frame.update(cx, |frame, cx| {
+                        frame.select_device(serial, cx);
+                        if let Some(pid) = pid {
+                            frame.select_process(pid as i32, cx);
+                        }
+                    });
+                }
                 if let Some(gpu) = this.imports.get(&Destination::Gpu) {
                     gpu.update(cx, |gpu, cx| gpu.set_gpu_target(event.serial.clone(), cx));
                 }
@@ -304,6 +353,8 @@ impl Studio {
             capture,
             method,
             source,
+            trace,
+            frame,
             inspector,
             imports,
             focus,
@@ -324,6 +375,23 @@ impl Studio {
         };
         studio.refresh_home_recent(cx);
         studio
+    }
+
+    pub(crate) fn open_frame_layout(
+        &mut self,
+        request: FrameLayoutInspectionRequest,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = (
+            request.activity_name.clone(),
+            request.window_id.clone(),
+            request.frame_id,
+        );
+        let _ = &request.package_name;
+        self.inspector.update(cx, |inspector, cx| {
+            inspector.set_target(request.device_serial.clone(), None, cx)
+        });
+        self.navigate(Destination::LayoutInspector, cx);
     }
 
     fn invalidate_ai(&mut self, origin: Destination, cx: &mut Context<Self>) {
@@ -354,6 +422,8 @@ impl Studio {
             Destination::MethodRecording => self.method.read(cx).analysis_request(),
             Destination::LayoutInspector => self.inspector.read(cx).analysis_request(),
             Destination::SourceWorkspaces => self.source.read(cx).analysis_request(),
+            Destination::Trace => self.trace.read(cx).analysis_request(),
+            Destination::Frame => self.frame.read(cx).analysis_request(),
             kind => self
                 .imports
                 .get(&kind)
@@ -491,6 +561,12 @@ impl Studio {
         self.source.update(cx, |source, cx| {
             source.set_language(self.settings.language.resolved(), window, cx)
         });
+        self.trace.update(cx, |trace, cx| {
+            trace.set_language(self.settings.language.resolved(), window, cx)
+        });
+        self.frame.update(cx, |frame, cx| {
+            frame.set_language(self.settings.language.resolved(), window, cx)
+        });
         self.inspector.update(cx, |inspector, cx| {
             inspector.set_language(self.settings.language.resolved(), window, cx)
         });
@@ -536,11 +612,30 @@ impl Studio {
     /// refresh remains owned by the shared title bar and cannot reload history.
     fn navigate(&mut self, destination: Destination, cx: &mut Context<Self>) {
         let entering_home = destination == Destination::Home && self.destination != destination;
+        let route = destination;
         self.destination = destination;
+        if self.entered_route(route, cx) {
+            cx.notify();
+            return;
+        }
         if entering_home {
             self.refresh_home_recent(cx);
         }
         cx.notify();
+    }
+
+    fn entered_route(&mut self, destination: Destination, cx: &mut Context<Self>) -> bool {
+        match destination {
+            Destination::Trace => {
+                self.trace.update(cx, |trace, cx| trace.refresh_devices(cx));
+                true
+            }
+            Destination::Frame => {
+                self.frame.update(cx, |frame, cx| frame.refresh_devices(cx));
+                true
+            }
+            _ => false,
+        }
     }
 
     fn refresh_home_recent(&mut self, cx: &mut Context<Self>) {
@@ -582,12 +677,21 @@ impl Studio {
     }
 
     fn open_home_import(&mut self, destination: Destination, cx: &mut Context<Self>) {
-        if self.home_import_pending
-            || !matches!(
-                destination,
-                Destination::Trace | Destination::Memory | Destination::Battery
-            )
-        {
+        if self.home_import_pending {
+            return;
+        }
+        if destination == Destination::Trace {
+            self.navigate(Destination::Trace, cx);
+            self.trace.update(cx, |trace, cx| trace.pick_trace(cx));
+            return;
+        }
+        if destination == Destination::Frame {
+            self.navigate(Destination::Frame, cx);
+            self.frame
+                .update(cx, |frame, cx| frame.pick_import_frame_stats(cx));
+            return;
+        }
+        if !matches!(destination, Destination::Memory | Destination::Battery) {
             return;
         }
         let Some(workspace) = self.imports.get(&destination).cloned() else {
@@ -783,12 +887,12 @@ impl Render for Studio {
             Destination::Capture => self.capture.clone().into_any_element(),
             Destination::MethodRecording => self.method.clone().into_any_element(),
             Destination::SourceWorkspaces => self.source.clone().into_any_element(),
+            Destination::Trace => self.trace.clone().into_any_element(),
+            Destination::Frame => self.frame.clone().into_any_element(),
             Destination::LayoutInspector => self.inspector.clone().into_any_element(),
             Destination::Settings => self.settings_page(cx),
             Destination::Memory
-            | Destination::Trace
             | Destination::Network
-            | Destination::Frame
             | Destination::Startup
             | Destination::Battery
             | Destination::Benchmark
@@ -850,6 +954,19 @@ impl Render for Studio {
             .on_action(cx.listener(Self::open_cpu))
             .on_action(cx.listener(|this, _: &OpenBatteryReport, _, cx| {
                 this.open_home_import(Destination::Battery, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenFrameStats, _, cx| {
+                this.navigate(Destination::Frame, cx);
+                this.frame
+                    .update(cx, |frame, cx| frame.pick_import_frame_stats(cx));
+            }))
+            .on_action(cx.listener(|this, _: &ExportFrameCsv, _, cx| {
+                this.navigate(Destination::Frame, cx);
+                this.frame.update(cx, |frame, cx| frame.export_csv(cx));
+            }))
+            .on_action(cx.listener(|this, _: &ExportFrameJson, _, cx| {
+                this.navigate(Destination::Frame, cx);
+                this.frame.update(cx, |frame, cx| frame.export_json(cx));
             }))
             .on_action(cx.listener(Self::open_settings))
             .when(selected == Destination::Home, |this| {
@@ -1028,6 +1145,8 @@ impl Render for Studio {
                                     && selected != Destination::Startup
                                     && selected != Destination::Gpu
                                     && selected != Destination::Battery
+                                    && selected != Destination::Trace
+                                    && selected != Destination::Frame
                                     && selected != Destination::SourceWorkspaces
                                     && selected != Destination::Settings)
                                     .then(|| {

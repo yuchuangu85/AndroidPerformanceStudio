@@ -3,14 +3,17 @@ mod capture;
 mod cpu;
 mod disassembly;
 mod evidence;
+mod frame;
 mod home_recent;
 mod import;
 mod inspector;
 mod method;
+mod perfetto_tool;
 mod shell;
 mod source;
 mod studio;
 mod targets;
+mod trace;
 
 use aps_ui_foundation::{Settings, TextKey, ThemeMode as StudioTheme, typography};
 use gpui_kit::{
@@ -91,6 +94,19 @@ fn apply_theme_with_appearance(settings: &Settings, appearance: WindowAppearance
             MenuItem::action(
                 language.text(TextKey::HomeAnalyzeHprof),
                 shell::OpenHomeHprof,
+            ),
+            MenuItem::separator(),
+            MenuItem::action(
+                language.text(TextKey::FrameImportGfxinfoFramestats),
+                shell::OpenFrameStats,
+            ),
+            MenuItem::action(
+                language.text(TextKey::FrameExportCsv),
+                shell::ExportFrameCsv,
+            ),
+            MenuItem::action(
+                language.text(TextKey::FrameExportJson),
+                shell::ExportFrameJson,
             ),
         ]),
         Menu::new(language.text(TextKey::FoundationLayoutInspector)).items([

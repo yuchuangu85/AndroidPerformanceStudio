@@ -424,6 +424,10 @@ fn quick_grid(
                                 entity.update(cx, |this, cx| {
                                     if action.import {
                                         this.open_home_import(action.destination, cx);
+                                    } else if action.destination == Destination::Trace {
+                                        this.navigate(action.destination, cx);
+                                        this.trace
+                                            .update(cx, |trace, cx| trace.open_capture_panel(cx));
                                     } else {
                                         this.navigate(action.destination, cx);
                                     }

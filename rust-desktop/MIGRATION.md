@@ -32,8 +32,9 @@ Status: implementation in progress. This is not a reduced-scope MVP completion c
    parse-once session, prepared query paging. Pending: durable native sessions,
    all Overview/Top Functions/Call Tree/Flame Graph/Stack Chart interactions,
    viewport aggregation/spatial hit testing, capture, Firefox export and parity.
-5. **Memory/Network/Perfetto (phase 4)** — pending: engine adapters, paginated
-   UI, redaction, bounded authorized content, native Trace Processor lifecycle.
+5. **Memory/Network (phase 4)** — pending: engine adapters, paginated UI,
+   redaction, bounded authorized content. The Perfetto Trace Analyzer and
+   capture slices are tracked under the 2026-11-07 parity entry below.
 6. **Other profilers/Inspector (phase 5)** — pending: Frame, Startup, Battery,
    GPU, Benchmark and desktop View/Compose inspection host; retain Android Agents.
 7. **AI/Source (phase 6)** — pending: provider/SSE/catalog/request/storage,
@@ -390,6 +391,112 @@ Fresh static evidence: `cargo fmt --all`, `cargo check --locked -p aps-app
 --all-targets --offline`, and `git diff --check` passed. No tests or native GUI
 acceptance were executed.
 
+### Compose Trace Analyzer parity slice — 2026-11-07
+
+- Scope: the Rust Trace route now mirrors the Compose Perfetto Trace Analyzer
+  end to end instead of reusing the generic import table: workspace sessions
+  rail and bookmarks, severity/category insight rail with preset scoping and
+  filters, four summary cards, Result/Query/Search detail tabs, slice search,
+  timestamp-anchored Perfetto UI launch, raw-trace and session-package export,
+  capture page, device/capability refresh, AI preflight context and the
+  bilingual copy catalogs (`values/trace.json`, `values-zh/trace.json`).
+- `aps-perfetto` now owns the Compose diagnostic surface: a warm
+  `trace_processor_shell` session (`server unix --daemonize` + `query --remote`,
+  explicit `TraceSessionMode::Warm/OneShotFallback` and Drop-time daemon kill),
+  the full 35-query catalog and 8 presets ported byte-for-byte from the Kotlin
+  oracle, finding thresholds (`findings.rs`), bounded strict CSV decoding and
+  the escaped `TraceSliceSearch`. `QueryPreset`/`QueryPage` stay unchanged for
+  the GPU inspector; invalid traces still fail closed and no arbitrary SQL,
+  PATH fallback, download or cloud connection exists.
+- Capture ports `PerfettoConfigTextBuilder`, capability detection, Compose
+  probe/template gating and the bounded adb push/start/stop/pull session
+  (64 MiB `exec-out cat` bound, generation/cancel guards); the capture page
+  renders the three Compose panels. Live hardware capture is not exercised in
+  this slice and is documented as a device-dependent gap.
+- Sessions/bookmarks use bounded, atomic JSON indexes with managed trace
+  copies; session export writes `session.json` (including real device
+  model/SDK from capture), `trace.pftrace` and `metadata.properties`; the
+  external viewer binds loopback only and opens the system browser; AI context
+  is numeric-only, row-capped and SHA-256-bound before the existing approval
+  dialog, never including thread names, SQL or paths.
+- Verification: `cargo test -p aps-perfetto --offline` = 34 passed (35-query
+  parity asserts read the Kotlin oracle; pinned-tool integration runs the whole
+  catalog against `synthetic-empty.pftrace`), `cargo test -p aps-app --offline`
+  = 222 passed, `cargo test --workspace --offline --no-fail-fast` = 526
+  passed/0 failed, `cargo check --workspace --all-targets --offline` and
+  `rustfmt` clean. Native GUI checks on a synthetic empty trace covered import,
+  preset execution, summary cards, insight filters, Result/Query/Search detail
+  tabs, slice search, sessions/bookmark rows, capture panel, AI frozen payload
+  review, wide and narrow layouts, and the English/Chinese switch (screenshots
+  under `build/trace-analyzer/`).
+- Remaining gaps: live ADB capture and a real device trace are unexercised;
+  GUI cancel can leave a remote perfetto pid until its own duration; traces
+  over 64 MiB fail closed; sessions/bookmarks are single-process locked; the
+  viewer fallback page explains the loopback URL instead of embedding a cloud
+  iframe; the device selector+refresh only appear while capture is open because
+  the shell title bar already exposes the shared target selector.
+### Compose Frame Analyzer parity slice — 2026-11-07
+
+- Scope: the Rust Frame route now renders a dedicated Frame Analyzer workspace
+  instead of the generic import table. It mirrors the Compose frame-profiler
+  app: device/process target (shared title-bar host), Import Perfetto
+  FrameTimeline, Associate Perfetto trace, Capture FrameTimeline, Open trace,
+  Start/Stop online capture, AI preflight, status bar, filter row, summary
+  cards with sparklines, timeline canvas (zoom/pan/hover/cluster marks/frame
+  selection), frame detail with evidence copy/stage breakdown/layout handoff,
+  jank clusters with sparklines, problem frames table, and File-menu gfxinfo
+  import + CSV/JSON export.
+- `aps-frame` gained Compose-faithful modules while keeping the legacy
+  FrameSession API for the old import page: model.rs (FrameSource,
+  ExpectedDurationSource, JankType, FrameStages, FrameSample,
+  FrameCaptureSession, FrameSourceCapabilities), gfxinfo.rs (full
+  GfxInfoFrameStatsParser port incl. warnings/unknown columns/deadline
+  provenance), analysis.rs (FrameJankAnalyzer thresholds/severity/clusters,
+  FrameAttributionAnalyzer, FrameTimelineClassification,
+  FrameJankStatsCorrelator, FrameViewFilter/filter_analysis, format_millis)
+  and frame_timeline.rs (Expected/Actual FrameTimeline row mapping and
+  capability subtraction). Legacy root names stay; the four colliding Compose
+  types live at aps_frame::analysis/model. 60 aps-frame tests pass, including
+  Kotlin-test ports and a 35-row pinned-tool FrameTimeline check in the app.
+- Runtime/UI: crates/aps-app/src/frame.rs owns the controller state machine
+  (async device/process discovery, bounded imports, online capture polling,
+  FrameTimeline capture, association, export, AI, viewer, layout handoff);
+  frame/page.rs + frame/model.rs render the Compose screen and timeline with
+  runtime-gated actions; values{,-zh}/frame.json carry all 129 Compose keys
+  (named placeholders) plus 12 Rust-only display keys. The shell routes
+  Destination::Frame to the workspace, keeps it in the title-bar target loop,
+  invalidates AI on change, and adds File > Import gfxinfo FrameStats /
+  Export CSV / Export JSON.
+- Capture (frame/capture.rs): adb device/process discovery, FrameMetrics Agent
+  socket protocol preferred with bounded framed batches/JankStats fields,
+  gfxinfo polling fallback with Compose dedupe/warning rules, and bounded
+  Android 12+ FrameTimeline capture with fixed commands, API gating and device
+  temp cleanup. Support (frame/{sessions,export,ai,artifact,perfetto}.rs):
+  bounded atomic JSON session store (Compose uses SQLite internally),
+  Compose-exact CSV and JSON schemaVersion 3 exporters, numeric-only
+  FrameAiContext bound into the existing approval dialog, capture-artifact
+  metadata, and Perfetto FrameTimeline import over the pinned
+  trace_processor via a new fixed-SQL aps-perfetto::frame_timeline query.
+- Verification: `cargo test -p aps-frame --offline` = 60 passed;
+  `cargo test -p aps-app --offline` = 276 passed;
+  `cargo test --workspace --offline --no-fail-fast` = 634 passed / 0 failed;
+  `cargo check --workspace --all-targets --offline` and `cargo fmt --all
+  --check` clean. Native run with a synthetic 60-frame gfxinfo fixture: import,
+  13 deadline misses across 9 clusters, timeline zoom/selection/hover,
+  Deadline-misses filter, AI frozen payload review (summary counters + one
+  selected frame, no states/paths), CSV export (61 lines, Compose columns) and
+  JSON export (schemaVersion 3: 16 summary, 37 frame, 10 cluster, 18
+  attribution keys), English + Chinese, plus the empty state; screenshots under
+  build/frame-analyzer/.
+- Gaps: no hardware was available, so live gfxinfo/agent-socket/FrameTimeline
+  capture is unit-tested only; session persistence is bounded JSON rather than
+  Compose's SQLite schema (internal format only); artifact missing-capability
+  limitations are folded into provenance warnings; exported JSON maps are
+  sorted (same keys/values, different insertion order); the 980px narrow
+  layout truncates the fixed three-column body below Compose's 1280px minimum
+  window; gpui has no floating tooltip, so problem-frame evidence is available
+  through the detail copy action; the old generic Frame import page code is
+  now unreachable and awaits cleanup.
 ### Network digest-bound minimized page cache slice — 2026-11-06
 
 - `HarSession::open` now computes and retains the selected HAR's SHA-256

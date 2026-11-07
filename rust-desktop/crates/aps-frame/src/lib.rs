@@ -1,4 +1,17 @@
-//! Offline gfxinfo FrameStats import with explicit evidence and budget provenance.
+//! Frame Analyzer engine: Compose frame-profiler parity modules plus the legacy
+//! offline gfxinfo FrameStats import with explicit evidence and budget provenance.
+//!
+//! The Compose-faithful modules are `model`, `gfxinfo`, `analysis` and
+//! `frame_timeline`. Most of their items are re-exported at the crate root;
+//! the exceptions are the names that still belong to the legacy import API
+//! (`FrameStages`, `AnalyzedFrame`, `FrameSummary`, `DeadlineMissCluster`),
+//! which stay at `aps_frame::model::FrameStages` and
+//! `aps_frame::analysis::{AnalyzedFrame, FrameSummary, DeadlineMissCluster}`
+//! until the old import page is removed.
+pub mod analysis;
+pub mod frame_timeline;
+pub mod gfxinfo;
+pub mod model;
 mod parser;
 
 use std::fs::File;
@@ -390,3 +403,22 @@ fn percentile(values: &[u64], percentile: usize) -> Option<u64> {
         .get((values.len() * percentile).div_ceil(100).saturating_sub(1))
         .copied()
 }
+
+// Compose-parity surface. The legacy names above keep the crate root; the four
+// colliding Compose types stay in their modules:
+// - `aps_frame::model::FrameStages`
+// - `aps_frame::analysis::{AnalyzedFrame, FrameSummary, DeadlineMissCluster}`
+pub use analysis::{
+    FRAME_TIMELINE_JANK_TAG, FRAME_TIMELINE_PRESENT_TYPE, FrameAnalysisResult, FrameAttribution,
+    FrameAttributionAnalyzer, FrameDeadlineVerdict, FrameJankAnalyzer, FrameJankCorrelation,
+    FrameJankStatsCorrelator, FrameTimelineStatus, FrameViewFilter, JankSeverity, JankStatsMatch,
+    JankStatsObservation, filter_analysis, format_millis, frame_timeline_status, is_problem_frame,
+};
+pub use frame_timeline::{
+    FrameTimelineCapabilities, FrameTimelineResult, FrameTimelineRow, map_timeline_rows,
+};
+pub use gfxinfo::{GfxInfoParse, parse_gfxinfo};
+pub use model::{
+    ExpectedDurationSource, FrameCaptureSession, FrameSample, FrameSource, FrameSourceCapabilities,
+    JankType,
+};
