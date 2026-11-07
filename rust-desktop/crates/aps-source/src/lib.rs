@@ -22,5 +22,7 @@ pub use indexer::StructuralSourceIndexer;
 pub use model::*;
 pub use paths::validate_relative_source_path;
 pub use provider::{LocalSourceProvider, SourceProvider, SourceProviderRegistry};
-pub use repository::{InMemorySourceRepository, SourceRepository};
+pub use repository::{
+    InMemorySourceRepository, SourceRepository, SymbolNameSeparator, MAX_LOOKUP_CANDIDATES,
+};
 pub use resolver::IndexedSourceResolver;

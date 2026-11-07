@@ -5,7 +5,7 @@ use aps_source::{
     PerformanceEvidenceId, ResolutionCandidate, ResolutionCandidateId, ResolutionConfidence,
     SourceFile, SourceLanguage, SourceProviderConfig, SourceProviderKind, SourceRepository,
     SourceSnapshot, SourceSnapshotId, SourceSymbol, SourceSymbolKind, SourceWorkspace,
-    SourceWorkspaceId, SourceWorkspacePhase,
+    SourceWorkspaceId, SourceWorkspacePhase, SymbolNameSeparator,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
@@ -13,8 +13,6 @@ const MAX_PATH_BYTES: usize = 4096;
 const MAX_REASON_BYTES: usize = 512;
 const MAX_REASONS: usize = 32;
 const MAX_WORKSPACES: usize = 10_000;
-const MAX_FILES: usize = 100_000;
-const MAX_SYMBOLS: usize = 1_000_000;
 
 fn bounded(value: &str, label: &str, limit: usize) -> Result<(), String> {
     if value.len() > limit || value.chars().any(char::is_control) {
@@ -137,6 +135,76 @@ fn symbol_kind_name(kind: SourceSymbolKind) -> &'static str {
         SourceSymbolKind::Resource => "Resource",
         SourceSymbolKind::NativeSymbol => "NativeSymbol",
     }
+}
+
+type FileRow = (String, String, String, i64);
+type SymbolRow = (String, String, String, Option<String>, i64, i64);
+
+fn decode_source_file(snapshot_id: SourceSnapshotId, raw: FileRow) -> Result<SourceFile, String> {
+    source_path(&raw.0)?;
+    Ok(SourceFile {
+        snapshot_id,
+        relative_path: raw.0,
+        language: parse_language(&raw.1)?,
+        content_hash: canonical_digest(&raw.2, "stored source content hash")?,
+        size_bytes: non_negative(raw.3, "source file size")?,
+    })
+}
+
+fn decode_source_files<I>(rows: I, snapshot_id: SourceSnapshotId) -> Result<Vec<SourceFile>, String>
+where
+    I: Iterator<Item = rusqlite::Result<FileRow>>,
+{
+    let mut files = Vec::new();
+    for row in rows {
+        files.push(decode_source_file(
+            snapshot_id,
+            row.map_err(|_| "invalid source file row")?,
+        )?);
+    }
+    Ok(files)
+}
+
+fn decode_source_symbol(
+    snapshot_id: SourceSnapshotId,
+    raw: SymbolRow,
+) -> Result<SourceSymbol, String> {
+    source_path(&raw.0)?;
+    required_text(&raw.2, "stored source symbol qualified name", 4096)?;
+    if let Some(signature) = &raw.3 {
+        bounded(signature, "stored source symbol signature", 16 * 1024)?;
+    }
+    let start_line = non_negative(raw.4, "source symbol start line")?;
+    let end_line = non_negative(raw.5, "source symbol end line")?;
+    if start_line == 0 || end_line < start_line {
+        return Err("stored source symbol line range is invalid".into());
+    }
+    Ok(SourceSymbol {
+        snapshot_id,
+        relative_path: raw.0,
+        kind: parse_symbol_kind(&raw.1)?,
+        qualified_name: raw.2,
+        signature: raw.3,
+        start_line: start_line as usize,
+        end_line: end_line as usize,
+    })
+}
+
+fn decode_source_symbols<I>(
+    rows: I,
+    snapshot_id: SourceSnapshotId,
+) -> Result<Vec<SourceSymbol>, String>
+where
+    I: Iterator<Item = rusqlite::Result<SymbolRow>>,
+{
+    let mut symbols = Vec::new();
+    for row in rows {
+        symbols.push(decode_source_symbol(
+            snapshot_id,
+            row.map_err(|_| "invalid source symbol row")?,
+        )?);
+    }
+    Ok(symbols)
 }
 
 fn parse_symbol_kind(value: &str) -> Result<SourceSymbolKind, String> {
@@ -309,6 +377,46 @@ fn decode_workspace(row: WorkspaceRow) -> Result<SourceWorkspace, String> {
 
 const WORKSPACE_COLUMNS: &str = "id,display_name,provider_kind,local_root,github_owner,github_repository,provider_ref,credential_key,aosp_project,active_snapshot_id,phase,progress,message,allow_ai_source_upload";
 
+pub(crate) fn dot_short_name(qualified_name: &str) -> &str {
+    qualified_name.rsplit('.').next().unwrap_or(qualified_name)
+}
+
+pub(crate) fn native_short_name(qualified_name: &str) -> &str {
+    qualified_name.rsplit("::").next().unwrap_or(qualified_name)
+}
+
+fn validate_file_for_snapshot(
+    file: &SourceFile,
+    snapshot_id: SourceSnapshotId,
+) -> Result<(), String> {
+    if file.snapshot_id != snapshot_id {
+        return Err("source file belongs to a different snapshot".into());
+    }
+    source_path(&file.relative_path)?;
+    sql_integer(file.size_bytes, "source file size")?;
+    Ok(())
+}
+
+fn validate_symbol_for_snapshot(
+    item: &SourceSymbol,
+    snapshot_id: SourceSnapshotId,
+) -> Result<(), String> {
+    if item.snapshot_id != snapshot_id {
+        return Err("source symbol belongs to a different snapshot".into());
+    }
+    source_path(&item.relative_path)?;
+    required_text(&item.qualified_name, "source symbol qualified name", 4096)?;
+    if let Some(signature) = &item.signature {
+        bounded(signature, "source symbol signature", 16 * 1024)?;
+    }
+    if item.start_line == 0 || item.end_line < item.start_line {
+        return Err("source symbol line range is invalid".into());
+    }
+    sql_integer(item.start_line as u64, "source symbol start line")?;
+    sql_integer(item.end_line as u64, "source symbol end line")?;
+    Ok(())
+}
+
 impl SourceRepository for Storage {
     fn save_workspace(&mut self, workspace: &SourceWorkspace) -> Result<(), String> {
         required_text(
@@ -417,12 +525,6 @@ impl SourceRepository for Storage {
         )?;
         let created_ms = sql_integer(snapshot.created_unix_ms, "source snapshot timestamp")?;
         let index_version = sql_integer(snapshot.index_version, "source index version")?;
-        if files.len() > MAX_FILES {
-            return Err("source snapshot exceeds the supported file bound".into());
-        }
-        if symbols.len() > MAX_SYMBOLS {
-            return Err("source snapshot exceeds the supported symbol bound".into());
-        }
         for file in files {
             if file.snapshot_id != snapshot.id {
                 return Err("source file belongs to a different snapshot".into());
@@ -494,7 +596,7 @@ impl SourceRepository for Storage {
         }
         {
             let mut statement = transaction
-                .prepare("INSERT INTO source_symbols(snapshot_id,relative_path,kind,qualified_name,signature,start_line,end_line) VALUES(?1,?2,?3,?4,?5,?6,?7)")
+                .prepare("INSERT INTO source_symbols(snapshot_id,relative_path,kind,qualified_name,signature,start_line,end_line,dot_name,native_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)")
                 .map_err(|_| "cannot prepare source symbol insertion")?;
             for item in symbols {
                 statement
@@ -506,6 +608,8 @@ impl SourceRepository for Storage {
                         item.signature,
                         item.start_line as i64,
                         item.end_line as i64,
+                        dot_short_name(&item.qualified_name),
+                        native_short_name(&item.qualified_name),
                     ])
                     .map_err(|_| "cannot persist source snapshot symbol")?;
             }
@@ -561,7 +665,7 @@ impl SourceRepository for Storage {
     fn files(&self, snapshot_id: SourceSnapshotId) -> Result<Vec<SourceFile>, String> {
         let mut statement = self
             .connection
-            .prepare("SELECT relative_path,language,content_hash,size_bytes FROM source_files WHERE snapshot_id=?1 ORDER BY relative_path LIMIT 100001")
+            .prepare("SELECT relative_path,language,content_hash,size_bytes FROM source_files WHERE snapshot_id=?1 ORDER BY relative_path")
             .map_err(|_| "cannot prepare source file listing")?;
         let values = statement
             .query_map([snapshot_id.to_hex()], |row| {
@@ -577,9 +681,6 @@ impl SourceRepository for Storage {
         for value in values {
             let raw = value.map_err(|_| "invalid source file row")?;
             source_path(&raw.0)?;
-            if files.len() == MAX_FILES {
-                return Err("stored source files exceed the supported bound".into());
-            }
             files.push(SourceFile {
                 snapshot_id,
                 relative_path: raw.0,
@@ -594,7 +695,7 @@ impl SourceRepository for Storage {
     fn symbols(&self, snapshot_id: SourceSnapshotId) -> Result<Vec<SourceSymbol>, String> {
         let mut statement = self
             .connection
-            .prepare("SELECT relative_path,kind,qualified_name,signature,start_line,end_line FROM source_symbols WHERE snapshot_id=?1 ORDER BY relative_path,start_line LIMIT 1000001")
+            .prepare("SELECT relative_path,kind,qualified_name,signature,start_line,end_line FROM source_symbols WHERE snapshot_id=?1 ORDER BY relative_path,start_line")
             .map_err(|_| "cannot prepare source symbol listing")?;
         let values = statement
             .query_map([snapshot_id.to_hex()], |row| {
@@ -613,9 +714,6 @@ impl SourceRepository for Storage {
             let raw = value.map_err(|_| "invalid source symbol row")?;
             source_path(&raw.0)?;
             required_text(&raw.2, "stored source symbol qualified name", 4096)?;
-            if symbols.len() == MAX_SYMBOLS {
-                return Err("stored source symbols exceed the supported bound".into());
-            }
             let start_line = non_negative(raw.4, "source symbol start line")?;
             let end_line = non_negative(raw.5, "source symbol end line")?;
             if start_line == 0 || end_line < start_line {
@@ -632,6 +730,232 @@ impl SourceRepository for Storage {
             });
         }
         Ok(symbols)
+    }
+
+    fn file(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        relative_path: &str,
+    ) -> Result<Option<SourceFile>, String> {
+        let raw: Option<(String, String, String, i64)> = self
+            .connection
+            .query_row(
+                "SELECT relative_path,language,content_hash,size_bytes FROM source_files WHERE snapshot_id=?1 AND relative_path=?2",
+                params![snapshot_id.to_hex(), relative_path],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| "cannot read source file")?;
+        raw.map(|raw| decode_source_file(snapshot_id, raw))
+            .transpose()
+    }
+
+    fn files_named(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        file_name: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceFile>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT relative_path,language,content_hash,size_bytes FROM source_files \
+                 WHERE snapshot_id=?1 AND (relative_path=?2 OR substr(relative_path,-length(?2)-1)='/'||?2) \
+                 ORDER BY relative_path LIMIT ?3",
+            )
+            .map_err(|_| "cannot prepare source file name lookup")?;
+        decode_source_files(
+            statement
+                .query_map(
+                    params![snapshot_id.to_hex(), file_name, limit as i64],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(|_| "cannot query source files by name")?,
+            snapshot_id,
+        )
+    }
+
+    fn files_with_suffix(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        suffix: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceFile>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT relative_path,language,content_hash,size_bytes FROM source_files \
+                 WHERE snapshot_id=?1 AND (relative_path=?2 OR substr(relative_path,-length(?2)) = ?2) \
+                 ORDER BY relative_path LIMIT ?3",
+            )
+            .map_err(|_| "cannot prepare source file suffix lookup")?;
+        decode_source_files(
+            statement
+                .query_map(params![snapshot_id.to_hex(), suffix, limit as i64], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
+                .map_err(|_| "cannot query source files by suffix")?,
+            snapshot_id,
+        )
+    }
+
+    fn symbols_qualified(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        kind: SourceSymbolKind,
+        qualified_name: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceSymbol>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT relative_path,kind,qualified_name,signature,start_line,end_line FROM source_symbols \
+                 WHERE snapshot_id=?1 AND kind=?2 AND qualified_name=?3 \
+                 ORDER BY relative_path,start_line LIMIT ?4",
+            )
+            .map_err(|_| "cannot prepare qualified symbol lookup")?;
+        let mut symbols = decode_source_symbols(
+            statement
+                .query_map(
+                    params![
+                        snapshot_id.to_hex(),
+                        symbol_kind_name(kind),
+                        qualified_name,
+                        limit as i64
+                    ],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .map_err(|_| "cannot query symbols by qualified name")?,
+            snapshot_id,
+        )?;
+        symbols.sort_by(|left, right| {
+            left.relative_path
+                .cmp(&right.relative_path)
+                .then(left.start_line.cmp(&right.start_line))
+        });
+        Ok(symbols)
+    }
+
+    fn symbols_with_short_name(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        kinds: &[SourceSymbolKind],
+        name: &str,
+        separator: SymbolNameSeparator,
+        limit: usize,
+    ) -> Result<Vec<SourceSymbol>, String> {
+        if limit == 0 || kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut sql = String::from(
+            "SELECT relative_path,kind,qualified_name,signature,start_line,end_line FROM source_symbols WHERE snapshot_id=? AND kind IN (",
+        );
+        let mut values: Vec<rusqlite::types::Value> =
+            vec![rusqlite::types::Value::Text(snapshot_id.to_hex())];
+        for (index, kind) in kinds.iter().enumerate() {
+            if index > 0 {
+                sql.push(',');
+            }
+            sql.push('?');
+            values.push(rusqlite::types::Value::Text(
+                symbol_kind_name(*kind).to_owned(),
+            ));
+        }
+        let column = match separator {
+            SymbolNameSeparator::Dot => "dot_name",
+            SymbolNameSeparator::DoubleColon => "native_name",
+        };
+        sql.push_str(") AND ");
+        sql.push_str(column);
+        sql.push_str("=? LIMIT ?");
+        values.push(rusqlite::types::Value::Text(name.to_owned()));
+        values.push(rusqlite::types::Value::Integer(limit as i64));
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(|_| "cannot prepare short symbol lookup")?;
+        let mut symbols = decode_source_symbols(
+            statement
+                .query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                })
+                .map_err(|_| "cannot query symbols by short name")?,
+            snapshot_id,
+        )?;
+        symbols.sort_by(|left, right| {
+            left.relative_path
+                .cmp(&right.relative_path)
+                .then(left.start_line.cmp(&right.start_line))
+        });
+        Ok(symbols)
+    }
+
+    fn symbols_in_file(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        relative_path: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceSymbol>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT relative_path,kind,qualified_name,signature,start_line,end_line FROM source_symbols \
+                 WHERE snapshot_id=?1 AND relative_path=?2 ORDER BY start_line LIMIT ?3",
+            )
+            .map_err(|_| "cannot prepare file symbol lookup")?;
+        decode_source_symbols(
+            statement
+                .query_map(
+                    params![snapshot_id.to_hex(), relative_path, limit as i64],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .map_err(|_| "cannot query symbols in file")?,
+            snapshot_id,
+        )
     }
 
     fn save_candidates(&mut self, candidates: &[ResolutionCandidate]) -> Result<(), String> {
@@ -788,5 +1112,189 @@ impl SourceRepository for Storage {
             index_version: non_negative(raw.9, "resolution candidate index version")?,
             index_complete: raw.10,
         }))
+    }
+}
+
+/// Streaming source-snapshot persistence used by the indexer. Large trees are
+/// inserted in bounded batches so the indexing pass never keeps the whole
+/// symbol list in RAM; the one-shot save_snapshot API remains for callers that
+/// already hold a complete, bounded snapshot.
+impl Storage {
+    pub fn begin_snapshot(&mut self, snapshot: &SourceSnapshot) -> Result<(), String> {
+        let snapshot_id = snapshot.id.to_hex();
+        bounded(
+            &snapshot.immutable_revision,
+            "source immutable revision",
+            MAX_PATH_BYTES,
+        )?;
+        let created_ms = sql_integer(snapshot.created_unix_ms, "source snapshot timestamp")?;
+        let index_version = sql_integer(snapshot.index_version, "source index version")?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| "cannot begin source snapshot transaction")?;
+        transaction
+            .execute(
+                "INSERT OR REPLACE INTO source_snapshots(id,workspace_id,immutable_revision,dirty_content_digest,manifest_hash,created_ms,index_version,index_complete) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    snapshot_id,
+                    snapshot.workspace_id.to_hex(),
+                    snapshot.immutable_revision,
+                    snapshot.dirty_content_digest.map(|digest| digest.to_hex()),
+                    snapshot.manifest_hash.to_hex(),
+                    created_ms,
+                    index_version,
+                    snapshot.index_complete,
+                ],
+            )
+            .map_err(|_| "cannot persist source snapshot; workspace must exist")?;
+        transaction
+            .execute(
+                "DELETE FROM source_files WHERE snapshot_id=?1",
+                [&snapshot_id],
+            )
+            .map_err(|_| "cannot reset source snapshot files")?;
+        transaction
+            .execute(
+                "DELETE FROM source_symbols WHERE snapshot_id=?1",
+                [&snapshot_id],
+            )
+            .map_err(|_| "cannot reset source snapshot symbols")?;
+        transaction
+            .commit()
+            .map_err(|_| "cannot commit source snapshot metadata".into())
+    }
+
+    pub fn append_files(
+        &mut self,
+        snapshot_id: SourceSnapshotId,
+        files: &[SourceFile],
+    ) -> Result<(), String> {
+        if files.is_empty() {
+            return Ok(());
+        }
+        for file in files {
+            validate_file_for_snapshot(file, snapshot_id)?;
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| "cannot begin source file batch transaction")?;
+        {
+            let mut statement = transaction
+                .prepare("INSERT OR REPLACE INTO source_files(snapshot_id,relative_path,language,content_hash,size_bytes) VALUES(?1,?2,?3,?4,?5)")
+                .map_err(|_| "cannot prepare source file insertion")?;
+            for file in files {
+                statement
+                    .execute(params![
+                        snapshot_id.to_hex(),
+                        file.relative_path,
+                        language_name(file.language),
+                        file.content_hash.to_hex(),
+                        sql_integer(file.size_bytes, "source file size")?,
+                    ])
+                    .map_err(|_| "cannot persist source snapshot file")?;
+            }
+        }
+        transaction
+            .commit()
+            .map_err(|_| "cannot commit source file batch".into())
+    }
+
+    pub fn append_symbols(
+        &mut self,
+        snapshot_id: SourceSnapshotId,
+        symbols: &[SourceSymbol],
+    ) -> Result<(), String> {
+        if symbols.is_empty() {
+            return Ok(());
+        }
+        for item in symbols {
+            validate_symbol_for_snapshot(item, snapshot_id)?;
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| "cannot begin source symbol batch transaction")?;
+        {
+            let mut statement = transaction
+                .prepare("INSERT INTO source_symbols(snapshot_id,relative_path,kind,qualified_name,signature,start_line,end_line,dot_name,native_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)")
+                .map_err(|_| "cannot prepare source symbol insertion")?;
+            for item in symbols {
+                statement
+                    .execute(params![
+                        snapshot_id.to_hex(),
+                        item.relative_path,
+                        symbol_kind_name(item.kind),
+                        item.qualified_name,
+                        item.signature,
+                        item.start_line as i64,
+                        item.end_line as i64,
+                        dot_short_name(&item.qualified_name),
+                        native_short_name(&item.qualified_name),
+                    ])
+                    .map_err(|_| "cannot persist source snapshot symbol")?;
+            }
+        }
+        transaction
+            .commit()
+            .map_err(|_| "cannot commit source symbol batch".into())
+    }
+
+    pub fn snapshot_counts(&self, snapshot_id: SourceSnapshotId) -> Result<(usize, usize), String> {
+        let files: i64 = self
+            .connection
+            .query_row(
+                "SELECT count(*) FROM source_files WHERE snapshot_id=?1",
+                [snapshot_id.to_hex()],
+                |row| row.get(0),
+            )
+            .map_err(|_| "cannot count source snapshot files")?;
+        let symbols: i64 = self
+            .connection
+            .query_row(
+                "SELECT count(*) FROM source_symbols WHERE snapshot_id=?1",
+                [snapshot_id.to_hex()],
+                |row| row.get(0),
+            )
+            .map_err(|_| "cannot count source snapshot symbols")?;
+        Ok((
+            usize::try_from(files).map_err(|_| "source file count exceeds bounds")?,
+            usize::try_from(symbols).map_err(|_| "source symbol count exceeds bounds")?,
+        ))
+    }
+
+    /// Removes an in-flight snapshot after a failed refresh; the previous active
+    /// snapshot and its candidate rows remain untouched.
+    pub fn delete_snapshot(&mut self, id: SourceSnapshotId) -> Result<(), String> {
+        let snapshot_id = id.to_hex();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| "cannot begin source snapshot cleanup transaction")?;
+        transaction
+            .execute(
+                "DELETE FROM source_symbols WHERE snapshot_id=?1",
+                [&snapshot_id],
+            )
+            .map_err(|_| "cannot remove incomplete source symbols")?;
+        transaction
+            .execute(
+                "DELETE FROM source_files WHERE snapshot_id=?1",
+                [&snapshot_id],
+            )
+            .map_err(|_| "cannot remove incomplete source files")?;
+        transaction
+            .execute(
+                "DELETE FROM source_candidates WHERE snapshot_id=?1",
+                [&snapshot_id],
+            )
+            .map_err(|_| "cannot remove incomplete source candidates")?;
+        transaction
+            .execute("DELETE FROM source_snapshots WHERE id=?1", [&snapshot_id])
+            .map_err(|_| "cannot remove incomplete source snapshot")?;
+        transaction
+            .commit()
+            .map_err(|_| "cannot commit source snapshot cleanup".into())
     }
 }

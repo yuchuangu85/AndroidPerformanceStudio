@@ -19,6 +19,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Compose updates live progress at most every 100 indexed files.
 const PROGRESS_UPDATE_INTERVAL: usize = 100;
+/// Files are flushed to SQLite in bounded batches so indexing a large tree never
+/// accumulates every file or symbol in RAM.
+const FILE_BATCH_SIZE: usize = 64;
+const SYMBOL_BATCH_SIZE: usize = 20_000;
 const CACHE_DIRECTORY: &str = "source-cache";
 
 static WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -106,6 +110,7 @@ pub(super) fn refresh(
     let registry = SourceProviderRegistry::local();
     let cache = ContentAddressedSourceCache::new(paths.cache_root()?);
     let indexer = StructuralSourceIndexer;
+    let mut pending_snapshot: Option<SourceSnapshotId> = None;
     let outcome = (|| -> Result<SourceWorkspace, String> {
         publish(
             &mut storage,
@@ -147,34 +152,6 @@ pub(super) fn refresh(
             revision,
             manifest_hash.to_hex()
         )));
-        let mut files = Vec::with_capacity(provider_files.len());
-        let mut symbols = Vec::new();
-        for (index, provider_file) in provider_files.iter().enumerate() {
-            let content =
-                provider.read_file(&initial.config, &revision, &provider_file.relative_path)?;
-            let content_hash = cache.put(&content)?;
-            let text = String::from_utf8_lossy(&content).into_owned();
-            let source_file = SourceFile {
-                snapshot_id,
-                relative_path: provider_file.relative_path.clone(),
-                language: SourceLanguage::from_path(&provider_file.relative_path),
-                content_hash,
-                size_bytes: content.len() as u64,
-            };
-            symbols.extend(indexer.index(&source_file, &text, usize::MAX));
-            files.push(source_file);
-            if index == provider_files.len() - 1 || index % PROGRESS_UPDATE_INTERVAL == 0 {
-                let fraction = (index + 1) as f32 / provider_files.len() as f32;
-                publish(
-                    &mut storage,
-                    &initial,
-                    SourceWorkspacePhase::Indexing,
-                    0.1 + 0.85 * fraction,
-                    Some(format!("{}/{}", index + 1, provider_files.len())),
-                    progress,
-                )?;
-            }
-        }
         let created_unix_ms = now_unix_ms()?;
         let (immutable_revision, dirty_content_digest) = split_revision(&revision)?;
         let snapshot = SourceSnapshot {
@@ -187,12 +164,95 @@ pub(super) fn refresh(
             index_version: created_unix_ms,
             index_complete: true,
         };
-        storage.save_snapshot(&snapshot, &files, &symbols)?;
+        // Refreshing an unchanged tree keeps the same content-addressed
+        // snapshot. Reuse the indexed rows instead of rewriting (and briefly
+        // exposing an incomplete active snapshot).
+        if storage
+            .snapshot(snapshot_id)?
+            .is_some_and(|existing| existing.index_complete)
+        {
+            let (files_count, symbols_count) = storage.snapshot_counts(snapshot_id)?;
+            let mut ready = initial.clone();
+            ready.active_snapshot_id = Some(snapshot_id);
+            ready.phase = SourceWorkspacePhase::Ready;
+            ready.progress = 1.0;
+            ready.message = Some(format!("{files_count} files · {symbols_count} symbols"));
+            storage.save_workspace(&ready)?;
+            progress(Progress {
+                phase: ready.phase,
+                progress: ready.progress,
+                message: ready.message.clone(),
+            });
+            return Ok(ready);
+        }
+        storage.begin_snapshot(&snapshot)?;
+        pending_snapshot = Some(snapshot_id);
+        let mut file_batch = Vec::new();
+        let mut symbol_batch = Vec::new();
+        let mut file_count = 0usize;
+        let mut symbol_count = 0usize;
+        for (index, provider_file) in provider_files.iter().enumerate() {
+            let content =
+                provider.read_file(&initial.config, &revision, &provider_file.relative_path)?;
+            let content_hash = cache.put(&content)?;
+            let text = String::from_utf8_lossy(&content).into_owned();
+            let source_file = SourceFile {
+                snapshot_id,
+                relative_path: provider_file.relative_path.clone(),
+                language: SourceLanguage::from_path(&provider_file.relative_path),
+                content_hash,
+                size_bytes: content.len() as u64,
+            };
+            let mut indexed = indexer.index(&source_file, &text, usize::MAX);
+            for symbol in &mut indexed {
+                if let Some(signature) = symbol.signature.as_mut() {
+                    *signature = bounded_signature(signature);
+                    if signature.is_empty() {
+                        symbol.signature = None;
+                    }
+                }
+            }
+            symbol_count += indexed.len();
+            symbol_batch.extend(indexed);
+            file_batch.push(source_file);
+            file_count += 1;
+            let last = index + 1 == provider_files.len();
+            let flush = last
+                || index % FILE_BATCH_SIZE == FILE_BATCH_SIZE - 1
+                || symbol_batch.len() >= SYMBOL_BATCH_SIZE;
+            if flush {
+                storage.append_files(snapshot_id, &file_batch)?;
+                storage.append_symbols(snapshot_id, &symbol_batch)?;
+                file_batch.clear();
+                symbol_batch.clear();
+            }
+            if last || index % PROGRESS_UPDATE_INTERVAL == 0 {
+                let fraction = (index + 1) as f32 / provider_files.len() as f32;
+                publish(
+                    &mut storage,
+                    &initial,
+                    SourceWorkspacePhase::Indexing,
+                    0.1 + 0.85 * fraction,
+                    Some(format!(
+                        "{}/{} · {} symbols",
+                        index + 1,
+                        provider_files.len(),
+                        symbol_count
+                    )),
+                    progress,
+                )?;
+            }
+        }
+        if !file_batch.is_empty() || !symbol_batch.is_empty() {
+            storage.append_files(snapshot_id, &file_batch)?;
+            storage.append_symbols(snapshot_id, &symbol_batch)?;
+        }
+        pending_snapshot = None;
         let mut ready = initial.clone();
         ready.active_snapshot_id = Some(snapshot_id);
         ready.phase = SourceWorkspacePhase::Ready;
         ready.progress = 1.0;
-        ready.message = Some(format!("{} files · {} symbols", files.len(), symbols.len()));
+        ready.message = Some(format!("{file_count} files · {symbol_count} symbols"));
         storage.save_workspace(&ready)?;
         progress(Progress {
             phase: ready.phase,
@@ -204,6 +264,9 @@ pub(super) fn refresh(
     match outcome {
         Ok(workspace) => Ok(workspace),
         Err(error) => {
+            if let Some(snapshot_id) = pending_snapshot {
+                let _ = storage.delete_snapshot(snapshot_id);
+            }
             let mut failed = initial.clone();
             failed.phase = SourceWorkspacePhase::Failed;
             failed.progress = 0.0;
@@ -350,6 +413,25 @@ fn publish(
         message: workspace.message,
     });
     Ok(())
+}
+
+/// Kotlin/Java parameter lists can span lines. The storage contract keeps
+/// signatures control-free and bounded; normalize instead of failing a whole
+/// project index for a multi-line parameter list.
+fn bounded_signature(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len().min(16 * 1024));
+    for character in value.chars() {
+        let character = if character.is_control() {
+            ' '
+        } else {
+            character
+        };
+        if normalized.len() + character.len_utf8() > 16 * 1024 {
+            break;
+        }
+        normalized.push(character);
+    }
+    normalized.trim().to_owned()
 }
 
 fn split_revision(revision: &str) -> Result<(String, Option<SourceDigest>), String> {
@@ -618,5 +700,128 @@ mod tests {
         assert!(add_local(&paths, fixture.project(), "Fixture".into(), &mut |_| {}).is_err());
         assert!(remove(&paths, SourceWorkspaceId::from_digest(digest_text("ws"))).is_err());
         assert!(resolve(&paths, &[], &[]).is_err());
+    }
+
+    #[test]
+    #[ignore = "manual large-workspace smoke; requires APS_AOSP_SMOKE_DIR/APS_AOSP_ROOT"]
+    fn manual_aosp_streaming_smoke() {
+        let data_dir = PathBuf::from(
+            std::env::var("APS_AOSP_SMOKE_DIR").expect("APS_AOSP_SMOKE_DIR is required"),
+        );
+        let root = std::env::var("APS_AOSP_ROOT").expect("APS_AOSP_ROOT is required");
+        let paths = SourcePaths {
+            database: Some(data_dir.join("aps-metadata.sqlite3")),
+            data_dir: Some(data_dir.clone()),
+        };
+        let workspace = load_workspaces(&paths)
+            .unwrap()
+            .into_iter()
+            .find(|workspace| {
+                matches!(&workspace.config, SourceProviderConfig::Local { root: candidate } if candidate == &root)
+            })
+            .expect("AOSP workspace is missing from the smoke database");
+        let started = std::time::Instant::now();
+        let mut last_bucket = -1i32;
+        let refreshed = refresh(&paths, workspace.id, &mut |progress| {
+            let bucket = (progress.progress * 10.0) as i32;
+            if bucket != last_bucket {
+                last_bucket = bucket;
+                eprintln!(
+                    "progress {:?} {:.1}% {}",
+                    progress.phase,
+                    progress.progress * 100.0,
+                    progress.message.as_deref().unwrap_or("")
+                );
+            }
+        })
+        .unwrap();
+        eprintln!(
+            "elapsed {:?} phase {:?} message {:?}",
+            started.elapsed(),
+            refreshed.phase,
+            refreshed.message
+        );
+        let snapshot_id = refreshed
+            .active_snapshot_id
+            .expect("successful refresh publishes a snapshot");
+        let storage = Storage::open(&data_dir.join("aps-metadata.sqlite3")).unwrap();
+        let (files, symbols) = storage.snapshot_counts(snapshot_id).unwrap();
+        eprintln!("stored files {files} symbols {symbols}");
+        let rss = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|value| value.trim().to_owned())
+            .unwrap_or_default();
+        eprintln!("test process RSS {rss} KiB");
+        assert_eq!(refreshed.phase, SourceWorkspacePhase::Ready);
+        assert!(files > 1000);
+        assert!(symbols > 0);
+
+        // Bounded lookups: resolve representative evidence without loading the
+        // 1.5M-symbol snapshot into memory.
+        let java_hash = |value: &str| {
+            let mut hash: i32 = 0;
+            for unit in value.encode_utf16() {
+                hash = hash.wrapping_mul(31).wrapping_add(i32::from(unit));
+            }
+            hash.wrapping_abs() as u32
+        };
+        let evidence = [
+            (
+                "type",
+                SourceResolutionEvidence::TypeName {
+                    id: PerformanceEvidenceId::from_hex(&"91".repeat(32)).unwrap(),
+                    qualified_name: "android.widget.FrameLayout".into(),
+                },
+            ),
+            (
+                "method",
+                SourceResolutionEvidence::ManagedSymbol {
+                    id: PerformanceEvidenceId::from_hex(&"92".repeat(32)).unwrap(),
+                    class_name: Some("android.widget.FrameLayout".into()),
+                    method_name: "onLayout".into(),
+                    signature: None,
+                    resource_path: None,
+                },
+            ),
+            (
+                "file-line",
+                SourceResolutionEvidence::SourceFileLine {
+                    id: PerformanceEvidenceId::from_hex(&"93".repeat(32)).unwrap(),
+                    file_name: "FrameLayout.java".into(),
+                    package_hash: java_hash("android.widget"),
+                    line: 10,
+                },
+            ),
+        ];
+        let mut total_candidates = 0usize;
+        for (label, item) in evidence {
+            let started = std::time::Instant::now();
+            let candidates = resolve(&paths, &[workspace.id], &[item]).unwrap();
+            eprintln!(
+                "lookup {label}: {} candidates in {:?}",
+                candidates.len(),
+                started.elapsed()
+            );
+            if let Some(first) = candidates.first() {
+                eprintln!(
+                    "  first: {}:{}",
+                    first.location.relative_path,
+                    first.location.range.map_or(0, |range| range.start_line)
+                );
+            }
+            total_candidates += candidates.len();
+        }
+        let rss = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|value| value.trim().to_owned())
+            .unwrap_or_default();
+        eprintln!("test process RSS after lookups {rss} KiB");
+        assert!(total_candidates > 0);
     }
 }

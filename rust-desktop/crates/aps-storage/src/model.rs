@@ -1,7 +1,7 @@
 use aps_contracts::{ArtifactId, ProfilerSessionId, SourceDigest};
 use aps_json::Value;
 pub const DATABASE_FILE_NAME: &str = "aps-metadata.sqlite3";
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const APPLICATION_ID: i64 = 0x41505352;
 pub const MAX_PAGE_SIZE: usize = 100;
 pub const MAX_METADATA_BYTES: usize = 128 * 1024;

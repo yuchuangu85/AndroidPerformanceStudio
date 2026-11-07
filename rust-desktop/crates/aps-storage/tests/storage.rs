@@ -379,3 +379,256 @@ fn source_repository_round_trips_workspace_snapshot_files_symbols_and_candidates
             .is_err()
     );
 }
+
+#[test]
+fn streaming_snapshot_writes_and_bounded_lookups_match_the_resolver() {
+    use aps_source::{
+        BuildIdentityMatch, InMemorySourceRepository, IndexedSourceResolver, PerformanceEvidenceId,
+        SourceFile, SourceLanguage, SourceProviderConfig, SourceRepository,
+        SourceResolutionEvidence, SourceSnapshot, SourceSnapshotId, SourceSymbol, SourceSymbolKind,
+        SourceWorkspace, SourceWorkspaceId, SourceWorkspacePhase, SymbolNameSeparator,
+    };
+    let fixture = Fixture::new();
+    let mut storage = fixture.storage();
+    let workspace_id = SourceWorkspaceId::from_hex(&"71".repeat(32)).unwrap();
+    let snapshot_id = SourceSnapshotId::from_hex(&"72".repeat(32)).unwrap();
+    let workspace = SourceWorkspace {
+        id: workspace_id,
+        display_name: "Streaming".into(),
+        config: SourceProviderConfig::Local {
+            root: fixture.0.clone(),
+        },
+        active_snapshot_id: Some(snapshot_id),
+        phase: SourceWorkspacePhase::Ready,
+        progress: 1.0,
+        message: None,
+        allow_ai_source_upload: true,
+    };
+    storage.save_workspace(&workspace).unwrap();
+    let snapshot = SourceSnapshot {
+        id: snapshot_id,
+        workspace_id,
+        immutable_revision: "b".repeat(40),
+        dirty_content_digest: None,
+        manifest_hash: SourceDigest::from_bytes([11; 32]),
+        created_unix_ms: 5,
+        index_version: 6,
+        index_complete: true,
+    };
+    let app = "src/main/java/demo/App.java";
+    let xml = "src/main/res/layout/activity_main.xml";
+    let native = "src/main/cpp/native-lib.cpp";
+    let files = vec![
+        SourceFile {
+            snapshot_id,
+            relative_path: app.into(),
+            language: SourceLanguage::Java,
+            content_hash: SourceDigest::from_bytes([12; 32]),
+            size_bytes: 100,
+        },
+        SourceFile {
+            snapshot_id,
+            relative_path: xml.into(),
+            language: SourceLanguage::Xml,
+            content_hash: SourceDigest::from_bytes([13; 32]),
+            size_bytes: 50,
+        },
+        SourceFile {
+            snapshot_id,
+            relative_path: native.into(),
+            language: SourceLanguage::Cpp,
+            content_hash: SourceDigest::from_bytes([14; 32]),
+            size_bytes: 25,
+        },
+    ];
+    let symbols = vec![
+        SourceSymbol {
+            snapshot_id,
+            relative_path: app.into(),
+            kind: SourceSymbolKind::Type,
+            qualified_name: "demo.App".into(),
+            signature: None,
+            start_line: 1,
+            end_line: 1,
+        },
+        SourceSymbol {
+            snapshot_id,
+            relative_path: app.into(),
+            kind: SourceSymbolKind::Function,
+            qualified_name: "demo.App.render".into(),
+            signature: Some("View".into()),
+            start_line: 10,
+            end_line: 12,
+        },
+        SourceSymbol {
+            snapshot_id,
+            relative_path: xml.into(),
+            kind: SourceSymbolKind::Resource,
+            qualified_name: "layout/activity_main".into(),
+            signature: None,
+            start_line: 1,
+            end_line: 1,
+        },
+        SourceSymbol {
+            snapshot_id,
+            relative_path: native.into(),
+            kind: SourceSymbolKind::NativeSymbol,
+            qualified_name: "native::add".into(),
+            signature: Some("int".into()),
+            start_line: 3,
+            end_line: 3,
+        },
+    ];
+    storage.begin_snapshot(&snapshot).unwrap();
+    storage.append_files(snapshot_id, &files[..2]).unwrap();
+    storage.append_files(snapshot_id, &files[2..]).unwrap();
+    storage.append_symbols(snapshot_id, &symbols[..3]).unwrap();
+    storage.append_symbols(snapshot_id, &symbols[3..]).unwrap();
+
+    assert_eq!(
+        storage
+            .file(snapshot_id, app)
+            .unwrap()
+            .unwrap()
+            .relative_path,
+        app
+    );
+    assert_eq!(
+        storage
+            .files_named(snapshot_id, "App.java", 8)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        storage
+            .files_with_suffix(snapshot_id, app, 8)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        storage
+            .symbols_qualified(snapshot_id, SourceSymbolKind::Type, "demo.App", 8)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        storage
+            .symbols_with_short_name(
+                snapshot_id,
+                &[SourceSymbolKind::Function, SourceSymbolKind::Method],
+                "render",
+                SymbolNameSeparator::Dot,
+                8,
+            )
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        storage
+            .symbols_with_short_name(
+                snapshot_id,
+                &[SourceSymbolKind::NativeSymbol],
+                "add",
+                SymbolNameSeparator::DoubleColon,
+                8,
+            )
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        storage.symbols_in_file(snapshot_id, app, 8).unwrap().len(),
+        2
+    );
+    assert_eq!(
+        storage
+            .symbols_with_short_name(
+                snapshot_id,
+                &[SourceSymbolKind::Function],
+                "missing",
+                SymbolNameSeparator::Dot,
+                8,
+            )
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // The persistence-backed overrides and the in-memory repository must
+    // produce the same deterministic resolver candidates.
+    let mut memory = InMemorySourceRepository::default();
+    memory.save_workspace(&workspace).unwrap();
+    memory.save_snapshot(&snapshot, &files, &symbols).unwrap();
+    let evidence = vec![
+        SourceResolutionEvidence::TypeName {
+            id: PerformanceEvidenceId::from_hex(&"81".repeat(32)).unwrap(),
+            qualified_name: "demo.App".into(),
+        },
+        SourceResolutionEvidence::ManagedSymbol {
+            id: PerformanceEvidenceId::from_hex(&"82".repeat(32)).unwrap(),
+            class_name: Some("demo.App".into()),
+            method_name: "render".into(),
+            signature: None,
+            resource_path: None,
+        },
+        SourceResolutionEvidence::AndroidResource {
+            id: PerformanceEvidenceId::from_hex(&"83".repeat(32)).unwrap(),
+            resource_type: "layout".into(),
+            resource_name: "activity_main".into(),
+        },
+        SourceResolutionEvidence::NativeSymbol {
+            id: PerformanceEvidenceId::from_hex(&"84".repeat(32)).unwrap(),
+            symbol_name: "native::add".into(),
+            library_path: None,
+            build_id: None,
+            source_path: Some("/src/main/cpp/native-lib.cpp".into()),
+            source_line: Some(3),
+        },
+    ];
+    let resolver = IndexedSourceResolver;
+    let stored = resolver
+        .resolve(
+            &storage,
+            &[snapshot_id],
+            &evidence,
+            BuildIdentityMatch::Unverified,
+            usize::MAX,
+        )
+        .unwrap();
+    let expected = resolver
+        .resolve(
+            &memory,
+            &[snapshot_id],
+            &evidence,
+            BuildIdentityMatch::Unverified,
+            usize::MAX,
+        )
+        .unwrap();
+    assert_eq!(stored.len(), expected.len());
+    assert_eq!(
+        stored
+            .iter()
+            .map(|candidate| (
+                candidate.location.clone(),
+                candidate.confidence,
+                candidate.reasons.clone()
+            ))
+            .collect::<Vec<_>>(),
+        expected
+            .iter()
+            .map(|candidate| (
+                candidate.location.clone(),
+                candidate.confidence,
+                candidate.reasons.clone()
+            ))
+            .collect::<Vec<_>>()
+    );
+
+    storage.delete_snapshot(snapshot_id).unwrap();
+    assert!(storage.snapshot(snapshot_id).unwrap().is_none());
+    assert!(storage.files(snapshot_id).unwrap().is_empty());
+}

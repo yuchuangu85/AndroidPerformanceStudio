@@ -113,6 +113,65 @@ pub(crate) fn initialize(connection: &mut Connection) -> Result<(), String> {
             )
             .map_err(|_| "metadata schema migration v3 failed; transaction rolled back")?;
     }
+    if version < 4 {
+        // Bounded source lookups: file-local symbol fetch and qualified kind
+        // lookup. No table layout changes, so existing indexed snapshots stay
+        // valid; only indexes are added.
+        transaction
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS source_symbols_file ON source_symbols(snapshot_id,relative_path,start_line);
+        CREATE INDEX IF NOT EXISTS source_symbols_kind_name ON source_symbols(snapshot_id,kind,qualified_name);
+        PRAGMA user_version=4;",
+            )
+            .map_err(|_| "metadata schema migration v4 failed; transaction rolled back")?;
+    }
+    if version < 5 {
+        // Persisted short-name columns power the method/native resolver without
+        // scanning every symbol row. Existing rows are backfilled before the
+        // indexes are built, so the migration touches only the source table.
+        transaction
+            .execute_batch(
+                "ALTER TABLE source_symbols ADD COLUMN dot_name TEXT;
+        ALTER TABLE source_symbols ADD COLUMN native_name TEXT;",
+            )
+            .map_err(|_| "metadata schema migration v5 failed; transaction rolled back")?;
+        let mut last_rowid = 0i64;
+        loop {
+            let rows: Vec<(i64, String)> = {
+                let mut statement = transaction
+                    .prepare(
+                        "SELECT rowid,qualified_name FROM source_symbols WHERE dot_name IS NULL AND rowid>?1 ORDER BY rowid LIMIT 5000",
+                    )
+                    .map_err(|_| "cannot prepare source symbol backfill")?;
+                statement
+                    .query_map([last_rowid], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(|_| "cannot read source symbols for backfill")?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| "cannot decode source symbols for backfill")?
+            };
+            let Some(last) = rows.last() else { break };
+            last_rowid = last.0;
+            let mut update = transaction
+                .prepare("UPDATE source_symbols SET dot_name=?1,native_name=?2 WHERE rowid=?3")
+                .map_err(|_| "cannot prepare source symbol short-name update")?;
+            for (rowid, qualified_name) in rows {
+                update
+                    .execute(rusqlite::params![
+                        crate::sources::dot_short_name(&qualified_name),
+                        crate::sources::native_short_name(&qualified_name),
+                        rowid
+                    ])
+                    .map_err(|_| "cannot store source symbol short name")?;
+            }
+        }
+        transaction
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS source_symbols_dot_name ON source_symbols(snapshot_id,dot_name);
+        CREATE INDEX IF NOT EXISTS source_symbols_native_name ON source_symbols(snapshot_id,native_name);
+        PRAGMA user_version=5;",
+            )
+            .map_err(|_| "metadata schema migration v5 failed; transaction rolled back")?;
+    }
     for query in [
         "SELECT id,source_digest,byte_length,media_type,created_ms,metadata_json FROM artifacts LIMIT 0",
         "SELECT id,label,device_id,process_json,generation,created_ms,last_opened_ms FROM profiler_sessions LIMIT 0",

@@ -16,8 +16,7 @@ use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     base::{
         Scrollbar, ScrollbarAxis, ScrollbarHandle, TextSelection, TextSelectionContentKey,
-        TextSelectionEvent, TextSelectionHandle, TextSelectionLayer, TextSelectionRegistration,
-        TextSelectionRun,
+        TextSelectionEvent, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun,
     },
     component::{
         ActiveTheme, Disableable,
@@ -150,6 +149,13 @@ fn color_for(kind: TokenKind) -> Hsla {
 // ---------------------------------------------------------------------------
 
 fn highlight_source(text: &str, language: CodeLanguage) -> Vec<HighlightedLine> {
+    if let Some(lines) = highlight_with_tree_sitter(text, language) {
+        return lines;
+    }
+    highlight_source_regex(text, language)
+}
+
+fn highlight_source_regex(text: &str, language: CodeLanguage) -> Vec<HighlightedLine> {
     let mut state = LexerState::default();
     let mut lines = Vec::new();
     let mut start = 0usize;
@@ -174,6 +180,273 @@ fn highlight_source(text: &str, language: CodeLanguage) -> Vec<HighlightedLine> 
         });
         state = next;
         start += raw.len() + 1;
+    }
+    lines
+}
+
+// ---------------------------------------------------------------------------
+// Tree-sitter syntax pass (Kotlin/Java/XML/C/C++).
+//
+// The viewer is read-only, so it parses once per opened document and keeps only
+// token spans: the syntax tree is dropped before the lines are rendered and is
+// never cached project-wide. Files above MAX_TREE_SITTER_BYTES and unsupported
+// languages fall back to the line tokenizer above.
+// ---------------------------------------------------------------------------
+
+const MAX_TREE_SITTER_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+struct DocumentToken {
+    start: usize,
+    end: usize,
+    kind: TokenKind,
+}
+
+fn highlight_with_tree_sitter(text: &str, language: CodeLanguage) -> Option<Vec<HighlightedLine>> {
+    let selected = tree_sitter_language(language)?;
+    if text.len() > MAX_TREE_SITTER_BYTES {
+        return None;
+    }
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&selected).ok()?;
+    let tree = parser.parse(text, None)?;
+    let mut tokens = Vec::new();
+    if language == CodeLanguage::Xml {
+        collect_xml_tokens(tree.root_node(), &mut tokens);
+    } else {
+        let mut stack = vec![(tree.root_node(), false)];
+        while let Some((node, in_annotation)) = stack.pop() {
+            if node.end_byte() <= node.start_byte() {
+                continue;
+            }
+            if matches!(language, CodeLanguage::C | CodeLanguage::Cpp)
+                && node.kind().starts_with("preproc")
+            {
+                if let Some(directive) = preprocessor_directive(text, node.byte_range()) {
+                    tokens.push(directive);
+                }
+                continue;
+            }
+            if let Some(kind) = subtree_token_kind(node.kind(), language) {
+                tokens.push(DocumentToken {
+                    start: node.start_byte(),
+                    end: node.end_byte(),
+                    kind,
+                });
+                continue;
+            }
+            let annotation = in_annotation || node.kind().contains("annotation");
+            if node.child_count() == 0 {
+                let range = node.byte_range();
+                let Some(value) = text.get(range.clone()) else {
+                    continue;
+                };
+                if let Some(kind) = leaf_token_kind(node.kind(), value, annotation, language) {
+                    let mut start = node.start_byte();
+                    if annotation && text.as_bytes().get(start.wrapping_sub(1)) == Some(&b'@') {
+                        start = start.saturating_sub(1);
+                    }
+                    tokens.push(DocumentToken {
+                        start,
+                        end: node.end_byte(),
+                        kind,
+                    });
+                }
+                continue;
+            }
+            let mut cursor = node.walk();
+            let children: Vec<_> = node.children(&mut cursor).collect();
+            for child in children.into_iter().rev() {
+                stack.push((child, annotation));
+            }
+        }
+    }
+    Some(build_highlighted_lines(text, tokens))
+}
+
+fn tree_sitter_language(language: CodeLanguage) -> Option<tree_sitter::Language> {
+    match language {
+        CodeLanguage::Java => Some(tree_sitter_java::LANGUAGE.into()),
+        CodeLanguage::Kotlin => Some(tree_sitter_kotlin_ng::LANGUAGE.into()),
+        CodeLanguage::Xml => Some(tree_sitter_xml::LANGUAGE_XML.into()),
+        CodeLanguage::C => Some(tree_sitter_c::LANGUAGE.into()),
+        CodeLanguage::Cpp => Some(tree_sitter_cpp::LANGUAGE.into()),
+        CodeLanguage::Other => None,
+    }
+}
+
+fn subtree_token_kind(kind: &str, language: CodeLanguage) -> Option<TokenKind> {
+    if kind.contains("comment") {
+        Some(TokenKind::Comment)
+    } else if kind.contains("string") || kind.contains("char") || kind.contains("text_block") {
+        Some(TokenKind::String)
+    } else if kind.contains("integer")
+        || kind.contains("float")
+        || kind.contains("number")
+        || kind.contains("real")
+    {
+        Some(TokenKind::Number)
+    } else if matches!(language, CodeLanguage::C | CodeLanguage::Cpp) && kind.starts_with("preproc")
+    {
+        Some(TokenKind::Preprocessor)
+    } else {
+        None
+    }
+}
+
+fn leaf_token_kind(
+    _kind: &str,
+    value: &str,
+    in_annotation: bool,
+    language: CodeLanguage,
+) -> Option<TokenKind> {
+    if value.is_empty() || value.contains('\n') || value.contains('\r') {
+        return None;
+    }
+    if in_annotation
+        && value
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_alphabetic() || character == '_')
+        && value
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_' || character == '$')
+    {
+        return Some(TokenKind::Annotation);
+    }
+    token_kind_for_identifier(value, language)
+}
+
+fn preprocessor_directive(text: &str, range: Range<usize>) -> Option<DocumentToken> {
+    let bytes = text.get(range.clone())?.as_bytes();
+    if bytes.first() != Some(&b'#') {
+        return None;
+    }
+    let mut end = 1usize;
+    let mut started = false;
+    while end < bytes.len() {
+        let byte = bytes[end];
+        if byte.is_ascii_alphanumeric() || byte == b'_' {
+            started = true;
+            end += 1;
+        } else if !started && (byte == b' ' || byte == b'\t') {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    started.then(|| DocumentToken {
+        start: range.start,
+        end: range.start + end,
+        kind: TokenKind::Preprocessor,
+    })
+}
+
+fn collect_xml_tokens(root: tree_sitter::Node<'_>, tokens: &mut Vec<DocumentToken>) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        match node.kind() {
+            "Comment" => {
+                tokens.push(DocumentToken {
+                    start: node.start_byte(),
+                    end: node.end_byte(),
+                    kind: TokenKind::Comment,
+                });
+                continue;
+            }
+            "AttValue" => {
+                tokens.push(DocumentToken {
+                    start: node.start_byte(),
+                    end: node.end_byte(),
+                    kind: TokenKind::Value,
+                });
+                continue;
+            }
+            "Name" => {
+                let kind = match node.parent().map(|parent| parent.kind()) {
+                    Some("STag" | "ETag" | "EmptyElemTag") => Some(TokenKind::Tag),
+                    Some("Attribute") => Some(TokenKind::Attribute),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    tokens.push(DocumentToken {
+                        start: node.start_byte(),
+                        end: node.end_byte(),
+                        kind,
+                    });
+                }
+                continue;
+            }
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
+}
+
+fn build_highlighted_lines(text: &str, mut tokens: Vec<DocumentToken>) -> Vec<HighlightedLine> {
+    let raw_lines: Vec<&str> = if text.is_empty() {
+        vec![""]
+    } else {
+        text.split('\n').collect()
+    };
+    let mut starts = Vec::with_capacity(raw_lines.len());
+    let mut lines: Vec<HighlightedLine> = Vec::with_capacity(raw_lines.len());
+    let mut line_start = 0usize;
+    for raw in &raw_lines {
+        starts.push(line_start);
+        let content = raw.strip_suffix('\r').unwrap_or(raw);
+        lines.push(HighlightedLine {
+            text: content.to_owned().into(),
+            start: line_start,
+            tokens: Vec::new(),
+        });
+        line_start += raw.len() + 1;
+    }
+    tokens.sort_by_key(|token| (token.start, token.end));
+    for token in tokens {
+        let start = token.start.min(text.len());
+        let end = token.end.min(text.len());
+        if start >= end {
+            continue;
+        }
+        let start_line = starts
+            .partition_point(|offset| *offset <= start)
+            .saturating_sub(1);
+        let end_line = starts
+            .partition_point(|offset| *offset < end)
+            .saturating_sub(1)
+            .min(lines.len().saturating_sub(1));
+        for line_index in start_line..=end_line {
+            let Some(line) = lines.get_mut(line_index) else {
+                break;
+            };
+            let content_end = line.start + line.text.len();
+            let segment_start = token.start.max(line.start);
+            let segment_end = token.end.min(content_end);
+            if segment_end <= segment_start {
+                continue;
+            }
+            let local_start = segment_start - line.start;
+            let local_end = segment_end - line.start;
+            if line.text.get(local_start..local_end).is_none() {
+                continue;
+            }
+            line.tokens.push(SourceToken {
+                kind: token.kind,
+                start: local_start,
+                end: local_end,
+            });
+        }
+    }
+    for line in &mut lines {
+        line.tokens.sort_by_key(|token| (token.start, token.end));
+        line.tokens.dedup_by(|left, right| {
+            left.start == right.start && left.end == right.end && left.kind == right.kind
+        });
     }
     lines
 }
@@ -1326,6 +1599,7 @@ pub(super) struct SourceCodeViewer {
     language: Language,
     document: Option<SourceDocument>,
     lines: Rc<Vec<Rc<HighlightedLine>>>,
+    highlight_generation: u64,
     line_count: usize,
     line_number_digits: usize,
     longest_line: usize,
@@ -1421,6 +1695,7 @@ impl SourceCodeViewer {
             language: Language::System,
             document: None,
             lines: Rc::new(Vec::new()),
+            highlight_generation: 0,
             line_count: 0,
             line_number_digits: 1,
             longest_line: 0,
@@ -1459,7 +1734,11 @@ impl SourceCodeViewer {
             cx.notify();
             return;
         }
-        let lines = highlight_source(&document.text, document.language);
+        self.highlight_generation = self.highlight_generation.wrapping_add(1);
+        let generation = self.highlight_generation;
+        let tree_text = document.text.to_string();
+        let tree_language = document.language;
+        let lines = highlight_source_regex(&document.text, document.language);
         self.line_count = lines.len().max(1);
         self.line_number_digits = self.line_count.to_string().len();
         self.longest_line = lines
@@ -1481,6 +1760,30 @@ impl SourceCodeViewer {
         // Clearing emits selection events; defer it so the participant callback
         // never updates this entity while `set_document` already holds it.
         window.defer(cx, |window, cx| TextSelection::clear(window, cx));
+        // Parse off the UI thread: the line tokenizer paints immediately, the
+        // tree-sitter pass replaces the spans when done. The tree itself is
+        // dropped inside the task, so only the token lines are retained.
+        if tree_text.len() <= MAX_TREE_SITTER_BYTES && tree_sitter_language(tree_language).is_some()
+        {
+            let task = cx
+                .background_executor()
+                .spawn(async move { highlight_with_tree_sitter(&tree_text, tree_language) });
+            cx.spawn(async move |this, cx| {
+                let lines = task.await;
+                this.update(cx, |this, cx| {
+                    if this.highlight_generation != generation {
+                        return;
+                    }
+                    if let Some(lines) = lines {
+                        this.lines = Rc::new(lines.into_iter().map(Rc::new).collect());
+                        this.refresh_matches();
+                        cx.notify();
+                    }
+                })
+                .ok();
+            })
+            .detach();
+        }
         cx.notify();
     }
 
@@ -1795,7 +2098,8 @@ impl Render for SourceCodeViewer {
                     _ => {}
                 }
             }))
-            .child(TextSelectionLayer)
+            // The shell owns the single window selection layer; the viewer only
+            // projects its runs into the window selection.
             .child(self.search_row(cx))
             .child(
                 div()
@@ -1948,6 +2252,94 @@ mod tests {
         assert_eq!(kinds_on_line(&lines, 1), Vec::new());
         assert_eq!(lines.len(), 3);
         assert!(lines[2].text.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn tree_sitter_handles_java_text_blocks_and_nested_kotlin_comments() {
+        let java = "class A {\n    String s = \"\"\"\n        text block\n        \"\"\";\n}\n";
+        let java_lines = highlight_source(java, CodeLanguage::Java);
+        for index in 1..=3 {
+            assert!(
+                kinds_on_line(&java_lines, index).contains(&TokenKind::String),
+                "java text block line {index} lost its string token"
+            );
+        }
+
+        let kotlin = "fun f() {\n/* outer /* inner */\n still outer */\n    val x = 1\n}\n";
+        let kotlin_lines = highlight_source(kotlin, CodeLanguage::Kotlin);
+        assert!(kinds_on_line(&kotlin_lines, 0).contains(&TokenKind::Keyword));
+        assert!(kinds_on_line(&kotlin_lines, 1).contains(&TokenKind::Comment));
+        assert!(kinds_on_line(&kotlin_lines, 2).contains(&TokenKind::Comment));
+        assert!(
+            tokens(&kotlin_lines[3])
+                .iter()
+                .any(|(kind, text)| *kind == TokenKind::Number && text == "1")
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn tree_sitter_tokens_stay_within_line_bounds() {
+        let samples = [
+            (
+                "fun main() { val x = \"\"\"a\nb\"\"\" }\n// tail\n",
+                CodeLanguage::Kotlin,
+            ),
+            (
+                "public class A { String s = \"x\"; /* c */ }\n",
+                CodeLanguage::Java,
+            ),
+            ("<!-- c -->\n<View attr=\"v\" />\n", CodeLanguage::Xml),
+            (
+                "#include <stdio.h>\nint main(void) { return 0; }\n",
+                CodeLanguage::C,
+            ),
+        ];
+        for (text, language) in samples {
+            let lines = highlight_source(text, language);
+            for line in &lines {
+                let length = line.text.len();
+                for token in &line.tokens {
+                    assert!(
+                        token.start < token.end && token.end <= length,
+                        "token outside line: {language:?} {token:?} len={length}"
+                    );
+                    assert!(line.text.get(token.start..token.end).is_some());
+                }
+                assert!(
+                    line.tokens
+                        .windows(2)
+                        .all(|pair| pair[0].end <= pair[1].start),
+                    "overlapping or unsorted tokens: {language:?}"
+                );
+            }
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    #[ignore = "manual parse-budget measurement"]
+    fn tree_sitter_parse_times() {
+        for size in [100 * 1024usize, 500 * 1024, 1024 * 1024] {
+            let unit = "public final class A {\n    // note\n    private String value = \"text\";\n    int count = 42;\n}\n";
+            let mut text = String::with_capacity(size + unit.len());
+            while text.len() < size {
+                text.push_str(unit);
+            }
+            let started = std::time::Instant::now();
+            let lines = highlight_source(&text, CodeLanguage::Java);
+            eprintln!(
+                "tree-sitter {} KiB -> {} lines in {:?}",
+                size / 1024,
+                lines.len(),
+                started.elapsed()
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn tree_sitter_falls_back_for_oversized_documents() {
+        let oversized = "x".repeat(MAX_TREE_SITTER_BYTES + 1);
+        assert!(highlight_with_tree_sitter(&oversized, CodeLanguage::Java).is_none());
+        assert!(highlight_with_tree_sitter("plain", CodeLanguage::Other).is_none());
     }
 
     #[::core::prelude::v1::test]

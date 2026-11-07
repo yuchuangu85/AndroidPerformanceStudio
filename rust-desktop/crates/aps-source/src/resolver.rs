@@ -2,7 +2,7 @@ use crate::{
     digest_text, BuildIdentityMatch, PerformanceEvidenceId, ResolutionCandidate,
     ResolutionCandidateId, ResolutionConfidence, SourceFile, SourceLocation, SourceRange,
     SourceRepository, SourceResolutionEvidence, SourceSnapshot, SourceSnapshotId, SourceSymbol,
-    SourceSymbolKind,
+    SourceSymbolKind, SymbolNameSeparator, MAX_LOOKUP_CANDIDATES,
 };
 use std::collections::HashSet;
 
@@ -54,18 +54,19 @@ fn resolve_for<R: SourceRepository + ?Sized>(
     let Some(snapshot) = repository.snapshot(snapshot_id)? else {
         return Ok(Vec::new());
     };
-    let files = repository.files(snapshot_id)?;
-    let symbols = repository.symbols(snapshot_id)?;
     match evidence {
-        SourceResolutionEvidence::TypeName { id, qualified_name } => symbols
+        SourceResolutionEvidence::TypeName { id, qualified_name } => repository
+            .symbols_qualified(
+                snapshot_id,
+                SourceSymbolKind::Type,
+                qualified_name,
+                MAX_LOOKUP_CANDIDATES,
+            )?
             .iter()
-            .filter(|symbol| {
-                symbol.kind == SourceSymbolKind::Type && symbol.qualified_name == *qualified_name
-            })
             .map(|symbol| {
                 symbol_candidate(
+                    repository,
                     &snapshot,
-                    &files,
                     symbol,
                     *id,
                     ResolutionConfidence::Exact,
@@ -79,16 +80,18 @@ fn resolve_for<R: SourceRepository + ?Sized>(
             resource_name,
         } => {
             let qualified_name = format!("{resource_type}/{resource_name}");
-            symbols
+            repository
+                .symbols_qualified(
+                    snapshot_id,
+                    SourceSymbolKind::Resource,
+                    &qualified_name,
+                    MAX_LOOKUP_CANDIDATES,
+                )?
                 .iter()
-                .filter(|symbol| {
-                    symbol.kind == SourceSymbolKind::Resource
-                        && symbol.qualified_name == qualified_name
-                })
                 .map(|symbol| {
                     symbol_candidate(
+                        repository,
                         &snapshot,
-                        &files,
                         symbol,
                         *id,
                         ResolutionConfidence::Exact,
@@ -105,12 +108,13 @@ fn resolve_for<R: SourceRepository + ?Sized>(
             ..
         } => {
             let mut candidates = Vec::new();
-            for symbol in symbols.iter().filter(|symbol| {
-                matches!(
-                    symbol.kind,
-                    SourceSymbolKind::Function | SourceSymbolKind::Method
-                ) && after_last_dot(&symbol.qualified_name) == method_name
-            }) {
+            for symbol in repository.symbols_with_short_name(
+                snapshot_id,
+                &[SourceSymbolKind::Function, SourceSymbolKind::Method],
+                method_name,
+                SymbolNameSeparator::Dot,
+                MAX_LOOKUP_CANDIDATES,
+            )? {
                 let class_matches = class_name.as_ref().is_none_or(|class_name| {
                     path_without_last_extension(&symbol.relative_path)
                         .ends_with(after_last_dot(class_name))
@@ -123,9 +127,9 @@ fn resolve_for<R: SourceRepository + ?Sized>(
                     ResolutionConfidence::Probable
                 };
                 candidates.push(symbol_candidate(
+                    repository,
                     &snapshot,
-                    &files,
-                    symbol,
+                    &symbol,
                     *id,
                     confidence,
                     if class_matches {
@@ -146,9 +150,9 @@ fn resolve_for<R: SourceRepository + ?Sized>(
         } => {
             if let Some(source_path) = source_path {
                 let suffix = source_path.strip_prefix('/').unwrap_or(source_path);
-                if let Some(file) = files
-                    .iter()
-                    .find(|file| file.relative_path.ends_with(suffix))
+                if let Some(file) = repository
+                    .files_with_suffix(snapshot_id, suffix, MAX_LOOKUP_CANDIDATES)?
+                    .first()
                 {
                     let confidence = if source_line.is_some() {
                         ResolutionConfidence::Exact
@@ -165,17 +169,20 @@ fn resolve_for<R: SourceRepository + ?Sized>(
                     )]);
                 }
             }
-            symbols
+            let short_name = after_last_native_separator(symbol_name);
+            repository
+                .symbols_with_short_name(
+                    snapshot_id,
+                    &[SourceSymbolKind::NativeSymbol],
+                    short_name,
+                    SymbolNameSeparator::DoubleColon,
+                    MAX_LOOKUP_CANDIDATES,
+                )?
                 .iter()
-                .filter(|symbol| {
-                    symbol.kind == SourceSymbolKind::NativeSymbol
-                        && after_last_native_separator(&symbol.qualified_name)
-                            == after_last_native_separator(symbol_name)
-                })
                 .map(|symbol| {
                     symbol_candidate(
+                        repository,
                         &snapshot,
-                        &files,
                         symbol,
                         *id,
                         ResolutionConfidence::Probable,
@@ -191,13 +198,10 @@ fn resolve_for<R: SourceRepository + ?Sized>(
             line,
         } => {
             let mut candidates = Vec::new();
-            for file in files
-                .iter()
-                .filter(|file| file_name_of(&file.relative_path) == file_name)
-            {
-                let package_matched = symbols
+            for file in repository.files_named(snapshot_id, file_name, MAX_LOOKUP_CANDIDATES)? {
+                let package_matched = repository
+                    .symbols_in_file(snapshot_id, &file.relative_path, MAX_LOOKUP_CANDIDATES)?
                     .iter()
-                    .filter(|symbol| symbol.relative_path == file.relative_path)
                     .flat_map(|symbol| package_prefixes(&symbol.qualified_name))
                     .any(|prefix| {
                         java_string_hash_code(&prefix).wrapping_abs() as u32 == *package_hash
@@ -205,7 +209,7 @@ fn resolve_for<R: SourceRepository + ?Sized>(
                 if package_matched {
                     candidates.push(file_candidate(
                         &snapshot,
-                        file,
+                        &file,
                         *id,
                         ResolutionConfidence::Exact,
                         "Compose file and package hash matched",
@@ -218,17 +222,16 @@ fn resolve_for<R: SourceRepository + ?Sized>(
     }
 }
 
-fn symbol_candidate(
+fn symbol_candidate<R: SourceRepository + ?Sized>(
+    repository: &R,
     snapshot: &SourceSnapshot,
-    files: &[SourceFile],
     symbol: &SourceSymbol,
     evidence_id: PerformanceEvidenceId,
     confidence: ResolutionConfidence,
     reason: &str,
 ) -> Result<ResolutionCandidate, String> {
-    let file = files
-        .iter()
-        .find(|file| file.relative_path == symbol.relative_path)
+    let file = repository
+        .file(snapshot.id, &symbol.relative_path)?
         .ok_or_else(|| {
             format!(
                 "source symbol references a file missing from snapshot: {}",
@@ -237,7 +240,7 @@ fn symbol_candidate(
         })?;
     Ok(file_candidate(
         snapshot,
-        file,
+        &file,
         evidence_id,
         confidence,
         reason,
@@ -293,10 +296,6 @@ fn apply_build_identity_ceiling(
             .push("Build identity not verified".to_owned());
     }
     candidate
-}
-
-fn file_name_of(relative_path: &str) -> &str {
-    relative_path.rsplit('/').next().unwrap_or(relative_path)
 }
 
 fn path_without_last_extension(relative_path: &str) -> &str {

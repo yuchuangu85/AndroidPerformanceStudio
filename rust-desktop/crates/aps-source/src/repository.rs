@@ -1,8 +1,19 @@
 use crate::{
     ResolutionCandidate, ResolutionCandidateId, SourceFile, SourceSnapshot, SourceSnapshotId,
-    SourceSymbol, SourceWorkspace, SourceWorkspaceId,
+    SourceSymbol, SourceSymbolKind, SourceWorkspace, SourceWorkspaceId,
 };
 use std::collections::HashMap;
+
+/// Separator used to split a qualified symbol name from its short name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolNameSeparator {
+    Dot,
+    DoubleColon,
+}
+
+/// Bound for one bounded lookup, independent of the repository size. Resolver
+/// callers only navigate the first usable candidate; the rest are diagnostics.
+pub const MAX_LOOKUP_CANDIDATES: usize = 256;
 
 /// Compose SourceWorkspaceRepository/SourceIndexView port. Persistence is
 /// replaced by the Rust-owned SQLite implementation in aps-storage.
@@ -31,6 +42,126 @@ pub trait SourceRepository {
     fn save_candidates(&mut self, candidates: &[ResolutionCandidate]) -> Result<(), String>;
 
     fn candidate(&self, id: ResolutionCandidateId) -> Result<Option<ResolutionCandidate>, String>;
+
+    /// Bounded lookups used by the resolver. Persistence-backed repositories
+    /// override these with indexed SQL; the defaults keep the in-memory
+    /// repository and Compose-parity tests on one behavior.
+    fn file(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        relative_path: &str,
+    ) -> Result<Option<SourceFile>, String> {
+        Ok(self
+            .files(snapshot_id)?
+            .into_iter()
+            .find(|file| file.relative_path == relative_path))
+    }
+
+    fn files_named(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        file_name: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceFile>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .files(snapshot_id)?
+            .into_iter()
+            .filter(|file| {
+                file.relative_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&file.relative_path)
+                    == file_name
+            })
+            .take(limit)
+            .collect())
+    }
+
+    fn files_with_suffix(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        suffix: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceFile>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .files(snapshot_id)?
+            .into_iter()
+            .filter(|file| file.relative_path.ends_with(suffix))
+            .take(limit)
+            .collect())
+    }
+
+    fn symbols_qualified(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        kind: SourceSymbolKind,
+        qualified_name: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceSymbol>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .symbols(snapshot_id)?
+            .into_iter()
+            .filter(|symbol| symbol.kind == kind && symbol.qualified_name == qualified_name)
+            .take(limit)
+            .collect())
+    }
+
+    fn symbols_with_short_name(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        kinds: &[SourceSymbolKind],
+        name: &str,
+        separator: SymbolNameSeparator,
+        limit: usize,
+    ) -> Result<Vec<SourceSymbol>, String> {
+        if limit == 0 || kinds.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .symbols(snapshot_id)?
+            .into_iter()
+            .filter(|symbol| {
+                kinds.contains(&symbol.kind)
+                    && short_name(&symbol.qualified_name, separator) == name
+            })
+            .take(limit)
+            .collect())
+    }
+
+    fn symbols_in_file(
+        &self,
+        snapshot_id: SourceSnapshotId,
+        relative_path: &str,
+        limit: usize,
+    ) -> Result<Vec<SourceSymbol>, String> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .symbols(snapshot_id)?
+            .into_iter()
+            .filter(|symbol| symbol.relative_path == relative_path)
+            .take(limit)
+            .collect())
+    }
+}
+
+fn short_name(qualified_name: &str, separator: SymbolNameSeparator) -> &str {
+    match separator {
+        SymbolNameSeparator::Dot => qualified_name.rsplit('.').next().unwrap_or(qualified_name),
+        SymbolNameSeparator::DoubleColon => {
+            qualified_name.rsplit("::").next().unwrap_or(qualified_name)
+        }
+    }
 }
 
 /// Compose InMemorySourceWorkspaceRepository. Workspace listing keeps insertion

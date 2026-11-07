@@ -497,6 +497,83 @@ acceptance were executed.
   window; gpui has no floating tooltip, so problem-frame evidence is available
   through the detail copy action; the old generic Frame import page code is
   now unreachable and awaits cleanup.
+### Source tree-sitter highlighting (Phase 1) — 2026-11-07
+
+- The read-only Source viewer now uses tree-sitter for syntax highlighting
+  (Kotlin, Java, XML, C, C++) instead of relying only on the line tokenizer.
+  `tree-sitter 0.25` with `tree-sitter-java`, `tree-sitter-kotlin-ng`,
+  `tree-sitter-xml`, `tree-sitter-c` and `tree-sitter-cpp`; the same One Dark
+  palette and byte-offset token model are reused, so selection, search,
+  virtualization and copy behavior are unchanged.
+- Parsing runs on the background executor after the regex tokenizer paints the
+  file, then replaces the span set when ready (generation-guarded, so switching
+  files cannot apply a stale tree). The syntax tree is dropped inside the task:
+  no AST cache and no project-wide parse state is retained; only token spans
+  live in the viewer. Files above 2 MiB or languages without a grammar keep
+  the existing line tokenizer.
+- The tree pass covers cases the regex lexer could not: multi-line Java text
+  blocks, nested Kotlin block comments, multi-line annotation/comment spans,
+  tree-validated strings/numbers/keywords and XML tag/attribute/value
+  structure. No index, resolver, jump, LSP or memory-index change is part of
+  this phase; semantic navigation remains the existing heuristic symbol path.
+- Verification: 12 `source::code_viewer` tests pass, including Java text
+  blocks, nested Kotlin block comments, XML/C tokens, per-line token bounds and
+  oversized fallback; `cargo test --workspace --offline --no-fail-fast` = 654
+  passed/0 failed and `cargo fmt --all --check` is clean. Native open of the
+  Kotlin fixture renders the syntax colors (screenshot under
+  build/source-workspace/tree-sitter-highlighting.png).
+- Measured on this debug build: a 100 KiB generated Java file highlights in
+  ~45 ms, 500 KiB in ~218 ms, 1 MiB in ~445 ms (off the UI thread; the regex
+  pass paints immediately). Resident memory is limited to the token lines and
+  the transient tree is bounded by the 2 MiB parse cap; no per-file or
+  per-project tree is kept.
+### Source bounded index and streaming indexing (Phase 2) — 2026-11-07
+
+- Indexing no longer accumulates every symbol in RAM. `service::refresh`
+  resolves the manifest, opens the snapshot, then writes file/symbol batches
+  (64 files or 20 000 symbols) through `Storage::begin_snapshot`,
+  `append_files` and `append_symbols`; progress is still published between
+  batches. The old one-shot `save_snapshot` API remains for bounded callers.
+  Multi-line Kotlin/Java parameter lists are normalized to the storage
+  signature contract instead of failing the whole workspace.
+- The 1M-symbol indexing ceiling no longer applies to the streaming path.
+  Real AOSP_Frameworks smoke on this host: 51 438 files and 1 566 133 symbols
+  indexed in ~303 s (debug); the indexer process stayed at ~79 MB RSS, and the
+  resulting metadata DB is ~1.1 GB. Before this change the same tree failed
+  with `source snapshot exceeds the supported symbol bound`.
+- Navigation no longer loads whole `files`/`symbols` vectors. The
+  `SourceRepository` gained bounded lookups (`file`, `files_named`,
+  `files_with_suffix`, `symbols_qualified`, `symbols_with_short_name`,
+  `symbols_in_file`) with in-memory defaults; SQLite overrides them with
+  indexed SQL and the resolver uses them. Candidate results are capped at
+  256 per lookup. Schema v4 only adds `source_symbols_file` and
+  `source_symbols_kind_name` indexes (no table rewrite), so existing snapshots
+  remain valid.
+- Unchanged trees reuse their content-addressed snapshot instead of rewriting
+  it: AOSP refresh became ~14 s (manifest scan + counts) instead of a full
+  re-index. Mid-index failures delete the incomplete snapshot and keep the
+  previous active snapshot.
+- Method/native short-name lookups use persisted `dot_name`/`native_name`
+  columns (schema v5) with `(snapshot_id, dot_name)` and
+  `(snapshot_id, native_name)` indexes. The v5 migration adds the columns and
+  backfills every existing symbol row before building the indexes; no re-index
+  is required. AOSP 1.5M-symbol snapshot (debug): managed method lookup with 156
+  candidates dropped from ~639 ms to ~5.8 ms. Qualified type lookup stays
+  bounded (1 candidate; the first query after opening the large metadata DB is a
+  cold page-cache read, later queries are fast), file+package-hash ~17 ms, and
+  process RSS moved from ~45 MB to ~48 MB.
+- The legacy full-snapshot read/save APIs no longer enforce the 100k-file or
+  1M-symbol compatibility caps (`save_snapshot`, `files`, `symbols`). They
+  still materialize complete vectors, so large snapshots should use the
+  bounded lookups; navigation, indexing and the file tree no longer depend on
+  the capped reads. Removing the short-name scan and caps grew the AOSP
+  metadata DB from ~1.1 GB to ~1.5 GB.
+- Verification: `cargo test --workspace --offline --no-fail-fast` = 657
+  passed/0 failed, `cargo check --workspace --all-targets` and
+  `cargo fmt --all --check` clean; the storage test now compares SQLite
+  lookups and resolver candidates against the in-memory repository, and the
+  ignored `manual_aosp_streaming_smoke` records the large-tree evidence.
+
 ### Network digest-bound minimized page cache slice — 2026-11-06
 
 - `HarSession::open` now computes and retains the selected HAR's SHA-256

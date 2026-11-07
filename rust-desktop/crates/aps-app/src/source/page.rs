@@ -531,6 +531,14 @@ fn body(
         .into_any_element()
 }
 
+/// The workspace rail keeps equal card insets: the card fills the padded pane
+/// width (and only grows past it when a long display name needs horizontal
+/// scrolling). Scrollbar chrome must not be subtracted here, otherwise the
+/// right inset grows by the reserved width and left/right margins differ.
+fn workspace_content_width(pane_width: f32, longest_name: f32) -> f32 {
+    pane_width.max(longest_name)
+}
+
 fn workspaces_pane(
     this: &SourceWorkspace,
     workspaces: &[&WorkspaceRecord],
@@ -543,7 +551,7 @@ fn workspaces_pane(
         .iter()
         .map(|workspace| workspace.display_name.chars().count() as f32 * TEXT_WIDTH_ESTIMATE + 48.)
         .fold(0.0, f32::max);
-    let content_width = (width - 12.).max(longest);
+    let content_width = workspace_content_width(width, longest);
     let mut column = div()
         .flex()
         .flex_col()
@@ -1392,6 +1400,19 @@ fn at(origin: Point<Pixels>, x: f32, y: f32) -> Point<Pixels> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn workspace_rail_uses_symmetric_card_insets() {
+        let pad = studio::metrics::WORKSPACE_PADDING;
+        let pane = 360.;
+        let content = workspace_content_width(pane, 160.);
+        assert_eq!(content, pane);
+        let card = content - pad * 2.;
+        let left = pad;
+        let right = pane - pad - card;
+        assert_eq!(left, right);
+        assert_eq!(workspace_content_width(220., 400.), 400.);
+    }
 
     #[::core::prelude::v1::test]
     fn ready_summary_and_reasons_localize_like_compose() {
