@@ -65,7 +65,10 @@ fn artifact(id: &str) -> CaptureArtifact {
 fn artifact_digest_and_provenance_are_immutable_and_survive_reopen() {
     let fixture = Fixture::new();
     let mut storage = fixture.storage();
-    assert_eq!(storage.schema_version().unwrap(), 2);
+    assert_eq!(
+        storage.schema_version().unwrap(),
+        aps_storage::SCHEMA_VERSION
+    );
     let value = artifact("artifact:1");
     storage.put_artifact(&value, 10).unwrap();
     storage.put_artifact(&value, 20).unwrap();
@@ -220,61 +223,158 @@ fn failed_v2_migration_rolls_back_schema_and_preserves_artifacts() {
     );
 }
 #[test]
-fn source_workspace_and_snapshot_metadata_are_foreign_key_bound_and_immutable() {
+fn source_repository_round_trips_workspace_snapshot_files_symbols_and_candidates() {
+    use aps_source::{
+        PerformanceEvidenceId, ResolutionCandidate, ResolutionCandidateId, ResolutionConfidence,
+        SourceFile, SourceLanguage, SourceProviderConfig, SourceRepository, SourceSnapshot,
+        SourceSnapshotId, SourceSymbol, SourceSymbolKind, SourceWorkspace, SourceWorkspaceId,
+        SourceWorkspacePhase,
+    };
     let fixture = Fixture::new();
     let mut storage = fixture.storage();
-    let workspace = SourceWorkspaceMetadata {
-        workspace_id: "ab".repeat(32),
+    let workspace_id = SourceWorkspaceId::from_hex(&"ab".repeat(32)).unwrap();
+    let snapshot_id = SourceSnapshotId::from_hex(&"cd".repeat(32)).unwrap();
+    let workspace = SourceWorkspace {
+        id: workspace_id,
         display_name: "Selected project".into(),
-        local_root: fixture.0.to_str().unwrap().into(),
-        created_unix_ms: 1,
+        config: SourceProviderConfig::Local {
+            root: fixture.0.clone(),
+        },
+        active_snapshot_id: Some(snapshot_id),
+        phase: SourceWorkspacePhase::Ready,
+        progress: 1.0,
+        message: Some("2 files · 2 symbols".into()),
+        allow_ai_source_upload: true,
     };
-    let snapshot = SourceSnapshotMetadata {
-        snapshot_id: "cd".repeat(32),
-        workspace_id: workspace.workspace_id.clone(),
-        manifest_digest: SourceDigest::from_bytes([5; 32]),
-        file_count: 5,
-        indexed_bytes: 100,
-        index_version: 1,
-        manifest_complete: false,
-        created_unix_ms: 2,
+    let snapshot = SourceSnapshot {
+        id: snapshot_id,
+        workspace_id,
+        immutable_revision: "a".repeat(40),
+        dirty_content_digest: Some(SourceDigest::from_bytes([7; 32])),
+        manifest_hash: SourceDigest::from_bytes([8; 32]),
+        created_unix_ms: 3,
+        index_version: 4,
+        index_complete: true,
     };
-    assert!(storage.put_source_snapshot(&snapshot).is_err());
-    storage.put_source_workspace(&workspace).unwrap();
-    storage.put_source_snapshot(&snapshot).unwrap();
-    // Reopening an unchanged root/snapshot at a later observation time is
-    // idempotent; the first registration timestamp remains authoritative.
-    let mut later_workspace = workspace.clone();
-    later_workspace.created_unix_ms = 10;
-    storage.put_source_workspace(&later_workspace).unwrap();
-    let mut later_snapshot = snapshot.clone();
-    later_snapshot.created_unix_ms = 11;
-    storage.put_source_snapshot(&later_snapshot).unwrap();
-    let mut changed = snapshot.clone();
-    changed.file_count = 6;
-    assert!(storage.put_source_snapshot(&changed).is_err());
-    let mut renamed = workspace.clone();
-    renamed.display_name = "Different registration".into();
-    assert!(storage.put_source_workspace(&renamed).is_err());
+    let files = vec![
+        SourceFile {
+            snapshot_id,
+            relative_path: "app/src/App.kt".into(),
+            language: SourceLanguage::Kotlin,
+            content_hash: SourceDigest::from_bytes([9; 32]),
+            size_bytes: 12,
+        },
+        SourceFile {
+            snapshot_id,
+            relative_path: "app/src/Zed.kt".into(),
+            language: SourceLanguage::Kotlin,
+            content_hash: SourceDigest::from_bytes([10; 32]),
+            size_bytes: 13,
+        },
+    ];
+    let symbols = vec![
+        SourceSymbol {
+            snapshot_id,
+            relative_path: "app/src/Zed.kt".into(),
+            kind: SourceSymbolKind::Function,
+            qualified_name: "demo.zed".into(),
+            signature: Some("value: Int".into()),
+            start_line: 4,
+            end_line: 4,
+        },
+        SourceSymbol {
+            snapshot_id,
+            relative_path: "app/src/App.kt".into(),
+            kind: SourceSymbolKind::Type,
+            qualified_name: "demo.App".into(),
+            signature: None,
+            start_line: 2,
+            end_line: 2,
+        },
+    ];
+    // A snapshot cannot exist without its workspace (foreign key).
+    assert!(storage.save_snapshot(&snapshot, &files, &symbols).is_err());
+    storage.save_workspace(&workspace).unwrap();
+    storage.save_workspace(&workspace).unwrap();
+    storage.save_snapshot(&snapshot, &files, &symbols).unwrap();
+
+    assert_eq!(
+        storage.workspace(workspace_id).unwrap(),
+        Some(workspace.clone())
+    );
+    assert_eq!(storage.workspaces().unwrap(), vec![workspace.clone()]);
+    assert_eq!(
+        storage.snapshot(snapshot_id).unwrap(),
+        Some(snapshot.clone())
+    );
+    // Repository ordering is width-independent: relative path, then start line.
     assert_eq!(
         storage
-            .list_source_workspaces(PageRequest::default())
+            .files(snapshot_id)
             .unwrap()
-            .rows,
-        [workspace.clone()]
+            .iter()
+            .map(|file| file.relative_path.as_str())
+            .collect::<Vec<_>>(),
+        ["app/src/App.kt", "app/src/Zed.kt"]
     );
     assert_eq!(
         storage
-            .list_source_snapshots(&workspace.workspace_id, PageRequest::default())
+            .symbols(snapshot_id)
             .unwrap()
-            .rows,
-        [snapshot]
+            .iter()
+            .map(|symbol| symbol.qualified_name.as_str())
+            .collect::<Vec<_>>(),
+        ["demo.App", "demo.zed"]
     );
+
+    let candidate = ResolutionCandidate {
+        id: ResolutionCandidateId::from_hex(&"ef".repeat(32)).unwrap(),
+        evidence_id: PerformanceEvidenceId::from_hex(&"12".repeat(32)).unwrap(),
+        location: aps_source::SourceLocation {
+            workspace_id,
+            snapshot_id,
+            relative_path: "app/src/App.kt".into(),
+            range: Some(aps_source::SourceRange {
+                start_line: 2,
+                end_line: 2,
+            }),
+            content_hash: SourceDigest::from_bytes([9; 32]),
+        },
+        confidence: ResolutionConfidence::Probable,
+        reasons: vec![
+            "Qualified type matched".into(),
+            "Build identity not verified".into(),
+        ],
+        index_version: 4,
+        index_complete: true,
+    };
+    let unknown = ResolutionCandidate {
+        location: aps_source::SourceLocation {
+            snapshot_id: SourceSnapshotId::from_hex(&"34".repeat(32)).unwrap(),
+            ..candidate.location.clone()
+        },
+        id: ResolutionCandidateId::from_hex(&"56".repeat(32)).unwrap(),
+        ..candidate.clone()
+    };
+    assert!(storage.save_candidates(&[unknown]).is_err());
+    storage.save_candidates(&[candidate.clone()]).unwrap();
+    assert_eq!(
+        storage.candidate(candidate.id).unwrap(),
+        Some(candidate.clone())
+    );
+
+    // Removing a workspace cascades snapshots, files, symbols and candidates.
+    storage.delete_workspace(workspace_id).unwrap();
+    assert!(storage.workspace(workspace_id).unwrap().is_none());
+    assert!(storage.snapshot(snapshot_id).unwrap().is_none());
+    assert!(storage.files(snapshot_id).unwrap().is_empty());
+    assert!(storage.symbols(snapshot_id).unwrap().is_empty());
+    assert!(storage.candidate(candidate.id).unwrap().is_none());
     assert!(
         storage
             .list_sessions(PageRequest {
                 offset: 0,
-                limit: 101
+                limit: 101,
             })
             .is_err()
     );

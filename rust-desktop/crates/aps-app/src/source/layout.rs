@@ -14,8 +14,8 @@ pub(super) const MIN_CONTENT_WIDTH: f32 =
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct PaneWidths {
-    pub workspaces: f32,
-    pub files: f32,
+    pub(super) workspaces: f32,
+    pub(super) files: f32,
 }
 
 impl Default for PaneWidths {

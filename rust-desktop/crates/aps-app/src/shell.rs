@@ -150,6 +150,8 @@ impl Studio {
         ai.update(cx, |ai, cx| {
             ai.set_provider_catalog(default_ai_catalog(), cx);
         });
+        // Validated AI findings can navigate to their persisted source candidates.
+        ai.update(cx, |ai, _| ai.set_studio(studio_handle.clone()));
         let artifact_root = settings_path
             .as_ref()
             .and_then(|path| path.parent())
@@ -168,6 +170,9 @@ impl Studio {
         let source = cx.new(|cx| {
             SourceWorkspace::new(settings.language.resolved(), metadata_path, window, cx)
         });
+        // The page owns its "Run AI analysis" and "AI Settings" entries and needs
+        // the same upward shell handle as the CPU report.
+        source.update(cx, |source, _| source.set_studio(studio_handle.clone()));
         let inspector =
             cx.new(|cx| InspectorWorkspace::new(settings.language.resolved(), window, cx));
         // The Inspector findings pane owns its "Run AI analysis" entry and needs the
@@ -360,6 +365,19 @@ impl Studio {
                 })
                 .and_then(|workspace| workspace.read(cx).analysis_request()),
         };
+        self.present_ai_request(origin, result, window, cx);
+    }
+
+    /// Applies an already-computed analysis request. Page-owned AI buttons call
+    /// this directly: while a workspace entity is being updated, re-reading it
+    /// through `prepare_ai` would borrow the same entity twice.
+    pub(crate) fn present_ai_request(
+        &mut self,
+        origin: Destination,
+        result: Result<aps_ai::AnalysisRequest, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match result {
             Ok(mut request) => {
                 let Some(generation) = self.ai_generation.checked_add(1) else {
@@ -414,6 +432,27 @@ impl Studio {
 
     fn open_settings(&mut self, _: &OpenSettings, _: &mut Window, cx: &mut Context<Self>) {
         self.destination = Destination::Settings;
+        cx.notify();
+    }
+
+    /// Opens the AI settings page from a profiler page action button.
+    pub(crate) fn open_ai_settings(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.settings_page = SettingsPage::Ai;
+        self.destination = Destination::Settings;
+        cx.notify();
+    }
+
+    /// Opens a persisted source candidate from a validated AI finding.
+    pub(crate) fn open_source_candidate(
+        &mut self,
+        candidate_id: String,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.destination = Destination::SourceWorkspaces;
+        self.source.update(cx, |source, cx| {
+            source.open_candidate_hex(&candidate_id, cx)
+        });
         cx.notify();
     }
 
@@ -978,8 +1017,9 @@ impl Render for Studio {
                             .h_full()
                             .flex()
                             .flex_col()
-                            // CPU, Inspector and Settings render their workspaces directly
-                            // below the title bar, so they have no page-title row.
+                            // CPU, Inspector, Source Workspaces and Settings render their
+                            // workspaces directly below the title bar, so they have no
+                            // page-title row; other pages keep the page-level chrome.
                             .children(
                                 (selected != Destination::Home
                                     && selected != Destination::Cpu
@@ -988,6 +1028,7 @@ impl Render for Studio {
                                     && selected != Destination::Startup
                                     && selected != Destination::Gpu
                                     && selected != Destination::Battery
+                                    && selected != Destination::SourceWorkspaces
                                     && selected != Destination::Settings)
                                     .then(|| {
                                         div()

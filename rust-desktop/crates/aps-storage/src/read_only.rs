@@ -23,7 +23,13 @@ impl Storage {
             return Err("metadata database must be an existing regular non-symlink file".into());
         }
         validate_sidecars(path)?;
-        let uri = immutable_uri(path)?;
+        // SQLite's NOFOLLOW flag rejects any path whose ancestor is a symbolic
+        // link (macOS /var and /tmp are symlinked), so resolve ancestors before
+        // opening. The database itself was already rejected above if it is a
+        // symlink, and the identity check below still uses the caller's path.
+        let canonical = std::fs::canonicalize(path)
+            .map_err(|_| "cannot resolve existing metadata database path")?;
+        let uri = immutable_uri(&canonical)?;
         let connection = Connection::open_with_flags(
             uri,
             OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -67,11 +73,23 @@ impl Storage {
             ),
             (
                 "source_workspaces",
-                "SELECT workspace_id,display_name,local_root,created_ms FROM source_workspaces LIMIT 0",
+                "SELECT id,display_name,provider_kind,local_root,github_owner,github_repository,provider_ref,credential_key,aosp_project,active_snapshot_id,phase,progress,message,allow_ai_source_upload FROM source_workspaces LIMIT 0",
             ),
             (
                 "source_snapshots",
-                "SELECT snapshot_id,workspace_id,manifest_digest,file_count,indexed_bytes,index_version,manifest_complete,created_ms FROM source_snapshots LIMIT 0",
+                "SELECT id,workspace_id,immutable_revision,dirty_content_digest,manifest_hash,created_ms,index_version,index_complete FROM source_snapshots LIMIT 0",
+            ),
+            (
+                "source_files",
+                "SELECT snapshot_id,relative_path,language,content_hash,size_bytes FROM source_files LIMIT 0",
+            ),
+            (
+                "source_symbols",
+                "SELECT snapshot_id,relative_path,kind,qualified_name,signature,start_line,end_line FROM source_symbols LIMIT 0",
+            ),
+            (
+                "source_candidates",
+                "SELECT id,evidence_id,workspace_id,snapshot_id,relative_path,start_line,end_line,content_hash,confidence,reasons,index_version,index_complete FROM source_candidates LIMIT 0",
             ),
         ] {
             let kind: String = connection
@@ -222,21 +240,49 @@ fn validate_query_indexes(connection: &Connection) -> Result<(), String> {
             "sqlite_autoindex_source_workspaces_1",
             "pk",
             true,
-            &[("workspace_id", 0)][..],
+            &[("id", 0)][..],
         ),
         (
             "source_snapshots",
             "sqlite_autoindex_source_snapshots_1",
             "pk",
             true,
-            &[("snapshot_id", 0)][..],
+            &[("id", 0)][..],
         ),
         (
             "source_snapshots",
-            "snapshots_workspace",
+            "source_snapshots_workspace",
             "c",
             false,
-            &[("workspace_id", 0), ("created_ms", 1), ("snapshot_id", 0)][..],
+            &[("workspace_id", 0)][..],
+        ),
+        (
+            "source_files",
+            "sqlite_autoindex_source_files_1",
+            "pk",
+            true,
+            &[("snapshot_id", 0), ("relative_path", 0)][..],
+        ),
+        (
+            "source_symbols",
+            "source_symbols_name",
+            "c",
+            false,
+            &[("snapshot_id", 0), ("qualified_name", 0)][..],
+        ),
+        (
+            "source_candidates",
+            "sqlite_autoindex_source_candidates_1",
+            "pk",
+            true,
+            &[("id", 0)][..],
+        ),
+        (
+            "source_candidates",
+            "source_candidates_snapshot",
+            "c",
+            false,
+            &[("snapshot_id", 0)][..],
         ),
     ] {
         validate_index(connection, table, name, origin, unique, keys)?;

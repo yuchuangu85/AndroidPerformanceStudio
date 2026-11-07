@@ -23,7 +23,7 @@
   "home_network_description": "Inspect minimized HAR requests and network performance.",
   "home_gpu_description": "Index and verify GPU artifact metadata.",
   "home_benchmark_description": "Compare benchmark baselines and current results.",
-  "home_source_description": "Register source workspaces and inspect source identities.",
+  "home_source_description": "Manage Local, GitHub, and AOSP source snapshots, indexes, and build evidence.",
   "home_recent_name": "Name",
   "home_recent_package": "Package",
   "home_recent_type": "Type",

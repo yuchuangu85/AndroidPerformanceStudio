@@ -1,244 +1,325 @@
 use aps_contracts::SourceDigest;
+use std::path::PathBuf;
 
+/// Legacy structural-index format marker. Snapshot index versions use the
+/// snapshot creation timestamp, exactly like Compose.
 pub const INDEX_VERSION: u32 = 1;
-pub const MAX_FILE_PAGE: usize = 512;
+/// Compose LocalSourceProvider MAX_SOURCE_FILE_BYTES.
+pub const MAX_SOURCE_FILE_BYTES: u64 = 5 * 1024 * 1024;
+/// Compose ignores these directory names (and file names, as their extensions
+/// are filtered separately) while walking a local source root.
+pub const IGNORED_DIRECTORY_NAMES: &[&str] =
+    &[".git", ".gradle", ".idea", "build", "out", "node_modules"];
+/// Upper bound for one resolver call; the UI only ever navigates the first
+/// usable candidate, so the tail is documentation for the caller.
 pub const MAX_RESOLUTION_CANDIDATES: usize = 100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SourceLimits {
-    pub max_files: usize,
-    pub max_file_bytes: u64,
-    pub max_total_bytes: u64,
-    pub max_entries: usize,
-    pub max_depth: usize,
-    pub max_symbols: usize,
+macro_rules! source_id {
+    ($name:ident, $label:literal) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(SourceDigest);
+
+        impl $name {
+            pub fn from_digest(digest: SourceDigest) -> Self {
+                Self(digest)
+            }
+
+            pub fn to_hex(self) -> String {
+                self.0.to_hex()
+            }
+
+            pub fn from_hex(value: &str) -> Result<Self, String> {
+                let digest = SourceDigest::from_hex(value)?;
+                if digest.to_hex() != value {
+                    return Err(concat!($label, " must be canonical lowercase SHA-256 hex").into());
+                }
+                Ok(Self(digest))
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(&self.0.to_hex())
+            }
+        }
+    };
 }
-impl Default for SourceLimits {
-    fn default() -> Self {
-        Self {
-            max_files: 5000,
-            max_file_bytes: 1024 * 1024,
-            max_total_bytes: 64 * 1024 * 1024,
-            max_entries: 50_000,
-            max_depth: 32,
-            max_symbols: 50_000,
+
+source_id!(SourceWorkspaceId, "source workspace id");
+source_id!(SourceSnapshotId, "source snapshot id");
+source_id!(ResolutionCandidateId, "resolution candidate id");
+source_id!(PerformanceEvidenceId, "performance evidence id");
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SourceProviderKind {
+    Local,
+    GitHub,
+    Aosp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceProviderConfig {
+    Local {
+        root: PathBuf,
+    },
+    GitHub {
+        owner: String,
+        repository: String,
+        git_ref: String,
+        credential_key: Option<String>,
+    },
+    Aosp {
+        project: String,
+        git_ref: String,
+    },
+}
+
+impl SourceProviderConfig {
+    pub fn kind(&self) -> SourceProviderKind {
+        match self {
+            Self::Local { .. } => SourceProviderKind::Local,
+            Self::GitHub { .. } => SourceProviderKind::GitHub,
+            Self::Aosp { .. } => SourceProviderKind::Aosp,
         }
     }
-}
-impl SourceLimits {
+
+    /// Remote provider identity is validated even though the UI only exposes
+    /// local workspaces, so persisted remote rows cannot contain unbounded text.
     pub fn validate(&self) -> Result<(), String> {
-        if self.max_files == 0
-            || self.max_files > 20_000
-            || self.max_file_bytes == 0
-            || self.max_file_bytes > 5 * 1024 * 1024
-            || self.max_total_bytes == 0
-            || self.max_total_bytes > 256 * 1024 * 1024
-            || self.max_entries == 0
-            || self.max_entries > 200_000
-            || self.max_depth == 0
-            || self.max_depth > 64
-            || self.max_symbols == 0
-            || self.max_symbols > 200_000
-        {
-            return Err("source index limits exceed supported nonzero bounds".into());
+        match self {
+            Self::Local { root } => {
+                if root.as_os_str().is_empty() {
+                    return Err("local source root must not be empty".into());
+                }
+            }
+            Self::GitHub {
+                owner,
+                repository,
+                git_ref,
+                credential_key,
+            } => {
+                aps_contracts::validate_text(owner, "GitHub owner", 256)?;
+                aps_contracts::validate_text(repository, "GitHub repository", 256)?;
+                aps_contracts::validate_text(git_ref, "GitHub ref", 256)?;
+                if let Some(key) = credential_key {
+                    aps_contracts::validate_text(key, "GitHub credential key", 256)?;
+                }
+            }
+            Self::Aosp { project, git_ref } => {
+                aps_contracts::validate_text(project, "AOSP project", 512)?;
+                aps_contracts::validate_text(git_ref, "AOSP ref", 256)?;
+            }
         }
         Ok(())
     }
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceWorkspacePhase {
+    Registering,
+    ResolvingRevision,
+    BuildingManifest,
+    Indexing,
+    Ready,
+    Partial,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceWorkspace {
+    pub id: SourceWorkspaceId,
+    pub display_name: String,
+    pub config: SourceProviderConfig,
+    pub active_snapshot_id: Option<SourceSnapshotId>,
+    pub phase: SourceWorkspacePhase,
+    pub progress: f32,
+    pub message: Option<String>,
+    pub allow_ai_source_upload: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSnapshot {
+    pub id: SourceSnapshotId,
+    pub workspace_id: SourceWorkspaceId,
+    pub immutable_revision: String,
+    pub dirty_content_digest: Option<SourceDigest>,
+    pub manifest_hash: SourceDigest,
+    pub created_unix_ms: u64,
+    pub index_version: u64,
+    pub index_complete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SourceLanguage {
     Kotlin,
     Java,
     Xml,
     C,
     Cpp,
-    Rust,
+    Other,
 }
+
+const SOURCE_EXTENSIONS: &[&str] = &[
+    "kt", "kts", "java", "xml", "c", "cc", "cpp", "cxx", "h", "hh", "hpp",
+];
+
 impl SourceLanguage {
-    pub fn from_path(path: &str) -> Option<Self> {
-        match path.rsplit('.').next()?.to_ascii_lowercase().as_str() {
-            "kt" | "kts" => Some(Self::Kotlin),
-            "java" => Some(Self::Java),
-            "xml" => Some(Self::Xml),
-            "c" | "h" => Some(Self::C),
-            "cc" | "cpp" | "cxx" | "hh" | "hpp" => Some(Self::Cpp),
-            "rs" => Some(Self::Rust),
-            _ => None,
+    /// Compose sourceLanguage(relativePath): extension mapping, unknown -> Other.
+    pub fn from_path(path: &str) -> Self {
+        let extension = path
+            .rsplit_once('.')
+            .map(|(_, extension)| extension.to_ascii_lowercase())
+            .unwrap_or_default();
+        match extension.as_str() {
+            "kt" | "kts" => Self::Kotlin,
+            "java" => Self::Java,
+            "xml" => Self::Xml,
+            "c" | "h" => Self::C,
+            "cc" | "cpp" | "cxx" | "hh" | "hpp" => Self::Cpp,
+            _ => Self::Other,
         }
     }
+
+    /// Provider allowlist, in Compose declaration order.
+    pub fn extension_list() -> &'static [&'static str] {
+        SOURCE_EXTENSIONS
+    }
 }
-macro_rules! source_id {
-    ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name(pub(crate) SourceDigest);
-        impl $name {
-            pub fn to_hex(self) -> String {
-                self.0.to_hex()
-            }
-        }
-    };
-}
-source_id!(SourceWorkspaceId);
-source_id!(SourceSnapshotId);
-source_id!(ResolutionCandidateId);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
+    pub snapshot_id: SourceSnapshotId,
     pub relative_path: String,
-    pub content_hash: SourceDigest,
     pub language: SourceLanguage,
-    pub byte_length: u64,
-    pub line_count: usize,
-    /// Directory segment preceding src/, or top directory as a discovery hint.
-    /// This is not a verified Gradle/CMake module identity.
-    pub module: String,
+    pub content_hash: SourceDigest,
+    pub size_bytes: u64,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceFilesPage {
-    pub total: usize,
-    pub offset: usize,
-    pub rows: Vec<SourceFile>,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SourceSymbolKind {
+    Package,
     Type,
     Function,
     Method,
     Resource,
+    NativeSymbol,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceSymbol {
+    pub snapshot_id: SourceSnapshotId,
     pub relative_path: String,
-    pub name: String,
-    pub qualified_name: String,
     pub kind: SourceSymbolKind,
-    pub line: usize,
+    pub qualified_name: String,
+    pub signature: Option<String>,
+    pub start_line: usize,
+    pub end_line: usize,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceRange {
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
     pub workspace_id: SourceWorkspaceId,
     pub snapshot_id: SourceSnapshotId,
     pub relative_path: String,
+    pub range: Option<SourceRange>,
     pub content_hash: SourceDigest,
-    pub start_line: usize,
-    pub end_line: usize,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolutionConfidence {
+    Exact,
     Probable,
     Weak,
 }
+
+/// Compose BuildIdentityMatch: an unverified build cannot claim Exact
+/// navigation, so the resolver downgrades Exact candidates to Probable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildIdentityMatch {
+    Verified,
+    Unverified,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolutionCandidate {
     pub id: ResolutionCandidateId,
+    pub evidence_id: PerformanceEvidenceId,
     pub location: SourceLocation,
     pub confidence: ResolutionConfidence,
     pub reasons: Vec<String>,
-    pub index_version: u32,
+    pub index_version: u64,
     pub index_complete: bool,
-    pub(crate) evidence: ResolutionQuery,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolutionQuery {
-    pub symbol: Option<String>,
-    pub file_name: Option<String>,
-    pub module: Option<String>,
-    pub limit: usize,
+pub enum SourceResolutionEvidence {
+    ManagedSymbol {
+        id: PerformanceEvidenceId,
+        class_name: Option<String>,
+        method_name: String,
+        signature: Option<String>,
+        resource_path: Option<String>,
+    },
+    NativeSymbol {
+        id: PerformanceEvidenceId,
+        symbol_name: String,
+        library_path: Option<String>,
+        build_id: Option<String>,
+        source_path: Option<String>,
+        source_line: Option<usize>,
+    },
+    AndroidResource {
+        id: PerformanceEvidenceId,
+        resource_type: String,
+        resource_name: String,
+    },
+    TypeName {
+        id: PerformanceEvidenceId,
+        qualified_name: String,
+    },
+    SourceFileLine {
+        id: PerformanceEvidenceId,
+        file_name: String,
+        package_hash: u32,
+        line: usize,
+    },
 }
-impl Default for ResolutionQuery {
-    fn default() -> Self {
-        Self {
-            symbol: None,
-            file_name: None,
-            module: None,
-            limit: 20,
+
+impl SourceResolutionEvidence {
+    pub fn id(&self) -> PerformanceEvidenceId {
+        match self {
+            Self::ManagedSymbol { id, .. }
+            | Self::NativeSymbol { id, .. }
+            | Self::AndroidResource { id, .. }
+            | Self::TypeName { id, .. }
+            | Self::SourceFileLine { id, .. } => *id,
         }
     }
 }
-impl ResolutionQuery {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.limit == 0 || self.limit > MAX_RESOLUTION_CANDIDATES {
-            return Err("resolution limit must be between 1 and 100".into());
-        }
-        if self.symbol.is_none() && self.file_name.is_none() {
-            return Err("resolution requires explicit symbol or filename evidence".into());
-        }
-        for value in [&self.symbol, &self.file_name, &self.module]
-            .into_iter()
-            .flatten()
-        {
-            aps_contracts::validate_text(value, "resolution evidence", 512)?;
-        }
-        if self
-            .file_name
-            .as_ref()
-            .is_some_and(|name| name.contains(['/', '\\']))
-        {
-            return Err("filename evidence must be a basename, not a path".into());
-        }
-        Ok(())
-    }
-}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SnippetLimits {
-    pub max_lines: usize,
-    pub max_bytes: usize,
+pub enum SourceContentState {
+    Current,
+    Stale,
 }
-impl Default for SnippetLimits {
-    fn default() -> Self {
-        Self {
-            max_lines: 200,
-            max_bytes: 64 * 1024,
-        }
-    }
-}
-impl SnippetLimits {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.max_lines == 0
-            || self.max_lines > 1000
-            || self.max_bytes == 0
-            || self.max_bytes > 256 * 1024
-        {
-            return Err("source snippet limits exceed supported nonzero bounds".into());
-        }
-        Ok(())
-    }
-}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceSnippet {
+pub struct VerifiedSourceContent {
     pub location: SourceLocation,
     pub text: String,
-    pub total_file_lines: usize,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub truncated: bool,
+    pub state: SourceContentState,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct IndexCoverage {
-    pub visited_entries: usize,
-    pub indexed_files: usize,
-    pub indexed_bytes: u64,
-    pub indexed_symbols: usize,
-    pub excluded_entries: usize,
-    pub omitted_files: usize,
-    pub unreadable_entries: usize,
-    pub file_budget_exhausted: bool,
-    pub byte_budget_exhausted: bool,
-    pub entry_budget_exhausted: bool,
-    pub depth_budget_exhausted: bool,
-    pub symbol_budget_exhausted: bool,
-}
-impl IndexCoverage {
-    pub fn manifest_complete(&self) -> bool {
-        !self.file_budget_exhausted
-            && !self.byte_budget_exhausted
-            && !self.entry_budget_exhausted
-            && !self.depth_budget_exhausted
-            && self.unreadable_entries == 0
-            && self.omitted_files == 0
-    }
-    /// Heuristic symbol discovery is never a compiler-complete structural index.
-    pub fn structurally_complete(&self) -> bool {
-        false
-    }
+
+/// Compose ProviderSourceFile: local listings do not pre-hash content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSourceFile {
+    pub relative_path: String,
+    pub size_bytes: u64,
+    pub content_hash: Option<SourceDigest>,
 }

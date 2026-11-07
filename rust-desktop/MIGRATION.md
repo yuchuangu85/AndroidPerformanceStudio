@@ -152,9 +152,11 @@ is complete; compilation of test targets is not test execution.
 - Source registration/snapshot metadata now persists in a separate Rust SQLite
   database. Recent entries list metadata in bounded pages; selecting one
   explicitly re-registers, revalidates its workspace identity and creates a
-  fresh snapshot. Source bodies are not persisted and old paths are never
-  auto-indexed on startup. Database errors are visible without blocking local
-  viewing. This is not a durable CPU profile session implementation.
+  fresh snapshot. Old paths are never auto-indexed on startup. Database errors
+  are visible without blocking local viewing. This early metadata-only slice was
+  superseded by the Source Workspaces Compose-parity slice (2026-11-07), which
+  also retains content-addressed source bodies in the Rust-owned local cache.
+  This is not a durable CPU profile session implementation.
 - CPU UI now offers a bounded current-query Call Tree/Top Functions CSV copy
   action and invalidates a pending picker on Close. CSV is not Firefox/PNG/JSON
   export or an all-pages export. Fixed the raw `perf.data` guidance to match the
@@ -804,106 +806,129 @@ focused Battery/App/Foundation Clippy, app build and whitespace checks. Logs:
 `/tmp/aps-battery-ui-check.log`, `/tmp/aps-battery-ui-clippy.log`,
 `/tmp/aps-battery-ui-build.log`. Existing unrelated workspace warnings remain;
 no fresh Battery-file diagnostics are accepted. Native screenshots/pixel fidelity,
-keyboard/dialog/import interaction, live devices, providers and packaged-app
-acceptance remain separate open gates. This is a reference-shaped offline UI,
-not a claim of complete Battery capture, persistence, raw-evidence or pixel parity.
+### Source Workspaces Compose-parity slice — 2026-11-07
 
-### Startup hover registration repair — 2026-11-07
+- `aps-source` was rewritten as the Compose `source-workspace` domain:
+  digest-backed workspace/snapshot/candidate/evidence IDs, local/GitHub/AOSP
+  provider configs, the seven workspace phases, snapshot/file/symbol/range/
+  location/candidate/content-state models, a content-addressed cache, a
+  Git-aware local provider (`git rev-parse HEAD`, dirty digest over sorted
+  `path:sha256` lines, symlink-safe walk, 5 MiB and extension allowlists), the
+  `StructuralSourceIndexer` declaration port (validated pattern-for-pattern
+  against the Compose JVM regexes), an in-memory `SourceRepository`, and
+  `IndexedSourceResolver` with Compose confidence tiers, raw reason strings,
+  deterministic candidate IDs, Java `String.hashCode` package matching and the
+  `BuildIdentityMatch` Exact→Probable ceiling.
+- `aps-storage` schema v3 adds workspaces/snapshots/files/symbols/candidates
+  with cascades and bounded validation, implements
+  `aps_source::SourceRepository` for `Storage`, and migrates dev databases by
+  recreating only the old source tables (artifacts and sessions preserved). No
+  Compose database or settings are read.
+- `crates/aps-app/src/source/service.rs` implements the blocking
+  `DefaultSourceWorkspaceService` flow: add/refresh/remove/read/load/snapshot/
+  files/candidate/save_candidates/resolve, Compose's exact phase/progress/
+  message sequence, snapshot id = sha256("<workspace>:<revision>:<manifest>"),
+  cache-every-file indexing, and Current/Stale verification against the working
+  tree. The DB is opened per call; failures persist the Failed phase and keep the
+  previous snapshot.
+- The GPUI page (`source/page.rs`, `source/tree.rs`, `source/layout.rs`,
+  `source/code_viewer.rs`, `source/ai_context.rs`, `source/permissions.rs`)
+  reproduces Compose's toolbar (+Local, AI Settings, Run AI Analysis; GitHub/AOSP
+  hidden), three-pane container-query layout with 360/320/220/220/360 minimums
+  and 7 px draggable splitters, workspace cards (provider·phase, progress,
+  localized ready summary, Sync/AI-source/Remove), the 28 px file search row,
+  20 px / 14 px-indent virtualized collapsed-first directory tree with
+  language-colored icons and disclosure triangles, the source header with
+  path:line, Copy location/Open in IDE, snapshot summary, localized candidate
+  reasons and stale warning, and the One Dark viewer (verbatim palette and
+  tokenizer, 56 px gutter, range band, 28 px search with n/m and prev/next,
+  horizontal/vertical scrolling, drag selection and copy).
+- AI: the page publishes bounded, metadata-only selection evidence (snapshot
+  identity, content hash, language, content state, size, line count/range, no
+  source text). A source candidate is included only while the workspace's
+  Rust-owned upload grant is set; the existing AI preflight still requires its
+  separate explicit source-consent approval before transport. The "AI Settings"
+  button opens the existing Rust AI settings subpage.
+- Localization: `values{,-zh}/source.json` replaced with the Compose
+  `source_*` page/viewer keys (status/phase/confidence/reason/summary
+  templates); no source text, SQL, paths or diagnostics are translated.
 
-- Reproduced the native startup abort with `hover style already set` at GPUI's
-  `div.rs:867`. Home card Buttons registered a hover style before GPUI Kit 0.9's
-  Button renderer registered its own. Removed the application-level registration
-  and the identical Network request-row pattern, leaving interaction states with
-  the component owner and preserving keyboard/action behavior.
-- Added a source regression check (compiled, not executed). App build and
-  all-target compilation passed. Relaunched the real app: one visible native
-  window, process remained alive, `/tmp/aps-startup-fixed.log` stayed empty.
-  Runtime window capture: `build/startup-hover-fix/running-window.png`.
-  This verifies the reported startup failure, not broad profiler acceptance.
+Verification (initial pass): `cargo fmt --all --check`, `cargo check --workspace
+--all-targets --offline`, `cargo build -p aps-app` and a focused Clippy pass
+completed. A native dark-English smoke run opened the page with a seeded local
+fixture workspace (selected card, auto-expanded tree, C++ file open in the One
+Dark viewer) without panic; capture at
+`build/source-workspace/source-workspaces-preview.png`, fixture seeding script
+beside it. The full interactive verification pass is recorded below.
 
-### Startup workspace reference repair — 2026-11-07
+### Source Workspaces verification pass — 2026-11-07
 
-- Replaced the generic Startup artifact placeholder/list with a dedicated page
-  following the current Compose screen: fixed compact toolbar, three mode cards,
-  scenario controls, four metrics, waterfall region, seven-column run table,
-  baseline boundary and evidence rail, including the pre-import empty state.
-  Reused Studio tokens and 16/13/11 typography, removed the duplicate shell title
-  and shell scrolling owner, and matched the 1100dp/300dp/760dp layout contract.
-- Fixed the run-selection mismatch: highlighting read a Startup ID while clicks
-  and detail used Frame's row index. Startup now publishes stable run-ID selection
-  and no longer needs the obsolete index field or generic specialized toolbar.
-  Filtered whole-cohort statistics run off-thread; rows, statistics, pagination,
-  exports and AI use one successful immutable publication. Failure/cancellation
-  preserves the old publication. MAD uses the reference nearest-rank convention.
-- Import remains CSV only. Live configuration/start, correlated phase intervals,
-  Agent first-frame, baseline analysis and Open Trace show explicit unavailable
-  boundaries; no device capture, raw file opening, invented phases or TotalTime
-  fallback is introduced. Evidence declarations remain unverified; exports are
-  clearly labeled current-page projections, not reimportable full reports.
-- Added 17 regression sources for source/missing-value semantics, stable identity,
-  filtering, paging, export consistency, cancellation, layout constants and
-  whitelist projection. These were compiled, **not executed**, per rewrite policy.
+The user explicitly requested "检测所有功能" (verify every function) in this
+pass, so the previously deferred test execution was performed for this slice.
+Unrelated rewrite work keeps the deferred-test policy.
 
-Validation: locked offline workspace all-target compilation, app build, full
-workspace Rust formatting and whitespace checks passed. Focused App/Startup/Foundation
-Clippy exited successfully with existing out-of-scope warnings and no Startup
-file diagnostics. An initial formatting pass encountered concurrent unrelated
-GPU edits; both scoped and final workspace checks subsequently passed. Logs:
-`/tmp/aps-startup-workspace-check.log`, `/tmp/aps-startup-clippy.log`,
-`/tmp/aps-startup-build.log` and `/tmp/aps-startup-scoped-format.log`.
+- `cargo test --workspace --offline --no-fail-fast`: **392 passed, 0 failed**
+  across 69 test binaries. New source coverage: aps-source integration tests
+  (provider/paths/cache/indexer/resolver/repository, 11), aps-storage
+  repository+read-only+contract tests (8 + 6), aps-app unit tests including nine
+  One Dark lexer/search tests, five AI-context contract tests, four service
+  end-to-end tests (add/refresh/read Current+Stale/candidates/remove/failure),
+  a runtime navigation-evidence test and two page localization-mapping tests,
+  plus the existing tree/layout/permissions suites, and the localization
+  catalog/source-scan suite (7).
+- Defects found by detection and fixed:
+  - The page's AI Analysis action panicked ("cannot read aps_app::source::
+    SourceWorkspace while it is already being updated") because it re-read the
+    updating entity from the shell; the page now computes the request in its own
+    listener and applies it through `Studio::present_ai_request`.
+  - The pending add card used the "+ Local" label; the runtime now carries the
+    pending directory name and the live card shows it.
+  - After Sync replaced the active snapshot, AI preflight and the snapshot
+    summary used the new snapshot instead of the selected location's immutable
+    one; the runtime now caches the selected location's snapshot and files
+    (Compose resolves the browser snapshot from the location first).
+  - AI evidence identity now uses Compose's source-specific
+    `source-selection`/`source-workspace-selection` instead of the generic
+    selection id, and resolver output is unbounded like Compose (the previous
+    100-candidate cap was removed).
+  - AI findings gained an "Open source" action per persisted candidate id; the
+    shell selects the Source page and only non-Weak candidates navigate.
+  - Pre-existing suite failures fixed while running tests: aps-ai now checks
+    cancellation before resolving the credential; the aps-network HAR fixture
+    gained the required `startedDateTime`; the settings color placeholder is a
+    constant so the bi-lingual-source scan passes; the read-only metadata open
+    canonicalizes symlinked ancestors (macOS /var, /tmp) before SQLite's
+    NOFOLLOW open; the storage test compares `SCHEMA_VERSION`.
+- Native interaction verification (isolated `/tmp/aps-src-preview` data root with
+  a seeded local fixture; real OS mouse/keyboard events; screenshots under
+  `build/source-workspace/`): workspace selection; Sync with live progress and
+  retained selection; AI-upload toggle persisted to
+  `source-upload-permissions-v1.json`; Copy location clipboard
+  `<workspace>@<revision>:<path>:<line>`; directory expand/collapse; file
+  search filtering paths and revealing ancestors; file switching with
+  header/language/viewer update; code search n/m, Enter navigation and highlight;
+  drag selection + Cmd/Ctrl+C copying exact source bytes; stale warning after a
+  working-tree edit while immutable content stays readable; Remove cascading the
+  database and showing the empty state; AI Settings opening the Rust AI settings
+  page; AI Analysis freezing a metadata-only request (no source text; 0 source
+  candidates without a candidate and 1 with a persisted candidate); CPU-style
+  symbol navigation resolving a Probable candidate with Compose reason strings
+  and highlighting its line; "+ Local" opening the native directory picker, and
+  an end-to-end add showing the pending card with the real directory name and the
+  Ready card afterwards.
+- Not exercised interactively: Open in IDE (it would launch the user's default
+  application), GitHub/AOSP providers (hidden in the Compose UI), Layout
+  Inspector Compose-source and AI archived-source rebinding (still open), and
+  packaged/IME/accessibility acceptance beyond real keyboard input and the
+  native picker. This pass is functional and visual smoke verification, not the
+  full acceptance matrix.
 
-An isolated Rust-owned empty-state preview (separate executable and data root)
-was opened in wide and narrow windows, inspected, then stopped. Native evidence:
-`build/startup-workspace-fix/empty-wide.png`,
-`build/startup-workspace-fix/empty-narrow.png`; runtime log
-`/tmp/aps-startup-ui-preview.log` was empty. This inspection also caught and fixed
-a two-pixel KPI wrapping error from omitted panel borders. It does not prove
-populated-report interaction, pixel equivalence, keyboard, live-device, provider
-or packaged-app acceptance. Existing shared application instances are not part
-of this preview's acceptance evidence.
-
-
-### GPU Analysis Hub reference UI port — 2026-11-07
-
-- Ported the current Compose GPU Analysis Hub instead of the generic import
-  table: compact analysis toolbar, four icon-bearing summary cards, 264dp
-  searchable artifact rail, tabbed central workspace and 300dp capability/open
-  rail. Actual content width controls the 1100dp three-column and 900dp summary
-  boundaries; stacked artifact rail is 236dp. Wide central panels can fill the
-  remaining viewport, while short windows retain reachable content scrolling.
-- Central content preserves device renderer/vendor/driver/API/implementation,
-  Overview metadata and copy, the eight-column Artifacts table with reference
-  weights and shared horizontal scrolling, Related Evidence's honest unavailable
-  state, full external-tool capabilities/warnings and the five closed analysis
-  categories. Artifact/table rails use bounded 100-item pages and stable digests.
-- Import, verify, relocate, reveal, explicit device graphics refresh and
-  configure/probe/launch actions are wired to Rust adapters. Perfetto opening
-  navigates to the Trace Analyzer and imports the verified selected file.
-  AGI launch is labelled as launch/manual opening, never a verified artifact-open
-  command. Cancellation/stale publication preserve the previous published item;
-  related evidence is not inferred from names, paths or modification timestamps.
-- Summary availability derives from verification state. Device selection alone
-  supplies no graphics properties. Missing artifact device/package/API/capture/
-  AGI version/implementation/notes remain unknown rather than borrowing the
-  current device or toolchain. Persistent catalog restoration remains unconnected.
-- Added 184 paired English/Chinese GPU resource keys, all Compose keys represented;
-  removed 56 redundant aliases, kept semantic names and named placeholders.
-  Fixed known application-owned toolchain warning localization, preserving unknown
-  diagnostics verbatim. Shared title-bar device selection publishes to this page;
-  AI/export retain only minimized selected-artifact identity, not private paths.
-- Added regression sources for reference dimensions, selection by digest despite
-  duplicate filenames/filter/reorder, case-insensitive search and verification/
-  AGI launch gates; compiled only. Removed unused GPU analysis test imports.
-
-Validation: `cargo fmt --all --check`, locked offline workspace all-target check,
-focused App/GPU/Foundation Clippy and app build passed. Clippy retains unrelated
-existing warnings; no GPU source diagnostics appeared. Resource static validation
-confirmed 184 paired keys, complete Compose key coverage and matching named
-placeholders. Logs: `/tmp/aps-gpu-{format,workspace-check,clippy,build}.log`.
-A native Chinese dark empty GPU workspace was opened without panic and captured
-at `build/gpu-inspector-port/gpu-overview.png`; a final-build light app also
-started without panic, but its GPU navigation capture was not established.
-Preview processes used isolated `/tmp/aps-gpu-ui-preview` settings and were
-stopped afterward. No automated test execution. Pixel comparison, exhaustive
-keyboard/import/relocation interactions, authorized device, real AGI and packaged
-acceptance remain open gates; this does not claim complete backend/pixel parity.
+Honest gaps:
+- Only the Local provider is implemented. Compose hides GitHub/AOSP behind
+  `REMOTE_SOURCE_WORKSPACES_VISIBLE = false`; Rust lists only Local workspaces
+  and a persisted remote row fails refresh with an explicit unavailable error.
+- CPU symbol navigation and AI-result candidate opening are wired (non-Weak
+  candidates only). Layout Inspector Compose-source candidates and
+  archived-source rebinding still need their Rust UI surfaces.
+- `SourceWorkspacePhase::Partial` exists but is never emitted (as in Compose).
+- Workspace IDs are digest-derived instead of Compose UUIDs (not user-visible).

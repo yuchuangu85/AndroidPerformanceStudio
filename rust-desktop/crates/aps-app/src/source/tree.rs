@@ -1,7 +1,9 @@
 //! Directory-first presentation of the entire immutable source manifest.
 //!
-//! Expansion is opt-in: a new workspace begins collapsed. Searching reveals
-//! matching files and their ancestors without changing the saved expansion set.
+//! Expansion is caller-owned and follows the Compose oracle
+//! (`SourceFileTree.kt`): a newly shown manifest passes every directory as
+//! collapsed, and searching reveals matching files together with their
+//! ancestors without changing that stored set.
 
 use aps_source::{SourceFile, SourceLanguage};
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,10 +14,10 @@ pub(super) const TREE_INDENT: f32 = 14.;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TreeRow {
     /// Original manifest identity for files; normalized directory path otherwise.
-    pub path: String,
-    pub name: String,
-    pub depth: usize,
-    pub kind: TreeRowKind,
+    pub(super) path: String,
+    pub(super) name: String,
+    pub(super) depth: usize,
+    pub(super) kind: TreeRowKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,13 +44,28 @@ pub(super) fn ancestor_directories(relative_path: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// Every directory path in the manifest. A newly shown source tree starts with
+/// this whole set collapsed, exactly like `SourceFileTree.defaultCollapsedDirectories`.
+pub(super) fn all_directories(files: &[SourceFile]) -> BTreeSet<String> {
+    let mut root = Directory::default();
+    for file in files {
+        root.add(file);
+    }
+    let mut paths = BTreeSet::new();
+    root.collect_paths(&mut paths);
+    paths
+}
+
 /// `files` is the complete indexed manifest, never one bounded file page.
 /// Paths stay manifest-owned; this projection neither reads source nor resolves
 /// filesystem locations. Search is case-insensitive over the relative path.
+///
+/// `collapsed` is the presentation-owned set of collapsed directory paths;
+/// while searching, the ancestors of matching files are forcibly revealed.
 pub(super) fn tree_rows(
     files: &[SourceFile],
     query: &str,
-    expanded: &BTreeSet<String>,
+    collapsed: &BTreeSet<String>,
 ) -> Vec<TreeRow> {
     let needle = query.replace('\\', "/").to_lowercase();
     let searching = !needle.trim().is_empty();
@@ -70,7 +87,7 @@ pub(super) fn tree_rows(
         root.add(file);
     }
     let mut rows = Vec::new();
-    root.append_rows(0, expanded, &search_ancestors, &mut rows);
+    root.append_rows(0, collapsed, &search_ancestors, &mut rows);
     rows
 }
 
@@ -107,10 +124,17 @@ impl<'a> Directory<'a> {
         directory.files.push(file);
     }
 
+    fn collect_paths(&self, paths: &mut BTreeSet<String>) {
+        for directory in self.directories.values() {
+            paths.insert(directory.path.clone());
+            directory.collect_paths(paths);
+        }
+    }
+
     fn append_rows(
         &self,
         depth: usize,
-        expanded: &BTreeSet<String>,
+        collapsed: &BTreeSet<String>,
         forced_expanded: &BTreeSet<String>,
         rows: &mut Vec<TreeRow>,
     ) {
@@ -120,7 +144,7 @@ impl<'a> Directory<'a> {
         });
         for directory in directories {
             let is_expanded =
-                expanded.contains(&directory.path) || forced_expanded.contains(&directory.path);
+                !collapsed.contains(&directory.path) || forced_expanded.contains(&directory.path);
             rows.push(TreeRow {
                 path: directory.path.clone(),
                 name: directory.name.clone(),
@@ -130,7 +154,7 @@ impl<'a> Directory<'a> {
                 },
             });
             if is_expanded {
-                directory.append_rows(depth + 1, expanded, forced_expanded, rows);
+                directory.append_rows(depth + 1, collapsed, forced_expanded, rows);
             }
         }
         let mut files = self.files.clone();
@@ -172,12 +196,13 @@ mod tests {
 
     fn file(path: &str) -> SourceFile {
         SourceFile {
+            snapshot_id: aps_source::SourceSnapshotId::from_digest(SourceDigest::from_bytes(
+                [0; 32],
+            )),
             relative_path: path.to_owned(),
             content_hash: SourceDigest::from_hex(&"0".repeat(64)).unwrap(),
             language: SourceLanguage::Kotlin,
-            byte_length: 1,
-            line_count: 1,
-            module: String::new(),
+            size_bytes: 1,
         }
     }
 
@@ -187,17 +212,16 @@ mod tests {
 
     #[test]
     fn new_tree_is_collapsed_with_root_files_and_directory_first_order() {
-        let rows = tree_rows(
-            &[
-                file("z.kt"),
-                file("Beta/Inner.kt"),
-                file("alpha/Inner.kt"),
-                file("A.kt"),
-            ],
-            "",
-            &BTreeSet::new(),
-        );
+        let files = [
+            file("z.kt"),
+            file("Beta/Inner.kt"),
+            file("alpha/Inner.kt"),
+            file("A.kt"),
+        ];
+        let collapsed = all_directories(&files);
+        let rows = tree_rows(&files, "", &collapsed);
         assert_eq!(paths(&rows), ["alpha", "Beta", "A.kt", "z.kt"]);
+        assert_eq!(collapsed, BTreeSet::from(["alpha".into(), "Beta".into()]));
         assert!(rows[..2].iter().all(|row| {
             row.depth == 0 && row.kind == TreeRowKind::Directory { expanded: false }
         }));
@@ -208,11 +232,10 @@ mod tests {
     #[test]
     fn nested_expansion_keeps_paths_depths_and_language() {
         let files = [file("app/src/Beta.kt"), file("app/src/Alpha.kt")];
-        let rows = tree_rows(
-            &files,
-            "",
-            &BTreeSet::from(["app".into(), "app/src".into()]),
-        );
+        let mut collapsed = all_directories(&files);
+        collapsed.remove("app");
+        collapsed.remove("app/src");
+        let rows = tree_rows(&files, "", &collapsed);
         assert_eq!(
             paths(&rows),
             ["app", "app/src", "app/src/Alpha.kt", "app/src/Beta.kt"]
@@ -235,28 +258,30 @@ mod tests {
             .map(|index| file(&format!("ordinary/{index}.kt")))
             .collect();
         files.push(file("app/src/MainViewModel.kt"));
-        let expanded = BTreeSet::new();
-        let rows = tree_rows(&files, "MAINVIEW", &expanded);
+        let collapsed = all_directories(&files);
+        let rows = tree_rows(&files, "MAINVIEW", &collapsed);
         assert_eq!(paths(&rows), ["app", "app/src", "app/src/MainViewModel.kt"]);
         assert!(
             rows[..2]
                 .iter()
                 .all(|row| row.kind == TreeRowKind::Directory { expanded: true })
         );
-        assert!(expanded.is_empty());
-        assert_eq!(tree_rows(&files, "no matches", &expanded), []);
+        // Search never mutates the presentation-owned collapse set.
+        assert!(collapsed.contains("app"));
+        assert_eq!(tree_rows(&files, "no matches", &collapsed), []);
     }
 
     #[test]
     fn searching_directory_path_retains_its_files_and_whitespace_means_all() {
         let files = [file("app/src/One.kt"), file("test/Two.kt")];
+        let collapsed = all_directories(&files);
         assert_eq!(
-            paths(&tree_rows(&files, "APP/SRC", &BTreeSet::new())),
+            paths(&tree_rows(&files, "APP/SRC", &collapsed)),
             ["app", "app/src", "app/src/One.kt"]
         );
         assert_eq!(
-            tree_rows(&files, "   ", &BTreeSet::new()),
-            tree_rows(&files, "", &BTreeSet::new())
+            tree_rows(&files, "   ", &collapsed),
+            tree_rows(&files, "", &collapsed)
         );
     }
 
@@ -268,7 +293,12 @@ mod tests {
             ancestors,
             BTreeSet::from(["app".into(), "app/src".into(), "app/src/main".into()])
         );
-        let rows = tree_rows(&[file(selected)], "", &ancestors);
+        let files = [file(selected)];
+        let mut collapsed = all_directories(&files);
+        for ancestor in &ancestors {
+            collapsed.remove(ancestor);
+        }
+        let rows = tree_rows(&files, "", &collapsed);
         assert_eq!(rows.last().unwrap().path, selected);
         assert_eq!(rows.last().unwrap().name, "Main.kt");
         assert_eq!(rows.last().unwrap().depth, 3);
@@ -284,7 +314,9 @@ mod tests {
             file("app/A.kt"),
             file("app/Zed/One.kt"),
         ];
-        let rows = tree_rows(&files, "", &BTreeSet::from(["app".into()]));
+        let mut collapsed = all_directories(&files);
+        collapsed.remove("app");
+        let rows = tree_rows(&files, "", &collapsed);
         assert_eq!(
             paths(&rows),
             ["app", "app/Zed", "app/A.kt", "app/a.kt", "app/z.kt"]

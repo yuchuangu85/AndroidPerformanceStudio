@@ -8,4 +8,5 @@ publish = false
 [dependencies]
 aps-contracts = { path = "../aps-contracts" }
 aps-json = { path = "../aps-json" }
+aps-source = { path = "../aps-source" }
 rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled", "limits"] }

@@ -1,101 +1,88 @@
 # aps-source
 
-Phase 6 **local-only subset** of Source Workspace / Source Snapshot / Source
-Resolution / Source Viewer contracts. Implementation is based on the repository
-CONTEXT and ADRs 0001–0021. No AI, HTTP, Git subprocess, credential discovery,
-implicit home scan, source upload, or full source copy is performed.
+Compose-parity Source Workspace domain for the Rust desktop app. The behavior
+oracle is `desktop-viewer/source-workspace` (models, providers, cache, indexer,
+indexed resolver); the Rust app consumes this crate through
+`aps-app/src/source/service.rs`.
 
-## API
+Only the local provider is reachable from the UI. There is no network call,
+credential discovery, implicit home scan, source upload or full source copy
+outside the Rust-owned content-addressed cache.
 
-```rust
-let workspace = LocalSourceWorkspace::register(selected_root, "My project")?;
-let snapshot = workspace.snapshot(SourceLimits::default())?;
-let page = snapshot.files(0, 100)?;
-let location = snapshot.location(&page.rows[0].relative_path, 1, 20)?;
-let snippet = workspace.read_location(&snapshot, &location, SnippetLimits::default())?;
-let candidates = snapshot.resolve(&ResolutionQuery {
-    symbol: Some("example.work".into()), ..ResolutionQuery::default()
-})?;
-snapshot.validate_candidate(&candidates[0])?;
-```
+## Model
 
-Registration only stores an explicitly selected canonical directory. It rejects
-filesystem/home roots and symlink roots. Source filenames are restricted to
-Kotlin/Java/XML/C/C++/Rust; hidden paths, known build/cache trees and conservative
-secret/credential/key/token filename patterns are excluded. This can exclude
-legitimate code (for example token parsers); it does not guarantee arbitrary
-allowed source text contains no secrets. Source authorization/upload remains a
-separate, unimplemented policy, never inferred from registration.
+- `SourceWorkspaceId`, `SourceSnapshotId`, `ResolutionCandidateId` and
+  `PerformanceEvidenceId` are SHA-256 backed newtypes with canonical
+  `to_hex`/`from_hex` and `from_digest`.
+- `SourceProviderConfig` models `Local { root }`, `GitHub { owner, repository,
+  git_ref, credential_key }` and `Aosp { project, git_ref }`; remote configs are
+  validated and persisted for compatibility but have no provider implementation.
+- `SourceWorkspace` carries display name, provider config, active snapshot id,
+  phase (`Registering`, `ResolvingRevision`, `BuildingManifest`, `Indexing`,
+  `Ready`, `Partial`, `Failed`), progress, message and the AI-upload consent flag.
+- `SourceSnapshot` carries the immutable revision, optional dirty-content digest,
+  manifest hash, creation timestamp, index version and completeness.
+- `SourceFile`/`SourceSymbol`/`SourceLocation`/`ResolutionCandidate` mirror the
+  Compose shapes; `ResolutionConfidence` has `Exact`, `Probable` and `Weak` and
+  `BuildIdentityMatch` lets callers cap unverified results.
 
-All relative paths reject traversal, absolute paths, backslashes, colon/ADS paths,
-hidden components and unsupported extensions. Traversal rejects symlinks at every
-component and checks canonical containment. Reads validate file-handle/path
-identity before/after reading and publish only verified bytes. This is portable
-std filesystem validation, **not a race-proof openat/no-follow OS sandbox** against
-an attacker concurrently replacing directory components. Such workspaces require
-OS capability handles/isolation before they can be considered hostile-input safe.
+`INDEX_VERSION` is retained as a legacy format marker; snapshots use the
+Compose index version (creation Unix milliseconds).
 
-## Snapshot identity and availability
+## Local provider
 
-A Source Snapshot is the SHA-256 identity of the frozen, bounded manifest of
-individually read/hashed files, coverage, index version and budgets. It is **not
-an atomic Git-tree snapshot**: files are observed sequentially and no Git revision
-or global dirty-tree identity is claimed. It is not a retained full-content cache.
-Each `SourceLocation` binds workspace/snapshot/relative path/file hash/line range.
-The viewer rehashes full bounded file bytes and rejects changes, disappearance,
-rebound roots or wrong snapshots rather than silently navigating newer content.
-If old bytes are gone, explicit snapshot creation and re-resolution are required.
+`LocalSourceProvider` implements `SourceProvider`:
 
-Defaults: 5000 files, 1 MiB/file, 64 MiB total indexed source, 50,000 visited
-entries, depth 32 and 50,000 symbol hints. Every budget has an implementation hard
-maximum; coverage exposes omissions, unreadable entries and exhausted budgets.
-Directory enumeration exceeding the remaining entry budget omits that directory
-as a whole rather than choosing an arbitrary filesystem-order subset. File pages
-are at most 512 entries. No full source bodies remain in a completed snapshot.
+- `resolve_revision` runs `git -C <root> rev-parse HEAD` through
+  `aps_platform::ProcessRunner` (no shell, bounded output/timeout). Missing Git
+  or a non-repository root yields `unversioned`. A dirty working tree (or the
+  `unversioned` commit) appends `-dirty-<digest>`, where the digest is SHA-256
+  over sorted `relative:sha256(content)` lines joined by newline.
+- `list_files` walks the root without following symlinks, skips the Compose
+  directory names (`.git`, `.gradle`, `.idea`, `build`, `out`,
+  `node_modules`), accepts only `kt, kts, java, xml, c, cc, cpp, cxx, h, hh,
+  hpp`, rejects non-regular files and files above 5 MiB, and sorts by relative
+  path. Content hashes are not precomputed.
+- `read_file` requires a bounded plain relative path that stays under the root,
+  a regular non-symlink file and the same 5 MiB limit.
 
-A conservative scoped `.gitignore` subset excludes simple globs and paths,
-including nested files. Negations never widen access; unsupported escape/bracket
-syntax or an unsafe/oversized ignore file excludes that directory with an explicit
-unreadable-coverage count. Global Git excludes and `.git/info/exclude` are not read,
-and full Git-ignore parity is not claimed. This narrow support avoids reading
-arbitrary user/global configuration during a source registration.
+`SourceProviderRegistry` maps kinds to providers; `SourceProviderRegistry::local()`
+contains the only implementation shipped today.
 
-## Index and resolution confidence
+## Content cache
 
-The index extracts bounded declaration/resource hints while skipping common
-comments/string bodies. It is not a compiler parser: complex generics, language
-corner cases, Rust lifetime/raw-string syntax, macros, bindings and overload
-resolution are not fully covered. Structural completeness is always false.
-Module identity is a directory heuristic (before `src/`), not evaluated Gradle,
-CMake or Cargo configuration. Candidates carry index version/completeness and
-private originating evidence; validation re-resolves that evidence and rejects
-altered paths, lines, hashes, IDs or confidence claims.
+`ContentAddressedSourceCache` stores bytes at `<root>/<hash[0..2]>/<hash[2..]>`.
+Writes go through `aps_platform::atomic_write` after creating the parent
+directory; reads reject missing/non-regular objects and verify the stored hash.
+The cache is never an implicit upload source.
 
-Only explicit matching symbol/basename/module evidence produces candidates;
-there is no AI path/line generation. All symbol matches are at most **Probable**,
-filename-only matches **Weak**. There is no Exact confidence or automatic direct
-navigation: runtime/build identity has not been verified. User-selected files may
-still be opened in the read-only viewer. Raw code/snippet line endings are kept;
-snippet bytes/lines are bounded, with truncation explicit. An initial line larger
-than the snippet budget is rejected instead of returning a misleading empty view.
+## Indexer
 
-The GPUI source workspace can publish exactly one user-selected
-`SourceCandidate` to the bounded AI request contract. The candidate is
-revalidated against its workspace/snapshot/content hash before preparation; the
-optional snippet is limited by `SnippetLimits` and the AI context budget. The
-workspace never becomes an implicit upload scope, and resolving or opening files
-alone does not authorize network transmission.
+`StructuralSourceIndexer::index` is a faithful port of
+`StructuralSourceIndexer.kt` for Kotlin, Java, XML resources and C/C++
+declarations. It reproduces the Compose regular-expression semantics exactly
+(including their leftmost-match and line-number behavior) and is intentionally a
+heuristic, not a compiler parser: comments/string bodies are not skipped and
+complex syntax may be under-indexed. `max_symbols` truncates the result.
 
-## Remaining migration work
+## Repository and resolver
 
-GitHub/AOSP providers, immutable revision/content-addressed caches, Git
-revision+dirty identity, build-evidence mapping, compiler-quality structural
-indexes, SQLite workspace persistence, background cancellation, credential-store
-integration, source-upload preflight and complete cross-provider analysis binding
-remain unimplemented. These are not implied by the local subset. No source is
-automatically uploaded or persisted as a full copy. Absolute roots are exposed
-only for local UI and must not enter reports/prompts/telemetry.
+`SourceRepository` is the Compose repository/index-view port. It is implemented
+by `InMemorySourceRepository` here and by `aps_storage::Storage` (SQLite) in
+the storage crate.
 
-Tests are written but not compiled or executed, following the user's instruction
-to complete the rewrite before comprehensive testing. Main owns integration and
-compilation of this crate.
+`IndexedSourceResolver::resolve` reproduces `IndexedSourceResolver.kt`: type,
+Android resource, managed symbol, symbolizer source path, native symbol and
+Compose file/package-hash evidence; deterministic candidate ids of
+`sha256(snapshot:path:line:evidence)`; resolved from repository lookups only -
+never AI-generated paths or lines. Under `BuildIdentityMatch::Unverified`
+(the desktop flow) `Exact` candidates are downgraded to `Probable` with the raw
+reason `Build identity not verified`; `SourceFileLine` matches use the Kotlin
+`String.hashCode` of every package prefix, so they match Compose exactly.
+
+## Tests
+
+`tests/local_source.rs` covers hashing/ids, the provider, the cache, all four
+indexers, repository cascades, resolver confidence and path policy. Tests are
+authored but not executed per the rewrite policy; the compile gate is
+`cargo check -p aps-source --all-targets --offline`.

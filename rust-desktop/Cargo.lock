@@ -361,6 +361,7 @@ name = "aps-source"
 version = "0.1.0"
 dependencies = [
  "aps-contracts",
+ "aps-platform",
 ]
 
 [[package]]
@@ -373,6 +374,7 @@ version = "0.1.0"
 dependencies = [
  "aps-contracts",
  "aps-json",
+ "aps-source",
  "rusqlite",
 ]
 

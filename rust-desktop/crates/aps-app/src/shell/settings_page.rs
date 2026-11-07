@@ -9,6 +9,8 @@ use gpui_kit::component::{
 };
 const GENERAL_DROPDOWN_WIDTH: f32 = 240.;
 const GENERAL_CUSTOM_COLOR_WIDTH: f32 = 120.;
+/// Non-linguistic color literal placeholder; never translated.
+const HEX_COLOR_PLACEHOLDER: &str = "#AARRGGBB";
 
 use std::{
     path::Path,
@@ -67,7 +69,7 @@ impl SettingsUi {
         .map(|color| {
             cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder("#AARRGGBB")
+                    .placeholder(HEX_COLOR_PLACEHOLDER)
                     .default_value(format!("#{color:08X}"))
                     .validate(|value, _| value.len() <= 9)
             })

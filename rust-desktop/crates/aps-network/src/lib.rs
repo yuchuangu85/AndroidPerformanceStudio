@@ -1089,7 +1089,7 @@ mod descriptor_identity_tests {
     #[test]
     fn cancelled_cached_query_does_not_publish_or_poison_the_next_query() {
         let fixture = Fixture::new();
-        fixture.write(br#"{"log":{"version":"1.2","creator":{"name":"producer","version":"1"},"entries":[{"time":1,"request":{"method":"GET","url":"https://secret.invalid","bodySize":0},"response":{"status":200,"bodySize":0},"timings":{}}]}}"#);
+        fixture.write(br#"{"log":{"version":"1.2","creator":{"name":"producer","version":"1"},"entries":[{"startedDateTime":"2026-01-01T00:00:00.000Z","time":1,"request":{"method":"GET","url":"https://secret.invalid","bodySize":0},"response":{"status":200,"bodySize":0},"timings":{}}]}}"#);
         let active = CancellationToken::new();
         let session = HarSession::open(&fixture.path(), ImportLimits::default(), &active).unwrap();
         let query = super::EntryQuery::default();

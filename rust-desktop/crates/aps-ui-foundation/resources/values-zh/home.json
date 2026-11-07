@@ -23,7 +23,7 @@
   "home_network_description": "检查最小化 HAR 请求与网络性能。",
   "home_gpu_description": "索引并验证 GPU 制品元数据。",
   "home_benchmark_description": "比较基准测试基线与当前结果。",
-  "home_source_description": "注册源码工作区并检查源码身份。",
+  "home_source_description": "管理本地、GitHub 和 AOSP 源码快照、索引与构建证据。",
   "home_recent_name": "名称",
   "home_recent_package": "应用包名",
   "home_recent_type": "类型",

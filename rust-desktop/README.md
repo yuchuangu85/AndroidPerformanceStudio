@@ -201,6 +201,46 @@ This is reference-shaped UI, not verified pixel or full four-source history pari
 Tests, native visual/keyboard acceptance, device and packaged checks remain
 separate deferred gates under the rewrite validation policy.
 
+## Source Workspaces
+
+Source Workspaces now follows the Compose page: a fixed command bar with
+"+ Local", "AI Settings" and a selection-gated AI analysis action; a three-pane
+browser (workspace cards / file tree / source) with draggable 7 px splitters and
+protected 220/220/360 minimum pane widths; a live phase/progress card with
+Sync, AI source-upload consent and Remove; a 28 px file search and a virtualized,
+directory-first tree that starts fully collapsed, expands a selected file's
+ancestors and exports Compose's 20 px row / 14 px indent metrics with
+language-colored icons; and the read-only One Dark viewer with line-number
+gutter, current-line band, token colors, in-view search (n/m, wrap-around),
+horizontal/vertical scrolling, drag selection and copy.
+
+The data layer mirrors the Compose source-workspace module: explicit local
+roots, Git revision plus dirty-content digest, a content-addressed local cache,
+structural Kotlin/Java/XML/C/C++ declaration index, evidence resolution with
+Compose confidence/reason strings, and a Rust-owned SQLite schema for
+workspaces, snapshots, files, symbols and candidates. Reads are verified against
+the immutable content hash and marked stale when the working tree changed.
+Source text is cached only under the Rust application-data directory; nothing is
+uploaded.
+
+The AI preflight receives metadata-only selection evidence (snapshot identity,
+content hash, language, content state, size and line bounds). A candidate is
+included only while that workspace's upload grant is enabled, and the existing
+AI page still requires its separate explicit source consent.
+
+Only the Local provider is visible, exactly like the Compose page (GitHub/AOSP
+controls are hidden there). Remote retrieval, Layout Inspector Compose-source
+candidate dialogs and archived-source rebinding are not connected yet; a
+persisted remote workspace fails refresh with an explicit unavailable error.
+CPU symbol navigation and AI-result candidate opening are wired for non-Weak
+candidates. The full Rust test suite now passes (392 tests, 0 failures) and a
+native interaction pass with a seeded fixture exercised selection, Sync, AI
+upload consent, Copy location, tree/search interactions, code search, drag
+selection/copy, stale detection, remove, AI settings, AI preflight,
+symbol-candidate navigation and add-local (screenshots under
+`build/source-workspace/`). Pixel comparison, packaging and provider requests
+were not executed, so this remains functional/smoke evidence.
+
 ## Battery workspace
 
 Battery now uses its own reference-shaped UI: a compact toolbar, searchable

@@ -147,6 +147,9 @@ impl OpenAiGateway {
             .ok_or(AiError::Timeout)?;
         let prepared = run.prepared;
         let token = run.cancellation;
+        // A cancelled run must never reach the credential resolver (or any
+        // provider transport) even if it was authorized moments earlier.
+        check_cancelled(&token)?;
         let credential = guarded(
             self.credentials
                 .resolve(prepared.provider.credential_reference()),

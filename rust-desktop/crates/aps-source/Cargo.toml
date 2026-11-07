@@ -7,3 +7,4 @@ publish = false
 
 [dependencies]
 aps-contracts = { path = "../aps-contracts" }
+aps-platform = { path = "../aps-platform" }

@@ -41,9 +41,13 @@ isolation remains the platform owner's responsibility, not a SQLite sandbox.
 
 SQLite application ID is `0x41505352`. A nonempty database without this identity,
 a foreign application ID or a newer `user_version` is rejected before journal
-mode changes. Versions 0→1→2 migrate in one IMMEDIATE transaction. Rollback leaves
-prior tables/data/user_version intact on migration failure. Table/column probes
-reject incomplete schemas before commit; the public API exposes no SQL executor.
+mode changes. Versions 0→1→2→3 migrate in one IMMEDIATE transaction. Migration
+v3 replaces only the Rust-owned source tables with the Compose-parity
+workspace/snapshot/file/symbol/candidate schema; artifacts, sessions and their
+indexes are untouched, so an existing development database upgrades instead of
+being rejected. Rollback leaves prior tables/data/user_version intact on
+migration failure. Table/column probes reject incomplete schemas before commit;
+the public API exposes no SQL executor.
 
 Connection policy: foreign keys ON, trusted_schema OFF, busy timeout 5 s, required
 WAL, synchronous FULL, 1000-page automatic checkpoint, 8 MiB journal-size target,
@@ -84,30 +88,38 @@ count/row consistency. Artifact pages also cap metadata payload at 8 MiB (reques
 a smaller page on overflow). Sessions cap full artifact references at 10,000.
 Stored integer, JSON and identifier validation rejects malformed rows.
 
-## Source metadata
+## Source workspaces
 
-`put_source_workspace` / `list_source_workspaces` persist explicitly registered
-local workspace ID/name/root metadata. `put_source_snapshot` /
-`list_source_snapshots(workspace_id, page)` store immutable manifest digest,
-counts, index version and manifest completeness, foreign-key bound to a workspace.
-Snapshot metadata is not a global source-tree immutability claim or full content
-cache. No file body, credential field or arbitrary JSON extension is accepted.
-Repeated registration of the same canonical local root or unchanged manifest
-is idempotent across app restarts; the first creation timestamp remains stable.
-Rebinding an ID to a different root/name, manifest digest, file count, index
-version or completeness fails. The GPUI source workspace reads only this bounded
-metadata listing at startup, never auto-indexes or opens saved roots; selecting a
-saved entry re-registers its path, verifies workspace ID and creates a fresh
-manifest before displaying source. Metadata failures remain visible but do not
-disable the explicitly selected in-memory read-only workspace.
-GitHub/AOSP provider metadata, full source-index tables, analysis/finding tables,
-retention policies and compatibility import remain later migration work.
+`SourceRepository` (defined by `aps-source`, implemented for `Storage` here)
+persists the Compose-parity source model: `source_workspaces`,
+`source_snapshots`, `source_files`, `source_symbols` and
+`source_candidates`. Workspaces store display name, provider kind/config
+columns (including the local root and the remote owner/ref/project fields for
+storage compatibility), active snapshot, phase, progress, message and the
+per-workspace AI-upload consent bit. Snapshots are foreign-key bound to their
+workspace with `ON DELETE CASCADE` and store revision, optional dirty digest,
+manifest hash, creation timestamp, index version and completeness. Files and
+symbols cascade from their snapshot; `files()` orders by relative path and
+`symbols()` by relative path then start line. Candidates store the evidence id,
+hashed location, confidence, bounded reasons JSON array, index version and
+completeness, keyed by their deterministic id and cascading from their snapshot.
+Deleting a workspace therefore removes every row it owns and never touches
+source files, artifacts or sessions.
+
+Stored text, paths, hashes, phases, languages, symbol kinds, confidences and
+line ranges are validated on write and again on read; malformed rows are
+rejected instead of surfaced. Listing/read APIs apply explicit row bounds and
+return an error instead of silently truncating an oversized snapshot. The
+source tables are Rust-owned: no Compose database is read or migrated, and
+GitHub/AOSP providers plus network retrieval remain unimplemented (their
+metadata round-trips only).
 
 ## Evidence boundary
 
-Six integration test functions are written for immutable provenance, transactional
-session insertion, recency/generation binding, metadata-only deletion, foreign/newer
-database refusal, rollback after a deliberately failed migration and source
-metadata foreign keys. They have **not been executed** under the user's instruction
-to finish the rewrite before comprehensive testing. This worker did not compile
-or run Cargo; main owns compilation and final verification.
+Integration tests cover immutable provenance, transactional session insertion,
+recency/generation binding, metadata-only deletion, foreign/newer database
+refusal, rollback after a deliberately failed migration and the source
+repository round-trip/cascade. They have **not been executed** under the user's
+instruction to finish the rewrite before comprehensive testing; the compile gate
+`cargo check -p aps-storage --all-targets --offline` passes and final
+verification remains Lead-owned.

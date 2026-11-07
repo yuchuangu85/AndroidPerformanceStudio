@@ -47,6 +47,7 @@ pub struct AiWorkspace {
     catalog: ProviderCatalog,
     settings_input_subscriptions: Vec<Subscription>,
     settings_configuration_check: Option<(String, String, String, String, bool, bool)>,
+    studio: Option<WeakEntity<crate::shell::Studio>>,
 }
 
 impl AiWorkspace {
@@ -106,6 +107,7 @@ impl AiWorkspace {
             catalog: ProviderCatalog::default(),
             settings_input_subscriptions: Vec::new(),
             settings_configuration_check: None,
+            studio: None,
         };
         for input in [
             &this.provider,
@@ -326,6 +328,12 @@ impl AiWorkspace {
     pub fn set_provider_catalog(&mut self, catalog: ProviderCatalog, cx: &mut Context<Self>) {
         self.catalog = catalog;
         cx.notify();
+    }
+
+    /// Upward handle so validated result findings can open their persisted
+    /// source candidates in Source Workspaces (Compose onOpenSourceCandidate).
+    pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
+        self.studio = Some(studio);
     }
     pub fn set_language(
         &mut self,
@@ -790,6 +798,27 @@ impl Render for AiWorkspace {
                                 ("evidence_ids", &finding.evidence_ids.join(", ")),
                                 ("candidate_ids", &finding.candidate_ids.join(", ")),
                             ],
+                        ))
+                        .children(finding.candidate_ids.iter().enumerate().map(
+                            |(index, candidate_id)| {
+                                let candidate_id = candidate_id.clone();
+                                Button::new(format!("ai-open-source-{}-{index}", finding.id))
+                                    .label(lang.text(TextKey::SourceOpenCandidate))
+                                    .disabled(busy)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        if let Some(studio) = this.studio.clone() {
+                                            studio
+                                                .update(cx, |studio, cx| {
+                                                    studio.open_source_candidate(
+                                                        candidate_id.clone(),
+                                                        window,
+                                                        cx,
+                                                    )
+                                                })
+                                                .ok();
+                                        }
+                                    }))
+                            },
                         ))
                 }));
         }
