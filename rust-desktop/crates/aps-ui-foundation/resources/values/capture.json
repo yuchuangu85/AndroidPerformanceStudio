@@ -1,0 +1,16 @@
+{
+  "capture_adb_serial_placeholder": "ADB serial",
+  "capture_cancel_host_operation": "Cancel host operation",
+  "capture_capture_cancellation_requested_the_exact_remote_pid": "Capture cancellation requested. The exact remote PID is being stopped; do not assume completion until the state reports a verified stop.",
+  "capture_clear_result": "Clear result",
+  "capture_confirm_displayed_target_and_start_capture": "Confirm displayed target and start capture",
+  "capture_confirming_creates_a_private_local_run_and": "Confirming creates a private local run and a remote directory, records this process, and transfers up to 64 MiB. Plan expires in 60 seconds. Cancel sends an exact remote PID stop and reports if termination cannot be verified. Remote files are retained. Converter output uses a bounded pipe on Unix; Windows conversion is unavailable.",
+  "capture_cpu_capture": "CPU capture",
+  "capture_duration_seconds_placeholder": "Duration seconds",
+  "capture_frequency_hz_placeholder": "Frequency Hz",
+  "capture_inspect_is_read_only_only_the_explicit": "Inspect is read-only. Only the explicit confirmation below starts device recording.",
+  "capture_inspect_target_prepare_plan": "Inspect target / prepare plan",
+  "capture_observing_target": "Observing target…",
+  "capture_optional_absolute_host_simpleperf_executable_placeholder": "Optional absolute host simpleperf executable",
+  "capture_pid_placeholder": "PID"
+}

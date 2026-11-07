@@ -1,0 +1,18 @@
+{
+  "source_close_workspace": "关闭工作区",
+  "source_local_metadata_is_unavailable_registrations_last_only": "本地元数据不可用；注册仅在此窗口有效。",
+  "source_next_lines": "下一段",
+  "source_open_from_cpu_no_symbol_declaration": "索引中没有与该符号匹配的声明。",
+  "source_open_from_cpu_requires_index": "请先注册并索引源码工作区。",
+  "source_previous_lines": "上一段",
+  "source_read_only_local_and_bounded_nothing_is": "仅读、本地且有界，不上传源码。冻结清单身份不等于原子 Git 树快照；文件变更会使旧位置失效。",
+  "source_reading_indexing": "读取／索引中…",
+  "source_refresh_snapshot": "刷新快照",
+  "source_register_directory": "注册目录",
+  "source_register_local_source_workspace": "注册本地源码工作区",
+  "source_registered_directories": "已注册目录",
+  "source_resolve_symbol": "定位符号",
+  "source_select_a_file_or_a_source_candidate": "选择文件或源码候选。",
+  "source_snippet_output_was_truncated_by_its_byte": "片段因字节／行数预算被截断。",
+  "source_symbol_declaration_placeholder": "符号／声明"
+}

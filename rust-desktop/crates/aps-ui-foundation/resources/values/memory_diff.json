@@ -1,0 +1,8 @@
+{
+  "memory_diff_same_snapshot": "Choose two different loaded snapshots before comparing classes.",
+  "memory_diff_limit": "Comparison exceeds the bounded class/name budget; narrow the input or use a smaller dump.",
+  "memory_diff_query_failed": "Cannot read the complete class histogram from one of the snapshots.",
+  "memory_diff_button": "Compare classes",
+  "memory_diff_ready": "Class-level comparison only · object IDs are local to each dump",
+  "memory_diff_unavailable": "Load two HPROF snapshots to compare class counts, shallow and retained size."
+}

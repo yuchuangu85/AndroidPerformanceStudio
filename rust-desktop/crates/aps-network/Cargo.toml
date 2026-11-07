@@ -1,0 +1,11 @@
+[package]
+name = "aps-network"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aps-contracts = { path = "../aps-contracts" }
+aps-platform = { path = "../aps-platform" }
+aps-har-engine = { path = "../../../desktop-viewer/network-profiler/native-engine-rust" }

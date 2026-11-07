@@ -1,0 +1,8 @@
+{
+  "memory_diff_same_snapshot": "请先选择两个不同的已加载快照，再比较类指标。",
+  "memory_diff_limit": "对比超出类数量或名称预算；请缩小输入或使用较小的转储。",
+  "memory_diff_query_failed": "无法读取某个快照的完整类直方图。",
+  "memory_diff_button": "比较类指标",
+  "memory_diff_ready": "仅比较类级指标 · 对象 ID 只在各自转储内有效",
+  "memory_diff_unavailable": "加载两个 HPROF 快照后，可比较类数量、Shallow 与 Retained 大小。"
+}

@@ -1,0 +1,16 @@
+{
+  "capture_adb_serial_placeholder": "ADB 序列号",
+  "capture_cancel_host_operation": "取消主机操作",
+  "capture_capture_cancellation_requested_the_exact_remote_pid": "已请求取消采集，正在停止精确远端 PID；在状态报告已确认停止前，不应认为设备采集已结束。",
+  "capture_clear_result": "清除结果",
+  "capture_confirm_displayed_target_and_start_capture": "确认上述目标并启动采集",
+  "capture_confirming_creates_a_private_local_run_and": "确认将创建本地私有会话和远端目录、记录此进程并传输最多 64 MiB。计划 60 秒后失效。取消会向精确远端 PID 发送停止请求，并在无法确认终止时报告未验证状态；远端文件保留。Unix 转换器通过有界管道输出，Windows 暂不支持转换。",
+  "capture_cpu_capture": "CPU 采集",
+  "capture_duration_seconds_placeholder": "持续时间（秒）",
+  "capture_frequency_hz_placeholder": "采样频率（Hz）",
+  "capture_inspect_is_read_only_only_the_explicit": "检查目标为只读操作；只有下方明确确认才会启动设备采集。",
+  "capture_inspect_target_prepare_plan": "检查目标／准备计划",
+  "capture_observing_target": "观察目标中…",
+  "capture_optional_absolute_host_simpleperf_executable_placeholder": "可选的主机 simpleperf 可执行文件绝对路径",
+  "capture_pid_placeholder": "PID"
+}

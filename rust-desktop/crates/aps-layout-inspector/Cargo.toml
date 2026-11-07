@@ -1,0 +1,13 @@
+[package]
+name = "aps-layout-inspector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aps-contracts = { path = "../aps-contracts" }
+aps-platform = { path = "../aps-platform" }
+aps-json = { path = "../aps-json" }
+aps-protocol = { path = "../aps-protocol" }
+zip = { version = "=9.4.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

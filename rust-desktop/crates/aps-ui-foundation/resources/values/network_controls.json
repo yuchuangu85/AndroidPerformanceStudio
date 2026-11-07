@@ -1,0 +1,10 @@
+{
+  "network_controls_all_outcomes": "All outcomes",
+  "network_controls_outcome_unavailable": "Transport outcomes are not retained by the minimized HAR model. HTTP response status is not a transport outcome.",
+  "network_controls_count": "{matching} / {total}",
+  "network_controls_more_filters": "More filters",
+  "network_controls_less_filters": "Fewer filters",
+  "network_controls_http_status": "HTTP status",
+  "network_controls_page_count": "Showing {visible} entries on this page; filters apply to the entire imported session.",
+  "network_controls_active_filters": "{label} ({count})"
+}

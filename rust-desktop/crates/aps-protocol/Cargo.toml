@@ -1,0 +1,9 @@
+[package]
+name = "aps-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+aps-contracts = { path = "../aps-contracts" }

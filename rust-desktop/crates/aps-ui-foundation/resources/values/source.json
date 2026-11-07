@@ -1,0 +1,18 @@
+{
+  "source_close_workspace": "Close workspace",
+  "source_local_metadata_is_unavailable_registrations_last_only": "Local metadata is unavailable; registrations last only for this window.",
+  "source_next_lines": "Next lines",
+  "source_open_from_cpu_no_symbol_declaration": "No indexed declaration matches the selected symbol.",
+  "source_open_from_cpu_requires_index": "Register and index a source workspace first.",
+  "source_previous_lines": "Previous lines",
+  "source_read_only_local_and_bounded_nothing_is": "Read-only, local and bounded. Nothing is uploaded. Frozen manifest identity is not an atomic Git-tree snapshot; changed files invalidate old locations.",
+  "source_reading_indexing": "Reading / indexing…",
+  "source_refresh_snapshot": "Refresh snapshot",
+  "source_register_directory": "Register directory",
+  "source_register_local_source_workspace": "Register local source workspace",
+  "source_registered_directories": "Registered directories",
+  "source_resolve_symbol": "Resolve symbol",
+  "source_select_a_file_or_a_source_candidate": "Select a file or a source candidate.",
+  "source_snippet_output_was_truncated_by_its_byte": "Snippet output was truncated by its byte/line budget.",
+  "source_symbol_declaration_placeholder": "Symbol / declaration"
+}

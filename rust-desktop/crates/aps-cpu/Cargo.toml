@@ -1,0 +1,9 @@
+[package]
+name = "aps-cpu"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+aps-simpleperf-engine = { path = "../../../desktop-viewer/simpleperf-viewer/native-engine-rust" }

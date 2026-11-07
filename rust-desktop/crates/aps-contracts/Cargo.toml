@@ -1,0 +1,9 @@
+[package]
+name = "aps-contracts"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+aps-hprof-engine = { path = "../../../desktop-viewer/memory-profiler/hprof-engine-rust" }

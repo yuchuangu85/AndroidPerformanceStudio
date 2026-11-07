@@ -1,0 +1,21 @@
+{
+  "ai_credential_reference_placeholder": "仅内存凭据引用",
+  "ai_ai_analysis": "AI 分析",
+  "ai_approve_and_send_once": "批准并发送一次",
+  "ai_clear_evidence_and_result": "清除证据和结果",
+  "ai_configure_an_explicit_provider_freeze_actual_profiler": "配置明确的服务提供方，冻结实际分析证据，审查完整载荷后再批准单次请求。不搜索文件、环境变量、钥匙串或旧设置。",
+  "ai_credential_is_masked_and_cleared_when_sending": "凭据会遮蔽显示，并在发送／取消时清空，不保存。内存清理为尽力处理，不能保证 SDK／TLS 副本零化。",
+  "ai_freeze_and_review_request": "冻结并审查请求",
+  "ai_i_approve_sending_this_exact_request_to": "我同意将此完整请求发送到冻结端点",
+  "ai_i_approve_uploading_every_displayed_source_candidate": "我同意上传所示全部源码候选／路径／片段",
+  "ai_select_actual_profiler_evidence_using_its_ai": "请从分析器的 AI 分析操作选择实际证据；没有证据时无法发送。",
+  "ai_streaming": "流式响应",
+  "ai_model_id_placeholder": "模型 ID",
+  "ai_optional_question_placeholder": "可选问题，将包含在冻结载荷中",
+  "ai_provider_id_placeholder": "Provider ID",
+  "ai_temporary_api_credential_placeholder": "临时 API 凭据，不会保存",
+  "ai_https_api_base_url_placeholder": "HTTPS API 基础 URL（或回环 HTTP）",
+  "ai_the_json_above_is_the_exact_frozen": "上方 JSON 是完整冻结请求正文；Authorization 使用临时凭据另行添加。配置编辑不会改变已冻结请求，请再次冻结以应用更改。",
+  "ai_this_evidence_request_was_consumed_or_cancelled": "此证据请求已使用或取消；请重新选择分析证据以开始下一次运行。",
+  "ai_waiting_for_validated_response_cancel_stops_publication": "正在等待校验后的响应……取消会停止发布并终止传输等待。"
+}

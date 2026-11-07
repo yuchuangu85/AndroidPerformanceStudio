@@ -1,0 +1,21 @@
+{
+  "ai_credential_reference_placeholder": "Memory-only credential reference",
+  "ai_ai_analysis": "AI analysis",
+  "ai_approve_and_send_once": "Approve and send once",
+  "ai_clear_evidence_and_result": "Clear evidence and result",
+  "ai_configure_an_explicit_provider_freeze_actual_profiler": "Configure an explicit provider, freeze actual profiler evidence, review the exact payload, then approve this one request. No files, environment, keychain or old settings are searched.",
+  "ai_credential_is_masked_and_cleared_when_sending": "Credential is masked and cleared when sending/cancelling. It is not saved. Memory clearing is best effort, not guaranteed zeroization of SDK/TLS copies.",
+  "ai_freeze_and_review_request": "Freeze and review request",
+  "ai_i_approve_sending_this_exact_request_to": "I approve sending this exact request to the frozen endpoint",
+  "ai_i_approve_uploading_every_displayed_source_candidate": "I approve uploading every displayed source candidate/path/snippet",
+  "ai_select_actual_profiler_evidence_using_its_ai": "Select actual profiler evidence using its AI analysis action. Nothing can be sent without evidence.",
+  "ai_streaming": "Streaming",
+  "ai_model_id_placeholder": "Model ID",
+  "ai_optional_question_placeholder": "Optional question — included in the frozen payload",
+  "ai_provider_id_placeholder": "Provider ID",
+  "ai_temporary_api_credential_placeholder": "Temporary API credential — never saved",
+  "ai_https_api_base_url_placeholder": "HTTPS API base URL (or loopback HTTP)",
+  "ai_the_json_above_is_the_exact_frozen": "The JSON above is the exact frozen request body; Authorization is added separately from the temporary secret. Config edits do not change this frozen request. Freeze again to apply edits.",
+  "ai_this_evidence_request_was_consumed_or_cancelled": "This evidence request was consumed or cancelled. Select fresh profiler evidence to start another run.",
+  "ai_waiting_for_validated_response_cancel_stops_publication": "Waiting for validated response… Cancel stops publication and drops transport work."
+}

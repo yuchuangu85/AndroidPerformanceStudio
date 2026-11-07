@@ -1,0 +1,30 @@
+[package]
+name = "aps-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+aps-ui-foundation.workspace = true
+aps-cpu.workspace = true
+aps-platform.workspace = true
+aps-adb.workspace = true
+aps-contracts = { path = "../aps-contracts" }
+aps-memory = { path = "../aps-memory" }
+aps-network = { path = "../aps-network" }
+aps-perfetto = { path = "../aps-perfetto" }
+aps-frame = { path = "../aps-frame" }
+aps-startup = { path = "../aps-startup" }
+
+aps-battery = { path = "../aps-battery" }
+aps-benchmark = { path = "../aps-benchmark" }
+aps-gpu = { path = "../aps-gpu" }
+aps-source = { path = "../aps-source" }
+aps-layout-inspector = { path = "../aps-layout-inspector" }
+aps-method-recording = { path = "../aps-method-recording" }
+aps-storage = { path = "../aps-storage" }
+aps-ai = { path = "../aps-ai" }
+aps-json = { path = "../aps-json" }
+aps-capture = { path = "../aps-capture" }

@@ -1,0 +1,10 @@
+{
+  "network_controls_all_outcomes": "全部结果",
+  "network_controls_outcome_unavailable": "最小化 HAR 模型未保留传输结果。HTTP 响应状态不等同于传输结果。",
+  "network_controls_count": "{matching} / {total}",
+  "network_controls_more_filters": "更多筛选",
+  "network_controls_less_filters": "收起筛选",
+  "network_controls_http_status": "HTTP 状态",
+  "network_controls_page_count": "本页显示 {visible} 条记录；筛选应用于整个已导入会话。",
+  "network_controls_active_filters": "{label} ({count})"
+}
