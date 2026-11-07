@@ -76,6 +76,26 @@ class FindingsLayoutTest {
     }
 
     @Test
+    fun `standard desktop workspace leaves a usable canvas after findings`() {
+        val workspaceHeight = 720f - 40f - 29f
+        val findingsHeight = FindingsLayout.fit(FindingsLayout.DEFAULT_HEIGHT_DP, workspaceHeight)
+        val contentHeight = workspaceHeight - FindingsLayout.SPLITTER_HEIGHT_DP - findingsHeight
+
+        assertEquals(240f, findingsHeight)
+        assertTrue(contentHeight >= 300f)
+    }
+
+    @Test
+    fun `compact workspace clamps findings without consuming the entire canvas`() {
+        val workspaceHeight = 480f
+        val findingsHeight = FindingsLayout.fit(FindingsLayout.DEFAULT_HEIGHT_DP, workspaceHeight)
+        val contentHeight = workspaceHeight - FindingsLayout.SPLITTER_HEIGHT_DP - findingsHeight
+
+        assertEquals(240f, findingsHeight)
+        assertTrue(contentHeight >= 200f)
+    }
+
+    @Test
     fun `timeline strip yields to findings at the minimum panel height`() {
         assertFalse(FindingsLayout.showTimeline(56f, hasTimeline = true))
         assertFalse(FindingsLayout.showTimeline(85f, hasTimeline = true))

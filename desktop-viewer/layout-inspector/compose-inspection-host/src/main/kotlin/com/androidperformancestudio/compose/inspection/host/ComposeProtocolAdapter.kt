@@ -13,6 +13,11 @@ import com.androidperformancestudio.compose.inspection.ComposeInspectionFrame
 import com.androidperformancestudio.compose.inspection.ComposeInspectionMode
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeSourceLocation
+import com.androidperformancestudio.compose.inspection.ComposeStackTraceLine
+import com.androidperformancestudio.compose.inspection.ComposeStateRead
+import com.androidperformancestudio.compose.inspection.ComposeStateReadGroup
+import com.androidperformancestudio.compose.inspection.ComposeStateReadObservation
+import com.androidperformancestudio.compose.inspection.ComposeStateReadMode
 import com.androidperformancestudio.compose.inspection.ComposeTruncation
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.compose.inspection.RecompositionObservation
@@ -28,6 +33,8 @@ class ComposeProtocolAdapter(private val detailLimits: ComposeDetailLimits = Com
         tree: LayoutInspectorComposeProtocol.GetComposablesResponse,
         parameters: LayoutInspectorComposeProtocol.GetAllParametersResponse? = null,
         recompositionObservation: RecompositionObservation? = null,
+        stateReadObservation: ComposeStateReadObservation? = null,
+        stateReads: Map<Int, List<ComposeStateReadGroup>> = emptyMap(),
         detailBudget: ComposeDetailBudget = newDetailBudget(),
         collectCoverage: Boolean = true,
     ): ComposeInspectionFrame {
@@ -68,7 +75,11 @@ class ComposeProtocolAdapter(private val detailLimits: ComposeDetailLimits = Com
             frameId = frameId,
             generation = generation,
             mode = ComposeInspectionMode.FULL,
-            capabilities = capabilities(parameters != null, recompositionObservation != null),
+            capabilities = capabilities(
+                detailsCollected = parameters != null,
+                observingRecompositions = recompositionObservation != null,
+                stateReadObservation = stateReadObservation,
+            ),
             roots = roots,
             details = details,
             coverage = coverage,
@@ -79,7 +90,39 @@ class ComposeProtocolAdapter(private val detailLimits: ComposeDetailLimits = Com
             },
             truncations = truncations,
             recompositionObservation = recompositionObservation,
+            stateReadObservation = stateReadObservation,
+            stateReads = stateReads,
         )
+    }
+
+    fun convertStateReads(
+        response: LayoutInspectorComposeProtocol.GetRecompositionStateReadResponse,
+    ): Pair<Int, List<ComposeStateReadGroup>> {
+        val strings = response.stringsList.associate { it.id to it.str }
+        return response.anchorHash to response.readList.map { group ->
+            ComposeStateReadGroup(
+                recompositionNumber = group.recompositionNumber,
+                reads = group.readList.map { read ->
+                    ComposeStateRead(
+                        value = read.value.takeIf { read.hasValue() }?.convert(
+                            strings = strings,
+                            state = FieldState(newDetailBudget()),
+                            depth = 0,
+                        ),
+                        valueInstanceHash = read.valueInstanceHash,
+                        invalidated = read.invalidated,
+                        stackTrace = read.stackTraceLineList.map { line ->
+                            ComposeStackTraceLine(
+                                declaringClass = strings[line.declaringClass].orEmpty(),
+                                methodName = strings[line.methodName].orEmpty(),
+                                fileName = strings[line.fileName].orEmpty(),
+                                lineNumber = line.lineNumber,
+                            )
+                        },
+                    )
+                },
+            )
+        }
     }
 
     private fun LayoutInspectorComposeProtocol.ComposableNode.convert(
@@ -308,6 +351,7 @@ class ComposeProtocolAdapter(private val detailLimits: ComposeDetailLimits = Com
     private fun capabilities(
         detailsCollected: Boolean,
         observingRecompositions: Boolean,
+        stateReadObservation: ComposeStateReadObservation?,
     ): List<ComposeCapabilityState> = listOf(
         available(ComposeCapability.FULL_TREE),
         detailCapability(ComposeCapability.PARAMETERS, detailsCollected),
@@ -319,8 +363,19 @@ class ComposeProtocolAdapter(private val detailLimits: ComposeDetailLimits = Com
         observationCapability(ComposeCapability.SKIP_COUNTS, observingRecompositions),
         ComposeCapabilityState(
             ComposeCapability.STATE_READS,
-            CapabilityAvailability.UNAVAILABLE,
-            "experimental capability deferred",
+            if (stateReadObservation?.active == true) {
+                CapabilityAvailability.AVAILABLE
+            } else {
+                CapabilityAvailability.NOT_REQUESTED
+            },
+        ),
+        ComposeCapabilityState(
+            ComposeCapability.STACK_TRACES,
+            if (stateReadObservation?.stackTracesSupported == true) {
+                CapabilityAvailability.AVAILABLE
+            } else {
+                CapabilityAvailability.NOT_REQUESTED
+            },
         ),
     )
 

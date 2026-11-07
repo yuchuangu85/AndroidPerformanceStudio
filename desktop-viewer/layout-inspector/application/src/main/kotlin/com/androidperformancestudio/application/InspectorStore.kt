@@ -175,6 +175,22 @@ class InspectorStore(
         return true
     }
 
+    fun loadComposeStateReads(
+        frameId: String,
+        anchorHash: Int,
+        groups: List<com.androidperformancestudio.compose.inspection.ComposeStateReadGroup>,
+    ): Boolean {
+        val document = state.composeInspection?.takeIf { it.frame.frameId == frameId } ?: return false
+        state = state.copy(
+            composeInspection = document.copy(
+                frame = document.frame.copy(
+                    stateReads = document.frame.stateReads + (anchorHash to groups),
+                ),
+            ),
+        )
+        return true
+    }
+
     fun loadComposeParameterDetails(
         frameId: String,
         reference: ComposeParameterReference,

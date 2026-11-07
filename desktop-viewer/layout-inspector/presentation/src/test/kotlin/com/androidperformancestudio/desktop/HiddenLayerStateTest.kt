@@ -1,5 +1,8 @@
 package com.androidperformancestudio.desktop
 
+import com.androidperformancestudio.protocol.Bounds
+import com.androidperformancestudio.protocol.ViewNode
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -33,5 +36,29 @@ class HiddenLayerStateTest {
             HiddenLayerState(setOf("kept")),
             HiddenLayerState(setOf("kept", "stale")).sanitize(rows),
         )
+    }
+
+    @Test
+    fun `visibility distinguishes direct and inherited hidden nodes`() {
+        val root = ViewNode(
+            id = "root",
+            className = "Root",
+            bounds = Bounds(0, 0, 100, 100),
+            children = listOf(
+                ViewNode(
+                    id = "hidden-parent",
+                    className = "Parent",
+                    bounds = Bounds(0, 0, 100, 50),
+                    children = listOf(ViewNode("child", "Child", Bounds(0, 0, 50, 25))),
+                ),
+                ViewNode("visible", "Visible", Bounds(0, 50, 100, 100)),
+            ),
+        )
+
+        val visibility = HiddenLayerState(setOf("hidden-parent")).visibility(root)
+
+        assertEquals(HiddenLayerVisibility.DIRECT, visibility["hidden-parent"])
+        assertEquals(HiddenLayerVisibility.INHERITED, visibility["child"])
+        assertEquals(HiddenLayerVisibility.VISIBLE, visibility["visible"])
     }
 }

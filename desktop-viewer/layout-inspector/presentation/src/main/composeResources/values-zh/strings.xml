@@ -38,6 +38,9 @@
     <string name="cancel">取消</string>
     <string name="system_composables">显示系统 Composable（包含 Box）</string>
     <string name="start_recomposition">开始计数</string>
+    <string name="start_state_reads">观察状态读取</string>
+    <string name="stop_state_reads">停止状态读取</string>
+    <string name="clear_state_reads">清除状态读取</string>
     <string name="stop_recomposition">停止计数</string>
     <string name="reset_recomposition">重置</string>
     <string name="compose_export_title">导出 Compose 检查</string>
@@ -80,6 +83,8 @@
     <string name="waiting_for_frame">等待设备实时画面</string>
     <string name="zoom_out_preview">缩小预览</string>
     <string name="zoom_in_preview">放大预览</string>
+    <string name="fit_preview">适应</string>
+    <string name="hidden_by_ancestor">继承祖先隐藏</string>
     <string name="no_findings">暂无问题</string>
     <string name="no_findings_for_severity">该严重级别暂无问题</string>
     <string name="timeline_live_capture">时间线  实时采集</string>
@@ -180,6 +185,7 @@
     <string name="detail_section_compose_inspection">COMPOSE 检查</string>
     <string name="detail_section_compose_source">COMPOSE 源码</string>
     <string name="detail_section_recomposition">重组统计</string>
+    <string name="detail_section_state_reads">状态读取</string>
     <string name="detail_section_compose_parameters">参数</string>
     <string name="detail_label_partial_display">部分显示</string>
     <string name="detail_value_compose_partial_display">为限制内存占用，此节仅部分显示；原始采集证据未删除。</string>

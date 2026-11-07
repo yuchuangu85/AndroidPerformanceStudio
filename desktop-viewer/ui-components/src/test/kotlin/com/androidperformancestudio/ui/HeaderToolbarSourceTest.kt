@@ -13,6 +13,7 @@ class HeaderToolbarSourceTest {
 
         assertTrue(source.contains("content: @Composable RowScope.() -> Unit"))
         assertTrue(source.contains("modifier: Modifier = Modifier"))
+        assertTrue(source.contains("horizontalScroll(rememberScrollState())"))
         assertFalse(source.contains("modifier ?:"))
     }
 

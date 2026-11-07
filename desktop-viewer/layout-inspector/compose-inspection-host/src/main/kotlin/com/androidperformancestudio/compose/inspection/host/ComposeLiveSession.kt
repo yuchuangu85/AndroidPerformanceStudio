@@ -9,6 +9,7 @@ import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.compose.inspection.ComposeInspectionFrame
 import com.androidperformancestudio.compose.inspection.ComposeInspectionProjection
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
+import com.androidperformancestudio.compose.inspection.ComposeStateReadGroup
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.LayoutSnapshot
@@ -84,6 +85,25 @@ class ComposeLiveSession private constructor(
     fun startRecompositionObservation() = client.startRecompositionObservation()
     fun stopRecompositionObservation() = client.stopRecompositionObservation()
     fun resetRecompositionCounts() = client.resetRecompositionCounts()
+
+    fun startStateReadObservation(anchorHashes: List<Int>, maxStateReads: Int = 5_000) =
+        client.startStateReadObservation(anchorHashes, maxStateReads)
+
+    fun stopStateReadObservation() = client.stopStateReadObservation()
+
+    fun clearStateReadObservation() = client.clearStateReadObservation()
+
+    fun queryStateReads(
+        anchorHash: Int,
+        recompositionNumberStart: Int,
+        recompositionNumberEnd: Int,
+        includeExtra: Boolean = false,
+    ): List<ComposeStateReadGroup> = client.queryStateReads(
+        anchorHash = anchorHash,
+        recompositionNumberStart = recompositionNumberStart,
+        recompositionNumberEnd = recompositionNumberEnd,
+        includeExtra = includeExtra,
+    )
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

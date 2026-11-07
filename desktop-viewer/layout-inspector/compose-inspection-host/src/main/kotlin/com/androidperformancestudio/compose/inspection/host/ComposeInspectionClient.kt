@@ -4,6 +4,9 @@ import com.android.tools.ui.inspector.view.inspector.protocol.ViewInspectorProto
 import com.androidperformancestudio.compose.inspection.ComposableDetail
 import com.androidperformancestudio.compose.inspection.ComposeInspectionFrame
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
+import com.androidperformancestudio.compose.inspection.ComposeStateReadGroup
+import com.androidperformancestudio.compose.inspection.ComposeStateReadMode
+import com.androidperformancestudio.compose.inspection.ComposeStateReadObservation
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.compose.inspection.RecompositionObservation
 import layoutinspector.compose.inspection.LayoutInspectorComposeProtocol
@@ -18,6 +21,8 @@ internal class ComposeInspectionClient(
 ) : ComposeFrameCaptureClient {
     private var generation = 0
     private var recompositionObservation: RecompositionObservation? = null
+    private var stateReadObservation = ComposeStateReadObservation()
+    private val stateReads = linkedMapOf<Int, List<ComposeStateReadGroup>>()
 
     override fun captureViews(packageName: String, includeAttributes: Boolean): ViewInspectionCapture {
         val command = ViewInspectorProtocol.Command.newBuilder()
@@ -56,6 +61,8 @@ internal class ComposeInspectionClient(
                 // whole-tree query is the one that returns them.
                 parameters = if (includeDetails) requestAllParameters(rootViewId) else null,
                 recompositionObservation = recompositionObservation,
+                stateReadObservation = stateReadObservation,
+                stateReads = stateReads,
                 detailBudget = detailBudget,
                 collectCoverage = includeDetails,
             )
@@ -73,7 +80,91 @@ internal class ComposeInspectionClient(
             coverage = frames.flatMap(ComposeInspectionFrame::coverage),
             truncations = frames.flatMap(ComposeInspectionFrame::truncations),
             completeness = frames.maxOf(ComposeInspectionFrame::completeness),
+            stateReadObservation = stateReadObservation,
+            stateReads = stateReads.toMap(),
         )
+    }
+
+    fun startStateReadObservation(anchorHashes: List<Int>, maxStateReads: Int = 5_000) {
+        require(anchorHashes.isNotEmpty()) { "At least one Compose anchor hash is required" }
+        require(anchorHashes.distinct().size == anchorHashes.size) { "Compose anchor hashes must be unique" }
+        require(maxStateReads in 1..100_000) { "maxStateReads must be between 1 and 100000" }
+        val response = updateSettings(
+            includeCounts = true,
+            keepCounts = true,
+            stateReadSettings = LayoutInspectorComposeProtocol.StateReadSettings.newBuilder()
+                .setById(
+                    LayoutInspectorComposeProtocol.StateReadSettings.ById.newBuilder()
+                        .setMaxStateReads(maxStateReads)
+                        .addAllComposableToObserve(anchorHashes),
+                )
+                .build(),
+        )
+        check(
+            response.supportedStateReadKindList.contains(
+                LayoutInspectorComposeProtocol.StateReadSettings.Kind.BY_ID,
+            ),
+        ) { "Compose inspector does not support BY_ID state reads" }
+        stateReadObservation = ComposeStateReadObservation(
+            mode = ComposeStateReadMode.BY_ID,
+            active = true,
+            anchorHashes = anchorHashes,
+            maxStateReads = maxStateReads,
+            stackTracesSupported = true,
+        )
+        generation += 1
+    }
+
+    fun stopStateReadObservation() {
+        updateSettings(
+            includeCounts = true,
+            keepCounts = true,
+            stateReadSettings = noneStateReadSettings(),
+        )
+        stateReadObservation = stateReadObservation.copy(
+            mode = ComposeStateReadMode.NONE,
+            active = false,
+        )
+        generation += 1
+    }
+
+    fun clearStateReadObservation() {
+        updateSettings(
+            includeCounts = true,
+            keepCounts = false,
+            stateReadSettings = noneStateReadSettings(),
+        )
+        stateReads.clear()
+        stateReadObservation = ComposeStateReadObservation()
+        generation += 1
+    }
+
+    fun queryStateReads(
+        anchorHash: Int,
+        recompositionNumberStart: Int,
+        recompositionNumberEnd: Int,
+        includeExtra: Boolean = false,
+    ): List<ComposeStateReadGroup> {
+        require(recompositionNumberStart >= 0) { "Recomposition start must be non-negative" }
+        require(recompositionNumberEnd >= recompositionNumberStart) {
+            "Recomposition end must be greater than or equal to start"
+        }
+        val command = LayoutInspectorComposeProtocol.Command.newBuilder()
+            .setGetRecompositionStateReadCommand(
+                LayoutInspectorComposeProtocol.GetRecompositionStateReadCommand.newBuilder()
+                    .setAnchorHash(anchorHash)
+                    .setRecompositionNumberStart(recompositionNumberStart)
+                    .setRecompositionNumberEnd(recompositionNumberEnd)
+                    .setIncludeExtra(includeExtra),
+            )
+            .build()
+        val response = composeResponse(command)
+        check(response.hasGetRecompositionStateReadResponse()) {
+            "Unexpected Compose state-read response"
+        }
+        val converted = adapter.convertStateReads(response.getGetRecompositionStateReadResponse())
+        stateReads[converted.first] = converted.second
+        return converted.second
     }
 
     private fun requestAllParameters(
@@ -159,17 +250,21 @@ internal class ComposeInspectionClient(
     fun resetRecompositionCounts() = updateRecomposition(includeCounts = true, keepCounts = false)
 
     private fun updateRecomposition(includeCounts: Boolean, keepCounts: Boolean) {
-        val command = LayoutInspectorComposeProtocol.Command.newBuilder()
-            .setUpdateSettingsCommand(
-                LayoutInspectorComposeProtocol.UpdateSettingsCommand.newBuilder()
-                    .setIncludeRecomposeCounts(includeCounts)
-                    .setKeepRecomposeCounts(keepCounts)
-                    .setDelayParameterExtractions(true)
-                    .setReduceChildNesting(true),
-            )
-            .build()
-        val response = composeResponse(command)
-        check(response.hasUpdateSettingsResponse()) { "Unexpected Compose settings response" }
+        updateSettings(
+            includeCounts = includeCounts,
+            keepCounts = keepCounts,
+            stateReadSettings = if (stateReadObservation.active) {
+                LayoutInspectorComposeProtocol.StateReadSettings.newBuilder()
+                    .setById(
+                        LayoutInspectorComposeProtocol.StateReadSettings.ById.newBuilder()
+                            .setMaxStateReads(stateReadObservation.maxStateReads)
+                            .addAllComposableToObserve(stateReadObservation.anchorHashes),
+                    )
+                    .build()
+            } else {
+                noneStateReadSettings()
+            },
+        )
         // Settings changes invalidate the parameters-and-semantics cache.
         generation += 1
         val now = clock.millis()
@@ -179,6 +274,31 @@ internal class ComposeInspectionClient(
             else -> null
         }
     }
+
+    private fun updateSettings(
+        includeCounts: Boolean,
+        keepCounts: Boolean,
+        stateReadSettings: LayoutInspectorComposeProtocol.StateReadSettings,
+    ): LayoutInspectorComposeProtocol.UpdateSettingsResponse {
+        val command = LayoutInspectorComposeProtocol.Command.newBuilder()
+            .setUpdateSettingsCommand(
+                LayoutInspectorComposeProtocol.UpdateSettingsCommand.newBuilder()
+                    .setIncludeRecomposeCounts(includeCounts)
+                    .setKeepRecomposeCounts(keepCounts)
+                    .setDelayParameterExtractions(true)
+                    .setReduceChildNesting(true)
+                    .setStateReadSettings(stateReadSettings),
+            )
+            .build()
+        val response = composeResponse(command)
+        check(response.hasUpdateSettingsResponse()) { "Unexpected Compose settings response" }
+        return response.updateSettingsResponse
+    }
+
+    private fun noneStateReadSettings(): LayoutInspectorComposeProtocol.StateReadSettings =
+        LayoutInspectorComposeProtocol.StateReadSettings.newBuilder()
+            .setNone(LayoutInspectorComposeProtocol.StateReadSettings.None.getDefaultInstance())
+            .build()
 
     private fun composeResponse(
         command: LayoutInspectorComposeProtocol.Command,

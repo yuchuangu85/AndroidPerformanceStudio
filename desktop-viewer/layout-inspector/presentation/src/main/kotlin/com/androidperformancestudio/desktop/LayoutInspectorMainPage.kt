@@ -737,6 +737,33 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         if (store.loadComposeDetail(document.frame.frameId, detail)) state = store.state
     }
 
+    LaunchedEffect(state.composeInspection?.frame?.frameId, state.selectedNodeId, composeSession) {
+        val document = state.composeInspection ?: return@LaunchedEffect
+        val stateReadObservation = document.frame.stateReadObservation ?: return@LaunchedEffect
+        if (!stateReadObservation.active) return@LaunchedEffect
+        val nodeId = state.selectedNodeId?.removePrefix(COMPOSE_NODE_ID_PREFIX)?.toLongOrNull()
+            ?: return@LaunchedEffect
+        val composeNode = document.frame.roots
+            .asSequence()
+            .flatMap { it.nodes.asSequence() }
+            .firstNotNullOfOrNull { it.findComposeNode(nodeId) }
+            ?: return@LaunchedEffect
+        val maxReads = stateReadObservation.maxStateReads.coerceAtLeast(1)
+        val groups = runInspectorCatching {
+            withContext(Dispatchers.IO) {
+                composeSession?.queryStateReads(
+                    anchorHash = composeNode.anchorHash,
+                    recompositionNumberStart = 0,
+                    recompositionNumberEnd = maxReads,
+                    includeExtra = true,
+                )
+            }
+        }.getOrNull() ?: return@LaunchedEffect
+        if (store.loadComposeStateReads(document.frame.frameId, composeNode.anchorHash, groups)) {
+            state = store.state
+        }
+    }
+
     LaunchedEffect(manualRefreshRequest, autoScanEnabled, composeAgentRequested, selectedDeviceSerial, captureTargetMode, manualRefreshInvalidation) {
         val refreshRequest = manualRefreshRequest
         if (autoScanEnabled) {
@@ -1264,6 +1291,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         ) {
         Column {
             HeaderToolbar(
+                modifier = Modifier.testTag("layout-inspector-toolbar"),
                 language = uiLanguage,
                 onNavigateHome = onNavigateHome,
                 onNavigateSettings = { performAction(ViewerAction.OPEN_SETTINGS ) }
@@ -1390,6 +1418,20 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     },
                 )
                 HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.import_archive, language),
+                    enabled = archiveUiState !is CaptureArchiveUiState.Working,
+                    modifier = Modifier.testTag("layout-inspector-import-archive"),
+                    onClick = importCaptureArchive,
+                )
+                HeaderSpacer()
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.export_archive, language),
+                    enabled = state.snapshot != null && archiveUiState !is CaptureArchiveUiState.Working,
+                    modifier = Modifier.testTag("layout-inspector-export-archive"),
+                    onClick = exportCaptureArchive,
+                )
+                HeaderSpacer()
                 HeaderDivider()
                 HeaderSpacer()
                 PanelToggleButton(
@@ -1424,7 +1466,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             }
             HorizontalDivider(color = colors.border)
             BoxWithConstraints(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("layout-inspector-workspace"),
             ) {
                 val availableHeightDp = maxHeight.value
                 val normalizedFindingsHeight = FindingsLayout.fit(findingsHeightDp, availableHeightDp)
@@ -1479,7 +1521,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     modifier =
                                         Modifier
                                             .width(normalizedPaneWidths.hierarchy.dp)
-                                            .fillMaxHeight(),
+                                            .fillMaxHeight()
+                                            .testTag("layout-inspector-hierarchy-pane"),
                                 )
                                 ResizableSeparator { deltaDp ->
                                         paneWidths =
@@ -1513,7 +1556,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     )
                                     selectNode(nodeId)
                                 },
-                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .testTag("layout-inspector-canvas-pane"),
                             )
                             if (panelVisibility.showDetails) {
                                 ResizableSeparator { deltaDp ->
@@ -1531,7 +1577,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                     screenModel = model,
                                     modifier = Modifier
                                         .width(normalizedPaneWidths.properties.dp)
-                                        .fillMaxHeight(),
+                                        .fillMaxHeight()
+                                        .testTag("layout-inspector-properties-pane"),
                                     onOpenMemoryProfiler = onOpenMemoryProfiler,
                                     onOpenComposeSource = onOpenComposeSource,
                                     onLoadComposeParameter = { reference ->
@@ -1609,11 +1656,23 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
-                                    .height(normalizedFindingsHeight.dp),
+                                    .height(normalizedFindingsHeight.dp)
+                                    .testTag("layout-inspector-findings-pane"),
                         )
                     }
                 }
             }
+            val selectedComposeAnchorHash = state.selectedNodeId
+                ?.removePrefix(COMPOSE_NODE_ID_PREFIX)
+                ?.toLongOrNull()
+                ?.let { nodeId ->
+                    state.composeInspection?.frame?.roots
+                        ?.asSequence()
+                        ?.flatMap { it.nodes.asSequence() }
+                        ?.firstNotNullOfOrNull { it.findComposeNode(nodeId) }
+                        ?.anchorHash
+                }
+            val stateReadsActive = state.composeInspection?.frame?.stateReadObservation?.active == true
             LayoutInspectorStatusBar(
                 model = model,
                 fullComposeEnabled = fullComposeEnabled,
@@ -1639,6 +1698,27 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     coroutineScope.launch {
                         withContext(Dispatchers.IO) { composeSession?.resetRecompositionCounts() }
                         recompositionActive = true
+                    }
+                },
+                stateReadsAvailable = fullComposeEnabled && composeSession != null && selectedComposeAnchorHash != null,
+                stateReadsActive = stateReadsActive,
+                onToggleStateReads = {
+                    val anchorHash = selectedComposeAnchorHash ?: return@LayoutInspectorStatusBar
+                    coroutineScope.launch {
+                        withContext(Dispatchers.IO) {
+                            if (stateReadsActive) {
+                                composeSession?.stopStateReadObservation()
+                            } else {
+                                composeSession?.startStateReadObservation(listOf(anchorHash))
+                            }
+                        }
+                        if (!autoScanEnabled) manualRefreshRequest += 1
+                    }
+                },
+                onClearStateReads = {
+                    coroutineScope.launch {
+                        withContext(Dispatchers.IO) { composeSession?.clearStateReadObservation() }
+                        if (!autoScanEnabled) manualRefreshRequest += 1
                     }
                 },
             )
@@ -2133,6 +2213,10 @@ private fun LayoutInspectorStatusBar(
     onToggleSystemComposables: () -> Unit,
     onToggleRecomposition: () -> Unit,
     onResetRecomposition: () -> Unit,
+    stateReadsAvailable: Boolean,
+    stateReadsActive: Boolean,
+    onToggleStateReads: () -> Unit,
+    onClearStateReads: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
     val language = LocalLayoutInspectorLanguage.current
@@ -2192,6 +2276,20 @@ private fun LayoutInspectorStatusBar(
                     text = localizedStringResource(Res.string.reset_recomposition, language),
                     enabled = recompositionControlsEnabled,
                     onClick = onResetRecomposition,
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(
+                        if (stateReadsActive) Res.string.stop_state_reads else Res.string.start_state_reads,
+                        language,
+                    ),
+                    enabled = recompositionControlsEnabled && stateReadsAvailable,
+                    selected = stateReadsActive,
+                    onClick = onToggleStateReads,
+                )
+                ProfilerCompactButton(
+                    text = localizedStringResource(Res.string.clear_state_reads, language),
+                    enabled = recompositionControlsEnabled && stateReadsAvailable,
+                    onClick = onClearStateReads,
                 )
                 StatusBarDivider()
             }
@@ -2316,6 +2414,9 @@ private fun HierarchyPane(
         rows = isolationState.rows(model.rows),
         hideInvisible = viewDisplayOptions.hideInvisibleHierarchyViews,
     )
+    val hiddenVisibility = remember(state.activeRoot, hiddenLayerState) {
+        hiddenLayerState.visibility(state.activeRoot)
+    }
     val matchedNodeIds = searchState.matchedNodeIds(visibleRows)
     val currentMatchedNodeId = searchState.currentMatchedNodeId(matchedNodeIds)
     LaunchedEffect(state.selectedNodeId, visibleRows) {
@@ -2426,6 +2527,7 @@ private fun HierarchyPane(
                         val expanded = treeState.isExpanded(row.id)
                         val isSearchMatch = searchState.matches(row)
                         val isCurrentMatch = row.id == currentMatchedNodeId
+                        val hiddenStatus = hiddenVisibility[row.id] ?: HiddenLayerVisibility.VISIBLE
                         val rowColor = when {
                             row.selected -> colors.selectedRow
                             isCurrentMatch -> colors.searchCurrentMatchRow
@@ -2466,7 +2568,8 @@ private fun HierarchyPane(
                             Spacer(Modifier.width(4.dp))
                             if (viewDisplayOptions.showHierarchyLayerVisibilityButtons) {
                                 LayerVisibilityButton(
-                                    hidden = hiddenLayerState.isHidden(row.id),
+                                    hidden = hiddenStatus == HiddenLayerVisibility.DIRECT,
+                                    enabled = hiddenStatus != HiddenLayerVisibility.INHERITED,
                                     onToggle = {
                                         focusRequester.requestFocus()
                                         onToggleHiddenLayer(row.id)
@@ -2484,7 +2587,7 @@ private fun HierarchyPane(
                                     text = labelText,
                                     query = searchState.query,
                                     baseColor = when {
-                                        hiddenLayerState.isHidden(row.id) -> colors.hiddenRowText
+                                        hiddenStatus != HiddenLayerVisibility.VISIBLE -> colors.hiddenRowText
                                         row.visible -> if (isCurrentMatch) colors.searchHighlightText else colors.rowText
                                         else -> colors.hiddenRowText
                                     },
@@ -2494,7 +2597,7 @@ private fun HierarchyPane(
                                 Text(
                                     labelText,
                                     color = when {
-                                        hiddenLayerState.isHidden(row.id) -> colors.hiddenRowText
+                                        hiddenStatus != HiddenLayerVisibility.VISIBLE -> colors.hiddenRowText
                                         row.visible -> colors.rowText
                                         else -> colors.hiddenRowText
                                     },
@@ -2515,6 +2618,15 @@ private fun HierarchyPane(
                                     lineHeight = ViewerTypography.dense.lineHeight,
                                     maxLines = 1,
                                     softWrap = false,
+                                )
+                            }
+                            if (hiddenStatus == HiddenLayerVisibility.INHERITED) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    localizedStringResource(Res.string.hidden_by_ancestor, language),
+                                    color = colors.mutedText,
+                                    fontSize = ViewerTypography.label.fontSize,
+                                    maxLines = 1,
                                 )
                             }
                         }
@@ -2668,6 +2780,16 @@ private fun PreviewPane(
                 fontFamily = FontFamily.Monospace,
             )
             Spacer(Modifier.width(12.dp))
+            ProfilerCompactButton(
+                text = localizedStringResource(Res.string.fit_preview, language),
+                enabled = source != null,
+                modifier = Modifier.testTag("layout-inspector-fit-preview"),
+                onClick = {
+                    previewZoom = PreviewZoomState.DEFAULT_SCALE
+                    previewPan.value = Offset.Zero
+                },
+            )
+            Spacer(Modifier.width(8.dp))
             CanvasModeToggle(
                 appOnly = appOnly,
                 onToggle = { appOnly = !appOnly },
@@ -3225,6 +3347,7 @@ internal fun canvasCornerRadiusDp(appOnly: Boolean): Int =
 @Composable
 private fun LayerVisibilityButton(
     hidden: Boolean,
+    enabled: Boolean = true,
     onToggle: () -> Unit,
 ) {
     val colors = LocalViewerColors.current
@@ -3239,12 +3362,12 @@ private fun LayerVisibilityButton(
                 shape = RoundedCornerShape(3.dp),
             )
             .semantics { contentDescription = localizedStringResource(Res.string.toggle_layer_visibility, language) }
-            .clickable(onClick = onToggle),
+            .clickable(enabled = enabled, onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            color = colors.accent,
+            color = if (enabled) colors.accent else colors.mutedText,
             fontSize = ViewerTypography.label.fontSize,
             lineHeight = ViewerTypography.label.lineHeight,
             maxLines = 1,

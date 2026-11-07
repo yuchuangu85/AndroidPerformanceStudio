@@ -8,6 +8,7 @@ import com.androidperformancestudio.compose.inspection.ComposeCompilerReport
 import com.androidperformancestudio.compose.inspection.ComposeInspectionDocument
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
+import com.androidperformancestudio.compose.inspection.ComposeStateRead
 import com.androidperformancestudio.protocol.ComposeNode
 import com.androidperformancestudio.protocol.EdgeInsets
 import com.androidperformancestudio.protocol.UiNode
@@ -315,6 +316,26 @@ internal object NodeDetailsPresenter {
                     ),
                 )
             }
+            frame?.stateReads?.get(inspectedNode?.anchorHash)?.let { groups ->
+                val rows = groups.flatMap { group ->
+                    group.reads.map { read ->
+                        DetailRowModel(
+                            label = "recomposition ${group.recompositionNumber}",
+                            value = stateReadSummary(read),
+                            tone = if (read.invalidated) DetailTone.WARNING else DetailTone.NORMAL,
+                        )
+                    }
+                }
+                if (rows.isNotEmpty()) {
+                    add(
+                        DetailSectionModel(
+                            localizedStringResource(Res.string.detail_section_state_reads, language),
+                            rows,
+                            highlightsRenderingRisk = rows.any { it.tone == DetailTone.WARNING },
+                        ),
+                    )
+                }
+            }
             compilerReport?.functions
                 ?.firstOrNull { function ->
                     function.name == inspectedNode?.name &&
@@ -364,6 +385,19 @@ internal object NodeDetailsPresenter {
                         ),
                     )
                 }
+        }
+    }
+
+    private fun stateReadSummary(read: ComposeStateRead): String = buildString {
+        read.value?.let { value ->
+            append(value.name.ifBlank { value.type })
+            value.value?.let { text -> append(" = ").append(text) }
+        } ?: append("—")
+        if (read.invalidated) append(" · invalidated")
+        if (read.stackTrace.isNotEmpty()) {
+            val top = read.stackTrace.first()
+            append(" · ").append(top.fileName.ifBlank { top.declaringClass })
+            if (top.lineNumber >= 0) append(":").append(top.lineNumber)
         }
     }
 

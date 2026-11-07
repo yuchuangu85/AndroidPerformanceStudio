@@ -19,6 +19,7 @@ enum class ComposeCapability {
     RECOMPOSITION_COUNTS,
     SKIP_COUNTS,
     STATE_READS,
+    STACK_TRACES,
 }
 
 @Serializable
@@ -72,6 +73,8 @@ data class ComposeInspectionFrame(
     val completeness: ComposeFrameCompleteness = ComposeFrameCompleteness.COMPLETE,
     val truncations: List<ComposeTruncation> = emptyList(),
     val recompositionObservation: RecompositionObservation? = null,
+    val stateReadObservation: ComposeStateReadObservation? = null,
+    val stateReads: Map<Int, List<ComposeStateReadGroup>> = emptyMap(),
 )
 
 @Serializable
@@ -143,6 +146,40 @@ data class ComposeDetailCoverage(
     val loadedElements: Int = 0,
     val totalElements: Int? = null,
     val reason: String? = null,
+)
+
+@Serializable
+enum class ComposeStateReadMode { NONE, BY_ID }
+
+@Serializable
+data class ComposeStateReadObservation(
+    val mode: ComposeStateReadMode = ComposeStateReadMode.NONE,
+    val active: Boolean = false,
+    val anchorHashes: List<Int> = emptyList(),
+    val maxStateReads: Int = 5_000,
+    val stackTracesSupported: Boolean = false,
+)
+
+@Serializable
+data class ComposeStateReadGroup(
+    val recompositionNumber: Int,
+    val reads: List<ComposeStateRead> = emptyList(),
+)
+
+@Serializable
+data class ComposeStateRead(
+    val value: ComposeValue? = null,
+    val valueInstanceHash: Int = 0,
+    val invalidated: Boolean = false,
+    val stackTrace: List<ComposeStackTraceLine> = emptyList(),
+)
+
+@Serializable
+data class ComposeStackTraceLine(
+    val declaringClass: String = "",
+    val methodName: String = "",
+    val fileName: String = "",
+    val lineNumber: Int = -1,
 )
 
 @Serializable

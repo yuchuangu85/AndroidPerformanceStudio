@@ -38,6 +38,9 @@
     <string name="cancel">Cancel</string>
     <string name="system_composables">Show system composables (including Box)</string>
     <string name="start_recomposition">Start counts</string>
+    <string name="start_state_reads">Observe state reads</string>
+    <string name="stop_state_reads">Stop state reads</string>
+    <string name="clear_state_reads">Clear state reads</string>
     <string name="stop_recomposition">Stop counts</string>
     <string name="reset_recomposition">Reset</string>
     <string name="compose_export_title">Export Compose inspection</string>
@@ -80,6 +83,8 @@
     <string name="waiting_for_frame">Waiting for live device frame</string>
     <string name="zoom_out_preview">Zoom out preview</string>
     <string name="zoom_in_preview">Zoom in preview</string>
+    <string name="fit_preview">Fit</string>
+    <string name="hidden_by_ancestor">inherited hidden</string>
     <string name="no_findings">No findings</string>
     <string name="no_findings_for_severity">No findings at this severity</string>
     <string name="timeline_live_capture">TIMELINE  Live capture</string>
@@ -180,6 +185,7 @@
     <string name="detail_section_compose_inspection">COMPOSE INSPECTION</string>
     <string name="detail_section_compose_source">COMPOSE SOURCE</string>
     <string name="detail_section_recomposition">RECOMPOSITION</string>
+    <string name="detail_section_state_reads">STATE READS</string>
     <string name="detail_section_compose_parameters">PARAMETERS</string>
     <string name="detail_label_partial_display">Partial display</string>
     <string name="detail_value_compose_partial_display">Only part of this section is displayed to limit memory use. Original captured evidence has not been deleted.</string>
