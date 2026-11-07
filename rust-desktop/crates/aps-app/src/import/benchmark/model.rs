@@ -377,6 +377,26 @@ fn cases_comparable(a: &BenchmarkCase, b: &BenchmarkCase) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn run(device: &str, unit: &str, samples: &str) -> Arc<BenchmarkRun> {
+        Arc::new(BenchmarkRun::parse_json(format!(
+            r#"{{"benchmarkDataVersion":3,"benchmarkLibraryVersion":"1","context":{{"deviceModel":"{device}","apiLevel":35,"abi":"arm64-v8a","fingerprint":"fp","physicalDevice":true,"build":{{"variant":"release"}}}},"benchmarks":[{{"name":"dev.Example.scroll","packageName":"dev.example","compilationMode":"FULL","startupMode":"WARM","scenario":"SCROLL","metrics":{{"frameDurationMs":{{"unit":"{unit}","runs":{samples}}}}}}}]}}"#
+        ).as_bytes()).unwrap())
+    }
+    fn comparison(case_identity: String, classification: Classification) -> MetricComparison {
+        MetricComparison {
+            case_identity,
+            metric: "frameDurationMs".into(),
+            unit: "ms".into(),
+            baseline_median: Some(10.),
+            current_median: Some(11.),
+            median_difference: Some(1.),
+            relative_difference_percent: Some(10.),
+            confidence_interval: None,
+            practical_threshold: Some(0.5),
+            classification,
+            reasons: Vec::new(),
+        }
+    }
     #[test]
     fn comparison_identity_is_not_delimiter_concatenation() {
         assert_ne!(
@@ -408,5 +428,81 @@ mod tests {
         assert!(!state.select_current(Some(42)));
         assert_eq!(state.baseline_id, None);
         assert_eq!(state.current_id, None);
+    }
+    #[test]
+    fn duplicate_run_labels_do_not_alias_ids_or_selection() {
+        let mut state = BenchmarkUi::default();
+        let first = state
+            .add_run("capture.json", run("Pixel 9", "ms", "[10,11,12]"))
+            .unwrap();
+        let second = state
+            .add_run("capture.json", run("Pixel 9", "ms", "[13,14,15]"))
+            .unwrap();
+        assert_ne!(first, second);
+        assert!(state.select_baseline(Some(first)));
+        assert!(state.select_current(Some(second)));
+        state.runs.reverse();
+        assert_eq!(state.baseline().unwrap().id, first);
+        assert_eq!(state.current().unwrap().id, second);
+    }
+    #[test]
+    fn filters_keep_source_indices_and_hidden_selection_is_cleared() {
+        let mut state = BenchmarkUi::default();
+        state.publish_report(RegressionReport {
+            comparisons: vec![
+                comparison("dev.Example#scroll".into(), Classification::Stable),
+                comparison("dev.Other#launch".into(), Classification::Incompatible),
+            ],
+            compatibility_issues: Vec::new(),
+            policy_version: "fixture",
+        });
+        state.selected = Some(ComparisonKey::of(&state.comparisons()[0]));
+        state.set_classification(Some(Classification::Incompatible));
+        assert_eq!(state.comparison_page().indices, vec![1]);
+        assert!(state.selected.is_none());
+        state.set_query("OTHER");
+        assert_eq!(state.comparison_page().indices, vec![1]);
+        state.set_query("absent");
+        assert_eq!(state.comparison_page().total, 0);
+    }
+    #[test]
+    fn pagination_is_bounded_and_stale_offset_clamps_to_last_page() {
+        let mut state = BenchmarkUi::default();
+        state.publish_report(RegressionReport {
+            comparisons: (0..205)
+                .map(|index| comparison(format!("case{index}"), Classification::Stable))
+                .collect(),
+            compatibility_issues: Vec::new(),
+            policy_version: "fixture",
+        });
+        assert_eq!(state.comparison_page().indices.len(), COMPARISON_PAGE);
+        state.offset = usize::MAX;
+        let page = state.comparison_page();
+        assert_eq!(page.offset, 200);
+        assert_eq!(page.indices, (200..205).collect::<Vec<_>>());
+    }
+    #[test]
+    fn trend_never_mixes_units_and_flags_device_changes_and_low_samples() {
+        let mut state = BenchmarkUi::default();
+        state
+            .add_run("before", run("Pixel 8", "ms", "[10,11,12]"))
+            .unwrap();
+        state
+            .add_run(
+                "unit mismatch",
+                run("Pixel 9", "ns", "[90000,100000,110000]"),
+            )
+            .unwrap();
+        state
+            .add_run("after", run("Pixel 9", "ms", "[20,21,22]"))
+            .unwrap();
+        let trend = state.trend().unwrap();
+        assert_eq!(trend.points.len(), 2);
+        assert_eq!(trend.points[0].value, 11.);
+        assert_eq!(trend.points[1].value, 21.);
+        assert!(!trend.points[0].comparable);
+        assert!(trend.points[1].comparable);
+        assert!(trend.environment_varies);
+        assert!(trend.has_low_samples);
     }
 }
