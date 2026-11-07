@@ -1,6 +1,8 @@
 //! Dependency-free streaming HAR summaries with bounded per-entry parsing.
 mod entries;
-mod json;
+// Shared bounded parser for private transport adapters. Values may contain raw
+// traffic: consumers must minimize before display, logging or persistence.
+pub mod json;
 pub use entries::stream_entries;
 use json::{Parser, Value};
 use std::collections::{BTreeMap, BTreeSet};

@@ -370,6 +370,42 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
     digest_source(&Source::open(path)?, path)
 }
 
+/// Reuses the cache's SHA-256 implementation for arbitrary readers with a hard
+/// content-byte budget. On reaching the cap, reads at most one additional byte
+/// to distinguish exact EOF from an oversized stream; never returns a prefix
+/// digest. Reader errors and interruptions are handled without partial success.
+/// This bounds input consumed, not wall time or a custom reader's internal work.
+pub fn sha256_reader(mut reader: impl Read, max_bytes: u64) -> Result<String, String> {
+    if max_bytes > u64::MAX / 8 {
+        return Err("SHA-256 input limit exceeds supported bit-length range".into());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut remaining = max_bytes;
+    loop {
+        if remaining == 0 {
+            loop {
+                match reader.read(&mut buffer[..1]) {
+                    Ok(0) => return Ok(hex(&hash.finish())),
+                    Ok(_) => return Err("SHA-256 source exceeds input byte limit".into()),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => return Err("Cannot read SHA-256 source EOF".into()),
+                }
+            }
+        }
+        let limit = remaining.min(buffer.len() as u64) as usize;
+        match reader.read(&mut buffer[..limit]) {
+            Ok(0) => return Ok(hex(&hash.finish())),
+            Ok(count) => {
+                hash.update(&buffer[..count]);
+                remaining -= count as u64;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err("Cannot read SHA-256 source".into()),
+        }
+    }
+}
+
 fn digest_source(source: &Source, path: &Path) -> Result<String, String> {
     source.check(path)?;
     let result = {
@@ -1118,5 +1154,77 @@ mod tests {
             hex(&hash.finish()),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         );
+    }
+
+    #[test]
+    fn bounded_sha256_reader_accepts_exact_eof_and_rejects_prefix_digests() {
+        let expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(sha256_reader(b"abc".as_slice(), 3).unwrap(), expected);
+        assert_eq!(sha256_reader(b"abc".as_slice(), 100).unwrap(), expected);
+        assert!(sha256_reader(b"abcd".as_slice(), 3).is_err());
+        assert!(sha256_reader(b"a".as_slice(), 0).is_err());
+        assert_eq!(
+            sha256_reader(b"".as_slice(), 0).unwrap(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert!(sha256_reader(b"".as_slice(), u64::MAX).is_err());
+    }
+
+    #[test]
+    fn bounded_sha256_reader_never_consumes_more_than_cap_plus_one_eof_probe() {
+        struct Endless {
+            consumed: usize,
+            requests: Vec<usize>,
+        }
+        impl Read for Endless {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                self.requests.push(bytes.len());
+                self.consumed += bytes.len();
+                bytes.fill(7);
+                Ok(bytes.len())
+            }
+        }
+        let mut reader = Endless {
+            consumed: 0,
+            requests: Vec::new(),
+        };
+        assert!(sha256_reader(&mut reader, 130_000).is_err());
+        assert_eq!(reader.consumed, 130_001);
+        assert_eq!(reader.requests.last(), Some(&1));
+        assert!(reader.requests.iter().all(|count| *count <= 64 * 1024));
+    }
+
+    #[test]
+    fn bounded_sha256_reader_retries_interruptions_but_rejects_io_failures() {
+        struct Fragmented {
+            bytes: std::io::Cursor<Vec<u8>>,
+            interrupted: bool,
+        }
+        impl Read for Fragmented {
+            fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                self.interrupted = false;
+                self.bytes.read(&mut output[..1])
+            }
+        }
+        let reader = Fragmented {
+            bytes: std::io::Cursor::new(b"abc".to_vec()),
+            interrupted: false,
+        };
+        assert_eq!(
+            sha256_reader(reader, 3).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::PermissionDenied.into())
+            }
+        }
+        assert!(sha256_reader(Broken, 10).is_err());
+        assert!(sha256_reader(Broken, 0).is_err());
     }
 }

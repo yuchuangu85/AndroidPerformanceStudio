@@ -12,4 +12,7 @@ pub mod wire;
 pub use protocol::{
     analyze_path, input_limit_from_env, query_path, serve_binary, write_query_page,
 };
-pub use query::{project, Direction, Query, QueryPage, QueryRow, WeightType, MAX_PAGE_SIZE};
+pub use query::{
+    prepare, project, Direction, PreparedQuery, Query, QueryPage, QueryRow, WeightType,
+    MAX_PAGE_SIZE,
+};

@@ -196,9 +196,78 @@ struct Node {
     self_sample_count: u64,
 }
 
+/// A prepared, immutable projection for repeated pagination. All rows are retained
+/// in memory; this is not a disk-backed index or an independently bounded heap.
+#[derive(Debug)]
+pub struct PreparedQuery {
+    rows: Vec<QueryRow>,
+    weight_type: WeightType,
+    direction: Direction,
+}
+
+impl PreparedQuery {
+    pub fn total(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Full immutable preorder projection; callers must avoid cloning all rows
+    /// merely to page, render a viewport, or answer a hit-test.
+    pub fn rows(&self) -> &[QueryRow] {
+        &self.rows
+    }
+
+    /// Pagination never reparses the input or rebuilds the aggregation.
+    pub fn page(&self, offset: usize, limit: usize) -> Result<QueryPage, String> {
+        Query {
+            offset,
+            limit,
+            ..Query::default()
+        }
+        .validate()?;
+        Ok(QueryPage {
+            total: self.rows.len(),
+            offset,
+            rows: self.rows.iter().skip(offset).take(limit).cloned().collect(),
+            weight_type: self.weight_type,
+            direction: self.direction,
+        })
+    }
+}
+
+struct Aggregation<'a> {
+    files: BTreeMap<u32, &'a FileRecord>,
+    roots: BTreeMap<FrameKey, usize>,
+    nodes: Vec<Node>,
+}
+
+/// Prepare one filter/weight/direction projection. Pagination arguments are
+/// validated, but do not truncate the retained rows.
+pub fn prepare(stream: &SimpleperfStream, query: &Query) -> Result<PreparedQuery, String> {
+    let aggregation = aggregate(stream, query)?;
+    let total = aggregation.nodes.len();
+    Ok(PreparedQuery {
+        rows: materialize(aggregation, 0, total, query.direction),
+        weight_type: query.weight_type,
+        direction: query.direction,
+    })
+}
+
 /// Aggregation is in-memory; only encoded input buffering and output page size
 /// are bounded independently of profile size. Nothing is published on failure.
+/// The one-shot CLI only materializes the requested page, as before.
 pub fn project(stream: &SimpleperfStream, query: &Query) -> Result<QueryPage, String> {
+    let aggregation = aggregate(stream, query)?;
+    let total = aggregation.nodes.len();
+    Ok(QueryPage {
+        total,
+        offset: query.offset,
+        rows: materialize(aggregation, query.offset, query.limit, query.direction),
+        weight_type: query.weight_type,
+        direction: query.direction,
+    })
+}
+
+fn aggregate<'a>(stream: &'a SimpleperfStream, query: &Query) -> Result<Aggregation<'a>, String> {
     query.validate()?;
     let mut files = BTreeMap::<u32, &FileRecord>::new();
     let mut threads = BTreeSet::new();
@@ -313,26 +382,37 @@ pub fn project(stream: &SimpleperfStream, query: &Query) -> Result<QueryPage, St
         }
     }
 
-    let mut page = QueryPage {
-        total: nodes.len(),
-        offset: query.offset,
-        rows: Vec::new(),
-        weight_type: query.weight_type,
-        direction: query.direction,
-    };
-    if query.offset >= nodes.len() || query.limit == 0 {
-        return Ok(page);
+    Ok(Aggregation {
+        files,
+        roots,
+        nodes,
+    })
+}
+
+fn materialize(
+    aggregation: Aggregation<'_>,
+    offset: usize,
+    limit: usize,
+    direction: Direction,
+) -> Vec<QueryRow> {
+    let Aggregation {
+        files,
+        roots,
+        nodes,
+    } = aggregation;
+    let mut rows = Vec::new();
+    if offset >= nodes.len() || limit == 0 {
+        return rows;
     }
     let mut pending: Vec<_> = roots.into_values().rev().collect();
     let mut position = 0;
     while let Some(index) = pending.pop() {
         let node = &nodes[index];
-        if position >= query.offset {
-            let id = node_id(&nodes, index, query.direction);
+        if position >= offset {
+            let id = node_id(&nodes, index, direction);
             let parent_id = node
                 .parent
                 .map(|_| id.rsplit_once('/').unwrap().0.to_owned());
-            // Borrowed lookup map avoids cloning the entire symbol catalog.
             let name = files
                 .get(&node.key.file_id)
                 .and_then(|file| {
@@ -346,7 +426,7 @@ pub fn project(stream: &SimpleperfStream, query: &Query) -> Result<QueryPage, St
                 .get(&node.key.file_id)
                 .map(|file| file.path.clone())
                 .unwrap_or_else(|| format!("<unknown-file:{}>", node.key.file_id));
-            page.rows.push(QueryRow {
+            rows.push(QueryRow {
                 id,
                 parent_id,
                 depth: node.depth,
@@ -357,14 +437,14 @@ pub fn project(stream: &SimpleperfStream, query: &Query) -> Result<QueryPage, St
                 sample_count: node.sample_count,
                 self_sample_count: node.self_sample_count,
             });
-            if page.rows.len() == query.limit {
+            if rows.len() == limit {
                 break;
             }
         }
         position += 1;
         pending.extend(node.children.values().rev().copied());
     }
-    Ok(page)
+    rows
 }
 
 fn add(target: &mut u64, value: u64) -> Result<(), String> {
