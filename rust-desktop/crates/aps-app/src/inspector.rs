@@ -1,11 +1,18 @@
-use aps_layout_inspector::{InspectorArchive, InspectorProtocolFrame, LayoutNode};
+use aps_layout_inspector::{
+    Bounds as LayoutBounds, ComposeDetailEvidence, ComposeEvidence, ComposeValueEvidence,
+    DisplayInfo, EdgeInsets, InspectorArchive, InspectorProtocolFrame, LayoutNode, LayoutWindow,
+    NodeKind,
+};
 use aps_platform::CancellationToken;
 use aps_ui_foundation::{Language, LayoutPreferences, TextKey};
 use gpui_kit::{
+    base::TextSelection,
     component::{
         Disableable, IconName, Selectable,
         button::{Button, ButtonVariants},
         input::{Input, InputState},
+        menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
+        scroll::{ScrollableElement, Scrollbar, ScrollbarAxis, ScrollbarMode},
     },
     prelude::*,
     *,
@@ -29,30 +36,75 @@ const SPLITTER: f32 = 7.0;
 const FINDINGS_HEIGHT: f32 = 240.0;
 const HIERARCHY_WIDTH: f32 = 320.0;
 const PROPERTIES_WIDTH: f32 = 300.0;
+// Compose PaneLayout/FindingsLayout drag bounds.
+const HIERARCHY_MIN_WIDTH: f32 = 180.0;
+const HIERARCHY_MAX_WIDTH: f32 = 640.0;
+const PROPERTIES_MIN_WIDTH: f32 = 200.0;
+const PROPERTIES_MAX_WIDTH: f32 = 600.0;
+const CANVAS_MIN_WIDTH: f32 = 320.0;
+const FINDINGS_MIN_HEIGHT: f32 = 56.0;
+const FINDINGS_MAX_RATIO: f32 = 0.5;
 const HIERARCHY_ROW_HEIGHT: f32 = 20.0;
 const HIERARCHY_INDENT: f32 = 14.0;
 const DETAIL_LABEL_WIDTH: f32 = 108.0;
 const TOOLBAR_BUTTON_HEIGHT: f32 = 24.0;
 const TOOLBAR_BUTTON_RADIUS: f32 = 4.0;
+// Compose PreviewZoomState: 50%–250% in 25% steps.
+const MIN_ZOOM: f32 = 0.5;
+const MAX_ZOOM: f32 = 2.5;
+const ZOOM_STEP: f32 = 0.25;
 
 const PREVIEW_SURFACE_DARK: u32 = 0x2c2c2e;
 const PREVIEW_SURFACE_LIGHT: u32 = 0xffffff;
 
+/// Compose `CaptureTargetMode`: the offline archive adapter has no live
+/// capture, so the selection stays presentation state and never starts a
+/// device operation.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DetailsTab {
-    Layout,
-    Drawing,
-    Accessibility,
+enum CaptureTargetMode {
+    ForegroundApp,
+    SystemUi,
 }
 
-impl DetailsTab {
-    const ALL: [Self; 3] = [Self::Layout, Self::Drawing, Self::Accessibility];
+impl CaptureTargetMode {
+    const ALL: [Self; 2] = [Self::ForegroundApp, Self::SystemUi];
 
     fn label(self, language: Language) -> &'static str {
         match self {
+            Self::ForegroundApp => language.text(TextKey::InspectorCaptureForeground),
+            Self::SystemUi => language.text(TextKey::InspectorCaptureSystemUi),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DetailsTab {
+    Overview,
+    Layout,
+    Drawing,
+    Accessibility,
+    Compose,
+    Evidence,
+}
+
+impl DetailsTab {
+    const ALL: [Self; 6] = [
+        Self::Overview,
+        Self::Layout,
+        Self::Drawing,
+        Self::Accessibility,
+        Self::Compose,
+        Self::Evidence,
+    ];
+
+    fn label(self, language: Language) -> &'static str {
+        match self {
+            Self::Overview => language.text(TextKey::InspectorDetailsOverview),
             Self::Layout => language.text(TextKey::InspectorDetailsLayout),
             Self::Drawing => language.text(TextKey::InspectorDetailsDrawing),
             Self::Accessibility => language.text(TextKey::InspectorDetailsAccessibility),
+            Self::Compose => language.text(TextKey::InspectorDetailsCompose),
+            Self::Evidence => language.text(TextKey::InspectorDetailsEvidence),
         }
     }
 }
@@ -95,6 +147,193 @@ impl FindingsTone {
 pub struct InspectorPreferencesChanged(pub LayoutPreferences);
 impl EventEmitter<InspectorPreferencesChanged> for InspectorWorkspace {}
 
+/// Pane visibility changed; the shell mirrors it in the native View menu.
+pub struct InspectorPanelsChanged;
+impl EventEmitter<InspectorPanelsChanged> for InspectorWorkspace {}
+
+/// One pane splitter drag; deltas are applied against the start sizes so a
+/// clamped pane never accumulates rounding drift (Compose PaneLayout drags).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaneDragKind {
+    Hierarchy,
+    Properties,
+    Findings,
+}
+
+#[derive(Clone, Copy)]
+struct PreviewDrag {
+    start_x: f32,
+    start_y: f32,
+    start_pan: (f32, f32),
+    moved: bool,
+}
+
+/// Viewport/content geometry captured while the canvas paints, so wheel, drag
+/// and scrollbar handlers share one clamping model (Compose
+/// PreviewPanState.clamp).
+#[derive(Clone, Copy)]
+struct PreviewMetrics {
+    viewport: Bounds<Pixels>,
+    source: PreviewSource,
+    base_scale: f32,
+    origin: Point<Pixels>,
+    scale: f32,
+    pan: (f32, f32),
+    content_w: f32,
+    content_h: f32,
+    zoom: f32,
+}
+
+#[derive(Clone, Copy)]
+struct CanvasFrame {
+    origin: Point<Pixels>,
+    width: f32,
+    height: f32,
+    scale: f32,
+    pan: (f32, f32),
+    viewport: Bounds<Pixels>,
+}
+
+fn preview_pan_limits(content_w: f32, content_h: f32, vw: f32, vh: f32) -> (f32, f32) {
+    (
+        ((content_w - vw) / 2.0).max(0.0),
+        ((content_h - vh) / 2.0).max(0.0),
+    )
+}
+
+fn preview_clamp_pan(
+    pan: (f32, f32),
+    content_w: f32,
+    content_h: f32,
+    vw: f32,
+    vh: f32,
+) -> (f32, f32) {
+    let (limit_x, limit_y) = preview_pan_limits(content_w, content_h, vw, vh);
+    (
+        if limit_x == 0.0 {
+            0.0
+        } else {
+            pan.0.clamp(-limit_x, limit_x)
+        },
+        if limit_y == 0.0 {
+            0.0
+        } else {
+            pan.1.clamp(-limit_y, limit_y)
+        },
+    )
+}
+
+fn paint_preview_scrollbars(
+    window: &mut Window,
+    viewport: Bounds<Pixels>,
+    vw: f32,
+    vh: f32,
+    content_w: f32,
+    content_h: f32,
+    pan: (f32, f32),
+    track: Rgba,
+    thumb: Rgba,
+) {
+    let track_w = (vw - 20.0).max(1.0);
+    let track_x = viewport.origin.x + px(6.0);
+    let bar_y = viewport.origin.y + viewport.size.height - px(5.0);
+    window.paint_quad(quad(
+        Bounds {
+            origin: point(track_x, bar_y),
+            size: size(px(track_w), px(2.0)),
+        },
+        px(1.0),
+        track,
+        px(0.0),
+        transparent_black(),
+        Default::default(),
+    ));
+    let limit_x = ((content_w - vw) / 2.0).max(0.0);
+    let thumb_w = if limit_x <= 0.0 {
+        track_w
+    } else {
+        (vw / content_w.max(1.0) * track_w).clamp(24.0, track_w)
+    };
+    let fraction_x = if limit_x <= 0.0 {
+        0.0
+    } else {
+        ((pan.0 + limit_x) / (2.0 * limit_x)).clamp(0.0, 1.0)
+    };
+    window.paint_quad(quad(
+        Bounds {
+            origin: point(
+                track_x + px(fraction_x * (track_w - thumb_w)),
+                bar_y - px(1.0),
+            ),
+            size: size(px(thumb_w), px(4.0)),
+        },
+        px(2.0),
+        thumb,
+        px(0.0),
+        transparent_black(),
+        Default::default(),
+    ));
+    let track_h = (vh - 20.0).max(1.0);
+    let track_y = viewport.origin.y + px(6.0);
+    let bar_x = viewport.origin.x + viewport.size.width - px(5.0);
+    window.paint_quad(quad(
+        Bounds {
+            origin: point(bar_x, track_y),
+            size: size(px(2.0), px(track_h)),
+        },
+        px(1.0),
+        track,
+        px(0.0),
+        transparent_black(),
+        Default::default(),
+    ));
+    let limit_y = ((content_h - vh) / 2.0).max(0.0);
+    let thumb_h = if limit_y <= 0.0 {
+        track_h
+    } else {
+        (vh / content_h.max(1.0) * track_h).clamp(24.0, track_h)
+    };
+    let fraction_y = if limit_y <= 0.0 {
+        0.0
+    } else {
+        ((pan.1 + limit_y) / (2.0 * limit_y)).clamp(0.0, 1.0)
+    };
+    window.paint_quad(quad(
+        Bounds {
+            origin: point(
+                bar_x - px(1.0),
+                track_y + px(fraction_y * (track_h - thumb_h)),
+            ),
+            size: size(px(4.0), px(thumb_h)),
+        },
+        px(2.0),
+        thumb,
+        px(0.0),
+        transparent_black(),
+        Default::default(),
+    ));
+}
+
+#[derive(Clone, Copy)]
+struct PaneDrag {
+    kind: PaneDragKind,
+    start_x: f32,
+    start_y: f32,
+    start_hierarchy: f32,
+    start_properties: f32,
+    start_findings: f32,
+    available_width: f32,
+    available_height: f32,
+}
+
+/// Pane visibility projected for the shell-owned native menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InspectorPanelVisibility {
+    pub hierarchy: bool,
+    pub findings: bool,
+    pub details: bool,
+}
+
 pub struct InspectorWorkspace {
     language: Language,
     preferences: LayoutPreferences,
@@ -119,6 +358,30 @@ pub struct InspectorWorkspace {
     studio: Option<WeakEntity<crate::shell::Studio>>,
     target_serial: Option<String>,
     target_pid: Option<u32>,
+    capture_target: CaptureTargetMode,
+    /// Compose `CanvasPane` local state: crop the preview to the app window
+    /// instead of the full display. Presentation-only; never persisted.
+    app_only: bool,
+    screenshot_image: Option<Arc<RenderImage>>,
+    /// Compose Agent opt-in, mirroring the Compose toolbar checkbox. Offline
+    /// archives have no live injection; checking it reveals the Compose
+    /// inspection sidecar (Compose category/summary) captured in the archive.
+    compose_agent: bool,
+    /// Resizable pane sizes, mirroring Compose's remembered pane widths and
+    /// findings height. Session state only, like Compose's remember state.
+    hierarchy_width: f32,
+    properties_width: f32,
+    findings_height: f32,
+    pane_drag: Option<PaneDrag>,
+    hierarchy_scroll: UniformListScrollHandle,
+    /// Preview pan offset from the centred content, in window pixels
+    /// (Compose PreviewPanState).
+    preview_pan: (f32, f32),
+    /// Canvas drag/selection state: a left press pans the canvas and only
+    /// selects on release when the pointer did not move.
+    preview_drag: Option<PreviewDrag>,
+    preview_bar_drag: Option<bool>,
+    preview_metrics: Arc<Mutex<Option<PreviewMetrics>>>,
 }
 
 impl InspectorWorkspace {
@@ -141,7 +404,7 @@ impl InspectorWorkspace {
             show_hierarchy: true,
             show_findings: true,
             show_details: true,
-            details_tab: DetailsTab::Layout,
+            details_tab: DetailsTab::Overview,
             findings_tone: FindingsTone::All,
             zoom: 1.0,
             show_bounds: true,
@@ -152,6 +415,19 @@ impl InspectorWorkspace {
             studio: None,
             target_serial: None,
             target_pid: None,
+            capture_target: CaptureTargetMode::ForegroundApp,
+            app_only: true,
+            screenshot_image: None,
+            compose_agent: false,
+            hierarchy_width: HIERARCHY_WIDTH,
+            properties_width: PROPERTIES_WIDTH,
+            findings_height: FINDINGS_HEIGHT,
+            pane_drag: None,
+            hierarchy_scroll: UniformListScrollHandle::new(),
+            preview_pan: (0.0, 0.0),
+            preview_drag: None,
+            preview_bar_drag: None,
+            preview_metrics: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -213,7 +489,11 @@ impl InspectorWorkspace {
             .position(|window| window.id == frame.archive.default_window_id)
             .unwrap_or(0);
         self.generation = frame.generation;
+        let screenshot_png = frame.archive.screenshot_png.clone();
         self.archive = Some(Arc::new(frame.archive));
+        self.screenshot_image = screenshot_png
+            .as_deref()
+            .and_then(|bytes| decode_screenshot(bytes, cx));
         self.window = window;
         self.selected = None;
         self.hovered = None;
@@ -277,6 +557,18 @@ impl InspectorWorkspace {
         )
     }
 
+    fn selected_is_compose(&self) -> bool {
+        self.archive
+            .as_ref()
+            .and_then(|archive| archive.windows.get(self.window))
+            .and_then(|window| {
+                self.selected
+                    .as_ref()
+                    .and_then(|id| window.nodes.iter().find(|node| &node.id == id))
+            })
+            .is_some_and(|node| node.kind == NodeKind::Compose)
+    }
+
     fn selected_index(&self) -> Option<usize> {
         let archive = self.archive.as_ref()?;
         let window = archive.windows.get(self.window)?;
@@ -333,6 +625,13 @@ impl InspectorWorkspace {
         .detach();
     }
 
+    /// Debug-only entry for native verification: opens a real archive without
+    /// driving the platform file picker. Release builds never see this method.
+    #[cfg(debug_assertions)]
+    pub(crate) fn open_debug_archive(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.open(path, cx);
+    }
+
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.cancel.cancel();
         self.cancel = CancellationToken::new();
@@ -387,17 +686,36 @@ impl InspectorWorkspace {
 
     pub fn toggle_hierarchy(&mut self, cx: &mut Context<Self>) {
         self.show_hierarchy = !self.show_hierarchy;
+        cx.emit(InspectorPanelsChanged);
         cx.notify();
     }
 
     pub fn toggle_findings(&mut self, cx: &mut Context<Self>) {
         self.show_findings = !self.show_findings;
+        cx.emit(InspectorPanelsChanged);
         cx.notify();
     }
 
     pub fn toggle_details(&mut self, cx: &mut Context<Self>) {
         self.show_details = !self.show_details;
+        cx.emit(InspectorPanelsChanged);
         cx.notify();
+    }
+
+    /// Pane visibility for the shell-owned native menu.
+    pub fn panel_visibility(&self) -> InspectorPanelVisibility {
+        InspectorPanelVisibility {
+            hierarchy: self.show_hierarchy,
+            findings: self.show_findings,
+            details: self.show_details,
+        }
+    }
+
+    fn set_capture_target(&mut self, mode: CaptureTargetMode, cx: &mut Context<Self>) {
+        if self.capture_target != mode {
+            self.capture_target = mode;
+            cx.notify();
+        }
     }
 
     fn header_toolbar(
@@ -411,6 +729,8 @@ impl InspectorWorkspace {
         let window_label = archive
             .and_then(|archive| archive.windows.get(self.window))
             .map(|window| format!("{}: {}", language.text(TextKey::InspectorWindow), window.id));
+        // Compose order: capture target, optional window selector, status, then the
+        // right-aligned scan control immediately before the trailing divider.
         let mut controls = div()
             .id("inspector-header-controls")
             .flex_1()
@@ -419,26 +739,12 @@ impl InspectorWorkspace {
             .items_center()
             .gap(px(8.))
             .overflow_x_scroll()
-            .child(
-                toolbar_button(
-                    "inspector-target-foreground",
-                    self.target_serial.as_ref().map_or_else(
-                        || {
-                            language
-                                .text(TextKey::InspectorCaptureForeground)
-                                .to_owned()
-                        },
-                        |serial| {
-                            format!("{}: {}", language.text(TextKey::InspectorNoDevice), serial)
-                        },
-                    ),
-                    false,
-                    false,
-                    colors,
-                )
-                .flex_shrink_0()
-                .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
-            );
+            .child(capture_target_control(
+                language,
+                colors,
+                self.capture_target,
+                cx,
+            ));
         if let Some(window_label) = window_label.filter(|_| window_count > 1) {
             controls = controls.child(
                 toolbar_button("inspector-window", window_label, !self.busy, false, colors)
@@ -460,7 +766,7 @@ impl InspectorWorkspace {
                 div()
                     .flex_shrink_0()
                     .text_size(px(studio::FONT_SUPPORTING))
-                    .text_color(colors.secondary_text)
+                    .text_color(colors.warning)
                     .whitespace_nowrap()
                     .child(if archive.is_some() {
                         language.text(TextKey::InspectorOfflineArchive).to_owned()
@@ -483,28 +789,17 @@ impl InspectorWorkspace {
                             .to_owned()
                     }),
             )
-            .child(
-                toolbar_button(
-                    "inspector-manual-refresh",
-                    language.text(TextKey::InspectorManualRefresh),
-                    false,
-                    false,
-                    colors,
-                )
-                .flex_shrink_0()
-                .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
-            )
-            .child(
-                toolbar_button(
-                    "inspector-auto-refresh",
-                    language.text(TextKey::InspectorAutoRefresh),
-                    false,
-                    false,
-                    colors,
-                )
-                .flex_shrink_0()
-                .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
-            );
+            .child(div().flex_1())
+            .child(compose_agent_control(
+                language,
+                colors,
+                archive
+                    .and_then(|archive| archive.compose.as_ref())
+                    .is_some(),
+                self.compose_agent,
+                cx,
+            ))
+            .child(scan_mode_control(language, colors));
 
         div()
             .id("inspector-header-toolbar")
@@ -521,36 +816,33 @@ impl InspectorWorkspace {
             .child(controls)
             .child(header_divider(colors))
             .child(
-                toolbar_icon_button(
+                panel_toggle_button(
                     "inspector-toggle-hierarchy",
                     IconName::PanelLeft,
                     language.text(TextKey::InspectorToggleHierarchy),
                     self.show_hierarchy,
-                    true,
                     colors,
                 )
                 .flex_shrink_0()
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_hierarchy(cx))),
             )
             .child(
-                toolbar_icon_button(
+                panel_toggle_button(
                     "inspector-toggle-findings",
                     IconName::PanelBottom,
                     language.text(TextKey::InspectorToggleFindings),
                     self.show_findings,
-                    true,
                     colors,
                 )
                 .flex_shrink_0()
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_findings(cx))),
             )
             .child(
-                toolbar_icon_button(
+                panel_toggle_button(
                     "inspector-toggle-details",
                     IconName::PanelRight,
                     language.text(TextKey::InspectorToggleDetails),
                     self.show_details,
-                    true,
                     colors,
                 )
                 .flex_shrink_0()
@@ -626,14 +918,292 @@ impl InspectorWorkspace {
         rows
     }
 
+    fn begin_pane_drag(
+        &mut self,
+        kind: PaneDragKind,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pane_drag = Some(PaneDrag {
+            kind,
+            start_x: f32::from(event.position.x),
+            start_y: f32::from(event.position.y),
+            start_hierarchy: self.hierarchy_width,
+            start_properties: self.properties_width,
+            start_findings: self.findings_height,
+            available_width: f32::from(window.bounds().size.width),
+            available_height: f32::from(window.bounds().size.height),
+        });
+        cx.notify();
+    }
+
+    /// Compose PaneLayout.dragHierarchy/dragProperties and FindingsLayout.drag:
+    /// deltas are applied against the drag-start sizes and clamped so the
+    /// canvas keeps at least 320 dp and findings keeps 56 dp / max 50% height.
+    fn update_pane_drag(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let Some(drag) = self.pane_drag else {
+            return;
+        };
+        if event.pressed_button != Some(MouseButton::Left) {
+            self.pane_drag = None;
+            cx.notify();
+            return;
+        }
+        match drag.kind {
+            PaneDragKind::Hierarchy => {
+                let delta = f32::from(event.position.x) - drag.start_x;
+                let maximum = (drag.available_width
+                    - drag.start_properties
+                    - 2.0 * SPLITTER
+                    - CANVAS_MIN_WIDTH)
+                    .clamp(HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH);
+                self.hierarchy_width =
+                    (drag.start_hierarchy + delta).clamp(HIERARCHY_MIN_WIDTH, maximum);
+            }
+            PaneDragKind::Properties => {
+                let delta = f32::from(event.position.x) - drag.start_x;
+                let maximum = (drag.available_width
+                    - drag.start_hierarchy
+                    - 2.0 * SPLITTER
+                    - CANVAS_MIN_WIDTH)
+                    .clamp(PROPERTIES_MIN_WIDTH, PROPERTIES_MAX_WIDTH);
+                self.properties_width =
+                    (drag.start_properties - delta).clamp(PROPERTIES_MIN_WIDTH, maximum);
+            }
+            PaneDragKind::Findings => {
+                let delta = f32::from(event.position.y) - drag.start_y;
+                let maximum = (drag.available_height * FINDINGS_MAX_RATIO).max(FINDINGS_MIN_HEIGHT);
+                self.findings_height =
+                    (drag.start_findings - delta).clamp(FINDINGS_MIN_HEIGHT, maximum);
+            }
+        }
+        cx.notify();
+    }
+
+    fn end_pane_drag(&mut self, cx: &mut Context<Self>) {
+        if self.pane_drag.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn preview_limits(&self) -> (f32, f32) {
+        let Ok(Some(metrics)) = self.preview_metrics.lock().map(|metrics| *metrics) else {
+            return (0.0, 0.0);
+        };
+        let factor = if metrics.zoom > 0.0 {
+            self.zoom / metrics.zoom
+        } else {
+            1.0
+        };
+        preview_pan_limits(
+            metrics.content_w * factor,
+            metrics.content_h * factor,
+            f32::from(metrics.viewport.size.width),
+            f32::from(metrics.viewport.size.height),
+        )
+    }
+
+    fn clamp_preview_pan(&self, pan: (f32, f32)) -> (f32, f32) {
+        let (limit_x, limit_y) = self.preview_limits();
+        (
+            if limit_x == 0.0 {
+                0.0
+            } else {
+                pan.0.clamp(-limit_x, limit_x)
+            },
+            if limit_y == 0.0 {
+                0.0
+            } else {
+                pan.1.clamp(-limit_y, limit_y)
+            },
+        )
+    }
+
+    fn preview_pan_at_bar(&mut self, horizontal: bool, x: f32, y: f32) {
+        let Ok(Some(metrics)) = self.preview_metrics.lock().map(|metrics| *metrics) else {
+            return;
+        };
+        let vw = f32::from(metrics.viewport.size.width);
+        let vh = f32::from(metrics.viewport.size.height);
+        let (limit_x, limit_y) = self.preview_limits();
+        if horizontal {
+            let left = f32::from(metrics.viewport.origin.x);
+            let fraction = ((x - left - 6.0) / (vw - 20.0).max(1.0)).clamp(0.0, 1.0);
+            let pan_x = if limit_x <= 0.0 {
+                0.0
+            } else {
+                (2.0 * fraction - 1.0) * limit_x
+            };
+            self.preview_pan = self.clamp_preview_pan((pan_x, self.preview_pan.1));
+        } else {
+            let top = f32::from(metrics.viewport.origin.y);
+            let fraction = ((y - top - 6.0) / (vh - 20.0).max(1.0)).clamp(0.0, 1.0);
+            let pan_y = if limit_y <= 0.0 {
+                0.0
+            } else {
+                (2.0 * fraction - 1.0) * limit_y
+            };
+            self.preview_pan = self.clamp_preview_pan((self.preview_pan.0, pan_y));
+        }
+    }
+
+    /// Compose PreviewPanState.scroll: wheel pans the preview; shift+wheel pans
+    /// horizontally, matching the Compose fallback that maps the wheel amount
+    /// onto the horizontal axis.
+    fn preview_scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) {
+        let delta = event.delta.pixel_delta(px(20.0));
+        let (dx, dy) = if event.modifiers.shift {
+            (f32::from(delta.x) + f32::from(delta.y), 0.0)
+        } else {
+            (f32::from(delta.x), f32::from(delta.y))
+        };
+        let next = self.clamp_preview_pan((self.preview_pan.0 - dx, self.preview_pan.1 - dy));
+        if next != self.preview_pan {
+            self.preview_pan = next;
+            cx.notify();
+        }
+    }
+
+    fn update_preview_pan_drag(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if let Some(horizontal) = self.preview_bar_drag {
+            if event.pressed_button != Some(MouseButton::Left) {
+                self.preview_bar_drag = None;
+                cx.notify();
+                return;
+            }
+            self.preview_pan_at_bar(
+                horizontal,
+                f32::from(event.position.x),
+                f32::from(event.position.y),
+            );
+            cx.notify();
+            return;
+        }
+        let Some(drag) = self.preview_drag else {
+            return;
+        };
+        if event.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
+        let dx = f32::from(event.position.x) - drag.start_x;
+        let dy = f32::from(event.position.y) - drag.start_y;
+        if !drag.moved && dx.abs() + dy.abs() <= 2.0 {
+            return;
+        }
+        if !drag.moved {
+            self.preview_drag = Some(PreviewDrag {
+                moved: true,
+                ..drag
+            });
+        }
+        let next = self.clamp_preview_pan((drag.start_pan.0 + dx, drag.start_pan.1 + dy));
+        if next != self.preview_pan {
+            self.preview_pan = next;
+            cx.notify();
+        }
+    }
+
+    fn end_preview_drag(&mut self, cx: &mut Context<Self>) {
+        let changed = self.preview_bar_drag.take().is_some() || self.preview_drag.take().is_some();
+        if changed {
+            cx.notify();
+        }
+    }
+
     fn zoom_by(&mut self, delta: f32, cx: &mut Context<Self>) {
-        self.zoom = (self.zoom + delta).clamp(0.25, 4.0);
+        self.zoom = (self.zoom + delta).clamp(MIN_ZOOM, MAX_ZOOM);
+        self.preview_pan = self.clamp_preview_pan(self.preview_pan);
+        self.preview_drag = None;
         cx.notify();
     }
 
     fn zoom_reset(&mut self, cx: &mut Context<Self>) {
         self.zoom = 1.0;
+        self.preview_pan = (0.0, 0.0);
+        self.preview_drag = None;
         cx.notify();
+    }
+
+    /// Compose `PreviewZoomControls`: bottom-right overlay row with a −/value/+
+    /// group over the canvas, radius 8, 90% panel fill and a 65% hairline.
+    fn zoom_controls(
+        &self,
+        language: Language,
+        colors: &StudioColors,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let zoom_out = self.zoom > MIN_ZOOM;
+        let zoom_in = self.zoom < MAX_ZOOM;
+        let zoom_out_button = Button::new("inspector-zoom-out")
+            .ghost()
+            .h(px(24.))
+            .w(px(24.))
+            .p(px(0.))
+            .text_color(if zoom_out {
+                colors.accent
+            } else {
+                colors.muted_text.alpha(0.45)
+            })
+            .disabled(!zoom_out)
+            .accessibility_label(language.text(TextKey::InspectorZoomOut))
+            .tooltip(language.text(TextKey::InspectorZoomOut))
+            .child(
+                div()
+                    .text_size(px(16.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(crate::studio::selectable("−")),
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.zoom_by(-ZOOM_STEP, cx)));
+        let zoom_in_button = Button::new("inspector-zoom-in")
+            .ghost()
+            .h(px(24.))
+            .w(px(24.))
+            .p(px(0.))
+            .text_color(if zoom_in {
+                colors.accent
+            } else {
+                colors.muted_text.alpha(0.45)
+            })
+            .disabled(!zoom_in)
+            .accessibility_label(language.text(TextKey::InspectorZoomIn))
+            .tooltip(language.text(TextKey::InspectorZoomIn))
+            .child(
+                div()
+                    .text_size(px(16.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(crate::studio::selectable("+")),
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.zoom_by(ZOOM_STEP, cx)));
+        div()
+            .id("inspector-zoom-controls")
+            .absolute()
+            .bottom(px(28.))
+            .right(px(28.))
+            .flex()
+            .items_center()
+            .rounded(px(8.))
+            .bg(colors.panel.alpha(0.9))
+            .border_1()
+            .border_color(colors.border.alpha(0.65))
+            .px(px(6.))
+            .py(px(4.))
+            .child(zoom_out_button)
+            .child(
+                div()
+                    .w(px(42.))
+                    .flex()
+                    .justify_center()
+                    .font_family("monospace")
+                    .text_size(px(studio::FONT_SUPPORTING))
+                    .text_color(colors.text)
+                    .child(crate::studio::selectable(format!(
+                        "{}%",
+                        (self.zoom * 100.0).round() as i32
+                    ))),
+            )
+            .child(zoom_in_button)
+            .into_any_element()
     }
 }
 
@@ -655,9 +1225,6 @@ impl Render for InspectorWorkspace {
         let visible_nodes = window_data.map_or(0, |window| {
             window.nodes.iter().filter(|node| node.visible).count()
         });
-        let selected = self
-            .selected_index()
-            .and_then(|index| window_data.and_then(|window| window.nodes.get(index)));
         let visible_rows = self.visible_rows(cx);
         let entity = cx.entity();
 
@@ -686,6 +1253,7 @@ impl Render for InspectorWorkspace {
                     &colors,
                     archive.clone(),
                     self.window,
+                    self.hierarchy_width,
                     &visible_rows,
                     &self.hidden,
                     &self.selected,
@@ -693,9 +1261,15 @@ impl Render for InspectorWorkspace {
                     self.preferences,
                     entity.clone(),
                     self.search.clone(),
+                    self.hierarchy_scroll.clone(),
                     cx,
                 ))
-                .child(vertical_splitter(&colors));
+                .child(vertical_splitter(
+                    "inspector-splitter-hierarchy",
+                    PaneDragKind::Hierarchy,
+                    &colors,
+                    cx,
+                ));
         }
         panes = panes.child(self.preview_pane(
             language,
@@ -706,19 +1280,25 @@ impl Render for InspectorWorkspace {
             cx,
         ));
         if self.show_details {
-            panes = panes.child(vertical_splitter(&colors)).child(details_pane(
-                language,
-                &colors,
-                archive.as_ref(),
-                self.window,
-                selected,
-                self.details_tab,
-                &self.selected,
-                self.selected
-                    .as_deref()
-                    .is_some_and(|id| self.hidden.contains(id)),
-                cx,
-            ));
+            panes = panes
+                .child(vertical_splitter(
+                    "inspector-splitter-properties",
+                    PaneDragKind::Properties,
+                    &colors,
+                    cx,
+                ))
+                .child(details_pane(
+                    language,
+                    &colors,
+                    archive.as_ref(),
+                    self.window,
+                    self.properties_width,
+                    self.selected_index(),
+                    self.details_tab,
+                    &self.selected,
+                    self.compose_agent,
+                    cx,
+                ));
         }
 
         let mut workspace = div()
@@ -731,8 +1311,14 @@ impl Render for InspectorWorkspace {
         workspace = workspace.child(panes);
         if self.show_findings {
             workspace = workspace
-                .child(horizontal_splitter(&colors))
-                .child(findings_pane(language, &colors, self.findings_tone, cx));
+                .child(horizontal_splitter(&colors, cx))
+                .child(findings_pane(
+                    language,
+                    &colors,
+                    self.findings_tone,
+                    self.findings_height,
+                    cx,
+                ));
         }
 
         div()
@@ -743,6 +1329,17 @@ impl Render for InspectorWorkspace {
             .flex()
             .flex_col()
             .overflow_hidden()
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                this.update_pane_drag(event, cx);
+                this.update_preview_pan_drag(event, cx);
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.end_pane_drag(cx);
+                    this.end_preview_drag(cx);
+                }),
+            )
             .bg(colors.workspace)
             .text_color(colors.text)
             .text_size(px(studio::FONT_BODY))
@@ -754,7 +1351,7 @@ impl Render for InspectorWorkspace {
                     .py(px(4.))
                     .text_size(px(studio::FONT_SUPPORTING))
                     .text_color(colors.error)
-                    .child(error)
+                    .child(crate::studio::selectable(error))
             }))
             .children(self.busy.then(|| {
                 div()
@@ -763,10 +1360,55 @@ impl Render for InspectorWorkspace {
                     .py(px(4.))
                     .text_size(px(studio::FONT_SUPPORTING))
                     .text_color(colors.muted_text)
-                    .child(language.text(TextKey::InspectorValidatingArchive))
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::InspectorValidatingArchive),
+                    ))
             }))
             .child(workspace)
             .child(status)
+    }
+}
+
+/// Preview source rectangle in display pixels, mirroring Compose
+/// `CanvasGeometry.sourceRect` / `CanvasWindowSource.sourceRect`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PreviewSource {
+    left: i32,
+    top: i32,
+    width: u32,
+    height: u32,
+}
+
+/// App-only crops to the active window bounds, clamped to the display. Invalid,
+/// empty or unknown bounds fall back to the full display, as Compose does.
+fn preview_source(
+    display: DisplayInfo,
+    window: Option<&LayoutWindow>,
+    app_only: bool,
+) -> PreviewSource {
+    let full = PreviewSource {
+        left: 0,
+        top: 0,
+        width: display.width_px,
+        height: display.height_px,
+    };
+    let Some(window) = window.filter(|_| app_only) else {
+        return full;
+    };
+    let width = i64::from(display.width_px);
+    let height = i64::from(display.height_px);
+    let left = i64::from(window.bounds.left).clamp(0, width);
+    let top = i64::from(window.bounds.top).clamp(0, height);
+    let right = i64::from(window.bounds.right).clamp(0, width);
+    let bottom = i64::from(window.bounds.bottom).clamp(0, height);
+    if right <= left || bottom <= top {
+        return full;
+    }
+    PreviewSource {
+        left: left as i32,
+        top: top as i32,
+        width: (right - left) as u32,
+        height: (bottom - top) as u32,
     }
 }
 
@@ -854,18 +1496,61 @@ fn canvas_hit(nodes: &[(usize, LayoutNode)], x: f32, y: f32, smallest: bool) -> 
     }
 }
 
-fn hierarchy_label(node: &LayoutNode, index: usize, preferences: LayoutPreferences) -> String {
+/// Compose InspectorPresenter.appendRows: the number is depth-index
+/// with a per-depth preorder counter, the label is the simple class name
+/// and show_ids adds id/{last resource segment}. Numbers are computed over
+/// the full preorder, so filters keep the original number.
+
+fn hierarchy_label(node: &LayoutNode, number: &str, preferences: LayoutPreferences) -> String {
     let mut parts = Vec::with_capacity(3);
     if !preferences.hide_indices {
-        parts.push((index + 1).to_string());
+        parts.push(number.to_owned());
     }
     if preferences.show_ids {
-        if let Some(resource) = &node.resource_name {
-            parts.push(resource.clone());
+        if let Some(resource) = node.resource_name.as_deref() {
+            let segment = resource.rsplit('/').next().unwrap_or(resource);
+            if !segment.is_empty() {
+                parts.push(format!("id/{segment}"));
+            }
         }
     }
-    parts.push(node.class_name.clone());
+    parts.push(
+        node.class_name
+            .rsplit('.')
+            .next()
+            .unwrap_or(&node.class_name)
+            .to_owned(),
+    );
     parts.join("  ")
+}
+
+fn hierarchy_numbers(nodes: &[LayoutNode]) -> Vec<String> {
+    let mut next_by_depth: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    nodes
+        .iter()
+        .map(|node| {
+            let index = next_by_depth.entry(node.depth).or_insert(0);
+            let number = format!("{}-{}", node.depth, *index);
+            *index += 1;
+            number
+        })
+        .collect()
+}
+
+fn hierarchy_content_width(nodes: &[LayoutNode], preferences: LayoutPreferences) -> f32 {
+    let mut maximum = 0.0f32;
+    for node in nodes {
+        let label = hierarchy_label(node, "0-0", preferences);
+        let mut row = 8.0 + (node.depth.min(40) as f32) * HIERARCHY_INDENT + 12.0 + 4.0 + 8.0;
+        if preferences.show_layer_buttons {
+            row += 20.0 + 4.0;
+        }
+        row += label.chars().count() as f32 * 7.2;
+        row += 32.0;
+        maximum = maximum.max(row);
+    }
+    maximum
 }
 
 fn canvas_dimensions(
@@ -896,9 +1581,14 @@ fn divider(colors: &StudioColors) -> Div {
     div().w_full().h(px(1.)).flex_shrink_0().bg(colors.border)
 }
 
-fn vertical_splitter(colors: &StudioColors) -> Stateful<Div> {
+fn vertical_splitter(
+    id: &'static str,
+    kind: PaneDragKind,
+    colors: &StudioColors,
+    cx: &mut Context<InspectorWorkspace>,
+) -> AnyElement {
     div()
-        .id("inspector-vertical-splitter")
+        .id(id)
         .w(px(SPLITTER))
         .cursor(CursorStyle::ResizeLeftRight)
         .h_full()
@@ -906,12 +1596,19 @@ fn vertical_splitter(colors: &StudioColors) -> Stateful<Div> {
         .flex()
         .items_center()
         .justify_center()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                this.begin_pane_drag(kind, event, window, cx);
+            }),
+        )
         .child(div().w(px(1.)).h_full().bg(colors.border))
+        .into_any_element()
 }
 
-fn horizontal_splitter(colors: &StudioColors) -> Stateful<Div> {
+fn horizontal_splitter(colors: &StudioColors, cx: &mut Context<InspectorWorkspace>) -> AnyElement {
     div()
-        .id("inspector-horizontal-splitter")
+        .id("inspector-splitter-findings")
         .h(px(SPLITTER))
         .cursor(CursorStyle::ResizeUpDown)
         .w_full()
@@ -919,7 +1616,14 @@ fn horizontal_splitter(colors: &StudioColors) -> Stateful<Div> {
         .flex()
         .items_center()
         .justify_center()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                this.begin_pane_drag(PaneDragKind::Findings, event, window, cx);
+            }),
+        )
         .child(div().w_full().h(px(1.)).bg(colors.border))
+        .into_any_element()
 }
 
 fn header_divider(colors: &StudioColors) -> Div {
@@ -948,13 +1652,13 @@ fn panel_header(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .font_weight(FontWeight::BOLD)
                 .text_color(colors.secondary_text)
-                .child(language.text(title)),
+                .child(crate::studio::selectable(language.text(title))),
         )
         .child(
             div()
                 .text_size(px(studio::FONT_SUPPORTING - 1.0))
                 .text_color(colors.muted_text)
-                .child(language.text(label)),
+                .child(crate::studio::selectable(language.text(label))),
         )
         .child(div().flex_1())
         .child(trailing)
@@ -995,7 +1699,7 @@ fn toolbar_button(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(label),
+                .child(crate::studio::selectable(label)),
         )
 }
 
@@ -1033,6 +1737,258 @@ fn toolbar_icon_button(
         .tooltip(tooltip)
 }
 
+/// Compose `DropdownSelector`: accent outline, accent label, and a trailing
+/// expand chevron over the section surface.
+fn capture_target_control(
+    language: Language,
+    colors: &StudioColors,
+    current: CaptureTargetMode,
+    cx: &mut Context<InspectorWorkspace>,
+) -> AnyElement {
+    let prefix = language.text(TextKey::InspectorCaptureTarget);
+    let label = format!("{prefix}: {}", current.label(language));
+    let entity = cx.entity().downgrade();
+    Button::new("inspector-capture-target")
+        .ghost()
+        .h(px(TOOLBAR_BUTTON_HEIGHT))
+        .px(px(8.))
+        .flex_shrink_0()
+        .rounded(px(TOOLBAR_BUTTON_RADIUS))
+        .bg(colors.section_background)
+        .border_1()
+        .border_color(colors.accent)
+        .text_color(colors.accent)
+        .accessibility_label(label.clone())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .text_size(px(studio::FONT_SUPPORTING))
+                .whitespace_nowrap()
+                .child(crate::studio::selectable(label))
+                .child(IconName::ChevronDown),
+        )
+        .dropdown_menu(move |menu, _, _| {
+            let mut menu = menu.min_w(px(160.));
+            for mode in CaptureTargetMode::ALL {
+                let entity = entity.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(mode.label(language))
+                        .checked(mode == current)
+                        .on_click(move |_, _, cx| {
+                            entity
+                                .update(cx, |this, cx| this.set_capture_target(mode, cx))
+                                .ok();
+                        }),
+                );
+            }
+            menu
+        })
+        .into_any_element()
+}
+
+/// Compose `SegmentedSelector(SegmentedSelectorStyle.COMPACT_OUTLINED)` for
+/// Refresh / Auto scan. Live capture is not connected, so both segments stay
+/// disabled while keeping the Compose outline and selected fill.
+/// Compose `ComposeAgentToggle`: 22 dp checkbox + label. Offline archives
+/// cannot inject an agent, so it is enabled when the archive already contains a
+/// Compose inspection sidecar and reveals the Compose category/summary.
+fn compose_agent_control(
+    language: Language,
+    colors: &StudioColors,
+    available: bool,
+    checked: bool,
+    cx: &mut Context<InspectorWorkspace>,
+) -> AnyElement {
+    let enabled = checked || available;
+    let border = if checked {
+        colors.accent
+    } else if enabled {
+        colors.secondary_text
+    } else {
+        colors.muted_text.alpha(0.45)
+    };
+    let mut control = div()
+        .id("inspector-compose-agent")
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(4.))
+        .child(
+            div()
+                .size(px(18.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(2.))
+                .border_1()
+                .border_color(border)
+                .bg(if checked {
+                    colors.accent
+                } else {
+                    rgba(0x00000000)
+                })
+                .text_size(px(12.))
+                .font_weight(FontWeight::BOLD)
+                .text_color(colors.accent_text)
+                .child(if checked { "✓" } else { "" }),
+        )
+        .child(
+            div()
+                .text_size(px(studio::FONT_SUPPORTING))
+                .text_color(if enabled {
+                    colors.text
+                } else {
+                    colors.muted_text
+                })
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorComposeAgent),
+                )),
+        );
+    if enabled {
+        control = control
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.compose_agent = !this.compose_agent;
+                if this.compose_agent && this.selected_is_compose() {
+                    this.details_tab = DetailsTab::Compose;
+                }
+                cx.notify();
+            }));
+    }
+    control.into_any_element()
+}
+
+/// Compose `SegmentedSelector(SegmentedSelectorStyle.COMPACT_OUTLINED)` track:
+/// 24 dp high, 4 dp radius, 1 px accent outline and accent hairlines between
+/// items. Shared by the header scan control and the properties category tabs.
+fn segmented_track(id: impl Into<ElementId>, colors: &StudioColors) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .h(px(TOOLBAR_BUTTON_HEIGHT))
+        .flex()
+        .items_center()
+        .rounded(px(TOOLBAR_BUTTON_RADIUS))
+        .border_1()
+        .border_color(colors.accent)
+        .overflow_hidden()
+}
+
+fn segmented_divider(colors: &StudioColors) -> Div {
+    div().w(px(1.)).h_full().flex_shrink_0().bg(colors.accent)
+}
+
+fn segmented_item(
+    id: impl Into<ElementId>,
+    label: &'static str,
+    selected: bool,
+    enabled: bool,
+    colors: &StudioColors,
+) -> Button {
+    let content = if selected {
+        colors.accent_text
+    } else {
+        colors.accent
+    };
+    Button::new(id)
+        .ghost()
+        .h_full()
+        .px(px(8.))
+        .rounded_none()
+        .bg(if selected {
+            colors.accent
+        } else {
+            rgba(0x00000000)
+        })
+        .text_color(if enabled {
+            content
+        } else {
+            content.alpha(0.48)
+        })
+        .disabled(!enabled)
+        .accessibility_label(label)
+        .child(
+            div()
+                .text_size(px(studio::FONT_SUPPORTING))
+                .whitespace_nowrap()
+                .child(crate::studio::selectable(label)),
+        )
+}
+
+fn scan_mode_control(language: Language, colors: &StudioColors) -> AnyElement {
+    let entries = [
+        (TextKey::InspectorRefresh, true),
+        (TextKey::InspectorAutoScan, false),
+    ];
+    let mut track = segmented_track("inspector-scan-mode", colors);
+    for (index, (key, selected)) in entries.into_iter().enumerate() {
+        if index > 0 {
+            track = track.child(segmented_divider(colors));
+        }
+        track = track.child(
+            segmented_item(
+                ("inspector-scan-mode", index),
+                language.text(key),
+                selected,
+                false,
+                colors,
+            )
+            .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
+        );
+    }
+    track.into_any_element()
+}
+
+/// Compose `PanelToggleButton`: 26 x 21, accent-tinted when the pane is
+/// visible, no outline.
+/// Compose canvas-header chip: bold accent label on a translucent accent
+/// surface (18%/8% for the app-only on/off states, 14% for hit order).
+fn canvas_chip(
+    id: impl Into<ElementId>,
+    label: &'static str,
+    tint: f32,
+    colors: &StudioColors,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_shrink_0()
+        .rounded(px(4.))
+        .bg(colors.accent.alpha(tint))
+        .px(px(8.))
+        .py(px(4.))
+        .cursor_pointer()
+        .text_size(px(studio::FONT_SUPPORTING))
+        .font_weight(FontWeight::BOLD)
+        .text_color(colors.accent)
+        .whitespace_nowrap()
+        .child(crate::studio::selectable(label))
+}
+
+fn panel_toggle_button(
+    id: impl Into<ElementId>,
+    icon: IconName,
+    tooltip: impl Into<SharedString>,
+    visible: bool,
+    colors: &StudioColors,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .h(px(21.))
+        .w(px(26.))
+        .rounded(px(3.))
+        .bg(if visible {
+            colors.accent.alpha(0.18)
+        } else {
+            rgba(0x00000000)
+        })
+        .text_color(colors.accent)
+        .icon(icon)
+        .tooltip(tooltip)
+}
+
 fn status_value(
     label: &'static str,
     value: impl Into<SharedString>,
@@ -1045,13 +2001,13 @@ fn status_value(
             .text_size(px(studio::FONT_SUPPORTING))
             .text_color(colors.text)
             .whitespace_nowrap()
-            .child(value)
+            .child(crate::studio::selectable(value))
     } else {
         div()
             .text_size(px(studio::FONT_SUPPORTING))
             .text_color(colors.text)
             .whitespace_nowrap()
-            .child(value)
+            .child(crate::studio::selectable(value))
     };
     div()
         .flex()
@@ -1062,7 +2018,7 @@ fn status_value(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.muted_text)
                 .whitespace_nowrap()
-                .child(label),
+                .child(crate::studio::selectable(label)),
         )
         .child(value_div)
 }
@@ -1156,6 +2112,7 @@ fn hierarchy_pane(
     colors: &StudioColors,
     archive: Option<Arc<InspectorArchive>>,
     window_index: usize,
+    width: f32,
     rows: &[usize],
     hidden: &BTreeSet<String>,
     selected: &Option<String>,
@@ -1163,6 +2120,7 @@ fn hierarchy_pane(
     preferences: LayoutPreferences,
     entity: Entity<InspectorWorkspace>,
     search: Entity<InputState>,
+    scroll: UniformListScrollHandle,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     let count = rows.len();
@@ -1176,6 +2134,8 @@ fn hierarchy_pane(
             .and_then(|archive| archive.windows.get(window_index))
             .map_or_else(Vec::new, |window| window.nodes.clone()),
     );
+    // Preorder per-depth numbers, matching Compose's TreeRowModel.number.
+    let numbers: Arc<Vec<String>> = Arc::new(hierarchy_numbers(&nodes));
 
     let header = panel_header(
         language,
@@ -1184,7 +2144,7 @@ fn hierarchy_pane(
         div()
             .text_size(px(studio::FONT_SUPPORTING))
             .text_color(colors.muted_text)
-            .child(count.to_string()),
+            .child(crate::studio::selectable(count.to_string())),
         colors,
     );
 
@@ -1218,55 +2178,93 @@ fn hierarchy_pane(
                 .p(px(12.))
                 .text_color(colors.muted_text)
                 .text_size(px(studio::FONT_SUPPORTING))
-                .child(language.text(TextKey::InspectorNoHierarchy)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorNoHierarchy),
+                )),
         );
     } else {
+        // Compose puts the hierarchy list in one horizontal scroller and sizes
+        // rows to the longest label, so deep trees pan sideways.
+        let content_width = hierarchy_content_width(&nodes, preferences).max(width);
         let list_entity = entity.clone();
         let list_nodes = nodes.clone();
+        let list_numbers = numbers.clone();
         let list_rows = row_indices.clone();
         let list_hidden = hidden_set.clone();
         let list_collapsed = collapsed_set.clone();
         let list_selected = selected_id.clone();
         let list_colors = *colors;
+        let list = uniform_list(
+            "inspector-hierarchy-rows",
+            rows.len(),
+            move |range, _, cx| {
+                let mut items = Vec::with_capacity(range.len());
+                for row_index in range {
+                    let Some(global_index) = list_rows.get(row_index).copied() else {
+                        continue;
+                    };
+                    let Some(node) = list_nodes.get(global_index) else {
+                        continue;
+                    };
+                    let number = list_numbers
+                        .get(global_index)
+                        .map(String::as_str)
+                        .unwrap_or("");
+                    items.push(hierarchy_row(
+                        row_index,
+                        global_index,
+                        number,
+                        content_width,
+                        node,
+                        &list_nodes,
+                        &list_colors,
+                        &list_hidden,
+                        &list_collapsed,
+                        &list_selected,
+                        preferences,
+                        &list_entity,
+                        language,
+                        cx,
+                    ));
+                }
+                items
+            },
+        )
+        .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
+        .h_full()
+        .w_full()
+        .track_scroll(&scroll);
         body = body.child(
-            uniform_list(
-                "inspector-hierarchy-rows",
-                rows.len(),
-                move |range, _, cx| {
-                    let mut items = Vec::with_capacity(range.len());
-                    for row_index in range {
-                        let Some(global_index) = list_rows.get(row_index).copied() else {
-                            continue;
-                        };
-                        let Some(node) = list_nodes.get(global_index) else {
-                            continue;
-                        };
-                        items.push(hierarchy_row(
-                            row_index,
-                            global_index,
-                            node,
-                            &list_nodes,
-                            &list_colors,
-                            &list_hidden,
-                            &list_collapsed,
-                            &list_selected,
-                            preferences,
-                            &list_entity,
-                            language,
-                            cx,
-                        ));
-                    }
-                    items
-                },
-            )
-            .h_full()
-            .w_full(),
+            div()
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .child(list)
+                .child(
+                    div().absolute().inset_0().child(
+                        Scrollbar::new(&scroll)
+                            .id("inspector-hierarchy-scrollbar-vertical")
+                            .axis(ScrollbarAxis::Vertical)
+                            .mode(ScrollbarMode::Always)
+                            .viewport_from_layout(),
+                    ),
+                )
+                .child(
+                    div().absolute().inset_0().child(
+                        Scrollbar::new(&scroll)
+                            .id("inspector-hierarchy-scrollbar-horizontal")
+                            .axis(ScrollbarAxis::Horizontal)
+                            .mode(ScrollbarMode::Always)
+                            .viewport_from_layout(),
+                    ),
+                ),
         );
     }
 
     let mut pane = div()
         .id("inspector-hierarchy-pane")
-        .w(px(HIERARCHY_WIDTH))
+        .w(px(width))
         .h_full()
         .flex_shrink_0()
         .flex()
@@ -1284,6 +2282,8 @@ fn hierarchy_pane(
 fn hierarchy_row(
     row_index: usize,
     global_index: usize,
+    number: &str,
+    content_width: f32,
     node: &LayoutNode,
     nodes: &[LayoutNode],
     colors: &StudioColors,
@@ -1334,7 +2334,7 @@ fn hierarchy_row(
     let mut row = div()
         .id(("inspector-hierarchy-row", row_index))
         .h(px(HIERARCHY_ROW_HEIGHT))
-        .w_full()
+        .w(px(content_width))
         .flex()
         .items_center()
         .bg(background)
@@ -1379,7 +2379,7 @@ fn hierarchy_row(
         );
         row = row.child(div().w(px(4.)));
     }
-    let label = hierarchy_label(node, global_index, preferences);
+    let label = hierarchy_label(node, number, preferences);
     row = row
         .child(
             div()
@@ -1388,8 +2388,7 @@ fn hierarchy_row(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(text_color)
                 .whitespace_nowrap()
-                .text_ellipsis()
-                .child(label),
+                .child(crate::studio::selectable(label)),
         )
         .on_click(move |_, _, cx| {
             let id = click_id.clone();
@@ -1406,11 +2405,22 @@ fn hierarchy_row(
                 .text_size(px(studio::FONT_SUPPORTING - 1.0))
                 .text_color(colors.muted_text)
                 .whitespace_nowrap()
-                .child(language.text(TextKey::InspectorHiddenInherited)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorHiddenInherited),
+                )),
         );
     }
     let _ = cx;
     row.into_any_element()
+}
+
+/// Decodes the integrity-checked archive PNG into a GPUI render image once per
+/// published frame. Decode failures stay layout-only rather than showing a
+/// placeholder pixel buffer.
+fn decode_screenshot(bytes: &[u8], cx: &mut App) -> Option<Arc<RenderImage>> {
+    Image::from_bytes(ImageFormat::Png, bytes.to_vec())
+        .to_image_data(cx.svg_renderer())
+        .ok()
 }
 
 fn preview_surface_color(dark: bool) -> Rgba {
@@ -1437,10 +2447,21 @@ impl InspectorWorkspace {
             .as_ref()
             .and_then(|archive| archive.windows.get(self.window));
         let hidden_count = hidden.len();
-        let dimensions = display.map_or_else(
+        let source = display.map(|display| preview_source(display, window, self.app_only));
+        let dimensions = source.map_or_else(
             || language.text(TextKey::InspectorNoSnapshot).to_owned(),
-            |display| format!("{} x {}", display.width_px, display.height_px),
+            |source| format!("{} × {}", source.width, source.height),
         );
+        let app_only_label = if self.app_only {
+            TextKey::InspectorAppOnlyOn
+        } else {
+            TextKey::InspectorAppOnlyOff
+        };
+        let hit_order_label = if self.preferences.hit_smallest {
+            TextKey::InspectorSmallAreaHits
+        } else {
+            TextKey::InspectorZOrderHits
+        };
         let mut trailing = div().flex().items_center().gap(px(6.)).child(
             div()
                 .text_size(px(studio::FONT_SUPPORTING))
@@ -1457,22 +2478,49 @@ impl InspectorWorkspace {
             )
             .on_click(cx.listener(|this, _, _, cx| this.zoom_reset(cx))),
         );
-        trailing = trailing.child(
-            toolbar_icon_button(
-                "inspector-show-bounds",
-                IconName::Frame,
-                language.text(TextKey::InspectorShowBounds),
-                self.show_bounds,
-                display.is_some(),
-                colors,
+        // Compose canvas header order: dimensions, Fit, app-only mode, hit order.
+        trailing = trailing
+            .child(
+                canvas_chip(
+                    "inspector-app-only",
+                    language.text(app_only_label),
+                    if self.app_only { 0.18 } else { 0.08 },
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.app_only = !this.app_only;
+                    cx.notify();
+                })),
             )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.show_bounds = !this.show_bounds;
-                this.preferences.show_visible_bounds = this.show_bounds;
-                cx.emit(InspectorPreferencesChanged(this.preferences));
-                cx.notify();
-            })),
-        );
+            .child(
+                canvas_chip(
+                    "inspector-hit-order",
+                    language.text(hit_order_label),
+                    0.14,
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.preferences.hit_smallest = !this.preferences.hit_smallest;
+                    cx.emit(InspectorPreferencesChanged(this.preferences));
+                    cx.notify();
+                })),
+            )
+            .child(
+                toolbar_icon_button(
+                    "inspector-show-bounds",
+                    IconName::Frame,
+                    language.text(TextKey::InspectorShowBounds),
+                    self.show_bounds,
+                    display.is_some(),
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.show_bounds = !this.show_bounds;
+                    this.preferences.show_visible_bounds = this.show_bounds;
+                    cx.emit(InspectorPreferencesChanged(this.preferences));
+                    cx.notify();
+                })),
+            );
         if hidden_count > 0 {
             trailing = trailing.child(
                 div()
@@ -1502,69 +2550,34 @@ impl InspectorWorkspace {
             .overflow_hidden()
             .flex()
             .flex_col();
-        if let (Some(display), Some(window)) = (display, window) {
-            let (nodes, eligible) = canvas_nodes(
+        if let (Some(display), Some(window), Some(source)) = (display, window, source) {
+            let (nodes, _eligible) = canvas_nodes(
                 &window.nodes,
                 hidden,
                 selected.as_deref(),
                 display.width_px,
                 display.height_px,
             );
-            body = body.child(self.geometry_canvas(
-                nodes,
-                display.width_px,
-                display.height_px,
-                dark,
-                colors,
-                cx,
-            ));
+            // Compose draws the zoom overlay at the bottom-right of the canvas
+            // viewport instead of a fixed row below it.
             body = body.child(
                 div()
-                    .h(px(28.))
-                    .flex_shrink_0()
+                    .flex_1()
+                    .min_h_0()
                     .w_full()
                     .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(8.))
-                    .text_size(px(studio::FONT_SUPPORTING))
-                    .text_color(colors.muted_text)
-                    .child(
-                        toolbar_icon_button(
-                            "inspector-zoom-out",
-                            IconName::Minus,
-                            language.text(TextKey::InspectorZoomOut),
-                            false,
-                            true,
-                            colors,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.zoom_by(-0.1, cx))),
-                    )
-                    .child(
-                        div()
-                            .min_w(px(44.))
-                            .flex()
-                            .justify_center()
-                            .child(format!("{}%", (self.zoom * 100.0).round() as i32)),
-                    )
-                    .child(
-                        toolbar_icon_button(
-                            "inspector-zoom-in",
-                            IconName::Plus,
-                            language.text(TextKey::InspectorZoomIn),
-                            false,
-                            true,
-                            colors,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.zoom_by(0.1, cx))),
-                    )
-                    .child(div().text_color(colors.muted_text).child(
-                        if eligible > MAX_CANVAS_NODES {
-                            format!("{MAX_CANVAS_NODES} / {eligible}")
-                        } else {
-                            language.text(TextKey::InspectorGeometry).to_owned()
-                        },
-                    )),
+                    .flex_col()
+                    .child(self.geometry_canvas(
+                        nodes,
+                        source,
+                        display.width_px,
+                        display.height_px,
+                        self.screenshot_image.clone(),
+                        dark,
+                        colors,
+                        cx,
+                    ))
+                    .child(self.zoom_controls(language, colors, cx)),
             );
         } else {
             body = body
@@ -1576,7 +2589,9 @@ impl InspectorWorkspace {
                         .items_center()
                         .justify_center()
                         .text_color(colors.muted_text)
-                        .child(language.text(TextKey::InspectorNoLayoutSnapshot)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::InspectorNoLayoutSnapshot),
+                        )),
                 )
                 .child(
                     div()
@@ -1588,7 +2603,9 @@ impl InspectorWorkspace {
                         .justify_center()
                         .text_size(px(studio::FONT_SUPPORTING))
                         .text_color(colors.muted_text)
-                        .child(language.text(TextKey::InspectorNoMedia)),
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::InspectorNoMedia),
+                        )),
                 );
         }
 
@@ -1609,18 +2626,27 @@ impl InspectorWorkspace {
     fn geometry_canvas(
         &self,
         nodes: Vec<(usize, LayoutNode)>,
+        source: PreviewSource,
         display_width: u32,
         display_height: u32,
+        screenshot: Option<Arc<RenderImage>>,
         dark: bool,
         colors: &StudioColors,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let origin = Arc::new(Mutex::new(None::<(Point<Pixels>, f32)>));
-        let paint_origin = origin.clone();
+        let metrics = self.preview_metrics.clone();
+        let down_metrics = metrics.clone();
+        let move_metrics = metrics.clone();
+        let up_metrics = metrics.clone();
+        let pan_state = self.preview_pan;
         let hit_nodes = nodes.clone();
         let hover_nodes = nodes.clone();
-        let hover_origin = origin.clone();
         let hit_smallest = self.preferences.hit_smallest;
+        // Compose maps pointer coordinates back into display space, then crops
+        // the frame with a 12 dp / 2 dp radius for app-only on / off.
+        let source_left = source.left as f32;
+        let source_top = source.top as f32;
+        let corner_radius = if self.app_only { 12.0 } else { 2.0 };
         let hovered = self.hovered.clone();
         let zoom = self.zoom;
         let selected = self.selected.clone();
@@ -1630,6 +2656,8 @@ impl InspectorWorkspace {
         let selected_color = rgba(self.preferences.selected_color.rotate_left(8));
         let surface = preview_surface_color(dark);
         let frame_border = colors.strong_border;
+        let bar_track = colors.muted_text.alpha(0.14);
+        let bar_thumb = colors.muted_text.alpha(0.55);
         div()
             .id("layout-canvas")
             .flex_1()
@@ -1640,110 +2668,214 @@ impl InspectorWorkspace {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                    let Ok(origin) = origin.lock() else {
+                    let Ok(Some(metrics)) = down_metrics.lock().map(|metrics| *metrics) else {
                         return;
                     };
-                    let Some((origin, scale)) = *origin else {
-                        return;
-                    };
-                    if scale <= 0.0 {
+                    let viewport = metrics.viewport;
+                    let x = f32::from(event.position.x - viewport.origin.x);
+                    let y = f32::from(event.position.y - viewport.origin.y);
+                    let vw = f32::from(viewport.size.width);
+                    let vh = f32::from(viewport.size.height);
+                    if y >= vh - 7.0 && x >= 4.0 && x <= vw - 10.0 {
+                        this.preview_bar_drag = Some(true);
+                        this.preview_pan_at_bar(
+                            true,
+                            f32::from(event.position.x),
+                            f32::from(event.position.y),
+                        );
+                        cx.notify();
                         return;
                     }
-                    let x = f32::from(event.position.x - origin.x) / scale;
-                    let y = f32::from(event.position.y - origin.y) / scale;
-                    let hit = canvas_hit(&hit_nodes, x, y, hit_smallest);
-                    this.selected = hit;
-                    cx.notify();
+                    if x >= vw - 7.0 && y >= 4.0 && y <= vh - 10.0 {
+                        this.preview_bar_drag = Some(false);
+                        this.preview_pan_at_bar(
+                            false,
+                            f32::from(event.position.x),
+                            f32::from(event.position.y),
+                        );
+                        cx.notify();
+                        return;
+                    }
+                    this.preview_drag = Some(PreviewDrag {
+                        start_x: f32::from(event.position.x),
+                        start_y: f32::from(event.position.y),
+                        start_pan: this.preview_pan,
+                        moved: false,
+                    });
                 }),
             )
             .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _, cx| {
-                let Ok(origin) = hover_origin.lock() else {
+                let Ok(Some(metrics)) = move_metrics.lock().map(|metrics| *metrics) else {
                     return;
                 };
-                let Some((origin, scale)) = *origin else {
-                    return;
-                };
-                if scale <= 0.0 {
+                if metrics.scale <= 0.0 {
                     return;
                 }
-                let x = f32::from(event.position.x - origin.x) / scale;
-                let y = f32::from(event.position.y - origin.y) / scale;
+                let x =
+                    f32::from(event.position.x - metrics.origin.x) / metrics.scale + source_left;
+                let y = f32::from(event.position.y - metrics.origin.y) / metrics.scale + source_top;
                 let hit = canvas_hit(&hover_nodes, x, y, hit_smallest);
                 if this.hovered != hit {
                     this.hovered = hit;
                     cx.notify();
                 }
             }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseUpEvent, _, cx| {
+                    if this.preview_bar_drag.take().is_some() {
+                        cx.notify();
+                        return;
+                    }
+                    let Some(drag) = this.preview_drag.take() else {
+                        return;
+                    };
+                    if drag.moved {
+                        return;
+                    }
+                    let Ok(Some(metrics)) = up_metrics.lock().map(|metrics| *metrics) else {
+                        return;
+                    };
+                    if metrics.scale <= 0.0 {
+                        return;
+                    }
+                    let x = f32::from(event.position.x - metrics.origin.x) / metrics.scale
+                        + source_left;
+                    let y =
+                        f32::from(event.position.y - metrics.origin.y) / metrics.scale + source_top;
+                    this.selected = canvas_hit(&hit_nodes, x, y, hit_smallest);
+                    cx.notify();
+                }),
+            )
             .on_mouse_exit(cx.listener(|this, _, _, cx| {
                 if this.hovered.take().is_some() {
                     cx.notify();
                 }
             }))
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                this.preview_scroll(event, cx);
+            }))
             .child(
                 canvas(
                     move |bounds, _, _| {
-                        let (width, height, base_scale) = canvas_dimensions(
-                            display_width,
-                            display_height,
-                            f32::from(bounds.size.width) - 56.0,
-                            f32::from(bounds.size.height) - 56.0,
-                        );
+                        let vw = f32::from(bounds.size.width);
+                        let vh = f32::from(bounds.size.height);
+                        let (width, height, base_scale) =
+                            canvas_dimensions(source.width, source.height, vw - 56.0, vh - 56.0);
+                        let content_w = width * zoom;
+                        let content_h = height * zoom;
                         let scale = base_scale * zoom;
-                        let width = width * zoom;
-                        let height = height * zoom;
-                        let canvas_origin = point(
-                            bounds.origin.x + (bounds.size.width - px(width)) / 2.0,
-                            bounds.origin.y + (bounds.size.height - px(height)) / 2.0,
+                        let pan = preview_clamp_pan(pan_state, content_w, content_h, vw, vh);
+                        let origin = point(
+                            bounds.origin.x + (bounds.size.width - px(content_w)) / 2.0 + px(pan.0),
+                            bounds.origin.y
+                                + (bounds.size.height - px(content_h)) / 2.0
+                                + px(pan.1),
                         );
-                        if let Ok(mut origin) = paint_origin.lock() {
-                            *origin = Some((canvas_origin, scale));
+                        if let Ok(mut metrics) = metrics.lock() {
+                            *metrics = Some(PreviewMetrics {
+                                viewport: bounds,
+                                source,
+                                base_scale,
+                                origin,
+                                scale,
+                                pan,
+                                content_w,
+                                content_h,
+                                zoom,
+                            });
                         }
-                        (canvas_origin, width, height, scale)
+                        CanvasFrame {
+                            origin,
+                            width: content_w,
+                            height: content_h,
+                            scale,
+                            pan,
+                            viewport: bounds,
+                        }
                     },
-                    move |_, (origin, width, height, scale), window, _| {
+                    move |_, frame, window, _| {
+                        let CanvasFrame {
+                            origin,
+                            width,
+                            height,
+                            scale,
+                            pan,
+                            viewport,
+                        } = frame;
                         window.paint_quad(quad(
                             Bounds {
                                 origin,
                                 size: size(px(width), px(height)),
                             },
-                            px(0.),
+                            px(corner_radius),
                             surface,
                             px(1.),
                             frame_border,
                             Default::default(),
                         ));
-                        if !show_bounds {
-                            return;
+                        if let Some(image) = screenshot.as_ref() {
+                            let image_origin = point(
+                                origin.x - px(source_left * scale),
+                                origin.y - px(source_top * scale),
+                            );
+                            let image_size = size(
+                                px(display_width as f32 * scale),
+                                px(display_height as f32 * scale),
+                            );
+                            window
+                                .paint_image(
+                                    Bounds {
+                                        origin,
+                                        size: size(px(width), px(height)),
+                                    },
+                                    Bounds {
+                                        origin: image_origin,
+                                        size: image_size,
+                                    },
+                                    Corners::all(px(corner_radius)),
+                                    image.clone(),
+                                    0,
+                                    false,
+                                )
+                                .ok();
                         }
-                        for (_, node) in &nodes {
-                            let b = node.bounds;
-                            let active = selected.as_ref() == Some(&node.id);
-                            let color = if active {
-                                selected_color
-                            } else if hovered.as_ref() == Some(&node.id) {
-                                hover_color
-                            } else {
-                                normal
-                            };
-                            let left = (b.left as f32 * scale).max(0.0);
-                            let top = (b.top as f32 * scale).max(0.0);
-                            let right = (b.right as f32 * scale).min(width);
-                            let bottom = (b.bottom as f32 * scale).min(height);
-                            if right <= left || bottom <= top {
-                                continue;
+                        if show_bounds {
+                            for (_, node) in &nodes {
+                                let b = node.bounds;
+                                let active = selected.as_ref() == Some(&node.id);
+                                let color = if active {
+                                    selected_color
+                                } else if hovered.as_ref() == Some(&node.id) {
+                                    hover_color
+                                } else {
+                                    normal
+                                };
+                                let left = ((b.left as f32 - source_left) * scale).max(0.0);
+                                let top = ((b.top as f32 - source_top) * scale).max(0.0);
+                                let right = ((b.right as f32 - source_left) * scale).min(width);
+                                let bottom = ((b.bottom as f32 - source_top) * scale).min(height);
+                                if right <= left || bottom <= top {
+                                    continue;
+                                }
+                                window.paint_quad(quad(
+                                    Bounds {
+                                        origin: point(origin.x + px(left), origin.y + px(top)),
+                                        size: size(px(right - left), px(bottom - top)),
+                                    },
+                                    px(0.),
+                                    transparent_black(),
+                                    px(if active { 2.0 } else { 1.0 }),
+                                    color,
+                                    Default::default(),
+                                ));
                             }
-                            window.paint_quad(quad(
-                                Bounds {
-                                    origin: point(origin.x + px(left), origin.y + px(top)),
-                                    size: size(px(right - left), px(bottom - top)),
-                                },
-                                px(0.),
-                                transparent_black(),
-                                px(if active { 2.0 } else { 1.0 }),
-                                color,
-                                Default::default(),
-                            ));
                         }
+                        let vw = f32::from(viewport.size.width);
+                        let vh = f32::from(viewport.size.height);
+                        paint_preview_scrollbars(
+                            window, viewport, vw, vh, width, height, pan, bar_track, bar_thumb,
+                        );
                     },
                 )
                 .size_full(),
@@ -1752,90 +2884,956 @@ impl InspectorWorkspace {
     }
 }
 
-fn details_tab_button(
-    id: impl Into<ElementId>,
-    label: &'static str,
-    selected: bool,
-    colors: &StudioColors,
-) -> Button {
-    Button::new(id)
-        .ghost()
-        .h(px(24.))
-        .flex_1()
-        .rounded(px(4.))
-        .bg(if selected {
-            colors.accent.alpha(0.18)
-        } else {
-            colors.panel
-        })
-        .border_1()
-        .border_color(if selected {
-            colors.accent
-        } else {
-            colors.border
-        })
-        .text_color(if selected {
-            colors.accent
-        } else {
-            colors.secondary_text
-        })
-        .selected(selected)
-        .child(
-            div()
-                .text_size(px(studio::FONT_SUPPORTING))
-                .whitespace_nowrap()
-                .child(label),
-        )
-}
-
 fn section_header(language: Language, title: TextKey, colors: &StudioColors) -> Div {
     div()
-        .h(px(24.))
+        .h(px(29.))
         .w_full()
         .flex_shrink_0()
         .flex()
         .items_center()
-        .px(px(8.))
+        .px(px(12.))
+        .border_b_1()
+        .border_color(colors.border)
         .text_size(px(studio::FONT_SUPPORTING))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(FontWeight::BOLD)
         .text_color(colors.secondary_text)
-        .child(language.text(title))
+        .child(crate::studio::selectable(language.text(title)))
+}
+
+fn risk_section_header(language: Language, title: TextKey, colors: &StudioColors) -> Div {
+    section_header(language, title, colors).text_color(colors.warning)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DetailTone {
+    Normal,
+    Info,
+    Warning,
+}
+
+struct DetailRow {
+    label: String,
+    value: String,
+    tone: DetailTone,
+}
+
+impl DetailRow {
+    fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            value: value.into(),
+            tone: DetailTone::Normal,
+        }
+    }
+
+    fn toned(label: impl Into<String>, value: impl Into<String>, tone: DetailTone) -> Self {
+        Self {
+            label: label.into(),
+            value: value.into(),
+            tone,
+        }
+    }
+}
+
+struct DetailSection {
+    title: TextKey,
+    rows: Vec<DetailRow>,
+}
+
+impl DetailSection {
+    fn new(title: TextKey, rows: Vec<DetailRow>) -> Self {
+        Self { title, rows }
+    }
+}
+
+fn blend_tint(base: Rgba, tint: Rgba, amount: f32) -> Rgba {
+    Rgba {
+        r: base.r + (tint.r - base.r) * amount,
+        g: base.g + (tint.g - base.g) * amount,
+        b: base.b + (tint.b - base.b) * amount,
+        a: base.a,
+    }
 }
 
 fn detail_row(
-    label: impl Into<SharedString>,
-    value: impl Into<SharedString>,
+    language: Language,
+    title: TextKey,
+    row: &DetailRow,
+    index: usize,
     colors: &StudioColors,
-) -> Div {
-    let label: SharedString = label.into();
-    let value: SharedString = value.into();
+) -> AnyElement {
+    let color = match row.tone {
+        DetailTone::Normal => colors.text,
+        DetailTone::Info => colors.info,
+        DetailTone::Warning => colors.warning,
+    };
+    // Compose DetailRowStripe: even rows use detailRowDeep, odd rows
+    // detailRowLight; tone rows layer a 6% tone tint over the stripe.
+    let stripe = if index % 2 == 0 {
+        colors.detail_row_deep
+    } else {
+        colors.detail_row_light
+    };
+    let background = if row.tone == DetailTone::Normal {
+        stripe
+    } else {
+        blend_tint(stripe, color, 0.06)
+    };
+    let value = row.value.clone();
+    let copy_label = language.text(TextKey::InspectorCopyValue).to_owned();
     div()
-        .h(px(22.))
+        .id(ElementId::Name(
+            format!("inspector-detail-row-{title:?}-{index}").into(),
+        ))
         .w_full()
         .flex()
-        .items_center()
+        .items_start()
         .gap(px(8.))
-        .px(px(8.))
+        .px(px(12.))
+        .py(px(4.))
+        .bg(background)
+        .context_menu(move |menu, _, _| {
+            let value = value.clone();
+            menu.item(
+                PopupMenuItem::new(copy_label.clone()).on_click(move |_, window, cx| {
+                    let selected = TextSelection::selected_text(window, cx);
+                    let text = if selected.is_empty() {
+                        value.clone()
+                    } else {
+                        selected
+                    };
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }),
+            )
+        })
         .child(
             div()
                 .w(px(DETAIL_LABEL_WIDTH))
                 .flex_shrink_0()
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.muted_text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(label),
+                .child(row.label.clone()),
         )
         .child(
             div()
                 .flex_1()
                 .min_w_0()
+                .font_family("monospace")
                 .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(colors.text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(value),
+                .text_color(color)
+                .child(crate::studio::selectable(row.value.clone())),
         )
+        .into_any_element()
+}
+
+fn detail_section(
+    language: Language,
+    colors: &StudioColors,
+    section: &DetailSection,
+    risk: bool,
+) -> Div {
+    let header = if risk {
+        risk_section_header(language, section.title, colors)
+    } else {
+        section_header(language, section.title, colors)
+    };
+    let mut container = div()
+        .w_full()
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .child(header);
+    for (index, row) in section.rows.iter().enumerate() {
+        container = container.child(detail_row(language, section.title, row, index, colors));
+    }
+    container
+}
+
+/// Kotlin \`Float.toString()\` equivalent for the protocol's float properties.
+fn format_f32(value: f32) -> String {
+    format!("{value:?}")
+}
+
+fn format_alpha(value: f64) -> String {
+    format_f32(value as f32)
+}
+
+fn format_bounds(bounds: &LayoutBounds) -> String {
+    format!(
+        "{}, {}, {}, {}",
+        bounds.left, bounds.top, bounds.right, bounds.bottom
+    )
+}
+
+fn format_size(bounds: &LayoutBounds) -> String {
+    format!(
+        "{} × {}",
+        (bounds.right - bounds.left).max(0),
+        (bounds.bottom - bounds.top).max(0)
+    )
+}
+
+fn format_insets(insets: Option<EdgeInsets>) -> String {
+    insets.map_or_else(
+        || "—".to_owned(),
+        |insets| {
+            format!(
+                "{}, {}, {}, {}",
+                insets.left, insets.top, insets.right, insets.bottom
+            )
+        },
+    )
+}
+
+fn format_dimension(value: Option<i32>) -> String {
+    match value {
+        None => "—".to_owned(),
+        Some(-1) => "MATCH_PARENT (-1)".to_owned(),
+        Some(-2) => "WRAP_CONTENT (-2)".to_owned(),
+        Some(value) => value.to_string(),
+    }
+}
+
+fn format_pair_size(first: Option<i32>, second: Option<i32>) -> String {
+    match (first, second) {
+        (Some(first), Some(second)) => format!("{first} × {second}"),
+        _ => "—".to_owned(),
+    }
+}
+
+fn format_optional<T: ToString>(value: Option<T>) -> String {
+    value.map_or_else(|| "—".to_owned(), |value| value.to_string())
+}
+
+fn unavailable(language: Language) -> String {
+    language.text(TextKey::InspectorValueUnavailable).to_owned()
+}
+
+#[derive(Default)]
+struct NodeStats {
+    child_count: usize,
+    descendants: usize,
+    subtree_depth: usize,
+    hidden_descendants: usize,
+}
+
+fn node_stats(nodes: &[LayoutNode], index: usize) -> NodeStats {
+    let Some(node) = nodes.get(index) else {
+        return NodeStats::default();
+    };
+    let mut stats = NodeStats {
+        child_count: nodes
+            .iter()
+            .filter(|candidate| candidate.parent_index == Some(index))
+            .count(),
+        subtree_depth: 1,
+        ..NodeStats::default()
+    };
+    let mut cursor = index + 1;
+    while let Some(candidate) = nodes.get(cursor) {
+        if candidate.depth <= node.depth {
+            break;
+        }
+        stats.descendants += 1;
+        if !candidate.visible || candidate.alpha <= 0.0 {
+            stats.hidden_descendants += 1;
+        }
+        stats.subtree_depth = stats.subtree_depth.max(candidate.depth - node.depth + 1);
+        cursor += 1;
+    }
+    stats
+}
+
+struct OverlapStats {
+    pairs: usize,
+    max_ratio: f32,
+}
+
+fn overlap_ratio(first: &LayoutBounds, second: &LayoutBounds) -> f32 {
+    let width = (first.right.min(second.right) - first.left.max(second.left)).max(0) as i64;
+    let height = (first.bottom.min(second.bottom) - first.top.max(second.top)).max(0) as i64;
+    let first_area =
+        (first.right - first.left).max(0) as i64 * (first.bottom - first.top).max(0) as i64;
+    let second_area =
+        (second.right - second.left).max(0) as i64 * (second.bottom - second.top).max(0) as i64;
+    let smaller = first_area.min(second_area);
+    if smaller == 0 {
+        0.0
+    } else {
+        (width * height) as f32 / smaller as f32
+    }
+}
+
+fn overlap_stats(nodes: &[LayoutNode], index: usize) -> OverlapStats {
+    let children: Vec<&LayoutNode> = nodes
+        .iter()
+        .filter(|candidate| candidate.parent_index == Some(index))
+        .collect();
+    let mut stats = OverlapStats {
+        pairs: 0,
+        max_ratio: 0.0,
+    };
+    for first in 0..children.len() {
+        for second in first + 1..children.len() {
+            let ratio = overlap_ratio(&children[first].bounds, &children[second].bounds);
+            if ratio >= 0.8 {
+                stats.pairs += 1;
+                stats.max_ratio = stats.max_ratio.max(ratio);
+            }
+        }
+    }
+    stats
+}
+
+fn identity_section(language: Language, node: &LayoutNode) -> DetailSection {
+    DetailSection::new(
+        TextKey::InspectorDetailSectionIdentity,
+        vec![
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailClass),
+                node.class_name.clone(),
+            ),
+            DetailRow::new(language.text(TextKey::InspectorDetailId), node.id.clone()),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailResource),
+                format_optional(node.resource_name.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailText),
+                format_optional(node.text.clone()),
+            ),
+        ],
+    )
+}
+
+fn layout_section(language: Language, nodes: &[LayoutNode], index: usize) -> DetailSection {
+    let node = &nodes[index];
+    let stats = node_stats(nodes, index);
+    let attributes = &node.attributes;
+    let visibility = attributes
+        .visibility
+        .clone()
+        .unwrap_or_else(|| node.visible.to_string());
+    DetailSection::new(
+        TextKey::InspectorDetailSectionLayout,
+        vec![
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailBounds),
+                format_bounds(&node.bounds),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailSize),
+                format_size(&node.bounds),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLocalLayoutBounds),
+                attributes
+                    .layout_bounds
+                    .as_ref()
+                    .map_or_else(|| "—".to_owned(), format_bounds),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLocalLayoutSize),
+                attributes
+                    .layout_bounds
+                    .as_ref()
+                    .map_or_else(|| "—".to_owned(), format_size),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailVisibility),
+                visibility,
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailTreeDepth),
+                (node.depth + 1).to_string(),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailDirectChildren),
+                stats.child_count.to_string(),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailDescendants),
+                stats.descendants.to_string(),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailSubtreeDepth),
+                stats.subtree_depth.to_string(),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLayoutWidth),
+                format_dimension(attributes.layout_width),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLayoutHeight),
+                format_dimension(attributes.layout_height),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLayoutParamsClass),
+                format_optional(attributes.layout_params_class.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailMeasuredSize),
+                format_pair_size(attributes.measured_width, attributes.measured_height),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailMinimumSize),
+                format_pair_size(attributes.min_width, attributes.min_height),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailPadding),
+                format_insets(attributes.padding),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailMargin),
+                format_insets(attributes.margin),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailScroll),
+                match (attributes.scroll_x, attributes.scroll_y) {
+                    (Some(x), Some(y)) => format!("{x}, {y}"),
+                    _ => "—".to_owned(),
+                },
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLayoutRequested),
+                format_optional(attributes.layout_requested),
+            ),
+        ],
+    )
+}
+
+fn drawing_section(language: Language, node: &LayoutNode) -> DetailSection {
+    let attributes = &node.attributes;
+    let translation = attributes.translation_x.map(|x| {
+        format!(
+            "{}, {}, {}",
+            format_f32(x),
+            format_f32(attributes.translation_y.unwrap_or(0.0)),
+            format_f32(attributes.translation_z.unwrap_or(0.0))
+        )
+    });
+    let rotation = attributes.rotation.map(|z| {
+        format!(
+            "{}, {}, {}",
+            format_f32(attributes.rotation_x.unwrap_or(0.0)),
+            format_f32(attributes.rotation_y.unwrap_or(0.0)),
+            format_f32(z)
+        )
+    });
+    let scale = attributes.scale_x.map(|x| {
+        format!(
+            "{}, {}",
+            format_f32(x),
+            format_f32(attributes.scale_y.unwrap_or(1.0))
+        )
+    });
+    let pivot = attributes.pivot_x.map(|x| {
+        format!(
+            "{}, {}",
+            format_f32(x),
+            format_f32(attributes.pivot_y.unwrap_or(0.0))
+        )
+    });
+    DetailSection::new(
+        TextKey::InspectorDetailSectionDrawing,
+        vec![
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailAlpha),
+                format_alpha(node.alpha),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailZ),
+                format_optional(attributes.z.map(format_f32)),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailElevation),
+                format_optional(attributes.elevation.map(format_f32)),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailTranslation),
+                format_optional(translation),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailRotation),
+                format_optional(rotation),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailScale),
+                format_optional(scale),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailPivot),
+                format_optional(pivot),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailBackground),
+                format_optional(attributes.background.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailBackgroundColor),
+                format_optional(attributes.background_color.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailForeground),
+                format_optional(attributes.foreground.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailClipBounds),
+                attributes
+                    .clip_bounds
+                    .as_ref()
+                    .map_or_else(|| "—".to_owned(), format_bounds),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailClipChildren),
+                format_optional(attributes.clip_children),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailClipToPadding),
+                format_optional(attributes.clip_to_padding),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailOpaque),
+                format_optional(attributes.opaque),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailWillNotDraw),
+                format_optional(attributes.will_not_draw),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailHardwareAccelerated),
+                format_optional(attributes.hardware_accelerated),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLayerType),
+                format_optional(attributes.layer_type.clone()),
+            ),
+        ],
+    )
+}
+
+fn interaction_section(language: Language, node: &LayoutNode) -> DetailSection {
+    let attributes = &node.attributes;
+    DetailSection::new(
+        TextKey::InspectorDetailSectionInteraction,
+        vec![
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailContentDescription),
+                format_optional(attributes.content_description.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailSemanticsRole),
+                format_optional(node.semantics_role.clone()),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailEnabled),
+                format_optional(attributes.enabled),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailClickable),
+                format_optional(attributes.clickable),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailLongClickable),
+                format_optional(attributes.long_clickable),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailFocusable),
+                format_optional(attributes.focusable),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailFocused),
+                format_optional(attributes.focused),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailSelected),
+                format_optional(attributes.selected),
+            ),
+        ],
+    )
+}
+
+fn risk_section(language: Language, nodes: &[LayoutNode], index: usize) -> DetailSection {
+    let node = &nodes[index];
+    let stats = node_stats(nodes, index);
+    let overlap = overlap_stats(nodes, index);
+    let overdraw = if overlap.pairs == 0 {
+        language
+            .text(TextKey::InspectorNoHighOverlapPairs)
+            .to_owned()
+    } else {
+        language.format(
+            TextKey::InspectorOverlapPairs,
+            &[
+                ("pairs", &overlap.pairs),
+                ("ratio", &((overlap.max_ratio * 100.0).round() as i32)),
+            ],
+        )
+    };
+    let complexity = language.format(
+        TextKey::InspectorSubtreeComplexity,
+        &[
+            ("descendants", &stats.descendants),
+            ("depth", &stats.subtree_depth),
+        ],
+    );
+    let blending = if node.alpha < 1.0 {
+        language.format(
+            TextKey::InspectorBlendingAlpha,
+            &[("alpha", &format_alpha(node.alpha))],
+        )
+    } else {
+        language.text(TextKey::InspectorAlphaOne).to_owned()
+    };
+    let layer_cost = node
+        .attributes
+        .layer_type
+        .clone()
+        .unwrap_or_else(|| unavailable(language));
+    DetailSection::new(
+        TextKey::InspectorDetailSectionRenderRisks,
+        vec![
+            DetailRow::toned(
+                language.text(TextKey::InspectorDetailOverdrawEstimate),
+                overdraw,
+                if overlap.pairs > 0 {
+                    DetailTone::Warning
+                } else {
+                    DetailTone::Normal
+                },
+            ),
+            DetailRow::toned(
+                language.text(TextKey::InspectorDetailSubtreeComplexity),
+                complexity,
+                if stats.subtree_depth > 10 || stats.descendants > 50 {
+                    DetailTone::Warning
+                } else {
+                    DetailTone::Normal
+                },
+            ),
+            DetailRow::toned(
+                language.text(TextKey::InspectorDetailHiddenDescendants),
+                stats.hidden_descendants.to_string(),
+                if stats.hidden_descendants > 0 {
+                    DetailTone::Info
+                } else {
+                    DetailTone::Normal
+                },
+            ),
+            DetailRow::toned(
+                language.text(TextKey::InspectorDetailBlending),
+                blending,
+                if node.alpha < 1.0 {
+                    DetailTone::Warning
+                } else {
+                    DetailTone::Normal
+                },
+            ),
+            DetailRow::toned(
+                language.text(TextKey::InspectorDetailLayerCost),
+                layer_cost,
+                if node.attributes.layer_type.as_deref() == Some("SOFTWARE") {
+                    DetailTone::Warning
+                } else {
+                    DetailTone::Normal
+                },
+            ),
+        ],
+    )
+}
+
+fn raw_properties_section(node: &LayoutNode) -> Option<DetailSection> {
+    let mut properties = node.attributes.raw_properties.clone();
+    properties.extend(node.attributes.semantic_properties.clone());
+    if properties.is_empty() {
+        return None;
+    }
+    Some(DetailSection {
+        title: TextKey::InspectorDetailSectionRawProperties,
+        rows: properties
+            .into_iter()
+            .map(|(label, value)| DetailRow::new(label, value))
+            .collect(),
+    })
+}
+
+const COMPOSE_NODE_ID_PREFIX: &str = "compose-inspection:";
+const MAX_COMPOSE_VALUE_ROWS: usize = 512;
+const MAX_COMPOSE_LABEL_BYTES: usize = 512;
+
+fn compose_node_id(id: &str) -> Option<i64> {
+    id.strip_prefix(COMPOSE_NODE_ID_PREFIX)
+        .unwrap_or(id)
+        .parse()
+        .ok()
+}
+
+fn clipped_compose_label(text: &str) -> String {
+    if text.len() <= MAX_COMPOSE_LABEL_BYTES {
+        return text.to_owned();
+    }
+    let mut end = MAX_COMPOSE_LABEL_BYTES - 1;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &text[..end])
+}
+
+fn compose_value_rows(
+    values: &[ComposeValueEvidence],
+    rows: &mut Vec<DetailRow>,
+    prefix: Option<&str>,
+    depth: usize,
+    remaining: &mut usize,
+) {
+    if depth > 8 || *remaining == 0 {
+        return;
+    }
+    for (index, value) in values.iter().enumerate() {
+        if *remaining == 0 {
+            return;
+        }
+        let segment = if value.name.is_empty() {
+            index.to_string()
+        } else {
+            value.name.clone()
+        };
+        let full_label = match prefix {
+            None => segment,
+            Some(prefix) => format!("{prefix}.{segment}"),
+        };
+        let label = clipped_compose_label(&full_label);
+        let mut text = value.type_name.clone();
+        if let Some(value_text) = &value.value {
+            text.push_str(" · ");
+            text.push_str(value_text);
+        }
+        if value.truncated {
+            text.push_str(" · <truncated>");
+        }
+        rows.push(DetailRow::toned(
+            label,
+            text,
+            if value.truncated {
+                DetailTone::Info
+            } else {
+                DetailTone::Normal
+            },
+        ));
+        *remaining -= 1;
+        if !value.elements.is_empty() {
+            compose_value_rows(
+                &value.elements,
+                rows,
+                Some(&full_label),
+                depth + 1,
+                remaining,
+            );
+        }
+    }
+}
+
+fn push_compose_values_section(
+    sections: &mut Vec<DetailSection>,
+    title: TextKey,
+    values: &[ComposeValueEvidence],
+) {
+    if values.is_empty() {
+        return;
+    }
+    let mut rows = Vec::new();
+    let mut remaining = MAX_COMPOSE_VALUE_ROWS;
+    compose_value_rows(values, &mut rows, None, 0, &mut remaining);
+    if !rows.is_empty() {
+        sections.push(DetailSection::new(title, rows));
+    }
+}
+
+fn compose_summary_section(
+    language: Language,
+    evidence: Option<&ComposeEvidence>,
+    node: &LayoutNode,
+) -> Option<DetailSection> {
+    let evidence = evidence?;
+    let node_id = compose_node_id(&node.id)?;
+    let metadata = evidence.nodes.get(&node_id)?;
+    let detail = evidence.details.get(&node_id);
+    let mut rows = Vec::new();
+    if let Some(source) = &metadata.source {
+        rows.push(DetailRow::new(
+            language.text(TextKey::InspectorDetailComposeSummarySource),
+            format!("{}:{}", source.file_name, source.line_number),
+        ));
+    }
+    rows.push(DetailRow::new(
+        language.text(TextKey::InspectorDetailComposeSummaryParameters),
+        detail
+            .map_or(0, |detail| detail.parameters.len())
+            .to_string(),
+    ));
+    rows.push(DetailRow::new(
+        language.text(TextKey::InspectorDetailComposeSummaryModifiers),
+        detail
+            .map_or(0, |detail| detail.modifiers.len())
+            .to_string(),
+    ));
+    rows.push(DetailRow::new(
+        language.text(TextKey::InspectorDetailComposeSummarySemantics),
+        format!(
+            "{} / {}",
+            detail.map_or(0, |detail| detail.merged_semantics.len()),
+            detail.map_or(0, |detail| detail.unmerged_semantics.len())
+        ),
+    ));
+    Some(DetailSection::new(
+        TextKey::InspectorDetailSectionComposeSummary,
+        rows,
+    ))
+}
+
+fn compose_sections(
+    language: Language,
+    evidence: &ComposeEvidence,
+    node: &LayoutNode,
+) -> Vec<DetailSection> {
+    let mut sections = vec![DetailSection::new(
+        TextKey::InspectorDetailSectionComposeInspection,
+        vec![
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailComposeMode),
+                evidence.mode.clone(),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailComposeGeneration),
+                evidence.generation.to_string(),
+            ),
+            DetailRow::new(
+                language.text(TextKey::InspectorDetailComposeCompleteness),
+                evidence.declared_completeness.clone(),
+            ),
+        ],
+    )];
+    let Some(node_id) = compose_node_id(&node.id) else {
+        return sections;
+    };
+    let Some(metadata) = evidence.nodes.get(&node_id) else {
+        return sections;
+    };
+    if let Some(source) = &metadata.source {
+        sections.push(DetailSection::new(
+            TextKey::InspectorDetailSectionComposeSource,
+            vec![
+                DetailRow::new(
+                    language.text(TextKey::InspectorDetailComposeFile),
+                    source.file_name.clone(),
+                ),
+                DetailRow::new(
+                    language.text(TextKey::InspectorDetailComposeLine),
+                    source.line_number.to_string(),
+                ),
+                DetailRow::new(
+                    language.text(TextKey::InspectorDetailComposeOffset),
+                    source.offset.to_string(),
+                ),
+                DetailRow::new(
+                    language.text(TextKey::InspectorDetailComposePackageHash),
+                    source.package_hash.to_string(),
+                ),
+            ],
+        ));
+    }
+    if metadata.recompose_count.is_some() || metadata.skip_count.is_some() {
+        sections.push(DetailSection::new(
+            TextKey::InspectorDetailSectionRecomposition,
+            vec![
+                DetailRow::new(
+                    language.text(TextKey::InspectorDetailRecomposeCount),
+                    format_optional(metadata.recompose_count),
+                ),
+                DetailRow::new(
+                    language.text(TextKey::InspectorDetailSkipCount),
+                    format_optional(metadata.skip_count),
+                ),
+            ],
+        ));
+    }
+    if let Some(reads) = evidence.state_reads.get(&metadata.anchor_hash) {
+        let mut rows = Vec::new();
+        for read in reads.iter().take(MAX_COMPOSE_VALUE_ROWS) {
+            let mut value = match (&read.value_name, &read.value_text) {
+                (Some(name), Some(text)) => format!("{name} = {text}"),
+                (Some(name), None) => name.clone(),
+                (None, Some(text)) => text.clone(),
+                (None, None) => unavailable(language),
+            };
+            if read.invalidated {
+                value.push_str(" · invalidated");
+            }
+            if let Some(frame) = &read.top_frame {
+                value.push_str(" · ");
+                value.push_str(frame);
+            }
+            rows.push(DetailRow::new(
+                language.format(
+                    TextKey::InspectorRecompositionLabel,
+                    &[("number", &read.recomposition_number)],
+                ),
+                value,
+            ));
+        }
+        if !rows.is_empty() {
+            sections.push(DetailSection::new(
+                TextKey::InspectorDetailSectionStateReads,
+                rows,
+            ));
+        }
+    }
+    if let Some(detail) = evidence.details.get(&node_id) {
+        push_compose_values_section(
+            &mut sections,
+            TextKey::InspectorDetailSectionComposeParameters,
+            &detail.parameters,
+        );
+        push_compose_values_section(
+            &mut sections,
+            TextKey::InspectorDetailSectionComposeModifiers,
+            &detail.modifiers,
+        );
+        push_compose_values_section(
+            &mut sections,
+            TextKey::InspectorDetailSectionMergedSemantics,
+            &detail.merged_semantics,
+        );
+        push_compose_values_section(
+            &mut sections,
+            TextKey::InspectorDetailSectionUnmergedSemantics,
+            &detail.unmerged_semantics,
+        );
+    }
+    let mut coverage_rows = Vec::new();
+    for coverage in evidence
+        .coverage
+        .iter()
+        .filter(|coverage| coverage.node_id == node_id)
+        .take(MAX_COMPOSE_VALUE_ROWS)
+    {
+        let mut text = format!(
+            "{} · depth {} · {}",
+            coverage.state, coverage.recursion_depth, coverage.loaded_elements
+        );
+        if let Some(total) = coverage.total_elements {
+            text.push('/');
+            text.push_str(&total.to_string());
+        }
+        coverage_rows.push(DetailRow::new(coverage.field.clone(), text));
+    }
+    if !coverage_rows.is_empty() {
+        sections.push(DetailSection::new(
+            TextKey::InspectorDetailSectionDetailCoverage,
+            coverage_rows,
+        ));
+    }
+    sections
 }
 
 fn details_pane(
@@ -1843,33 +3841,31 @@ fn details_pane(
     colors: &StudioColors,
     archive: Option<&Arc<InspectorArchive>>,
     window_index: usize,
-    selected: Option<&LayoutNode>,
+    width: f32,
+    selected_index: Option<usize>,
     tab: DetailsTab,
     selected_id: &Option<String>,
-    hidden_selected: bool,
+    compose_agent: bool,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     let nodes = archive
         .and_then(|archive| archive.windows.get(window_index))
         .map(|window| window.nodes.as_slice());
-    let parent_label = selected
-        .and_then(|node| node.parent_index)
-        .and_then(|parent| nodes.and_then(|nodes| nodes.get(parent)))
-        .map_or_else(
-            || "-".to_owned(),
-            |parent| format!("{} @{}", parent.class_name, parent.id),
-        );
-    let package = archive.map_or_else(
-        || language.text(TextKey::InspectorUnavailable).to_owned(),
-        |archive| archive.frame.package_name.clone(),
-    );
-    let window_name = archive
-        .and_then(|archive| archive.windows.get(window_index))
-        .map_or_else(
-            || language.text(TextKey::InspectorUnavailable).to_owned(),
-            |window| window.id.clone(),
-        );
-
+    let compose_evidence = archive.and_then(|archive| archive.compose.as_ref());
+    let compose_enabled = compose_agent
+        && compose_evidence.is_some()
+        && selected_index
+            .and_then(|index| nodes.and_then(|nodes| nodes.get(index)))
+            .is_some_and(|node| node.kind == NodeKind::Compose);
+    let visible_tabs: Vec<DetailsTab> = DetailsTab::ALL
+        .into_iter()
+        .filter(|candidate| *candidate != DetailsTab::Compose || compose_enabled)
+        .collect();
+    let active_tab = if visible_tabs.contains(&tab) {
+        tab
+    } else {
+        DetailsTab::Overview
+    };
     let trailing = div()
         .text_size(px(studio::FONT_SUPPORTING))
         .text_color(colors.muted_text)
@@ -1883,31 +3879,38 @@ fn details_pane(
         colors,
     );
 
-    let mut tabs = div()
-        .h(px(30.))
-        .w_full()
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .gap(px(4.))
-        .px(px(8.))
-        .border_b_1()
-        .border_color(colors.border);
-    for (tab_index, candidate) in DetailsTab::ALL.into_iter().enumerate() {
-        let selected_tab = candidate == tab;
-        tabs = tabs.child(
-            details_tab_button(
+    // Compose uses the same COMPACT_OUTLINED segmented selector as the toolbar
+    // scan control, stretched to equal-width items across the properties pane.
+    let mut tab_track = segmented_track("inspector-details-tabs", colors).w_full();
+    for (tab_index, candidate) in visible_tabs.into_iter().enumerate() {
+        if tab_index > 0 {
+            tab_track = tab_track.child(segmented_divider(colors));
+        }
+        tab_track = tab_track.child(
+            segmented_item(
                 ("inspector-details-tab", tab_index),
                 candidate.label(language),
-                selected_tab,
+                candidate == active_tab,
+                true,
                 colors,
             )
+            .flex_1()
+            .min_w_0()
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.details_tab = candidate;
                 cx.notify();
             })),
         );
     }
+    let tabs = div()
+        .h(px(30.))
+        .w_full()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .border_b_1()
+        .border_color(colors.border)
+        .child(tab_track);
 
     let mut content = div()
         .id("inspector-properties-rows")
@@ -1917,8 +3920,72 @@ fn details_pane(
         .overflow_y_scroll()
         .flex()
         .flex_col();
-    match selected {
-        None => {
+    match (nodes, selected_index) {
+        (Some(nodes), Some(index)) if index < nodes.len() => {
+            let node = &nodes[index];
+            match active_tab {
+                DetailsTab::Overview => {
+                    content = content.child(detail_section(
+                        language,
+                        colors,
+                        &identity_section(language, node),
+                        false,
+                    ));
+                    if compose_enabled {
+                        if let Some(section) =
+                            compose_summary_section(language, compose_evidence, node)
+                        {
+                            content =
+                                content.child(detail_section(language, colors, &section, false));
+                        }
+                    }
+                }
+                DetailsTab::Layout => {
+                    content = content.child(detail_section(
+                        language,
+                        colors,
+                        &layout_section(language, nodes, index),
+                        false,
+                    ));
+                }
+                DetailsTab::Drawing => {
+                    content = content.child(detail_section(
+                        language,
+                        colors,
+                        &drawing_section(language, node),
+                        false,
+                    ));
+                }
+                DetailsTab::Accessibility => {
+                    content = content.child(detail_section(
+                        language,
+                        colors,
+                        &interaction_section(language, node),
+                        false,
+                    ));
+                }
+                DetailsTab::Compose => {
+                    if let Some(evidence) = compose_evidence {
+                        for section in compose_sections(language, evidence, node) {
+                            content =
+                                content.child(detail_section(language, colors, &section, false));
+                        }
+                    }
+                }
+                DetailsTab::Evidence => {
+                    content = content.child(detail_section(
+                        language,
+                        colors,
+                        &risk_section(language, nodes, index),
+                        true,
+                    ));
+                    if let Some(section) = raw_properties_section(node) {
+                        content = content.child(detail_section(language, colors, &section, false));
+                    }
+                }
+            }
+        }
+        _ => {
             content = content.child(
                 div()
                     .flex_1()
@@ -1929,150 +3996,16 @@ fn details_pane(
                     .p(px(12.))
                     .text_size(px(studio::FONT_SUPPORTING))
                     .text_color(colors.muted_text)
-                    .child(language.text(TextKey::InspectorNoNodeSelected)),
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::InspectorNoNodeSelected),
+                    )),
             );
-        }
-        Some(node) => {
-            let visible = if node.visible {
-                language.text(TextKey::InspectorValueYes)
-            } else {
-                language.text(TextKey::InspectorValueNo)
-            };
-            let hidden = if hidden_selected {
-                language.text(TextKey::InspectorValueYes)
-            } else {
-                language.text(TextKey::InspectorValueNo)
-            };
-            match tab {
-                DetailsTab::Layout => {
-                    content = content
-                        .child(section_header(
-                            language,
-                            TextKey::InspectorSectionBasic,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailId),
-                            node.id.clone(),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailClass),
-                            node.class_name.clone(),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailType),
-                            format!("{:?}", node.kind),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailPackage),
-                            package,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailParent),
-                            parent_label,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailDepth),
-                            node.depth.to_string(),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailWindow),
-                            window_name,
-                            colors,
-                        ))
-                        .child(section_header(
-                            language,
-                            TextKey::InspectorSectionLayout,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailBounds),
-                            format!(
-                                "[{}, {}][{}, {}]",
-                                node.bounds.left,
-                                node.bounds.top,
-                                node.bounds.right,
-                                node.bounds.bottom
-                            ),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailSize),
-                            format!(
-                                "{} x {}",
-                                node.bounds.right - node.bounds.left,
-                                node.bounds.bottom - node.bounds.top
-                            ),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailPosition),
-                            format!("{}, {}", node.bounds.left, node.bounds.top),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailResourceName),
-                            node.resource_name.clone().unwrap_or_else(|| "-".to_owned()),
-                            colors,
-                        ));
-                }
-                DetailsTab::Drawing => {
-                    content = content
-                        .child(section_header(
-                            language,
-                            TextKey::InspectorSectionDrawing,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailVisible),
-                            visible,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailAlpha),
-                            format!("{:.2}", node.alpha),
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailHiddenLayer),
-                            hidden,
-                            colors,
-                        ));
-                }
-                DetailsTab::Accessibility => {
-                    content = content
-                        .child(section_header(
-                            language,
-                            TextKey::InspectorSectionAccessibility,
-                            colors,
-                        ))
-                        .child(detail_row(
-                            language.text(TextKey::InspectorDetailVisible),
-                            visible,
-                            colors,
-                        ))
-                        .child(
-                            div()
-                                .w_full()
-                                .p(px(8.))
-                                .text_size(px(studio::FONT_SUPPORTING))
-                                .text_color(colors.muted_text)
-                                .child(language.text(TextKey::InspectorUnavailable)),
-                        );
-                }
-            }
         }
     }
 
     div()
         .id("inspector-properties-pane")
-        .w(px(PROPERTIES_WIDTH))
+        .w(px(width))
         .h_full()
         .flex_shrink_0()
         .flex()
@@ -2108,7 +4041,7 @@ fn findings_chip(
             div()
                 .text_size(px(studio::FONT_SUPPORTING - 1.0))
                 .whitespace_nowrap()
-                .child(label),
+                .child(crate::studio::selectable(label)),
         )
 }
 
@@ -2129,32 +4062,26 @@ fn findings_table_header(language: Language, colors: &StudioColors) -> Div {
             div()
                 .w(px(100.))
                 .flex_shrink_0()
-                .child(language.text(TextKey::InspectorFindingsSeverity)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorFindingsSeverity),
+                )),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(language.text(TextKey::InspectorFindingsProblem)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(language.text(TextKey::InspectorFindingsNode)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(language.text(TextKey::InspectorFindingsSuggestion)),
-        )
+        .child(div().flex_1().min_w_0().child(crate::studio::selectable(
+            language.text(TextKey::InspectorFindingsProblem),
+        )))
+        .child(div().flex_1().min_w_0().child(crate::studio::selectable(
+            language.text(TextKey::InspectorFindingsNode),
+        )))
+        .child(div().flex_1().min_w_0().child(crate::studio::selectable(
+            language.text(TextKey::InspectorFindingsSuggestion),
+        )))
 }
 
 fn findings_pane(
     language: Language,
     colors: &StudioColors,
     tone: FindingsTone,
+    height: f32,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     let mut header = div()
@@ -2172,13 +4099,17 @@ fn findings_pane(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .font_weight(FontWeight::BOLD)
                 .text_color(colors.secondary_text)
-                .child(language.text(TextKey::InspectorFindings)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorFindings),
+                )),
         )
         .child(
             div()
                 .text_size(px(studio::FONT_SUPPORTING - 1.0))
                 .text_color(colors.muted_text)
-                .child(language.text(TextKey::InspectorFindingsLabel)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorFindingsLabel),
+                )),
         );
     for (tone_index, candidate) in FindingsTone::ALL.into_iter().enumerate() {
         let selected = candidate == tone;
@@ -2203,7 +4134,9 @@ fn findings_pane(
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.muted_text)
                 .whitespace_nowrap()
-                .child(language.text(TextKey::InspectorTimelineLive)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorTimelineLive),
+                )),
         )
         .child(
             toolbar_button(
@@ -2218,7 +4151,7 @@ fn findings_pane(
 
     div()
         .id("inspector-findings-pane")
-        .h(px(FINDINGS_HEIGHT))
+        .h(px(height))
         .w_full()
         .flex_shrink_0()
         .flex()
@@ -2239,15 +4172,85 @@ fn findings_pane(
                 .px(px(24.))
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(colors.muted_text)
-                .child(language.text(TextKey::InspectorFindingsEmpty)),
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorFindingsEmpty),
+                )),
         )
         .into_any_element()
+}
+
+/// Menu-relevant Layout Inspector state: the native menu enables tree
+/// navigation only while a node is selected and ignores archive operations while
+/// an import is in flight.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InspectorMenuState {
+    pub busy: bool,
+    pub has_selection: bool,
+    pub has_archive: bool,
+}
+
+impl InspectorWorkspace {
+    pub fn menu_state(&self) -> InspectorMenuState {
+        InspectorMenuState {
+            busy: self.busy,
+            has_selection: self.selected.is_some(),
+            has_archive: self.archive.is_some(),
+        }
+    }
+
+    /// Selects the adjacent visible hierarchy row, mirroring Compose
+    /// HierarchyTreeState.adjacentNodeId (collapsed subtrees and hidden
+    /// invisible views are skipped because they are not rows).
+    pub(crate) fn select_previous_node(&mut self, cx: &mut Context<Self>) {
+        self.select_adjacent_node(false, cx);
+    }
+
+    pub(crate) fn select_next_node(&mut self, cx: &mut Context<Self>) {
+        self.select_adjacent_node(true, cx);
+    }
+
+    fn select_adjacent_node(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let rows = self.visible_rows(cx);
+        if rows.is_empty() {
+            return;
+        }
+        let Some(archive) = self.archive.as_ref() else {
+            return;
+        };
+        let Some(window) = archive.windows.get(self.window) else {
+            return;
+        };
+        let current = self.selected.as_deref().and_then(|selected| {
+            rows.iter()
+                .position(|index| window.nodes[*index].id == selected)
+        });
+        let next = match (current, forward) {
+            (None, _) => 0,
+            (Some(index), true) => (index + 1) % rows.len(),
+            (Some(index), false) => (index + rows.len() - 1) % rows.len(),
+        };
+        let Some(node) = window.nodes.get(rows[next]) else {
+            return;
+        };
+        self.selected = Some(node.id.clone());
+        self.hovered = None;
+        cx.notify();
+    }
+
+    /// Expands or collapses the selected node, matching Compose
+    /// TOGGLE_SELECTED_NODE (toggleExpandable), not layer visibility.
+    pub(crate) fn toggle_selected_node(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        self.toggle_collapsed(id, cx);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aps_layout_inspector::{Bounds as NodeBounds, NodeKind};
+    use aps_layout_inspector::{Bounds as NodeBounds, DisplayInfo, LayoutWindow, NodeKind};
 
     fn node(id: usize, parent: Option<usize>) -> LayoutNode {
         LayoutNode {
@@ -2265,7 +4268,9 @@ mod tests {
             visible: true,
             alpha: 1.0,
             resource_name: None,
-            runtime_values_omitted: true,
+            text: None,
+            semantics_role: None,
+            attributes: Default::default(),
         }
     }
     #[::core::prelude::v1::test]
@@ -2314,24 +4319,160 @@ mod tests {
         assert_eq!(canvas_hit(&nodes, f32::NAN, 2.0, true), None);
     }
 
+    fn window_with_bounds(bounds: NodeBounds) -> LayoutWindow {
+        LayoutWindow {
+            id: "window-0".into(),
+            kind: "app".into(),
+            bounds,
+            nodes: Vec::new(),
+        }
+    }
+
+    fn test_display() -> DisplayInfo {
+        DisplayInfo {
+            width_px: 1080,
+            height_px: 2400,
+            density: 2.625,
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_source_crops_to_app_bounds_only_when_app_only_is_on() {
+        let display = test_display();
+        let window = window_with_bounds(NodeBounds {
+            left: 0,
+            top: 120,
+            right: 1080,
+            bottom: 2200,
+        });
+        assert_eq!(
+            preview_source(display, Some(&window), true),
+            PreviewSource {
+                left: 0,
+                top: 120,
+                width: 1080,
+                height: 2080,
+            }
+        );
+        assert_eq!(
+            preview_source(display, Some(&window), false),
+            PreviewSource {
+                left: 0,
+                top: 0,
+                width: 1080,
+                height: 2400,
+            }
+        );
+        assert_eq!(
+            preview_source(display, None, true),
+            PreviewSource {
+                left: 0,
+                top: 0,
+                width: 1080,
+                height: 2400,
+            }
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_source_clamps_app_bounds_and_falls_back_when_empty() {
+        let display = test_display();
+        let clamped = window_with_bounds(NodeBounds {
+            left: -50,
+            top: -10,
+            right: 900,
+            bottom: 2000,
+        });
+        assert_eq!(
+            preview_source(display, Some(&clamped), true),
+            PreviewSource {
+                left: 0,
+                top: 0,
+                width: 900,
+                height: 2000,
+            }
+        );
+        let empty = window_with_bounds(NodeBounds {
+            left: 500,
+            top: 500,
+            right: 400,
+            bottom: 400,
+        });
+        assert_eq!(
+            preview_source(display, Some(&empty), true),
+            PreviewSource {
+                left: 0,
+                top: 0,
+                width: 1080,
+                height: 2400,
+            }
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_header_exposes_canvas_mode_and_hit_order_chips() {
+        let source = include_str!("inspector.rs");
+        assert!(source.contains("\"inspector-app-only\""));
+        assert!(source.contains("\"inspector-hit-order\""));
+        assert!(source.contains("fn preview_source("));
+    }
+
     #[::core::prelude::v1::test]
     fn hierarchy_preferences_hide_indices_and_resource_ids_not_evidence() {
         let mut sample = node(0, None);
         sample.resource_name = Some("app:id/content".into());
         let mut preferences = LayoutPreferences::default();
         assert_eq!(
-            hierarchy_label(&sample, 4, preferences),
-            "5  app:id/content  View"
+            hierarchy_label(&sample, "2-3", preferences),
+            "2-3  id/content  View"
         );
         preferences.hide_indices = true;
         assert_eq!(
-            hierarchy_label(&sample, 4, preferences),
-            "app:id/content  View"
+            hierarchy_label(&sample, "2-3", preferences),
+            "id/content  View"
         );
         preferences.show_ids = false;
-        assert_eq!(hierarchy_label(&sample, 4, preferences), "View");
+        assert_eq!(hierarchy_label(&sample, "2-3", preferences), "View");
         assert_eq!(sample.id, "0");
         assert_eq!(sample.resource_name.as_deref(), Some("app:id/content"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn hierarchy_numbers_use_per_depth_preorder() {
+        let mut nodes = vec![
+            node(0, None),
+            node(1, Some(0)),
+            node(2, Some(0)),
+            node(3, Some(1)),
+            node(4, Some(2)),
+        ];
+        nodes[0].depth = 0;
+        nodes[1].depth = 1;
+        nodes[2].depth = 1;
+        nodes[3].depth = 2;
+        nodes[4].depth = 2;
+        assert_eq!(
+            hierarchy_numbers(&nodes),
+            vec!["0-0", "1-0", "1-1", "2-0", "2-1"]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_pan_clamps_to_content_overflow() {
+        // Content that fits is always centred.
+        assert_eq!(
+            preview_clamp_pan((50.0, -50.0), 100.0, 100.0, 200.0, 200.0),
+            (0.0, 0.0)
+        );
+        // Content 400x300 in a 200x200 viewport allows +-100/+ -50 pans.
+        assert_eq!(
+            preview_clamp_pan((1000.0, -1000.0), 400.0, 300.0, 200.0, 200.0),
+            (100.0, -50.0)
+        );
+        assert_eq!(
+            preview_pan_limits(400.0, 300.0, 200.0, 200.0),
+            (100.0, 50.0)
+        );
     }
 
     #[::core::prelude::v1::test]
@@ -2411,10 +4552,17 @@ mod tests {
         assert!(header.contains("inspector-toggle-details"));
         let shell = include_str!("shell.rs");
         assert!(shell.contains("selected != Destination::LayoutInspector"));
+        // The menu strip is drawn inside the window and the shell publishes the
+        // inspector commands; the page itself owns no menu code anymore.
+        assert!(shell.contains("fn route_menu_build("));
+        assert!(shell.contains("fn inspector_menu_groups("));
+        assert!(shell.contains("TextKey::InspectorToggleHierarchy"));
+        assert!(shell.contains("TextKey::InspectorToggleFindings"));
+        assert!(shell.contains("TextKey::InspectorToggleDetails"));
         let app = include_str!("main.rs");
-        assert!(app.contains("shell::OpenInspectorArchive"));
-        assert!(app.contains("shell::ToggleInspectorHierarchy"));
-        assert!(app.contains("shell::ToggleInspectorFindings"));
-        assert!(app.contains("shell::ToggleInspectorDetails"));
+        assert!(
+            !app.contains("cx.set_menus("),
+            "The shell module owns the application menu"
+        );
     }
 }

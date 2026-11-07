@@ -9,6 +9,7 @@
 //! selection tints separate regions.
 
 use gpui_kit::{
+    base::SelectableText,
     component::{
         ActiveTheme, Disableable, Selectable,
         button::{Button, ButtonVariants},
@@ -76,6 +77,9 @@ pub struct StudioColors {
     pub success: Rgba,
     pub selected_row: Rgba,
     pub firefox_activity: Rgba,
+    /// Compose `detailRowDeep`/`detailRowLight`: alternating properties rows.
+    pub detail_row_deep: Rgba,
+    pub detail_row_light: Rgba,
 }
 
 /// Background color of the title bar, which is also the only background color
@@ -120,6 +124,8 @@ impl StudioColors {
             success: rgb(0x34c759),
             selected_row: rgb(0xd6eaff),
             firefox_activity: rgb(0x5b8db8),
+            detail_row_deep: rgb(0xffffff),
+            detail_row_light: rgb(0xffffff),
         }
     }
 
@@ -148,6 +154,8 @@ impl StudioColors {
             success: rgb(0x30d158),
             selected_row: background.blend(accent.alpha(0.32)),
             firefox_activity: accent,
+            detail_row_deep: rgb(0x1c1c1e),
+            detail_row_light: rgb(0x2c2c2e),
         }
     }
 
@@ -194,21 +202,65 @@ pub fn section_title(text: impl Into<SharedString>, colors: &StudioColors) -> Di
         .text_size(px(FONT_BODY))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(colors.text)
-        .child(text.into())
+        .child(selectable(text))
 }
 
 pub fn supporting(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
     div()
         .text_size(px(FONT_SUPPORTING))
         .text_color(colors.secondary_text)
-        .child(text.into())
+        .child(selectable(text))
 }
 
 pub fn dense_label(text: impl Into<SharedString>, color: Rgba) -> Div {
     div()
         .text_size(px(FONT_SUPPORTING))
         .text_color(color)
-        .child(text.into())
+        .child(selectable(text))
+}
+
+/// A text run that joins the window-wide text selection.
+///
+/// Drag across runs to select; secondary+C copies the selected text. Styling
+/// and ellipsis are inherited from the surrounding element, so replacing a
+/// plain text child keeps the layout.
+///
+/// The retained selection state is keyed by the call site, the same
+/// track_caller identity GPUI Base's own text helpers use. Repeated runs
+/// rendered from one loop must pass a row identity to [`selectable_keyed`]
+/// instead, or they would share one handle.
+#[track_caller]
+pub fn selectable(text: impl Into<SharedString>) -> SelectableText {
+    let text: SharedString = text.into();
+    SelectableText::new(
+        selectable_element_id(std::panic::Location::caller(), &text),
+        text,
+    )
+}
+
+/// Identity for one selectable run: the call site plus its text.
+///
+/// A shared helper (for example [`supporting`]) would otherwise give every run
+/// it renders the same identity and one retained selection handle, so only the
+/// last painted run could be selected. Hashing the text keeps different runs
+/// apart while remaining stable for an unchanged label; identical text from one
+/// call site shares a handle, and copying it yields that same text.
+fn selectable_element_id(
+    location: &'static std::panic::Location<'static>,
+    text: &str,
+) -> ElementId {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    location.file().hash(&mut hasher);
+    location.line().hash(&mut hasher);
+    location.column().hash(&mut hasher);
+    text.hash(&mut hasher);
+    ElementId::NamedInteger("selectable-text".into(), hasher.finish())
+}
+
+/// Window-selectable text with an explicit element identity, for repeated runs.
+pub fn selectable_keyed(id: impl Into<ElementId>, text: impl Into<SharedString>) -> SelectableText {
+    SelectableText::new(id, text)
 }
 
 /// KPI card: tone label, lead value and evidence support line.
@@ -238,7 +290,7 @@ pub fn kpi_tile(
                 .text_color(tone)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(label.into()),
+                .child(selectable(label)),
         )
         .child(
             div()
@@ -246,7 +298,7 @@ pub fn kpi_tile(
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
                 .whitespace_nowrap()
-                .child(value.into()),
+                .child(selectable(value)),
         )
         .child(
             div()
@@ -255,7 +307,7 @@ pub fn kpi_tile(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(support.into()),
+                .child(selectable(support)),
         )
 }
 
@@ -284,7 +336,7 @@ pub fn metric_card(
                 .text_color(tone)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(label.into()),
+                .child(selectable(label)),
         )
         .child(
             div()
@@ -292,7 +344,7 @@ pub fn metric_card(
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.text)
                 .whitespace_nowrap()
-                .child(value.into()),
+                .child(selectable(value)),
         )
 }
 
@@ -447,7 +499,7 @@ pub fn table_header_cell(
     } else {
         cell = cell.flex_1().min_w_0();
     }
-    cell.child(label.into())
+    cell.child(selectable(label))
 }
 
 pub fn details_heading(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
@@ -455,7 +507,7 @@ pub fn details_heading(text: impl Into<SharedString>, colors: &StudioColors) -> 
         .text_size(px(FONT_BODY))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(colors.text)
-        .child(text.into())
+        .child(selectable(text))
 }
 
 /// Two-line metric tile used inside the detail inspector.
@@ -480,7 +532,7 @@ pub fn details_metric(
                 .text_color(colors.secondary_text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(label.into()),
+                .child(selectable(label)),
         )
         .child(
             div()
@@ -489,7 +541,7 @@ pub fn details_metric(
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(value.into()),
+                .child(selectable(value)),
         )
 }
 

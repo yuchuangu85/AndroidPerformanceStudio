@@ -71,6 +71,67 @@ pub struct Bounds {
     pub right: i32,
     pub bottom: i32,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EdgeInsets {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+/// Bounded structural projection of the protocol `ViewAttributes` plus Compose
+/// semantic values. Optional fields stay `None` when the producer did not
+/// capture them so the properties pane can render Compose's "—" rows.
+#[derive(Clone, Debug, Default)]
+pub struct ViewAttributes {
+    pub visibility: Option<String>,
+    pub layout_bounds: Option<Bounds>,
+    pub elevation: Option<f32>,
+    pub z: Option<f32>,
+    pub translation_x: Option<f32>,
+    pub translation_y: Option<f32>,
+    pub translation_z: Option<f32>,
+    pub rotation: Option<f32>,
+    pub rotation_x: Option<f32>,
+    pub rotation_y: Option<f32>,
+    pub scale_x: Option<f32>,
+    pub scale_y: Option<f32>,
+    pub pivot_x: Option<f32>,
+    pub pivot_y: Option<f32>,
+    pub padding: Option<EdgeInsets>,
+    pub margin: Option<EdgeInsets>,
+    pub layout_width: Option<i32>,
+    pub layout_height: Option<i32>,
+    pub layout_params_class: Option<String>,
+    pub measured_width: Option<i32>,
+    pub measured_height: Option<i32>,
+    pub min_width: Option<i32>,
+    pub min_height: Option<i32>,
+    pub scroll_x: Option<i32>,
+    pub scroll_y: Option<i32>,
+    pub clip_bounds: Option<Bounds>,
+    pub clip_children: Option<bool>,
+    pub clip_to_padding: Option<bool>,
+    pub background: Option<String>,
+    pub background_color: Option<String>,
+    pub foreground: Option<String>,
+    pub opaque: Option<bool>,
+    pub will_not_draw: Option<bool>,
+    pub hardware_accelerated: Option<bool>,
+    pub layer_type: Option<String>,
+    pub layout_requested: Option<bool>,
+    pub enabled: Option<bool>,
+    pub clickable: Option<bool>,
+    pub long_clickable: Option<bool>,
+    pub focusable: Option<bool>,
+    pub focused: Option<bool>,
+    pub selected: Option<bool>,
+    pub content_description: Option<String>,
+    /// Sorted runtime properties; only retained while the archive-wide raw
+    /// property budget allows it, so the section can be absent on large captures.
+    pub raw_properties: std::collections::BTreeMap<String, String>,
+    /// Compose `semanticProperties`; merged into raw properties for display.
+    pub semantic_properties: std::collections::BTreeMap<String, String>,
+}
 #[derive(Clone, Copy, Debug)]
 pub struct DisplayInfo {
     pub width_px: u32,
@@ -100,8 +161,11 @@ pub struct LayoutNode {
     pub visible: bool,
     pub alpha: f64,
     pub resource_name: Option<String>,
-    /// Runtime text/semantics/raw attributes are deliberately not retained.
-    pub runtime_values_omitted: bool,
+    /// Bounded runtime text for the properties pane; `None` when the producer
+    /// omitted it or the value exceeded the retention limit.
+    pub text: Option<String>,
+    pub semantics_role: Option<String>,
+    pub attributes: ViewAttributes,
 }
 #[derive(Clone, Debug)]
 pub struct LayoutWindow {
@@ -148,6 +212,58 @@ pub struct ComposeEvidence {
     pub coverage_record_count: usize,
     pub truncation_count: usize,
     pub details_available: bool,
+    /// Bounded per-node Compose projection parsed from the archive sidecar while
+    /// the Compose Agent toggle is off; the properties pane only shows it when
+    /// the toggle is on.
+    pub nodes: std::collections::BTreeMap<i64, ComposeNodeEvidence>,
+    pub details: std::collections::BTreeMap<i64, ComposeDetailEvidence>,
+    pub state_reads: std::collections::BTreeMap<i32, Vec<ComposeStateReadEvidence>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComposeSourceLocation {
+    pub package_hash: i32,
+    pub file_name: String,
+    pub line_number: u32,
+    pub offset: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComposeNodeEvidence {
+    pub node_id: i64,
+    pub anchor_hash: i32,
+    pub name: String,
+    pub source: Option<ComposeSourceLocation>,
+    pub recompose_count: Option<u32>,
+    pub skip_count: Option<u32>,
+    pub system_created: bool,
+    pub flags: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComposeValueEvidence {
+    pub name: String,
+    pub type_name: String,
+    pub value: Option<String>,
+    pub truncated: bool,
+    pub elements: Vec<ComposeValueEvidence>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ComposeDetailEvidence {
+    pub parameters: Vec<ComposeValueEvidence>,
+    pub modifiers: Vec<ComposeValueEvidence>,
+    pub merged_semantics: Vec<ComposeValueEvidence>,
+    pub unmerged_semantics: Vec<ComposeValueEvidence>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ComposeStateReadEvidence {
+    pub recomposition_number: i32,
+    pub value_name: Option<String>,
+    pub value_text: Option<String>,
+    pub invalidated: bool,
+    pub top_frame: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +275,9 @@ pub struct InspectorArchive {
     pub windows: Vec<LayoutWindow>,
     pub default_window_id: String,
     pub screenshot: Option<ScreenshotEvidence>,
+    /// Integrity-validated PNG bytes for local display (never decoded by the
+    /// adapter). `None` when the archive has no screenshot entry.
+    pub screenshot_png: Option<Vec<u8>>,
     pub compose: Option<ComposeEvidence>,
 }
 
@@ -310,6 +429,7 @@ impl InspectorArchive {
         let mut snapshot = None;
         let mut compose = None;
         let mut screenshot = None;
+        let mut screenshot_png = None;
         let mut validated_total = 0u64;
         for entry in declared.values() {
             check_cancel(cancel)?;
@@ -344,7 +464,8 @@ impl InspectorArchive {
                     screenshot = Some(ScreenshotEvidence {
                         sha256: entry.digest,
                         size_bytes: entry.size,
-                    })
+                    });
+                    screenshot_png = Some(bytes);
                 }
                 _ => {}
             }
@@ -363,6 +484,7 @@ impl InspectorArchive {
         )?;
         archive.compose = compose;
         archive.screenshot = screenshot;
+        archive.screenshot_png = screenshot_png;
         drop(zip);
         check_cancel(cancel)?;
         Ok(archive)
@@ -653,6 +775,7 @@ fn parse_snapshot(
     };
     let mut windows = Vec::new();
     let mut total_nodes = 0;
+    let mut raw_budget = MAX_RETAINED_PROPERTY_BYTES;
     if let Some(values) = root.get("windows") {
         for value in values.as_array().ok_or(InspectorError::InvalidSnapshot)? {
             if windows.len() >= 64 {
@@ -681,6 +804,7 @@ fn parse_snapshot(
                 &mut nodes,
                 &mut BTreeSet::new(),
                 &mut total_nodes,
+                &mut raw_budget,
             )?;
             windows.push(LayoutWindow {
                 id,
@@ -700,6 +824,7 @@ fn parse_snapshot(
             &mut nodes,
             &mut BTreeSet::new(),
             &mut total_nodes,
+            &mut raw_budget,
         )?;
         windows.push(LayoutWindow {
             id: "window:legacy".into(),
@@ -722,7 +847,213 @@ fn parse_snapshot(
         windows,
         default_window_id,
         screenshot: None,
+        screenshot_png: None,
         compose: None,
+    })
+}
+
+/// Archive-wide bound for retained raw/semantic property text. Nodes after the
+/// budget is spent keep their structural attributes but no property map.
+const MAX_RETAINED_PROPERTY_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_RETAINED_PROPERTY_ENTRIES: usize = 256;
+const MAX_RETAINED_PROPERTY_KEY_BYTES: usize = 512;
+const MAX_RETAINED_PROPERTY_VALUE_BYTES: usize = 8 * 1024;
+const MAX_RETAINED_TEXT_BYTES: usize = 64 * 1024;
+
+/// Nullable/defaulted protocol fields may be omitted; Kotlin's serializer also
+/// emits explicit null for some producers. Both mean "absent" here.
+fn optional_bool(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<bool>, InspectorError> {
+    match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_bool()
+            .map(Some)
+            .ok_or(InspectorError::InvalidSnapshot),
+    }
+}
+
+fn optional_i32(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<i32>, InspectorError> {
+    match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .and_then(|value| value.try_into().ok())
+            .map(Some)
+            .ok_or(InspectorError::InvalidSnapshot),
+    }
+}
+
+fn optional_f32(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<f32>, InspectorError> {
+    match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => {
+            let value = value.as_f64().ok_or(InspectorError::InvalidSnapshot)?;
+            if !value.is_finite() {
+                return Err(InspectorError::InvalidSnapshot);
+            }
+            Ok(Some(value as f32))
+        }
+    }
+}
+
+fn clipped_text(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_owned();
+    }
+    let mut end = limit;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
+
+fn optional_text(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+    limit: usize,
+) -> Result<Option<String>, InspectorError> {
+    match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_str()
+            .map(|value| clipped_text(value, limit))
+            .map(Some)
+            .ok_or(InspectorError::InvalidSnapshot),
+    }
+}
+
+fn optional_bounds(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<Bounds>, InspectorError> {
+    match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => bounds(value).map(Some),
+    }
+}
+
+fn optional_insets(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<EdgeInsets>, InspectorError> {
+    let Some(value) = map.get(key).filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let insets = object(value)?;
+    // Kotlin's `EdgeInsets` fields default to 0 and `encodeDefaults=false`
+    // omits zero sides, so only present keys are read.
+    let value = |key: &str| -> Result<i32, InspectorError> {
+        match insets.get(key) {
+            None | Some(Value::Null) => Ok(0),
+            Some(_) => integer(insets, key)?
+                .try_into()
+                .map_err(|_| InspectorError::InvalidSnapshot),
+        }
+    };
+    Ok(Some(EdgeInsets {
+        left: value("left")?,
+        top: value("top")?,
+        right: value("right")?,
+        bottom: value("bottom")?,
+    }))
+}
+
+fn retained_properties(
+    value: Option<&Value>,
+    budget: &mut u64,
+) -> Result<std::collections::BTreeMap<String, String>, InspectorError> {
+    let mut properties = std::collections::BTreeMap::new();
+    let Some(value) = value else {
+        return Ok(properties);
+    };
+    let map = object(value)?;
+    for (key, value) in map {
+        if properties.len() >= MAX_RETAINED_PROPERTY_ENTRIES || *budget == 0 {
+            break;
+        }
+        // Maps are typed as String->String in the protocol; tolerate null or
+        // non-string vendor entries by skipping them instead of rejecting an
+        // otherwise valid saved archive.
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        if key.len() > MAX_RETAINED_PROPERTY_KEY_BYTES {
+            continue;
+        }
+        let value = clipped_text(value, MAX_RETAINED_PROPERTY_VALUE_BYTES);
+        let retained = (key.len() + value.len()) as u64;
+        if retained > *budget {
+            break;
+        }
+        *budget -= retained;
+        properties.insert(key.clone(), value);
+    }
+    Ok(properties)
+}
+
+fn parse_attributes(
+    value: Option<&Value>,
+    budget: &mut u64,
+) -> Result<ViewAttributes, InspectorError> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(ViewAttributes::default());
+    };
+    let map = object(value)?;
+    Ok(ViewAttributes {
+        visibility: optional_text(map, "visibility", 64)?,
+        layout_bounds: optional_bounds(map, "layoutBounds")?,
+        elevation: optional_f32(map, "elevation")?,
+        z: optional_f32(map, "z")?,
+        translation_x: optional_f32(map, "translationX")?,
+        translation_y: optional_f32(map, "translationY")?,
+        translation_z: optional_f32(map, "translationZ")?,
+        rotation: optional_f32(map, "rotation")?,
+        rotation_x: optional_f32(map, "rotationX")?,
+        rotation_y: optional_f32(map, "rotationY")?,
+        scale_x: optional_f32(map, "scaleX")?,
+        scale_y: optional_f32(map, "scaleY")?,
+        pivot_x: optional_f32(map, "pivotX")?,
+        pivot_y: optional_f32(map, "pivotY")?,
+        padding: optional_insets(map, "padding")?,
+        margin: optional_insets(map, "margin")?,
+        layout_width: optional_i32(map, "layoutWidth")?,
+        layout_height: optional_i32(map, "layoutHeight")?,
+        layout_params_class: optional_text(map, "layoutParamsClass", 512)?,
+        measured_width: optional_i32(map, "measuredWidth")?,
+        measured_height: optional_i32(map, "measuredHeight")?,
+        min_width: optional_i32(map, "minWidth")?,
+        min_height: optional_i32(map, "minHeight")?,
+        scroll_x: optional_i32(map, "scrollX")?,
+        scroll_y: optional_i32(map, "scrollY")?,
+        clip_bounds: optional_bounds(map, "clipBounds")?,
+        clip_children: optional_bool(map, "clipChildren")?,
+        clip_to_padding: optional_bool(map, "clipToPadding")?,
+        background: optional_text(map, "background", 4096)?,
+        background_color: optional_text(map, "backgroundColor", 4096)?,
+        foreground: optional_text(map, "foreground", 4096)?,
+        opaque: optional_bool(map, "opaque")?,
+        will_not_draw: optional_bool(map, "willNotDraw")?,
+        hardware_accelerated: optional_bool(map, "hardwareAccelerated")?,
+        layer_type: optional_text(map, "layerType", 4096)?,
+        layout_requested: optional_bool(map, "layoutRequested")?,
+        enabled: optional_bool(map, "enabled")?,
+        clickable: optional_bool(map, "clickable")?,
+        long_clickable: optional_bool(map, "longClickable")?,
+        focusable: optional_bool(map, "focusable")?,
+        focused: optional_bool(map, "focused")?,
+        selected: optional_bool(map, "selected")?,
+        content_description: optional_text(map, "contentDescription", 4096)?,
+        raw_properties: retained_properties(map.get("rawProperties"), budget)?,
+        semantic_properties: retained_properties(map.get("semanticProperties"), budget)?,
     })
 }
 
@@ -733,6 +1064,7 @@ fn flatten(
     nodes: &mut Vec<LayoutNode>,
     ids: &mut BTreeSet<String>,
     total: &mut usize,
+    raw_budget: &mut u64,
 ) -> Result<(), InspectorError> {
     if depth > 64 || *total >= MAX_NODES {
         return Err(InspectorError::Limit);
@@ -755,6 +1087,13 @@ fn flatten(
         return Err(InspectorError::InvalidSnapshot);
     }
     let index = nodes.len();
+    // Attributes are display-only. A malformed optional field must not reject an
+    // otherwise valid saved archive; structural fields stay strict.
+    let mut attributes = parse_attributes(map.get("attributes"), raw_budget).unwrap_or_default();
+    // Compose nodes carry semanticProperties on the node itself; keep them in
+    // the same bounded map the Evidence tab displays.
+    attributes.semantic_properties =
+        retained_properties(map.get("semanticProperties"), raw_budget).unwrap_or_default();
     nodes.push(LayoutNode {
         id,
         kind,
@@ -763,24 +1102,270 @@ fn flatten(
         depth,
         bounds: bounds(map.get("bounds").ok_or(InspectorError::InvalidSnapshot)?)?,
         visible: match map.get("visible") {
-            None => true,
+            None | Some(Value::Null) => true,
             Some(value) => value.as_bool().ok_or(InspectorError::InvalidSnapshot)?,
         },
         alpha,
-        resource_name: map
-            .get("resourceName")
-            .and_then(Value::as_str)
-            .filter(|v| v.len() <= 4096)
-            .map(str::to_owned),
-        runtime_values_omitted: true,
+        resource_name: optional_text(map, "resourceName", 4096)?,
+        text: optional_text(map, "text", MAX_RETAINED_TEXT_BYTES)?,
+        semantics_role: optional_text(map, "semanticsRole", 512)?,
+        attributes,
     });
     *total += 1;
     if let Some(children) = map.get("children") {
         for child in children.as_array().ok_or(InspectorError::InvalidSnapshot)? {
-            flatten(child, Some(index), depth + 1, nodes, ids, total)?;
+            flatten(child, Some(index), depth + 1, nodes, ids, total, raw_budget)?;
         }
     }
     Ok(())
+}
+
+const MAX_COMPOSE_NODES: usize = 100_000;
+const MAX_COMPOSE_DETAIL_NODES: usize = 20_000;
+const MAX_COMPOSE_DETAIL_VALUES: usize = 512;
+const MAX_COMPOSE_VALUE_DEPTH: usize = 8;
+const MAX_COMPOSE_TOTAL_VALUES: usize = 200_000;
+const MAX_COMPOSE_TEXT_BYTES: usize = 4 * 1024;
+const MAX_COMPOSE_STATE_READS: usize = 20_000;
+const MAX_COMPOSE_FLAGS: usize = 32;
+
+fn optional_u32(
+    map: &aps_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<u32>, InspectorError> {
+    match map.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
+            .and_then(|value| u32::try_from(value).ok())
+            .map(Some)
+            .ok_or(InspectorError::InvalidSnapshot),
+    }
+}
+
+fn parse_compose_source(value: &Value) -> Result<ComposeSourceLocation, InspectorError> {
+    let map = object(value)?;
+    Ok(ComposeSourceLocation {
+        package_hash: integer(map, "packageHash")?
+            .try_into()
+            .map_err(|_| InspectorError::InvalidSnapshot)?,
+        file_name: text(map, "fileName")?.to_owned(),
+        line_number: unsigned(map, "lineNumber")?,
+        offset: unsigned(map, "offset")?,
+    })
+}
+
+fn parse_compose_node(
+    value: &Value,
+    nodes: &mut std::collections::BTreeMap<i64, ComposeNodeEvidence>,
+) -> Result<(), InspectorError> {
+    if nodes.len() >= MAX_COMPOSE_NODES {
+        return Ok(());
+    }
+    let map = object(value)?;
+    let node_id = integer(map, "id")?;
+    let source = match map.get("source").filter(|value| !value.is_null()) {
+        None => None,
+        Some(value) => Some(parse_compose_source(value)?),
+    };
+    let mut flags = Vec::new();
+    if let Some(values) = map.get("flags") {
+        for value in values.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+            if flags.len() >= MAX_COMPOSE_FLAGS {
+                break;
+            }
+            flags.push(clipped_text(
+                value.as_str().ok_or(InspectorError::InvalidSnapshot)?,
+                256,
+            ));
+        }
+    }
+    nodes.insert(
+        node_id,
+        ComposeNodeEvidence {
+            node_id,
+            anchor_hash: integer(map, "anchorHash")?
+                .try_into()
+                .map_err(|_| InspectorError::InvalidSnapshot)?,
+            name: clipped_text(text(map, "name")?, MAX_COMPOSE_TEXT_BYTES),
+            source,
+            recompose_count: optional_u32(map, "recomposeCount")?,
+            skip_count: optional_u32(map, "skipCount")?,
+            system_created: optional_bool(map, "systemCreated")?.unwrap_or(false),
+            flags,
+        },
+    );
+    if let Some(children) = map.get("children").filter(|value| !value.is_null()) {
+        for child in children.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+            parse_compose_node(child, nodes)?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_compose_nodes(
+    frame: &aps_json::Map<String, Value>,
+) -> Result<std::collections::BTreeMap<i64, ComposeNodeEvidence>, InspectorError> {
+    let mut nodes = std::collections::BTreeMap::new();
+    let Some(roots) = frame.get("roots") else {
+        return Ok(nodes);
+    };
+    for root in roots.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+        let root = object(root)?;
+        let Some(children) = root.get("nodes").filter(|value| !value.is_null()) else {
+            continue;
+        };
+        for child in children.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+            parse_compose_node(child, &mut nodes)?;
+        }
+    }
+    Ok(nodes)
+}
+
+fn parse_compose_values(
+    value: Option<&Value>,
+    depth: usize,
+    budget: &mut usize,
+) -> Result<Vec<ComposeValueEvidence>, InspectorError> {
+    if depth > MAX_COMPOSE_VALUE_DEPTH || *budget == 0 {
+        return Ok(Vec::new());
+    }
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(Vec::new());
+    };
+    let mut values = Vec::new();
+    for value in value.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+        if values.len() >= MAX_COMPOSE_DETAIL_VALUES || *budget == 0 {
+            break;
+        }
+        let map = object(value)?;
+        let elements = parse_compose_values(map.get("elements"), depth + 1, budget)?;
+        *budget = (*budget).saturating_sub(1);
+        values.push(ComposeValueEvidence {
+            name: clipped_text(text(map, "name")?, MAX_COMPOSE_TEXT_BYTES),
+            type_name: clipped_text(text(map, "type")?, MAX_COMPOSE_TEXT_BYTES),
+            value: optional_text(map, "value", MAX_COMPOSE_TEXT_BYTES)?,
+            truncated: optional_bool(map, "truncated")?.unwrap_or(false),
+            elements,
+        });
+    }
+    Ok(values)
+}
+
+fn parse_compose_details(
+    frame: &aps_json::Map<String, Value>,
+) -> Result<std::collections::BTreeMap<i64, ComposeDetailEvidence>, InspectorError> {
+    let mut details = std::collections::BTreeMap::new();
+    let Some(values) = frame.get("details").filter(|value| !value.is_null()) else {
+        return Ok(details);
+    };
+    let mut budget = MAX_COMPOSE_TOTAL_VALUES;
+    for (key, value) in values.as_object().ok_or(InspectorError::InvalidSnapshot)? {
+        if details.len() >= MAX_COMPOSE_DETAIL_NODES || budget == 0 {
+            break;
+        }
+        let Ok(node_id) = key.parse::<i64>() else {
+            continue;
+        };
+        let detail = object(value)?;
+        details.insert(
+            node_id,
+            ComposeDetailEvidence {
+                parameters: parse_compose_values(detail.get("parameters"), 0, &mut budget)?,
+                modifiers: parse_compose_values(detail.get("modifiers"), 0, &mut budget)?,
+                merged_semantics: parse_compose_values(
+                    detail.get("mergedSemantics"),
+                    0,
+                    &mut budget,
+                )?,
+                unmerged_semantics: parse_compose_values(
+                    detail.get("unmergedSemantics"),
+                    0,
+                    &mut budget,
+                )?,
+            },
+        );
+    }
+    Ok(details)
+}
+
+fn parse_compose_state_reads(
+    frame: &aps_json::Map<String, Value>,
+) -> Result<std::collections::BTreeMap<i32, Vec<ComposeStateReadEvidence>>, InspectorError> {
+    let mut reads_by_anchor = std::collections::BTreeMap::new();
+    let Some(values) = frame.get("stateReads").filter(|value| !value.is_null()) else {
+        return Ok(reads_by_anchor);
+    };
+    let mut total = 0usize;
+    for (key, value) in values.as_object().ok_or(InspectorError::InvalidSnapshot)? {
+        let Ok(anchor) = key.parse::<i32>() else {
+            continue;
+        };
+        let mut all_reads = Vec::new();
+        for group in value.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+            if total >= MAX_COMPOSE_STATE_READS {
+                break;
+            }
+            let group = object(group)?;
+            let number = integer(group, "recompositionNumber")?
+                .try_into()
+                .map_err(|_| InspectorError::InvalidSnapshot)?;
+            let mut reads = Vec::new();
+            if let Some(values) = group.get("reads").filter(|value| !value.is_null()) {
+                for read in values.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+                    if total >= MAX_COMPOSE_STATE_READS {
+                        break;
+                    }
+                    let read = object(read)?;
+                    let (value_name, value_text) =
+                        match read.get("value").filter(|value| !value.is_null()) {
+                            None => (None, None),
+                            Some(value) => {
+                                let value = object(value)?;
+                                (
+                                    optional_text(value, "name", MAX_COMPOSE_TEXT_BYTES)?,
+                                    optional_text(value, "value", MAX_COMPOSE_TEXT_BYTES)?,
+                                )
+                            }
+                        };
+                    let mut top_frame = None;
+                    if let Some(stack) = read.get("stackTrace").filter(|value| !value.is_null()) {
+                        for line in stack.as_array().ok_or(InspectorError::InvalidSnapshot)? {
+                            let line = object(line)?;
+                            let file = line
+                                .get("fileName")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
+                            if file.is_empty() {
+                                continue;
+                            }
+                            let line_number =
+                                line.get("lineNumber").and_then(Value::as_i64).unwrap_or(-1);
+                            top_frame = Some(if line_number >= 0 {
+                                format!("{file}:{line_number}")
+                            } else {
+                                file.to_owned()
+                            });
+                            break;
+                        }
+                    }
+                    reads.push(ComposeStateReadEvidence {
+                        recomposition_number: number,
+                        value_name,
+                        value_text,
+                        invalidated: optional_bool(read, "invalidated")?.unwrap_or(false),
+                        top_frame,
+                    });
+                    total += 1;
+                }
+            }
+            all_reads.extend(reads);
+        }
+        if !all_reads.is_empty() {
+            reads_by_anchor.insert(anchor, all_reads);
+        }
+    }
+    Ok(reads_by_anchor)
 }
 
 fn parse_compose(
@@ -876,6 +1461,11 @@ fn parse_compose(
         }
     }
     let count = |key| frame.get(key).and_then(Value::as_array).map_or(0, Vec::len);
+    // Per-node Compose data is display-only: a malformed optional part must not
+    // reject an otherwise valid saved archive.
+    let nodes = parse_compose_nodes(frame).unwrap_or_default();
+    let details = parse_compose_details(frame).unwrap_or_default();
+    let state_reads = parse_compose_state_reads(frame).unwrap_or_default();
     Ok(ComposeEvidence {
         frame_id: text(frame, "frameId")?.to_owned(),
         generation: unsigned(frame, "generation")?,
@@ -890,6 +1480,9 @@ fn parse_compose(
         coverage,
         coverage_record_count: count("coverage"),
         truncation_count: count("truncations"),
-        details_available: false,
+        details_available: !details.is_empty() || !nodes.is_empty(),
+        nodes,
+        details,
+        state_reads,
     })
 }

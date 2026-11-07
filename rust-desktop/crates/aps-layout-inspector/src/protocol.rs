@@ -197,6 +197,7 @@ fn parse_frame(
         windows,
         default_window_id,
         screenshot: None,
+        screenshot_png: None,
         compose: None,
     })
 }
@@ -257,7 +258,9 @@ fn parse_node(value: &Value) -> Result<LayoutNode, String> {
         resource_name: field(map, "resourceName")?
             .nullable_str()?
             .map(str::to_owned),
-        runtime_values_omitted: true,
+        text: None,
+        semantics_role: None,
+        attributes: Default::default(),
     })
 }
 

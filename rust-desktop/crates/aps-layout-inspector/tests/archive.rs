@@ -71,8 +71,9 @@ fn imports_native_zip_and_preserves_frame_hierarchy_canvas_properties() {
     assert_eq!(nodes[1].kind, NodeKind::Compose);
     assert_eq!(nodes[1].parent_index, Some(0));
     assert_eq!(nodes[1].bounds.left, 10);
-    assert!(nodes[0].runtime_values_omitted);
-    assert!(!format!("{nodes:?}").contains("sensitive runtime content"));
+    // Runtime text is now retained (bounded) for Compose-parity properties.
+    assert_eq!(nodes[0].text.as_deref(), Some("sensitive runtime content"));
+    assert!(nodes[0].attributes.raw_properties.is_empty());
     assert!(
         !archive
             .canvas(&archive.default_window_id)
@@ -90,6 +91,63 @@ fn imports_native_zip_and_preserves_frame_hierarchy_canvas_properties() {
         archive.hierarchy(&archive.default_window_id, 0, 201),
         Err(InspectorError::InvalidPage)
     ));
+}
+
+#[test]
+fn accepts_compose_style_omitted_inset_sides_and_node_semantics() {
+    // Compose encodes `EdgeInsets` with `encodeDefaults=false`, so zero sides
+    // are omitted, and Compose nodes keep semanticProperties on the node.
+    let snapshot = SNAPSHOT.replace(
+        "\"text\":\"sensitive runtime content\"",
+        "\"text\":\"hello\",\"attributes\":{\"padding\":{\"left\":16,\"right\":16},\"margin\":{\"top\":8},\"layoutRequested\":null,\"rawProperties\":{\"text:mText\":\"hello\"}},\"semanticProperties\":{\"semantics\":\"Button\"}",
+    );
+    let file = fixture(&snapshot, None, None);
+    let archive = InspectorArchive::open(&file.0, &CancellationToken::new()).unwrap();
+    let root = &archive.windows[0].nodes[0];
+    let padding = root.attributes.padding.expect("padding retained");
+    assert_eq!(
+        (padding.left, padding.top, padding.right, padding.bottom),
+        (16, 0, 16, 0)
+    );
+    let margin = root.attributes.margin.expect("margin retained");
+    assert_eq!(
+        (margin.left, margin.top, margin.right, margin.bottom),
+        (0, 8, 0, 0)
+    );
+    assert_eq!(root.attributes.layout_requested, None);
+    assert_eq!(
+        root.attributes
+            .semantic_properties
+            .get("semantics")
+            .map(String::as_str),
+        Some("Button")
+    );
+}
+
+#[test]
+fn retains_bounded_protocol_attributes_text_and_raw_properties() {
+    let snapshot = SNAPSHOT.replace(
+        "\"text\":\"sensitive runtime content\"",
+        "\"text\":\"hello\",\"attributes\":{\"visibility\":\"VISIBLE\",\"layoutWidth\":-1,\"measuredWidth\":1080,\"measuredHeight\":2160,\"padding\":{\"left\":1,\"top\":2,\"right\":3,\"bottom\":4},\"elevation\":8.0,\"clipChildren\":true,\"rawProperties\":{\"text:mText\":\"hello\"}}",
+    );
+    let file = fixture(&snapshot, None, None);
+    let archive = InspectorArchive::open(&file.0, &CancellationToken::new()).unwrap();
+    let root = &archive.windows[0].nodes[0];
+    assert_eq!(root.text.as_deref(), Some("hello"));
+    assert_eq!(root.attributes.visibility.as_deref(), Some("VISIBLE"));
+    assert_eq!(root.attributes.layout_width, Some(-1));
+    assert_eq!(root.attributes.measured_width, Some(1080));
+    assert_eq!(root.attributes.measured_height, Some(2160));
+    assert_eq!(root.attributes.padding.map(|insets| insets.right), Some(3));
+    assert_eq!(root.attributes.elevation, Some(8.0));
+    assert_eq!(root.attributes.clip_children, Some(true));
+    assert_eq!(
+        root.attributes
+            .raw_properties
+            .get("text:mText")
+            .map(String::as_str),
+        Some("hello")
+    );
 }
 
 #[test]

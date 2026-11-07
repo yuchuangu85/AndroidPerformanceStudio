@@ -33,12 +33,21 @@ configuration, so large/deep archives can be rejected rather than truncated.
 
 UI-independent three-panel contracts are `hierarchy(window,offset,limit)` (<=200
 nodes), `canvas(window)` (same physical-pixel display/window bounds), and
-`properties(window,node)`. Runtime text, semantics values, window titles and raw
-properties are deliberately not retained in this initial projection; every node
-states `runtime_values_omitted=true`. This is not a complete Layout Inspector
-property migration. Screenshot bytes are integrity checked but not retained or
-decoded; canvas screenshot availability means verified archive evidence exists,
-not that a screenshot is render-ready.
+`properties(window,node)`. Nodes now retain the bounded structural projection
+Compose displays: node text (<=64 KiB), semantics role, and the protocol
+`ViewAttributes` fields used by the Layout/Drawing/Interaction sections. Raw and
+semantic property maps are capped per node (256 entries, 512-byte names, 8 KiB
+values) and by a 4 MiB archive-wide budget; once the budget is spent later nodes
+keep structural attributes but no property map. The Compose inspection sidecar
+now also yields a bounded per-node projection for the Compose category that the
+host only renders while the Compose Agent toggle is on: node name/source/
+recompose+skip counts/systemCreated/flags, parameters/modifiers/merged+unmerged
+semantics (value depth <=8, <=512 rows per list, <=200k retained values total,
+4 KiB per text value) and state-read groups (<=20k reads) plus the existing
+coverage records. Malformed optional sidecar content falls back to an empty
+projection instead of rejecting the archive. Screenshot bytes are retained after
+the same integrity validation so the host can decode and draw the canvas image;
+the adapter itself never decodes pixels.
 
 Compose metadata retains frameId/generation/mode, producer-declared privacy and
 completeness, capability availability and exact coverage identities/states/counts.
