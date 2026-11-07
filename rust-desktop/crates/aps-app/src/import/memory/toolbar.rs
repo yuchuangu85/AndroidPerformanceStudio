@@ -1,7 +1,12 @@
 //! Memory Profiler toolbar, snapshot tabs, evidence strip and status bar.
+//!
+//! Layout mirrors the Compose MemoryProfilerMainPage: capture actions and view
+//! modes in a 40 dp command bar, a 32 dp snapshot tab row, the collapsible
+//! evidence strip and the operation status bar.
 use super::super::*;
 use super::ImportWorkspace;
 use super::state::MemoryViewMode;
+use super::widgets::{self, memory_colors, toolbar_button};
 use crate::studio::{self, StudioColors};
 use aps_ui_foundation::{Destination, TextKey, typography};
 use gpui_kit::{prelude::*, *};
@@ -26,45 +31,35 @@ impl ImportWorkspace {
             .px(px(8.))
             .bg(colors.toolbar)
             .overflow_x_scrollbar()
-            .child(
-                studio::compact_text_button(
-                    "memory-import-hprof",
-                    language.text(TextKey::MemoryAppImportHprof),
-                    !busy,
-                    true,
-                    colors,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.pick(cx))),
-            )
-            .child(studio::compact_text_button(
+            .child(toolbar_button(
                 "memory-dump-heap",
                 language.text(TextKey::MemoryPageDumpHeap),
                 false,
                 false,
                 colors,
             ))
-            .child(studio::compact_text_button(
+            .child(toolbar_button(
                 "memory-capture-native-heap",
                 language.text(TextKey::MemoryPageCaptureNativeHeap),
                 false,
                 false,
                 colors,
             ))
-            .child(studio::compact_text_button(
+            .child(toolbar_button(
                 "memory-record-art-samples",
                 language.text(TextKey::MemoryAppRecordSampledArt),
                 false,
                 false,
                 colors,
             ))
-            .child(studio::compact_text_button(
+            .child(toolbar_button(
                 "memory-dump-bitmaps",
                 language.text(TextKey::MemoryPageDumpBitmaps),
                 false,
                 false,
                 colors,
             ))
-            .child(studio::compact_text_button(
+            .child(toolbar_button(
                 "memory-inject-agent",
                 language.text(TextKey::MemoryAppInjectLeakCanaryAgent),
                 false,
@@ -75,14 +70,13 @@ impl ImportWorkspace {
         let current = self.memory_state.view_mode;
         for mode in MemoryViewMode::PRIMARY {
             row = row.child(
-                studio::compact_text_button(
+                toolbar_button(
                     ("memory-view", mode as usize),
                     language.text(mode.label()),
-                    loaded,
-                    false,
+                    true,
+                    current == mode,
                     colors,
                 )
-                .selected(current == mode)
                 .on_click(cx.listener(move |this, _, _, cx| this.memory_set_view_mode(mode, cx))),
             );
         }
@@ -94,43 +88,35 @@ impl ImportWorkspace {
         ] {
             let enabled = match mode {
                 MemoryViewMode::BitmapDump | MemoryViewMode::NativeHeap => false,
-                MemoryViewMode::SampledArt => false,
+                MemoryViewMode::SampledArt => true,
                 MemoryViewMode::LeakAnalysis => loaded,
                 _ => loaded,
             };
             row = row.child(
-                studio::compact_text_button(
+                toolbar_button(
                     ("memory-aux-view", mode as usize),
                     language.text(mode.label()),
                     enabled,
-                    false,
+                    current == mode,
                     colors,
                 )
-                .selected(current == mode)
                 .on_click(cx.listener(move |this, _, _, cx| this.memory_set_view_mode(mode, cx))),
             );
         }
         row = row
             .child(div().flex_1())
             .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-mapping",
                     language.text(TextKey::MemoryPageMemoryMapping),
-                    false,
+                    self.memory_mapping_enabled(),
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.memory_state.notice = Some(
-                        this.language
-                            .text(TextKey::MemoryPageMappingUnavailable)
-                            .to_owned(),
-                    );
-                    cx.notify();
-                })),
+                .on_click(cx.listener(|this, _, _, cx| this.memory_pick_mapping(cx))),
             )
             .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-run-ai-analysis",
                     language.text(TextKey::FoundationAiAnalysis),
                     loaded,
@@ -147,16 +133,6 @@ impl ImportWorkspace {
                             .ok();
                     }
                 })),
-            )
-            .child(
-                studio::compact_text_button(
-                    "memory-close-snapshot",
-                    language.text(TextKey::CommonClose),
-                    loaded,
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
             );
         row.into_any_element()
     }
@@ -169,7 +145,7 @@ impl ImportWorkspace {
         let language = self.language;
         let tabs = self.memory_snapshot_tabs();
         if tabs.is_empty() {
-            return div().h(px(32.)).flex_shrink_0().into_any_element();
+            return div().h(px(0.)).flex_shrink_0().into_any_element();
         }
         let mut row = div()
             .id("memory-snapshot-tabs")
@@ -177,55 +153,67 @@ impl ImportWorkspace {
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap_2()
+            .gap(px(8.))
             .px(px(8.))
+            .bg(colors.toolbar)
             .overflow_x_scrollbar()
-            .child(studio::supporting(
-                language.text(TextKey::MemoryPageSnapshots),
-                colors,
-            ));
-        for (id, label, active) in tabs {
-            row = row.child(
+            .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .min_w(px(120.))
-                    .max_w(px(260.))
-                    .border_1()
-                    .border_color(if active { colors.accent } else { colors.border })
-                    .rounded(px(2.))
-                    .bg(if active {
-                        colors.selected_row
-                    } else {
-                        colors.panel
-                    })
-                    .child(
-                        studio::compact_text_button(
-                            ("memory-snapshot-tab", id),
-                            label,
-                            !self.memory_state.loading,
-                            false,
-                            colors,
-                        )
-                        .selected(active)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.select_memory_snapshot(id, cx)),
-                        ),
-                    )
-                    .child(
-                        studio::compact_text_button(
-                            ("memory-snapshot-close", id),
-                            "×",
-                            true,
-                            false,
-                            colors,
-                        )
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.close_memory_snapshot(id, cx)),
-                        ),
-                    ),
+                    .text_size(px(typography::BODY))
+                    .line_height(px(16.))
+                    .text_color(colors.secondary_text)
+                    .child(language.text(TextKey::MemoryPageSnapshots)),
             );
+        for (id, label, active) in tabs {
+            let mut tab = div()
+                .id(("memory-snapshot-tab", id))
+                .h(px(28.))
+                .min_w(px(120.))
+                .max_w(px(260.))
+                .flex()
+                .items_center()
+                .border_1()
+                .border_color(colors.border)
+                .rounded(px(0.))
+                .bg(if active {
+                    colors.selected_row
+                } else {
+                    colors.panel
+                })
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .px(px(8.))
+                        .text_size(px(typography::BODY))
+                        .line_height(px(16.))
+                        .font_weight(if active {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .text_color(colors.text)
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(label),
+                );
+            tab = tab.child(
+                widgets::icon_button(
+                    ("memory-snapshot-close", id),
+                    "×",
+                    !self.memory_state.loading,
+                    active,
+                    colors,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.close_memory_snapshot(id, cx);
+                })),
+            );
+            tab = tab
+                .on_click(cx.listener(move |this, _, _, cx| this.select_memory_snapshot(id, cx)));
+            row = row.child(tab);
         }
         row.into_any_element()
     }
@@ -251,20 +239,42 @@ impl ImportWorkspace {
                     .id("memory-evidence-toggle")
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(10.))
                     .px(px(12.))
-                    .py(px(4.))
+                    .py(px(6.))
                     .cursor_pointer()
-                    .child(studio::supporting(if open { "▾" } else { "▸" }, colors))
-                    .child(studio::supporting(
-                        language.text(TextKey::MemoryPageMemoryEvidence),
-                        colors,
-                    ))
-                    .child(div().flex_1().min_w_0().child(studio::supporting(
-                        self.memory_state.snapshot_label.clone(),
-                        colors,
-                    )))
-                    .child(studio::supporting(warning_count.to_string(), colors))
+                    .child(
+                        div()
+                            .w(px(12.))
+                            .text_size(px(typography::BODY))
+                            .text_color(colors.secondary_text)
+                            .child(if open { "▾" } else { "▸" }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(typography::BODY))
+                            .line_height(px(16.))
+                            .text_color(colors.secondary_text)
+                            .child(language.text(TextKey::MemoryPageMemoryEvidence)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(typography::BODY))
+                            .line_height(px(16.))
+                            .text_color(colors.secondary_text)
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(self.memory_state.snapshot_label.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(typography::BODY))
+                            .line_height(px(16.))
+                            .text_color(colors.warning)
+                            .child(warning_count.to_string()),
+                    )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.memory_state.warnings_open = !this.memory_state.warnings_open;
                         cx.notify();
@@ -279,13 +289,21 @@ impl ImportWorkspace {
                 .pb(px(6.))
                 .flex()
                 .flex_col()
-                .gap(px(2.))
+                .gap(px(6.))
                 .child(studio::section_title(
                     language.text(TextKey::MemoryPageMemoryEvidence),
                     colors,
                 ));
-            for line in evidence_lines(&snapshot, language) {
-                panel = panel.child(studio::supporting(line, colors));
+            let mapping_loaded = self.memory_state.mapping_loaded;
+            let mapping_entries = self.memory_state.mapping_entries;
+            for line in evidence_lines(&snapshot, mapping_loaded, mapping_entries, language) {
+                panel = panel.child(
+                    div()
+                        .text_size(px(typography::SUPPORTING))
+                        .line_height(px(15.))
+                        .text_color(colors.secondary_text)
+                        .child(line),
+                );
             }
             strip = strip.child(panel);
         }
@@ -314,7 +332,7 @@ impl ImportWorkspace {
         }
         let mut row = div()
             .id("memory-profiler-status-bar")
-            .h(px(26.))
+            .h(px(29.))
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -326,20 +344,22 @@ impl ImportWorkspace {
             .overflow_x_scrollbar();
         if loading {
             row = row
-                .child(studio::supporting(
-                    format!(
-                        "{}…",
-                        self.memory_state
-                            .loading_message
-                            .clone()
-                            .unwrap_or_else(|| language
-                                .text(TextKey::MemoryPageWorking)
-                                .to_owned())
-                    ),
-                    colors,
-                ))
                 .child(
-                    studio::compact_text_button(
+                    div()
+                        .text_size(px(typography::SUPPORTING))
+                        .text_color(colors.secondary_text)
+                        .child(format!(
+                            "{}…",
+                            self.memory_state
+                                .loading_message
+                                .clone()
+                                .unwrap_or_else(|| {
+                                    language.text(TextKey::MemoryPageWorking).to_owned()
+                                })
+                        )),
+                )
+                .child(
+                    toolbar_button(
                         "memory-cancel-load",
                         language.text(TextKey::ImportCancelOperation),
                         true,
@@ -354,7 +374,7 @@ impl ImportWorkspace {
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(colors.error)
-                    .child(crate::studio::selectable(error)),
+                    .child(error),
             );
         }
         if let Some(notice) = notice {
@@ -362,7 +382,7 @@ impl ImportWorkspace {
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(colors.warning)
-                    .child(crate::studio::selectable(notice)),
+                    .child(notice),
             );
         }
         row.into_any_element()
@@ -371,6 +391,8 @@ impl ImportWorkspace {
 
 fn evidence_lines(
     snapshot: &aps_memory::MemorySnapshot,
+    mapping_loaded: bool,
+    mapping_entries: usize,
     language: aps_ui_foundation::Language,
 ) -> Vec<String> {
     let mut lines = vec![
@@ -404,6 +426,20 @@ fn evidence_lines(
         lines.push(format!(
             "{}: {warning}",
             language.text(TextKey::MemoryPageWarning)
+        ));
+    }
+    if mapping_loaded {
+        lines.push(format!(
+            "{}: {} ({} entries)",
+            language.text(TextKey::MemoryPageMemoryMapping),
+            language.text(TextKey::MemoryPageMappingLoadedNote),
+            mapping_entries
+        ));
+    } else {
+        lines.push(format!(
+            "{}: {}",
+            language.text(TextKey::MemoryPageMemoryMapping),
+            language.text(TextKey::MemoryAppMappingNotLoadedHint)
         ));
     }
     lines

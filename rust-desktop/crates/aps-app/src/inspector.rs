@@ -4566,3 +4566,24 @@ mod tests {
         );
     }
 }
+
+/// Route-shortcut entry points (IDEA-style window shortcuts).
+impl InspectorWorkspace {
+    /// IDEA Find (Cmd+F): focuses the hierarchy search field.
+    pub(crate) fn focus_search_primary(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search.update(cx, |state, cx| {
+            state.focus_handle(cx).focus(window, cx);
+        });
+    }
+
+    /// IDEA Hide All Tool Windows (Shift+Cmd+F12): hides every pane, or restores
+    /// them when all panes are already hidden.
+    pub(crate) fn toggle_all_panes(&mut self, cx: &mut Context<Self>) {
+        let any_visible = self.show_hierarchy || self.show_findings || self.show_details;
+        self.show_hierarchy = !any_visible;
+        self.show_findings = !any_visible;
+        self.show_details = !any_visible;
+        cx.emit(InspectorPanelsChanged);
+        cx.notify();
+    }
+}

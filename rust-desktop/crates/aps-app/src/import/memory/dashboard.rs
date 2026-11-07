@@ -7,7 +7,10 @@
 //! ascending). Class names are matched by name only; no metric is inferred.
 use super::ImportWorkspace;
 use super::comparison::{display_class_name, format_bytes, format_count, row_background};
-use super::state::{DashboardSort, memory_row_height};
+use super::state::DashboardSort;
+use super::widgets::{
+    TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, metric_cell,
+};
 use crate::studio::{self, StudioColors};
 use aps_memory::ClassStats;
 use aps_ui_foundation::{Language, TextKey, typography};
@@ -33,28 +36,53 @@ fn metric_value(loaded: bool, value: String, unavailable: &str) -> String {
     }
 }
 
-fn metric_cell_flex(text: String, color: Rgba) -> Div {
+/// Compose StudioMetricCard: accent-tinted card with a semibold 13 px accent
+/// label over a 16/19 semibold value. Card interior is 8 px padding + 4 px
+/// spacing, so the row is 58 px tall (the Compose overview card measures 58).
+fn overview_metric_card(
+    index: usize,
+    label: &'static str,
+    value: String,
+    colors: &StudioColors,
+) -> Stateful<Div> {
+    let background = colors.panel.blend(colors.accent.alpha(0.1));
     div()
+        .id(("memory-overview-metric", index))
         .flex_1()
-        .min_w_0()
-        .text_size(px(typography::SUPPORTING))
-        .text_color(color)
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .child(crate::studio::selectable(text))
+        .min_w(px(140.))
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .p(px(8.))
+        .bg(background)
+        .border_1()
+        .border_color(colors.accent.alpha(0.5))
+        .rounded(px(studio::metrics::CARD_RADIUS))
+        .child(
+            div()
+                .text_size(px(typography::BODY))
+                .line_height(px(17.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.accent)
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(crate::studio::selectable(label)),
+        )
+        .child(
+            div()
+                .text_size(px(typography::TITLE))
+                .line_height(px(19.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.text)
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(crate::studio::selectable(value)),
+        )
 }
 
-fn metric_cell(width: f32, text: String, color: Rgba) -> Div {
-    div()
-        .w(px(width))
-        .flex_shrink_0()
-        .text_size(px(typography::SUPPORTING))
-        .text_color(color)
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .child(crate::studio::selectable(text))
-}
-
+/// 24 px section-surface header with the same 1 px accent column grid as the
+/// body rows; labels are 13 px semibold and the active sort shows Compose's
+/// arrow glyph (Count ↓ / Shallow ↓).
 fn histogram_header(
     sort: DashboardSort,
     colors: &StudioColors,
@@ -71,14 +99,26 @@ fn histogram_header(
     } else {
         TextKey::MemoryPageShallow
     };
-    studio::table_header_row(colors)
-        .child(studio::table_header_cell(
-            None,
-            language.text(TextKey::MemoryPageClassName),
-            colors,
-        ))
+    div()
+        .id("memory-dashboard-header")
+        .w_full()
+        .h(px(TABLE_HEADER_HEIGHT))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .bg(colors.section_background)
         .child(
-            studio::table_header_cell(Some(96.), language.text(count_label), colors)
+            header_cell(
+                None,
+                language.text(TextKey::MemoryPageClassName),
+                false,
+                false,
+                colors,
+            )
+            .pl(px(8.)),
+        )
+        .child(
+            header_cell(Some(96.), language.text(count_label), true, true, colors)
                 .id("memory-dashboard-sort-count")
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -86,16 +126,18 @@ fn histogram_header(
                 })),
         )
         .child(
-            studio::table_header_cell(Some(112.), language.text(shallow_label), colors)
+            header_cell(Some(112.), language.text(shallow_label), true, true, colors)
                 .id("memory-dashboard-sort-shallow")
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.memory_set_dashboard_sort(DashboardSort::Shallow, cx)
                 })),
         )
-        .child(studio::table_header_cell(
+        .child(header_cell(
             Some(140.),
             language.text(TextKey::MemoryPageRetained),
+            true,
+            true,
             colors,
         ))
         .into_any_element()
@@ -122,13 +164,11 @@ fn histogram_row(
         .unwrap_or_else(|| language.text(TextKey::MemoryPageUnavailable).to_owned());
     div()
         .id(("memory-dashboard-row", index))
-        .h(px(memory_row_height()))
+        .h(px(TABLE_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
         .flex()
         .items_center()
-        .gap(px(4.))
-        .px(px(8.))
         .bg(background)
         .cursor_pointer()
         .on_click(move |_, _, cx| {
@@ -137,18 +177,29 @@ fn histogram_row(
                 this.memory_highlight_class(class_name, cx);
             });
         })
-        .child(metric_cell_flex(display_class_name(stats), colors.text))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .px(px(8.))
+                .text_size(px(TABLE_FONT))
+                .line_height(px(TABLE_LINE))
+                .text_color(colors.text)
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(crate::studio::selectable(display_class_name(stats))),
+        )
         .child(metric_cell(
-            96.,
+            Some(96.),
             format_count(stats.instance_count),
-            colors.text,
+            colors,
         ))
         .child(metric_cell(
-            112.,
+            Some(112.),
             format_bytes(stats.shallow_size),
-            colors.text,
+            colors,
         ))
-        .child(metric_cell(140., retained, colors.secondary_text))
+        .child(metric_cell(Some(140.), retained, colors))
         .into_any_element()
 }
 
@@ -209,6 +260,7 @@ impl ImportWorkspace {
             ))
             .child(
                 div()
+                    .id("memory-overview-metrics")
                     .w_full()
                     .h(px(58.))
                     .flex()
@@ -219,15 +271,7 @@ impl ImportWorkspace {
                             .into_iter()
                             .enumerate()
                             .map(|(index, (key, value))| {
-                                studio::metric_card(
-                                    ("memory-overview-metric", index),
-                                    language.text(key),
-                                    value,
-                                    colors.accent,
-                                    colors,
-                                )
-                                .flex_1()
-                                .min_w(px(140.))
+                                overview_metric_card(index, language.text(key), value, colors)
                             }),
                     ),
             );
@@ -252,10 +296,18 @@ impl ImportWorkspace {
             .child(histogram_header(sort, colors, language, cx))
             .child(studio::divider(colors));
         if classes.is_empty() {
-            histogram = histogram.child(div().p(px(8.)).child(studio::supporting(
-                language.text(TextKey::MemoryPageImportOrDumpAnHprofFileToShowClassHistogram),
-                colors,
-            )));
+            histogram = histogram.child(
+                div()
+                    .p(px(8.))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .text_color(colors.secondary_text)
+                    .child(crate::studio::selectable(
+                        language
+                            .text(TextKey::MemoryPageImportOrDumpAnHprofFileToShowClassHistogram)
+                            .to_owned(),
+                    )),
+            );
         } else {
             let scroll_handle = self.memory_state.dashboard_scroll.clone();
             let rows = Rc::new(classes);

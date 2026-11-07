@@ -5,6 +5,7 @@ mod settings_page;
 
 use crate::{
     ai::AiWorkspace,
+    benchmark::{BenchmarkWorkspace, OpenBenchmarkTrace},
     capture::{CaptureCompleted, CaptureWorkspace},
     cpu::CpuWorkspace,
     frame::FrameWorkspace,
@@ -24,7 +25,7 @@ use gpui_kit::{
     base::{TextSelection, TextSelectionLayer},
     component::InteractiveElementExt,
     component::{
-        ActiveTheme, Disableable, Selectable,
+        ActiveTheme, Disableable, Placement, Selectable,
         button::{Button, ButtonVariants},
         menu::{DropdownMenu, PopupMenuItem},
     },
@@ -114,6 +115,12 @@ gpui_kit::actions!(
         PreviousInspectorNode,
         NextInspectorNode,
         ToggleSelectedInspectorNode,
+        RecentFilesActiveRoute,
+        CloseActiveRoute,
+        FocusActiveSearch,
+        GoToSourceActiveRoute,
+        ToggleAllInspectorPanes,
+        StartCaptureActiveRoute,
     ]
 );
 
@@ -144,6 +151,12 @@ enum LayoutMenuToggle {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ShellMenu {
     OpenActiveRouteFile,
+    RecentFilesActiveRoute,
+    CloseActiveRoute,
+    FocusActiveSearch,
+    GoToSourceActiveRoute,
+    ToggleAllPanes,
+    StartCaptureActiveRoute,
     OpenUserGuide,
     Unavailable,
     PreviousInspectorNode,
@@ -265,6 +278,21 @@ fn inspector_menu_groups(
                 ToggleInspectorDetails,
             )
             .separator()
+            .item_action(
+                TextKey::ShellMenuFocusSearch,
+                ShellMenu::FocusActiveSearch,
+                FocusActiveSearch,
+            )
+            .item_action(
+                if panels.hierarchy || panels.findings || panels.details {
+                    TextKey::ShellMenuHideAllPanes
+                } else {
+                    TextKey::ShellMenuShowAllPanes
+                },
+                ShellMenu::ToggleAllPanes,
+                ToggleAllInspectorPanes,
+            )
+            .separator()
             .check_action(
                 TextKey::SettingsUiHideHierarchy,
                 layout.hide_invisible_hierarchy,
@@ -357,8 +385,11 @@ fn supports_ai(destination: Destination) -> bool {
 
 /// The Analyze menu freezes the active workspace's evidence for the AI panel.
 fn analyze_menu_group() -> MenuGroup<ShellMenu> {
-    MenuGroup::new(TextKey::ShellMenuAnalyze)
-        .item(TextKey::ShellPrepareAiAnalysis, ShellMenu::PrepareAi)
+    MenuGroup::new(TextKey::ShellMenuAnalyze).item_action(
+        TextKey::ShellPrepareAiAnalysis,
+        ShellMenu::PrepareAi,
+        PrepareCurrentAi,
+    )
 }
 
 /// The Help menu is the same on every route: AI and settings are application
@@ -427,6 +458,7 @@ pub struct Studio {
     source: Entity<SourceWorkspace>,
     trace: Entity<TraceWorkspace>,
     frame: Entity<FrameWorkspace>,
+    benchmark: Entity<BenchmarkWorkspace>,
     inspector: Entity<InspectorWorkspace>,
     imports: HashMap<Destination, Entity<ImportWorkspace>>,
     focus: FocusHandle,
@@ -531,6 +563,17 @@ impl Studio {
             )
         });
         frame.update(cx, |frame, _| frame.set_studio(studio_handle.clone()));
+        let benchmark = cx.new(|cx| {
+            BenchmarkWorkspace::new(
+                settings.language.resolved(),
+                settings_path.as_deref(),
+                window,
+                cx,
+            )
+        });
+        benchmark.update(cx, |benchmark, _| {
+            benchmark.set_studio(studio_handle.clone())
+        });
         let inspector =
             cx.new(|cx| InspectorWorkspace::new(settings.language.resolved(), window, cx));
         // The Inspector findings pane owns its "Run AI analysis" entry and needs the
@@ -543,7 +586,6 @@ impl Studio {
             Destination::Network,
             Destination::Startup,
             Destination::Battery,
-            Destination::Benchmark,
             Destination::Gpu,
         ]
         .into_iter()
@@ -625,6 +667,21 @@ impl Studio {
                 },
             ));
         }
+        subscriptions.push(cx.observe(&benchmark, |this, _, cx| {
+            this.invalidate_ai(Destination::Benchmark, cx);
+            this.refresh_route_menus(cx);
+        }));
+        // A benchmark case may record trace artifacts; opening one goes through the
+        // same Trace Analyzer import path as every other page.
+        subscriptions.push(
+            cx.subscribe(&benchmark, |this, _, event: &OpenBenchmarkTrace, cx| {
+                if let Some(path) = event.0.clone() {
+                    this.trace
+                        .update(cx, |trace, cx| trace.open_trace_path(path, cx));
+                }
+                this.navigate(Destination::Trace, cx);
+            }),
+        );
         let audit_path = settings_path
             .as_ref()
             .and_then(|path| path.parent())
@@ -698,6 +755,7 @@ impl Studio {
             source,
             trace,
             frame,
+            benchmark,
             inspector,
             imports,
             focus,
@@ -736,6 +794,29 @@ impl Studio {
                     studio.destination = Destination::Memory;
                 }
             }
+        }
+        // Debug-only verification seam: starts on a route without driving the
+        // native navigation, so menu/toolbar checks run headlessly.
+        #[cfg(debug_assertions)]
+        if let Some(route) = std::env::var_os("APS_RUST_OPEN_ROUTE") {
+            let route = route.to_string_lossy().to_ascii_lowercase();
+            studio.destination = match route.as_str() {
+                "home" => Destination::Home,
+                "inspector" => Destination::LayoutInspector,
+                "cpu" => Destination::Cpu,
+                "trace" => Destination::Trace,
+                "memory" => Destination::Memory,
+                "frame" => Destination::Frame,
+                "startup" => Destination::Startup,
+                "battery" => Destination::Battery,
+                "network" => Destination::Network,
+                "gpu" => Destination::Gpu,
+                "benchmark" => Destination::Benchmark,
+                "source" => Destination::SourceWorkspaces,
+                "ai" => Destination::Ai,
+                "settings" => Destination::Settings,
+                _ => studio.destination,
+            };
         }
         // Debug-only verification seam: opens a real Inspector archive without
         // driving the platform file picker.
@@ -796,6 +877,7 @@ impl Studio {
             Destination::SourceWorkspaces => self.source.read(cx).analysis_request(),
             Destination::Trace => self.trace.read(cx).analysis_request(),
             Destination::Frame => self.frame.read(cx).analysis_request(),
+            Destination::Benchmark => self.benchmark.read(cx).analysis_request(),
             kind => self
                 .imports
                 .get(&kind)
@@ -854,6 +936,100 @@ impl Studio {
         cx.open_url(&url);
     }
 
+    /// IDEA Recent Files (Cmd+E): opens the newest listed session of the active
+    /// page. Pages without a persisted recent catalog do nothing.
+    fn recent_files_active_route(&mut self, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::Cpu => {
+                self.cpu
+                    .update(cx, |cpu, cx| cpu.open_most_recent_session(cx));
+            }
+            Destination::Trace => {
+                self.trace
+                    .update(cx, |trace, cx| trace.open_most_recent_session(cx));
+            }
+            _ => {}
+        }
+    }
+
+    /// IDEA Close editor (Cmd+W): closes the active page's open document.
+    fn close_active_route(&mut self, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::Cpu => {
+                self.cpu.update(cx, |cpu, cx| cpu.close_primary(cx));
+            }
+            Destination::Trace => {
+                self.trace.update(cx, |trace, cx| trace.close_primary(cx));
+            }
+            Destination::MethodRecording => {
+                self.method
+                    .update(cx, |method, cx| method.close_primary(cx));
+            }
+            _ => {}
+        }
+    }
+
+    /// IDEA Find (Cmd+F): focuses the active page's search field.
+    fn focus_active_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::Cpu => {
+                self.cpu.update(cx, |cpu, cx| cpu.focus_search(window, cx));
+            }
+            Destination::LayoutInspector => {
+                self.inspector.update(cx, |inspector, cx| {
+                    inspector.focus_search_primary(window, cx)
+                });
+            }
+            _ => {}
+        }
+    }
+
+    /// IDEA Go to Declaration (Cmd+B): navigates from the current evidence to its
+    /// source. CPU opens the selected frame's source, Frame correlates the
+    /// selected frame with the Layout Inspector, Source opens the selected
+    /// location in the IDE.
+    fn go_to_source_active_route(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::Cpu => {
+                self.cpu
+                    .update(cx, |cpu, cx| cpu.open_selected_source_primary(window, cx));
+            }
+            Destination::Frame => {
+                self.frame
+                    .update(cx, |frame, cx| frame.inspect_layout_primary(cx));
+            }
+            Destination::SourceWorkspaces => {
+                self.source
+                    .update(cx, |source, cx| source.open_location_in_ide(cx));
+            }
+            _ => {}
+        }
+    }
+
+    /// IDEA Hide All Tool Windows (Shift+Cmd+F12): hides every Layout Inspector
+    /// pane, or restores them when they are already hidden.
+    fn toggle_all_inspector_panes(&mut self, cx: &mut Context<Self>) {
+        if self.destination == Destination::LayoutInspector {
+            self.inspector
+                .update(cx, |inspector, cx| inspector.toggle_all_panes(cx));
+        }
+    }
+
+    /// IDEA Run (Ctrl+R): starts the active page's capture when it has one.
+    fn start_capture_active_route(&mut self, cx: &mut Context<Self>) {
+        match self.destination {
+            Destination::Trace => {
+                self.trace
+                    .update(cx, |trace, cx| trace.toggle_capture_primary(cx));
+            }
+            Destination::Frame => {
+                self.frame
+                    .update(cx, |frame, cx| frame.start_capture_primary(cx));
+            }
+            _ => {}
+        }
+    }
+
     /// Opens the active page's folder picker (Compose Open Folder…, Cmd+Shift+O).
     fn open_folder_active_route(&mut self, cx: &mut Context<Self>) {
         if self.destination == Destination::Cpu {
@@ -900,11 +1076,14 @@ impl Studio {
                 self.frame
                     .update(cx, |frame, cx| frame.pick_import_frame_stats(cx));
             }
+            Destination::Benchmark => {
+                self.benchmark
+                    .update(cx, |benchmark, cx| benchmark.import_run(cx));
+            }
             Destination::Memory
             | Destination::Network
             | Destination::Startup
             | Destination::Battery
-            | Destination::Benchmark
             | Destination::Gpu => {
                 if let Some(workspace) = self.imports.get(&self.destination) {
                     workspace.update(cx, |workspace, cx| workspace.pick(cx));
@@ -1043,11 +1222,13 @@ impl Studio {
             Destination::MethodRecording => {
                 self.push_workspace_menus(&self.method, language, &mut build, cx)
             }
+            Destination::Benchmark => {
+                self.push_workspace_menus(&self.benchmark, language, &mut build, cx)
+            }
             Destination::Memory
             | Destination::Network
             | Destination::Startup
             | Destination::Battery
-            | Destination::Benchmark
             | Destination::Gpu => {
                 if let Some(workspace) = self.imports.get(&self.destination) {
                     self.push_workspace_menus(workspace, language, &mut build, cx);
@@ -1129,6 +1310,12 @@ impl Studio {
         match command {
             ShellMenu::OpenActiveRouteFile => self.open_active_route_file(window, cx),
             ShellMenu::OpenUserGuide => self.open_user_guide(cx),
+            ShellMenu::RecentFilesActiveRoute => self.recent_files_active_route(cx),
+            ShellMenu::CloseActiveRoute => self.close_active_route(cx),
+            ShellMenu::FocusActiveSearch => self.focus_active_search(window, cx),
+            ShellMenu::GoToSourceActiveRoute => self.go_to_source_active_route(window, cx),
+            ShellMenu::ToggleAllPanes => self.toggle_all_inspector_panes(cx),
+            ShellMenu::StartCaptureActiveRoute => self.start_capture_active_route(cx),
             ShellMenu::Unavailable => {}
             ShellMenu::PreviousInspectorNode => {
                 self.inspector
@@ -1225,6 +1412,9 @@ impl Studio {
         });
         self.frame.update(cx, |frame, cx| {
             frame.set_language(self.settings.language.resolved(), window, cx)
+        });
+        self.benchmark.update(cx, |benchmark, cx| {
+            benchmark.set_language(self.settings.language.resolved(), window, cx)
         });
         self.inspector.update(cx, |inspector, cx| {
             inspector.set_language(self.settings.language.resolved(), window, cx)
@@ -1471,6 +1661,23 @@ fn navigation_icon_data(destination: Destination) -> &'static [u8] {
     }
 }
 
+/// When the rail is collapsed only icons are drawn, so hovering an icon shows
+/// the destination title as a tooltip placed to the right of the rail.
+fn navigation_tooltip(
+    button: Button,
+    destination: Destination,
+    language: Language,
+    collapsed: bool,
+) -> Button {
+    if collapsed {
+        button
+            .tooltip(destination.label(language).to_owned())
+            .tooltip_placement(Placement::Right)
+    } else {
+        button
+    }
+}
+
 fn navigation_entry_content(
     destination: Destination,
     language: Language,
@@ -1552,11 +1759,11 @@ impl Render for Studio {
             Destination::Frame => self.frame.clone().into_any_element(),
             Destination::LayoutInspector => self.inspector.clone().into_any_element(),
             Destination::Settings => self.settings_page(cx),
+            Destination::Benchmark => self.benchmark.clone().into_any_element(),
             Destination::Memory
             | Destination::Network
             | Destination::Startup
             | Destination::Battery
-            | Destination::Benchmark
             | Destination::Gpu => self
                 .imports
                 .get(&selected)
@@ -1644,6 +1851,24 @@ impl Render for Studio {
             .on_action(cx.listener(Self::open_cpu))
             .on_action(cx.listener(|this, _: &OpenActiveRouteFile, window, cx| {
                 this.open_active_route_file(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &RecentFilesActiveRoute, _, cx| {
+                this.recent_files_active_route(cx);
+            }))
+            .on_action(cx.listener(|this, _: &CloseActiveRoute, _, cx| {
+                this.close_active_route(cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusActiveSearch, window, cx| {
+                this.focus_active_search(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &GoToSourceActiveRoute, window, cx| {
+                this.go_to_source_active_route(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleAllInspectorPanes, _, cx| {
+                this.toggle_all_inspector_panes(cx);
+            }))
+            .on_action(cx.listener(|this, _: &StartCaptureActiveRoute, _, cx| {
+                this.start_capture_active_route(cx);
             }))
             .on_action(cx.listener(|this, _: &OpenFolderActiveRoute, _, cx| {
                 this.open_folder_active_route(cx);
@@ -1794,44 +2019,62 @@ impl Render for Studio {
                                         rgba(0x00000000)
                                     })
                                     .child(
-                                        Button::new(("destination", destination as usize))
-                                            .ghost()
-                                            .h(px(36.))
-                                            .w_full()
-                                            .text_color(if is_selected {
-                                                accent
-                                            } else {
-                                                secondary_text
-                                            })
-                                            .child(navigation_entry_content(
-                                                destination,
-                                                language,
-                                                collapsed,
-                                                if is_selected { accent } else { secondary_text },
-                                            ))
-                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                        navigation_tooltip(
+                                            Button::new(("destination", destination as usize))
+                                                .ghost()
+                                                .h(px(36.))
+                                                .w_full()
+                                                .text_color(if is_selected {
+                                                    accent
+                                                } else {
+                                                    secondary_text
+                                                })
+                                                .child(navigation_entry_content(
+                                                    destination,
+                                                    language,
+                                                    collapsed,
+                                                    if is_selected {
+                                                        accent
+                                                    } else {
+                                                        secondary_text
+                                                    },
+                                                )),
+                                            destination,
+                                            language,
+                                            collapsed,
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
                                                 this.navigate(destination, cx);
-                                            })),
+                                            }),
+                                        ),
                                     )
                             }))
                             .child(div().flex_1())
                             .child(
                                 div().h(px(36.)).w_full().rounded_md().child(
-                                    Button::new("navigation-ai")
-                                        .ghost()
-                                        .h(px(36.))
-                                        .w_full()
-                                        .text_color(secondary_text)
-                                        .child(navigation_entry_content(
-                                            Destination::Ai,
-                                            language,
-                                            collapsed,
-                                            secondary_text,
-                                        ))
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                    navigation_tooltip(
+                                        Button::new("navigation-ai")
+                                            .ghost()
+                                            .h(px(36.))
+                                            .w_full()
+                                            .text_color(secondary_text)
+                                            .child(navigation_entry_content(
+                                                Destination::Ai,
+                                                language,
+                                                collapsed,
+                                                secondary_text,
+                                            )),
+                                        Destination::Ai,
+                                        language,
+                                        collapsed,
+                                    )
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.destination = Destination::Ai;
                                             cx.notify();
-                                        })),
+                                        },
+                                    )),
                                 ),
                             )
                             .child(div().h(px(1.)).my_2().bg(border))
@@ -1846,29 +2089,36 @@ impl Render for Studio {
                                         rgba(0x00000000)
                                     })
                                     .child(
-                                        Button::new("navigation-settings")
-                                            .ghost()
-                                            .h(px(36.))
-                                            .w_full()
-                                            .text_color(if selected == Destination::Settings {
-                                                accent
-                                            } else {
-                                                secondary_text
-                                            })
-                                            .child(navigation_entry_content(
-                                                Destination::Settings,
-                                                language,
-                                                collapsed,
-                                                if selected == Destination::Settings {
+                                        navigation_tooltip(
+                                            Button::new("navigation-settings")
+                                                .ghost()
+                                                .h(px(36.))
+                                                .w_full()
+                                                .text_color(if selected == Destination::Settings {
                                                     accent
                                                 } else {
                                                     secondary_text
-                                                },
-                                            ))
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                })
+                                                .child(navigation_entry_content(
+                                                    Destination::Settings,
+                                                    language,
+                                                    collapsed,
+                                                    if selected == Destination::Settings {
+                                                        accent
+                                                    } else {
+                                                        secondary_text
+                                                    },
+                                                )),
+                                            Destination::Settings,
+                                            language,
+                                            collapsed,
+                                        )
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
                                                 this.destination = Destination::Settings;
                                                 cx.notify();
-                                            })),
+                                            }),
+                                        ),
                                     ),
                             ),
                     )
@@ -2079,6 +2329,10 @@ mod menubar_tests {
             (include_str!("cpu.rs"), "MenuHost for CpuWorkspace"),
             (include_str!("trace.rs"), "MenuHost for TraceWorkspace"),
             (include_str!("frame.rs"), "MenuHost for FrameWorkspace"),
+            (
+                include_str!("benchmark.rs"),
+                "MenuHost for BenchmarkWorkspace",
+            ),
             (include_str!("source.rs"), "MenuHost for SourceWorkspace"),
             (include_str!("ai.rs"), "MenuHost for AiWorkspace"),
             (
@@ -2092,6 +2346,42 @@ mod menubar_tests {
 
     /// macOS shows the route menus in the native application menu bar; other
     /// platforms fall back to the in-window strip. One build feeds both.
+    /// The collapsed rail only draws icons, so hovering one reveals the
+    /// destination title; the expanded rail keeps its visible labels.
+    #[::core::prelude::v1::test]
+    fn collapsed_navigation_reveals_destination_titles_as_tooltips() {
+        let source = include_str!("shell.rs");
+        assert!(source.contains("fn navigation_tooltip("));
+        assert!(source.matches("navigation_tooltip(").count() >= 4);
+        assert!(source.contains(".tooltip_placement(Placement::Right)"));
+        assert!(source.contains("if collapsed {"));
+    }
+
+    /// The window menu follows JetBrains IDEA conventions for its commands.
+    #[::core::prelude::v1::test]
+    fn idea_window_shortcuts_are_bound() {
+        let app = include_str!("main.rs");
+        for keystroke in [
+            "secondary-e",
+            "secondary-w",
+            "secondary-f",
+            "secondary-b",
+            "secondary-shift-f12",
+        ] {
+            assert!(app.contains(keystroke), "missing IDEA binding: {keystroke}");
+        }
+        for action in [
+            "RecentFilesActiveRoute",
+            "CloseActiveRoute",
+            "FocusActiveSearch",
+            "GoToSourceActiveRoute",
+            "ToggleAllInspectorPanes",
+            "StartCaptureActiveRoute",
+        ] {
+            assert!(app.contains(action), "missing IDEA action: {action}");
+        }
+    }
+
     #[::core::prelude::v1::test]
     fn the_route_menus_drive_native_and_fallback_bars() {
         let source = include_str!("shell.rs");

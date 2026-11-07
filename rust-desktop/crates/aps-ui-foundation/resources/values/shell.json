@@ -73,5 +73,9 @@
   "shell_menu_export_archive": "Export Capture Archive…",
   "shell_menu_previous_node": "Previous Node",
   "shell_menu_next_node": "Next Node",
-  "shell_menu_toggle_selected_node": "Toggle Selected Node"
+  "shell_menu_toggle_selected_node": "Toggle Selected Node",
+  "shell_menu_recent_files": "Recent Files…",
+  "shell_menu_focus_search": "Focus Search",
+  "shell_menu_hide_all_panes": "Hide All Panes",
+  "shell_menu_show_all_panes": "Show All Panes"
 }

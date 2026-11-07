@@ -1321,10 +1321,11 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
         frames = if self.is_capturing {
             frames.item(TextKey::FrameStopCapture, FrameMenuCommand::StopCapture)
         } else {
-            frames.item_when(
+            frames.item_action_when(
                 process_ready && device_ready && !self.is_loading,
                 TextKey::FrameStartCapture,
                 FrameMenuCommand::StartCapture,
+                crate::shell::StartCaptureActiveRoute,
             )
         };
         frames = frames.separator().item_when(
@@ -1359,10 +1360,11 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
                 TextKey::FrameCopyEvidence,
                 FrameMenuCommand::CopyEvidence,
             )
-            .item_when(
+            .item_action_when(
                 has_package && self.studio.is_some(),
                 TextKey::FrameCorrelateInLayoutInspector,
                 FrameMenuCommand::InspectLayout,
+                crate::shell::GoToSourceActiveRoute,
             );
 
         vec![file, frames, view]
@@ -1400,5 +1402,16 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
             }
             FrameMenuCommand::InspectLayout => self.inspect_layout(cx),
         }
+    }
+}
+
+/// Route-shortcut entry points (IDEA-style window shortcuts).
+impl FrameWorkspace {
+    pub(crate) fn start_capture_primary(&mut self, cx: &mut Context<Self>) {
+        self.start_capture(cx);
+    }
+
+    pub(crate) fn inspect_layout_primary(&mut self, cx: &mut Context<Self>) {
+        self.inspect_layout(cx);
     }
 }

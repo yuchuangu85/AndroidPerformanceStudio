@@ -2,8 +2,9 @@
 //! takes place here, before framing, never by loading a full heap into the UI.
 
 use crate::{
-    MAX_HISTOGRAM_SEARCH_BYTES, MAX_INPUT_BYTES, MAX_PAGE_SIZE, MAX_RESPONSE_BYTES,
-    MAX_SNAPSHOT_BYTES, MAX_UI_PAGE_SIZE, page, page_with, write_response,
+    MAX_HISTOGRAM_SEARCH_BYTES, MAX_INPUT_BYTES, MAX_MAPPING_BYTES, MAX_MAPPING_ENTRIES,
+    MAX_PAGE_SIZE, MAX_RESPONSE_BYTES, MAX_SNAPSHOT_BYTES, MAX_UI_PAGE_SIZE, page, page_with,
+    write_response,
 };
 use aps_hprof_engine::{
     Session, cache,
@@ -105,6 +106,27 @@ fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
                 .is_some_and(|v| v != "memory")
         {
             return Err(());
+        }
+        // A deobfuscation map is bounded evidence, not an arbitrary payload.
+        if let Some(mapping) = args.get("mapping") {
+            let mapping = mapping.as_map().map_err(|_| ())?;
+            if mapping.len() > MAX_MAPPING_ENTRIES {
+                return Err(());
+            }
+            let mut bytes = 0usize;
+            for (raw, original) in mapping {
+                if raw.is_empty() {
+                    return Err(());
+                }
+                let original = original.as_str().map_err(|_| ())?;
+                if original.is_empty() {
+                    return Err(());
+                }
+                bytes = bytes.checked_add(raw.len() + original.len()).ok_or(())?;
+                if bytes > MAX_MAPPING_BYTES {
+                    return Err(());
+                }
+            }
         }
     }
     let detail_offset = if operation == "detail" {

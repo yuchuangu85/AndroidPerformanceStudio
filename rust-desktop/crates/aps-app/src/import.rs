@@ -10,7 +10,6 @@ mod snapshots;
 mod startup;
 use crate::studio;
 use aps_battery::BatteryReport;
-use aps_benchmark::{BenchmarkRun, RegressionPolicy, RegressionReport};
 use aps_contracts::SourceDigest;
 use aps_frame::{BudgetSource, DeadlineVerdict, FrameQuery, FrameSession};
 use aps_gpu::{ArtifactKind, GpuArtifact, OpenRoute};
@@ -51,8 +50,6 @@ enum Session {
     Frame(Arc<FrameSession>),
     Startup(Arc<StartupSession>),
     Battery(Arc<BatteryReport>),
-    Benchmark(Arc<BenchmarkRun>),
-    Comparison(Arc<RegressionReport>),
     Gpu(Arc<GpuArtifact>),
 }
 
@@ -269,12 +266,10 @@ pub struct ImportWorkspace {
     generation: u64,
     cancel: CancellationToken,
     trace_view: TraceView,
-    baseline: Option<Arc<BenchmarkRun>>,
     memory_state: MemoryState,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
     studio: Option<WeakEntity<crate::shell::Studio>>,
-    comparison_source: Option<Arc<BenchmarkRun>>,
     selected_network: Option<Vec<String>>,
     session_id: Option<String>,
     export_busy: bool,
@@ -314,12 +309,10 @@ impl ImportWorkspace {
             generation: 0,
             cancel: CancellationToken::new(),
             trace_view: TraceView::Processes,
-            baseline: None,
             memory_state: MemoryState::new(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,
             studio: None,
-            comparison_source: None,
             selected_network: None,
             session_id: None,
             export_busy: false,
@@ -495,7 +488,6 @@ impl ImportWorkspace {
                         if this.kind == Destination::Memory {
                             this.memory_state = MemoryState::new();
                         }
-                        this.comparison_source = None;
                         this.selected_network = None;
                         this.network.reset();
                         this.battery_ui.reset();
@@ -636,65 +628,6 @@ impl ImportWorkspace {
         self.trace_view = view;
         self.page(0, cx);
     }
-    fn use_as_baseline(&mut self, cx: &mut Context<Self>) {
-        if let Some(Session::Benchmark(run)) = &self.session {
-            self.baseline = Some(run.clone());
-            self.error = None;
-            cx.notify();
-        }
-    }
-    fn compare_baseline(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        let Some(baseline) = self.baseline.clone() else {
-            return;
-        };
-        let Some(Session::Benchmark(current)) = self.session.clone() else {
-            return;
-        };
-        self.generation += 1;
-        let generation = self.generation;
-        self.busy = true;
-        self.error = None;
-        let source = current.clone();
-        let task = cx.background_executor().spawn(async move {
-            aps_benchmark::compare(&baseline, &current, &RegressionPolicy::default())
-                .map(|report| Session::Comparison(Arc::new(report)))
-                .map_err(UiText::from)
-                .and_then(|session| {
-                    page_for(
-                        &session,
-                        TraceView::Processes,
-                        0,
-                        None,
-                        &CancellationToken::new(),
-                    )
-                    .map(|page| (session, page))
-                })
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.busy = false;
-                match result {
-                    Ok((session, page)) => {
-                        this.session = Some(session);
-                        this.page = Some(page);
-                        this.comparison_source = Some(source);
-                    }
-                    Err(error) => this.error = Some(error),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-        cx.notify();
-    }
     fn close(&mut self, cx: &mut Context<Self>) {
         if self.kind == Destination::Memory {
             if let Some(id) = self.memory_snapshot_id {
@@ -712,7 +645,6 @@ impl ImportWorkspace {
         self.memory_state = MemoryState::new();
         self.memory_snapshots.clear();
         self.memory_snapshot_id = None;
-        self.comparison_source = None;
         self.selected_network = None;
         self.network.reset();
         self.battery_ui.reset();
@@ -738,57 +670,6 @@ impl ImportWorkspace {
         cx.notify();
     }
 
-    fn restore_comparison_source(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        let Some(source) = self.comparison_source.clone() else {
-            return;
-        };
-        self.generation += 1;
-        let generation = self.generation;
-        self.busy = true;
-        self.error = None;
-        let task = cx.background_executor().spawn(async move {
-            let session = Session::Benchmark(source);
-            let page = page_for(
-                &session,
-                TraceView::Processes,
-                0,
-                None,
-                &CancellationToken::new(),
-            )?;
-            Ok::<_, UiText>((session, page))
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.busy = false;
-                match result {
-                    Ok((session, page)) => {
-                        this.session = Some(session);
-                        this.page = Some(page);
-                        this.comparison_source = None;
-                    }
-                    Err(error) => this.error = Some(error),
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-        cx.notify();
-    }
-    fn clear_baseline(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.baseline = None;
-        cx.notify();
-    }
     fn cancel_work(&mut self, cx: &mut Context<Self>) {
         self.cancel.cancel();
         self.generation += 1;
@@ -1061,9 +942,6 @@ fn open_selected(
         Destination::Battery => {
             Session::Battery(Arc::new(BatteryReport::open(path, 64 * 1024 * 1024)?))
         }
-        Destination::Benchmark => {
-            Session::Benchmark(Arc::new(BenchmarkRun::open(path, 64 * 1024 * 1024)?))
-        }
         Destination::Gpu => Session::Gpu(Arc::new(
             GpuArtifact::import(path, cancel).map_err(|e| e.to_string())?,
         )),
@@ -1207,177 +1085,6 @@ fn page_for(
                 offset,
                 has_more: offset + PAGE < session.runs().len(),
                 warnings: session.warnings.clone(),
-            })
-        }
-        Session::Benchmark(session) => {
-            let page = session.page("", offset, PAGE)?;
-            let mut ui = PageUi::new(
-                UiText::format(
-                    TextKey::ImportUiBenchmarkSummary,
-                    [
-                        ("count", page.total.to_string().into()),
-                        (
-                            "device",
-                            session
-                                .cohort
-                                .device_model
-                                .clone()
-                                .map_or_else(|| TextKey::ImportUiUnknown.into(), UiText::from),
-                        ),
-                        ("api", optional_ui(session.cohort.api_level)),
-                    ],
-                ),
-                &[
-                    TextKey::ImportUiCase,
-                    TextKey::ImportUiCompilation,
-                    TextKey::ImportUiStartup,
-                    TextKey::ImportUiMetricsSamples,
-                ],
-            );
-            for (index, row) in page.rows.iter().enumerate() {
-                if row.compilation_mode.is_none() {
-                    ui.cells.insert((index, 1), TextKey::ImportUiUnknown.into());
-                }
-                if row.startup_mode.is_none() {
-                    ui.cells.insert((index, 2), TextKey::ImportUiUnknown.into());
-                }
-                ui.cells.insert(
-                    (index, 3),
-                    UiText::List(
-                        row.metrics
-                            .values()
-                            .map(|metric| {
-                                UiText::format(
-                                    TextKey::ImportUiMetricSamples,
-                                    [
-                                        ("name", metric.name.clone().into()),
-                                        ("unit", metric.unit.clone().into()),
-                                        ("count", metric.samples.len().to_string().into()),
-                                    ],
-                                )
-                            })
-                            .collect(),
-                    ),
-                );
-            }
-            Ok(PageData {
-                ui,
-                row_actions: Vec::new(),
-                summary: format!(
-                    "{} benchmark cases · device {} · API {}",
-                    page.total,
-                    session.cohort.device_model.as_deref().unwrap_or("unknown"),
-                    optional(session.cohort.api_level)
-                ),
-                columns: vec![
-                    "Case",
-                    "Compilation",
-                    "Startup",
-                    "Metrics / raw sample count",
-                ]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-                rows: page
-                    .rows
-                    .into_iter()
-                    .map(|row| {
-                        vec![
-                            row.identity,
-                            row.compilation_mode.unwrap_or_else(|| "unknown".into()),
-                            row.startup_mode.unwrap_or_else(|| "unknown".into()),
-                            row.metrics
-                                .values()
-                                .map(|m| {
-                                    format!(
-                                        "{} [{}]: {} raw samples",
-                                        m.name,
-                                        m.unit,
-                                        m.samples.len()
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                                .join("; "),
-                        ]
-                    })
-                    .collect(),
-                offset,
-                has_more: offset + PAGE < page.total,
-                warnings: session.warnings.clone(),
-            })
-        }
-        Session::Comparison(report) => {
-            let rows = report.page(offset, PAGE)?;
-            let mut ui = PageUi::new(
-                UiText::format(
-                    TextKey::ImportUiComparisonSummary,
-                    [
-                        ("gate", format!("{:?}", report.gate(false)).into()),
-                        ("count", report.comparisons.len().to_string().into()),
-                        ("policy", report.policy_version.into()),
-                    ],
-                ),
-                &[
-                    TextKey::ImportUiCase,
-                    TextKey::ImportUiMetric,
-                    TextKey::ImportUiBaseline,
-                    TextKey::ImportUiCurrent,
-                    TextKey::ImportUiChangePercent,
-                    TextKey::ImportUiConfidenceInterval,
-                    TextKey::ImportUiVerdictEvidenceGaps,
-                ],
-            );
-            for (index, row) in rows.iter().enumerate() {
-                ui.cells
-                    .insert((index, 2), optional_ui(row.baseline_median));
-                ui.cells.insert((index, 3), optional_ui(row.current_median));
-                ui.cells
-                    .insert((index, 4), optional_ui(row.relative_difference_percent));
-                if row.confidence_interval.is_none() {
-                    ui.cells
-                        .insert((index, 5), TextKey::ImportUiUnavailable.into());
-                }
-            }
-            Ok(PageData {
-                ui,
-                row_actions: Vec::new(),
-                summary: format!(
-                    "Regression gate: {:?} · {} comparisons · {}",
-                    report.gate(false),
-                    report.comparisons.len(),
-                    report.policy_version
-                ),
-                columns: vec![
-                    "Case",
-                    "Metric",
-                    "Baseline",
-                    "Current",
-                    "Change %",
-                    "Confidence interval",
-                    "Verdict / evidence gaps",
-                ]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-                rows: rows
-                    .iter()
-                    .map(|row| {
-                        vec![
-                            row.case_identity.clone(),
-                            format!("{} [{}]", row.metric, row.unit),
-                            optional(row.baseline_median),
-                            optional(row.current_median),
-                            optional(row.relative_difference_percent),
-                            row.confidence_interval
-                                .map(|(l, h)| format!("{l}..{h}"))
-                                .unwrap_or_else(|| "unavailable".into()),
-                            format!("{:?}: {}", row.classification, row.reasons.join("; ")),
-                        ]
-                    })
-                    .collect(),
-                offset,
-                has_more: offset + PAGE < report.comparisons.len(),
-                warnings: report.compatibility_issues.clone(),
             })
         }
         Session::Gpu(artifact) => {
@@ -1725,53 +1432,6 @@ impl Render for ImportWorkspace {
                 .child(div().text_size(px(typography::SUPPORTING)).child(
                     crate::studio::selectable(
                         lang.text(TextKey::ImportExportsContainOnlyThePublishedPageNot),
-                    ),
-                ));
-        }
-        if self.kind == Destination::Benchmark {
-            body = body
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(
-                            Button::new("benchmark-return-current")
-                                .label(lang.text(TextKey::ImportBackToCurrentRun))
-                                .disabled(busy || self.comparison_source.is_none())
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| {
-                                        this.restore_comparison_source(cx)
-                                    }),
-                                ),
-                        )
-                        .child(
-                            Button::new("benchmark-clear-baseline")
-                                .label(lang.text(TextKey::ImportClearBaseline))
-                                .disabled(busy || self.baseline.is_none())
-                                .on_click(cx.listener(|this, _, _, cx| this.clear_baseline(cx))),
-                        )
-                        .child(
-                            Button::new("benchmark-baseline")
-                                .label(lang.text(TextKey::ImportUseAsBaseline))
-                                .disabled(
-                                    busy || !matches!(self.session, Some(Session::Benchmark(_))),
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| this.use_as_baseline(cx))),
-                        )
-                        .child(
-                            Button::new("benchmark-compare")
-                                .label(lang.text(TextKey::ImportCompareWithBaseline))
-                                .disabled(
-                                    busy || self.baseline.is_none()
-                                        || !matches!(self.session, Some(Session::Benchmark(_))),
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| this.compare_baseline(cx))),
-                        ),
-                )
-                .child(div().text_size(px(typography::SUPPORTING)).child(
-                    crate::studio::selectable(
-                        lang.text(TextKey::ImportSetABaselineImportTheCandidateThen),
                     ),
                 ));
         }

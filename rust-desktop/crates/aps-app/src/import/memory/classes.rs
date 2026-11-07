@@ -8,15 +8,18 @@
 //! instance area horizontally to host the object inspector. Every number is
 //! presenter output; unavailable metrics stay "—"/"Unavailable".
 use super::ImportWorkspace;
-use super::state::{self, MemoryState};
-use crate::studio::{self, FONT_SUPPORTING, StudioColors};
+use super::state::MemoryState;
+use super::widgets::{
+    METRIC_WIDTH, TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, WARNING_WIDTH,
+    checkbox, header_cell, kpi_card, metric_cell, selector_button, toolbar_button, warning_icon,
+};
+use crate::studio::{self, StudioColors};
 use aps_memory::{
     ArrangeBy, ClassScope, ClassifierColumn, ClassifierRow, InstanceRow, LeakFilter, SortDirection,
 };
 use aps_ui_foundation::{Language, TextKey, typography};
 use gpui_kit::{
     component::{
-        checkbox::Checkbox,
         input::{Input, InputState},
         menu::{DropdownMenu, PopupMenuItem},
         resizable::{h_resizable, resizable_panel, v_resizable},
@@ -28,14 +31,24 @@ use gpui_kit::{
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-const CLASSIFIER_HEADER_HEIGHT: f32 = 24.;
-const CLASSIFIER_METRIC_WIDTH: f32 = 104.;
+/// Compose primary filter bar: one 36 dp row, 8 dp insets and gaps.
+const FILTER_BAR_HEIGHT: f32 = 36.;
+/// Compose snapshot summary row height (4 dp card padding + 19 dp value line).
+const KPI_ROW_HEIGHT: f32 = 44.;
+const KPI_MIN_WIDTH: f32 = 140.;
+/// Compose InstanceListTitle row: 6 dp vertical padding + body line.
+const INSTANCE_TITLE_HEIGHT: f32 = 28.;
 /// Compose INSTANCE_COLUMN_WIDTHS: Depth, Native Size, Shallow, Retained.
 const INSTANCE_DEPTH_WIDTH: f32 = 60.;
 const INSTANCE_NATIVE_WIDTH: f32 = 104.;
 const INSTANCE_SHALLOW_WIDTH: f32 = 96.;
 const INSTANCE_RETAINED_WIDTH: f32 = 120.;
-const KPI_MIN_WIDTH: f32 = 140.;
+const INSTANCE_COLUMN_WIDTHS: [f32; 4] = [
+    INSTANCE_DEPTH_WIDTH,
+    INSTANCE_NATIVE_WIDTH,
+    INSTANCE_SHALLOW_WIDTH,
+    INSTANCE_RETAINED_WIDTH,
+];
 /// Compose INITIAL_CLASS_PANE_FRACTION; minimums are scaled down on short panes.
 const MIN_CLASSES_HEIGHT: f32 = 100.;
 const MIN_INSTANCES_HEIGHT: f32 = 180.;
@@ -77,7 +90,7 @@ impl ImportWorkspace {
                 div()
                     .id("memory-class-kpi-row")
                     .w_full()
-                    .h(px(52.))
+                    .h(px(KPI_ROW_HEIGHT))
                     .flex_shrink_0()
                     .child(self.memory_class_summary(language, colors)),
             )
@@ -105,8 +118,10 @@ impl ImportWorkspace {
         if let Some(error) = state.error.clone() {
             column = column.child(
                 div()
-                    .text_size(px(typography::SUPPORTING))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
                     .text_color(colors.error)
+                    .text_align(TextAlign::Center)
                     .child(crate::studio::selectable(error)),
             );
         }
@@ -123,8 +138,10 @@ impl ImportWorkspace {
         column
             .child(
                 div()
-                    .text_size(px(typography::SUPPORTING))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
                     .text_color(colors.secondary_text)
+                    .text_align(TextAlign::Center)
                     .child(crate::studio::selectable(message)),
             )
             .into_any_element()
@@ -151,7 +168,7 @@ impl ImportWorkspace {
         let mut row = div()
             .id("memory-primary-filter-bar")
             .w_full()
-            .h(px(32.))
+            .h(px(FILTER_BAR_HEIGHT))
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -168,51 +185,43 @@ impl ImportWorkspace {
             let current = filter.heap.clone();
             let workspace = workspace.clone();
             let heaps = heaps.clone();
-            studio::compact_text_button(
-                "memory-heap-selector",
-                format!("{heap_label} ⌄"),
-                true,
-                false,
-                colors,
-            )
-            .min_w(px(110.))
-            .dropdown_menu(move |menu, _, _| {
-                let mut menu = menu.min_w(px(200.));
-                let all_label = language.text(TextKey::MemoryPageAllHeaps);
-                let select_all = workspace.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(all_label)
-                        .checked(current.is_none())
-                        .on_click(move |_, _, cx| {
-                            let _ = select_all
-                                .update(cx, |this, cx| this.memory_set_heap_filter(None, cx));
-                        }),
-                );
-                for heap in &heaps {
-                    let selected = current.as_deref() == Some(heap.as_str());
-                    let heap_name = heap.clone();
-                    let select_heap = workspace.clone();
-                    menu = menu.item(PopupMenuItem::new(heap.clone()).checked(selected).on_click(
-                        move |_, _, cx| {
-                            let heap_name = heap_name.clone();
-                            let _ = select_heap.update(cx, |this, cx| {
-                                this.memory_set_heap_filter(Some(heap_name), cx)
-                            });
-                        },
-                    ));
-                }
-                menu
-            })
-            .into_any_element()
+            selector_button("memory-heap-selector", heap_label, true, colors)
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu.min_w(px(200.));
+                    let all_label = language.text(TextKey::MemoryPageAllHeaps);
+                    let select_all = workspace.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(all_label)
+                            .checked(current.is_none())
+                            .on_click(move |_, _, cx| {
+                                let _ = select_all
+                                    .update(cx, |this, cx| this.memory_set_heap_filter(None, cx));
+                            }),
+                    );
+                    for heap in &heaps {
+                        let selected = current.as_deref() == Some(heap.as_str());
+                        let heap_name = heap.clone();
+                        let select_heap = workspace.clone();
+                        menu =
+                            menu.item(PopupMenuItem::new(heap.clone()).checked(selected).on_click(
+                                move |_, _, cx| {
+                                    let heap_name = heap_name.clone();
+                                    let _ = select_heap.update(cx, |this, cx| {
+                                        this.memory_set_heap_filter(Some(heap_name), cx)
+                                    });
+                                },
+                            ));
+                    }
+                    menu
+                })
+                .into_any_element()
         } else {
-            studio::compact_text_button(
+            selector_button(
                 "memory-heap-selector",
                 language.text(TextKey::MemoryPageAllHeaps),
                 false,
-                false,
                 colors,
             )
-            .min_w(px(110.))
             .into_any_element()
         };
         row = row.child(heap_control);
@@ -221,14 +230,12 @@ impl ImportWorkspace {
         let scope = filter.scope;
         let workspace_scope = workspace.clone();
         row = row.child(
-            studio::compact_text_button(
+            selector_button(
                 "memory-class-scope",
-                format!("{} ⌄", class_scope_label(scope, language)),
+                class_scope_label(scope, language),
                 true,
-                false,
                 colors,
             )
-            .min_w(px(110.))
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.min_w(px(180.));
                 for choice in [ClassScope::All, ClassScope::Project, ClassScope::System] {
@@ -250,14 +257,12 @@ impl ImportWorkspace {
         let leak_filter = filter.leak_filter;
         let workspace_leak = workspace.clone();
         row = row.child(
-            studio::compact_text_button(
+            selector_button(
                 "memory-leak-filter",
-                format!("{} ⌄", leak_filter_label(leak_filter, language)),
+                leak_filter_label(leak_filter, language),
                 true,
-                false,
                 colors,
             )
-            .min_w(px(120.))
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.min_w(px(220.));
                 for choice in [
@@ -284,14 +289,12 @@ impl ImportWorkspace {
         let arrange = filter.arrange_by;
         let workspace_arrange = workspace.clone();
         row = row.child(
-            studio::compact_text_button(
+            selector_button(
                 "memory-arrange-by",
-                format!("{} ⌄", arrange_label(arrange, language)),
+                arrange_label(arrange, language),
                 true,
-                false,
                 colors,
             )
-            .min_w(px(90.))
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.min_w(px(160.));
                 for choice in [ArrangeBy::Class, ArrangeBy::Package] {
@@ -316,29 +319,42 @@ impl ImportWorkspace {
                 .min_w(px(160.))
                 .max_w(px(220.))
                 .flex_shrink_0()
-                .child(Input::new(search).h(px(24.))),
+                .child(
+                    Input::new(search)
+                        .h(px(32.))
+                        .px(px(8.))
+                        .rounded(px(4.))
+                        .bg(colors.panel)
+                        .border_1()
+                        .border_color(colors.border)
+                        .text_size(px(TABLE_FONT)),
+                ),
         );
 
         // Match case / Regex.
-        let workspace_case = workspace.clone();
+        let match_case = filter.match_case;
         row = row.child(
-            Checkbox::new("memory-match-case")
-                .label(language.text(TextKey::MemoryPageMatchCase))
-                .checked(filter.match_case)
-                .on_change(move |checked, _, cx| {
-                    let _ = workspace_case
-                        .update(cx, |this, cx| this.memory_set_match_case(*checked, cx));
-                }),
+            checkbox(
+                "memory-match-case",
+                language.text(TextKey::MemoryPageMatchCase),
+                match_case,
+                true,
+                colors,
+            )
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.memory_set_match_case(!match_case, cx)),
+            ),
         );
-        let workspace_regex = workspace.clone();
+        let use_regex = filter.use_regex;
         row = row.child(
-            Checkbox::new("memory-regex")
-                .label(language.text(TextKey::MemoryPageRegex))
-                .checked(filter.use_regex)
-                .on_change(move |checked, _, cx| {
-                    let _ =
-                        workspace_regex.update(cx, |this, cx| this.memory_set_regex(*checked, cx));
-                }),
+            checkbox(
+                "memory-regex",
+                language.text(TextKey::MemoryPageRegex),
+                use_regex,
+                true,
+                colors,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.memory_set_regex(!use_regex, cx))),
         );
         row.overflow_x_scrollbar().into_any_element()
     }
@@ -498,15 +514,17 @@ impl ImportWorkspace {
                     .gap(px(5.))
                     .flex_shrink_0()
                     .child(div().w(px(8.)).h(px(8.)).bg(palette_color(index)))
-                    .child(studio::supporting(
+                    .child(secondary_text(
                         format!("{name}  {}", format_bytes(*bytes)),
                         colors,
                     )),
             );
         }
         if rows.is_empty() {
-            legend = legend.child(studio::supporting(
-                language.text(TextKey::MemoryPageMemoryNoSnapshot),
+            legend = legend.child(secondary_text(
+                language
+                    .text(TextKey::MemoryPageMemoryNoSnapshot)
+                    .to_owned(),
                 colors,
             ));
         }
@@ -514,7 +532,14 @@ impl ImportWorkspace {
             .id("memory-distribution-card")
             .w_full()
             .flex_shrink_0()
-            .child(studio::section_title(language.text(title), colors))
+            .child(
+                div()
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(colors.text)
+                    .child(crate::studio::selectable(language.text(title))),
+            )
             .child(bar)
             .child(legend)
             .into_any_element()
@@ -593,7 +618,9 @@ impl ImportWorkspace {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .child(header);
+            .child(header)
+            // Compose MemoryClassesPane: HorizontalDivider below the header.
+            .child(studio::divider(colors));
         if rows.is_empty() {
             return pane
                 .child(
@@ -601,17 +628,24 @@ impl ImportWorkspace {
                         .flex_1()
                         .min_h_0()
                         .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
                         .p(px(8.))
-                        .child(studio::supporting(
-                            language.text(
-                                TextKey::MemoryPageImportOrDumpAnHprofFileToShowClassHistogram,
-                            ),
-                            &colors_copy,
-                        )),
+                        .child(
+                            div()
+                                .text_size(px(TABLE_FONT))
+                                .line_height(px(TABLE_LINE))
+                                .text_color(colors_copy.secondary_text)
+                                .text_align(TextAlign::Center)
+                                .child(crate::studio::selectable(language.text(
+                                    TextKey::MemoryPageImportOrDumpAnHprofFileToShowClassHistogram,
+                                ))),
+                        ),
                 )
                 .into_any_element();
         }
-        let row_height = state::memory_row_height();
+        let row_height = TABLE_ROW_HEIGHT;
         let list = uniform_list("memory-classifier-rows", rows.len(), {
             let rows = rows.clone();
             let expanded = expanded.clone();
@@ -647,6 +681,7 @@ impl ImportWorkspace {
         .h_full()
         .w_full()
         .track_scroll(&self.memory_state.classifier_scroll);
+        let metric_columns = if show_heap { 5 } else { 4 };
         pane.child(
             div()
                 .relative()
@@ -654,6 +689,11 @@ impl ImportWorkspace {
                 .min_h_0()
                 .w_full()
                 .child(list)
+                .child(table_grid_overlay(
+                    "memory-classifier-grid",
+                    &[METRIC_WIDTH; 5][..metric_columns],
+                    colors,
+                ))
                 .child(vertical_scrollbar(
                     "memory-classifier-scrollbar",
                     &self.memory_state.classifier_scroll,
@@ -675,16 +715,17 @@ impl ImportWorkspace {
             ArrangeBy::Class => TextKey::MemoryPageClassName,
             ArrangeBy::Package => TextKey::MemoryPagePackageName,
         };
-        let mut header = studio::table_header_row(colors)
+        let mut header = div()
+            .id("memory-classifier-header")
             .w_full()
-            .h(px(CLASSIFIER_HEADER_HEIGHT))
-            .px(px(0.))
-            .py(px(0.))
+            .h(px(TABLE_HEADER_HEIGHT))
             .flex_shrink_0()
-            .gap(px(0.));
+            .flex()
+            .items_center()
+            .bg(colors.section_background);
         header =
             header.child(
-                studio::table_header_cell(
+                header_cell(
                     None,
                     header_title(
                         language.text(first),
@@ -692,9 +733,10 @@ impl ImportWorkspace {
                         sort,
                         direction,
                     ),
+                    false,
+                    false,
                     colors,
                 )
-                .pl(px(8.))
                 .id("memory-classifier-header-name")
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -708,12 +750,13 @@ impl ImportWorkspace {
             (ClassifierColumn::RetainedSize, TextKey::MemoryPageRetained),
         ] {
             header = header.child(
-                studio::table_header_cell(
-                    Some(CLASSIFIER_METRIC_WIDTH),
+                header_cell(
+                    Some(METRIC_WIDTH),
                     header_title(language.text(key), column, sort, direction),
+                    true,
+                    true,
                     colors,
                 )
-                .text_align(TextAlign::Right)
                 .id(("memory-classifier-sort", column as usize))
                 .cursor_pointer()
                 .on_click(
@@ -722,14 +765,15 @@ impl ImportWorkspace {
             );
         }
         if show_heap {
-            header = header.child(
-                studio::table_header_cell(
-                    Some(CLASSIFIER_METRIC_WIDTH),
-                    language.text(TextKey::MemoryPageHeap),
-                    colors,
-                )
-                .text_align(TextAlign::Right),
-            );
+            // Compose leaves the Heap header left aligned; only its values are
+            // right aligned.
+            header = header.child(header_cell(
+                Some(METRIC_WIDTH),
+                language.text(TextKey::MemoryPageHeap),
+                false,
+                true,
+                colors,
+            ));
         }
         header.into_any_element()
     }
@@ -826,23 +870,25 @@ impl ImportWorkspace {
         let mut row = div()
             .id("memory-instance-list-title")
             .w_full()
+            .h(px(INSTANCE_TITLE_HEIGHT))
             .flex_shrink_0()
             .flex()
             .items_center()
             .gap(px(6.))
             .px(px(8.))
-            .py(px(6.))
             .child(
                 div()
-                    .text_size(px(typography::BODY))
-                    .font_weight(FontWeight::SEMIBOLD)
+                    .min_w_0()
+                    .text_size(px(typography::TITLE))
+                    .line_height(px(20.))
+                    .font_weight(FontWeight::BOLD)
                     .text_color(colors.text)
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .child(crate::studio::selectable(label)),
             );
         if is_leak {
-            row = row.child(leak_warning_icon(colors));
+            row = row.child(warning_icon(colors));
         }
         if selected.is_some() {
             let total = self
@@ -852,7 +898,7 @@ impl ImportWorkspace {
                 .map_or(0, |page| page.total)
                 .max(self.memory_state.instance_count() as u64);
             row = row.child(
-                studio::supporting(
+                secondary_text(
                     language.format(TextKey::MemoryPageCountValue, &[("arg_1", &total)]),
                     colors,
                 )
@@ -896,7 +942,7 @@ impl ImportWorkspace {
                 .child(instance_hint(message, colors))
                 .into_any_element();
         }
-        let row_height = state::memory_row_height();
+        let row_height = TABLE_ROW_HEIGHT;
         let selected = self.memory_state.selected_object;
         let leak_ids = Rc::new(self.memory_state.leak_object_ids.clone());
         let entity = cx.entity();
@@ -936,6 +982,11 @@ impl ImportWorkspace {
                     .min_h_0()
                     .w_full()
                     .child(list)
+                    .child(table_grid_overlay(
+                        "memory-instance-grid",
+                        &INSTANCE_COLUMN_WIDTHS,
+                        colors,
+                    ))
                     .child(vertical_scrollbar(
                         "memory-instance-scrollbar",
                         &self.memory_state.instance_scroll,
@@ -976,9 +1027,9 @@ impl ImportWorkspace {
             .gap(px(4.))
             .px(px(8.))
             .py(px(2.))
-            .child(studio::supporting(range, colors).whitespace_nowrap())
+            .child(secondary_text(range, colors).whitespace_nowrap())
             .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-instance-page-previous",
                     language.text(TextKey::MemoryPageMemoryPagePrevious),
                     previous.is_some() && !loading,
@@ -992,7 +1043,7 @@ impl ImportWorkspace {
                 })),
             )
             .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-instance-page-next",
                     language.text(TextKey::MemoryPageMemoryPageNext),
                     next.is_some() && !loading,
@@ -1032,15 +1083,14 @@ fn classifier_row(
     let background = if selected {
         colors.selected_row
     } else if is_leak {
-        colors.error.alpha(0.12)
+        // Compose errorContainer(0.45) over the workspace panel.
+        colors.error.alpha(0.06)
     } else if is_duplicate_bitmap {
-        // StudioColors has no tertiary surface token; the info tint carries the
-        // same duplicate-evidence role as Compose tertiaryContainer.
-        colors.info.alpha(0.10)
-    } else if index % 2 == 0 {
-        alternating_row(colors)
+        // Compose tertiaryContainer maps to the warning surface, tinted 0.45.
+        colors.warning.alpha(0.10)
     } else {
-        colors.section_background
+        // Compose surfaceContainerLow == surface == workspace panel.
+        colors.panel
     };
     let indent = 8. + row.depth as f32 * 16.;
     let has_children = !row.children.is_empty();
@@ -1055,7 +1105,7 @@ fn classifier_row(
         .id(("memory-classifier-toggle", index))
         .w(px(14.))
         .flex_shrink_0()
-        .text_size(px(FONT_SUPPORTING))
+        .text_size(px(12.))
         .text_color(colors.accent)
         .child(chevron);
     let toggle = if has_children {
@@ -1074,8 +1124,8 @@ fn classifier_row(
     let name = div()
         .flex_1()
         .min_w_0()
-        .text_size(px(FONT_SUPPORTING))
-        .line_height(px(typography::SUPPORTING + 4.))
+        .text_size(px(TABLE_FONT))
+        .line_height(px(TABLE_LINE))
         .text_color(colors.text)
         .whitespace_nowrap()
         .text_ellipsis()
@@ -1094,31 +1144,40 @@ fn classifier_row(
             div()
                 .flex_1()
                 .min_w_0()
+                .h_full()
                 .flex()
                 .items_center()
-                .gap(px(4.))
-                .pl(px(indent))
-                .pr(px(8.))
-                .child(toggle)
-                .child(name),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .pl(px(indent))
+                        .pr(px(8.))
+                        .child(toggle)
+                        .child(name),
+                )
+                .when(is_leak, |cell| cell.child(warning_slot(colors))),
         )
         .child(metric_cell(
-            Some(CLASSIFIER_METRIC_WIDTH),
+            Some(METRIC_WIDTH),
             integer(row.total_count),
             colors,
         ))
         .child(metric_cell(
-            Some(CLASSIFIER_METRIC_WIDTH),
+            Some(METRIC_WIDTH),
             optional_bytes(row.native_size, language),
             colors,
         ))
         .child(metric_cell(
-            Some(CLASSIFIER_METRIC_WIDTH),
+            Some(METRIC_WIDTH),
             format_bytes(row.shallow_size),
             colors,
         ))
         .child(metric_cell(
-            Some(CLASSIFIER_METRIC_WIDTH),
+            Some(METRIC_WIDTH),
             optional_bytes(row.retained_size, language),
             colors,
         ));
@@ -1133,7 +1192,7 @@ fn classifier_row(
                 joined
             }
         };
-        element = element.child(metric_cell(Some(CLASSIFIER_METRIC_WIDTH), heaps, colors));
+        element = element.child(metric_cell(Some(METRIC_WIDTH), heaps, colors));
     }
     let click_row = row.clone();
     let click_entity = entity.clone();
@@ -1160,10 +1219,8 @@ fn instance_row(
 ) -> AnyElement {
     let background = if selected {
         colors.selected_row
-    } else if index % 2 == 0 {
-        alternating_row(colors)
     } else {
-        colors.section_background
+        colors.panel
     };
     let label = instance_table_label(
         row.object_id,
@@ -1179,27 +1236,25 @@ fn instance_row(
     } else {
         language.text(TextKey::MemoryPageUnavailable).to_owned()
     };
-    let mut name = div()
+    let name = div()
         .flex_1()
         .min_w_0()
+        .h_full()
         .flex()
         .items_center()
-        .gap(px(4.))
-        .px(px(8.))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(FONT_SUPPORTING))
-                .line_height(px(typography::SUPPORTING + 4.))
+                .px(px(8.))
+                .text_size(px(TABLE_FONT))
+                .line_height(px(TABLE_LINE))
                 .text_color(colors.text)
                 .whitespace_nowrap()
                 .text_ellipsis()
                 .child(crate::studio::selectable(label)),
-        );
-    if is_leak {
-        name = name.child(leak_warning_icon(colors));
-    }
+        )
+        .when(is_leak, |cell| cell.child(warning_slot(colors)));
     let object_id = row.object_id;
     let entity = entity.clone();
     div()
@@ -1236,50 +1291,49 @@ fn instance_row(
 }
 
 fn instance_table_header(language: Language, colors: &StudioColors) -> AnyElement {
-    studio::table_header_row(colors)
+    div()
         .id("memory-instance-header")
         .w_full()
-        .h(px(CLASSIFIER_HEADER_HEIGHT))
-        .px(px(0.))
-        .py(px(0.))
+        .h(px(TABLE_HEADER_HEIGHT))
         .flex_shrink_0()
-        .gap(px(0.))
-        .child(
-            studio::table_header_cell(None, language.text(TextKey::MemoryPageInstance), colors)
-                .pl(px(8.)),
-        )
-        .child(
-            studio::table_header_cell(
-                Some(INSTANCE_DEPTH_WIDTH),
-                language.text(TextKey::MemoryPageDepth),
-                colors,
-            )
-            .text_align(TextAlign::Right),
-        )
-        .child(
-            studio::table_header_cell(
-                Some(INSTANCE_NATIVE_WIDTH),
-                language.text(TextKey::MemoryPageNativeSize),
-                colors,
-            )
-            .text_align(TextAlign::Right),
-        )
-        .child(
-            studio::table_header_cell(
-                Some(INSTANCE_SHALLOW_WIDTH),
-                language.text(TextKey::MemoryPageShallow),
-                colors,
-            )
-            .text_align(TextAlign::Right),
-        )
-        .child(
-            studio::table_header_cell(
-                Some(INSTANCE_RETAINED_WIDTH),
-                language.text(TextKey::MemoryPageRetained),
-                colors,
-            )
-            .text_align(TextAlign::Right),
-        )
+        .flex()
+        .items_center()
+        .bg(colors.section_background)
+        .child(header_cell(
+            None,
+            language.text(TextKey::MemoryPageInstance),
+            false,
+            false,
+            colors,
+        ))
+        .child(header_cell(
+            Some(INSTANCE_DEPTH_WIDTH),
+            language.text(TextKey::MemoryPageDepth),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(INSTANCE_NATIVE_WIDTH),
+            language.text(TextKey::MemoryPageNativeSize),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(INSTANCE_SHALLOW_WIDTH),
+            language.text(TextKey::MemoryPageShallow),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(INSTANCE_RETAINED_WIDTH),
+            language.text(TextKey::MemoryPageRetained),
+            true,
+            true,
+            colors,
+        ))
         .into_any_element()
 }
 
@@ -1289,82 +1343,56 @@ fn instance_hint(text: &'static str, colors: &StudioColors) -> AnyElement {
         .min_h_0()
         .w_full()
         .p(px(8.))
-        .child(studio::supporting(text, colors))
-        .into_any_element()
-}
-
-fn kpi_card(
-    id: impl Into<ElementId>,
-    label: &'static str,
-    value: String,
-    warning: bool,
-    width: f32,
-    colors: &StudioColors,
-) -> AnyElement {
-    let tone = if warning { colors.warning } else { colors.text };
-    let mut label_row = div().w_full().flex().items_center().gap(px(4.)).child(
-        div()
-            .flex_1()
-            .min_w_0()
-            .text_size(px(typography::SUPPORTING))
-            .text_color(colors.secondary_text)
-            .whitespace_nowrap()
-            .text_ellipsis()
-            .child(crate::studio::selectable(label)),
-    );
-    if warning {
-        label_row = label_row.child(
-            div()
-                .flex_shrink_0()
-                .text_size(px(typography::SUPPORTING))
-                .text_color(colors.warning)
-                .child(crate::studio::selectable("⚠")),
-        );
-    }
-    studio::card(colors)
-        .id(id)
-        .w(px(width))
-        .flex_shrink_0()
-        .p(px(4.))
-        .gap(px(0.))
-        .child(label_row)
         .child(
             div()
-                .w_full()
-                .text_size(px(typography::TITLE))
-                .line_height(px(typography::TITLE + 4.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(tone)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(value)),
+                .text_size(px(TABLE_FONT))
+                .line_height(px(TABLE_LINE))
+                .text_color(colors.secondary_text)
+                .child(crate::studio::selectable(text)),
         )
         .into_any_element()
 }
 
-fn metric_cell(width: Option<f32>, text: String, colors: &StudioColors) -> Div {
-    let mut cell = div()
-        .px(px(8.))
-        .text_size(px(FONT_SUPPORTING))
-        .line_height(px(typography::SUPPORTING + 4.))
-        .text_color(colors.text)
-        .text_align(TextAlign::Right)
-        .whitespace_nowrap()
-        .text_ellipsis();
-    if let Some(width) = width {
-        cell = cell.w(px(width)).flex_shrink_0();
-    } else {
-        cell = cell.flex_1().min_w_0();
-    }
-    cell.child(crate::studio::selectable(text))
+/// Compose ViewerTypography.secondary run (11 / 15) for captions.
+fn secondary_text(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
+    div()
+        .text_size(px(typography::SUPPORTING))
+        .line_height(px(15.))
+        .text_color(colors.secondary_text)
+        .child(crate::studio::selectable(text))
 }
 
-fn leak_warning_icon(colors: &StudioColors) -> Div {
+/// Compose MemoryTableNameCell warning reserve: a 14 dp marker in the 22 dp
+/// slot at the right edge of the name column.
+fn warning_slot(colors: &StudioColors) -> AnyElement {
     div()
+        .w(px(WARNING_WIDTH))
+        .h_full()
         .flex_shrink_0()
-        .text_size(px(typography::SUPPORTING))
-        .text_color(colors.warning)
-        .child(crate::studio::selectable("⚠"))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(warning_icon(colors))
+        .into_any_element()
+}
+
+/// Compose memoryTableGrid: a 1 dp line at the left edge of every metric
+/// column, drawn across the whole table height so empty space keeps the grid.
+/// The flexible filler soaks up the name column, so the lines land on the same
+/// pixels as the metric cells' own left borders.
+fn table_grid_overlay(id: &'static str, widths: &[f32], colors: &StudioColors) -> AnyElement {
+    let mut overlay = div().id(id).absolute().inset_0().flex();
+    overlay = overlay.child(div().flex_1());
+    for index in 0..widths.len() {
+        if index > 0 {
+            overlay = overlay.child(div().w(px(widths[index - 1] - 1.)).h_full());
+        }
+        overlay = overlay.child(div().w(px(1.)).h_full().bg(colors.border));
+    }
+    if let Some(last) = widths.last() {
+        overlay = overlay.child(div().w(px(last - 1.)).h_full());
+    }
+    overlay.into_any_element()
 }
 
 fn vertical_scrollbar(id: &'static str, handle: &UniformListScrollHandle) -> AnyElement {
@@ -1378,10 +1406,6 @@ fn vertical_scrollbar(id: &'static str, handle: &UniformListScrollHandle) -> Any
                 .viewport_from_layout(),
         )
         .into_any_element()
-}
-
-fn alternating_row(colors: &StudioColors) -> Rgba {
-    colors.section_background.blend(colors.text.alpha(0.03))
 }
 
 fn header_title(

@@ -8,15 +8,17 @@
 //! row drives the shared object inspector.
 use super::ImportWorkspace;
 use super::comparison::{format_bytes, format_count, row_background};
-use super::state::{MemoryState, memory_row_height};
+use super::state::MemoryState;
+use super::widgets::{
+    self, TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, kpi_card,
+};
 use crate::studio::{self, StudioColors};
 use aps_memory::{
     ClassStats, DominatorRow, DominatorsPage, HeapSegment, HeapSummary, MemorySnapshot,
 };
-use aps_ui_foundation::{Language, TextKey, typography};
+use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     component::{
-        checkbox::Checkbox,
         input::Input,
         scroll::{ScrollableElement, Scrollbar, ScrollbarAxis},
     },
@@ -28,6 +30,8 @@ use std::rc::Rc;
 
 const FILTERS_WIDTH: f32 = 190.;
 const INSPECTOR_WIDTH: f32 = 330.;
+const SUMMARY_HEIGHT: f32 = 44.;
+const CARD_GAP: f32 = 4.;
 const MAX_INDENT_DEPTH: u32 = 10;
 const INDENT_PER_DEPTH: f32 = 12.;
 
@@ -36,10 +40,6 @@ const HEAP_PALETTE: [u32; 5] = [0x4f9be8, 0x47b796, 0xca9b4b, 0xac85cc, 0xda7382
 
 fn palette_color(index: usize) -> Rgba {
     rgb(HEAP_PALETTE[index % HEAP_PALETTE.len()])
-}
-
-fn dominator_row_height() -> f32 {
-    memory_row_height() + 5.
 }
 
 fn indent_for(depth: u32) -> f32 {
@@ -199,47 +199,11 @@ fn dominator_entries(
     entries
 }
 
-fn dominator_summary_card(
-    id: (&'static str, usize),
-    label: &str,
-    value: String,
-    warning: bool,
-    colors: &StudioColors,
-) -> AnyElement {
-    let mut label_row = div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(4.))
-        .child(studio::supporting(label, colors));
-    if warning {
-        label_row = label_row.child(
-            div()
-                .text_size(px(typography::SUPPORTING))
-                .text_color(colors.warning)
-                .child(crate::studio::selectable("\u{26a0}")),
-        );
-    }
-    studio::card(colors)
-        .id(id)
-        .flex_1()
-        .min_w(px(140.))
-        .p(px(4.))
-        .gap(px(1.))
-        .child(label_row)
-        .child(
-            div()
-                .text_size(px(typography::TITLE))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(if warning { colors.warning } else { colors.text })
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(value)),
-        )
-        .into_any_element()
-}
-
-fn dominator_summary(
+/// Compose MemorySnapshotSummary: four equal 44 px KPI cards (4 dp padding,
+/// no internal spacing) with the shared leak warning marker. Card width is
+/// container-measured exactly like the Compose weight(1f) row.
+pub(super) fn memory_summary_row(
+    id: &'static str,
     summary: &HeapSummary,
     leak_suspects: u64,
     loaded: bool,
@@ -270,31 +234,37 @@ fn dominator_summary(
             loaded && leak_suspects > 0,
         ),
     ];
-    div()
-        .id("memory-dominator-summary")
-        .w_full()
-        .flex_shrink_0()
-        .flex()
-        .gap(px(4.))
-        .overflow_x_scrollbar()
-        .children(
-            cards
-                .into_iter()
-                .enumerate()
-                .map(|(index, (key, value, warning))| {
-                    dominator_summary_card(
-                        ("memory-dominator-metric", index),
-                        language.text(key),
-                        value,
-                        warning,
-                        colors,
-                    )
-                }),
-        )
-        .into_any_element()
+    let colors = *colors;
+    container_query(move |size, _, _| {
+        let available = f32::from(size.width);
+        let gaps = CARD_GAP * (cards.len().saturating_sub(1)) as f32;
+        let card_width = ((available - gaps) / cards.len() as f32).max(140.);
+        let mut row = div()
+            .id(id)
+            .w_full()
+            .flex()
+            .gap(px(CARD_GAP))
+            .overflow_x_scrollbar();
+        for (index, (key, value, warning)) in cards.iter().enumerate() {
+            row = row.child(kpi_card(
+                (id, index),
+                language.text(*key),
+                value.clone(),
+                *warning,
+                card_width,
+                &colors,
+            ));
+        }
+        row
+    })
+    .into_any_element()
 }
 
-fn dominator_distribution(
+/// Compose MemoryHeapDistribution: whole-heap segments when published, else the
+/// four largest classes as a composition. 8 dp padding, 8 dp rhythm, 12 px bar
+/// and body-11 legend; never invents a segment.
+pub(super) fn memory_heap_distribution(
+    id: &'static str,
     snapshot: &MemorySnapshot,
     colors: &StudioColors,
     language: Language,
@@ -335,7 +305,11 @@ fn dominator_distribution(
     } else {
         TextKey::MemoryPageMemoryComposition
     };
-    let mut bar = div().w_full().h(px(12.)).flex().bg(colors.border);
+    let mut bar = div()
+        .w_full()
+        .h(px(12.))
+        .flex()
+        .bg(colors.section_background);
     if total > 0 {
         let displayed = rows.iter().map(|(_, size)| *size).sum::<u64>().min(total);
         for (index, (_, size)) in rows.iter().filter(|(_, size)| *size > 0).enumerate() {
@@ -386,7 +360,7 @@ fn dominator_distribution(
         ));
     }
     studio::card(colors)
-        .id("memory-dominator-distribution")
+        .id(id)
         .w_full()
         .flex_shrink_0()
         .child(studio::section_title(language.text(title), colors))
@@ -420,7 +394,7 @@ fn dominator_row(
             };
             let mut row = div()
                 .id(("memory-dominator-row", index))
-                .h(px(dominator_row_height()))
+                .h(px(TABLE_ROW_HEIGHT))
                 .w_full()
                 .flex_shrink_0()
                 .flex()
@@ -451,7 +425,7 @@ fn dominator_row(
                         })
                         .child(
                             div()
-                                .text_size(px(typography::SUPPORTING))
+                                .text_size(px(12.))
                                 .text_color(colors.accent)
                                 .child(if expanded { "\u{25be}" } else { "\u{25b8}" }),
                         ),
@@ -466,7 +440,7 @@ fn dominator_row(
                         .justify_center()
                         .child(
                             div()
-                                .text_size(px(typography::SUPPORTING))
+                                .text_size(px(12.))
                                 .text_color(colors.secondary_text)
                                 .child(crate::studio::selectable("\u{00b7}")),
                         ),
@@ -478,7 +452,8 @@ fn dominator_row(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(typography::SUPPORTING))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
                     .text_color(colors.text)
                     .whitespace_nowrap()
                     .text_ellipsis()
@@ -488,21 +463,25 @@ fn dominator_row(
                 div()
                     .w(px(80.))
                     .flex_shrink_0()
-                    .text_size(px(typography::SUPPORTING))
-                    .text_color(colors.secondary_text)
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .text_color(colors.text)
+                    .text_align(TextAlign::Right)
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .child(shallow.clone()),
+                    .child(crate::studio::selectable(shallow.clone())),
             )
             .child(
                 div()
                     .w(px(80.))
                     .flex_shrink_0()
-                    .text_size(px(typography::SUPPORTING))
-                    .text_color(colors.secondary_text)
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .text_color(colors.text)
+                    .text_align(TextAlign::Right)
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .child(retained.clone()),
+                    .child(crate::studio::selectable(retained.clone())),
             )
             .cursor_pointer()
             .on_click(move |_, _, cx| {
@@ -514,7 +493,7 @@ fn dominator_row(
         }
         DominatorEntry::Status { depth, text } => div()
             .id(("memory-dominator-status", index))
-            .h(px(dominator_row_height()))
+            .h(px(TABLE_ROW_HEIGHT))
             .w_full()
             .flex_shrink_0()
             .flex()
@@ -523,7 +502,8 @@ fn dominator_row(
             .pr(px(8.))
             .child(
                 div()
-                    .text_size(px(typography::SUPPORTING))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
                     .text_color(colors.secondary_text)
                     .whitespace_nowrap()
                     .text_ellipsis()
@@ -545,31 +525,47 @@ fn dominator_tree_card(
         .min_h_0()
         .flex()
         .flex_col()
-        .child(div().px(px(8.)).pt(px(8.)).child(studio::section_title(
-            language.text(TextKey::MemoryPageDominatorTree),
-            colors,
-        )))
         .child(
             div()
+                .px(px(8.))
+                .pt(px(8.))
+                .pb(px(4.))
+                .child(studio::section_title(
+                    language.text(TextKey::MemoryPageDominatorTree),
+                    colors,
+                )),
+        )
+        .child(
+            div()
+                .id("memory-dominator-tree-header")
                 .w_full()
+                .h(px(TABLE_HEADER_HEIGHT))
+                .flex_shrink_0()
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .px(px(8.))
-                .py(px(4.))
-                .child(studio::table_header_cell(
-                    None,
-                    language.text(TextKey::MemoryPageClassName),
-                    colors,
-                ))
-                .child(studio::table_header_cell(
+                .bg(colors.section_background)
+                .child(
+                    header_cell(
+                        None,
+                        language.text(TextKey::MemoryPageClassName),
+                        false,
+                        false,
+                        colors,
+                    )
+                    .pl(px(8.)),
+                )
+                .child(header_cell(
                     Some(80.),
                     language.text(TextKey::MemoryPageShallow),
+                    true,
+                    true,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(80.),
                     language.text(TextKey::MemoryPageRetained),
+                    true,
+                    true,
                     colors,
                 )),
         )
@@ -581,7 +577,8 @@ fn dominator_tree_card(
                 .child(
                     div()
                         .p(px(8.))
-                        .text_size(px(typography::SUPPORTING))
+                        .text_size(px(TABLE_FONT))
+                        .line_height(px(TABLE_LINE))
                         .text_color(colors.error)
                         .child(crate::studio::selectable(error.to_owned())),
                 )
@@ -595,7 +592,14 @@ fn dominator_tree_card(
             empty_hint.to_owned()
         };
         return card
-            .child(div().p(px(8.)).child(studio::supporting(message, colors)))
+            .child(
+                div()
+                    .p(px(8.))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .text_color(colors.secondary_text)
+                    .child(crate::studio::selectable(message)),
+            )
             .into_any_element();
     }
     let matching = dominator_matching_classes(state);
@@ -607,7 +611,14 @@ fn dominator_tree_card(
             empty_hint.to_owned()
         };
         return card
-            .child(div().p(px(8.)).child(studio::supporting(message, colors)))
+            .child(
+                div()
+                    .p(px(8.))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .text_color(colors.secondary_text)
+                    .child(crate::studio::selectable(message)),
+            )
             .into_any_element();
     }
     let scroll_handle = state.dominator_scroll.clone();
@@ -682,26 +693,45 @@ impl ImportWorkspace {
                 language.text(TextKey::MemoryPageFilters),
                 colors,
             ))
-            .child(div().w_full().child(Input::new(&input).h(px(24.))))
+            // Compose ProfilerCompactTextField: 24 dp accent-outlined field on
+            // the field surface, matching the filters pane's other controls.
             .child(
-                Checkbox::new("memory-dominator-match-case")
-                    .label(language.text(TextKey::MemoryPageMatchCase))
-                    .checked(match_case)
-                    .on_change(move |value, _, cx| {
-                        let _ = match_entity.update(cx, |this, cx| {
-                            this.memory_set_match_case(*value, cx);
-                        });
-                    }),
+                div().w_full().child(
+                    Input::new(&input)
+                        .h(px(24.))
+                        .rounded(px(4.))
+                        .bg(colors.field)
+                        .border_1()
+                        .border_color(colors.accent),
+                ),
             )
             .child(
-                Checkbox::new("memory-dominator-regex")
-                    .label(language.text(TextKey::MemoryPageRegex))
-                    .checked(use_regex)
-                    .on_change(move |value, _, cx| {
-                        let _ = regex_entity.update(cx, |this, cx| {
-                            this.memory_set_regex(*value, cx);
-                        });
-                    }),
+                widgets::checkbox(
+                    "memory-dominator-match-case",
+                    language.text(TextKey::MemoryPageMatchCase),
+                    match_case,
+                    true,
+                    colors,
+                )
+                .on_click(move |_, _, cx| {
+                    let _ = match_entity.update(cx, |this, cx| {
+                        this.memory_set_match_case(!match_case, cx);
+                    });
+                }),
+            )
+            .child(
+                widgets::checkbox(
+                    "memory-dominator-regex",
+                    language.text(TextKey::MemoryPageRegex),
+                    use_regex,
+                    true,
+                    colors,
+                )
+                .on_click(move |_, _, cx| {
+                    let _ = regex_entity.update(cx, |this, cx| {
+                        this.memory_set_regex(!use_regex, cx);
+                    });
+                }),
             )
             .into_any_element()
     }
@@ -719,12 +749,30 @@ impl ImportWorkspace {
         let leak_suspects = self.memory_state.leak_suspect_count();
         let entity = cx.entity();
 
-        let summary_cards = dominator_summary(&summary, leak_suspects, loaded, language, colors);
-        let distribution = self
-            .memory_state
-            .snapshot
-            .as_ref()
-            .map(|snapshot| dominator_distribution(snapshot, colors, language));
+        let summary_cards = memory_summary_row(
+            "memory-dominator-summary",
+            &summary,
+            leak_suspects,
+            loaded,
+            language,
+            colors,
+        );
+        let distribution = self.memory_state.snapshot.as_ref().and_then(|snapshot| {
+            (snapshot
+                .summary
+                .heap_segments
+                .iter()
+                .any(|segment| segment.size_bytes > 0)
+                || !snapshot.classes.is_empty())
+            .then(|| {
+                memory_heap_distribution(
+                    "memory-dominator-distribution",
+                    snapshot,
+                    colors,
+                    language,
+                )
+            })
+        });
         let filters = self.memory_dominator_filters(window, colors, cx);
         let tree = dominator_tree_card(&self.memory_state, &entity, colors, language);
         let inspector = self.render_memory_inspector(colors, cx);
@@ -736,25 +784,18 @@ impl ImportWorkspace {
             .w_full()
             .flex()
             .flex_col()
-            .gap(px(4.))
+            .gap(px(CARD_GAP))
             .p(px(4.))
             .child(
                 div()
                     .id("memory-dominator-kpi-row")
                     .w_full()
-                    .h(px(52.))
+                    .h(px(SUMMARY_HEIGHT))
                     .flex_shrink_0()
                     .child(summary_cards),
             );
         if let Some(distribution) = distribution {
-            root = root.child(
-                div()
-                    .id("memory-dominator-distribution")
-                    .w_full()
-                    .h(px(76.))
-                    .flex_shrink_0()
-                    .child(distribution),
-            );
+            root = root.child(distribution);
         }
         root.child(
             div()
@@ -763,7 +804,7 @@ impl ImportWorkspace {
                 .min_h_0()
                 .w_full()
                 .flex()
-                .gap(px(4.))
+                .gap(px(CARD_GAP))
                 .child(
                     studio::card(colors)
                         .id("memory-filters-card")

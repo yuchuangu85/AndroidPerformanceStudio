@@ -1164,10 +1164,11 @@ impl crate::shell::menubar::MenuHost for MethodWorkspace {
                     TextKey::MethodImportArtTrace,
                     MethodMenuCommand::Import,
                 )
-                .item_when(
+                .item_action_when(
                     self.session.is_some() && !busy,
                     TextKey::CommonClose,
                     MethodMenuCommand::Close,
+                    crate::shell::CloseActiveRoute,
                 ),
         ];
         // A report view only describes an imported recording, and the call tree
@@ -1200,5 +1201,12 @@ impl crate::shell::menubar::MenuHost for MethodWorkspace {
             MethodMenuCommand::Close => self.close(cx),
             MethodMenuCommand::ChangeView(view) => self.change_view(view, cx),
         }
+    }
+}
+
+/// Route-shortcut entry points (IDEA-style window shortcuts).
+impl MethodWorkspace {
+    pub(crate) fn close_primary(&mut self, cx: &mut Context<Self>) {
+        self.close(cx);
     }
 }

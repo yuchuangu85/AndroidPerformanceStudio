@@ -1605,6 +1605,15 @@ impl crate::shell::menubar::MenuHost for TraceWorkspace {
                     TraceMenuCommand::ImportTrace,
                     crate::shell::OpenActiveRouteFile,
                 )
+                .item_action_when(
+                    !self.picking && !self.importing && !recent.is_empty(),
+                    TextKey::ShellMenuRecentFiles,
+                    recent
+                        .first()
+                        .map(|(session_id, _)| TraceMenuCommand::OpenRecent(session_id.clone()))
+                        .unwrap_or(TraceMenuCommand::Unavailable),
+                    crate::shell::RecentFilesActiveRoute,
+                )
                 .submenu(TextKey::ShellMenuOpenRecent, true, |menu| {
                     let menu = if recent.is_empty() {
                         menu.item_when(
@@ -1645,10 +1654,11 @@ impl crate::shell::menubar::MenuHost for TraceWorkspace {
                         TraceMenuCommand::ExportTrace,
                     )
                 })
-                .item_when(
+                .item_action_when(
                     self.active_trace.is_some() || self.trace_session.is_some(),
                     TextKey::TraceWorkspaceCloseTrace,
                     TraceMenuCommand::CloseTrace,
+                    crate::shell::CloseActiveRoute,
                 ),
             MenuGroup::new(TextKey::ShellMenuTrace)
                 .item_when(
@@ -1672,10 +1682,11 @@ impl crate::shell::menubar::MenuHost for TraceWorkspace {
                     TraceMenuCommand::SearchSlices,
                 )
                 .separator()
-                .item_when(
+                .item_action_when(
                     self.capture_visible || self.capture.device_ready(),
                     TextKey::TraceWorkspaceCapture,
                     TraceMenuCommand::ToggleCapture,
+                    crate::shell::StartCaptureActiveRoute,
                 )
                 .item_when(
                     self.capture_visible && !self.capture.refresh_in_progress(),
@@ -1802,5 +1813,23 @@ impl crate::shell::menubar::MenuHost for TraceWorkspace {
                 }
             }
         }
+    }
+}
+
+/// Route-shortcut entry points (IDEA-style window shortcuts).
+impl TraceWorkspace {
+    pub(crate) fn open_most_recent_session(&mut self, cx: &mut Context<Self>) {
+        let id = self.sessions.first().map(|record| record.id.clone());
+        if let Some(id) = id {
+            self.open_session(id, cx);
+        }
+    }
+
+    pub(crate) fn close_primary(&mut self, cx: &mut Context<Self>) {
+        self.close_trace(cx);
+    }
+
+    pub(crate) fn toggle_capture_primary(&mut self, cx: &mut Context<Self>) {
+        self.toggle_capture(cx);
     }
 }

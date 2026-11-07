@@ -1,51 +1,173 @@
 //! Object inspector (Fields / References / nearest GC root).
 //!
-//! This renders Compose MemoryObjectInspector *content* only: the caller owns
-//! the pane width, card border and splitter. The bounded InstanceDetail payload
-//! is the only evidence source, so an expandable object reference is a
-//! drill-in affordance (chevron toggles the persisted expansion marker and the
-//! row loads the target object) instead of claiming nested field rows the
-//! worker never sent. Unavailable metrics stay an em dash.
-use super::state::{InspectorTab, memory_row_height};
-use super::{ImportWorkspace, MEMORY_ARRAY_PAGE};
+//! This renders Compose MemoryObjectInspector / MemoryInspectorTable parity:
+//! a 28 px title row with the close control, the Fields/References tab strip
+//! with its 2 px accent underline, the References nearest-root toggle, and the
+//! Compose inspector table (24 px toolbar header, 20 px rows, 13/16 body-compact
+//! text, disclosure + type badge + Compose label grammar, ASCII-hyphen
+//! unavailable metrics and Compose's column order/widths).
+//!
+//! The bounded InstanceDetail payload is the only evidence source, so an
+//! expandable object reference is a drill-in affordance (the chevron toggles the
+//! persisted expansion marker and the row loads the target object) instead of
+//! claiming nested field rows the worker never sent.
+use super::state::InspectorTab;
+use super::{ImportWorkspace, MEMORY_ARRAY_PAGE, widgets};
 use crate::studio::{self, StudioColors};
-use aps_memory::{HeapValueKind, InstanceDetail, InstanceField};
-use aps_ui_foundation::TextKey;
+use aps_memory::{HeapValueKind, InstanceDetail, InstanceField, MemorySnapshot};
+use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
-    component::{
-        Selectable,
-        checkbox::Checkbox,
-        scroll::{ScrollableElement, Scrollbar, ScrollbarAxis},
-    },
+    component::scroll::{ScrollableElement, Scrollbar, ScrollbarAxis},
     prelude::*,
     *,
 };
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
+/// Compose inspector title/row strip height.
 const TITLE_HEIGHT: f32 = 28.;
+/// Compose inspector tab strip height.
 const TAB_HEIGHT: f32 = 28.;
-const TOOLBAR_HEIGHT: f32 = 26.;
-const MESSAGE_HEIGHT: f32 = 16.;
-const HEADER_HEIGHT: f32 = 24.;
+/// Compose inspector header height (CLASSIFIER_HEADER_HEIGHT).
+const TABLE_HEADER_HEIGHT: f32 = widgets::TABLE_HEADER_HEIGHT;
+/// Compose inspector body row height (body-compact line + 4 dp).
+const TABLE_ROW_HEIGHT: f32 = widgets::TABLE_ROW_HEIGHT;
+/// Compose ViewerTypography.bodyCompact font size.
+const TABLE_FONT: f32 = widgets::TABLE_FONT;
+/// Compose ViewerTypography.bodyCompact line height.
+const TABLE_LINE: f32 = widgets::TABLE_LINE;
+/// Trailing inset the Compose table keeps for its overlay scrollbars.
+const TABLE_HORIZONTAL_INSET: f32 = 10.;
+/// Overlay horizontal scrollbar thickness reserved at the table bottom.
+const HORIZONTAL_SCROLLBAR_INSET: f32 = 12.;
+/// Compose array paging strip height: one compact (20 px) control row.
+const ARRAY_PAGING_HEIGHT: f32 = 20.;
+/// Compose inspector message row start padding (24 + depth * 12).
+const MESSAGE_ROW_INSET: f32 = 24.;
+/// Compose inspector tree indent step.
 const TREE_INDENT: f32 = 12.;
-const CHEVRON_WIDTH: f32 = 12.;
-const TYPE_ICON_WIDTH: f32 = 16.;
-const DEPTH_WIDTH: f32 = 52.;
-const SHALLOW_WIDTH: f32 = 70.;
-const RETAINED_WIDTH: f32 = 76.;
-const NATIVE_WIDTH: f32 = 84.;
+/// Compose clamps the visible tree indent to 20 steps.
+const TREE_INDENT_LIMIT: u32 = 20;
+/// Compose inspector row label start padding.
+const ROW_PADDING_START: f32 = 8.;
+/// Compose inspector row label end padding.
+const ROW_PADDING_END: f32 = 4.;
+/// Compose inspector row item gap.
+const ROW_GAP: f32 = 3.;
+/// Compose disclosure triangle slot.
+const DISCLOSURE_WIDTH: f32 = 12.;
+/// Compose MemoryInspectorColumn.LABEL minimum width.
+const LABEL_MIN_WIDTH: f32 = 120.;
+/// Compose metric column minimum width.
+const METRIC_MIN_WIDTH: f32 = 40.;
+/// Compose colors the field string preview with a constant green.
+const STRING_PREVIEW_COLOR: u32 = 0x008000;
 
-// Compose MemoryInspectorColumn order used by the persisted sort keys.
-const SORT_NAME: u8 = 0;
-const SORT_DEPTH: u8 = 1;
-const SORT_SHALLOW: u8 = 2;
-const SORT_RETAINED: u8 = 3;
+/// Compose MemoryInspectorColumn, in table order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InspectorColumn {
+    Label,
+    Depth,
+    NativeSize,
+    ShallowSize,
+    RetainedNativeSize,
+    RetainedSize,
+}
+
+impl InspectorColumn {
+    /// Compose enum declaration order, used as the persisted sort key space.
+    const ALL: [Self; 6] = [
+        Self::Label,
+        Self::Depth,
+        Self::NativeSize,
+        Self::ShallowSize,
+        Self::RetainedNativeSize,
+        Self::RetainedSize,
+    ];
+
+    /// Compact metric-column width for a pane-constrained GPUI inspector. The
+    /// Compose preferred widths assume a 900+ px inspector; the label column
+    /// absorbs the remaining width through flex_1.
+    fn fixed_width(self) -> f32 {
+        match self {
+            Self::Label => 0.,
+            Self::Depth => 48.,
+            Self::NativeSize => 64.,
+            Self::ShallowSize => 72.,
+            Self::RetainedNativeSize => 80.,
+            Self::RetainedSize => 80.,
+        }
+    }
+
+    /// Compose MemoryInspectorColumn.preferredWidth.
+    #[allow(dead_code)]
+    fn preferred_width(self) -> f32 {
+        match self {
+            Self::Label => 500.,
+            Self::Depth => 150.,
+            Self::NativeSize => 110.,
+            Self::ShallowSize => 120.,
+            Self::RetainedNativeSize => 150.,
+            Self::RetainedSize => 130.,
+        }
+    }
+
+    /// Compose distributes extra width over minimums: 120 for the label, 40 for
+    /// every metric column.
+    #[allow(dead_code)]
+    fn minimum_width(self) -> f32 {
+        if self == Self::Label {
+            LABEL_MIN_WIDTH
+        } else {
+            METRIC_MIN_WIDTH
+        }
+    }
+
+    /// Compose inspectorColumnTitle.
+    fn title(self, references: bool, language: Language) -> &'static str {
+        let key = match self {
+            Self::Label => {
+                if references {
+                    TextKey::MemoryPageMemoryReferenceColumn
+                } else {
+                    TextKey::MemoryPageInstance
+                }
+            }
+            Self::Depth => TextKey::MemoryPageDepth,
+            Self::NativeSize => TextKey::MemoryPageNativeSize,
+            Self::ShallowSize => TextKey::MemoryPageMemoryInspectorShallowSize,
+            Self::RetainedNativeSize => TextKey::MemoryPageRetainedNativeSize,
+            Self::RetainedSize => TextKey::MemoryPageMemoryInspectorRetainedSize,
+        };
+        language.text(key)
+    }
+
+    /// Compose inspectorMetric: the row value a column renders and sorts on.
+    fn metric(self, row: &InspectorRow) -> Option<u64> {
+        match self {
+            Self::Label => None,
+            Self::Depth => row.field_depth.map(u64::from),
+            Self::NativeSize => row.native_size,
+            Self::ShallowSize => row.shallow_size,
+            Self::RetainedNativeSize => row.retained_native_size,
+            Self::RetainedSize => row.retained_size,
+        }
+    }
+
+    /// Compose picks an ascending direction for a newly sorted label/depth
+    /// column and a descending one for the size metrics.
+    fn default_ascending(self) -> bool {
+        matches!(self, Self::Label | Self::Depth)
+    }
+}
 
 /// One flattened inspector row: the object itself (References tab root), a
-/// field, or an inbound reference edge. Built each frame from the bounded
-/// detail payload; no cached child detail is implied by the chevron marker.
+/// field, an inbound reference edge, or an inline message.
 struct InspectorRow {
+    /// Rendered label; the trailing string preview is split into its own run.
     label: String,
+    /// Compose colors the field string preview green and semibold.
+    string_preview: Option<String>,
     copy_text: String,
     sort_name: String,
     tree_depth: u32,
@@ -53,6 +175,7 @@ struct InspectorRow {
     shallow_size: Option<u64>,
     retained_size: Option<u64>,
     native_size: Option<u64>,
+    retained_native_size: Option<u64>,
     value_kind: HeapValueKind,
     /// Object to load when the row is activated.
     navigate: Option<u64>,
@@ -62,19 +185,24 @@ struct InspectorRow {
     is_message: bool,
     expandable: bool,
     expanded: bool,
+    /// Compose's nearest-root pass selects the first chain row.
+    in_reference_chain: bool,
+    selected: bool,
 }
 
 impl InspectorRow {
-    fn message(label: String) -> Self {
+    fn message(label: String, tree_depth: u32) -> Self {
         Self {
             label,
+            string_preview: None,
             copy_text: String::new(),
             sort_name: String::new(),
-            tree_depth: 1,
+            tree_depth,
             field_depth: None,
             shallow_size: None,
             retained_size: None,
             native_size: None,
+            retained_native_size: None,
             value_kind: HeapValueKind::Unknown,
             navigate: None,
             expand_key: None,
@@ -82,20 +210,43 @@ impl InspectorRow {
             is_message: true,
             expandable: false,
             expanded: false,
+            in_reference_chain: false,
+            selected: false,
         }
+    }
+
+    fn sort_metric(&self, column: InspectorColumn) -> i64 {
+        column
+            .metric(self)
+            .map_or(-1, |value| value.min(i64::MAX as u64) as i64)
     }
 }
 
-impl InspectorRow {
-    fn sort_metric(&self, column: u8) -> i64 {
-        let value = match column {
-            SORT_DEPTH => self.field_depth.map(u64::from),
-            SORT_SHALLOW => self.shallow_size,
-            SORT_RETAINED => self.retained_size,
-            _ => None,
-        };
-        value.map_or(-1, |value| value.min(i64::MAX as u64) as i64)
+/// Compose inspector sort defaults: Fields sort by retained size descending,
+/// References by depth ascending.
+fn default_sort(tab: InspectorTab) -> (InspectorColumn, bool) {
+    match tab {
+        InspectorTab::Fields => (InspectorColumn::RetainedSize, false),
+        InspectorTab::References => (InspectorColumn::Depth, true),
     }
+}
+
+/// Decode the persisted sort pair. A zero sort column is the untouched state
+/// written by MemoryState::new/reset_for_snapshot, so the tab default applies
+/// until the first header click stores a column index + 1.
+fn stored_sort(code: u8, ascending: bool, tab: InspectorTab) -> (InspectorColumn, bool) {
+    match usize::from(code)
+        .checked_sub(1)
+        .and_then(|index| InspectorColumn::ALL.get(index))
+        .copied()
+    {
+        Some(column) => (column, ascending),
+        None => default_sort(tab),
+    }
+}
+
+fn sort_state(column: InspectorColumn, ascending: bool) -> (u8, bool) {
+    (column as u8 + 1, ascending)
 }
 
 impl ImportWorkspace {
@@ -111,41 +262,43 @@ impl ImportWorkspace {
         let entity = cx.entity();
         let references_tab = self.memory_state.inspector_tab == InspectorTab::References;
         let nearest_only = self.memory_state.nearest_root_only;
-        let pinned = self.memory_state.pinned.contains(&detail.object_id);
         let expanded = self.memory_state.inspector_expanded.clone();
-        let sort_column = self.memory_state.inspector_sort_column;
-        let sort_ascending = self.memory_state.inspector_sort_ascending;
-        // Compose labels objects as "<Class>@<objectId> (0x<hex>)"; the first
-        // number is the snapshot-local object id, never a page ordinal.
-        let ordinal = detail.object_id;
-        let show_native = detail.native_size.is_some()
-            || detail
-                .fields
-                .iter()
-                .any(|field| field.native_size.is_some())
-            || detail
-                .references
-                .iter()
-                .any(|field| field.native_size.is_some());
+        let (sort_column, sort_ascending) = stored_sort(
+            self.memory_state.inspector_sort_column,
+            self.memory_state.inspector_sort_ascending,
+            self.memory_state.inspector_tab,
+        );
+        // Compose gates the Native Size column on the snapshot capability and the
+        // Retained Native Size column on the selected detail's evidence.
+        let columns = Rc::new(inspector_columns(
+            snapshot_native_capability(self.memory_state.snapshot.as_deref()),
+            detail.retained_native_size.is_some(),
+        ));
         let mut rows = build_rows(
             &detail,
             references_tab,
             nearest_only,
-            ordinal,
             &expanded,
             sort_column,
             sort_ascending,
         );
-        // The References tab always shows its object root row; when it has no
-        // visible inbound edge, say so instead of leaving a bare root.
+        let mut empty_message = SharedString::default();
         if references_tab && rows.len() == 1 && rows.first().is_some_and(|row| row.expanded) {
             let key = if nearest_only && !detail.references.is_empty() {
                 TextKey::MemoryPageMemoryRootUnavailable
             } else {
                 TextKey::MemoryPageNoReferences
             };
-            rows.push(InspectorRow::message(language.text(key).to_owned()));
+            rows.push(InspectorRow::message(language.text(key).to_owned(), 1));
+        } else if !references_tab && rows.is_empty() {
+            let key = if detail.is_array && detail.element_count.unwrap_or(0) > 0 {
+                TextKey::MemoryPageArrayValuesUnavailable
+            } else {
+                TextKey::MemoryPageNoObjectFields
+            };
+            empty_message = SharedString::from(language.text(key).to_owned());
         }
+        let rows = Rc::new(rows);
 
         let mut panel = div()
             .id("memory-object-inspector")
@@ -156,7 +309,8 @@ impl ImportWorkspace {
             .flex()
             .flex_col();
 
-        // Title: Instance Details - shortClass@ordinal (0xID) + close x.
+        // Title row: Instance Details - shortClass@id (0xhex) with the close
+        // control in a 28 px square on the trailing edge.
         let title = format!(
             "{} - {}",
             language.text(TextKey::MemoryPageInstanceDetails),
@@ -164,7 +318,6 @@ impl ImportWorkspace {
                 detail.object_id,
                 &detail.class_name,
                 detail.represented_class_name.as_deref(),
-                Some(ordinal),
             )
         );
         panel = panel.child(
@@ -174,15 +327,14 @@ impl ImportWorkspace {
                 .flex_shrink_0()
                 .flex()
                 .items_center()
-                .gap(px(4.))
-                .px(px(6.))
+                .pl(px(4.))
                 .child(
                     div()
                         .id("memory-inspector-title-text")
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(studio::FONT_BODY))
-                        .line_height(px(18.))
+                        .text_size(px(TABLE_FONT))
+                        .line_height(px(TABLE_LINE))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.text)
                         .whitespace_nowrap()
@@ -190,21 +342,21 @@ impl ImportWorkspace {
                         .child(crate::studio::selectable(title)),
                 )
                 .child(
-                    studio::compact_text_button("memory-inspector-close", "×", true, false, colors)
+                    widgets::icon_button("memory-inspector-close", "×", true, false, colors)
                         .tooltip(language.text(TextKey::MemoryPageMemoryInspectorClose))
                         .on_click(cx.listener(|this, _, _, cx| this.memory_close_inspector(cx))),
                 ),
         );
         panel = panel.child(studio::divider(colors));
 
-        // Tabs Fields / References with a 2px accent underline.
+        // Tabs: Fields / References with a 2 px accent underline spanning the
+        // label, both inset 10 dp like Compose.
         let mut tabs = div()
-            .id("memory-inspector-tabs")
+            .id("memory-instance-detail-tabs")
             .h(px(TAB_HEIGHT))
             .flex_shrink_0()
             .flex()
-            .items_center()
-            .px(px(4.));
+            .items_center();
         for (index, (tab, key)) in [
             (InspectorTab::Fields, TextKey::MemoryPageFields),
             (InspectorTab::References, TextKey::MemoryPageReferences),
@@ -220,6 +372,7 @@ impl ImportWorkspace {
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
+                    .px(px(10.))
                     .cursor_pointer()
                     .on_click(
                         cx.listener(move |this, _, _, cx| this.memory_set_inspector_tab(tab, cx)),
@@ -229,14 +382,9 @@ impl ImportWorkspace {
                             .flex_1()
                             .flex()
                             .items_center()
-                            .px(px(10.))
-                            .text_size(px(studio::FONT_BODY))
-                            .line_height(px(18.))
-                            .font_weight(if selected {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::NORMAL
-                            })
+                            .justify_center()
+                            .text_size(px(TABLE_FONT))
+                            .line_height(px(TABLE_LINE))
                             .text_color(if selected {
                                 colors.accent
                             } else {
@@ -254,147 +402,36 @@ impl ImportWorkspace {
         panel = panel.child(tabs);
         panel = panel.child(studio::divider(colors));
 
-        // History / clipboard / pin toolbar.
-        let mut toolbar = div()
-            .id("memory-inspector-toolbar")
-            .h(px(TOOLBAR_HEIGHT))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .px(px(6.))
-            .overflow_x_scrollbar()
-            .child(
-                studio::compact_text_button(
-                    "memory-inspector-back",
-                    language.text(TextKey::MemoryPageBack),
-                    self.memory_state.history_back_enabled(),
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.memory_history_back(cx))),
-            )
-            .child(
-                studio::compact_text_button(
-                    "memory-inspector-forward",
-                    language.text(TextKey::MemoryPageForward),
-                    self.memory_state.history_forward_enabled(),
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.memory_history_forward(cx))),
-            );
-        let object_id = detail.object_id;
-        toolbar = toolbar
-            .child(
-                studio::compact_text_button(
-                    "memory-inspector-copy-id",
-                    language.text(TextKey::MemoryPageCopyObjectId),
-                    true,
-                    false,
-                    colors,
-                )
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.memory_copy_object_id(object_id, cx)),
-                ),
-            )
-            .child(
-                studio::compact_text_button(
-                    "memory-inspector-pin",
-                    language.text(if pinned {
-                        TextKey::MemoryPageUnpinObject
-                    } else {
-                        TextKey::MemoryPagePinObject
-                    }),
-                    true,
-                    pinned,
-                    colors,
-                )
-                .selected(pinned)
-                .on_click(cx.listener(move |this, _, _, cx| this.memory_toggle_pin(object_id, cx))),
-            );
-        panel = panel.child(toolbar);
-
-        // Whole-object metrics (unavailable evidence stays an em dash).
-        let mut metrics = format!(
-            "{} {} · {} {} · {} {}",
-            language.text(TextKey::MemoryPageShallow),
-            byte_metric(detail.shallow_size_known.then_some(detail.shallow_size)),
-            language.text(TextKey::MemoryPageRetained),
-            byte_metric(detail.retained_size),
-            language.text(TextKey::MemoryPageNativeSize),
-            byte_metric(detail.native_size),
-        );
-        if let Some(depth) = detail.depth {
-            metrics.push_str(&format!(
-                " · {} {}",
-                language.text(TextKey::MemoryPageDepth),
-                grouped_integer(u64::from(depth))
-            ));
-        }
-        panel = panel.child(
-            div()
-                .id("memory-inspector-metrics")
-                .h(px(MESSAGE_HEIGHT))
-                .flex_shrink_0()
-                .px(px(6.))
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .child(
-                    studio::supporting(metrics, colors)
-                        .whitespace_nowrap()
-                        .text_ellipsis(),
-                ),
-        );
-        if let Some(preview) = detail.string_preview.as_deref() {
+        // References tab: 28 dp Show nearest GC root only toggle row.
+        if references_tab {
+            let weak = entity.downgrade();
+            let checked = nearest_only;
             panel = panel.child(
                 div()
-                    .id("memory-inspector-string-preview")
-                    .h(px(MESSAGE_HEIGHT))
+                    .id("memory-show-nearest-gc-root-only")
+                    .h(px(TAB_HEIGHT))
                     .flex_shrink_0()
-                    .px(px(6.))
-                    .overflow_hidden()
                     .flex()
                     .items_center()
-                    .child(
-                        div()
-                            .text_size(px(studio::FONT_SUPPORTING))
-                            .line_height(px(15.))
-                            .text_color(colors.success)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(crate::studio::selectable(preview.to_owned())),
-                    ),
-            );
-        }
-        if detail.omitted {
-            panel = panel.child(
-                div()
-                    .id("memory-inspector-omitted")
-                    .h(px(MESSAGE_HEIGHT))
-                    .flex_shrink_0()
                     .px(px(6.))
-                    .overflow_hidden()
-                    .flex()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_size(px(studio::FONT_SUPPORTING))
-                            .line_height(px(15.))
-                            .text_color(colors.warning)
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(crate::studio::selectable(
-                                language.text(TextKey::MemoryPageOmitted),
-                            )),
-                    ),
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.memory_set_nearest_root_only(!checked, cx)
+                        });
+                    })
+                    .child(widgets::checkbox(
+                        "memory-inspector-nearest-root-only",
+                        language.text(TextKey::MemoryPageShowNearestGcRootOnly),
+                        checked,
+                        true,
+                        colors,
+                    )),
             );
         }
 
-        // Array paging: 200-element bounded pages loaded from object_id/start.
-        if detail.is_array {
+        // Array paging: bounded 200-element pages, rendered as one compact row.
+        if detail.is_array && !references_tab {
             let element_count = detail.element_count.unwrap_or(0);
             let page_size = if detail.array_page_size == 0 {
                 MEMORY_ARRAY_PAGE as u64
@@ -414,34 +451,41 @@ impl ImportWorkspace {
             let next_start = start.saturating_add(page_size);
             let can_previous = start > 0;
             let can_next = next_start < element_count;
+            let object_id = detail.object_id;
             panel = panel.child(
                 div()
                     .id("memory-inspector-array-paging")
-                    .h(px(TOOLBAR_HEIGHT))
+                    .h(px(ARRAY_PAGING_HEIGHT))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .gap(px(6.))
                     .px(px(6.))
                     .overflow_x_scrollbar()
-                    .child(studio::supporting(
-                        language.format(
-                            TextKey::MemoryPageArrayElements,
-                            &[("arg_1", &element_count)],
-                        ),
-                        colors,
-                    ))
-                    .child(studio::supporting(
-                        language.format(
-                            TextKey::MemoryPageArrayPageRange,
-                            &[
-                                ("arg_1", &first),
-                                ("arg_2", &end),
-                                ("arg_3", &element_count),
-                            ],
-                        ),
-                        colors,
-                    ))
+                    .child(
+                        studio::supporting(
+                            language.format(
+                                TextKey::MemoryPageArrayElements,
+                                &[("arg_1", &element_count)],
+                            ),
+                            colors,
+                        )
+                        .whitespace_nowrap(),
+                    )
+                    .child(
+                        studio::supporting(
+                            language.format(
+                                TextKey::MemoryPageArrayPageRange,
+                                &[
+                                    ("arg_1", &first),
+                                    ("arg_2", &end),
+                                    ("arg_3", &element_count),
+                                ],
+                            ),
+                            colors,
+                        )
+                        .whitespace_nowrap(),
+                    )
                     .child(
                         studio::compact_text_button(
                             "memory-inspector-array-previous",
@@ -469,417 +513,248 @@ impl ImportWorkspace {
             );
         }
 
-        // References tab: nearest GC root only checkbox.
-        if references_tab {
-            let weak = entity.downgrade();
-            panel = panel.child(
-                div()
-                    .id("memory-inspector-nearest-root")
-                    .h(px(TAB_HEIGHT))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .px(px(6.))
-                    .child(
-                        Checkbox::new("memory-inspector-nearest-root-only")
-                            .checked(nearest_only)
-                            .label(language.text(TextKey::MemoryPageShowNearestGcRootOnly))
-                            .on_click(move |checked, _, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.memory_set_nearest_root_only(*checked, cx)
-                                });
-                            }),
-                    ),
-            );
-        }
-
-        // Table header, sorted like Compose MemoryInspectorTable.
-        let label_key = if references_tab {
-            TextKey::MemoryPageMemoryReferenceColumn
-        } else {
-            TextKey::MemoryPageInstance
-        };
-        let mut header = studio::table_header_row(colors)
-            .id("memory-inspector-columns")
-            .h(px(HEADER_HEIGHT))
-            .flex_shrink_0()
-            .py(px(2.))
-            .px(px(6.))
-            .child(sort_header(
-                "memory-inspector-header-name",
-                SORT_NAME,
-                language.text(label_key),
-                None,
-                sort_column,
-                sort_ascending,
-                &entity,
-                colors,
-            ))
-            .child(sort_header(
-                "memory-inspector-header-depth",
-                SORT_DEPTH,
-                language.text(TextKey::MemoryPageDepth),
-                Some(DEPTH_WIDTH),
-                sort_column,
-                sort_ascending,
-                &entity,
-                colors,
-            ))
-            .child(sort_header(
-                "memory-inspector-header-shallow",
-                SORT_SHALLOW,
-                language.text(TextKey::MemoryPageMemoryInspectorShallowSize),
-                Some(SHALLOW_WIDTH),
-                sort_column,
-                sort_ascending,
-                &entity,
-                colors,
-            ))
-            .child(sort_header(
-                "memory-inspector-header-retained",
-                SORT_RETAINED,
-                language.text(TextKey::MemoryPageMemoryInspectorRetainedSize),
-                Some(RETAINED_WIDTH),
-                sort_column,
-                sort_ascending,
-                &entity,
-                colors,
-            ));
-        if show_native {
-            header = header.child(
-                div()
-                    .w(px(NATIVE_WIDTH))
-                    .flex_shrink_0()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .px(px(4.))
-                    .border_l_1()
-                    .border_color(colors.border)
-                    .text_size(px(studio::FONT_SUPPORTING))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(colors.secondary_text)
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(crate::studio::selectable(
-                        language.text(TextKey::MemoryPageNativeSize),
-                    )),
-            );
-        }
-        panel = panel.child(header);
-
-        // Row viewport.
-        if rows.is_empty() {
-            let empty_key = if references_tab {
-                if nearest_only && !detail.references.is_empty() {
-                    TextKey::MemoryPageMemoryRootUnavailable
-                } else {
-                    TextKey::MemoryPageNoReferences
-                }
-            } else if detail.is_array && detail.element_count.unwrap_or(0) > 0 {
-                TextKey::MemoryPageArrayValuesUnavailable
-            } else {
-                TextKey::MemoryPageNoObjectFields
-            };
-            panel = panel.child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p(px(12.))
-                    .child(studio::supporting(language.text(empty_key), colors)),
-            );
-        } else {
-            let list_entity = entity.clone();
-            let list_rows = rows;
-            let list_colors = *colors;
-            let list_scroll = self.memory_state.inspector_scroll.clone();
-            let list = uniform_list(
-                "memory-inspector-rows",
-                list_rows.len(),
-                move |range, _, _| {
-                    range
-                        .filter_map(|index| {
-                            list_rows.get(index).map(|row| {
-                                inspector_row(index, row, &list_entity, &list_colors, show_native)
-                            })
-                        })
-                        .collect()
-                },
-            )
-            .track_scroll(&list_scroll)
-            .h_full()
-            .w_full();
-            panel = panel.child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .child(list)
-                    .child(
-                        div().absolute().inset_0().child(
-                            Scrollbar::new(&list_scroll)
-                                .id("memory-inspector-vertical-scrollbar")
-                                .axis(ScrollbarAxis::Vertical)
-                                .viewport_from_layout(),
-                        ),
-                    ),
-            );
-        }
-
-        panel.into_any_element()
-    }
-}
-
-fn inspector_placeholder(
-    language: aps_ui_foundation::Language,
-    colors: &StudioColors,
-    loading: bool,
-) -> AnyElement {
-    let hint = if loading {
-        TextKey::MemoryPageMemoryInspectorLoading
-    } else {
-        TextKey::MemoryPageSelectAnInstanceToViewDetails
-    };
-    div()
-        .id("memory-object-inspector")
-        .size_full()
-        .min_h_0()
-        .min_w_0()
-        .overflow_hidden()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .h(px(TITLE_HEIGHT))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .px(px(6.))
-                .child(
-                    div()
-                        .text_size(px(studio::FONT_BODY))
-                        .line_height(px(18.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(colors.text)
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(crate::studio::selectable(
-                            language.text(TextKey::MemoryPageInstanceDetails),
-                        )),
-                ),
-        )
-        .child(studio::divider(colors))
-        .child(
+        // The table measures its pane so the Compose width formula
+        // (minimum + proportional extra) and the horizontal-scroll decision can
+        // be applied exactly.
+        let table_rows = rows;
+        let table_columns = columns;
+        let table_entity = entity.clone();
+        let table_colors = *colors;
+        let table_scroll = self.memory_state.inspector_scroll.clone();
+        let table_references = references_tab;
+        let table_empty = empty_message;
+        panel = panel.child(
             div()
                 .flex_1()
                 .min_h_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p(px(12.))
-                .child(studio::supporting(language.text(hint), colors)),
+                .w_full()
+                .child(inspector_table(
+                    &table_rows,
+                    &table_columns,
+                    table_references,
+                    (sort_column, sort_ascending),
+                    &table_entity,
+                    &table_colors,
+                    &table_scroll,
+                    language,
+                    table_empty.clone(),
+                )),
+        );
+
+        panel.into_any_element()
+    }
+
+    /// Header click: toggle the active column or adopt Compose's default
+    /// direction for the new column.
+    fn memory_sort_inspector(&mut self, column: InspectorColumn, cx: &mut Context<Self>) {
+        let state = &mut self.memory_state;
+        let (current, ascending) = stored_sort(
+            state.inspector_sort_column,
+            state.inspector_sort_ascending,
+            state.inspector_tab,
+        );
+        let next_ascending = if current == column {
+            !ascending
+        } else {
+            column.default_ascending()
+        };
+        let (code, ascending) = sort_state(column, next_ascending);
+        state.inspector_sort_column = code;
+        state.inspector_sort_ascending = ascending;
+        cx.notify();
+    }
+}
+
+/// Render the measured inspector table: 24 px toolbar header, 20 px rows, the
+/// Compose column widths and overlay scrollbars.
+#[allow(clippy::too_many_arguments)]
+fn inspector_table(
+    rows: &Rc<Vec<InspectorRow>>,
+    columns: &Rc<Vec<InspectorColumn>>,
+    references: bool,
+    sort: (InspectorColumn, bool),
+    entity: &Entity<ImportWorkspace>,
+    colors: &StudioColors,
+    scroll_handle: &UniformListScrollHandle,
+    language: Language,
+    empty_message: SharedString,
+) -> AnyElement {
+    // The inspector pane is constrained to roughly 260-620 px in Compose; the
+    // label column absorbs all extra width while metric columns stay compact.
+    // Avoiding a container query here also prevents the panel from measuring
+    // the window instead of its own pane in GPUI.
+    let (sort_column, sort_ascending) = sort;
+    let mut header = div()
+        .id("memory-inspector-columns")
+        .h(px(TABLE_HEADER_HEIGHT))
+        .flex_shrink_0()
+        .w_full()
+        .flex()
+        .items_center()
+        .bg(colors.toolbar);
+    for (index, column) in columns.iter().enumerate() {
+        let active = *column == sort_column;
+        let title = if active {
+            format!(
+                "{}{}",
+                column.title(references, language),
+                if sort_ascending { " ↑" } else { " ↓" }
+            )
+        } else {
+            column.title(references, language).to_owned()
+        };
+        let metric = *column != InspectorColumn::Label;
+        let sort_entity = entity.clone();
+        let sort_column = *column;
+        header = header.child(
+            widgets::header_cell(
+                (*column != InspectorColumn::Label).then(|| column.fixed_width()),
+                title,
+                metric,
+                metric,
+                colors,
+            )
+                .id(("memory-inspector-header", sort_column as usize))
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    let _ = sort_entity
+                        .update(cx, |this, cx| this.memory_sort_inspector(sort_column, cx));
+                }),
+        );
+    }
+
+    let body: AnyElement = if rows.is_empty() {
+        div()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p(px(12.))
+            .child(studio::supporting(empty_message, colors))
+            .into_any_element()
+    } else {
+        let list_rows = rows.clone();
+        let list_columns = columns.clone();
+        let list_entity = entity.clone();
+        let list_colors = *colors;
+        let list = uniform_list("memory-inspector-rows", rows.len(), move |range, _, _| {
+            let mut items = Vec::with_capacity(range.len());
+            for index in range {
+                let Some(row) = list_rows.get(index) else {
+                    continue;
+                };
+                items.push(inspector_row(
+                    index,
+                    row,
+                    &list_columns,
+                    &list_entity,
+                    &list_colors,
+                ));
+            }
+            items
+        })
+        .track_scroll(scroll_handle)
+        .h_full()
+        .w_full();
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .child(list)
+            .into_any_element()
+    };
+
+    let table = div()
+        .id("memory-inspector-table")
+        .w_full()
+        .h_full()
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .child(header)
+        .child(body);
+
+    div()
+        .relative()
+        .size_full()
+        .child(
+            div()
+                .id("memory-inspector-table-scroll")
+                .size_full()
+                .overflow_x_scrollbar()
+                .child(table),
+        )
+        .child(
+            div()
+                .absolute()
+                .top(px(TABLE_HEADER_HEIGHT))
+                .right_0()
+                .bottom(px(0.))
+                .left_0()
+                .child(
+                    Scrollbar::new(scroll_handle)
+                        .id("memory-inspector-vertical-scrollbar")
+                        .axis(ScrollbarAxis::Vertical)
+                        .viewport_from_layout(),
+                ),
         )
         .into_any_element()
 }
 
-/// Header cell: click cycles/toggles the persisted sort column, matching the
-/// Compose MemoryInspectorSort default direction (name/depth ascending, size
-/// metrics descending).
-#[allow(clippy::too_many_arguments)]
-fn sort_header(
-    id: &'static str,
-    column: u8,
-    label: &'static str,
-    width: Option<f32>,
-    sort_column: u8,
-    sort_ascending: bool,
-    entity: &Entity<ImportWorkspace>,
-    colors: &StudioColors,
-) -> AnyElement {
-    let active = sort_column == column;
-    let arrow = if !active {
-        ""
-    } else if sort_ascending {
-        " ↑"
-    } else {
-        " ↓"
-    };
-    let text: SharedString = format!("{label}{arrow}").into();
-    let mut cell = div()
-        .id(id)
-        .h_full()
-        .flex()
-        .items_center()
-        .cursor_pointer()
-        .text_size(px(studio::FONT_SUPPORTING))
-        .line_height(px(15.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(if active {
-            colors.text
-        } else {
-            colors.secondary_text
-        })
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .on_click({
-            let entity = entity.clone();
-            move |_, _, cx| {
-                let _ = entity.update(cx, |this, cx| {
-                    let state = &mut this.memory_state;
-                    if state.inspector_sort_column == column {
-                        state.inspector_sort_ascending = !state.inspector_sort_ascending;
-                    } else {
-                        state.inspector_sort_column = column;
-                        state.inspector_sort_ascending = column <= SORT_DEPTH;
-                    }
-                    cx.notify();
-                });
-            }
-        });
-    if let Some(width) = width {
-        cell = cell
-            .w(px(width))
-            .flex_shrink_0()
-            .justify_end()
-            .px(px(4.))
-            .border_l_1()
-            .border_color(colors.border);
-    } else {
-        cell = cell.flex_1().min_w_0();
-    }
-    cell.child(crate::studio::selectable(text))
-        .into_any_element()
-}
-
+/// One inspector body row: the label cell (disclosure, type badge, Compose
+/// label with the string preview run) followed by the metric cells.
 fn inspector_row(
     index: usize,
     row: &InspectorRow,
+    columns: &[InspectorColumn],
     entity: &Entity<ImportWorkspace>,
     colors: &StudioColors,
-    show_native: bool,
 ) -> AnyElement {
-    let indent = 6. + row.tree_depth as f32 * TREE_INDENT;
     if row.is_message {
+        let indent = MESSAGE_ROW_INSET + row.tree_depth.min(TREE_INDENT_LIMIT) as f32 * TREE_INDENT;
         return div()
             .id(("memory-inspector-row", index))
-            .h(px(memory_row_height()))
+            .h(px(TABLE_ROW_HEIGHT))
             .w_full()
             .flex_shrink_0()
             .flex()
             .items_center()
             .pl(px(indent))
-            .pr(px(6.))
-            .text_size(px(studio::FONT_SUPPORTING))
-            .line_height(px(15.))
-            .text_color(colors.muted_text)
+            .pr(px(ROW_PADDING_END))
+            .text_size(px(TABLE_FONT))
+            .line_height(px(TABLE_LINE))
+            .text_color(colors.secondary_text)
             .whitespace_nowrap()
             .text_ellipsis()
             .child(row.label.clone())
             .into_any_element();
     }
+
     let mut element = div()
         .id(("memory-inspector-row", index))
-        .h(px(memory_row_height()))
+        .h(px(TABLE_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
         .flex()
         .items_center()
-        .gap(px(3.))
-        .pl(px(indent))
-        .pr(px(6.))
+        .bg(if row.selected {
+            colors.selected_row
+        } else {
+            colors.panel
+        })
         .cursor_pointer();
-    if row.expandable {
-        let glyph = if row.expanded { "▾" } else { "▸" };
-        let toggle_key = row.expand_key;
-        let navigate = row.navigate;
-        let chevron_entity = entity.clone();
-        element = element.child(
-            div()
-                .id(("memory-inspector-chevron", index))
-                .w(px(CHEVRON_WIDTH))
-                .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(10.))
-                .line_height(px(15.))
-                .text_color(colors.secondary_text)
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = chevron_entity.update(cx, |this, cx| {
-                        if let Some(key) = toggle_key {
-                            if !this.memory_state.inspector_expanded.remove(&key) {
-                                this.memory_state.inspector_expanded.insert(key);
-                            }
-                        }
-                        match navigate {
-                            Some(target) => {
-                                this.memory_state.push_history(target);
-                                this.memory_load_inspector_object(target, 0, cx);
-                            }
-                            None => cx.notify(),
-                        }
-                    });
-                })
-                .child(glyph),
-        );
-    } else {
-        element = element.child(div().w(px(CHEVRON_WIDTH)).h_full());
-    }
-    let (glyph, tint) = type_icon(row.value_kind, row.is_root, colors);
-    element = element
-        .child(
-            div()
-                .w(px(TYPE_ICON_WIDTH))
-                .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(9.))
-                .line_height(px(15.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(tint)
-                .child(glyph),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(px(studio::FONT_SUPPORTING))
-                .line_height(px(15.))
-                .text_color(colors.text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(row.label.clone()),
-        )
-        .child(metric_cell(
-            metric_text(row.field_depth.map(u64::from)),
-            DEPTH_WIDTH,
-            colors,
-        ))
-        .child(metric_cell(
-            metric_text(row.shallow_size),
-            SHALLOW_WIDTH,
-            colors,
-        ))
-        .child(metric_cell(
-            metric_text(row.retained_size),
-            RETAINED_WIDTH,
-            colors,
-        ));
-    if show_native {
-        element = element.child(metric_cell(
-            metric_text(row.native_size),
-            NATIVE_WIDTH,
+    element = element.child(inspector_label_cell(index, row, entity, colors));
+    for column in columns.iter().skip(1) {
+        element = element.child(widgets::metric_cell(
+            Some(column.fixed_width()),
+            metric_text(column.metric(row)),
             colors,
         ));
     }
+
     let navigate = row.navigate;
     let copy_text = row.copy_text.clone();
     let is_root = row.is_root;
@@ -911,82 +786,213 @@ fn inspector_row(
         .into_any_element()
 }
 
-fn metric_cell(text: String, width: f32, colors: &StudioColors) -> AnyElement {
-    let available = text != "—";
-    div()
-        .w(px(width))
-        .flex_shrink_0()
+/// Compose inspector label cell: tree indent, 12 dp disclosure, type badge and
+/// the label run (with the green string-preview suffix on Fields).
+fn inspector_label_cell(
+    index: usize,
+    row: &InspectorRow,
+    entity: &Entity<ImportWorkspace>,
+    colors: &StudioColors,
+) -> AnyElement {
+    let indent = ROW_PADDING_START + row.tree_depth.min(TREE_INDENT_LIMIT) as f32 * TREE_INDENT;
+    let mut cell = div()
+        .flex_1()
+        .min_w_0()
         .h_full()
         .flex()
         .items_center()
-        .justify_end()
-        .px(px(4.))
-        .border_l_1()
-        .border_color(colors.border)
-        .text_size(px(studio::FONT_SUPPORTING))
-        .line_height(px(15.))
-        .text_color(if available {
-            colors.text
-        } else {
-            colors.muted_text
-        })
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .child(crate::studio::selectable(text))
+        .gap(px(ROW_GAP))
+        .pl(px(indent))
+        .pr(px(ROW_PADDING_END));
+    if row.expandable {
+        let glyph = if row.expanded { "▾" } else { "▸" };
+        let toggle_key = row.expand_key;
+        let navigate = row.navigate;
+        let disclosure_entity = entity.clone();
+        cell = cell.child(
+            div()
+                .id(("memory-inspector-disclosure", index))
+                .w(px(DISCLOSURE_WIDTH))
+                .h_full()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(12.))
+                .line_height(px(TABLE_LINE))
+                .text_color(colors.secondary_text)
+                .cursor_pointer()
+                .child(glyph)
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = disclosure_entity.update(cx, |this, cx| {
+                        if let Some(key) = toggle_key {
+                            if !this.memory_state.inspector_expanded.remove(&key) {
+                                this.memory_state.inspector_expanded.insert(key);
+                            }
+                        }
+                        match navigate {
+                            Some(target) => {
+                                this.memory_state.push_history(target);
+                                this.memory_load_inspector_object(target, 0, cx);
+                            }
+                            None => cx.notify(),
+                        }
+                    });
+                }),
+        );
+    } else {
+        cell = cell.child(div().w(px(DISCLOSURE_WIDTH)).h_full().flex_shrink_0());
+    }
+    cell = cell.child(widgets::type_badge(row.value_kind, row.is_root, colors));
+    let mut label = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .text_size(px(TABLE_FONT))
+        .line_height(px(TABLE_LINE));
+    label = label.child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .text_color(colors.text)
+            .whitespace_nowrap()
+            .text_ellipsis()
+            .child(crate::studio::selectable(row.label.clone())),
+    );
+    if let Some(preview) = row.string_preview.clone() {
+        label = label.child(
+            div()
+                .flex_shrink_0()
+                .font_weight(FontWeight::BOLD)
+                .text_color(rgb(STRING_PREVIEW_COLOR))
+                .child(crate::studio::selectable(preview)),
+        );
+    }
+    cell.child(label).into_any_element()
+}
+
+fn inspector_placeholder(language: Language, colors: &StudioColors, loading: bool) -> AnyElement {
+    let hint = if loading {
+        TextKey::MemoryPageMemoryInspectorLoading
+    } else {
+        TextKey::MemoryPageSelectAnInstanceToViewDetails
+    };
+    div()
+        .id("memory-object-inspector")
+        .size_full()
+        .min_h_0()
+        .min_w_0()
+        .overflow_hidden()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .h(px(TITLE_HEIGHT))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .pl(px(4.))
+                .child(
+                    div()
+                        .text_size(px(TABLE_FONT))
+                        .line_height(px(TABLE_LINE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors.text)
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::MemoryPageInstanceDetails),
+                        )),
+                ),
+        )
+        .child(studio::divider(colors))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .p(px(12.))
+                .child(studio::supporting(language.text(hint), colors)),
+        )
         .into_any_element()
 }
 
-fn type_icon(kind: HeapValueKind, is_root: bool, colors: &StudioColors) -> (&'static str, Rgba) {
-    match kind {
-        HeapValueKind::Primitive => ("·", colors.warning),
-        HeapValueKind::Array => ("[]", colors.info),
-        HeapValueKind::Class => ("C", colors.accent),
-        HeapValueKind::Object => {
-            if is_root {
-                ("●", colors.success)
-            } else {
-                ("○", colors.success)
-            }
-        }
-        HeapValueKind::Unknown => ("?", colors.muted_text),
+/// Compose inspectorColumns: the native column follows the snapshot
+/// capability; the retained-native column follows the selected detail evidence.
+fn inspector_columns(
+    native_capability: bool,
+    retained_native_evidence: bool,
+) -> Vec<InspectorColumn> {
+    let mut columns = vec![InspectorColumn::Label, InspectorColumn::Depth];
+    if native_capability {
+        columns.push(InspectorColumn::NativeSize);
     }
+    columns.push(InspectorColumn::ShallowSize);
+    if retained_native_evidence {
+        columns.push(InspectorColumn::RetainedNativeSize);
+    }
+    columns.push(InspectorColumn::RetainedSize);
+    columns
 }
 
+/// Compose gates NATIVE_SIZE on HeapCapability.NATIVE_SIZE. HPROF never reports
+/// native sizes, and the Rust snapshot model does not project the capability
+/// set yet, so the closest honest proof available here is a non-Java-profile
+/// histogram that actually reported a native size.
+fn snapshot_native_capability(snapshot: Option<&MemorySnapshot>) -> bool {
+    let Some(snapshot) = snapshot else {
+        return false;
+    };
+    if snapshot.metadata.format.starts_with("JAVA PROFILE") {
+        return false;
+    }
+    snapshot
+        .classes
+        .iter()
+        .any(|class| class.native_size.is_some())
+}
+
+/// Flattened rows for the active tab: the References root row is followed by
+/// the inbound edges when expanded; the Fields tab never shows a root row.
 fn build_rows(
     detail: &InstanceDetail,
     references_tab: bool,
     nearest_only: bool,
-    ordinal: u64,
     expanded: &BTreeSet<u64>,
-    sort_column: u8,
+    sort_column: InspectorColumn,
     sort_ascending: bool,
 ) -> Vec<InspectorRow> {
     let mut rows = Vec::new();
     if references_tab {
         let root_expanded = !expanded.contains(&detail.object_id);
-        let label = object_label(
-            detail.object_id,
-            &detail.class_name,
-            detail.represented_class_name.as_deref(),
-            Some(ordinal),
-        );
-        let has_references = !detail.references.is_empty();
         rows.push(InspectorRow {
-            copy_text: label.clone(),
-            label,
+            label: object_label(
+                detail.object_id,
+                &detail.class_name,
+                detail.represented_class_name.as_deref(),
+            ),
+            string_preview: None,
+            copy_text: detail.class_name.clone(),
             sort_name: detail.class_name.clone(),
             tree_depth: 0,
             field_depth: detail.depth,
             shallow_size: detail.shallow_size_known.then_some(detail.shallow_size),
             retained_size: detail.retained_size,
             native_size: detail.native_size,
+            retained_native_size: detail.retained_native_size,
             value_kind: detail.value_kind,
             navigate: None,
             expand_key: Some(detail.object_id),
             is_root: true,
             is_message: false,
-            expandable: has_references,
+            expandable: !detail.references.is_empty(),
             expanded: root_expanded,
+            in_reference_chain: false,
+            selected: false,
         });
         if root_expanded {
             let chain: BTreeSet<u64> = detail
@@ -998,9 +1004,17 @@ fn build_rows(
                 .references
                 .iter()
                 .filter(|field| reference_visible(detail.depth, field, nearest_only, &chain))
-                .map(|field| field_row(field, true, 1, expanded))
+                .map(|field| field_row(field, true, 1, expanded, Some(&chain)))
                 .collect();
             sort_rows(&mut children, sort_column, sort_ascending);
+            if nearest_only {
+                // Compose's nearest-root pass selects the first decreasing-depth
+                // chain row; the root row is the fallback when no path is known.
+                match children.iter_mut().find(|row| row.in_reference_chain) {
+                    Some(selected) => selected.selected = true,
+                    None => rows[0].selected = true,
+                }
+            }
             rows.extend(children);
         }
     } else {
@@ -1008,7 +1022,7 @@ fn build_rows(
             detail
                 .fields
                 .iter()
-                .map(|field| field_row(field, false, 0, expanded)),
+                .map(|field| field_row(field, false, 0, expanded, None)),
         );
         sort_rows(&mut rows, sort_column, sort_ascending);
     }
@@ -1039,12 +1053,13 @@ fn field_row(
     references: bool,
     tree_depth: u32,
     expanded: &BTreeSet<u64>,
+    chain: Option<&BTreeSet<u64>>,
 ) -> InspectorRow {
     let target = field.target_object_id.filter(|id| *id != 0);
-    let label = if references {
-        reference_label(field)
+    let (label, string_preview) = if references {
+        (reference_label(field), None)
     } else {
-        field_label(field)
+        split_field_label(field)
     };
     let copy_text = if references {
         label.clone()
@@ -1053,6 +1068,7 @@ fn field_row(
     };
     InspectorRow {
         label,
+        string_preview,
         copy_text,
         sort_name: field.name.clone(),
         tree_depth,
@@ -1060,6 +1076,7 @@ fn field_row(
         shallow_size: field.shallow_size,
         retained_size: field.retained_size,
         native_size: field.native_size,
+        retained_native_size: field.retained_native_size,
         value_kind: field.value_kind,
         navigate: target,
         expand_key: target,
@@ -1067,12 +1084,15 @@ fn field_row(
         is_message: false,
         expandable: target.is_some(),
         expanded: target.is_some_and(|id| expanded.contains(&id)),
+        in_reference_chain: references
+            && target.is_some_and(|target| chain.is_some_and(|chain| chain.contains(&target))),
+        selected: false,
     }
 }
 
-fn sort_rows(rows: &mut [InspectorRow], column: u8, ascending: bool) {
+fn sort_rows(rows: &mut [InspectorRow], column: InspectorColumn, ascending: bool) {
     rows.sort_by(|a, b| {
-        let ordering = if column == SORT_NAME {
+        let ordering = if column == InspectorColumn::Label {
             a.sort_name.cmp(&b.sort_name)
         } else {
             a.sort_metric(column).cmp(&b.sort_metric(column))
@@ -1085,26 +1105,31 @@ fn sort_rows(rows: &mut [InspectorRow], column: u8, ascending: bool) {
     });
 }
 
-fn object_label(
-    object_id: u64,
-    class_name: &str,
-    represented_class_name: Option<&str>,
-    ordinal: Option<u64>,
-) -> String {
+/// Compose inspectorObjectLabel: represented classes render as
+/// Short.class@id (0xhex), everything else as Short@id (0xhex).
+fn object_label(object_id: u64, class_name: &str, represented_class_name: Option<&str>) -> String {
     let name = match represented_class_name {
-        Some(represented) => format!("{} (class)", short_class_name(represented)),
+        Some(represented) => format!("{}.class", short_class_name(represented)),
         None => short_class_name(class_name).to_owned(),
     };
-    format!(
-        "{}@{} (0x{:x})",
-        name,
-        ordinal.unwrap_or(object_id),
-        object_id
-    )
+    format!("{name}@{object_id} (0x{object_id:x})")
 }
 
 fn short_class_name(class_name: &str) -> &str {
     class_name.rsplit('.').next().unwrap_or(class_name)
+}
+
+/// Compose inspectorFieldLabel plus the split of its trailing string preview so
+/// the row can color that run independently.
+fn split_field_label(field: &InstanceField) -> (String, Option<String>) {
+    let label = field_label(field);
+    match field.string_preview.as_deref() {
+        Some(preview) if !preview.is_empty() && label.ends_with(preview) => {
+            let split = label.len() - preview.len();
+            (label[..split].to_owned(), Some(preview.to_owned()))
+        }
+        _ => (label, None),
+    }
 }
 
 fn field_label(field: &InstanceField) -> String {
@@ -1150,7 +1175,6 @@ fn reference_label(field: &InstanceField) -> String {
             target,
             field.target_class_name.as_deref().unwrap_or("<unknown>"),
             field.represented_class_name.as_deref(),
-            None,
         ),
         None => field.display_value.clone(),
     };
@@ -1162,21 +1186,7 @@ fn reference_label(field: &InstanceField) -> String {
 }
 
 fn metric_text(value: Option<u64>) -> String {
-    value.map_or_else(|| "—".to_owned(), grouped_integer)
-}
-
-fn byte_metric(value: Option<u64>) -> String {
-    value.map_or_else(|| "—".to_owned(), bytes_text)
-}
-
-fn bytes_text(value: u64) -> String {
-    if value >= 1024 * 1024 {
-        format!("{:.1} MB", value as f64 / 1048576.)
-    } else if value >= 1024 {
-        format!("{:.1} KB", value as f64 / 1024.)
-    } else {
-        format!("{value} B")
-    }
+    value.map_or_else(|| "-".to_owned(), grouped_integer)
 }
 
 fn grouped_integer(value: u64) -> String {
@@ -1194,6 +1204,7 @@ fn grouped_integer(value: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aps_memory::{ClassStats, SnapshotMetadata};
 
     fn field(name: &str, shallow: Option<u64>, retained: Option<u64>) -> InstanceField {
         InstanceField {
@@ -1206,17 +1217,13 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn object_labels_use_short_class_ordinal_and_lowercase_hex() {
+    fn object_labels_use_short_class_and_lowercase_hex() {
+        assert_eq!(object_label(42, "sample.Target", None), "Target@42 (0x2a)");
         assert_eq!(
-            object_label(42, "sample.Target", None, Some(42)),
-            "Target@42 (0x2a)"
+            object_label(43, "sample.Target", Some("com.example.Carrier")),
+            "Carrier.class@43 (0x2b)"
         );
-        assert_eq!(
-            object_label(43, "sample.Target", Some("com.example.Carrier"), Some(43)),
-            "Carrier (class)@43 (0x2b)"
-        );
-        // Falls back to the object id when no instance row supplied an ordinal.
-        assert_eq!(object_label(255, "a.b.C", None, None), "C@255 (0xff)");
+        assert_eq!(object_label(255, "a.b.C", None), "C@255 (0xff)");
     }
 
     #[::core::prelude::v1::test]
@@ -1239,6 +1246,10 @@ mod tests {
             ..InstanceField::default()
         };
         assert_eq!(field_label(&object), "child = {Child} hello");
+        assert_eq!(
+            split_field_label(&object),
+            ("child = {Child} ".to_owned(), Some("hello".to_owned()))
+        );
 
         let null = InstanceField {
             name: "zero".into(),
@@ -1262,6 +1273,18 @@ mod tests {
         };
         assert_eq!(reference_label(&reference), "target42 in Root@4 (0x4)");
 
+        let represented = InstanceField {
+            name: "target42".into(),
+            target_object_id: Some(4),
+            target_class_name: Some("sample.Root".into()),
+            represented_class_name: Some("com.example.Carrier".into()),
+            ..InstanceField::default()
+        };
+        assert_eq!(
+            reference_label(&represented),
+            "target42 in Carrier.class@4 (0x4)"
+        );
+
         let unnamed = InstanceField {
             name: String::new(),
             target_object_id: Some(4),
@@ -1282,7 +1305,14 @@ mod tests {
             ..InstanceDetail::default()
         };
         let expanded = BTreeSet::new();
-        let ascending = build_rows(&detail, false, false, 0, &expanded, SORT_SHALLOW, true);
+        let ascending = build_rows(
+            &detail,
+            false,
+            false,
+            &expanded,
+            InspectorColumn::ShallowSize,
+            true,
+        );
         assert_eq!(
             ascending
                 .iter()
@@ -1290,7 +1320,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["b", "c", "a"]
         );
-        let descending = build_rows(&detail, false, false, 0, &expanded, SORT_SHALLOW, false);
+        let descending = build_rows(
+            &detail,
+            false,
+            false,
+            &expanded,
+            InspectorColumn::ShallowSize,
+            false,
+        );
         assert_eq!(
             descending
                 .iter()
@@ -1298,7 +1335,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["a", "c", "b"]
         );
-        let by_name = build_rows(&detail, false, false, 0, &expanded, SORT_NAME, true);
+        let by_name = build_rows(
+            &detail,
+            false,
+            false,
+            &expanded,
+            InspectorColumn::Label,
+            true,
+        );
         assert_eq!(
             by_name
                 .iter()
@@ -1306,6 +1350,72 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["a", "b", "c"]
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn fields_tab_has_no_root_row_and_references_root_expands() {
+        let detail = InstanceDetail {
+            object_id: 42,
+            class_name: "sample.Target".into(),
+            reference_chain: vec![aps_memory::ObjectReference {
+                object_id: 4,
+                class_name: "sample.Root".into(),
+            }],
+            fields: vec![InstanceField {
+                name: "child42".into(),
+                target_object_id: Some(7),
+                target_class_name: Some("sample.Child".into()),
+                ..InstanceField::default()
+            }],
+            references: vec![InstanceField {
+                name: "target42".into(),
+                target_object_id: Some(4),
+                target_class_name: Some("sample.Root".into()),
+                depth: Some(0),
+                ..InstanceField::default()
+            }],
+            depth: Some(1),
+            shallow_size_known: true,
+            shallow_size: 32,
+            ..InstanceDetail::default()
+        };
+        let expanded = BTreeSet::new();
+        let fields = build_rows(
+            &detail,
+            false,
+            false,
+            &expanded,
+            InspectorColumn::RetainedSize,
+            false,
+        );
+        assert_eq!(fields.len(), 1);
+        assert!(!fields[0].is_root);
+
+        let rows = build_rows(
+            &detail,
+            true,
+            false,
+            &expanded,
+            InspectorColumn::Depth,
+            true,
+        );
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].is_root);
+        assert_eq!(rows[0].label, "Target@42 (0x2a)");
+        assert_eq!(rows[1].tree_depth, 1);
+
+        let mut collapsed = BTreeSet::new();
+        collapsed.insert(42);
+        let rows = build_rows(
+            &detail,
+            true,
+            false,
+            &collapsed,
+            InspectorColumn::Depth,
+            true,
+        );
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].expanded);
     }
 
     #[::core::prelude::v1::test]
@@ -1335,7 +1445,7 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn reference_tab_renders_root_row_and_honours_collapse() {
+    fn nearest_root_selects_the_first_reference_chain_row() {
         let detail = InstanceDetail {
             object_id: 42,
             class_name: "sample.Target".into(),
@@ -1343,39 +1453,136 @@ mod tests {
                 object_id: 4,
                 class_name: "sample.Root".into(),
             }],
-            references: vec![InstanceField {
-                name: "target42".into(),
-                target_object_id: Some(4),
-                target_class_name: Some("sample.Root".into()),
-                depth: Some(0),
-                ..InstanceField::default()
-            }],
+            references: vec![
+                InstanceField {
+                    name: "target42".into(),
+                    target_object_id: Some(4),
+                    target_class_name: Some("sample.Root".into()),
+                    depth: Some(0),
+                    ..InstanceField::default()
+                },
+                InstanceField {
+                    name: "target".into(),
+                    target_object_id: Some(242),
+                    target_class_name: Some("sample.Owner42".into()),
+                    depth: Some(0),
+                    ..InstanceField::default()
+                },
+            ],
             depth: Some(1),
-            shallow_size_known: true,
-            shallow_size: 32,
             ..InstanceDetail::default()
         };
-        let expanded = BTreeSet::new();
-        let rows = build_rows(&detail, true, false, 7, &expanded, SORT_NAME, true);
-        assert_eq!(rows.len(), 2);
-        assert!(rows[0].is_root);
-        assert_eq!(rows[0].label, "Target@7 (0x2a)");
-        assert_eq!(rows[1].tree_depth, 1);
-
-        let mut collapsed = BTreeSet::new();
-        collapsed.insert(42);
-        let rows = build_rows(&detail, true, false, 7, &collapsed, SORT_NAME, true);
-        assert_eq!(rows.len(), 1);
-        assert!(!rows[0].expanded);
+        let rows = build_rows(
+            &detail,
+            true,
+            true,
+            &BTreeSet::new(),
+            InspectorColumn::Depth,
+            true,
+        );
+        let selected: Vec<_> = rows
+            .iter()
+            .filter(|row| row.selected)
+            .map(|row| row.label.as_str())
+            .collect();
+        assert_eq!(selected, ["target42 in Root@4 (0x4)"]);
+        // Without nearest-root-only the Compose table starts with no selection.
+        let rows = build_rows(
+            &detail,
+            true,
+            false,
+            &BTreeSet::new(),
+            InspectorColumn::Depth,
+            true,
+        );
+        assert!(rows.iter().all(|row| !row.selected));
     }
 
     #[::core::prelude::v1::test]
-    fn unavailable_metrics_render_em_dash_and_bytes_stay_dense() {
-        assert_eq!(metric_text(None), "—");
+    fn inspector_columns_follow_capabilities_and_evidence() {
+        assert_eq!(
+            inspector_columns(false, false),
+            vec![
+                InspectorColumn::Label,
+                InspectorColumn::Depth,
+                InspectorColumn::ShallowSize,
+                InspectorColumn::RetainedSize,
+            ]
+        );
+        assert_eq!(
+            inspector_columns(true, true),
+            vec![
+                InspectorColumn::Label,
+                InspectorColumn::Depth,
+                InspectorColumn::NativeSize,
+                InspectorColumn::ShallowSize,
+                InspectorColumn::RetainedNativeSize,
+                InspectorColumn::RetainedSize,
+            ]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn hprof_snapshots_never_grow_native_columns() {
+        let hprof = MemorySnapshot {
+            metadata: SnapshotMetadata {
+                format: "JAVA PROFILE 1.0.3".into(),
+                ..SnapshotMetadata::default()
+            },
+            classes: vec![ClassStats {
+                class_name: "sample.Target".into(),
+                native_size: Some(64),
+                ..ClassStats::default()
+            }],
+            ..MemorySnapshot::default()
+        };
+        assert!(!snapshot_native_capability(Some(&hprof)));
+
+        let native = MemorySnapshot {
+            classes: vec![ClassStats {
+                class_name: "sample.Target".into(),
+                native_size: Some(64),
+                ..ClassStats::default()
+            }],
+            ..MemorySnapshot::default()
+        };
+        assert!(snapshot_native_capability(Some(&native)));
+        assert!(!snapshot_native_capability(
+            Some(&MemorySnapshot::default())
+        ));
+        assert!(!snapshot_native_capability(None));
+    }
+
+    #[::core::prelude::v1::test]
+    fn sort_defaults_match_compose_and_round_trip_through_state() {
+        assert_eq!(
+            default_sort(InspectorTab::Fields),
+            (InspectorColumn::RetainedSize, false)
+        );
+        assert_eq!(
+            default_sort(InspectorTab::References),
+            (InspectorColumn::Depth, true)
+        );
+        // The untouched state selects the active tab's default.
+        assert_eq!(
+            stored_sort(0, true, InspectorTab::Fields),
+            (InspectorColumn::RetainedSize, false)
+        );
+        assert_eq!(
+            stored_sort(0, false, InspectorTab::References),
+            (InspectorColumn::Depth, true)
+        );
+        let (code, ascending) = sort_state(InspectorColumn::Depth, false);
+        assert_eq!(code, 2);
+        assert_eq!(
+            stored_sort(code, ascending, InspectorTab::References),
+            (InspectorColumn::Depth, false)
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn unavailable_metrics_use_an_ascii_hyphen() {
+        assert_eq!(metric_text(None), "-");
         assert_eq!(metric_text(Some(1234567)), "1,234,567");
-        assert_eq!(byte_metric(None), "—");
-        assert_eq!(bytes_text(64), "64 B");
-        assert_eq!(bytes_text(2048), "2.0 KB");
-        assert_eq!(bytes_text(3 * 1024 * 1024), "3.0 MB");
     }
 }

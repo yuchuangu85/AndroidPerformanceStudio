@@ -135,7 +135,6 @@ pub(super) fn analysis_request(
         Destination::Frame => "frame",
         Destination::Startup => "startup",
         Destination::Battery => "battery",
-        Destination::Benchmark => "benchmark",
         Destination::Gpu => "gpu",
         _ => return Err("Workspace has no imported profiler evidence".into()),
     };

@@ -2,7 +2,7 @@
 //! session and its typed workspace state; switching never reopens or reparses
 //! the source file.
 use super::*;
-use crate::import::memory::state::MemoryState;
+use crate::import::memory::state::{MemoryState, MemoryViewMode};
 
 pub(super) const MAX_OPEN_MEMORY_SNAPSHOTS: usize = 3;
 static NEXT_MEMORY_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
@@ -115,7 +115,20 @@ impl ImportWorkspace {
         self.memory_state.error = None;
         self.memory_state.notice = None;
         self.restore_memory_snapshot(selected);
+        self.memory_invalidate_comparison(cx);
         cx.notify();
+    }
+
+    /// A different active snapshot invalidates an already-published class-level
+    /// comparison; recompute it when the Diff view is visible.
+    fn memory_invalidate_comparison(&mut self, cx: &mut Context<Self>) {
+        if self.memory_state.view_mode != MemoryViewMode::Diff {
+            return;
+        }
+        self.memory_state.comparison = None;
+        self.memory_state.comparison_pair = None;
+        self.memory_state.comparison_error = None;
+        self.memory_compare_snapshots(cx);
     }
 
     pub(super) fn close_memory_snapshot(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -130,6 +143,7 @@ impl ImportWorkspace {
             {
                 // Dropping the last Arc kills and reaps this tab's worker.
                 self.memory_snapshots.remove(index);
+                self.memory_invalidate_comparison(cx);
                 cx.notify();
             }
             return;
@@ -145,6 +159,7 @@ impl ImportWorkspace {
         if let Some(previous) = self.memory_snapshots.pop() {
             self.restore_memory_snapshot(previous);
         }
+        self.memory_invalidate_comparison(cx);
         cx.notify();
     }
 

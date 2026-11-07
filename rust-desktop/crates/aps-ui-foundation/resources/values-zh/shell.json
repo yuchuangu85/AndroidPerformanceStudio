@@ -73,5 +73,9 @@
   "shell_menu_export_archive": "导出采集归档…",
   "shell_menu_previous_node": "上一个节点",
   "shell_menu_next_node": "下一个节点",
-  "shell_menu_toggle_selected_node": "展开或折叠选中节点"
+  "shell_menu_toggle_selected_node": "展开或折叠选中节点",
+  "shell_menu_recent_files": "最近文件…",
+  "shell_menu_focus_search": "聚焦搜索",
+  "shell_menu_hide_all_panes": "隐藏全部面板",
+  "shell_menu_show_all_panes": "显示全部面板"
 }

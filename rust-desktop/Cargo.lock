@@ -252,7 +252,10 @@ dependencies = [
 name = "aps-benchmark"
 version = "0.1.0"
 dependencies = [
+ "aps-contracts",
  "aps-json",
+ "rusqlite",
+ "serde_json",
 ]
 
 [[package]]

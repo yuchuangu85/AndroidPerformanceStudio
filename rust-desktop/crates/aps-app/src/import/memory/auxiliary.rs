@@ -5,11 +5,15 @@
 //! sample traces are not wired in this build, so their pages show an explicit
 //! empty state and disabled capture/import actions instead of simulated data.
 use super::ImportWorkspace;
-use crate::studio::{self, FONT_SUPPORTING, StudioColors};
+use super::widgets::toolbar_button;
+use crate::studio::{self, StudioColors};
 use aps_memory::BitmapInstance;
-use aps_ui_foundation::{Language, TextKey};
+use aps_ui_foundation::{Language, TextKey, typography};
 use gpui_kit::{
-    component::scroll::{Scrollbar, ScrollbarAxis},
+    component::{
+        button::Button,
+        scroll::{Scrollbar, ScrollbarAxis},
+    },
     prelude::*,
     *,
 };
@@ -19,6 +23,8 @@ const BITMAP_ROW_HEIGHT: f32 = 36.;
 const BITMAP_ID_WIDTH: f32 = 108.;
 const BITMAP_RETAINED_WIDTH: f32 = 120.;
 const SUMMARY_METRIC_WIDTH: f32 = 150.;
+const TABLE_FONT: f32 = typography::BODY;
+const TABLE_LINE: f32 = 16.;
 
 /// Compact binary byte label shared by the memory findings pages.
 pub(super) fn memory_bytes(value: u64) -> String {
@@ -33,7 +39,50 @@ pub(super) fn memory_bytes(value: u64) -> String {
 
 /// Missing evidence is never rendered as zero.
 pub(super) fn memory_optional_bytes(value: Option<u64>) -> String {
-    value.map_or_else(|| "—".to_owned(), memory_bytes)
+    value.map_or_else(|| "\u{2014}".to_owned(), memory_bytes)
+}
+
+fn text_cell(text: impl Into<SharedString>, color: Rgba) -> Div {
+    div()
+        .text_size(px(TABLE_FONT))
+        .line_height(px(TABLE_LINE))
+        .text_color(color)
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .child(crate::studio::selectable(text.into()))
+}
+
+fn supporting_line(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
+    div()
+        .text_size(px(typography::SUPPORTING))
+        .line_height(px(15.))
+        .text_color(colors.secondary_text)
+        .child(crate::studio::selectable(text.into()))
+}
+
+/// Compose page header: 13 px semibold title, 11 px subtitle and the disabled
+/// capture/import/export actions.
+fn page_title(
+    title: impl Into<SharedString>,
+    subtitle: impl Into<SharedString>,
+    actions: Vec<Button>,
+    colors: &StudioColors,
+) -> AnyElement {
+    div()
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(studio::section_title(title, colors))
+        .child(
+            div().flex_1().min_w_0().child(
+                studio::supporting(subtitle, colors)
+                    .whitespace_nowrap()
+                    .text_ellipsis(),
+            ),
+        )
+        .children(actions)
+        .into_any_element()
 }
 
 impl ImportWorkspace {
@@ -54,28 +103,13 @@ impl ImportWorkspace {
                 .map_or_else(Vec::new, |page| page.rows.clone()),
         );
         let duplicate_classes = self.memory_state.duplicate_classes.len();
+        let unavailable = language.text(TextKey::MemoryPageUnavailable);
 
-        let title = div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(studio::section_title(
-                language.text(TextKey::MemoryAppBitmapDumpView),
-                colors,
-            ))
-            .child(
-                div().flex_1().min_w_0().child(
-                    studio::supporting(
-                        language.text(TextKey::MemoryPageBitmapDumpNoSession),
-                        colors,
-                    )
-                    .whitespace_nowrap()
-                    .text_ellipsis(),
-                ),
-            )
-            .child(
-                studio::compact_text_button(
+        let title = page_title(
+            language.text(TextKey::MemoryAppBitmapDumpView),
+            language.text(TextKey::MemoryPageBitmapDumpNoSession),
+            vec![
+                toolbar_button(
                     "memory-bitmap-dump",
                     language.text(TextKey::MemoryPageDumpBitmaps),
                     false,
@@ -83,9 +117,7 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            )
-            .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-bitmap-export",
                     language.text(TextKey::MemoryAppExportBitmapDump),
                     false,
@@ -93,7 +125,9 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            );
+            ],
+            colors,
+        );
 
         // Compose BitmapDumpSummaryMetrics: without a dump session every
         // summary metric is unavailable; the labels stay visible so the page
@@ -112,15 +146,33 @@ impl ImportWorkspace {
         .enumerate()
         {
             summary = summary.child(
-                studio::metric_card(
-                    ("memory-bitmap-summary", index),
-                    language.text(key),
-                    language.text(TextKey::MemoryPageUnavailable),
-                    colors.muted_text,
-                    colors,
-                )
-                .w(px(SUMMARY_METRIC_WIDTH))
-                .flex_shrink_0(),
+                studio::card(colors)
+                    .id(("memory-bitmap-summary", index))
+                    .w(px(SUMMARY_METRIC_WIDTH))
+                    .flex_shrink_0()
+                    .bg(colors.section_background)
+                    .border_color(colors.accent)
+                    .p(px(8.))
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .text_size(px(TABLE_FONT))
+                            .line_height(px(TABLE_LINE))
+                            .text_color(colors.secondary_text)
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(crate::studio::selectable(language.text(key))),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(typography::TITLE))
+                            .line_height(px(19.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(colors.text)
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(crate::studio::selectable(unavailable)),
+                    ),
             );
         }
 
@@ -136,60 +188,72 @@ impl ImportWorkspace {
                 studio::card(colors)
                     .flex_1()
                     .min_h_0()
-                    .child(studio::supporting(
-                        language.text(TextKey::MemoryPageBitmapsEmpty),
+                    .gap(px(4.))
+                    .child(studio::section_title(
+                        language.text(TextKey::MemoryPageFindingBitmap),
                         colors,
                     ))
-                    .child(studio::supporting(
+                    .child(text_cell(
+                        language.text(TextKey::MemoryPageBitmapsEmpty),
+                        colors.secondary_text,
+                    ))
+                    .child(supporting_line(
                         language.text(TextKey::MemoryPageArtifactUnavailable),
                         colors,
                     )),
             );
         } else {
-            let mut table = studio::card(colors).flex_1().min_h_0().gap(px(4.)).child(
-                div()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(studio::section_title(
-                        language.text(TextKey::MemoryPageFindingBitmap),
-                        colors,
-                    ))
-                    .child(studio::supporting(
-                        language.format(TextKey::MemoryPageCountValue, &[("arg_1", &total)]),
-                        colors,
-                    ))
-                    .child(studio::supporting(
-                        language.format(
-                            TextKey::MemoryPageBitmapDumpSummary,
-                            &[
-                                ("arg_1", &total),
-                                ("arg_2", &"—"),
-                                ("arg_3", &"—"),
-                                ("arg_4", &"—"),
-                            ],
-                        ),
-                        colors,
-                    ))
-                    .child(div().flex_1())
-                    .child(studio::supporting(
-                        format!(
-                            "{}: {}",
-                            language.text(TextKey::MemoryPageDuplicateBitmaps),
-                            duplicate_classes
-                        ),
-                        colors,
-                    ))
-                    .child(studio::supporting(
-                        format!(
-                            "{}: {}",
-                            language.text(TextKey::MemoryPageBitmapDuplicateGroups),
-                            language.text(TextKey::MemoryPageUnavailable)
-                        ),
-                        colors,
-                    )),
-            );
+            let mut table = studio::card(colors)
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .p_0()
+                .gap_0()
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .p(px(8.))
+                        .child(studio::section_title(
+                            language.text(TextKey::MemoryPageFindingBitmap),
+                            colors,
+                        ))
+                        .child(studio::supporting(
+                            language.format(TextKey::MemoryPageCountValue, &[("arg_1", &total)]),
+                            colors,
+                        ))
+                        .child(studio::supporting(
+                            language.format(
+                                TextKey::MemoryPageBitmapDumpSummary,
+                                &[
+                                    ("arg_1", &total),
+                                    ("arg_2", &"\u{2014}"),
+                                    ("arg_3", &"\u{2014}"),
+                                    ("arg_4", &"\u{2014}"),
+                                ],
+                            ),
+                            colors,
+                        ))
+                        .child(div().flex_1())
+                        .child(studio::supporting(
+                            format!(
+                                "{}: {}",
+                                language.text(TextKey::MemoryPageDuplicateBitmaps),
+                                duplicate_classes
+                            ),
+                            colors,
+                        ))
+                        .child(studio::supporting(
+                            format!(
+                                "{}: {}",
+                                language.text(TextKey::MemoryPageBitmapDuplicateGroups),
+                                language.text(TextKey::MemoryPageUnavailable)
+                            ),
+                            colors,
+                        )),
+                );
             let colors_copy = *colors;
             let rows_for_list = rows.clone();
             let list = uniform_list("memory-bitmap-rows", rows_for_list.len(), {
@@ -230,24 +294,11 @@ impl ImportWorkspace {
         _cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
-        let title = div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(studio::section_title(
-                language.text(TextKey::MemoryAppNativeHeapView),
-                colors,
-            ))
-            .child(
-                div().flex_1().min_w_0().child(
-                    studio::supporting(language.text(TextKey::MemoryPageNoNativeHeapTrace), colors)
-                        .whitespace_nowrap()
-                        .text_ellipsis(),
-                ),
-            )
-            .child(
-                studio::compact_text_button(
+        let title = page_title(
+            language.text(TextKey::MemoryAppNativeHeapView),
+            language.text(TextKey::MemoryPageNoNativeHeapTrace),
+            vec![
+                toolbar_button(
                     "memory-native-capture",
                     language.text(TextKey::MemoryPageCaptureNativeHeap),
                     false,
@@ -255,9 +306,7 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            )
-            .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-native-import",
                     language.text(TextKey::MemoryAppImportNativeHeap),
                     false,
@@ -265,9 +314,7 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            )
-            .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-native-export",
                     language.text(TextKey::MemoryAppExportNativeHeapTrace),
                     false,
@@ -275,7 +322,9 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            );
+            ],
+            colors,
+        );
         studio::page(colors)
             .id("memory-native-heap-page")
             .h_auto()
@@ -286,19 +335,20 @@ impl ImportWorkspace {
                 studio::card(colors)
                     .flex_1()
                     .min_h_0()
+                    .gap(px(4.))
                     .child(studio::section_title(
                         language.text(TextKey::MemoryPageNativeHeap),
                         colors,
                     ))
-                    .child(studio::supporting(
+                    .child(text_cell(
                         language.text(TextKey::MemoryPageNativeHeapEmpty),
-                        colors,
+                        colors.secondary_text,
                     ))
-                    .child(studio::supporting(
+                    .child(supporting_line(
                         language.text(TextKey::MemoryPageNoNativeHeapTrace),
                         colors,
                     ))
-                    .child(studio::supporting(
+                    .child(supporting_line(
                         language.text(TextKey::MemoryPageCaptureUnavailable),
                         colors,
                     )),
@@ -312,27 +362,11 @@ impl ImportWorkspace {
         _cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
-        let title = div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(studio::section_title(
-                language.text(TextKey::MemoryAppSampledArtView),
-                colors,
-            ))
-            .child(
-                div().flex_1().min_w_0().child(
-                    studio::supporting(
-                        language.text(TextKey::MemoryPageArtSampledTraceSource),
-                        colors,
-                    )
-                    .whitespace_nowrap()
-                    .text_ellipsis(),
-                ),
-            )
-            .child(
-                studio::compact_text_button(
+        let title = page_title(
+            language.text(TextKey::MemoryAppSampledArtView),
+            language.text(TextKey::MemoryPageArtSampledTraceSource),
+            vec![
+                toolbar_button(
                     "memory-art-record",
                     language.text(TextKey::MemoryAppRecordSampledArt),
                     false,
@@ -340,9 +374,7 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            )
-            .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-art-import",
                     language.text(TextKey::MemoryAppMenuImportSampledArt),
                     false,
@@ -350,9 +382,7 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            )
-            .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-art-export",
                     language.text(TextKey::MemoryAppExportSampledArtTrace),
                     false,
@@ -360,14 +390,16 @@ impl ImportWorkspace {
                     colors,
                 )
                 .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            );
+            ],
+            colors,
+        );
         studio::page(colors)
             .id("memory-art-samples-page")
             .h_auto()
             .flex_1()
             .min_h_0()
             .child(title)
-            .child(studio::supporting(
+            .child(supporting_line(
                 language.text(TextKey::MemoryPageArtSampledEvidenceBoundary),
                 colors,
             ))
@@ -375,15 +407,16 @@ impl ImportWorkspace {
                 studio::card(colors)
                     .flex_1()
                     .min_h_0()
-                    .child(studio::supporting(
+                    .gap(px(4.))
+                    .child(text_cell(
                         language.text(TextKey::MemoryPageArtSamplesEmpty),
-                        colors,
+                        colors.secondary_text,
                     ))
-                    .child(studio::supporting(
+                    .child(supporting_line(
                         language.text(TextKey::MemoryPageArtSampledTraceUnavailable),
                         colors,
                     ))
-                    .child(studio::supporting(
+                    .child(supporting_line(
                         language.text(TextKey::MemoryPageCaptureUnavailable),
                         colors,
                     )),
@@ -404,7 +437,7 @@ fn bitmap_row(
 ) -> AnyElement {
     let dimensions = match (bitmap.width, bitmap.height) {
         (Some(width), Some(height)) => format!("{width}×{height}"),
-        _ => "—".to_owned(),
+        _ => "\u{2014}".to_owned(),
     };
     let retained = memory_optional_bytes(bitmap.retained_size);
     let details = format!(
@@ -434,7 +467,8 @@ fn bitmap_row(
                     div()
                         .w(px(BITMAP_ID_WIDTH))
                         .flex_shrink_0()
-                        .text_size(px(FONT_SUPPORTING))
+                        .text_size(px(typography::SUPPORTING))
+                        .line_height(px(15.))
                         .text_color(colors.secondary_text)
                         .whitespace_nowrap()
                         .text_ellipsis()
@@ -447,7 +481,8 @@ fn bitmap_row(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(FONT_SUPPORTING))
+                        .text_size(px(TABLE_FONT))
+                        .line_height(px(TABLE_LINE))
                         .text_color(colors.text)
                         .whitespace_nowrap()
                         .text_ellipsis()
@@ -457,7 +492,8 @@ fn bitmap_row(
                     div()
                         .w(px(BITMAP_RETAINED_WIDTH))
                         .flex_shrink_0()
-                        .text_size(px(FONT_SUPPORTING))
+                        .text_size(px(TABLE_FONT))
+                        .line_height(px(TABLE_LINE))
                         .text_color(colors.secondary_text)
                         .whitespace_nowrap()
                         .text_ellipsis()
@@ -467,7 +503,7 @@ fn bitmap_row(
                         ),
                 ),
         )
-        .child(studio::supporting(details, colors));
+        .child(supporting_line(details, colors));
     row.into_any_element()
 }
 
@@ -493,7 +529,7 @@ mod tests {
         assert_eq!(memory_bytes(0), "0 B");
         assert_eq!(memory_bytes(1024), "1.0 KiB");
         assert_eq!(memory_bytes(1024 * 1024), "1.0 MiB");
-        assert_eq!(memory_optional_bytes(None), "—");
+        assert_eq!(memory_optional_bytes(None), "\u{2014}");
         assert_eq!(memory_optional_bytes(Some(1536)), "1.5 KiB");
     }
 }

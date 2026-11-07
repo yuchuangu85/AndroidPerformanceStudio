@@ -1,6 +1,6 @@
 //! Route menus for the import-backed profiler workspaces.
 //!
-//! Memory, Network, Startup, Battery, Benchmark and GPU share one workspace
+//! Memory, Network, Startup, Battery and GPU share one workspace
 //! entity but not one functionality set. Each kind publishes the Compose page
 //! menu shape of the adapter it shows — File > Open… (Cmd+O), Import ▸, Open
 //! Recent ▸, separator, Export ▸ — so the menu strip never offers another
@@ -42,10 +42,8 @@ pub(crate) enum ImportMenuCommand {
     MemoryView(u8),
     SelectMemorySnapshot(u64),
     CloseMemorySnapshot(u64),
-    UseAsBaseline,
-    CompareWithBaseline,
-    ClearBaseline,
-    RestoreComparison,
+    MemoryImportMapping,
+    MemoryExport(self::memory::exports::MemoryExportKind),
     GpuOpen,
     GpuReveal,
 }
@@ -98,7 +96,7 @@ impl ImportWorkspace {
     }
 
     /// Export ▸ for the pages whose only export is the published page itself
-    /// (Network, Benchmark, GPU). The rows mirror those pages' own save/copy
+    /// (Network, GPU). The rows mirror those pages' own save/copy
     /// buttons; they stay disabled until the page is published.
     pub(super) fn page_export_submenu(
         group: MenuGroup<ImportMenuCommand>,
@@ -135,36 +133,6 @@ impl ImportWorkspace {
         let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !self.busy);
         let file = Self::open_recent(file, false);
         Self::page_export_submenu(file.separator(), self.page_export_ready())
-    }
-
-    fn benchmark_menu_groups(&self) -> Vec<MenuGroup<ImportMenuCommand>> {
-        let busy = self.busy;
-        let current = matches!(self.session, Some(Session::Benchmark(_)));
-        let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !busy);
-        let file = Self::open_recent(file, false);
-        let file = Self::page_export_submenu(file.separator(), self.page_export_ready())
-            .separator()
-            .item_when(
-                !busy && self.baseline.is_some(),
-                TextKey::ImportClearBaseline,
-                ImportMenuCommand::ClearBaseline,
-            )
-            .item_when(
-                !busy && !current && self.comparison_source.is_some(),
-                TextKey::ImportBackToCurrentRun,
-                ImportMenuCommand::RestoreComparison,
-            )
-            .item_when(
-                !busy && current,
-                TextKey::ImportUseAsBaseline,
-                ImportMenuCommand::UseAsBaseline,
-            )
-            .item_when(
-                !busy && current && self.baseline.is_some(),
-                TextKey::ImportCompareWithBaseline,
-                ImportMenuCommand::CompareWithBaseline,
-            );
-        vec![file]
     }
 
     fn gpu_menu_groups(&self) -> Vec<MenuGroup<ImportMenuCommand>> {
@@ -252,7 +220,6 @@ impl MenuHost for ImportWorkspace {
             Destination::Network => vec![self.page_file_menu()],
             Destination::Startup => self.startup_menu_groups(),
             Destination::Battery => self.battery_menu_groups(),
-            Destination::Benchmark => self.benchmark_menu_groups(),
             Destination::Gpu => self.gpu_menu_groups(),
             _ => Vec::new(),
         }
@@ -276,10 +243,8 @@ impl MenuHost for ImportWorkspace {
             }
             ImportMenuCommand::SelectMemorySnapshot(id) => self.select_memory_snapshot(id, cx),
             ImportMenuCommand::CloseMemorySnapshot(id) => self.close_memory_snapshot(id, cx),
-            ImportMenuCommand::UseAsBaseline => self.use_as_baseline(cx),
-            ImportMenuCommand::CompareWithBaseline => self.compare_baseline(cx),
-            ImportMenuCommand::ClearBaseline => self.clear_baseline(cx),
-            ImportMenuCommand::RestoreComparison => self.restore_comparison_source(cx),
+            ImportMenuCommand::MemoryImportMapping => self.memory_pick_mapping(cx),
+            ImportMenuCommand::MemoryExport(kind) => self.memory_export(kind, cx),
             ImportMenuCommand::GpuOpen => self.gpu_open(cx),
             ImportMenuCommand::GpuReveal => self.gpu_reveal(cx),
         }
@@ -291,12 +256,11 @@ mod tests {
     use super::*;
     use crate::shell::menubar::{RouteMenuBuild, StripRow};
 
-    const ROUTES: [Destination; 6] = [
+    const ROUTES: [Destination; 5] = [
         Destination::Memory,
         Destination::Network,
         Destination::Startup,
         Destination::Battery,
-        Destination::Benchmark,
         Destination::Gpu,
     ];
 
@@ -514,6 +478,70 @@ mod tests {
         assert!(!enabled[1].1, "native heap import is not wired");
         assert!(!enabled[2].1, "ART sample import is not wired");
         assert!(!enabled[3].1, "mapping import is not wired");
+    }
+
+    #[::core::prelude::v1::test]
+    fn memory_exports_enable_from_the_published_snapshot_and_selection() {
+        let mut workspace = ImportWorkspace::new(Destination::Memory, Language::English);
+        workspace.memory_state.snapshot =
+            Some(std::sync::Arc::new(aps_memory::MemorySnapshot::default()));
+        let enabled = enabled_states(&strip_rows(
+            workspace.menu_groups(Language::English).remove(0),
+        ));
+        let state = |key: TextKey| {
+            let label = label(key);
+            enabled
+                .iter()
+                .find(|(row_label, _)| row_label == &label)
+                .map(|(_, enabled)| *enabled)
+        };
+        // Snapshot-scoped exports open with the snapshot; raw HPROF also needs
+        // the retained source path/session; selection exports need their page.
+        assert_eq!(state(TextKey::MemoryAppExportCsv), Some(true));
+        assert_eq!(state(TextKey::MemoryAppExportSnapshotJson), Some(true));
+        assert_eq!(
+            state(TextKey::MemoryAppExportInvestigationReport),
+            Some(true)
+        );
+        assert_eq!(state(TextKey::MemoryAppExportRawHprof), Some(false));
+        assert_eq!(state(TextKey::MemoryAppExportClassInstances), Some(false));
+        assert_eq!(
+            state(TextKey::MemoryAppExportObjectInvestigation),
+            Some(false)
+        );
+        assert_eq!(state(TextKey::MemoryAppExportDiff), Some(false));
+        // No adapter exists for these rows in any state.
+        assert_eq!(state(TextKey::MemoryAppExportStandardHprof), Some(false));
+        assert_eq!(state(TextKey::MemoryAppExportNativeHeapTrace), Some(false));
+        assert_eq!(state(TextKey::MemoryAppExportSampledArtTrace), Some(false));
+        assert_eq!(state(TextKey::MemoryAppExportBitmapDump), Some(false));
+        assert_eq!(state(TextKey::MemoryAppExportBitmapComparison), Some(false));
+        // Mapping import needs a live worker-backed session, not just a snapshot.
+        assert_eq!(state(TextKey::MemoryAppMenuImportMapping), Some(false));
+
+        workspace.memory_state.instances =
+            Some(std::sync::Arc::new(aps_memory::InstancesPage::default()));
+        workspace.memory_state.detail =
+            Some(std::sync::Arc::new(aps_memory::InstanceDetail::default()));
+        workspace.memory_state.comparison = Some(std::sync::Arc::new(
+            crate::import::memory::state::ComparisonReport::default(),
+        ));
+        let enabled = enabled_states(&strip_rows(
+            workspace.menu_groups(Language::English).remove(0),
+        ));
+        let state = |key: TextKey| {
+            let label = label(key);
+            enabled
+                .iter()
+                .find(|(row_label, _)| row_label == &label)
+                .map(|(_, enabled)| *enabled)
+        };
+        assert_eq!(state(TextKey::MemoryAppExportClassInstances), Some(true));
+        assert_eq!(
+            state(TextKey::MemoryAppExportObjectInvestigation),
+            Some(true)
+        );
+        assert_eq!(state(TextKey::MemoryAppExportDiff), Some(true));
     }
 
     #[::core::prelude::v1::test]

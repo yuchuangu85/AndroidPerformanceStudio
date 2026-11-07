@@ -89,6 +89,20 @@ pub(crate) struct ComparisonReport {
     pub rows: Vec<ClassifierDelta>,
 }
 
+/// Which File > Export rows have live evidence for the published state.
+/// `ImportWorkspace::memory_export_enabled` remains authoritative because a
+/// raw HPROF copy additionally needs the retained source path and session.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MemoryExportAvailability {
+    pub raw_hprof: bool,
+    pub histogram_csv: bool,
+    pub snapshot_json: bool,
+    pub class_instances_csv: bool,
+    pub object_investigation_json: bool,
+    pub diff_csv: bool,
+    pub investigation_report: bool,
+}
+
 /// Immutable snapshot + presenter projections for the active HPROF tab.
 pub(crate) struct MemoryState {
     pub view_mode: MemoryViewMode,
@@ -107,6 +121,12 @@ pub(crate) struct MemoryState {
     pub leak_classes: BTreeSet<String>,
     pub leak_object_ids: BTreeSet<u64>,
     pub duplicate_classes: BTreeSet<String>,
+    /// True once an R8/ProGuard mapping.txt was imported for this snapshot.
+    pub mapping_loaded: bool,
+    /// Number of class mappings carried by the imported mapping.
+    pub mapping_entries: usize,
+    /// Snapshot/selection-bound export capabilities for the menu and status UI.
+    pub export_availability: MemoryExportAvailability,
     /// Explicit expansion overrides keyed by classifier row id.
     pub expanded_classifiers: BTreeMap<String, bool>,
     pub selected_classifier_id: Option<String>,
@@ -190,6 +210,9 @@ impl MemoryState {
             leak_classes: BTreeSet::new(),
             leak_object_ids: BTreeSet::new(),
             duplicate_classes: BTreeSet::new(),
+            mapping_loaded: false,
+            mapping_entries: 0,
+            export_availability: MemoryExportAvailability::default(),
             expanded_classifiers: BTreeMap::new(),
             selected_classifier_id: None,
             selected_class_label: None,
@@ -257,6 +280,7 @@ impl MemoryState {
             self.leak_classes.clear();
             self.leak_object_ids.clear();
             self.duplicate_classes.clear();
+            self.refresh_export_availability();
             return;
         };
         self.leak_classes = aps_memory::leak_class_names(&snapshot);
@@ -269,6 +293,23 @@ impl MemoryState {
             self.sort_direction,
         );
         self.class_summary = aps_memory::class_list_summary(&snapshot, &self.filter);
+        self.refresh_export_availability();
+    }
+
+    /// Recomputes the export-capability mirror after the snapshot or a
+    /// selection-bound page changes. The workspace helper adds the raw-HPROF
+    /// source-path/session precondition on top of this projection.
+    pub(super) fn refresh_export_availability(&mut self) {
+        let loaded = self.snapshot.is_some();
+        self.export_availability = MemoryExportAvailability {
+            raw_hprof: loaded,
+            histogram_csv: loaded,
+            snapshot_json: loaded,
+            class_instances_csv: self.instances.is_some(),
+            object_investigation_json: self.detail.is_some(),
+            diff_csv: self.comparison.is_some(),
+            investigation_report: loaded,
+        };
     }
 
     pub(super) fn reset_for_snapshot(&mut self, snapshot: Arc<MemorySnapshot>, label: String) {
@@ -314,6 +355,8 @@ impl MemoryState {
         self.dashboard_sort = DashboardSort::Count;
         self.highlighted_class = None;
         self.leak_tab = LeakTab::Suspects;
+        self.mapping_loaded = false;
+        self.mapping_entries = 0;
         self.comparison_pair = None;
         self.comparison = None;
         self.comparison_loading = false;

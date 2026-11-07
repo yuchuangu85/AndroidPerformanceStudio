@@ -1,4 +1,5 @@
 mod ai;
+mod benchmark;
 mod capture;
 mod cpu;
 mod disassembly;
@@ -171,16 +172,52 @@ fn main() {
                 Box::new(shell::OpenActiveRouteFile) as Box<dyn Action>,
                 None,
             ),
-            // Compose reserves Cmd+Shift+O for the page's Open Folder…
-            (
-                "secondary-shift-o",
-                Box::new(shell::OpenFolderActiveRoute) as Box<dyn Action>,
-                None,
-            ),
-            // Compose assigns Cmd+E to each page's most common export.
+            // IDEA: Cmd+E opens the active page's recent files.
             (
                 "secondary-e",
-                Box::new(shell::ExportActiveRoute) as Box<dyn Action>,
+                Box::new(shell::RecentFilesActiveRoute) as Box<dyn Action>,
+                None,
+            ),
+            // IDEA: Cmd+W closes the active page's open document.
+            (
+                "secondary-w",
+                Box::new(shell::CloseActiveRoute) as Box<dyn Action>,
+                None,
+            ),
+            // IDEA: Cmd+F focuses the active page's search.
+            (
+                "secondary-f",
+                Box::new(shell::FocusActiveSearch) as Box<dyn Action>,
+                None,
+            ),
+            // IDEA: Cmd+B navigates to the declaration/source of the selection.
+            (
+                "secondary-b",
+                Box::new(shell::GoToSourceActiveRoute) as Box<dyn Action>,
+                None,
+            ),
+            // IDEA AI Assistant: Cmd+\ prepares the active page's AI analysis.
+            (
+                "secondary-\\",
+                Box::new(shell::PrepareCurrentAi) as Box<dyn Action>,
+                None,
+            ),
+            // IDEA: Shift+Cmd+F12 hides or restores all inspector panes.
+            (
+                "secondary-shift-f12",
+                Box::new(shell::ToggleAllInspectorPanes) as Box<dyn Action>,
+                Some("Inspector"),
+            ),
+            // IDEA: Shift+Cmd+] selects the next tab; here the next inspector window.
+            (
+                "secondary-shift-]",
+                Box::new(shell::NextInspectorWindow) as Box<dyn Action>,
+                None,
+            ),
+            // IDEA: Ctrl+R runs the active page's capture.
+            (
+                "ctrl-r",
+                Box::new(shell::StartCaptureActiveRoute) as Box<dyn Action>,
                 None,
             ),
             (
@@ -241,7 +278,19 @@ fn main() {
         })
         .collect();
         cx.bind_keys(bindings);
-        let bounds = Bounds::centered(None, size(px(1320.), px(860.)), cx);
+        // Debug-only native screenshot harness: allows capturing the page at a
+        // Compose reference size. Release builds always use the product size.
+        #[cfg(debug_assertions)]
+        let (window_width, window_height) = std::env::var("APS_WINDOW_SIZE")
+            .ok()
+            .and_then(|value| {
+                let (width, height) = value.split_once('x')?;
+                Some((width.parse::<f32>().ok()?, height.parse::<f32>().ok()?))
+            })
+            .unwrap_or((1320., 860.));
+        #[cfg(not(debug_assertions))]
+        let (window_width, window_height) = (1320., 860.);
+        let bounds = Bounds::centered(None, size(px(window_width), px(window_height)), cx);
         let result = open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

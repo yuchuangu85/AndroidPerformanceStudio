@@ -7,11 +7,14 @@ pub(super) mod classes;
 pub(super) mod comparison;
 pub(super) mod dashboard;
 pub(super) mod dominators;
+pub(super) mod exports;
 pub(super) mod inspector;
 pub(super) mod leaks;
+pub(super) mod mapping;
 pub(crate) mod menus;
 pub(super) mod state;
 pub(super) mod toolbar;
+pub(super) mod widgets;
 
 use super::*;
 use crate::studio::{self, StudioColors};
@@ -34,7 +37,7 @@ impl ImportWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let colors = StudioColors::from_theme(cx);
+        let colors = widgets::memory_colors(cx);
         let mut root = div()
             .id("memory-profiler-workspace")
             .size_full()
@@ -77,7 +80,7 @@ impl ImportWorkspace {
         {
             self.memory_load_dominators(None, cx);
         }
-        if mode == MemoryViewMode::Diff && self.memory_state.comparison.is_none() {
+        if mode == MemoryViewMode::Diff && !self.memory_state.comparison_loading {
             self.memory_compare_snapshots(cx);
         }
         cx.notify();
@@ -502,15 +505,19 @@ impl ImportWorkspace {
     }
 
     pub(super) fn memory_compare_snapshots(&mut self, cx: &mut Context<Self>) {
-        let Some((a_id, b_id)) = self.memory_state.comparison_pair.or_else(|| {
+        // An explicit pair is authoritative only while both tabs exist. The
+        // default is the newest inactive snapshot as A against the active
+        // snapshot as B; stale ids from a closed tab fall back to that default.
+        let stored = self
+            .memory_state
+            .comparison_pair
+            .filter(|(a, b)| self.memory_snapshot_pair(*a, *b).is_some());
+        let pair = stored.or_else(|| {
             let tabs = self.memory_snapshot_tabs();
             let active = self.memory_snapshot_id?;
-            let other = tabs
-                .iter()
-                .find(|(id, _, _)| *id != active)
-                .map(|(id, _, _)| *id)?;
-            Some((other, active))
-        }) else {
+            menus::default_comparison_pair(&tabs, active)
+        });
+        let Some((a_id, b_id)) = pair else {
             self.memory_state.comparison = None;
             self.memory_state.comparison_error = Some(
                 self.language

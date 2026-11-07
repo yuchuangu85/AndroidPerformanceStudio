@@ -7,3 +7,6 @@ publish = false
 
 [dependencies]
 aps-json = { path = "../aps-json" }
+aps-contracts = { path = "../aps-contracts" }
+rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled", "limits"] }
+serde_json = { workspace = true }

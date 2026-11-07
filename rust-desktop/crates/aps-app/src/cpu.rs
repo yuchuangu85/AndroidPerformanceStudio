@@ -7497,6 +7497,15 @@ fn cpu_file_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
             CpuMenuCommand::OpenFolder,
             crate::shell::OpenFolderActiveRoute,
         )
+        .item_action_when(
+            !busy && recent.first().is_some(),
+            TextKey::ShellMenuRecentFiles,
+            recent
+                .first()
+                .map(|row| CpuMenuCommand::OpenRecent(row.clone()))
+                .unwrap_or(CpuMenuCommand::Unavailable),
+            crate::shell::RecentFilesActiveRoute,
+        )
         .submenu(TextKey::ShellMenuOpenRecent, true, |menu| {
             if recent.is_empty() {
                 return menu.item_when(
@@ -7578,10 +7587,11 @@ fn cpu_file_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
             )
         })
         .separator()
-        .item_when(
+        .item_action_when(
             !busy && ws.catalog.is_some(),
             TextKey::CpuWorkspaceCloseSession,
             CpuMenuCommand::CloseSession,
+            crate::shell::CloseActiveRoute,
         );
     // macOS reaches Settings through the application menu, matching Compose.
     #[cfg(not(target_os = "macos"))]
@@ -7601,9 +7611,10 @@ fn cpu_view_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
     let has_range = ws.query.start.is_some() || ws.query.end.is_some();
     let has_zoom = ws.zoom_start > 0.0 || ws.zoom_end < 1.0;
     MenuGroup::new(TextKey::ShellMenuView)
-        .item(
+        .item_action(
             TextKey::CpuWorkspaceFocusSearch,
             CpuMenuCommand::FocusSearch,
+            crate::shell::FocusActiveSearch,
         )
         .separator()
         .item_when(
@@ -7664,10 +7675,11 @@ fn cpu_tools_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
             )
         })
         .separator()
-        .item_when(
+        .item_action_when(
             has_symbol && ws.studio.is_some(),
             TextKey::CpuDetailsOpenSource,
             CpuMenuCommand::OpenSource,
+            crate::shell::GoToSourceActiveRoute,
         )
         .item_when(
             has_symbol,
@@ -7710,4 +7722,33 @@ fn cpu_tools_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
             TextKey::CpuRefreshRecentMetadata,
             CpuMenuCommand::RefreshRecentMetadata,
         )
+}
+
+/// Route-shortcut entry points (IDEA-style window shortcuts). These reuse the
+/// page's existing commands so the menu rows and the shortcuts share one path.
+impl CpuWorkspace {
+    pub(crate) fn open_most_recent_session(&mut self, cx: &mut Context<Self>) {
+        let recent = self
+            .recent
+            .as_ref()
+            .and_then(|page| page.rows.first())
+            .cloned();
+        if let Some(recent) = recent {
+            self.open_recent(recent, cx);
+        }
+    }
+
+    pub(crate) fn close_primary(&mut self, cx: &mut Context<Self>) {
+        self.close(cx);
+    }
+
+    pub(crate) fn open_selected_source_primary(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some((symbol, resource)) = cpu_selected_function(self) {
+            self.open_source(symbol, resource, window, cx);
+        }
+    }
 }

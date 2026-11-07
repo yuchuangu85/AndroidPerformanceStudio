@@ -5,8 +5,12 @@
 //! object-level lifecycle candidates. LeakCanary agent reports are not
 //! available and are presented as an explicit, non-simulated section.
 use super::ImportWorkspace;
+use super::comparison::row_background;
 use super::state::LeakTab;
-use crate::studio::{self, FONT_SUPPORTING, StudioColors};
+use super::widgets::{
+    TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, toolbar_button,
+};
+use crate::studio::{self, StudioColors};
 use aps_memory::{ActivityLeak, ClassifierRow, LeakSuspect, LifecycleLeakObject, MemorySnapshot};
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
@@ -16,7 +20,6 @@ use gpui_kit::{
 };
 use std::rc::Rc;
 
-const LEAK_ROW_HEIGHT: f32 = 22.;
 const LEAK_OBJECT_ID_WIDTH: f32 = 108.;
 const LEAK_COUNT_WIDTH: f32 = 78.;
 const LEAK_RETAINED_WIDTH: f32 = 96.;
@@ -66,7 +69,7 @@ impl ImportWorkspace {
                 ),
             )
             .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-leak-analyze",
                     language.text(TextKey::MemoryPageLeakAnalyze),
                     false,
@@ -108,8 +111,14 @@ impl ImportWorkspace {
         for (index, tab) in LEAK_TABS.into_iter().enumerate() {
             let label = format!("{} ({})", language.text(tab.label()), totals[index]);
             tabs = tabs.child(
-                studio::tab_button(("memory-leak-tab", index), label, tab == active, colors)
-                    .on_click(cx.listener(move |this, _, _, cx| this.memory_set_leak_tab(tab, cx))),
+                toolbar_button(
+                    ("memory-leak-tab", index),
+                    label,
+                    true,
+                    tab == active,
+                    colors,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.memory_set_leak_tab(tab, cx))),
             );
         }
         let start = usize::from(!rows.is_empty());
@@ -121,27 +130,46 @@ impl ImportWorkspace {
             colors,
         ));
 
-        let mut table = studio::card(colors).flex_1().min_h_0().gap(px(4.)).child(
-            div()
-                .w_full()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(studio::section_title(
-                    language.text(TextKey::MemoryPageLeakFindings),
-                    colors,
-                ))
-                .child(studio::supporting(
-                    language.format(TextKey::MemoryPageCountValue, &[("arg_1", &rows.len())]),
-                    colors,
-                )),
-        );
+        let mut table = studio::card(colors)
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .p_0()
+            .gap_0()
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .p(px(8.))
+                    .child(studio::section_title(
+                        language.text(TextKey::MemoryPageLeakFindings),
+                        colors,
+                    ))
+                    .child(studio::supporting(
+                        language.format(TextKey::MemoryPageCountValue, &[("arg_1", &rows.len())]),
+                        colors,
+                    )),
+            );
         if rows.is_empty() {
-            table = table.child(div().flex_1().min_h_0().w_full().p(px(8.)).child(
-                studio::supporting(language.text(empty_key(snapshot.as_deref())), colors),
-            ));
+            table = table.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .p(px(8.))
+                    .text_size(px(TABLE_FONT))
+                    .line_height(px(TABLE_LINE))
+                    .text_color(colors.secondary_text)
+                    .child(crate::studio::selectable(
+                        language.text(empty_key(snapshot.as_deref())).to_owned(),
+                    )),
+            );
         } else {
-            table = table.child(leak_table_header(active, language, colors));
+            table = table
+                .child(leak_table_header(active, language, colors))
+                .child(studio::divider(colors));
             let colors_copy = *colors;
             let rows_for_list = rows.clone();
             let entity = entity.clone();
@@ -272,80 +300,152 @@ fn classifier_row_for_class(rows: &[ClassifierRow], class_name: &str) -> Option<
     None
 }
 
+/// 24 px section-surface header with the shared 1 px accent column grid.
 fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) -> AnyElement {
-    let mut header = studio::table_header_row(colors).w_full();
+    let mut header = div()
+        .id("memory-leak-table-header")
+        .w_full()
+        .h(px(TABLE_HEADER_HEIGHT))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .bg(colors.section_background);
     match tab {
         LeakTab::Suspects => {
             header = header
-                .child(studio::table_header_cell(
-                    None,
-                    language.text(TextKey::MemoryPageClassName),
-                    colors,
-                ))
-                .child(studio::table_header_cell(
+                .child(
+                    header_cell(
+                        None,
+                        language.text(TextKey::MemoryPageClassName),
+                        false,
+                        false,
+                        colors,
+                    )
+                    .pl(px(8.)),
+                )
+                .child(header_cell(
                     None,
                     language.text(TextKey::ImportUiReason),
+                    false,
+                    false,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(LEAK_COUNT_WIDTH),
                     language.text(TextKey::MemoryPageInstances),
+                    true,
+                    true,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(LEAK_RETAINED_WIDTH),
                     language.text(TextKey::MemoryPageRetained),
+                    true,
+                    true,
                     colors,
                 ));
         }
         LeakTab::Activities => {
             header = header
-                .child(studio::table_header_cell(
-                    None,
-                    language.text(TextKey::MemoryPageClassName),
-                    colors,
-                ))
-                .child(studio::table_header_cell(
+                .child(
+                    header_cell(
+                        None,
+                        language.text(TextKey::MemoryPageClassName),
+                        false,
+                        false,
+                        colors,
+                    )
+                    .pl(px(8.)),
+                )
+                .child(header_cell(
                     None,
                     language.text(TextKey::MemoryPageActivityFragmentLeak),
+                    false,
+                    false,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(LEAK_COUNT_WIDTH),
                     language.text(TextKey::MemoryPageLiveInstances),
+                    true,
+                    true,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(LEAK_COUNT_WIDTH),
                     language.text(TextKey::MemoryPageDestroyedInstances),
+                    true,
+                    true,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(LEAK_RETAINED_WIDTH),
                     language.text(TextKey::MemoryPageRetained),
+                    true,
+                    true,
                     colors,
                 ));
         }
         LeakTab::Lifecycle => {
             header = header
-                .child(studio::table_header_cell(
-                    Some(LEAK_OBJECT_ID_WIDTH),
-                    language.text(TextKey::MemoryPageObjectId),
-                    colors,
-                ))
-                .child(studio::table_header_cell(
+                .child(
+                    header_cell(
+                        Some(LEAK_OBJECT_ID_WIDTH),
+                        language.text(TextKey::MemoryPageObjectId),
+                        false,
+                        false,
+                        colors,
+                    )
+                    .pl(px(8.)),
+                )
+                .child(header_cell(
                     None,
                     language.text(TextKey::MemoryPageClassName),
+                    false,
+                    false,
                     colors,
                 ))
-                .child(studio::table_header_cell(
+                .child(header_cell(
                     Some(LEAK_COUNT_WIDTH),
                     language.text(TextKey::MemoryPageHeap),
+                    true,
+                    true,
                     colors,
                 ));
         }
     }
     header.into_any_element()
+}
+
+/// 20 px / 13 px body cell with the continuous accent column grid.
+fn cell(
+    width: Option<f32>,
+    text: impl Into<SharedString>,
+    color: Rgba,
+    right: bool,
+    grid: bool,
+    colors: &StudioColors,
+) -> Div {
+    let mut cell = div()
+        .h_full()
+        .flex()
+        .items_center()
+        .px(px(8.))
+        .text_size(px(TABLE_FONT))
+        .line_height(px(TABLE_LINE))
+        .text_color(color)
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .when(right, |cell| {
+            cell.justify_end().text_align(TextAlign::Right)
+        })
+        .when(grid, |cell| cell.border_l_1().border_color(colors.border));
+    if let Some(width) = width {
+        cell = cell.w(px(width)).flex_shrink_0();
+    } else {
+        cell = cell.flex_1().min_w_0();
+    }
+    cell.child(crate::studio::selectable(text.into()))
 }
 
 fn leak_row(
@@ -355,32 +455,45 @@ fn leak_row(
     language: Language,
     colors: &StudioColors,
 ) -> AnyElement {
+    let background = row_background(colors, index);
     let mut element = div()
         .id(("memory-leak-row", index))
-        .h(px(LEAK_ROW_HEIGHT))
+        .h(px(TABLE_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
         .flex()
         .items_center()
-        .gap(px(4.))
-        .px(px(8.))
+        .bg(background)
         .cursor_pointer();
     match row {
         LeakRowData::Suspect(suspect) => {
             let class_name = suspect.class_name.clone();
             let target = class_name.clone();
             element = element
-                .child(cell(class_name, None, colors.text))
-                .child(cell(suspect.reason.clone(), None, colors.secondary_text))
+                .child(cell(None, class_name, colors.text, false, false, colors))
                 .child(cell(
-                    suspect.instance_count.to_string(),
-                    Some(LEAK_COUNT_WIDTH),
-                    colors.text,
+                    None,
+                    suspect.reason.clone(),
+                    colors.secondary_text,
+                    false,
+                    false,
+                    colors,
                 ))
                 .child(cell(
-                    super::auxiliary::memory_optional_bytes(suspect.retained_size),
+                    Some(LEAK_COUNT_WIDTH),
+                    suspect.instance_count.to_string(),
+                    colors.text,
+                    true,
+                    true,
+                    colors,
+                ))
+                .child(cell(
                     Some(LEAK_RETAINED_WIDTH),
-                    colors.secondary_text,
+                    super::auxiliary::memory_optional_bytes(suspect.retained_size),
+                    colors.text,
+                    true,
+                    true,
+                    colors,
                 ))
                 .on_click(move |_, _, cx| {
                     let _ = entity.update(cx, |this, cx| this.open_leak_class(&target, cx));
@@ -390,26 +503,38 @@ fn leak_row(
             let class_name = activity.class_name.clone();
             let target = class_name.clone();
             element = element
-                .child(cell(class_name, None, colors.text))
+                .child(cell(None, class_name, colors.text, false, false, colors))
                 .child(cell(
-                    language.text(TextKey::MemoryPageActivityFragmentLeak),
                     None,
+                    language.text(TextKey::MemoryPageActivityFragmentLeak),
                     colors.secondary_text,
+                    false,
+                    false,
+                    colors,
                 ))
                 .child(cell(
+                    Some(LEAK_COUNT_WIDTH),
                     activity.live_instance_count.to_string(),
-                    Some(LEAK_COUNT_WIDTH),
                     colors.text,
+                    true,
+                    true,
+                    colors,
                 ))
                 .child(cell(
+                    Some(LEAK_COUNT_WIDTH),
                     activity.destroyed_instance_count.to_string(),
-                    Some(LEAK_COUNT_WIDTH),
                     colors.text,
+                    true,
+                    true,
+                    colors,
                 ))
                 .child(cell(
-                    super::auxiliary::memory_optional_bytes(activity.retained_size),
                     Some(LEAK_RETAINED_WIDTH),
-                    colors.secondary_text,
+                    super::auxiliary::memory_optional_bytes(activity.retained_size),
+                    colors.text,
+                    true,
+                    true,
+                    colors,
                 ))
                 .on_click(move |_, _, cx| {
                     let _ = entity.update(cx, |this, cx| this.open_leak_class(&target, cx));
@@ -419,15 +544,31 @@ fn leak_row(
             let object_id = object.object_id;
             element = element
                 .child(cell(
-                    format!("0x{object_id:x}"),
                     Some(LEAK_OBJECT_ID_WIDTH),
+                    format!("0x{object_id:x}"),
                     colors.secondary_text,
+                    false,
+                    false,
+                    colors,
                 ))
-                .child(cell(object.class_name.clone(), None, colors.text))
                 .child(cell(
-                    object.heap_name.clone().unwrap_or_else(|| "—".to_owned()),
+                    None,
+                    object.class_name.clone(),
+                    colors.text,
+                    false,
+                    false,
+                    colors,
+                ))
+                .child(cell(
                     Some(LEAK_COUNT_WIDTH),
-                    colors.secondary_text,
+                    object
+                        .heap_name
+                        .clone()
+                        .unwrap_or_else(|| "\u{2014}".to_owned()),
+                    colors.text,
+                    true,
+                    true,
+                    colors,
                 ))
                 .on_click(move |_, _, cx| {
                     let _ =
@@ -436,20 +577,6 @@ fn leak_row(
         }
     }
     element.into_any_element()
-}
-
-fn cell(text: impl Into<SharedString>, width: Option<f32>, color: Rgba) -> Div {
-    let mut cell = div()
-        .text_size(px(FONT_SUPPORTING))
-        .text_color(color)
-        .whitespace_nowrap()
-        .text_ellipsis();
-    if let Some(width) = width {
-        cell = cell.w(px(width)).flex_shrink_0();
-    } else {
-        cell = cell.flex_1().min_w_0();
-    }
-    cell.child(crate::studio::selectable(text.into()))
 }
 
 fn leakcanary_section(language: Language, colors: &StudioColors) -> AnyElement {
@@ -480,7 +607,7 @@ fn leakcanary_section(language: Language, colors: &StudioColors) -> AnyElement {
                 ))
                 .child(div().flex_1())
                 .child(
-                    studio::compact_text_button(
+                    toolbar_button(
                         "memory-leakcanary-start",
                         language.text(TextKey::MemoryPageLeakLiveStart),
                         false,
@@ -490,7 +617,7 @@ fn leakcanary_section(language: Language, colors: &StudioColors) -> AnyElement {
                     .tooltip(language.text(TextKey::MemoryPageLeakcanaryUnavailable)),
                 )
                 .child(
-                    studio::compact_text_button(
+                    toolbar_button(
                         "memory-leakcanary-stop",
                         language.text(TextKey::MemoryPageLeakLiveStop),
                         false,

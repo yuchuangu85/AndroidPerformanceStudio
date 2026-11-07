@@ -9,9 +9,25 @@
 
 use super::super::menus::ImportMenuCommand;
 use super::super::*;
+use super::exports::MemoryExportKind;
 use super::state::MemoryViewMode;
 use crate::shell::menubar::MenuGroup;
 use aps_ui_foundation::{Language, TextKey};
+
+/// Default Diff pair: the newest inactive snapshot is A and the active
+/// snapshot is B. Snapshot tab identities are monotonic in import order, so the
+/// maximum non-active id is the most recently imported other snapshot.
+pub(super) fn default_comparison_pair(
+    tabs: &[(u64, String, bool)],
+    active: u64,
+) -> Option<(u64, u64)> {
+    let newest_inactive = tabs
+        .iter()
+        .filter(|(id, _, _)| *id != active)
+        .map(|(id, _, _)| *id)
+        .max()?;
+    Some((newest_inactive, active))
+}
 
 /// Memory view modes in menu order. The shared import menu command carries the
 /// index so the command enum does not have to expose this module's type.
@@ -32,7 +48,8 @@ impl ImportWorkspace {
         let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !self.busy);
         // Compose memory imports add a dataset to the loaded session. The Rust
         // HPROF import is the Java heap import (it opens another snapshot tab);
-        // the native heap, ART sample and mapping imports are not wired yet.
+        // mapping deobfuscates the loaded heap; the native heap and ART sample
+        // imports have no Rust adapter yet and stay disabled.
         let file = file.submenu(TextKey::ShellMenuImport, true, |menu| {
             menu.item_when(
                 self.can_open_home_artifact(),
@@ -50,24 +67,31 @@ impl ImportWorkspace {
                 ImportMenuCommand::Unavailable,
             )
             .item_when(
-                false,
+                self.memory_mapping_enabled(),
                 TextKey::MemoryAppMenuImportMapping,
-                ImportMenuCommand::Unavailable,
+                ImportMenuCommand::MemoryImportMapping,
             )
         });
         let file = Self::open_recent(file, false);
         // Compose groups: raw/standard HPROF, native heap, ART sample | CSV,
         // class instances, object investigation, diff, snapshot JSON,
-        // investigation report | bitmap dump, bitmap comparison. No memory
-        // export is wired to a page control in this build, so every row keeps
-        // Compose's unavailable (disabled) state.
+        // investigation report | bitmap dump, bitmap comparison. Rows backed by
+        // a live Rust adapter follow the current snapshot/selection; rows with
+        // no adapter stay disabled exactly like Compose's unavailable state.
+        let raw = self.memory_export_enabled(MemoryExportKind::RawHprof);
+        let histogram = self.memory_export_enabled(MemoryExportKind::HistogramCsv);
+        let instances = self.memory_export_enabled(MemoryExportKind::ClassInstancesCsv);
+        let object = self.memory_export_enabled(MemoryExportKind::ObjectInvestigationJson);
+        let diff = self.memory_export_enabled(MemoryExportKind::DiffCsv);
+        let snapshot_json = self.memory_export_enabled(MemoryExportKind::SnapshotJson);
+        let report = self.memory_export_enabled(MemoryExportKind::InvestigationReport);
         let file = file
             .separator()
             .submenu(TextKey::ShellMenuExport, true, |menu| {
                 menu.item_when(
-                    false,
+                    raw,
                     TextKey::MemoryAppExportRawHprof,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::RawHprof),
                 )
                 .item_when(
                     false,
@@ -86,34 +110,34 @@ impl ImportWorkspace {
                 )
                 .separator()
                 .item_when(
-                    false,
+                    histogram,
                     TextKey::MemoryAppExportCsv,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::HistogramCsv),
                 )
                 .item_when(
-                    false,
+                    instances,
                     TextKey::MemoryAppExportClassInstances,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::ClassInstancesCsv),
                 )
                 .item_when(
-                    false,
+                    object,
                     TextKey::MemoryAppExportObjectInvestigation,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::ObjectInvestigationJson),
                 )
                 .item_when(
-                    false,
+                    diff,
                     TextKey::MemoryAppExportDiff,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::DiffCsv),
                 )
                 .item_when(
-                    false,
+                    snapshot_json,
                     TextKey::MemoryAppExportSnapshotJson,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::SnapshotJson),
                 )
                 .item_when(
-                    false,
+                    report,
                     TextKey::MemoryAppExportInvestigationReport,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::InvestigationReport),
                 )
                 .separator()
                 .item_when(
@@ -162,5 +186,28 @@ impl ImportWorkspace {
             );
         }
         vec![file, view]
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tabs(ids_and_active: &[(u64, bool)]) -> Vec<(u64, String, bool)> {
+        ids_and_active
+            .iter()
+            .map(|(id, active)| (*id, format!("snapshot-{id}.hprof"), *active))
+            .collect()
+    }
+
+    #[::core::prelude::v1::test]
+    fn default_diff_pair_uses_newest_inactive_against_active() {
+        let tabs = tabs(&[(1, false), (2, false), (3, true)]);
+        assert_eq!(default_comparison_pair(&tabs, 3), Some((2, 3)));
+        // Active is not necessarily the newest snapshot.
+        assert_eq!(default_comparison_pair(&tabs, 1), Some((3, 1)));
+        assert_eq!(default_comparison_pair(&tabs, 2), Some((3, 2)));
+        // A single open snapshot has no baseline.
+        assert_eq!(default_comparison_pair(&tabs[..1], 1), None);
+        assert_eq!(default_comparison_pair(&[], 1), None);
     }
 }

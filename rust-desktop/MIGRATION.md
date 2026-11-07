@@ -1531,3 +1531,46 @@ Cmd+, and the Layout Inspector tree keys (Cmd+1/2/3, Up/Down/Enter).
   File menu and Export submenu (Cmd+O / Cmd+Shift+O / Cmd+E), the Trace File
   menu and the Memory File menu.
 
+### Collapsed navigation rail tooltips — 2026-11-08
+
+When the navigation rail is collapsed it shows icons only; hovering an icon
+now reveals the destination title in a tooltip placed to the right of the rail
+(Compose's collapsed rail behaviour). Expanded mode keeps the visible labels and
+adds no tooltip. Implemented with the component library's Button tooltip in
+shell.rs (`navigation_tooltip` helper for destinations, AI and Settings), plus a
+source-inspection regression asserting the tooltip is attached only in the
+collapsed branch.
+
+### JetBrains IDEA-style window shortcuts — 2026-11-08
+
+The window menu now follows JetBrains IDEA's default macOS shortcut conventions
+for the commands the profilers actually have, instead of Compose's export
+shortcut conventions.
+
+Global shortcuts (route-aware where the command is page-specific):
+
+- Cmd+E Recent Files: CPU opens its newest saved session, Trace opens its
+  newest captured session; pages without a recent catalog keep the row disabled.
+- Cmd+W Close: closes the active page's open document (CPU session, Trace
+  trace, Method Recording).
+- Cmd+F Find: focuses the active page's search field (CPU search, Layout
+  Inspector hierarchy search).
+- Cmd+B Go to Declaration: navigates from evidence to source (CPU selected
+  frame, Frame correlates the frame with the Layout Inspector, Source opens the
+  selected location in the IDE).
+- Cmd+\ AI Assistant: prepares the active page's AI analysis (the Analyze
+  menu row).
+- Shift+Cmd+F12 Hide All Tool Windows: hides or restores every Layout
+  Inspector pane.
+- Shift+Cmd+] Select Next Tab: cycles the next Layout Inspector window.
+- Ctrl+R Run: starts the active page's capture (Trace capture, Frame start
+  capture).
+- Cmd+1/2/3 keep the IDEA tool-window numbering for the three Inspector
+  panes, and Up/Down/Enter keep the tree navigation.
+
+The previous Compose-style Cmd+E export shortcut and Cmd+Shift+O Open Folder
+shortcut were removed from the keymap; the corresponding menu rows remain
+clickable but no longer advertise a shortcut. Menu rows were wired to the new
+real actions so macOS renders the key equivalents, and the route dispatchers
+reuse the pages' existing commands instead of duplicating behaviour.
+

@@ -6,15 +6,21 @@
 //! Delta Retained) sorted by absolute retained delta. Metrics the worker did
 //! not publish stay an em dash; nothing is inferred across dumps.
 use super::ImportWorkspace;
-use super::state::memory_row_height;
+use super::dominators::{memory_heap_distribution, memory_summary_row};
 use super::state::{ClassifierDelta, ComparisonReport};
+use super::widgets::{
+    TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, metric_cell,
+    toolbar_button,
+};
 use crate::studio::{self, StudioColors};
 use aps_memory::{ClassStats, MemorySnapshot};
 use aps_ui_foundation::{Language, TextKey, typography};
 use gpui_kit::{
     component::{
+        Disableable,
+        button::{Button, ButtonVariants},
         menu::{DropdownMenu, PopupMenuItem},
-        scroll::{ScrollableElement, Scrollbar, ScrollbarAxis},
+        scroll::{Scrollbar, ScrollbarAxis},
     },
     prelude::*,
     *,
@@ -25,9 +31,8 @@ use std::collections::BTreeMap;
 // Shared dense-memory formatters (Compose MemoryFormatters.kt).
 // ---------------------------------------------------------------------------
 
-/// Unavailable metric. The Compose comparison renders a missing retained size
-/// or delta as unavailable; the Rust dense table keeps the em dash so the
-/// numeric columns stay aligned.
+/// Unavailable metric. The comparison renders a missing retained size or delta
+/// as an em dash so the numeric columns stay aligned; nothing is inferred.
 pub(super) const UNAVAILABLE_DASH: &str = "\u{2014}";
 
 /// formatBytes: 1 decimal MB / KB, whole bytes below 1 KiB (Locale.US shape).
@@ -87,13 +92,10 @@ pub(super) fn display_class_name(stats: &ClassStats) -> String {
     }
 }
 
-/// Zebra striping for dense tables; light and dark both stay one surface sheet.
-pub(super) fn row_background(colors: &StudioColors, index: usize) -> Rgba {
-    if index % 2 == 0 {
-        colors.panel
-    } else {
-        colors.panel.blend(colors.text.alpha(0.035))
-    }
+/// Dense-table row surface. Compose's surfaceContainerLow and surface both map
+/// to the workspace-style panel, so the oracle tables have no zebra striping.
+pub(super) fn row_background(colors: &StudioColors, _index: usize) -> Rgba {
+    colors.panel
 }
 
 // ---------------------------------------------------------------------------
@@ -172,69 +174,143 @@ pub(super) fn compare(
 // View.
 // ---------------------------------------------------------------------------
 
-/// Compose's default selection: the second-to-last open snapshot is A and the
-/// newest is B. Once a comparison ran, comparison_pair is authoritative.
+/// Compose's default selection: A is the newest inactive snapshot, B is the
+/// active tab. Once a comparison ran, comparison_pair is authoritative.
 fn default_pair(tabs: &[(u64, String, bool)]) -> Option<(u64, u64)> {
-    let last = tabs.len().checked_sub(1)?;
-    let previous = last.checked_sub(1)?;
-    Some((tabs[previous].0, tabs[last].0))
+    let active = tabs.iter().find(|(_, _, active)| *active).map(|(id, _, _)| *id)?;
+    let a = tabs
+        .iter()
+        .filter(|(id, _, _)| *id != active)
+        .map(|(id, _, _)| *id)
+        .max()?;
+    Some((a, active))
 }
 
+/// Compose DropdownSelector control with the 13 px body label used by the diff
+/// A/B pickers.
+fn comparison_selector(
+    id: &'static str,
+    label: String,
+    enabled: bool,
+    colors: &StudioColors,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .h(px(26.))
+        .px(px(8.))
+        .rounded(px(4.))
+        .bg(colors.section_background)
+        .border_1()
+        .border_color(colors.accent)
+        .disabled(!enabled)
+        .accessibility_label(label.clone())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .text_size(px(typography::BODY))
+                        .line_height(px(16.))
+                        .text_color(if enabled {
+                            colors.accent
+                        } else {
+                            colors.accent.alpha(0.45)
+                        })
+                        .whitespace_nowrap()
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.))
+                        .text_color(colors.accent.alpha(if enabled { 1. } else { 0.45 }))
+                        .child("\u{2304}"),
+                ),
+        )
+}
+
+/// 24 px section-surface header with the shared 1 px accent column grid.
 fn comparison_header(language: Language, colors: &StudioColors) -> AnyElement {
-    studio::table_header_row(colors)
-        .children([
-            studio::table_header_cell(None, language.text(TextKey::MemoryPageDiffClass), colors),
-            studio::table_header_cell(
-                Some(96.),
-                language.text(TextKey::MemoryPageMemoryBeforeCount),
+    div()
+        .id("memory-comparison-header-row")
+        .w_full()
+        .h(px(TABLE_HEADER_HEIGHT))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .bg(colors.section_background)
+        .child(
+            header_cell(
+                None,
+                language.text(TextKey::MemoryPageDiffClass),
+                false,
+                false,
                 colors,
-            ),
-            studio::table_header_cell(
-                Some(96.),
-                language.text(TextKey::MemoryPageMemoryAfterCount),
-                colors,
-            ),
-            studio::table_header_cell(
-                Some(96.),
-                language.text(TextKey::MemoryPageMemoryDeltaCount),
-                colors,
-            ),
-            studio::table_header_cell(
-                Some(112.),
-                language.text(TextKey::MemoryPageMemoryBeforeRetained),
-                colors,
-            ),
-            studio::table_header_cell(
-                Some(112.),
-                language.text(TextKey::MemoryPageMemoryAfterRetained),
-                colors,
-            ),
-            studio::table_header_cell(
-                Some(112.),
-                language.text(TextKey::MemoryPageMemoryDeltaRetained),
-                colors,
-            ),
-        ])
+            )
+            .pl(px(8.)),
+        )
+        .child(header_cell(
+            Some(96.),
+            language.text(TextKey::MemoryPageMemoryBeforeCount),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(96.),
+            language.text(TextKey::MemoryPageMemoryAfterCount),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(96.),
+            language.text(TextKey::MemoryPageMemoryDeltaCount),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(112.),
+            language.text(TextKey::MemoryPageMemoryBeforeRetained),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(112.),
+            language.text(TextKey::MemoryPageMemoryAfterRetained),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(112.),
+            language.text(TextKey::MemoryPageMemoryDeltaRetained),
+            true,
+            true,
+            colors,
+        ))
         .into_any_element()
 }
 
-fn comparison_cell_flex(text: String, color: Rgba) -> Div {
-    div()
-        .flex_1()
-        .min_w_0()
-        .text_size(px(typography::SUPPORTING))
-        .text_color(color)
-        .whitespace_nowrap()
-        .text_ellipsis()
-        .child(crate::studio::selectable(text))
-}
-
-fn comparison_cell(width: f32, text: String, color: Rgba) -> Div {
+/// 20 px body-compact value cell with the continuous accent column grid.
+fn value_cell(width: f32, text: String, color: Rgba, border: Rgba) -> Div {
     div()
         .w(px(width))
         .flex_shrink_0()
-        .text_size(px(typography::SUPPORTING))
+        .h_full()
+        .flex()
+        .items_center()
+        .justify_end()
+        .px(px(8.))
+        .border_l_1()
+        .border_color(border)
+        .text_size(px(TABLE_FONT))
+        .line_height(px(TABLE_LINE))
         .text_color(color)
+        .text_align(TextAlign::Right)
         .whitespace_nowrap()
         .text_ellipsis()
         .child(crate::studio::selectable(text))
@@ -247,37 +323,47 @@ fn comparison_row(
     _language: Language,
 ) -> AnyElement {
     let count = count_delta(row);
-    let missing = || UNAVAILABLE_DASH.to_owned();
     let retained = retained_delta(row);
+    let missing = || UNAVAILABLE_DASH.to_owned();
     div()
         .id(("memory-comparison-row", index))
-        .h(px(memory_row_height()))
+        .h(px(TABLE_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
         .flex()
         .items_center()
-        .gap(px(4.))
-        .px(px(8.))
         .bg(row_background(colors, index))
-        .child(comparison_cell_flex(row.class_name.clone(), colors.text))
-        .child(comparison_cell(96., format_count(row.a_count), colors.text))
-        .child(comparison_cell(96., format_count(row.b_count), colors.text))
-        .child(comparison_cell(
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .px(px(8.))
+                .text_size(px(TABLE_FONT))
+                .line_height(px(TABLE_LINE))
+                .text_color(colors.text)
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(crate::studio::selectable(row.class_name.clone())),
+        )
+        .child(metric_cell(Some(96.), format_count(row.a_count), colors))
+        .child(metric_cell(Some(96.), format_count(row.b_count), colors))
+        .child(value_cell(
             96.,
             signed_count(count),
             if count > 0 { colors.error } else { colors.text },
+            colors.border,
         ))
-        .child(comparison_cell(
-            112.,
+        .child(metric_cell(
+            Some(112.),
             row.a_retained.map(format_bytes).unwrap_or_else(missing),
-            colors.secondary_text,
+            colors,
         ))
-        .child(comparison_cell(
-            112.,
+        .child(metric_cell(
+            Some(112.),
             row.b_retained.map(format_bytes).unwrap_or_else(missing),
-            colors.secondary_text,
+            colors,
         ))
-        .child(comparison_cell(
+        .child(value_cell(
             112.,
             retained.map(signed_bytes).unwrap_or_else(missing),
             if retained.is_some_and(|delta| delta > 0) {
@@ -285,6 +371,7 @@ fn comparison_row(
             } else {
                 colors.text
             },
+            colors.border,
         ))
         .into_any_element()
 }
@@ -306,8 +393,8 @@ fn snapshot_selector(
         .unwrap_or_else(|| language.text(role).to_owned());
     let menu_entity = entity.clone().downgrade();
     let tabs = tabs.to_vec();
-    let button = studio::compact_text_button(id, label, !tabs.is_empty(), false, colors)
-        .dropdown_menu(move |menu, _, _| {
+    let button = comparison_selector(id, label, !tabs.is_empty(), colors).dropdown_menu(
+        move |menu, _, _| {
             let mut menu = menu.min_w(px(220.));
             for (tab_id, tab_label, _) in &tabs {
                 let workspace = menu_entity.clone();
@@ -330,8 +417,19 @@ fn snapshot_selector(
                 }));
             }
             menu
-        });
+        },
+    );
     button.into_any_element()
+}
+
+fn hint(text: String, color: Rgba) -> AnyElement {
+    div()
+        .py(px(12.))
+        .text_size(px(TABLE_FONT))
+        .line_height(px(TABLE_LINE))
+        .text_color(color)
+        .child(crate::studio::selectable(text))
+        .into_any_element()
 }
 
 impl ImportWorkspace {
@@ -341,6 +439,7 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
+        let loaded = self.memory_state.snapshot.is_some();
         let tabs = self.memory_snapshot_tabs();
         let pair = self
             .memory_state
@@ -352,11 +451,22 @@ impl ImportWorkspace {
         let entity = cx.entity();
         let snapshot_summary = self.memory_state.summary_metrics();
         let leak_suspects = self.memory_state.leak_suspect_count();
-        let distribution = self
-            .memory_state
-            .snapshot
-            .as_ref()
-            .map(|snapshot| diff_distribution(snapshot, colors, language));
+        let distribution = self.memory_state.snapshot.as_ref().and_then(|snapshot| {
+            (snapshot
+                .summary
+                .heap_segments
+                .iter()
+                .any(|segment| segment.size_bytes > 0)
+                || !snapshot.classes.is_empty())
+            .then(|| {
+                memory_heap_distribution(
+                    "memory-comparison-distribution",
+                    snapshot,
+                    colors,
+                    language,
+                )
+            })
+        });
 
         let can_compare = pair.is_some_and(|(a, b)| a != b) && !loading;
         let compare_pair = pair;
@@ -373,10 +483,6 @@ impl ImportWorkspace {
                 language.text(TextKey::MemoryPageComparisonTitle),
                 colors,
             ))
-            .child(studio::dense_label(
-                language.text(TextKey::MemoryPageMemoryCompareA),
-                colors.secondary_text,
-            ))
             .child(snapshot_selector(
                 "memory-comparison-select-a",
                 TextKey::MemoryPageMemoryCompareA,
@@ -387,10 +493,6 @@ impl ImportWorkspace {
                 language,
                 colors,
                 &entity,
-            ))
-            .child(studio::dense_label(
-                language.text(TextKey::MemoryPageMemoryCompareB),
-                colors.secondary_text,
             ))
             .child(snapshot_selector(
                 "memory-comparison-select-b",
@@ -404,11 +506,11 @@ impl ImportWorkspace {
                 &entity,
             ))
             .child(
-                studio::compact_text_button(
+                toolbar_button(
                     "memory-comparison-run",
                     language.text(TextKey::MemoryPageMemoryCompare),
                     can_compare,
-                    true,
+                    false,
                     colors,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -425,24 +527,19 @@ impl ImportWorkspace {
             .w_full()
             .flex()
             .flex_col()
+            .gap(px(4.))
             .child(studio::supporting(
                 language.text(TextKey::MemoryPageMemoryCompareLimit),
                 colors,
             ));
 
         if loading {
-            body = body.child(div().py(px(12.)).child(studio::supporting(
-                language.text(TextKey::MemoryPageWorking),
-                colors,
-            )));
+            body = body.child(hint(
+                language.text(TextKey::MemoryPageWorking).to_owned(),
+                colors.secondary_text,
+            ));
         } else if let Some(error) = error {
-            body = body.child(
-                div()
-                    .py(px(12.))
-                    .text_size(px(typography::SUPPORTING))
-                    .text_color(colors.error)
-                    .child(crate::studio::selectable(error)),
-            );
+            body = body.child(hint(error, colors.error));
         } else if let Some(report) = report {
             let summary = format!(
                 "{}: {}  |  {}: {}",
@@ -466,12 +563,21 @@ impl ImportWorkspace {
                         colors.secondary_text,
                     )),
             );
-            body = body.child(comparison_header(language, colors));
+            let mut table = studio::card(colors)
+                .id("memory-comparison-table")
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .p_0()
+                .gap_0()
+                .child(comparison_header(language, colors))
+                .child(studio::divider(colors));
             if report.rows.is_empty() {
-                body = body.child(div().py(px(12.)).child(studio::supporting(
-                    language.text(TextKey::MemoryPageMemoryNoGrowth),
-                    colors,
-                )));
+                table = table.child(hint(
+                    language.text(TextKey::MemoryPageMemoryNoGrowth).to_owned(),
+                    colors.secondary_text,
+                ));
+                body = body.child(table);
             } else {
                 let scroll_handle = self.memory_state.comparison_scroll.clone();
                 let report_for_list = report.clone();
@@ -491,7 +597,7 @@ impl ImportWorkspace {
                 .h_full()
                 .w_full()
                 .track_scroll(&scroll_handle);
-                body = body.child(
+                table = table.child(
                     div()
                         .relative()
                         .flex_1()
@@ -507,12 +613,13 @@ impl ImportWorkspace {
                             ),
                         ),
                 );
+                body = body.child(table);
             }
         } else {
-            body = body.child(div().py(px(12.)).child(studio::supporting(
-                language.text(TextKey::MemoryPageDiffUnavailable),
-                colors,
-            )));
+            body = body.child(hint(
+                language.text(TextKey::MemoryPageDiffUnavailable).to_owned(),
+                colors.secondary_text,
+            ));
         }
 
         let mut root = div()
@@ -531,13 +638,15 @@ impl ImportWorkspace {
                 div()
                     .id("memory-comparison-kpis")
                     .w_full()
-                    .h(px(52.))
+                    .h(px(44.))
                     .flex_shrink_0()
-                    .child(diff_summary(
+                    .child(memory_summary_row(
+                        "memory-comparison-summary",
                         &snapshot_summary,
                         leak_suspects,
-                        colors,
+                        loaded,
                         language,
+                        colors,
                     )),
             );
         if let Some(distribution) = distribution {
@@ -614,143 +723,4 @@ mod tests {
         assert_eq!(count_delta(unknown), 1);
         assert_eq!(report.rows.last().unwrap().class_name, "example.Unknown");
     }
-}
-fn diff_summary(
-    summary: &aps_memory::HeapSummary,
-    leak_suspects: u64,
-    colors: &StudioColors,
-    language: Language,
-) -> AnyElement {
-    let cards = [
-        (
-            TextKey::MemoryPageHeapSize,
-            format_bytes(summary.shallow_size),
-            false,
-        ),
-        (
-            TextKey::MemoryPageObjects,
-            format_count(summary.object_count),
-            false,
-        ),
-        (
-            TextKey::MemoryPageClasses,
-            format_count(summary.class_count),
-            false,
-        ),
-        (
-            TextKey::MemoryPageLeakSuspects,
-            format_count(leak_suspects),
-            leak_suspects > 0,
-        ),
-    ];
-    div()
-        .id("memory-comparison-summary")
-        .w_full()
-        .flex()
-        .gap(px(4.))
-        .overflow_x_scrollbar()
-        .children(
-            cards
-                .into_iter()
-                .enumerate()
-                .map(|(index, (key, value, warning))| {
-                    let tone = if warning { colors.warning } else { colors.text };
-                    studio::card(colors)
-                        .id(("memory-comparison-metric", index))
-                        .flex_1()
-                        .min_w(px(140.))
-                        .p(px(4.))
-                        .gap(px(1.))
-                        .child(studio::supporting(language.text(key), colors))
-                        .child(
-                            div()
-                                .text_size(px(typography::TITLE))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(tone)
-                                .child(crate::studio::selectable(value)),
-                        )
-                }),
-        )
-        .into_any_element()
-}
-
-fn diff_distribution(
-    snapshot: &aps_memory::MemorySnapshot,
-    colors: &StudioColors,
-    language: Language,
-) -> AnyElement {
-    let palette = [
-        rgb(0x4F9BE8),
-        rgb(0x47B796),
-        rgb(0xCA9B4B),
-        rgb(0xAC85CC),
-        rgb(0xDA7382),
-    ];
-    let segments: Vec<(&str, u64)> = snapshot
-        .summary
-        .heap_segments
-        .iter()
-        .filter(|segment| segment.size_bytes > 0)
-        .map(|segment| (segment.name.as_str(), segment.size_bytes))
-        .collect();
-    let total = segments.iter().map(|(_, size)| *size).sum::<u64>().max(1);
-    let mut bar = div()
-        .id("memory-comparison-distribution-bar")
-        .w_full()
-        .h(px(12.))
-        .flex()
-        .bg(colors.section_background);
-    for (index, (_, size)) in segments.iter().enumerate() {
-        let weight = ((*size as f64 / total as f64).max(0.0001) * 1000.) as f32;
-        bar = bar.child(
-            div()
-                .flex_basis(px(0.))
-                .flex_grow(weight)
-                .h_full()
-                .bg(palette[index % palette.len()]),
-        );
-    }
-    let mut legend = div()
-        .id("memory-comparison-distribution-legend")
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(20.))
-        .overflow_x_scrollbar();
-    for (index, (name, size)) in segments.iter().enumerate() {
-        legend = legend.child(
-            div()
-                .flex()
-                .items_center()
-                .flex_shrink_0()
-                .gap(px(5.))
-                .child(div().w(px(8.)).h(px(8.)).bg(palette[index % palette.len()]))
-                .child(studio::supporting(
-                    format!("{name}  {}", format_bytes(*size)),
-                    colors,
-                )),
-        );
-    }
-    if segments.is_empty() {
-        legend = legend.child(studio::supporting(
-            language.text(TextKey::MemoryPageMemoryNoSnapshot),
-            colors,
-        ));
-    }
-    div()
-        .id("memory-comparison-distribution")
-        .w_full()
-        .h(px(76.))
-        .flex_shrink_0()
-        .child(
-            studio::card(colors)
-                .w_full()
-                .child(studio::section_title(
-                    language.text(TextKey::MemoryPageHeapDistribution),
-                    colors,
-                ))
-                .child(bar)
-                .child(legend),
-        )
-        .into_any_element()
 }

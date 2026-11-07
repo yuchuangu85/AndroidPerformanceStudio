@@ -146,3 +146,32 @@ fn normal_inverse(probability: f64) -> f64 {
     }
     (low + high) / 2.0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn median_rejects_nonfinite_and_orders_samples() {
+        assert_eq!(median(&[]), None);
+        assert_eq!(median(&[f64::NAN]), None);
+        assert_eq!(median(&[3.0, 1.0, 2.0]), Some(2.0));
+        assert_eq!(median(&[4.0, 1.0, 3.0, 2.0]), Some(2.5));
+    }
+
+    #[test]
+    fn bca_interval_is_deterministic_and_ordered() {
+        let before = [10.0, 11.0, 9.0, 10.5];
+        let after = [12.0, 13.0, 11.5, 12.5];
+        let first = bca_median_difference(&before, &after, 500, 0.95).unwrap();
+        let second = bca_median_difference(&before, &after, 500, 0.95).unwrap();
+        assert_eq!(first, second);
+        assert!(first.0 <= first.1);
+        assert!(first.0 > 0.0, "{first:?}");
+    }
+
+    #[test]
+    fn bca_requires_enough_samples() {
+        assert!(bca_median_difference(&[1.0, 2.0], &[3.0, 4.0], 200, 0.95).is_none());
+    }
+}

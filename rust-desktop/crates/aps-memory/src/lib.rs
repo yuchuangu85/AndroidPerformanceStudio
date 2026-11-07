@@ -5,6 +5,7 @@
 
 use aps_hprof_engine::wire::{self, Value};
 use aps_platform::CancellationToken;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -38,6 +39,10 @@ pub const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 /// budget but never the hard 16 MiB presentation ceiling.
 pub const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_INPUT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+/// Bounds for an imported R8/ProGuard class mapping carried to the worker.
+pub const MAX_MAPPING_ENTRIES: usize = 200_000;
+pub const MAX_MAPPING_BYTES: usize = 8 * 1024 * 1024;
+const MAX_MAPPING_NAME_BYTES: usize = 4096;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(120);
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(300);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(600);
@@ -153,12 +158,32 @@ impl MemorySession {
         source_digest: &str,
         cancel: &CancellationToken,
     ) -> Result<Self, MemoryError> {
+        Self::open_with_mapping(
+            worker_executable,
+            selected_hprof,
+            source_digest,
+            &[],
+            cancel,
+        )
+    }
+
+    /// Opens the selected HPROF with an R8/ProGuard class mapping. Pairs are
+    /// raw HPROF class name (obfuscated) to original class name; the worker
+    /// applies them to the whole graph before any typed projection is built.
+    pub fn open_with_mapping(
+        worker_executable: &Path,
+        selected_hprof: &Path,
+        source_digest: &str,
+        mapping: &[(String, String)],
+        cancel: &CancellationToken,
+    ) -> Result<Self, MemoryError> {
         if cancel.is_cancelled() {
             return Err(MemoryError::Cancelled);
         }
         if source_digest.len() != 64 || !source_digest.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(MemoryError::InvalidInput);
         }
+        let mapping = mapping_value(mapping)?;
         let selected = selected_hprof
             .canonicalize()
             .map_err(|_| MemoryError::InvalidInput)?;
@@ -226,7 +251,7 @@ impl MemorySession {
             Value::map([
                 ("path", path.into()),
                 ("sourceDigest", session.source_digest.clone().into()),
-                ("mapping", Value::map([])),
+                ("mapping", mapping),
                 ("cacheDir", Value::Null),
                 ("graphStorage", "memory".into()),
             ]),
@@ -678,6 +703,34 @@ impl Drop for MemorySession {
     }
 }
 
+/// Encodes the raw-to-original class map inside the worker request. The map
+/// is bounded before framing so one import cannot force an unbounded child
+/// allocation or an oversized protocol frame.
+pub(crate) fn mapping_value(mapping: &[(String, String)]) -> Result<Value, MemoryError> {
+    if mapping.len() > MAX_MAPPING_ENTRIES {
+        return Err(MemoryError::InvalidInput);
+    }
+    let mut encoded = BTreeMap::new();
+    let mut total = 0usize;
+    for (raw, original) in mapping {
+        if raw.is_empty()
+            || original.is_empty()
+            || raw.len() > MAX_MAPPING_NAME_BYTES
+            || original.len() > MAX_MAPPING_NAME_BYTES
+        {
+            return Err(MemoryError::InvalidInput);
+        }
+        total = total
+            .checked_add(raw.len() + original.len())
+            .ok_or(MemoryError::InvalidInput)?;
+        if total > MAX_MAPPING_BYTES {
+            return Err(MemoryError::InvalidInput);
+        }
+        encoded.insert(raw.clone(), Value::from(original.as_str()));
+    }
+    Ok(Value::Map(encoded))
+}
+
 pub(crate) fn page(offset: usize, limit: usize) -> Result<(), MemoryError> {
     page_with(offset, limit, MAX_PAGE_SIZE)
 }
@@ -921,5 +974,48 @@ mod tests {
         assert_eq!(MAX_UI_PAGE_SIZE, 500);
         const { assert!(MAX_SNAPSHOT_BYTES <= 16 * 1024 * 1024) };
         const { assert!(MAX_SNAPSHOT_BYTES > MAX_RESPONSE_BYTES) };
+    }
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+
+    #[test]
+    fn mapping_encodes_raw_to_original_pairs() {
+        let value = mapping_value(&[
+            ("a.b.C".to_owned(), "com.example.C".to_owned()),
+            ("a.b.D$Inner".to_owned(), "com.example.D$Inner".to_owned()),
+        ])
+        .unwrap();
+        let map = value.as_map().unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["a.b.C"].as_str().unwrap(), "com.example.C");
+        assert_eq!(map["a.b.D$Inner"].as_str().unwrap(), "com.example.D$Inner");
+        assert_eq!(mapping_value(&[]).unwrap().as_map().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn mapping_rejects_unusable_entries_before_spawning_a_worker() {
+        assert_eq!(
+            mapping_value(&[(String::new(), "x".into())]),
+            Err(MemoryError::InvalidInput)
+        );
+        assert_eq!(
+            mapping_value(&[("x".into(), String::new())]),
+            Err(MemoryError::InvalidInput)
+        );
+        assert_eq!(
+            mapping_value(&[("x".repeat(4097), "y".into())]),
+            Err(MemoryError::InvalidInput)
+        );
+        let too_many: Vec<(String, String)> = (0..=MAX_MAPPING_ENTRIES)
+            .map(|index| (format!("a{index}"), format!("b{index}")))
+            .collect();
+        assert_eq!(mapping_value(&too_many), Err(MemoryError::InvalidInput));
+        let too_large: Vec<(String, String)> = (0..1100)
+            .map(|index| (format!("{}{index}", "x".repeat(4096)), "y".repeat(4096)))
+            .collect();
+        assert_eq!(mapping_value(&too_large), Err(MemoryError::InvalidInput));
     }
 }
