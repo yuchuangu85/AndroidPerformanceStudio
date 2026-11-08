@@ -1014,3 +1014,78 @@ client (GPUI's default is a null client), so any provider request failed with
   picker lists the gateway models; manual refresh repeats the request with the
   imported bearer token) and with a real HTTPS host (the HTTP status surfaces as
   `E_AI_HTTP_STATUS` instead of a transport failure).
+- The AI chat model menu reads the saved connection only. An import/refresh on
+  the settings page without "保存并应用" left the menu with a generic failure; it
+  now names the missing saved credential (`E_AI_MODEL_CATALOG_CREDENTIAL`), maps
+  provider HTTP/list failures explicitly, and every catalog error state offers
+  "打开 AI 设置". The settings page also marks an unsaved connection instead of
+  letting the applied-provider line imply the draft already reaches the chat.
+- A runtime test proves Save publishes the catalog: after `save_connection` with
+  models, the chat menu's `load_models(provider, false)` returns them without a
+  provider request.
+- `APS_RUST_AI_MEMORY_SECRETS` (debug builds only) opens the AI runtime with the
+  in-memory credential store, so native checks never write the user's login
+  Keychain.
+
+### Trace Analyzer Footer Status (2026-11-08)
+
+- The Trace Analyzer keeps one footer. The bottom status bar shows the device
+  selection and, immediately after it, the current operation feedback
+  (import/diagnostic run, failure, or last completion). No second status bar is
+  stacked above the footer while an import or preset runs.
+- Long feedback ellipsizes inside the bar and remains selectable; failures use
+  the error color and keep precedence over completion text. This deliberately
+  supersedes the Compose workspace's separate `TraceWorkspaceStatus` strip for
+  the Rust rewrite; do not restore it for parity.
+- No header-area notice row sits between the toolbar and the workspace. The
+  imported trace name and duration render in the footer status instead of a
+  separate notice line with its own copy action, and preset/capture completion
+  text also reports through the footer. Device refresh and tool failures keep
+  their existing error rows.
+
+### Neutral Card Surfaces (2026-11-08)
+
+- Card fills are neutral in every workspace; this supersedes the Themed Card
+  Surfaces entry above. The persisted accent (主题色 / Accent) no longer paints any
+  card, KPI tile, table header, panel or settings card, and no page-local card
+  helper tints its own fill with the accent or a semantic tone.
+- `StudioColors::for_mode_with_accent` keeps the Compose base palette
+  (`ViewerPalettes.dark`/`light`) and composites no accent into `panel`,
+  `section_background`, `border` or `field`: dark cards use the neutral base
+  panel over the title-bar workspace with the shared divider for borders, and
+  light cards stay white over the toolbar workspace.
+- The accent is limited to interactive state and labels: text, focus, outlines,
+  controls, charts and selection (`selected_row` remains the accent tint over the
+  neutral panel). Semantic tones still color KPI outlines, labels, icons and
+  bars, but never the card fill.
+- Ownership stays in `aps-app/src/studio.rs` as the single palette source; the
+  page-local accent/tone card fills were deleted from
+  `import/memory/dashboard.rs`, `shell/home_page.rs`, `frame/page.rs`,
+  `import/network.rs` and `trace/page.rs`. Do not reintroduce
+  `panel.blend(accent|tone)` card fills.
+
+### Source Workspace Rail Insets (2026-11-08)
+
+- The Source Workspaces three-pane rail is symmetric around its workspace cards.
+  The shell divider sits directly on the rail's left edge and leaves no splitter
+  gutter, so the card used to sit 4 px from the left divider but 7 px from the
+  splitter's 1 px line.
+- The rail now applies the splitter gutter (`layout::SPLITTER_HALO`, half of the
+  7 px splitter around its 1 px line) as a leading inset and removes it from
+  `workspace_content_width`, so the card fills the remaining content box with a
+  gutter + 4 px padding gap on both sides. The same gutter keeps the workspace
+  search row symmetric (9 px / 9 px). Splitter geometry, pane widths and the
+  minimum content width are unchanged.
+- The earlier equal-inset rule only compensated scrollbar chrome and still holds:
+  scrollbar width is never subtracted from the content width. Symmetry now also
+  accounts for the missing divider gutter on the shell edge.
+
+### Source Workspace Card Actions (2026-11-08)
+
+- The workspace card actions (同步 / AI 源码上传 / 移除) never leave the card
+  border. At the rail's 220 px minimum the three labels cannot share one line, so
+  the action row wraps onto a second row; at the default 360 px rail they still
+  sit on one row.
+- The row is full-width and wraps with the shared 6 px gap, matching the Capture
+  page's wrapping action rows. No label is truncated, so the AI upload state
+  (allowed / blocked) stays readable at every rail width.
