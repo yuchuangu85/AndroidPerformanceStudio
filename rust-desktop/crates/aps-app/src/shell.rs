@@ -2130,9 +2130,9 @@ impl Render for Studio {
                             .h_full()
                             .flex()
                             .flex_col()
-                            // CPU, Inspector, Source Workspaces and Settings render their
-                            // workspaces directly below the title bar, so they have no
-                            // page-title row; other pages keep the page-level chrome.
+                            // CPU, Inspector, Source Workspaces, Benchmark and Settings
+                            // render their own headers directly below the title bar, so they
+                            // have no shell page-title row; other pages keep the page chrome.
                             .children(
                                 (selected != Destination::Home
                                     && selected != Destination::Cpu
@@ -2145,6 +2145,7 @@ impl Render for Studio {
                                     && selected != Destination::Trace
                                     && selected != Destination::Frame
                                     && selected != Destination::SourceWorkspaces
+                                    && selected != Destination::Benchmark
                                     && selected != Destination::Settings)
                                     .then(|| {
                                         div()
