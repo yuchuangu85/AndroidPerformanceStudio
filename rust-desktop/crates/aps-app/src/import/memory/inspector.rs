@@ -37,9 +37,7 @@ const TABLE_FONT: f32 = widgets::TABLE_FONT;
 /// Compose ViewerTypography.bodyCompact line height.
 const TABLE_LINE: f32 = widgets::TABLE_LINE;
 /// Trailing inset the Compose table keeps for its overlay scrollbars.
-const TABLE_HORIZONTAL_INSET: f32 = 10.;
 /// Overlay horizontal scrollbar thickness reserved at the table bottom.
-const HORIZONTAL_SCROLLBAR_INSET: f32 = 12.;
 /// Compose array paging strip height: one compact (20 px) control row.
 const ARRAY_PAGING_HEIGHT: f32 = 20.;
 /// Compose inspector message row start padding (24 + depth * 12).
@@ -586,7 +584,7 @@ fn inspector_table(
         .flex()
         .items_center()
         .bg(colors.toolbar);
-    for (index, column) in columns.iter().enumerate() {
+    for column in columns.iter() {
         let active = *column == sort_column;
         let title = if active {
             format!(

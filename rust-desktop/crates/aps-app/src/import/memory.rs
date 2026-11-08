@@ -16,8 +16,12 @@ pub(super) mod state;
 pub(super) mod toolbar;
 pub(super) mod widgets;
 
+#[cfg(debug_assertions)]
+static DEBUG_MAPPING_IMPORTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 use super::*;
-use crate::studio::{self, StudioColors};
+use crate::studio;
 use aps_memory::{ClassifierColumn, ClassifierRow, MemoryFilter, MemorySnapshot, SortDirection};
 use gpui_kit::{
     component::input::{InputEvent, InputState},
@@ -376,48 +380,6 @@ impl ImportWorkspace {
     pub(super) fn memory_set_nearest_root_only(&mut self, value: bool, cx: &mut Context<Self>) {
         self.memory_state.nearest_root_only = value;
         cx.notify();
-    }
-
-    pub(super) fn memory_toggle_pin(&mut self, object_id: u64, cx: &mut Context<Self>) {
-        if !self.memory_state.pinned.remove(&object_id) {
-            self.memory_state.pinned.insert(object_id);
-        }
-        cx.notify();
-    }
-
-    pub(super) fn memory_copy_object_id(&mut self, object_id: u64, cx: &mut Context<Self>) {
-        cx.write_to_clipboard(ClipboardItem::new_string(format!("0x{object_id:x}")));
-        cx.notify();
-    }
-
-    pub(super) fn memory_history_back(&mut self, cx: &mut Context<Self>) {
-        let Some(index) = self.memory_state.history_index else {
-            return;
-        };
-        if index == 0 {
-            return;
-        }
-        let target = index - 1;
-        self.memory_state.history_index = Some(target);
-        if let Some(object_id) = self.memory_state.history.get(target).copied() {
-            self.memory_state.selected_object = Some(object_id);
-            self.memory_load_inspector_object(object_id, 0, cx);
-        }
-    }
-
-    pub(super) fn memory_history_forward(&mut self, cx: &mut Context<Self>) {
-        let Some(index) = self.memory_state.history_index else {
-            return;
-        };
-        if index + 1 >= self.memory_state.history.len() {
-            return;
-        }
-        let target = index + 1;
-        self.memory_state.history_index = Some(target);
-        if let Some(object_id) = self.memory_state.history.get(target).copied() {
-            self.memory_state.selected_object = Some(object_id);
-            self.memory_load_inspector_object(object_id, 0, cx);
-        }
     }
 
     // ---- dominators ----------------------------------------------------
@@ -798,6 +760,20 @@ impl ImportWorkspace {
             && let Ok(object) = u64::from_str_radix(object.trim_start_matches("0x"), 16)
         {
             self.memory_select_instance(object, cx);
+        }
+        if matches!(
+            std::env::var("APS_MEMORY_INSPECTOR_TAB").as_deref(),
+            Ok("references")
+        ) {
+            self.memory_state.inspector_tab = state::InspectorTab::References;
+        }
+        if std::env::var_os("APS_MEMORY_NEAREST_ROOT").is_some() {
+            self.memory_state.nearest_root_only = true;
+        }
+        if let Some(path) = std::env::var_os("APS_MEMORY_MAPPING")
+            && !DEBUG_MAPPING_IMPORTED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            self.memory_import_mapping(std::path::PathBuf::from(path), cx);
         }
         cx.notify();
     }

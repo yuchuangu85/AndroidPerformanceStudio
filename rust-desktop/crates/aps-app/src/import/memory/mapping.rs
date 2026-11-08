@@ -244,6 +244,8 @@ impl ImportWorkspace {
                                 .to_owned(),
                         );
                         this.memory_state.refresh_export_availability();
+                        #[cfg(debug_assertions)]
+                        this.memory_debug_seed(cx);
                         if view_mode == MemoryViewMode::Dominators {
                             this.memory_load_dominators(None, cx);
                         }

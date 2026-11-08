@@ -10,7 +10,7 @@ use aps_memory::HeapValueKind;
 use aps_ui_foundation::typography;
 use gpui_kit::{
     component::{
-        Disableable, Selectable,
+        Disableable,
         button::{Button, ButtonVariants},
     },
     prelude::*,

@@ -724,6 +724,68 @@ executed.
   pixel comparison, packaged release and device acceptance remain open.
 
 
+### Memory Profiler Compose pixel parity + mapping/exports — 2026-11-08
+
+- The memory page now uses Compose's workspace-style ViewerColors instead of the
+  shell's flat-sheet tokens: panel = accent 8% over the dark base, accent-tinted
+  borders/section surfaces, primaryContainer selection, Material error/tertiary
+  row tints, and the dark palette's exact text/warning/error/success values.
+  Shared primitives live in import/memory/widgets.rs.
+- Toolbar, snapshot tabs, evidence strip and status bar follow Compose metrics:
+  24 px outlined buttons with the selected view accent-filled, 40 px command bar
+  with capture/view/aux groups, 28 px snapshot tabs with a trailing close
+  control, 13 px evidence text and the 29 px status footer.
+- Classes: 36 px filter bar with outlined dropdown selectors, visible 18 px
+  checkboxes and a 30 px outlined search field; 44 px KPI strip; 24 px
+  section-background table headers with accent column grid lines; 13/16
+  body-compact text in 20 px rows; depth indent, accent chevrons, leak warning
+  markers at the name-column edge, error/tertiary row tints, uniform panel rows
+  (Compose's workspace style maps both row surfaces to the panel, so no zebra);
+  the instance pane and object inspector share the instance title/header rows
+  like MemoryClassesPane instead of stacking the inspector below a full-width
+  title bar.
+- Inspector: title/tabs/nearest-root rows at 28 px with 2 px accent underline,
+  no non-Compose history/copy/pin toolbar or metrics line, toolbar-background
+  header with column grid, 13/16 rows, disclosure + colored type badges, field
+  and reference label formats, ASCII-hyphen unavailable metrics, capability/evidence-gated
+  columns (HPROF shows no native columns), Fields without a root row and
+  References with root + inbound references.
+- Dashboard, Dominators, Diff, Leak Analysis and the Bitmap/Native Heap/ART
+  empty pages were restyled with the same tokens: 58 px Overview metric cards,
+  44 px KPI strips, 24 px headers, 20 px body-compact rows, accent-labelled
+  metrics and Compose badge/panel colours.
+- Functional parity:
+  - Mapping import: aps-memory open_with_mapping (raw/obfuscated -> original),
+    bounded mapping.txt parser (8 MiB / 200k entries), active snapshot reopened
+    with the mapping, tab identity retained and mapping state shown in the
+    evidence strip. File > Import > ProGuard/R8 Mapping and the toolbar Mapping
+    action are enabled when a snapshot is loaded.
+  - HPROF exports via File > Export: raw HPROF (digest-verified streaming copy),
+    class histogram CSV, bounded snapshot JSON, bounded class-instances CSV,
+    object investigation JSON, class diff CSV and investigation report Markdown;
+    native/ART/standard-HPROF/bitmap rows remain disabled. All writes are
+    create-new, non-overwriting and bounded.
+  - Diff comparison now defaults to A = newest inactive snapshot and B = the
+    active tab, ignores stale pairs, and invalidates an already-published
+    comparison when the active tab changes.
+- Verification: cargo check --locked --workspace --all-targets, aps-app tests
+  (memory module suites), aps-memory mapping/presenter/snapshot tests, rustfmt
+  and git diff --check. Native window screenshots with a real 8-byte-id HPROF
+  fixture cover Classes (tree + instance list + object inspector Fields and
+  References), Overview, Dominators, Diff, Leak Analysis, Bitmaps, Native Heap
+  and ART Samples under build/memory-profiler/ (v2-*.png, mapping-check*.png,
+  refs-check.png).
+- Remaining gaps: live capture (Dump Heap / Capture Native Heap / Record ART
+  Samples / Dump Bitmaps / Inject Agent) still has no Rust capture adapter and
+  stays visibly disabled; standard-HPROF conversion, native-heap/ART/bitmap
+  artifact analysis, LeakCanary agent/live monitoring, inline nested inspector
+  expansion and draggable inspector column resizing are not implemented;
+  findings tables remain bounded to the worker's first 200 rows; dominator
+  children beyond 500 rows have no paging control; the comparison table shows
+  the empty state until a second snapshot tab is open.
+
+
+
 ### Frame offline workspace reconstruction — 2026-11-07
 
 - The GPUI Frame page now follows the Compose workspace structure: seven KPI

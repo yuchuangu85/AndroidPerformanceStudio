@@ -7,7 +7,7 @@ use aps_memory::{
     ClassListSummary, ClassifierColumn, ClassifierRow, DominatorsPage, InstanceDetail, InstanceRow,
     InstancesPage, MemoryFilter, MemorySnapshot, SortDirection,
 };
-use aps_ui_foundation::{Language, TextKey, typography};
+use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{component::input::InputState, *};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -432,15 +432,6 @@ impl MemoryState {
         self.instances.as_ref().map_or(0, |page| page.rows.len())
     }
 
-    pub(super) fn history_back_enabled(&self) -> bool {
-        self.history_index.is_some_and(|index| index > 0)
-    }
-
-    pub(super) fn history_forward_enabled(&self) -> bool {
-        self.history_index
-            .is_some_and(|index| index + 1 < self.history.len())
-    }
-
     pub(super) fn push_history(&mut self, object_id: u64) {
         if self.history.last().copied() == Some(object_id) {
             return;
@@ -452,9 +443,4 @@ impl MemoryState {
         self.history.push(object_id);
         self.history_index = Some(self.history.len() - 1);
     }
-}
-
-/// Shared rendering helpers (kept here so every view uses identical metrics).
-pub(super) fn memory_row_height() -> f32 {
-    typography::SUPPORTING + 4.
 }

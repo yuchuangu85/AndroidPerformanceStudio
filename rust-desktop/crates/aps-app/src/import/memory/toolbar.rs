@@ -6,7 +6,7 @@
 use super::super::*;
 use super::ImportWorkspace;
 use super::state::MemoryViewMode;
-use super::widgets::{self, memory_colors, toolbar_button};
+use super::widgets::{self, toolbar_button};
 use crate::studio::{self, StudioColors};
 use aps_ui_foundation::{Destination, TextKey, typography};
 use gpui_kit::{prelude::*, *};
@@ -20,7 +20,6 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let language = self.language;
         let loaded = self.memory_state.snapshot.is_some();
-        let busy = self.memory_state.loading;
         let mut row = div()
             .id("memory-profiler-toolbar")
             .h(px(40.))
