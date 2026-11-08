@@ -177,7 +177,10 @@ pub(super) fn compare(
 /// Compose's default selection: A is the newest inactive snapshot, B is the
 /// active tab. Once a comparison ran, comparison_pair is authoritative.
 fn default_pair(tabs: &[(u64, String, bool)]) -> Option<(u64, u64)> {
-    let active = tabs.iter().find(|(_, _, active)| *active).map(|(id, _, _)| *id)?;
+    let active = tabs
+        .iter()
+        .find(|(_, _, active)| *active)
+        .map(|(id, _, _)| *id)?;
     let a = tabs
         .iter()
         .filter(|(id, _, _)| *id != active)

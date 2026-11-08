@@ -91,11 +91,11 @@ impl InspectorColumn {
     fn fixed_width(self) -> f32 {
         match self {
             Self::Label => 0.,
-            Self::Depth => 48.,
-            Self::NativeSize => 64.,
-            Self::ShallowSize => 72.,
-            Self::RetainedNativeSize => 80.,
-            Self::RetainedSize => 80.,
+            Self::Depth => 72.,
+            Self::NativeSize => 68.,
+            Self::ShallowSize => 70.,
+            Self::RetainedNativeSize => 76.,
+            Self::RetainedSize => 74.,
         }
     }
 
@@ -523,23 +523,17 @@ impl ImportWorkspace {
         let table_scroll = self.memory_state.inspector_scroll.clone();
         let table_references = references_tab;
         let table_empty = empty_message;
-        panel = panel.child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .child(inspector_table(
-                    &table_rows,
-                    &table_columns,
-                    table_references,
-                    (sort_column, sort_ascending),
-                    &table_entity,
-                    &table_colors,
-                    &table_scroll,
-                    language,
-                    table_empty.clone(),
-                )),
-        );
+        panel = panel.child(div().flex_1().min_h_0().w_full().child(inspector_table(
+            &table_rows,
+            &table_columns,
+            table_references,
+            (sort_column, sort_ascending),
+            &table_entity,
+            &table_colors,
+            &table_scroll,
+            language,
+            table_empty.clone(),
+        )));
 
         panel.into_any_element()
     }
@@ -614,12 +608,12 @@ fn inspector_table(
                 metric,
                 colors,
             )
-                .id(("memory-inspector-header", sort_column as usize))
-                .cursor_pointer()
-                .on_click(move |_, _, cx| {
-                    let _ = sort_entity
-                        .update(cx, |this, cx| this.memory_sort_inspector(sort_column, cx));
-                }),
+            .id(("memory-inspector-header", sort_column as usize))
+            .cursor_pointer()
+            .on_click(move |_, _, cx| {
+                let _ =
+                    sort_entity.update(cx, |this, cx| this.memory_sort_inspector(sort_column, cx));
+            }),
         );
     }
 

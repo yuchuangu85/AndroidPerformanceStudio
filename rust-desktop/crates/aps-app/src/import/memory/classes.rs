@@ -787,6 +787,20 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let title = self.memory_instance_title(colors);
         let table = self.memory_instance_table(colors, cx);
+        // Compose MemoryClassesPane puts the instance title/header in the left
+        // pane and the inspector card beside it, so the inspector title aligns
+        // with the instance title row instead of sitting below a full-width bar.
+        let left = div()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .bg(colors.panel)
+            .child(title)
+            .child(studio::divider(colors))
+            .child(div().flex_1().min_h_0().w_full().child(table))
+            .into_any_element();
         let content = if self.memory_state.detail.is_some() {
             // The inspector renders its own content only; this pane is the box.
             let inspector = div()
@@ -795,14 +809,9 @@ impl ImportWorkspace {
                 .min_w_0()
                 .child(self.render_memory_inspector(colors, cx))
                 .into_any_element();
-            Self::memory_instance_split(table, inspector)
+            Self::memory_instance_split(left, inspector)
         } else {
-            div()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .child(table)
-                .into_any_element()
+            left
         };
         div()
             .id("memory-instances-card")
@@ -814,8 +823,6 @@ impl ImportWorkspace {
             // Opaque pane: the resizable split does not clip its panels, so the
             // classifier list must not show through the instance pane.
             .bg(colors.panel)
-            .child(title)
-            .child(studio::divider(colors))
             .child(content)
             .into_any_element()
     }

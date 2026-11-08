@@ -298,7 +298,9 @@ pub(super) fn header_cell(
         .h_full()
         .flex()
         .items_center()
-        .px(px(8.))
+        .min_w_0()
+        .overflow_hidden()
+        .px(px(6.))
         .text_size(px(TABLE_FONT))
         .line_height(px(TABLE_LINE))
         .font_weight(FontWeight::SEMIBOLD)
@@ -314,7 +316,16 @@ pub(super) fn header_cell(
     } else {
         cell = cell.flex_1().min_w_0();
     }
-    cell.child(label.into())
+    cell.child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis()
+            .when(right, |text| text.text_align(TextAlign::Right))
+            .child(label.into()),
+    )
 }
 
 /// Compose table metric cell value: body compact, right aligned, with the
@@ -329,7 +340,9 @@ pub(super) fn metric_cell(
         .flex()
         .items_center()
         .justify_end()
-        .px(px(8.))
+        .min_w_0()
+        .overflow_hidden()
+        .px(px(6.))
         .border_l_1()
         .border_color(colors.border)
         .text_size(px(TABLE_FONT))
@@ -343,7 +356,15 @@ pub(super) fn metric_cell(
     } else {
         cell = cell.flex_1().min_w_0();
     }
-    cell.child(crate::studio::selectable(text.into()))
+    cell.child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis()
+            .child(crate::studio::selectable(text.into())),
+    )
 }
 
 /// Compose MemorySnapshotSummary KPI card.
