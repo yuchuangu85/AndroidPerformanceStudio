@@ -1722,3 +1722,240 @@ Evidence (fresh, this workspace):
   The exported artifacts were re-read from disk: `benchmark-regression.pdf`
   starts with `%PDF-1.4` and its xref table, the CSV carries the gate columns and
   `reports/index.json` lists both with sizes.
+
+### Settings: CPU analysis engine row removed — 2026-11-08
+
+The Configuration settings page no longer shows the CPU analysis engine
+selector. Rust is the only linked engine, so the row was a non-actionable
+duplicate of the HAR import engine row; the HAR import engine selector and its
+supporting explanation stay. A source-inspection regression asserts the
+Configuration page has no CPU engine row and keeps the HAR engine row.
+
+### Settings general: theme colour layout and section dividers — 2026-11-08
+
+The General settings page no longer shows the redundant "Custom color" heading
+above the gradient picker. The colour value and the Restore default action moved
+out of the bottom of the picker into a column on its right, and a vertical
+hairline separates that custom-colour column from the eight preset swatches.
+The Show sidebar labels row is now separated from the dropdowns above it as well
+as from the theme colour section below, so each block reads as its own section.
+Source-inspection tests assert the missing heading, the side column constant and
+the added dividers.
+
+### Settings: HAR import engine row removed — 2026-11-08
+
+The Configuration page no longer shows the HAR import engine selector either:
+Rust is the only linked engine, so the page now contains only the Android SDK
+path card and the Semantic navigation (LSP) card. The now-unused engine
+dropdown helper was deleted and the regression test renamed to
+configuration_page_has_no_engine_rows, asserting both engine rows are gone and
+the remaining cards stay.
+
+### Settings: Android SDK path field frame — 2026-11-08
+
+The Android SDK path input on the Configuration page now renders inside a
+visible field frame (field background, hairline border, small radius, fixed
+height) instead of bare placeholder text, matching the app's other framed
+inputs. The Configuration regression test asserts the field colours are
+applied.
+
+### Settings: hit-test order uses radio buttons — 2026-11-08
+
+The Layout Inspector settings page renders the Hit-test order options
+("Smallest area first" / "Z order") as radio buttons instead of the previous
+tab-style segmented buttons: one radio is checked at a time, clicking an
+unchecked option persists the new order. A source-inspection test asserts the
+section uses Radio::new and no tab_button.
+
+### CPU import: content classification before the engine — 2026-11-08
+
+Importing a file that is neither a SIMPLEPERF protobuf nor perf.data surfaced the
+engine's `invalid SIMPLEPERF magic` verbatim, with no hint about what to import
+instead. `CpuWorkspace::open_path` now classifies the pick by content first:
+perf.data (current and legacy magic, either byte order) still converts through
+the selected host simpleperf, SIMPLEPERF streams parse directly, and gzip
+archives, ZIP session packages and unknown bytes get localized messages naming
+the formats the CPU workspace accepts. Tests cover the classification table, the
+rejection mapping and the engine diagnostic that remains the last-resort
+fallback.
+
+### Help > User guide: serve the docsify bundle from loopback — 2026-11-08
+
+Help > User guide opened `file://…/docs-user/index.html`. The bundle is docsify
+with an absolute `basePath` (`/docs-user/`), so the browser requested
+`file:///docs-user/README.md` and rendered Not Found; file:// XHR is blocked as
+well, which made the guide effectively unavailable. `user_guide` now locates the
+site from the working directory or the executable (the Compose launcher's rule),
+serves it from 127.0.0.1 on an ephemeral port (GET/HEAD only, traversal guarded,
+directory → index.html, bounded headers and socket timeouts), and opens
+`http://127.0.0.1:<port>/docs-user[-zh]/`. Five tests cover site location,
+percent-decoding and escape rejection, HEAD without a body, 404/405, and an
+end-to-end fetch of the bundled `docs-user-zh` landing page and markdown over
+the loopback origin.
+
+Evidence (fresh, this workspace): both changes were verified in a detached
+worktree at HEAD containing only these edits, because concurrent AI-chat work in
+this working tree is mid-refactor: `cargo test --offline -p aps-app` = 355
+passed / 0 failed / 3 ignored, `cargo test --offline -p aps-ui-foundation` = 23
+passed, `cargo fmt -p aps-app -- --check` clean, and `cargo clippy -p aps-app`
+adds no warning in the changed lines. Packaging note: the Rust app has no doc
+copy step yet, so the row appears only when the docs sit above the working
+directory or executable; a bundle must copy `docs-user/` and `docs-user-zh/`
+next to the binary.
+
+
+### AI Analysis Compose parity — 2026-11-08
+
+The AI route is now the Compose-shaped conversational AI Analysis workspace instead of
+the earlier preflight-only form, the AI settings page is functional, and the Rust-owned
+engine behind both is implemented. Compose remains the read-only behaviour oracle.
+
+- Workspace UI (`crates/aps-app/src/ai.rs` + `ai/**`): 260 dp sidebar with search,
+  Recent/Archived, pin/rename/branch/archive/copy-id/delete menus and confirm dialogs;
+  56 dp conversation header; centered chat column `clamp(0.64*available, 680, 920)`;
+  empty state; right-aligned user bubbles with copy/edit/branch; safe Markdown answer
+  (headings, nested lists, task items, quotes, pipe tables, rules, fenced code with
+  language/wrap/copy and light token tint) + findings with evidence/source chips,
+  verified-report and model rows; retryable/permanent status and retry; preflight
+  approval card (provider/model, evidence/source counts and bytes, planned model/script
+  calls, report format/language, evidence and candidate rows, prior-dialogue expander,
+  SHA-256 and permission list, Approve/Cancel); activity toggle; scroll controls;
+  composer with queued dock, bound-context row, include-source context menu, model
+  picker (loading/empty/error/refresh/selection) and 28 dp send/stop/queue button.
+  Keyboard: Enter sends, Shift+Enter newline, Up recalls the last question, two Escapes
+  within 500 ms stop, Cmd/Ctrl+N new chat, Cmd/Ctrl+K search focus. Chat-local DSH
+  light/dark colors, 14/24 type and 8/16/20/28 radii are scoped to this page only.
+- Engine (`crates/aps-ai`): `platform` holds versioned AI preferences/connection
+  metadata and a connection-scoped secret store (macOS login Keychain through the
+  bounded `security` helper; memory-only elsewhere, like Compose's in-memory fallback).
+  `conversation` is a bounded SQLite store with Compose-compatible conversation/result/
+  transcript/turn/metadata schemas, recover-interrupted, pin/rename/archive, same-session
+  cascade delete with user-branch refusal, retention and clear history. `responses`
+  ports the non-streaming tool-free Responses API client (strict JSON schema, output_text
+  extraction, refusal/tool/incomplete/secret rejection, NoFollow, 2 min/1 MiB bounds);
+  `claude` ports the no-tools Claude CLI provider (explicit executable probe, version/
+  flag checks, private temp dir, stdin payload, env-scoped credential, disabled tools/MCP/
+  sessions); `report` writes SHA-256-addressed HTML/Markdown artifacts;
+  `platform::import` and `platform::catalog` port local Codex/Claude config import and
+  model discovery (OpenAI//models fallback, Claude pagination, stable error taxonomy).
+  `runtime` freezes the exact prompt/approval facts under a digest, requires the explicit
+  approval click, executes once through the selected provider and persists the validated
+  result/artifact through the conversation store. No live provider request is executed by
+  these tests.
+- Settings (`shell/settings_ai.rs`): fixed AI page title, Provider/Agent/Skill/Execution
+  policy tabs in Compose order with `ai_settings_tab` persistence; provider cards for
+  Codex/Claude/Custom with local-config import (imported/without-key/5 failure reasons),
+  Claude API-key vs bearer credential kind, masked credential entry cleared after save,
+  imported-secret held by the runtime until Save, model discovery with cached/loading/
+  empty/error/refresh, endpoint and model-list endpoints, Save-and-apply with revision
+  rotation; built-in `aps.main`/`aps.chat` agent cards (read-only) and agent selection;
+  artifact permission toggle, script permission disabled with a sandbox-unavailable
+  reason, HTML/Markdown report format, Auto/English/Simplified Chinese language,
+  retention display and confirm-gated clear history. All new copy lives in the English/
+  Simplified Chinese catalogs (87 chat keys, 102 settings keys per language).
+- Shell: the AI route renders the workspace full-height (no profiler page-title/action row
+  and no device target bar, matching the Compose conversation window); `Studio::new`
+  opens the runtime under `<Rust data dir>/ai`, injects the GPUI HTTP client and wires the
+  settings/source-candidate callbacks. Debug-only seams (`APS_RUST_AI_DEMO`,
+  `_DEMO_TOP`, `_DEMO_APPROVAL`, `_DEMO_MODELS`, `_DEMO_ARCHIVED`,
+  `APS_RUST_OPEN_SETTINGS_AI`) render deterministic fixture states; release builds do not
+  read them. A local `build/ai-analysis/mock_provider.py` plus `fake-claude.sh` are
+  verification fixtures only, never product code.
+
+Boundaries (explicit): this is a Rust route in the single application window, not a
+second native Compose-style AI window; the Agent graph, sub-agents, Skills, sandboxed
+scripts and package registry/trust are not ported (the built-in agent list is static and
+script execution is never granted); Claude runs through the CLI, not the Anthropic HTTP
+API; Keychain access uses `/usr/bin/security`; the activity panel is a session-local
+prepare/run/cancel transition list because the persisted audit timeline is not exposed;
+provider answers are not rendered token-by-token (Compose also shows no partial assistant
+text); the code-fence wrap toggle and model menu are plain popups; IME composition cannot
+be inspected from the textarea state, so Enter suppression is modifier/held-key based.
+No live provider, interactive click-through approval, cross-platform, packaging, pixel
+diff or IME acceptance was exercised here; those remain deferred gates.
+
+Evidence (fresh, this workspace): `cargo check --locked --offline --workspace
+--all-targets` green; `cargo test --locked --offline -p aps-ai` = 65 lib + 16 contracts
++ 4 runtime tests passed; `cargo test --locked --offline -p aps-app` = 404 passed / 3
+ignored / 0 failed (includes 48 AI UI/markdown/state tests and 10 settings tests);
+`rustfmt --edition 2024` clean on every touched Rust file. Native debug screenshots
+(`build/ai-analysis/shots/`): `final-empty.png`, `final-populated.png`,
+`final-preflight.png`, `final-settings.png`. They were captured with a workspace-local
+`APS_RUST_DATA_DIR` copy; no real credential, provider request or device command was
+made. The Compose reference screenshots remain in
+`.omx/verification/dsh-chat-2026-10-31/screenshots/`.
+
+### Simpleperf settings page rewritten to Compose parity — 2026-11-08
+
+Settings > Simpleperf now mirrors Compose's one-page card layout
+(SimpleperfSettingsSectionContent / CaptureSettingsSection):
+
+- Intro hint when no device/target is selected, using Compose's capture
+  parameters hint text.
+- Sampling template: the five Compose templates with their names and
+  descriptions as rounded rows; disabled because the Rust capture backend has
+  no template model, with a short adapter note.
+- Capture configuration: "Event and rate" heading, fixed cpu-clock event
+  field, Frequency/Period rate-mode chips (Period unsupported, disabled), and
+  the real capture-default Hz and duration text fields (new InputState fields
+  persisted to settings), plus Compose's select-a-target hint when no target.
+- Advanced parameters: call-graph and event-scope chips rendered disabled, as
+  the Rust capture backend does not model them.
+- Flame graph: frame-information box heading/description and Fixed / Follow
+  mouse chips wired to simpleperf_follow_tooltip.
+- Simpleperf engine: New engine (Local) selected and real; Firefox Profiler
+  local/official chips disabled because only the native viewer is linked.
+- User guide: Compose description and "Open User Guide in Browser" action
+  opening the bundled offline guide through the existing user_guide URL.
+
+All section titles, subtitles and control labels reuse Compose's strings, with
+English and Simplified Chinese catalog entries added. The page is covered by a
+source-inspection test asserting every Compose section, template rows, chips,
+capture fields and the user-guide action are present.
+
+### AI settings page rebuilt to Compose parity — 2026-11-08
+
+Settings > AI now follows Compose's AiSettingsPageContent /
+AiPlatformManagementSettings structure: the same Provider, Agent, Skill, Policy
+category strip (Policy label, 执行策略 in Chinese), and the same card surface per
+category.
+
+- Provider: provider selector, applied-provider line, connection card with
+  credential notice, masked key field, model picker + Refresh models, Model,
+  Endpoint, Model-list endpoint and Save and apply.
+- Agent/Skill: Compose ManagementExtensions (Import Agent/Import Skill cards
+  with Package directory field, Browse, "Import verified package directory",
+  registry-unavailable note and "No packages installed"). Built-in agents are
+  listed as package-style cards with an accent title, Builtin origin, Active
+  agent radio and Enabled state; chat-only agents stay automatic.
+- Policy: Compose cards with accent titles - Execution permissions (artifacts
+  and scripts checkboxes plus the sandbox explanation), Report Output (format
+  and language selectors) and Conversation history.
+- Conversation history now performs Compose's bounded retention: a
+  "Retain at most 100 conversations / 30 days" action with inline confirm, a
+  removed-count result and an E_AI_HISTORY_RETENTION error line. AiRuntime
+  gained retain_history() backed by the conversation store's retention
+  (pins preserved), replacing the previous clear-all-only surface.
+
+English and Simplified Chinese strings were added/updated for every new
+Compose label, and a regression test asserts the package cards, retention
+action and removed open-analysis link.
+
+### macOS application name: Android Performance Studio — 2026-11-08
+
+Unbundled macOS builds showed the cargo binary name (`aps-app`) in the menu
+bar, Dock and Force Quit dialog. The app now embeds bundle metadata into the
+executable via build.rs (`-sectcreate __TEXT __info_plist`), so macOS reads
+CFBundleName/CFBundleDisplayName = "Android Performance Studio" without a .app
+wrapper: crates/aps-app/Info.plist plus a target-only build script.
+The process name is also set to the project name at startup, and the macOS
+application menu title is re-applied after every menu install, so the menu bar,
+Dock, Force Quit and About surfaces all read Android Performance Studio.
+
+### Title bar accent bar removed — 2026-11-08
+
+The thin accent-coloured vertical bar in front of the "Android Performance
+Studio" title is gone; the title bar now starts directly with the window
+controls and the title text. The bottom hairline and the rest of the shell
+framing are unchanged.
+

@@ -486,12 +486,35 @@ pub(crate) fn install_native_menus(menus: Vec<Menu>, language: Language, cx: &mu
         all.push(application_menu(language));
         all.extend(menus);
         cx.set_menus(all);
+        override_application_menu_title(language);
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (menus, language, cx);
 }
 
 #[cfg(target_os = "macos")]
+/// AppKit replaces the first menu item's title with the executable name for
+/// unbundled binaries. Write the project name back after every menu install so
+/// the macOS application menu reads "Android Performance Studio".
+#[cfg(target_os = "macos")]
+fn override_application_menu_title(language: Language) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::NSString;
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(menu) = app.mainMenu() else {
+        return;
+    };
+    let Some(item) = menu.itemAtIndex(0) else {
+        return;
+    };
+    let title = NSString::from_str(&language.text(TextKey::FoundationAndroidPerformanceStudio));
+    item.setTitle(&title);
+}
+
 fn application_menu(language: Language) -> Menu {
     Menu::new(language.text(TextKey::FoundationAndroidPerformanceStudio)).items([
         MenuItem::action(

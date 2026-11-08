@@ -186,11 +186,48 @@ to Rust behavior. Preferences use version 3 with v1/v2 read compatibility; the
 separate SDK file and all writes remain Rust-owned and atomic.
 
 This is not full settings parity: Legacy/Firefox engines, device-dependent
-capture configuration, live capture archive limits, persistent remote AI
-providers/credentials, extension management and execution policies still need
-Rust adapters and are visibly disabled. General scaling covers base fonts and
-rem-based controls, not every explicit-pixel profiler element. Tests, native
-visual matching and device/provider/package acceptance remain deferred.
+capture configuration, live capture archive limits, extension/agent/skill
+package management and sandboxed script execution still need Rust adapters and
+remain visibly disabled. AI provider connections, local Codex/Claude config
+import, model discovery, built-in agent selection, report format/language and
+retention controls are wired to the Rust AI runtime. General scaling covers base
+fonts and rem-based controls, not every explicit-pixel profiler element. Tests,
+native visual matching and device/provider/package acceptance remain deferred.
+
+## AI Analysis workspace
+
+The AI route is now the Compose-shaped conversation workspace. It has the
+260 dp conversations sidebar (search, Recent/Archived, pin/rename/branch/
+archive/copy-id/delete with confirmations), the centered chat column with empty
+state, user bubbles, safe Markdown answers (headings, lists, quotes, tables,
+code fences with language/wrap/copy), findings with evidence/source chips,
+verified-report and model rows, retry states, the preflight approval card
+(provider/model, evidence and source counts and bytes, planned calls, report
+format/language, prior dialogue, SHA-256 and permission list, Approve/Cancel),
+an activity toggle, and the composer with queued questions, bound-context row,
+include-source consent, a model picker with loading/empty/error/refresh states
+and a send/stop button. Enter sends, Shift+Enter adds a newline, Up recalls the
+last question, two Escapes within 500 ms stop the run, Cmd/Ctrl+N/Ctrl+K are
+wired. The DSH chat colors and type scale are scoped to this page only.
+
+The Rust AI engine under `crates/aps-ai` owns saved preferences, a Keychain-
+backed connection credential store, a bounded SQLite conversation store
+(pin/rename/archive/delete/fork, restore without replay, retention), the
+non-streaming Responses API client for Codex/Custom connections, the no-tools
+Claude CLI provider, local Codex/Claude config import, model discovery with
+cache, SHA-256-addressed HTML/Markdown report artifacts, and the freeze ->
+explicit approve -> execute -> validate -> persist pipeline. Profiler AI entries
+still publish their existing bounded `AnalysisRequest` and open this workspace
+bound to that context.
+
+Explicit boundaries: this is a route in the single application window, not a
+second native AI window; the Compose Agent graph, sub-agents, Skills and
+sandboxed scripts are not ported (built-in agent descriptors are static and
+script execution is never granted); Claude runs through the CLI; Keychain access
+uses the bounded `security` helper; the activity panel is session-local; answers
+are not rendered token-by-token; and no live provider, interactive approval,
+IME, cross-platform or packaged acceptance was exercised here. See the
+2026-11-08 AI entry in MIGRATION.md for the evidence and fixtures.
 
 ## Home dashboard
 

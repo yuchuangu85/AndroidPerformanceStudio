@@ -3,7 +3,7 @@
 mod paths;
 mod process;
 
-pub use paths::{AppDirectories, TempWorkspace, atomic_write};
+pub use paths::{AppDirectories, TempWorkspace, atomic_write, create_private_directory};
 pub use process::{
     CancellationToken, MAX_OUTPUT_LIMIT, ProcessError, ProcessOutput, ProcessRequest,
     ProcessRunner, Stream,

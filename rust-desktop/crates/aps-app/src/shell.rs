@@ -16,7 +16,6 @@ use crate::{
     targets::{TargetSelectionChanged, TargetsWorkspace},
     trace::TraceWorkspace,
 };
-use aps_ai::{CredentialReference, ModelDescriptor, ProviderCatalog, ProviderConfig};
 use aps_ui_foundation::{
     AccentColor, Destination, DisplayScale, Language, LayoutPreferences, Settings, TextKey,
     ThemeMode, typography,
@@ -516,11 +515,36 @@ impl Studio {
         let studio_handle = cx.weak_entity();
         cpu.update(cx, |cpu, _| cpu.set_studio(studio_handle.clone()));
         let ai = cx.new(|cx| AiWorkspace::new(settings.language.resolved(), window, cx));
-        ai.update(cx, |ai, cx| {
-            ai.set_provider_catalog(default_ai_catalog(), cx);
+        // Rust-owned AI state: settings, Keychain-backed credentials, conversation
+        // database and report artifacts live under <Rust data dir>/ai only.
+        let ai_data_dir = settings_path
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(|root| root.join("ai"));
+        if let Some(directory) = ai_data_dir {
+            if let Ok(runtime) = aps_ai::runtime::AiRuntime::open(directory) {
+                let _ = runtime.set_http_client(cx.http_client());
+                ai.update(cx, |ai, cx| ai.set_runtime(runtime, cx));
+            }
+        }
+        // Validated AI findings navigate to their persisted source candidates and
+        // the chat sidebar opens the real AI settings page.
+        let settings_handle = studio_handle.clone();
+        let source_handle = studio_handle.clone();
+        ai.update(cx, |ai, _| {
+            ai.set_open_settings(Box::new(move |window, cx| {
+                settings_handle
+                    .update(cx, |studio, cx| studio.open_ai_settings(window, cx))
+                    .ok();
+            }));
+            ai.set_open_source(Box::new(move |candidate_id, window, cx| {
+                source_handle
+                    .update(cx, |studio, cx| {
+                        studio.open_source_candidate(candidate_id, window, cx)
+                    })
+                    .ok();
+            }));
         });
-        // Validated AI findings can navigate to their persisted source candidates.
-        ai.update(cx, |ai, _| ai.set_studio(studio_handle.clone()));
         let artifact_root = settings_path
             .as_ref()
             .and_then(|path| path.parent())
@@ -682,11 +706,6 @@ impl Studio {
                 this.navigate(Destination::Trace, cx);
             }),
         );
-        let audit_path = settings_path
-            .as_ref()
-            .and_then(|path| path.parent())
-            .map(|root| root.join(aps_ai::AUDIT_FILE_NAME));
-        ai.update(cx, |ai, cx| ai.set_audit_path(audit_path, cx));
         // The title bar owns the shared ADB target for the whole window; pages
         // follow the published selection instead of rediscovering devices.
         let settings_ui = settings_page::SettingsUi::new(
@@ -818,6 +837,13 @@ impl Studio {
                 _ => studio.destination,
             };
         }
+        // Debug-only verification seam: opens Settings on the AI page without
+        // driving the native navigation.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("APS_RUST_OPEN_SETTINGS_AI").is_some() {
+            studio.destination = Destination::Settings;
+            studio.settings_page = SettingsPage::Ai;
+        }
         // Debug-only verification seam: opens a real Inspector archive without
         // driving the platform file picker.
         #[cfg(debug_assertions)]
@@ -918,7 +944,7 @@ impl Studio {
                 request.generation = generation;
                 request.run_id = format!("ai-run-{generation}");
                 self.ai
-                    .update(cx, |ai, cx| ai.set_request(request, window, cx));
+                    .update(cx, |ai, cx| ai.bind_context(request, window, cx));
                 self.ai_origin = Some(origin);
                 self.destination = Destination::Ai;
                 self.notice = None;
@@ -1611,30 +1637,6 @@ impl Studio {
     }
 }
 
-fn default_ai_catalog() -> ProviderCatalog {
-    let mut catalog = ProviderCatalog::default();
-    let Ok(reference) = CredentialReference::new("memory:manual") else {
-        return catalog;
-    };
-    let Ok(provider) = ProviderConfig::new(
-        "local",
-        "http://127.0.0.1:12345/v1",
-        "local-model",
-        reference,
-    ) else {
-        return catalog;
-    };
-    let _ = catalog.register(
-        provider,
-        vec![ModelDescriptor {
-            id: "local-model".into(),
-            supports_streaming: true,
-            supports_json_schema: true,
-        }],
-    );
-    catalog
-}
-
 fn navigation_icon_data(destination: Destination) -> &'static [u8] {
     match destination {
         Destination::Home => include_bytes!("../assets/navigation/ic_nav_home.svg"),
@@ -1814,7 +1816,6 @@ impl Render for Studio {
                 }
             }))
             .on_double_click(|_, window, _| window.titlebar_double_click())
-            .child(div().w(px(3.)).h(px(16.)).bg(accent).rounded_sm())
             .child(
                 div()
                     .text_color(primary_text)
@@ -1824,7 +1825,11 @@ impl Render for Studio {
                     )),
             )
             .child(div().flex_1())
-            .child(self.targets.clone());
+            // The AI Analysis window has its own chat surface and no device
+            // target; Compose's conversation window does not show one either.
+            .when(selected != Destination::Ai, |this| {
+                this.child(self.targets.clone())
+            });
         div()
             .id("studio-root")
             .key_context(if selected == Destination::LayoutInspector {
@@ -2148,7 +2153,8 @@ impl Render for Studio {
                                     && selected != Destination::Frame
                                     && selected != Destination::SourceWorkspaces
                                     && selected != Destination::Benchmark
-                                    && selected != Destination::Settings)
+                                    && selected != Destination::Settings
+                                    && selected != Destination::Ai)
                                     .then(|| {
                                         div()
                                             .h(px(56.))

@@ -1,340 +1,181 @@
-//! Explicit user-triggered AI analysis. Provider configuration and credentials
-//! stay in this window; imported text never grants approval or executes tools.
-use aps_ai::{
-    AiError, AnalysisRequest, AnalysisResult, ApprovalScope, CredentialReference,
-    OneShotCredential, OpenAiGateway, PreparedRun, ProviderCatalog, ProviderConfig, RunCoordinator,
-    SecretCredential, SessionStore,
-};
-use aps_ui_foundation::{Language, TextKey, typography};
+//! The Compose-shaped AI Analysis conversation workspace.
+//!
+//! This window replaces the old preflight-only form. One AiWorkspace entity
+//! owns the DSH chat surface (sidebar, conversation, composer, dialogs) and the
+//! runtime-driven state machine. Rendering never blocks: every runtime call
+//! runs on the background executor and publishes under an epoch guard so a
+//! stale response cannot replace newer state.
+
+mod composer;
+mod dialogs;
+mod markdown;
+mod messages;
+mod page;
+mod sidebar;
+mod state;
+mod style;
+mod widgets;
+
+use aps_ai::runtime::{AiRuntime, FrozenRun, RunStatus, SessionSummary, TurnRecord};
+use aps_ai::{AnalysisRequest, ProviderCatalog, ReportFormat, ReportLanguage};
+use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
-    component::{
-        ActiveTheme, Disableable, Selectable,
-        button::{Button, ButtonVariants},
-        input::{Input, InputState},
-    },
+    component::input::{InputEvent, InputState, TextareaState},
     prelude::*,
     *,
 };
+use state::{ChatState, CopyFeedback, CopyOutcome};
 use std::{
     path::PathBuf,
-    sync::{Arc, Mutex},
-    time::Duration,
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
 };
+
+/// In-window menu commands for the AI window.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum AiMenuCommand {
+    NewChat,
+    FocusSearch,
+    ClearEvidence,
+}
+
+/// Identity of the rendered message content for follow-latest decisions.
+#[derive(Default, PartialEq, Eq)]
+pub(crate) struct MessageKey {
+    turn_count: usize,
+    conversation_id: Option<String>,
+    activity_len: usize,
+    status: Option<RunStatus>,
+    error: Option<String>,
+    pending_approval: Option<String>,
+    busy: bool,
+}
 
 pub struct AiWorkspace {
     language: Language,
-    request: Option<AnalysisRequest>,
-    prepared: Option<PreparedRun>,
-    result: Option<AnalysisResult>,
-    coordinator: RunCoordinator,
-    provider: Entity<InputState>,
-    endpoint: Entity<InputState>,
-    model: Entity<InputState>,
-    credential_reference: Entity<InputState>,
-    credential: Entity<InputState>,
-    question: Entity<InputState>,
-    network_consent: bool,
-    source_consent: bool,
-    streaming: bool,
-    busy: bool,
+    runtime: Option<Arc<AiRuntime>>,
+    state: ChatState,
+    composer: Entity<TextareaState>,
+    search: Entity<InputState>,
+    rename_input: Entity<InputState>,
+    page_focus: FocusHandle,
+    message_scroll: ScrollHandle,
     epoch: u64,
-    activated: bool,
-    consumed: bool,
-    clear_credential_on_render: bool,
-    audit_path: Option<PathBuf>,
-    audit_lock: Arc<Mutex<()>>,
-    error: Option<String>,
-    catalog: ProviderCatalog,
-    settings_input_subscriptions: Vec<Subscription>,
-    settings_configuration_check: Option<(String, String, String, String, bool, bool)>,
+    frozen: Option<FrozenRun>,
+    bound_context: Option<AnalysisRequest>,
+    bound_title: Option<String>,
+    open_settings: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    open_source: Option<Rc<dyn Fn(String, &mut Window, &mut App)>>,
     studio: Option<WeakEntity<crate::shell::Studio>>,
+    catalog: Option<ProviderCatalog>,
+    audit_path: Option<PathBuf>,
+    settings_requested: bool,
+    started: Instant,
+    /// Question queued while busy that should be sent as soon as the run ends.
+    auto_send: Option<String>,
+    /// Last rendered message composition; detects content that should follow.
+    message_key: MessageKey,
+    subscriptions: Vec<Subscription>,
+    #[cfg(debug_assertions)]
+    debug_demo: bool,
 }
 
 impl AiWorkspace {
     pub fn new(language: Language, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let composer = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .placeholder(language.text(TextKey::AiChatAskQuestion))
+                .submit_on_enter(true)
+        });
+        let search = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(language.text(TextKey::AiChatSearchConversations))
+        });
+        let rename_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(language.text(TextKey::AiChatRename))
+        });
+        let mut subscriptions = Vec::new();
+        subscriptions.push(
+            cx.subscribe(&composer, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.state.draft = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            }),
+        );
+        subscriptions.push(
+            cx.subscribe(&search, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.state.search_query = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            }),
+        );
         let mut this = Self {
             language,
-            request: None,
-            prepared: None,
-            result: None,
-            coordinator: RunCoordinator::new(),
-            provider: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder(language.text(TextKey::AiProviderIdPlaceholder))
-                    .default_value("local")
-                    .validate(|value, _| value.len() <= 128)
-            }),
-            endpoint: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder(language.text(TextKey::AiHttpsApiBaseUrlPlaceholder))
-                    .default_value("http://127.0.0.1:12345/v1")
-                    .validate(|value, _| value.len() <= 2048)
-            }),
-            model: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder(language.text(TextKey::AiModelIdPlaceholder))
-                    .default_value("local-model")
-                    .validate(|value, _| value.len() <= 256)
-            }),
-            credential_reference: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder(language.text(TextKey::AiCredentialReferencePlaceholder))
-                    .default_value("memory:manual")
-                    .validate(|value, _| value.len() <= 128)
-            }),
-            question: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder(language.text(TextKey::AiOptionalQuestionPlaceholder))
-                    .validate(|value, _| value.len() <= 4096)
-            }),
-            credential: cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder(language.text(TextKey::AiTemporaryApiCredentialPlaceholder))
-                    .masked(true)
-                    .validate(|value, _| value.len() <= 4096)
-            }),
-            network_consent: false,
-            source_consent: false,
-            streaming: false,
-            busy: false,
+            runtime: None,
+            state: ChatState::new(),
+            composer,
+            search,
+            rename_input,
+            page_focus: cx.focus_handle(),
+            message_scroll: ScrollHandle::new(),
             epoch: 0,
-            activated: false,
-            consumed: false,
-            clear_credential_on_render: false,
-            audit_path: None,
-            audit_lock: Arc::new(Mutex::new(())),
-            error: None,
-            catalog: ProviderCatalog::default(),
-            settings_input_subscriptions: Vec::new(),
-            settings_configuration_check: None,
+            frozen: None,
+            bound_context: None,
+            bound_title: None,
+            open_settings: None,
+            open_source: None,
             studio: None,
+            catalog: None,
+            audit_path: None,
+            settings_requested: false,
+            started: Instant::now(),
+            auto_send: None,
+            message_key: MessageKey::default(),
+            subscriptions,
+            #[cfg(debug_assertions)]
+            debug_demo: false,
         };
-        for input in [
-            &this.provider,
-            &this.endpoint,
-            &this.model,
-            &this.credential_reference,
-        ] {
-            this.settings_input_subscriptions
-                .push(cx.observe(input, |_, _, cx| cx.notify()));
-        }
+        #[cfg(debug_assertions)]
+        this.maybe_debug_demo(window, cx);
         this
     }
-    /// A session-local editor, not provider persistence or request authorization.
-    /// Prepared requests lock these fields so settings cannot change their identity.
-    pub fn settings_provider_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        use crate::studio::{self, StudioColors};
-        use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-        let language = self.language;
-        let colors = StudioColors::from_theme(cx);
-        let locked = self.busy || self.prepared.is_some();
-        let provider = self.provider.read(cx).value().to_string();
-        let endpoint = self.endpoint.read(cx).value().to_string();
-        let model = self.model.read(cx).value().to_string();
-        let status = self.settings_configuration_check.as_ref().filter(|check| {
-            check.0 == provider
-                && check.1 == endpoint
-                && check.2 == model
-                && check.3 == self.credential_reference.read(cx).value().as_str()
-                && check.4 == self.streaming
-        });
-        let field = |label: TextKey, input: &Entity<InputState>| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(studio::section_title(language.text(label), &colors))
-                .child(Input::new(input).disabled(locked))
-        };
-        let models: Vec<String> = self
-            .catalog
-            .models(provider.trim())
-            .iter()
-            .map(|model| model.id.clone())
-            .collect();
-        let workspace = cx.entity().downgrade();
-        let model_menu = Button::new("ai-settings-model-directory")
-            .w(px(320.))
-            .h(px(28.))
-            .justify_start()
-            .label(model.clone())
-            .disabled(locked || models.is_empty())
-            .dropdown_menu(move |menu, _, _| {
-                models.iter().fold(menu.min_w(px(200.)), |menu, model| {
-                    let model = model.clone();
-                    let workspace = workspace.clone();
-                    menu.item(
-                        PopupMenuItem::new(model.clone()).on_click(move |_, window, cx| {
-                            let _ = workspace.update(cx, |this, cx| {
-                                if this.busy || this.prepared.is_some() {
-                                    return;
-                                }
-                                this.model.update(cx, |input, cx| {
-                                    input.set_value(model.clone(), window, cx)
-                                });
-                                this.settings_configuration_check = None;
-                                cx.notify();
-                            });
-                        }),
-                    )
-                })
-            });
-        let mut card = studio::card(&colors)
-            .child(studio::section_title(
-                language.text(TextKey::AiSettingsRegisteredConnection),
-                &colors,
-            ))
-            .child(
-                Button::new("ai-settings-provider-selector")
-                    .w(px(320.))
-                    .h(px(28.))
-                    .justify_start()
-                    .label(language.text(TextKey::AiSettingsCustomConnection))
-                    .dropdown_menu(move |menu, _, _| {
-                        menu.min_w(px(200.))
-                            .item(
-                                PopupMenuItem::new(
-                                    language.text(TextKey::AiSettingsCustomConnection),
-                                )
-                                .disabled(true),
-                            )
-                            .item(
-                                PopupMenuItem::new(
-                                    language.text(TextKey::AiSettingsCodexUnavailable),
-                                )
-                                .disabled(true),
-                            )
-                            .item(
-                                PopupMenuItem::new(
-                                    language.text(TextKey::AiSettingsClaudeUnavailable),
-                                )
-                                .disabled(true),
-                            )
-                    }),
-            )
-            .child(studio::supporting(
-                language.text(TextKey::AiSettingsConnectionScope),
-                &colors,
-            ))
-            .child(studio::text_button(
-                "ai-settings-import-config",
-                language.text(TextKey::AiSettingsImportConfig),
-                false,
-                false,
-                &colors,
-            ))
-            .child(studio::supporting(
-                language.text(TextKey::AiSettingsImportUnavailable),
-                &colors,
-            ))
-            .child(field(TextKey::AiSettingsProviderId, &self.provider))
-            .child(model_menu)
-            .child(field(TextKey::AiSettingsModel, &self.model))
-            .child(studio::text_button(
-                "ai-settings-refresh-models",
-                language.text(TextKey::AiSettingsRefreshModels),
-                false,
-                false,
-                &colors,
-            ))
-            .child(field(TextKey::AiSettingsEndpoint, &self.endpoint))
-            .child(studio::section_title(
-                language.text(TextKey::AiSettingsModelsEndpoint),
-                &colors,
-            ))
-            .child(
-                Button::new("ai-settings-model-endpoint-unavailable")
-                    .w(px(320.))
-                    .h(px(28.))
-                    .justify_start()
-                    .label(language.text(TextKey::CommonUnavailable))
-                    .disabled(true),
-            )
-            .child(field(
-                TextKey::AiSettingsCredentialReference,
-                &self.credential_reference,
-            ))
-            .child(studio::supporting(
-                language.text(TextKey::AiSettingsCredentialStatus),
-                &colors,
-            ))
-            .child(studio::supporting(
-                language.text(TextKey::AiSettingsModelsUnavailable),
-                &colors,
-            ))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(8.))
-                    .child(
-                        studio::text_button(
-                            "ai-settings-verify",
-                            language.text(TextKey::AiSettingsVerify),
-                            !locked,
-                            false,
-                            &colors,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let provider = this.provider.read(cx).value().to_string();
-                            let endpoint = this.endpoint.read(cx).value().to_string();
-                            let model = this.model.read(cx).value().to_string();
-                            let valid = CredentialReference::new(
-                                this.credential_reference.read(cx).value().trim().to_owned(),
-                            )
-                            .and_then(|reference| {
-                                ProviderConfig::new(
-                                    provider.trim(),
-                                    endpoint.trim(),
-                                    model.trim(),
-                                    reference,
-                                )
-                            })
-                            .is_ok_and(|config| {
-                                this.catalog.accepts_config(&config, this.streaming)
-                            });
-                            this.settings_configuration_check = Some((
-                                provider,
-                                endpoint,
-                                model,
-                                this.credential_reference.read(cx).value().to_string(),
-                                this.streaming,
-                                valid,
-                            ));
-                            cx.notify();
-                        })),
-                    )
-                    .child(studio::text_button(
-                        "ai-settings-save",
-                        language.text(TextKey::AiSettingsSaveUnavailable),
-                        false,
-                        true,
-                        &colors,
-                    )),
-            );
-        if let Some(check) = status {
-            card = card.child(studio::supporting(
-                language.text(if check.5 {
-                    TextKey::AiSettingsValid
-                } else {
-                    TextKey::AiSettingsInvalid
-                }),
-                &colors,
-            ));
-        }
-        card.into_any_element()
-    }
 
-    pub fn set_provider_catalog(&mut self, catalog: ProviderCatalog, cx: &mut Context<Self>) {
-        self.catalog = catalog;
+    // ------------------------------------------------------------------
+    // Host wiring
+    // ------------------------------------------------------------------
+
+    /// Inject the shared runtime created by the shell. new() deliberately does
+    /// not open storage on its own.
+    pub fn set_runtime(&mut self, runtime: Arc<AiRuntime>, cx: &mut Context<Self>) {
+        self.runtime = Some(runtime);
+        // The debug demo owns its fixture state; a real runtime injection must
+        // not replace it with the empty database before screenshots.
+        if self.demo_mode() {
+            cx.notify();
+            return;
+        }
+        let preferences = self
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.preferences())
+            .unwrap_or_default();
+        self.state.model = preferences.model.clone();
+        self.state.can_send = true;
+        if self.state.selected_conversation_id.is_none() {
+            self.start_conversation(cx);
+        }
+        self.reload_sessions(cx);
+        self.refresh_model_catalog(false, cx);
         cx.notify();
     }
 
-    /// Upward handle so validated result findings can open their persisted
-    /// source candidates in Source Workspaces (Compose onOpenSourceCandidate).
-    pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
-        self.studio = Some(studio);
+    pub fn runtime(&self) -> Option<Arc<AiRuntime>> {
+        self.runtime.clone()
     }
+
     pub fn set_language(
         &mut self,
         language: Language,
@@ -342,509 +183,1346 @@ impl AiWorkspace {
         cx: &mut Context<Self>,
     ) {
         self.language = language;
-        self.provider.update(cx, |state, cx| {
-            state.set_placeholder(language.text(TextKey::AiProviderIdPlaceholder), window, cx)
-        });
-        self.endpoint.update(cx, |state, cx| {
-            state.set_placeholder(
-                language.text(TextKey::AiHttpsApiBaseUrlPlaceholder),
-                window,
-                cx,
-            )
-        });
-        self.model.update(cx, |state, cx| {
-            state.set_placeholder(language.text(TextKey::AiModelIdPlaceholder), window, cx)
-        });
-        self.credential_reference.update(cx, |state, cx| {
-            state.set_placeholder(
-                language.text(TextKey::AiCredentialReferencePlaceholder),
-                window,
-                cx,
-            )
-        });
-        self.question.update(cx, |state, cx| {
-            state.set_placeholder(
-                language.text(TextKey::AiOptionalQuestionPlaceholder),
-                window,
-                cx,
-            )
-        });
-        self.credential.update(cx, |state, cx| {
-            state.set_placeholder(
-                language.text(TextKey::AiTemporaryApiCredentialPlaceholder),
-                window,
-                cx,
-            )
-        });
+        let ask = language.text(TextKey::AiChatAskQuestion);
+        self.composer
+            .update(cx, |state, cx| state.set_placeholder(ask, window, cx));
+        let search = language.text(TextKey::AiChatSearchConversations);
+        self.search
+            .update(cx, |state, cx| state.set_placeholder(search, window, cx));
+        let rename = language.text(TextKey::AiChatRename);
+        self.rename_input
+            .update(cx, |state, cx| state.set_placeholder(rename, window, cx));
         cx.notify();
     }
-    /// Invalidates a frozen/in-flight run when its originating profiler changes.
-    /// May be called from an entity observer without an available Window.
+
+    /// Bind the workspace to a profiler's frozen bounded context. The next
+    /// question analyzes exactly this evidence.
+    pub fn bind_context(
+        &mut self,
+        request: AnalysisRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_active_run(cx);
+        self.bound_title = Some(format!("{} · {}", request.profiler, request.scope));
+        self.bound_context = Some(request);
+        self.state.pending_approval = None;
+        self.state.status = None;
+        self.state.error = None;
+        self.state.can_include_source = self
+            .bound_context
+            .as_ref()
+            .is_some_and(|request| !request.candidates.is_empty());
+        self.state.include_source = false;
+        self.state.context_title = self.bound_title.clone();
+        if self.state.selected_conversation_id.is_none() {
+            self.new_chat(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Profiler evidence changed: invalidate any prepared/resulting run but do
+    /// not create a new conversation or touch unrelated history.
     pub fn invalidate_origin(&mut self, cx: &mut Context<Self>) {
-        self.reset_run();
-        self.request = None;
-        self.clear_credential_on_render = true;
+        self.cancel_active_run(cx);
+        self.bound_context = None;
+        self.bound_title = None;
+        self.state.context_title = None;
+        self.state.include_source = false;
+        self.state.can_include_source = false;
+        self.state.pending_approval = None;
+        self.state.status = None;
+        self.state.error = None;
+        self.state.activity.clear();
         cx.notify();
     }
-    /// Optional independent Rust-owned audit path. No body, credential or answer
-    /// text is persisted. The fixed basename/path policy is enforced by aps-ai.
+
+    pub fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings_requested = true;
+        cx.notify();
+    }
+
+    pub fn set_open_settings(&mut self, callback: Box<dyn Fn(&mut Window, &mut App) + 'static>) {
+        self.open_settings = Some(Rc::from(callback));
+    }
+
+    pub fn set_open_source(
+        &mut self,
+        callback: Box<dyn Fn(String, &mut Window, &mut App) + 'static>,
+    ) {
+        self.open_source = Some(Rc::from(callback));
+    }
+
+    // ------------------------------------------------------------------
+    // Legacy host shims retained until the shell rewiring lands.
+    // ------------------------------------------------------------------
+
+    pub fn set_provider_catalog(&mut self, catalog: ProviderCatalog, cx: &mut Context<Self>) {
+        self.catalog = Some(catalog);
+        cx.notify();
+    }
+
+    pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
+        self.studio = Some(studio);
+    }
+
     pub fn set_audit_path(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
         self.audit_path = path;
         cx.notify();
     }
-    /// Trusted profiler adapter supplies actual bounded evidence; there is no
-    /// editable evidence JSON box or synthetic/example fallback.
+
     pub fn set_request(
         &mut self,
         request: AnalysisRequest,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.reset_run();
-        self.clear_credential(window, cx);
-        self.question.update(cx, |input, cx| {
-            input.set_value(
-                request.user_question.clone().unwrap_or_default(),
-                window,
-                cx,
+        self.bind_context(request, window, cx);
+    }
+
+    /// Settings page compatibility shim; the AI settings lane now drives
+    /// runtime() directly, so this only renders a small status card.
+    pub fn settings_provider_panel(&self, _cx: &mut Context<Self>) -> AnyElement {
+        let language = self.language;
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_size(px(crate::studio::FONT_BODY))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::AiAiAnalysis),
+                    )),
             )
-        });
-        self.request = Some(request);
-        cx.notify();
+            .child(div().text_size(px(crate::studio::FONT_SUPPORTING)).child(
+                crate::studio::selectable(
+                    language.text(TextKey::AiSelectActualProfilerEvidenceUsingItsAi),
+                ),
+            ))
+            .into_any_element()
     }
-    /// Supports host-prepared requests without rebuilding or changing payload.
-    pub fn present(&mut self, prepared: PreparedRun, window: &mut Window, cx: &mut Context<Self>) {
-        self.reset_run();
-        self.clear_credential(window, cx);
-        self.request = None;
-        match self
-            .coordinator
-            .activate(prepared.session_id(), prepared.generation())
-        {
-            Ok(()) => {
-                self.activated = true;
-                self.prepared = Some(prepared);
-            }
-            Err(error) => self.error = Some(error.to_string()),
-        }
-        cx.notify();
-    }
+
     pub fn has_preflight(&self) -> bool {
-        self.prepared.is_some()
+        self.frozen.is_some()
     }
-    fn reset_run(&mut self) {
-        self.coordinator.cancel();
-        self.epoch = self.epoch.wrapping_add(1);
-        self.prepared = None;
-        self.result = None;
-        self.network_consent = false;
-        self.source_consent = false;
-        self.busy = false;
-        self.activated = false;
-        self.consumed = false;
-        self.error = None;
+
+    // ------------------------------------------------------------------
+    // Pure view helpers used by components
+    // ------------------------------------------------------------------
+
+    pub(crate) fn copy_feedback(&self, key: &str) -> Option<CopyOutcome> {
+        self.state.copy_feedback.as_ref().and_then(|feedback| {
+            (feedback.target == key && state::copy_feedback_active(feedback, Instant::now()))
+                .then_some(feedback.outcome)
+        })
     }
-    fn clear_credential(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // SDK set_value clears editing/undo history as well as the visible text.
-        self.credential
-            .update(cx, |input, cx| input.set_value("", window, cx));
-        self.clear_credential_on_render = false;
-    }
-    pub fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.reset_run();
-        self.request = None;
-        self.question
-            .update(cx, |input, cx| input.set_value("", window, cx));
-        self.clear_credential(window, cx);
-        cx.notify();
-    }
-    fn freeze(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.consumed {
-            return;
-        }
-        let Some(mut request) = self.request.clone() else {
-            return;
+
+    pub(crate) fn copy_text(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        let copied = {
+            cx.write_to_clipboard(ClipboardItem::new_string(value.to_owned()));
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref()
+                == Some(value)
         };
-        let question = self.question.read(cx).value().trim().to_owned();
-        request.user_question = (!question.is_empty()).then_some(question);
-        self.prepared = None;
-        self.result = None;
-        self.network_consent = false;
-        self.source_consent = false;
-        self.error = None;
-        self.epoch = self.epoch.wrapping_add(1);
-        let result = (|| {
-            let reference = CredentialReference::new(
-                self.credential_reference.read(cx).value().trim().to_owned(),
-            )?;
-            let provider = ProviderConfig::new(
-                self.provider.read(cx).value().trim(),
-                self.endpoint.read(cx).value().trim(),
-                self.model.read(cx).value().trim(),
-                reference,
-            )?;
-            if !self.catalog.accepts_config(&provider, self.streaming) {
-                return Err(AiError::InvalidConfiguration);
-            }
-            let prepared = PreparedRun::new(request, provider, self.streaming)?;
-            if !self.activated {
-                self.coordinator
-                    .activate(prepared.session_id(), prepared.generation())?;
-                self.activated = true;
-            }
-            Ok::<_, AiError>(prepared)
-        })();
-        match result {
-            Ok(prepared) => self.prepared = Some(prepared),
-            Err(error) => self.error = Some(error.to_string()),
-        }
-        cx.notify();
-    }
-    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy || !self.network_consent {
-            return;
-        }
-        let Some(prepared) = self.prepared.as_ref() else {
-            return;
-        };
-        let source_ids: Vec<_> = prepared.source_candidate_ids().map(str::to_owned).collect();
-        if !source_ids.is_empty() && !self.source_consent {
-            return;
-        }
-        let mut entered = self.credential.read(cx).value().as_bytes().to_vec();
-        self.clear_credential(window, cx);
-        let secret = match SecretCredential::new(std::mem::take(&mut entered)) {
-            Ok(secret) => secret,
-            Err(error) => {
-                self.error = Some(error.to_string());
-                cx.notify();
-                return;
-            }
-        };
-        let Some(prepared) = self.prepared.take() else {
-            return;
-        };
-        let resolver = Arc::new(OneShotCredential::new(
-            prepared.provider().credential_reference().clone(),
-            secret,
-        ));
-        let scope = if source_ids.is_empty() {
-            ApprovalScope::network_only()
+        let outcome = if copied {
+            CopyOutcome::Copied
         } else {
-            ApprovalScope::with_sources(source_ids)
+            CopyOutcome::Failed
         };
-        let run = self
-            .coordinator
-            .approve_explicit(&prepared, scope, Duration::from_secs(120))
-            .and_then(|approval| self.coordinator.authorize(prepared, approval));
-        let run = match run {
-            Ok(run) => run,
-            Err(error) => {
-                self.error = Some(error.to_string());
+        self.state.copy_feedback = Some(CopyFeedback {
+            target: key.to_owned(),
+            outcome,
+            at: Instant::now(),
+        });
+        cx.notify();
+        let key = key.to_owned();
+        let entity = cx.entity();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(state::COPY_FEEDBACK_MILLIS))
+                .await;
+            entity.update(cx, |this, cx| {
+                if this
+                    .state
+                    .copy_feedback
+                    .as_ref()
+                    .is_some_and(|feedback| feedback.target == key)
+                {
+                    this.state.copy_feedback = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn toggle_code_wrap(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.state.toggle_code_wrap(key);
+        cx.notify();
+    }
+
+    pub(crate) fn open_source_chip(
+        &mut self,
+        candidate_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(callback) = self.open_source.clone() {
+            callback(candidate_id, window, cx);
+            return;
+        }
+        if let Some(studio) = self.studio.clone() {
+            studio
+                .update(cx, |studio, cx| {
+                    studio.open_source_candidate(candidate_id, window, cx)
+                })
+                .ok();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Conversation state machine. Runtime calls behind these transitions are
+    // filled in by the controller slice; these remain safe without a runtime.
+    // ------------------------------------------------------------------
+
+    pub(crate) fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_conversation(cx);
+        self.set_draft("", window, cx);
+        cx.notify();
+    }
+
+    fn start_conversation(&mut self, cx: &mut Context<Self>) {
+        self.cancel_active_run(cx);
+        if let Some(id) = self.state.selected_conversation_id.clone() {
+            self.state.drafts.insert(id, self.state.draft.clone());
+        }
+        let id = self
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.new_conversation_id());
+        self.state.selected_conversation_id = id;
+        self.state.turns.clear();
+        self.state.activity.clear();
+        self.state.error = None;
+        self.state.status = None;
+        self.state.pending_approval = None;
+        self.state.queued.clear();
+        self.state.include_source = false;
+        self.state.follow_latest = true;
+        self.state.draft.clear();
+        cx.notify();
+    }
+
+    pub(crate) fn set_draft(&mut self, value: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.draft = value.to_owned();
+        self.composer.update(cx, |state, cx| {
+            state.set_value(value.to_owned(), window, cx)
+        });
+    }
+
+    pub(crate) fn edit_question(
+        &mut self,
+        question: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_draft(question, window, cx);
+        self.composer
+            .update(cx, |state, cx| state.focus(window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn recall_last_question(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.state.draft.is_empty() {
+            return false;
+        }
+        let Some(question) = self.state.last_question.clone() else {
+            return false;
+        };
+        self.set_draft(&question, window, cx);
+        cx.notify();
+        true
+    }
+
+    pub(crate) fn select_conversation(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.selected_conversation_id.as_deref() == Some(id.as_str()) {
+            return;
+        }
+        if let Some(previous) = self.state.selected_conversation_id.clone() {
+            self.state.drafts.insert(previous, self.state.draft.clone());
+        }
+        self.cancel_active_run(cx);
+        let draft = self.state.drafts.get(&id).cloned().unwrap_or_default();
+        self.state.selected_conversation_id = Some(id.clone());
+        self.state.turns.clear();
+        self.state.pending_approval = None;
+        self.state.status = None;
+        self.state.error = None;
+        self.state.activity.clear();
+        self.state.follow_latest = true;
+        self.set_draft(&draft, window, cx);
+        self.load_transcript(id, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn reload_sessions(&mut self, cx: &mut Context<Self>) {
+        if self.demo_mode() {
+            return;
+        }
+        let Some(runtime) = self.runtime.clone() else {
+            return;
+        };
+        let epoch = self.epoch;
+        let task = cx
+            .background_executor()
+            .spawn(async move { runtime.sessions(true) });
+        cx.spawn(async move |this, cx| {
+            let rows = task.await;
+            this.update(cx, |this, cx| {
+                if this.epoch == epoch {
+                    this.state.sessions = rows;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn load_transcript(&mut self, conversation_id: String, cx: &mut Context<Self>) {
+        if self.demo_mode() {
+            return;
+        }
+        let Some(runtime) = self.runtime.clone() else {
+            return;
+        };
+        let epoch = self.epoch.wrapping_add(1);
+        self.epoch = epoch;
+        let lookup = conversation_id.clone();
+        let task = cx.background_executor().spawn(async move {
+            runtime
+                .restore(&lookup)
+                .map(|restored| restored.turns)
+                .unwrap_or_default()
+        });
+        cx.spawn(async move |this, cx| {
+            let turns = task.await;
+            this.update(cx, |this, cx| {
+                if this.epoch == epoch
+                    && this.state.selected_conversation_id.as_deref()
+                        == Some(conversation_id.as_str())
+                {
+                    this.state.turns = turns;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn refresh_model_catalog(&mut self, refresh: bool, cx: &mut Context<Self>) {
+        if self.demo_mode() {
+            self.state.models = vec![
+                "mock-responses-model".to_owned(),
+                "mock-fast-model".to_owned(),
+            ];
+            self.state.models_loading = false;
+            self.state.models_error = None;
+            return;
+        }
+        let Some(runtime) = self.runtime.clone() else {
+            return;
+        };
+        let preferences = runtime.preferences();
+        let provider = preferences.active_provider;
+        if !refresh {
+            if let Some(models) = runtime.cached_models(provider) {
+                self.state.models = models;
+                self.state.models_error = None;
+                self.state.models_loading = false;
                 cx.notify();
                 return;
             }
-        };
-        self.busy = true;
-        self.consumed = true;
-        self.result = None;
-        self.error = None;
-        self.network_consent = false;
-        self.source_consent = false;
-        self.epoch = self.epoch.wrapping_add(1);
+        }
         let epoch = self.epoch;
-        let gateway = OpenAiGateway::new(cx.http_client(), resolver);
-        let audit_path = self.audit_path.clone();
-        let audit_lock = self.audit_lock.clone();
-        let task = cx.background_executor().spawn(async move {
-            let identity = (
-                run.session_id().to_owned(),
-                run.run_id().to_owned(),
-                run.generation(),
-            );
-            if let Some(path) = &audit_path {
-                let _guard = audit_lock.lock().map_err(|_| AiError::Persistence)?;
-                SessionStore::open(path)?.begin(&run)?;
-            }
-            let result = gateway.execute(run).await;
-            if let Some(path) = &audit_path {
-                let _guard = audit_lock.lock().map_err(|_| AiError::Persistence)?;
-                let mut store = SessionStore::open(path)?;
-                match &result {
-                    Ok(result) => store.complete(result)?,
-                    Err(error) => store.fail(&identity.0, &identity.1, identity.2, *error)?,
-                }
-            }
-            result
-        });
+        self.state.models_loading = true;
+        self.state.models_error = None;
+        let task = cx
+            .background_executor()
+            .spawn(async move { runtime.load_models(provider, refresh).await });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 if this.epoch != epoch {
                     return;
                 }
-                this.busy = false;
+                this.state.models_loading = false;
                 match result {
-                    Ok(result) => match this.coordinator.accept_result(&result) {
-                        Ok(()) => this.result = Some(result),
-                        Err(error) => this.error = Some(error.to_string()),
-                    },
-                    Err(error) => this.error = Some(error.to_string()),
+                    Ok(models) => {
+                        this.state.models = models;
+                        this.state.models_error = None;
+                    }
+                    Err(error) => {
+                        this.state.models.clear();
+                        this.state.models_error = Some(error);
+                    }
                 }
                 cx.notify();
             })
             .ok();
         })
         .detach();
+    }
+
+    pub(crate) fn open_models(&mut self, cx: &mut Context<Self>) {
+        if self.state.busy {
+            return;
+        }
+        self.state.models_open = true;
+        self.refresh_model_catalog(false, cx);
         cx.notify();
     }
-    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.coordinator.cancel();
+
+    pub(crate) fn close_models(&mut self, cx: &mut Context<Self>) {
+        self.state.models_open = false;
+        cx.notify();
+    }
+
+    pub(crate) fn select_model(&mut self, model: String, cx: &mut Context<Self>) {
+        if self.state.busy || !state::selectable_model(&model) {
+            return;
+        }
+        if let Some(runtime) = self.runtime.clone() {
+            let provider = runtime.preferences().active_provider;
+            let model_for_task = model.clone();
+            let task = cx
+                .background_executor()
+                .spawn(async move { runtime.select_model(provider, &model_for_task) });
+            let epoch = self.epoch;
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                this.update(cx, |this, cx| {
+                    if this.epoch != epoch {
+                        return;
+                    }
+                    match result {
+                        Ok(()) => {
+                            this.state.model = model.clone();
+                            this.state.models_open = false;
+                        }
+                        Err(error) => this.state.error = Some(error.to_string()),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.sidebar_visible = true;
+        self.search.update(cx, |state, cx| state.focus(window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn show_archived(&mut self, showing: bool, cx: &mut Context<Self>) {
+        self.state.showing_archived = showing;
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_include_source(&mut self, include: bool, cx: &mut Context<Self>) {
+        if self.state.busy {
+            return;
+        }
+        self.state.include_source = include && self.state.can_include_source;
+        self.state.models_open = false;
+        cx.notify();
+    }
+
+    pub(crate) fn set_sidebar_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+        self.state.sidebar_visible = visible;
+        cx.notify();
+    }
+
+    /// Open the one-use preflight approval card. Rendering the frozen view is
+    /// the only thing that can lead to execution.
+    pub(crate) fn present_approval(&mut self, frozen: FrozenRun) {
+        self.state.can_include_source = !frozen.view.sources.is_empty() && !self.state.busy;
+        self.state.pending_approval = Some(frozen.view.clone());
+        self.frozen = Some(frozen);
+    }
+
+    pub(crate) fn clear_approval(&mut self, cx: &mut Context<Self>) {
+        self.frozen = None;
+        self.state.pending_approval = None;
+        self.state.busy = false;
+        self.state.status = None;
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_active_run(&mut self, cx: &mut Context<Self>) {
         self.epoch = self.epoch.wrapping_add(1);
-        self.prepared = None;
-        self.busy = false;
-        self.consumed = true;
-        self.network_consent = false;
-        self.source_consent = false;
-        self.clear_credential(window, cx);
-        self.error = Some(AiError::Cancelled.to_string());
+        if let Some(runtime) = self.runtime.as_ref() {
+            runtime.cancel();
+        }
+        self.frozen = None;
+        self.state.pending_approval = None;
+        self.state.busy = false;
+        self.state.status = None;
+        self.state.models_loading = false;
+        cx.notify();
+    }
+
+    pub(crate) fn open_artifact(
+        &mut self,
+        hash: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = self
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.artifact_path(&hash));
+        match path {
+            Some(path) => {
+                let url = format!("file://{}", path.display());
+                cx.open_url(&url);
+            }
+            None => {
+                self.state.error = Some("E_AI_ARTIFACT".to_owned());
+                cx.notify();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Runs
+    // ------------------------------------------------------------------
+
+    /// Send the composer draft: queue it while a run is active, otherwise
+    /// freeze a new prepare request under the current bounded context.
+    pub(crate) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let question = self.state.draft.trim().to_owned();
+        if question.is_empty() || question.chars().count() > 4096 {
+            return;
+        }
+        if self.state.busy {
+            match self.state.push_queued(question) {
+                Ok(()) => self.set_draft("", window, cx),
+                Err(code) => self.state.error = Some(code.to_owned()),
+            }
+            cx.notify();
+            return;
+        }
+        self.prepare_question(question, window, cx);
+    }
+
+    fn prepare_question(&mut self, question: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(runtime) = self.runtime.clone() else {
+            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            cx.notify();
+            return;
+        };
+        let preferences = runtime.preferences();
+        let context = self.bound_context.clone();
+        let direct_chat = context.is_none();
+        let include_source = self.state.include_source;
+        let mut frozen_context = context.clone();
+        if let Some(request) = frozen_context.as_mut() {
+            if !include_source {
+                request.candidates.clear();
+            }
+        }
+        let options = aps_ai::runtime::PrepareOptions {
+            conversation_id: self
+                .state
+                .selected_conversation_id
+                .clone()
+                .unwrap_or_default(),
+            context: frozen_context,
+            question: Some(question.clone()),
+            include_source,
+            direct_chat,
+            parent_turn: self
+                .state
+                .turns
+                .iter()
+                .rev()
+                .find(|turn| turn.status.terminal())
+                .map(|turn| turn.run_id.clone()),
+            parent_conversation: None,
+            report_format: preferences.report_format,
+            report_language: preferences.report_language,
+            agent_id: if direct_chat {
+                "aps.chat".to_owned()
+            } else {
+                preferences.agent_id.clone()
+            },
+        };
+        let epoch = self.epoch.wrapping_add(1);
+        self.epoch = epoch;
+        self.state.busy = true;
+        self.state.status = Some(RunStatus::Preparing);
+        self.state.error = None;
+        self.state.pending_approval = None;
+        self.frozen = None;
+        self.state.last_question = Some(question);
+        self.state.add_activity(
+            self.state
+                .selected_conversation_id
+                .clone()
+                .unwrap_or_default(),
+            "prepare",
+            "started",
+        );
+        self.set_draft("", window, cx);
+        cx.notify();
+        let task = cx
+            .background_executor()
+            .spawn(async move { runtime.prepare(options) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if this.epoch != epoch {
+                    return;
+                }
+                match result {
+                    Ok(frozen) => {
+                        this.state.status = Some(RunStatus::AwaitingApproval);
+                        this.state.add_activity(
+                            frozen.view.run_id.clone(),
+                            "prepare",
+                            "awaiting_approval",
+                        );
+                        this.present_approval(frozen);
+                    }
+                    Err(error) => {
+                        this.state.busy = false;
+                        this.state.status = Some(RunStatus::RetryableFailure);
+                        this.state.error = Some(error.to_string());
+                        this.state.add_activity_error(
+                            String::new(),
+                            "prepare",
+                            "failed",
+                            error.to_string(),
+                        );
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Approve the frozen request exactly once and execute it off-thread.
+    pub(crate) fn approve(&mut self, cx: &mut Context<Self>) {
+        let Some(frozen) = self.frozen.take() else {
+            return;
+        };
+        let Some(runtime) = self.runtime.clone() else {
+            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            cx.notify();
+            return;
+        };
+        let run_id = frozen.view.run_id.clone();
+        let conversation_id = self.state.selected_conversation_id.clone();
+        let epoch = self.epoch.wrapping_add(1);
+        self.epoch = epoch;
+        self.state.pending_approval = None;
+        self.state.busy = true;
+        self.state.status = Some(RunStatus::Running);
+        self.state.error = None;
+        self.state.add_activity(run_id.clone(), "run", "started");
+        cx.notify();
+        let task = cx
+            .background_executor()
+            .spawn(async move { runtime.execute(frozen).await });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if this.epoch != epoch {
+                    return;
+                }
+                this.state.busy = false;
+                match result {
+                    Ok(result) => {
+                        this.state.status = Some(RunStatus::Succeeded);
+                        this.state.add_activity(run_id.clone(), "run", "succeeded");
+                        this.state.last_question = None;
+                        let _ = result;
+                    }
+                    Err(error) => {
+                        this.state.status = Some(RunStatus::RetryableFailure);
+                        this.state.error = Some(error.to_string());
+                        this.state.add_activity_error(
+                            run_id.clone(),
+                            "run",
+                            "failed",
+                            error.to_string(),
+                        );
+                    }
+                }
+                this.reload_sessions(cx);
+                if let Some(id) = conversation_id {
+                    this.load_transcript(id, cx);
+                }
+                this.drain_queue(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Stop the active preparation or execution; a late answer is discarded by
+    /// the epoch guard as well as the runtime's cancellation token.
+    pub(crate) fn stop(&mut self, cx: &mut Context<Self>) {
+        if !self.state.busy && self.state.pending_approval.is_none() {
+            return;
+        }
+        self.epoch = self.epoch.wrapping_add(1);
+        if let Some(runtime) = self.runtime.as_ref() {
+            runtime.cancel();
+        }
+        self.frozen = None;
+        self.state.pending_approval = None;
+        self.state.busy = false;
+        self.state.status = Some(RunStatus::Cancelled);
+        self.state.add_activity(String::new(), "run", "cancelled");
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_preflight(&mut self, cx: &mut Context<Self>) {
+        self.stop(cx);
+        self.state.status = None;
+        cx.notify();
+    }
+
+    /// Retry starts a fresh prepare from the failed question; it never replays
+    /// a consumed approval.
+    pub(crate) fn retry(
+        &mut self,
+        run_id: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.busy {
+            return;
+        }
+        let question = if let Some(run_id) = run_id.as_deref() {
+            self.state
+                .turns
+                .iter()
+                .find(|turn| turn.run_id == run_id)
+                .and_then(|turn| turn.question.clone())
+        } else {
+            self.state
+                .turns
+                .last()
+                .filter(|turn| turn.status.allows_chat_retry())
+                .and_then(|turn| turn.question.clone())
+                .or_else(|| self.state.last_question.clone())
+        };
+        match question {
+            Some(question) if !question.trim().is_empty() => {
+                self.state.error = None;
+                self.prepare_question(question, window, cx);
+            }
+            _ => {
+                self.state.error = Some("E_RETRY_UNAVAILABLE".to_owned());
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn drain_queue(&mut self, cx: &mut Context<Self>) {
+        self.state.busy = false;
+        let Some(next) = self.state.queued.first().cloned() else {
+            return;
+        };
+        if next.conversation_id
+            != self
+                .state
+                .selected_conversation_id
+                .clone()
+                .unwrap_or_default()
+        {
+            return;
+        }
+        self.state.queued.remove(0);
+        self.state.include_source = next.include_source;
+        self.state.draft = next.question.clone();
+        self.auto_send = Some(next.question);
+        cx.notify();
+    }
+
+    // ------------------------------------------------------------------
+    // Conversation actions
+    // ------------------------------------------------------------------
+
+    fn spawn_conversation_action<F>(
+        &mut self,
+        cx: &mut Context<Self>,
+        action: F,
+        reload_sessions: bool,
+        reload_transcript: bool,
+    ) where
+        F: FnOnce(Arc<AiRuntime>) -> Result<(), String> + Send + 'static,
+    {
+        let Some(runtime) = self.runtime.clone() else {
+            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            cx.notify();
+            return;
+        };
+        let conversation_id = self.state.selected_conversation_id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { action(runtime) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(()) => {
+                        this.state.error = None;
+                    }
+                    Err(code) => this.state.error = Some(code),
+                }
+                if reload_sessions {
+                    this.reload_sessions(cx);
+                }
+                if reload_transcript {
+                    if let Some(id) = conversation_id {
+                        this.load_transcript(id, cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn rename_conversation(
+        &mut self,
+        id: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        let title = title.trim().to_owned();
+        if title.is_empty() || title.chars().count() > 120 {
+            return;
+        }
+        self.spawn_conversation_action(
+            cx,
+            move |runtime| {
+                runtime
+                    .rename_conversation(&id, &title)
+                    .map_err(|_| "E_AI_STORAGE".to_owned())
+            },
+            true,
+            true,
+        );
+        self.state.dialogs.rename = None;
+        cx.notify();
+    }
+
+    pub(crate) fn pin_conversation(&mut self, id: String, pinned: bool, cx: &mut Context<Self>) {
+        self.spawn_conversation_action(
+            cx,
+            move |runtime| {
+                runtime
+                    .pin_conversation(&id, pinned)
+                    .map_err(|_| "E_AI_STORAGE".to_owned())
+            },
+            true,
+            false,
+        );
+    }
+
+    pub(crate) fn archive_conversation(
+        &mut self,
+        id: String,
+        archived: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.state.selected_conversation_id.clone();
+        if archived && current.as_deref() == Some(id.as_str()) {
+            self.new_chat(window, cx);
+        }
+        let Some(runtime) = self.runtime.clone() else {
+            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            cx.notify();
+            return;
+        };
+        let archive_id = id.clone();
+        let task = cx.background_executor().spawn(async move {
+            runtime
+                .archive_conversation(&archive_id, archived)
+                .map_err(|_| "E_AI_STORAGE".to_owned())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if let Err(code) = result {
+                    this.state.error = Some(code);
+                }
+                this.reload_sessions(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn delete_conversation(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.state.selected_conversation_id.clone();
+        if current.as_deref() == Some(id.as_str()) {
+            self.new_chat(window, cx);
+        }
+        let Some(runtime) = self.runtime.clone() else {
+            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            cx.notify();
+            return;
+        };
+        let delete_id = id.clone();
+        let task = cx.background_executor().spawn(async move {
+            runtime
+                .delete_conversation(&delete_id)
+                .map_err(|_| "E_AI_STORAGE".to_owned())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if let Err(code) = result {
+                    this.state.error = Some(code);
+                }
+                this.state.queued.retain(|item| item.conversation_id != id);
+                this.state.drafts.remove(&id);
+                this.reload_sessions(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(crate) fn fork_conversation(
+        &mut self,
+        id: String,
+        parent_turn: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.busy {
+            return;
+        }
+        let Some(runtime) = self.runtime.clone() else {
+            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            cx.notify();
+            return;
+        };
+        let fork_id = id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { runtime.fork_conversation(&fork_id, parent_turn) });
+        let entity = cx.entity();
+        cx.spawn(async move |_, cx| {
+            let result = task.await;
+            entity.update(cx, |this, cx| {
+                match result {
+                    Ok(new_id) => {
+                        this.state.selected_conversation_id = Some(new_id.clone());
+                        this.state.turns.clear();
+                        this.state.error = None;
+                        this.load_transcript(new_id, cx);
+                        this.reload_sessions(cx);
+                    }
+                    Err(code) => this.state.error = Some(code),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn remove_queued(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.state.remove_queued(index);
+        cx.notify();
+    }
+
+    pub(crate) fn edit_queued(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(item) = self.state.edit_queued(index) {
+            self.set_draft(&item.question, window, cx);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn start_ordinary_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.bound_context = None;
+        self.bound_title = None;
+        self.state.context_title = None;
+        self.state.can_include_source = false;
+        self.state.include_source = false;
+        self.new_chat(window, cx);
+    }
+
+    pub(crate) fn rebind_context(&mut self, cx: &mut Context<Self>) {
+        if self.bound_context.is_some() {
+            self.state.context_title = self.bound_title.clone();
+            cx.notify();
+        } else {
+            self.state.error = Some("E_CONTEXT_UNAVAILABLE".to_owned());
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn toggle_activity(&mut self, cx: &mut Context<Self>) {
+        self.state.activity_expanded = !self.state.activity_expanded;
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_history(&mut self, cx: &mut Context<Self>) {
+        self.state.history_expanded = !self.state.history_expanded;
+        cx.notify();
+    }
+
+    pub(crate) fn open_rename_dialog(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self
+            .state
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .map(|session| session.title.clone())
+            .unwrap_or_default();
+        self.rename_input
+            .update(cx, |state, cx| state.set_value(title.clone(), window, cx));
+        self.state.dialogs.rename = Some(state::RenamingConversation { id, title });
+        cx.notify();
+    }
+
+    pub(crate) fn open_evidence_dialog(&mut self, id: String, cx: &mut Context<Self>) {
+        self.state.dialogs.evidence = Some(id);
+        cx.notify();
+    }
+
+    pub(crate) fn open_delete_dialog(&mut self, id: String, cx: &mut Context<Self>) {
+        self.state.dialogs.delete = Some(id);
+        cx.notify();
+    }
+
+    pub(crate) fn open_archive_dialog(&mut self, id: String, cx: &mut Context<Self>) {
+        self.state.dialogs.archive = Some(id);
+        cx.notify();
+    }
+
+    pub(crate) fn close_dialogs(&mut self, cx: &mut Context<Self>) {
+        self.state.dialogs = state::Dialogs::default();
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(renaming) = self.state.dialogs.rename.clone() else {
+            return;
+        };
+        let title = self.rename_input.read(cx).value().to_string();
+        self.rename_conversation(renaming.id, title, cx);
+    }
+
+    pub(crate) fn confirm_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.state.dialogs.delete.take() else {
+            return;
+        };
+        self.delete_conversation(id, window, cx);
+    }
+
+    pub(crate) fn confirm_archive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.state.dialogs.archive.take() else {
+            return;
+        };
+        self.archive_conversation(id, true, window, cx);
+    }
+
+    pub(crate) fn scroll_to_top(&mut self, cx: &mut Context<Self>) {
+        self.message_scroll.scroll_to_item(0);
+        self.state.follow_latest = false;
+        cx.notify();
+    }
+
+    pub(crate) fn scroll_to_latest(&mut self, cx: &mut Context<Self>) {
+        self.message_scroll.scroll_to_bottom();
+        self.state.follow_latest = true;
+        cx.notify();
+    }
+
+    pub(crate) fn on_message_scrolled(&mut self, cx: &mut Context<Self>) {
+        let offset = f32::from(self.message_scroll.offset().y);
+        let max = f32::from(self.message_scroll.max_offset().y);
+        self.state.follow_latest = (-offset) >= max - 4.0;
+        cx.notify();
+    }
+
+    fn demo_mode(&self) -> bool {
+        #[cfg(debug_assertions)]
+        {
+            self.debug_demo
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            false
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn maybe_debug_demo(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if std::env::var_os("APS_RUST_AI_DEMO").is_none() {
+            return;
+        }
+        self.debug_demo = true;
+        self.state.model = "mock-responses-model".to_owned();
+        self.state.can_send = true;
+        self.state.context_title = Some("Frame · Frozen frame timeline evidence".to_owned());
+        self.state.can_include_source = true;
+        self.state.include_source = false;
+        self.state.follow_latest = std::env::var_os("APS_RUST_AI_DEMO_TOP").is_none();
+        self.state.models = vec![
+            "mock-responses-model".to_owned(),
+            "mock-fast-model".to_owned(),
+        ];
+        self.state.models_open = std::env::var_os("APS_RUST_AI_DEMO_MODELS").is_some();
+        self.state.sessions = demo_sessions();
+        self.state.selected_conversation_id = self
+            .state
+            .sessions
+            .first()
+            .map(|session| session.id.clone());
+        self.state.turns = demo_turns();
+        self.state.last_question = Some("What causes the deadline misses?".to_owned());
+        if std::env::var_os("APS_RUST_AI_DEMO_APPROVAL").is_some() {
+            self.state.status = Some(RunStatus::AwaitingApproval);
+            self.state.busy = true;
+            self.state.models_open = false;
+            self.state.pending_approval = Some(demo_approval());
+        }
+        if std::env::var_os("APS_RUST_AI_DEMO_ARCHIVED").is_some() {
+            self.state.showing_archived = true;
+        }
         cx.notify();
     }
 }
 
+#[cfg(debug_assertions)]
+fn demo_sessions() -> Vec<SessionSummary> {
+    let now = aps_ai::platform::now_millis();
+    vec![
+        SessionSummary {
+            id: "demo-session-frame".to_owned(),
+            title: "Why do frames miss the 16ms deadline?".to_owned(),
+            updated_at_millis: now,
+            pinned: true,
+            turn_count: 3,
+            status: None,
+            archived: false,
+        },
+        SessionSummary {
+            id: "demo-session-memory".to_owned(),
+            title: "Dominator tree review".to_owned(),
+            updated_at_millis: now - 86_400_000,
+            pinned: false,
+            turn_count: 2,
+            status: None,
+            archived: false,
+        },
+        SessionSummary {
+            id: "demo-session-archived".to_owned(),
+            title: "Startup regression notes".to_owned(),
+            updated_at_millis: now - 2 * 86_400_000,
+            pinned: false,
+            turn_count: 1,
+            status: None,
+            archived: true,
+        },
+    ]
+}
+
+#[cfg(debug_assertions)]
+fn demo_turns() -> Vec<TurnRecord> {
+    use aps_ai::{AnalysisFinding, AnalysisResult, FindingSeverity};
+    let summary = concat!(
+        "### Frame deadline review\n\n",
+        "Answered **what caused the deadline misses** against bounded evidence.\n\n",
+        "- deadline misses and platform jank stay distinct\n",
+        "- counts are correlation, not proof of causality\n\n",
+        "| signal | value |\n",
+        "| --- | --- |\n",
+        "| deadline misses | 13 |\n",
+        "| jank clusters | 9 |\n\n",
+        "> Correlation is not causality.\n\n",
+        "```kotlin\n",
+        "renderFrame()\n",
+        "```\n",
+    );
+    let result = AnalysisResult {
+        session_id: "demo-session-frame".to_owned(),
+        run_id: "demo-run-1".to_owned(),
+        generation: 1,
+        model: "mock-responses-model".to_owned(),
+        summary: summary.to_owned(),
+        findings: vec![
+            AnalysisFinding {
+                id: "finding-demo-1".to_owned(),
+                severity: FindingSeverity::Warning,
+                title: "Deadline misses concentrate in one window".to_owned(),
+                explanation: "**13 of 60** frames exceeded the 16 ms deadline, mostly in the animation window.".to_owned(),
+                recommendation: "Check the layout pass first; do not infer causality from counts.".to_owned(),
+                analysis_confidence: 0.72,
+                evidence_ids: vec!["evidence-frame-timeline".to_owned()],
+                candidate_ids: vec!["candidate-render-frame".to_owned()],
+            },
+            AnalysisFinding {
+                id: "finding-demo-2".to_owned(),
+                severity: FindingSeverity::Info,
+                title: "Platform jank is listed separately".to_owned(),
+                explanation: "Jank type stays explicit and is not merged into app attribution.".to_owned(),
+                recommendation: String::new(),
+                analysis_confidence: 0.55,
+                evidence_ids: vec!["evidence-jank-type".to_owned()],
+                candidate_ids: Vec::new(),
+            },
+        ],
+    };
+    vec![
+        TurnRecord {
+            run_id: "demo-run-1".to_owned(),
+            generation: 1,
+            status: RunStatus::Succeeded,
+            question: Some("What causes the deadline misses?".to_owned()),
+            result: Some(result),
+            timestamp_millis: 1_762_560_000_000,
+            artifact_hashes: vec![
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+            ],
+        },
+        TurnRecord {
+            run_id: "demo-run-2".to_owned(),
+            generation: 2,
+            status: RunStatus::RetryableFailure,
+            question: Some("Summarize the jank clusters.".to_owned()),
+            result: None,
+            timestamp_millis: 1_762_560_100_000,
+            artifact_hashes: Vec::new(),
+        },
+    ]
+}
+
+#[cfg(debug_assertions)]
+fn demo_approval() -> aps_ai::runtime::ApprovalView {
+    use aps_ai::platform::ProviderKind;
+    aps_ai::runtime::ApprovalView {
+        run_id: "demo-run-approval".to_owned(),
+        session_id: "demo-session-frame".to_owned(),
+        provider_id: "codex".to_owned(),
+        provider_kind: ProviderKind::Codex,
+        model: "mock-responses-model".to_owned(),
+        agent_id: "aps.main".to_owned(),
+        evidence_count: 2,
+        candidate_count: 1,
+        payload_bytes: 4096,
+        planned_provider_calls: 1,
+        planned_scripts: 0,
+        report_format: ReportFormat::Html,
+        report_language: ReportLanguage::Auto,
+        question: Some("What causes the deadline misses?".to_owned()),
+        evidence: vec![
+            aps_ai::runtime::ApprovalEvidence {
+                id: "evidence-frame-timeline".to_owned(),
+                summary: "60 frames, 13 deadline misses".to_owned(),
+            },
+            aps_ai::runtime::ApprovalEvidence {
+                id: "evidence-jank-type".to_owned(),
+                summary: "9 clusters, platform jank separated".to_owned(),
+            },
+        ],
+        sources: vec![aps_ai::runtime::ApprovalSource {
+            id: "candidate-render-frame".to_owned(),
+            relative_path: "app/src/main/kotlin/RenderFrame.kt".to_owned(),
+        }],
+        history: vec![aps_ai::runtime::ApprovalHistoryTurn {
+            question: Some("Any earlier findings?".to_owned()),
+            answer: "One bounded review, stored as untrusted context.".to_owned(),
+        }],
+        payload_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+        permissions: vec![
+            "PROVIDER_NETWORK".to_owned(),
+            "READ_EVIDENCE".to_owned(),
+            "WRITE_ARTIFACT".to_owned(),
+        ],
+    }
+}
 impl Drop for AiWorkspace {
     fn drop(&mut self) {
-        self.coordinator.cancel();
+        if let Some(runtime) = self.runtime.as_ref() {
+            runtime.cancel();
+        }
     }
 }
 
 impl Render for AiWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.clear_credential_on_render {
-            self.clear_credential(window, cx);
-        }
-        let lang = self.language;
-        let busy = self.busy;
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .child(
-                div()
-                    .text_size(px(typography::TITLE))
-                    .child(crate::studio::selectable(lang.text(TextKey::AiAiAnalysis))),
-            )
-            .child(crate::studio::selectable(lang.text(
-                TextKey::AiConfigureAnExplicitProviderFreezeActualProfiler,
-            )))
-            .child(Input::new(&self.provider).disabled(busy))
-            .child(Input::new(&self.endpoint).disabled(busy))
-            .child(Input::new(&self.model).disabled(busy))
-            .child(Input::new(&self.credential_reference).disabled(busy))
-            .child(Input::new(&self.question).disabled(busy))
-            .child(
-                Button::new("ai-streaming")
-                    .label(lang.text(TextKey::AiStreaming))
-                    .selected(self.streaming)
-                    .disabled(busy || self.prepared.is_some())
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.streaming = !this.streaming;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        Button::new("ai-freeze")
-                            .primary()
-                            .label(lang.text(TextKey::AiFreezeAndReviewRequest))
-                            .disabled(busy || self.consumed || self.request.is_none())
-                            .on_click(cx.listener(|this, _, _, cx| this.freeze(cx))),
-                    )
-                    .child(
-                        Button::new("ai-cancel")
-                            .label(lang.text(TextKey::CommonCancel))
-                            .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
-                    )
-                    .child(
-                        Button::new("ai-clear")
-                            .label(lang.text(TextKey::AiClearEvidenceAndResult))
-                            .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
-                    ),
-            )
-            .children(self.error.clone().map(|error| {
-                div()
-                    .text_color(cx.theme().danger)
-                    .child(crate::studio::selectable(error))
-            }));
-        if busy {
-            body = body.child(crate::studio::selectable(
-                lang.text(TextKey::AiWaitingForValidatedResponseCancelStopsPublication),
-            ));
-        }
-        if self.request.is_none() && self.prepared.is_none() && self.result.is_none() {
-            body = body.child(crate::studio::selectable(
-                lang.text(TextKey::AiSelectActualProfilerEvidenceUsingItsAi),
-            ));
-        }
-        if let Some(prepared) = &self.prepared {
-            let provider = prepared.provider();
-            let has_sources = !prepared.source_candidates().is_empty();
-            body = body
-                .child(lang.format(
-                    TextKey::DetailsAiFrozenProvider,
-                    &[
-                        ("provider", &provider.id()),
-                        ("endpoint", &provider.endpoint()),
-                        ("model", &provider.model()),
-                        ("reference", &provider.credential_reference().as_str()),
-                    ],
-                ))
-                .child(lang.format(
-                    TextKey::DetailsAiFrozenIdentity,
-                    &[
-                        ("session_id", &prepared.session_id()),
-                        ("run_id", &prepared.run_id()),
-                        ("generation", &prepared.generation()),
-                        ("request_digest", &prepared.request_digest()),
-                    ],
-                ))
-                .child(lang.format(
-                    TextKey::DetailsAiEvidenceScope,
-                    &[
-                        ("profiler", &prepared.profiler()),
-                        ("scope", &prepared.scope()),
-                        ("evidence_count", &prepared.evidence_count()),
-                        ("source_count", &prepared.source_candidates().len()),
-                    ],
-                ))
-                .child(
-                    div()
-                        .id("ai-exact-payload")
-                        .max_h(px(360.))
-                        .overflow_y_scroll()
-                        .p_3()
-                        .bg(cx.theme().muted)
-                        .font_family("monospace")
-                        .text_size(px(typography::SUPPORTING))
-                        .child(crate::studio::selectable(prepared.review_body().to_owned())),
-                )
-                .child(crate::studio::selectable(
-                    lang.text(TextKey::AiTheJsonAboveIsTheExactFrozen),
-                ))
-                .child(Input::new(&self.credential).disabled(busy))
-                .child(crate::studio::selectable(
-                    lang.text(TextKey::AiCredentialIsMaskedAndClearedWhenSending),
-                ))
-                .child(
-                    Button::new("ai-network-consent")
-                        .label(lang.text(TextKey::AiIApproveSendingThisExactRequestTo))
-                        .selected(self.network_consent)
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.network_consent = !this.network_consent;
-                            cx.notify();
-                        })),
-                );
-            if has_sources {
-                body = body.child(
-                    Button::new("ai-source-consent")
-                        .label(lang.text(TextKey::AiIApproveUploadingEveryDisplayedSourceCandidate))
-                        .selected(self.source_consent)
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.source_consent = !this.source_consent;
-                            cx.notify();
-                        })),
-                );
+        if self.settings_requested {
+            self.settings_requested = false;
+            if let Some(callback) = self.open_settings.clone() {
+                window.defer(cx, move |window, cx| callback(window, cx));
             }
-            body = body.child(
-                Button::new("ai-send-once")
-                    .primary()
-                    .label(lang.text(TextKey::AiApproveAndSendOnce))
-                    .disabled(busy || !self.network_consent || has_sources && !self.source_consent)
-                    .on_click(cx.listener(|this, _, window, cx| this.send(window, cx))),
-            );
         }
-        if self.consumed && !busy {
-            body = body.child(crate::studio::selectable(
-                lang.text(TextKey::AiThisEvidenceRequestWasConsumedOrCancelled),
-            ));
+        if let Some(question) = self.auto_send.take() {
+            if !self.state.busy && !question.trim().is_empty() {
+                self.state.draft = question;
+                self.send(window, cx);
+            }
         }
-        if let Some(result) = &self.result {
-            body = body
-                .child(lang.format(
-                    TextKey::DetailsAiResultIdentity,
-                    &[
-                        ("model", &result.model),
-                        ("session_id", &result.session_id),
-                        ("run_id", &result.run_id),
-                        ("generation", &result.generation),
-                    ],
-                ))
-                .child(result.summary.clone())
-                .children(result.findings.iter().map(|finding| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .p_3()
-                        .bg(cx.theme().muted)
-                        .child(lang.format(
-                            TextKey::DetailsAiFindingHeader,
-                            &[
-                                ("severity", &format!("{:?}", finding.severity)),
-                                ("title", &finding.title),
-                                ("confidence", &finding.analysis_confidence),
-                            ],
-                        ))
-                        .child(finding.explanation.clone())
-                        .child(finding.recommendation.clone())
-                        .child(lang.format(
-                            TextKey::DetailsAiFindingEvidence,
-                            &[
-                                ("evidence_ids", &finding.evidence_ids.join(", ")),
-                                ("candidate_ids", &finding.candidate_ids.join(", ")),
-                            ],
-                        ))
-                        .children(finding.candidate_ids.iter().enumerate().map(
-                            |(index, candidate_id)| {
-                                let candidate_id = candidate_id.clone();
-                                Button::new(format!("ai-open-source-{}-{index}", finding.id))
-                                    .label(lang.text(TextKey::SourceOpenCandidate))
-                                    .disabled(busy)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        if let Some(studio) = this.studio.clone() {
-                                            studio
-                                                .update(cx, |studio, cx| {
-                                                    studio.open_source_candidate(
-                                                        candidate_id.clone(),
-                                                        window,
-                                                        cx,
-                                                    )
-                                                })
-                                                .ok();
-                                        }
-                                    }))
-                            },
-                        ))
-                }));
+        let page = page::render(self, window, cx);
+        let chrome_dialogs = dialogs::render(self, window, cx);
+        match chrome_dialogs {
+            Some(dialog) => div()
+                .relative()
+                .size_full()
+                .child(page)
+                .child(dialog)
+                .into_any_element(),
+            None => page,
         }
-        body
     }
-}
-
-/// In-window menu bar commands for the Ai workspace. Each screen publishes
-/// only the commands its own functionality supports.
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) enum AiMenuCommand {
-    Freeze,
-    SendOnce,
-    StopGeneration,
-    ClearEvidence,
 }
 
 impl crate::shell::menubar::MenuHost for AiWorkspace {
@@ -852,43 +1530,19 @@ impl crate::shell::menubar::MenuHost for AiWorkspace {
 
     fn menu_groups(
         &self,
-        _language: aps_ui_foundation::Language,
+        _language: Language,
     ) -> Vec<crate::shell::menubar::MenuGroup<Self::Command>> {
         use crate::shell::menubar::MenuGroup;
-
-        let has_prepared = self.prepared.is_some();
-        let has_sources = self
-            .prepared
-            .as_ref()
-            .is_some_and(|prepared| !prepared.source_candidates().is_empty());
-        let mut session = MenuGroup::new(TextKey::ShellMenuSession)
-            .item_when(
-                !self.busy && !self.consumed && self.request.is_some(),
-                TextKey::AiFreezeAndReviewRequest,
-                AiMenuCommand::Freeze,
-            )
-            .separator();
-        if has_prepared {
-            // Same rule as the on-page one-shot send button: the exact request
-            // is already frozen, and the user must have ticked every consent
-            // that the frozen payload requires.
-            session = session.item_when(
-                !self.busy && self.network_consent && (!has_sources || self.source_consent),
-                TextKey::AiApproveAndSendOnce,
-                AiMenuCommand::SendOnce,
-            );
-        }
-        session = session
-            .item_when(
-                self.busy || has_prepared || self.request.is_some(),
-                TextKey::AiStopGeneration,
-                AiMenuCommand::StopGeneration,
-            )
-            .item(
-                TextKey::AiClearEvidenceAndResult,
-                AiMenuCommand::ClearEvidence,
-            );
-        vec![session]
+        vec![
+            MenuGroup::new(TextKey::ShellMenuSession)
+                .item(TextKey::AiChatNewChat, AiMenuCommand::NewChat)
+                .item(
+                    TextKey::AiChatSearchConversations,
+                    AiMenuCommand::FocusSearch,
+                )
+                .separator()
+                .item(TextKey::AiChatClearEvidence, AiMenuCommand::ClearEvidence),
+        ]
     }
 
     fn run_menu_command(
@@ -898,10 +1552,9 @@ impl crate::shell::menubar::MenuHost for AiWorkspace {
         cx: &mut gpui_kit::Context<Self>,
     ) {
         match command {
-            AiMenuCommand::Freeze => self.freeze(cx),
-            AiMenuCommand::SendOnce => self.send(window, cx),
-            AiMenuCommand::StopGeneration => self.cancel(window, cx),
-            AiMenuCommand::ClearEvidence => self.close(window, cx),
+            AiMenuCommand::NewChat => self.new_chat(window, cx),
+            AiMenuCommand::FocusSearch => self.focus_search(window, cx),
+            AiMenuCommand::ClearEvidence => self.invalidate_origin(cx),
         }
     }
 }

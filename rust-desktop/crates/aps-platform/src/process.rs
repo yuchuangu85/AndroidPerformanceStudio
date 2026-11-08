@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 /// A per-stream allocation ceiling, independent of any tool's input size.
 pub const MAX_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
+/// Upper bound for an optional bounded stdin payload (for example a CLI prompt).
+pub const MAX_STDIN_LIMIT: usize = 4 * 1024 * 1024;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DRAIN_GRACE: Duration = Duration::from_millis(250);
 
@@ -42,6 +44,8 @@ pub struct ProcessRequest {
     pub timeout: Duration,
     pub stdout_limit: usize,
     pub stderr_limit: usize,
+    /// Optional bounded payload written to the child's stdin before it is closed.
+    pub stdin: Option<Vec<u8>>,
 }
 
 impl ProcessRequest {
@@ -55,7 +59,15 @@ impl ProcessRequest {
             timeout: Duration::from_secs(30),
             stdout_limit: 1024 * 1024,
             stderr_limit: 1024 * 1024,
+            stdin: None,
         }
+    }
+
+    /// Write this bounded payload to the child's stdin, then close the pipe.
+    /// The current request-lifetime pipes are closed by dropping the child.
+    pub fn stdin_bytes(mut self, bytes: impl Into<Vec<u8>>) -> Self {
+        self.stdin = Some(bytes.into());
+        self
     }
 
     pub fn arg(mut self, argument: impl AsRef<OsStr>) -> Self {
@@ -155,13 +167,24 @@ impl ProcessRunner {
         if request.stdout_limit > MAX_OUTPUT_LIMIT || request.stderr_limit > MAX_OUTPUT_LIMIT {
             return Err(ProcessError::InvalidRequest("stream limit exceeds 64 MiB"));
         }
+        if request
+            .stdin
+            .as_ref()
+            .is_some_and(|stdin| stdin.len() > MAX_STDIN_LIMIT)
+        {
+            return Err(ProcessError::InvalidRequest("stdin exceeds 4 MiB"));
+        }
         let deadline = Instant::now()
             .checked_add(request.timeout)
             .ok_or(ProcessError::InvalidRequest("timeout exceeds clock range"))?;
         let mut command = Command::new(&request.program);
         command
             .args(&request.arguments)
-            .stdin(Stdio::null())
+            .stdin(if request.stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if let Some(cwd) = &request.cwd {
@@ -187,6 +210,14 @@ impl ProcessRunner {
             .stderr
             .take()
             .expect("stderr was configured as a pipe");
+        if let Some(bytes) = request.stdin.clone() {
+            let mut stdin = child.stdin.take().expect("stdin was configured as a pipe");
+            let _ = thread::Builder::new()
+                .name("aps-stdin".into())
+                .spawn(move || {
+                    let _ = stdin.write_all(&bytes);
+                });
+        }
         let (sender, receiver) = mpsc::channel();
         let stdout_limit = request.stdout_limit;
         let stderr_limit = request.stderr_limit;

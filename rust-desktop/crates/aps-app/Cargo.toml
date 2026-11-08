@@ -36,3 +36,8 @@ tree-sitter-java.workspace = true
 tree-sitter-kotlin-ng.workspace = true
 tree-sitter-xml.workspace = true
 zip = { version = "=9.4.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSMenu", "NSMenuItem"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSProcessInfo", "NSString"] }

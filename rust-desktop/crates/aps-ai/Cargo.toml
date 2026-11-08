@@ -12,3 +12,4 @@ aps-contracts = { path = "../aps-contracts" }
 http_client = { package = "gpui-pre-http-client", version = "=0.3.11" }
 futures = "=0.3.34"
 async-io = "=2.6.0"
+rusqlite = { version = "=0.37.0", default-features = false, features = ["bundled", "limits"] }

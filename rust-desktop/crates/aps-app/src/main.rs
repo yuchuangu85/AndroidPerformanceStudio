@@ -136,7 +136,19 @@ fn unify_background_surfaces(theme: &mut Theme, surface: Hsla) {
     );
 }
 
+/// Unbundled macOS binaries take the application-menu and Dock name from the
+/// process name, which defaults to the cargo binary name. Use the project name
+/// so the system surfaces read `Android Performance Studio`.
+#[cfg(target_os = "macos")]
+fn set_macos_process_name() {
+    use objc2_foundation::{NSProcessInfo, NSString};
+    let name = NSString::from_str("Android Performance Studio");
+    NSProcessInfo::processInfo().setProcessName(&name);
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    set_macos_process_name();
     let path = settings_path();
     let (settings, notice) = match path
         .as_ref()

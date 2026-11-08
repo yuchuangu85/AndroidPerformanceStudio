@@ -204,6 +204,7 @@ dependencies = [
  "async-io",
  "futures",
  "gpui-pre-http-client",
+ "rusqlite",
 ]
 
 [[package]]
@@ -231,6 +232,9 @@ dependencies = [
  "aps-storage",
  "aps-ui-foundation",
  "gpui-kit",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "serde_json",
  "tree-sitter",
  "tree-sitter-c",

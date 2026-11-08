@@ -79,7 +79,7 @@ fn absolute_environment(key: &str) -> Option<PathBuf> {
         .filter(|path| path.is_absolute())
 }
 
-fn create_private_directory(path: &Path) -> io::Result<()> {
+pub fn create_private_directory(path: &Path) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() && !metadata.is_symlink() => return Ok(()),
         Ok(_) => {

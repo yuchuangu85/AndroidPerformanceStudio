@@ -187,6 +187,7 @@ pub struct AnalysisFinding {
     pub candidate_ids: Vec<String>,
 }
 
+#[derive(Clone)]
 pub struct AnalysisResult {
     pub session_id: String,
     pub run_id: String,

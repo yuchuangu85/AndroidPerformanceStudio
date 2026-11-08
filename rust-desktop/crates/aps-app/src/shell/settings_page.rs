@@ -4,11 +4,15 @@ use crate::studio::{self, StudioColors};
 use aps_ui_foundation::LayoutPreferences;
 use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
+    radio::Radio,
     slider::{Slider, SliderEvent, SliderState},
     switch::Switch,
 };
 const GENERAL_DROPDOWN_WIDTH: f32 = 240.;
 const GENERAL_CUSTOM_COLOR_WIDTH: f32 = 120.;
+/// Width of the custom colour value / restore-default column placed to the
+/// right of the gradient picker.
+const GENERAL_COLOR_SIDE_WIDTH: f32 = 160.;
 /// Non-linguistic color literal placeholder; never translated.
 const HEX_COLOR_PLACEHOLDER: &str = "#AARRGGBB";
 
@@ -28,6 +32,9 @@ pub(super) struct SettingsUi {
     hue: Entity<SliderState>,
     hsv: (f32, f32, f32),
     archive: Entity<SliderState>,
+    /// Simpleperf capture defaults, editable from the settings page.
+    rate: Entity<InputState>,
+    duration: Entity<InputState>,
     lsp_confirm: bool,
 }
 
@@ -150,6 +157,47 @@ impl SettingsUi {
                 }
             }),
         );
+        let rate = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(settings.capture_frequency_hz.to_string())
+                .validate(|value, _| value.len() <= 4)
+        });
+        subscriptions.push(
+            cx.subscribe_in(&rate, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = this.settings_ui.rate.read(cx).value().to_string();
+                    if let Ok(value) = text.trim().parse::<u32>() {
+                        let value = value.clamp(1, 4000);
+                        if value != this.settings.capture_frequency_hz {
+                            this.settings.capture_frequency_hz = value;
+                            this.persist_settings(window, cx);
+                        }
+                    }
+                    cx.notify();
+                }
+            }),
+        );
+        let duration = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(settings.language.text(TextKey::ShellDurationSeconds))
+                .default_value(settings.capture_duration_seconds.to_string())
+                .validate(|value, _| value.len() <= 3)
+        });
+        subscriptions.push(
+            cx.subscribe_in(&duration, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let text = this.settings_ui.duration.read(cx).value().to_string();
+                    if let Ok(value) = text.trim().parse::<u32>() {
+                        let value = value.clamp(1, 300);
+                        if value != this.settings.capture_duration_seconds {
+                            this.settings.capture_duration_seconds = value;
+                            this.persist_settings(window, cx);
+                        }
+                    }
+                    cx.notify();
+                }
+            }),
+        );
         Self {
             sdk,
             saved_sdk,
@@ -161,6 +209,8 @@ impl SettingsUi {
             hue,
             hsv,
             archive,
+            rate,
+            duration,
             lsp_confirm: false,
         }
     }
@@ -364,8 +414,8 @@ impl Studio {
             }
         });
         let presets = div()
-            .flex_1()
-            .min_w(px(130.))
+            .w(px(330.))
+            .flex_shrink_0()
             .flex()
             .flex_col()
             .gap(px(4.))
@@ -411,70 +461,92 @@ impl Studio {
                             }))
                     }))
             }));
+        // The gradient picker keeps its width; the colour value and the restore
+        // action sit in a column to its right instead of below the picker.
         let custom = div()
-            .w(px(GENERAL_CUSTOM_COLOR_WIDTH))
+            .w(px(GENERAL_CUSTOM_COLOR_WIDTH
+                + 8.
+                + GENERAL_COLOR_SIDE_WIDTH))
             .flex_shrink_0()
             .flex()
-            .flex_col()
+            .flex_row()
             .gap(px(8.))
-            .child(studio::section_title(
-                lang.text(TextKey::SettingsUiCustom),
-                &colors,
-            ))
-            .child(self.sv_picker(cx))
             .child(
                 div()
-                    .relative()
-                    .h(px(24.))
                     .w(px(GENERAL_CUSTOM_COLOR_WIDTH))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(self.sv_picker(cx))
                     .child(
                         div()
-                            .absolute()
-                            .top(px(3.))
-                            .w_full()
-                            .h(px(18.))
-                            .flex()
-                            .children((0..6).map(|segment| {
-                                div().flex_1().h_full().bg(linear_gradient(
-                                    90.,
-                                    linear_color_stop(
-                                        rgb(hsv_rgb(segment as f32 * 60., 1., 1.)),
-                                        0.,
-                                    ),
-                                    linear_color_stop(
-                                        rgb(hsv_rgb((segment + 1) as f32 * 60., 1., 1.)),
-                                        1.,
-                                    ),
-                                ))
-                            })),
-                    )
-                    .child(
-                        Slider::new(&self.settings_ui.hue)
-                            .bg(transparent_black())
-                            .text_color(rgb(0xffffff))
-                            .accessibility_label(lang.text(TextKey::SettingsUiHue)),
+                            .relative()
+                            .h(px(24.))
+                            .w(px(GENERAL_CUSTOM_COLOR_WIDTH))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top(px(3.))
+                                    .w_full()
+                                    .h(px(18.))
+                                    .flex()
+                                    .children((0..6).map(|segment| {
+                                        div().flex_1().h_full().bg(linear_gradient(
+                                            90.,
+                                            linear_color_stop(
+                                                rgb(hsv_rgb(segment as f32 * 60., 1., 1.)),
+                                                0.,
+                                            ),
+                                            linear_color_stop(
+                                                rgb(hsv_rgb((segment + 1) as f32 * 60., 1., 1.)),
+                                                1.,
+                                            ),
+                                        ))
+                                    })),
+                            )
+                            .child(
+                                Slider::new(&self.settings_ui.hue)
+                                    .bg(transparent_black())
+                                    .text_color(rgb(0xffffff))
+                                    .accessibility_label(lang.text(TextKey::SettingsUiHue)),
+                            ),
                     ),
             )
-            .child(self.color_control(0, cx))
             .child(
-                studio::text_button(
-                    "reset-accent",
-                    lang.text(TextKey::SettingsUiReset),
-                    true,
-                    false,
-                    &colors,
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.settings.accent_color = AccentColor::default();
-                    this.settings.custom_accent = None;
-                    this.sync_color(0, 0xff000000 | this.settings.accent_color.rgb(), window, cx);
-                    this.persist_settings(window, cx);
-                })),
+                div()
+                    .w(px(GENERAL_COLOR_SIDE_WIDTH))
+                    .flex_shrink_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(self.color_control(0, cx))
+                    .child(
+                        studio::text_button(
+                            "reset-accent",
+                            lang.text(TextKey::SettingsUiReset),
+                            true,
+                            false,
+                            &colors,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.settings.accent_color = AccentColor::default();
+                            this.settings.custom_accent = None;
+                            this.sync_color(
+                                0,
+                                0xff000000 | this.settings.accent_color.rgb(),
+                                window,
+                                cx,
+                            );
+                            this.persist_settings(window, cx);
+                        })),
+                    ),
             );
         page(lang.text(TextKey::CommonGeneral), &colors)
             .child(div().px(px(8.)).child(language_menu))
             .child(div().px(px(8.)).child(theme_menu))
             .child(div().px(px(8.)).child(scale_menu))
+            .child(studio::divider(&colors))
             .child(row(
                 lang.text(TextKey::SettingsUiLabels),
                 Switch::new("settings-sidebar-labels")
@@ -493,7 +565,7 @@ impl Studio {
             .child(
                 div()
                     .id("settings-accent-scroll")
-                    .w(relative(0.5))
+                    .w(relative(0.66))
                     .min_w_0()
                     .overflow_x_scroll()
                     .child(
@@ -501,8 +573,15 @@ impl Studio {
                             .flex()
                             .w_full()
                             .gap(px(12.))
-                            .min_w(px(262.))
+                            .min_w(px(660.))
                             .child(presets)
+                            .child(
+                                div()
+                                    .w(px(studio::metrics::HAIRLINE))
+                                    .self_stretch()
+                                    .flex_shrink_0()
+                                    .bg(colors.border),
+                            )
                             .child(custom),
                     ),
             )
@@ -520,7 +599,15 @@ impl Studio {
                         lang.text(TextKey::SettingsUiSdk),
                         &colors,
                     ))
-                    .child(Input::new(&self.settings_ui.sdk).disabled(self.settings_ui.sdk_busy))
+                    .child(
+                        Input::new(&self.settings_ui.sdk)
+                            .disabled(self.settings_ui.sdk_busy)
+                            .h(px(28.))
+                            .rounded(px(4.))
+                            .bg(colors.field)
+                            .border_1()
+                            .border_color(colors.border),
+                    )
                     .child(studio::supporting(
                         lang.text(TextKey::SettingsUiSdkHint),
                         &colors,
@@ -576,21 +663,6 @@ impl Studio {
                                 .child(crate::studio::selectable(error)),
                         )
                     }),
-            )
-            .child(
-                studio::card(&colors)
-                    .child(row(
-                        lang.text(TextKey::SettingsUiCpuEngine),
-                        self.rust_engine("cpu-engine", cx),
-                    ))
-                    .child(row(
-                        lang.text(TextKey::SettingsUiHarEngine),
-                        self.rust_engine("har-engine", cx),
-                    ))
-                    .child(studio::supporting(
-                        lang.text(TextKey::SettingsUiEngineHint),
-                        &colors,
-                    )),
             )
             .child(
                 studio::card(&colors)
@@ -665,19 +737,6 @@ impl Studio {
             .into_any_element()
     }
 
-    fn rust_engine(&self, id: &'static str, cx: &mut Context<Self>) -> AnyElement {
-        let label = self
-            .settings
-            .language
-            .text(TextKey::SettingsUiLegacyUnavailable);
-        dropdown(id, "Rust", cx)
-            .dropdown_menu(move |menu, _, _| {
-                menu.item(PopupMenuItem::new("Rust"))
-                    .item(PopupMenuItem::new(label).disabled(true))
-            })
-            .into_any_element()
-    }
-
     fn settings_inspector(&self, cx: &mut Context<Self>) -> AnyElement {
         let lang = self.settings.language;
         let colors = StudioColors::from_theme(cx);
@@ -740,18 +799,15 @@ impl Studio {
                         .into_iter()
                         .enumerate()
                         .map(|(index, (smallest, key))| {
-                            studio::tab_button(
-                                ("settings-hit-order", index),
-                                lang.text(key),
-                                prefs.hit_smallest == smallest,
-                                &colors,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.settings.layout.hit_smallest = smallest;
-                                    this.persist_settings(window, cx);
-                                },
-                            ))
+                            Radio::new(("settings-hit-order", index))
+                                .label(lang.text(key))
+                                .checked(prefs.hit_smallest == smallest)
+                                .on_click(cx.listener(move |this, checked: &bool, window, cx| {
+                                    if *checked {
+                                        this.settings.layout.hit_smallest = smallest;
+                                        this.persist_settings(window, cx);
+                                    }
+                                }))
                         }),
                     ),
             );
@@ -862,230 +918,329 @@ impl Studio {
             .into_any_element()
     }
 
+    /// Compose's Simpleperf settings page: one page whose six capture sections
+    /// are cards (sampling template, capture configuration, advanced parameters,
+    /// flame graph, analysis engine, user guide). Template/event/period/scope
+    /// adapters are not connected in Rust, so those controls render disabled;
+    /// the capture defaults, flame tooltip mode, engine and user guide are real.
     fn settings_simpleperf(&self, cx: &mut Context<Self>) -> AnyElement {
         let lang = self.settings.language;
         let colors = StudioColors::from_theme(cx);
         let no_target = self.targets.read(cx).selected_device().is_none()
             || self.targets.read(cx).selected_process().is_none();
-        let mut templates = studio::card(&colors).child(studio::section_title(
-            lang.text(TextKey::SettingsUiTemplates),
-            &colors,
-        ));
-        for (index, key) in [
-            TextKey::SettingsUiTemplateBasic,
-            TextKey::SettingsUiTemplateUi,
-            TextKey::SettingsUiTemplateNative,
-            TextKey::SettingsUiTemplateLow,
-            TextKey::SettingsUiTemplateSystem,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            templates = templates.child(
-                Button::new(("sampling-template", index))
-                    .ghost()
-                    .justify_start()
-                    .disabled(true)
-                    .label(lang.text(key)),
-            );
-        }
-        templates = templates.child(studio::supporting(
-            lang.text(TextKey::SettingsUiDeviceRequired),
-            &colors,
-        ));
-        let duration = self.settings.capture_duration_seconds;
-        let frequency = self.settings.capture_frequency_hz;
-        let capture = studio::card(&colors)
-            .child(studio::section_title(
-                lang.text(TextKey::SettingsUiCapture),
-                &colors,
-            ))
-            .child(row(
-                lang.text(TextKey::SettingsUiEvent),
-                dropdown("simpleperf-event", "cpu-clock", cx).disabled(true),
-            ))
-            .child(studio::supporting(
-                lang.text(TextKey::SettingsUiAvailableEvents),
-                &colors,
-            ))
-            .child(row(
-                lang.text(TextKey::SettingsUiSampling),
-                div()
-                    .flex()
-                    .gap(px(4.))
-                    .child(
-                        Button::new("sampling-frequency")
-                            .label("Frequency")
-                            .selected(true)
-                            .disabled(true),
-                    )
-                    .child(
-                        Button::new("sampling-period")
-                            .label("Period")
-                            .disabled(true),
-                    ),
-            ))
-            .child(stepper(
-                lang.text(TextKey::ShellFrequencyHz),
-                frequency,
-                Button::new("frequency-minus")
-                    .label("−")
-                    .disabled(frequency <= 1)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.settings.capture_frequency_hz =
-                            this.settings.capture_frequency_hz.saturating_sub(1).max(1);
-                        this.persist_settings(window, cx);
-                    })),
-                Button::new("frequency-plus")
-                    .label("+")
-                    .disabled(frequency >= 4000)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.settings.capture_frequency_hz =
-                            (this.settings.capture_frequency_hz + 1).min(4000);
-                        this.persist_settings(window, cx);
-                    })),
-            ))
-            .child(stepper(
-                lang.text(TextKey::ShellDurationSeconds),
-                duration,
-                Button::new("duration-minus")
-                    .label("−")
-                    .disabled(duration <= 1)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.settings.capture_duration_seconds = this
-                            .settings
-                            .capture_duration_seconds
-                            .saturating_sub(1)
-                            .max(1);
-                        this.persist_settings(window, cx);
-                    })),
-                Button::new("duration-plus")
-                    .label("+")
-                    .disabled(duration >= 300)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.settings.capture_duration_seconds =
-                            (this.settings.capture_duration_seconds + 1).min(300);
-                        this.persist_settings(window, cx);
-                    })),
-            ))
-            .when(no_target, |card| {
-                card.child(studio::supporting(
-                    lang.text(TextKey::SettingsUiDeviceRequired),
-                    &colors,
-                ))
-            });
-        let advanced = studio::card(&colors)
-            .child(studio::section_title(
-                lang.text(TextKey::SettingsUiAdvanced),
-                &colors,
-            ))
-            .child(row(
-                lang.text(TextKey::SettingsUiCallgraph),
-                div().flex().gap(px(4.)).children(
-                    ["DWARF", "Frame Pointer", "None"]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, label)| {
-                            Button::new(("callgraph", i)).label(label).disabled(true)
-                        }),
-                ),
-            ))
-            .child(row(
-                lang.text(TextKey::SettingsUiScope),
-                div().flex().gap(px(4.)).children(
-                    ["User", "Kernel", "Both"]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, label)| Button::new(("scope", i)).label(label).disabled(true)),
-                ),
-            ))
-            .child(studio::supporting(
-                lang.text(TextKey::SettingsUiDeviceRequired),
+        let follow_mouse = self.settings.simpleperf_follow_tooltip;
+        let templates = [
+            (
+                TextKey::SettingsUiTemplateBasic,
+                TextKey::SettingsUiTemplateAppCpuBasicDescription,
+            ),
+            (
+                TextKey::SettingsUiTemplateUi,
+                TextKey::SettingsUiTemplateUiThreadFocusDescription,
+            ),
+            (
+                TextKey::SettingsUiTemplateNative,
+                TextKey::SettingsUiTemplateNativeHotspotDescription,
+            ),
+            (
+                TextKey::SettingsUiTemplateLow,
+                TextKey::SettingsUiTemplateLowOverheadDescription,
+            ),
+            (
+                TextKey::SettingsUiTemplateSystem,
+                TextKey::SettingsUiTemplateSystemProcessDescription,
+            ),
+        ];
+        let mut view = page(lang.text(TextKey::CommonSimpleperf), &colors);
+        if no_target {
+            view = view.child(studio::supporting(
+                lang.text(TextKey::SettingsUiCaptureParametersConnect),
                 &colors,
             ));
-        let weak = cx.entity().downgrade();
-        let tooltip = dropdown(
-            "flame-tooltip",
-            lang.text(if self.settings.simpleperf_follow_tooltip {
-                TextKey::SettingsUiFollow
-            } else {
-                TextKey::SettingsUiFixed
-            }),
-            cx,
-        )
-        .dropdown_menu(move |menu, _, _| {
-            [
-                (false, TextKey::SettingsUiFixed),
-                (true, TextKey::SettingsUiFollow),
-            ]
-            .into_iter()
-            .fold(menu.min_w(px(200.)), |menu, (value, key)| {
-                let weak = weak.clone();
-                menu.item(
-                    PopupMenuItem::new(lang.text(key)).on_click(move |_, window, cx| {
-                        let _ = weak.update(cx, |this, cx| {
-                            this.settings.simpleperf_follow_tooltip = value;
-                            this.persist_settings(window, cx);
-                        });
-                    }),
+        }
+        view.child(
+            studio::card(&colors)
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiTemplates),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiSamplingTemplateDescription),
+                    &colors,
+                ))
+                .children(
+                    templates
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (name, description))| {
+                            template_row(
+                                ("sampling-template", index),
+                                lang.text(name),
+                                lang.text(description),
+                                false,
+                                &colors,
+                            )
+                        }),
                 )
-            })
-        });
-        page(lang.text(TextKey::CommonSimpleperf), &colors)
-            .child(templates)
-            .child(capture)
-            .child(advanced)
-            .child(
-                studio::card(&colors)
-                    .child(studio::section_title(
-                        lang.text(TextKey::SettingsUiFlame),
-                        &colors,
-                    ))
-                    .child(row(lang.text(TextKey::SettingsUiTooltip), tooltip)),
-            )
-            .child(
-                studio::card(&colors)
-                    .child(studio::section_title(
-                        lang.text(TextKey::SettingsUiAnalysis),
-                        &colors,
-                    ))
-                    .child(dropdown("simpleperf-viewer", "Local", cx).dropdown_menu(
-                        |menu, _, _| {
-                            menu.item(PopupMenuItem::new("Local"))
-                                .item(PopupMenuItem::new("Firefox Profiler Local").disabled(true))
-                                .item(PopupMenuItem::new("Firefox Profiler").disabled(true))
-                        },
-                    ))
-                    .child(studio::supporting(
-                        lang.text(TextKey::SettingsUiViewerHint),
-                        &colors,
-                    )),
-            )
-            .child(
-                studio::card(&colors)
-                    .child(studio::section_title(
-                        lang.text(TextKey::SettingsUiGuide),
-                        &colors,
-                    ))
-                    .child(studio::supporting(
-                        lang.text(TextKey::SettingsUiGuideBody),
-                        &colors,
-                    ))
-                    .child(
-                        studio::text_button(
-                            "settings-open-capture",
-                            lang.text(TextKey::SettingsUiOpenCapture),
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiAdaptersNotConnected),
+                    &colors,
+                )),
+        )
+        .child(
+            studio::card(&colors)
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiCapture),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiCaptureConfigurationDescription),
+                    &colors,
+                ))
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiEventRate),
+                    &colors,
+                ))
+                .child(field_label(lang.text(TextKey::SettingsUiEvent), &colors))
+                .child(readonly_field("cpu-clock", &colors))
+                .child(field_label(lang.text(TextKey::SettingsUiSampling), &colors))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(5.))
+                        .child(choice_chip(
+                            ("rate-mode", 0usize),
+                            lang.text(TextKey::SettingsUiFrequency),
                             true,
+                            true,
+                            &colors,
+                        ))
+                        .child(choice_chip(
+                            ("rate-mode", 1usize),
+                            lang.text(TextKey::SettingsUiPeriod),
                             false,
+                            false,
+                            &colors,
+                        )),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(field_label("Hz", &colors))
+                                .child(input_field(&self.settings_ui.rate, &colors)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(field_label(
+                                    lang.text(TextKey::SettingsUiDurationSecondsHint),
+                                    &colors,
+                                ))
+                                .child(input_field(&self.settings_ui.duration, &colors)),
+                        ),
+                )
+                .when(no_target, |card| {
+                    card.child(studio::supporting(
+                        lang.text(TextKey::SettingsUiSamplingTargetRequired),
+                        &colors,
+                    ))
+                }),
+        )
+        .child(
+            studio::card(&colors)
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiAdvanced),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiAdvancedParametersDescription),
+                    &colors,
+                ))
+                .child(field_label(
+                    lang.text(TextKey::SettingsUiCallgraph),
+                    &colors,
+                ))
+                .child(
+                    div().flex().gap(px(5.)).children(
+                        [
+                            TextKey::SettingsUiDwarf,
+                            TextKey::SettingsUiFramePointer,
+                            TextKey::SettingsUiNone,
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, key)| {
+                            choice_chip(("callgraph", index), lang.text(key), false, false, &colors)
+                        }),
+                    ),
+                )
+                .child(field_label(lang.text(TextKey::SettingsUiScope), &colors))
+                .child(
+                    div().flex().gap(px(5.)).children(
+                        [
+                            TextKey::SettingsUiUserScope,
+                            TextKey::SettingsUiKernelScope,
+                            TextKey::SettingsUiBothScope,
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, key)| {
+                            choice_chip(
+                                ("event-scope", index),
+                                lang.text(key),
+                                false,
+                                false,
+                                &colors,
+                            )
+                        }),
+                    ),
+                ),
+        )
+        .child(
+            studio::card(&colors)
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiFlame),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiFrameInformationDescription),
+                    &colors,
+                ))
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiFrameInformationBox),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiFrameInformationBehavior),
+                    &colors,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(6.))
+                        .child(
+                            choice_chip(
+                                ("tooltip-mode", 0usize),
+                                lang.text(TextKey::SettingsUiFixed),
+                                !follow_mouse,
+                                true,
+                                &colors,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    if this.settings.simpleperf_follow_tooltip {
+                                        this.settings.simpleperf_follow_tooltip = false;
+                                        this.persist_settings(window, cx);
+                                        cx.notify();
+                                    }
+                                },
+                            )),
+                        )
+                        .child(
+                            choice_chip(
+                                ("tooltip-mode", 1usize),
+                                lang.text(TextKey::SettingsUiFollow),
+                                follow_mouse,
+                                true,
+                                &colors,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    if !this.settings.simpleperf_follow_tooltip {
+                                        this.settings.simpleperf_follow_tooltip = true;
+                                        this.persist_settings(window, cx);
+                                        cx.notify();
+                                    }
+                                },
+                            )),
+                        ),
+                ),
+        )
+        .child(
+            studio::card(&colors)
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiSimpleperfEngine),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiAnalysisEngineDescription),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiAnalysisEngineOptions),
+                    &colors,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(6.))
+                        .child(
+                            choice_chip(
+                                ("engine", 0usize),
+                                lang.text(TextKey::SettingsUiNewEngine),
+                                true,
+                                true,
+                                &colors,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    if this.settings.simpleperf_viewer_engine != 0 {
+                                        this.settings.simpleperf_viewer_engine = 0;
+                                        this.persist_settings(window, cx);
+                                        cx.notify();
+                                    }
+                                },
+                            )),
+                        )
+                        .child(choice_chip(
+                            ("engine", 1usize),
+                            lang.text(TextKey::SettingsUiFirefoxLocalEngine),
+                            false,
+                            false,
+                            &colors,
+                        ))
+                        .child(choice_chip(
+                            ("engine", 2usize),
+                            lang.text(TextKey::SettingsUiFirefoxEngine),
+                            false,
+                            false,
+                            &colors,
+                        )),
+                ),
+        )
+        .child(
+            studio::card(&colors)
+                .child(studio::section_title(
+                    lang.text(TextKey::SettingsUiGuide),
+                    &colors,
+                ))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiUserGuideDescription),
+                    &colors,
+                ))
+                .child(
+                    div().flex().child(
+                        studio::text_button(
+                            "open-user-guide",
+                            lang.text(TextKey::SettingsUiOpenUserGuideBrowser),
+                            true,
+                            true,
                             &colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.destination = Destination::Capture;
-                            cx.notify();
+                            match crate::user_guide::url(this.settings.language) {
+                                Ok(url) => cx.open_url(&url),
+                                Err(error) => eprintln!("User guide unavailable: {error}"),
+                            }
                         })),
                     ),
-            )
-            .into_any_element()
+                ),
+        )
+        .into_any_element()
     }
 
     fn settings_about(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1137,10 +1292,15 @@ impl Studio {
                             .bg(rgba_argb(current)),
                     )
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(100.))
-                            .child(Input::new(&self.settings_ui.colors[index])),
+                        div().flex_1().min_w(px(100.)).max_w(px(200.)).child(
+                            Input::new(&self.settings_ui.colors[index])
+                                .w_full()
+                                .h(px(28.))
+                                .rounded(px(4.))
+                                .bg(colors.field)
+                                .border_1()
+                                .border_color(colors.border),
+                        ),
                     ),
             )
             .when(self.settings_ui.color_error == Some(index), |element| {
@@ -1424,23 +1584,131 @@ fn dropdown(id: impl Into<ElementId>, label: impl Into<SharedString>, cx: &App) 
         .border_color(cx.theme().border)
         .label(label)
 }
-fn stepper(label: &str, value: u32, minus: Button, plus: Button) -> AnyElement {
-    row(
-        label,
-        div()
-            .flex()
-            .w(px(320.))
-            .items_center()
-            .gap(px(8.))
-            .child(minus)
-            .child(
-                div()
-                    .w(px(64.))
-                    .text_center()
-                    .child(crate::studio::selectable(value.to_string())),
-            )
-            .child(plus),
-    )
+/// Compose-style choice chip: a compact rounded option whose accent border and
+/// selected-row fill mark the active value; disabled options keep muted text.
+fn choice_chip(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    selected: bool,
+    enabled: bool,
+    colors: &StudioColors,
+) -> Button {
+    Button::new(id)
+        .h(px(24.))
+        .px(px(8.))
+        .rounded(px(5.))
+        .border_1()
+        .border_color(if selected {
+            colors.accent
+        } else {
+            colors.border
+        })
+        .bg(if selected {
+            colors.selected_row
+        } else {
+            colors.field
+        })
+        .text_color(if enabled {
+            colors.text
+        } else {
+            colors.muted_text
+        })
+        .label(label)
+        .disabled(!enabled)
+}
+
+/// Small muted label above a Compose-style text field.
+fn field_label(label: impl Into<SharedString>, colors: &StudioColors) -> Div {
+    div()
+        .text_size(px(11.))
+        .text_color(colors.muted_text)
+        .child(label.into())
+}
+
+/// Framed read-only value that mirrors a disabled Compose text field.
+fn readonly_field(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
+    let text = text.into();
+    div()
+        .h(px(28.))
+        .w_full()
+        .flex()
+        .items_center()
+        .px(px(8.))
+        .rounded(px(4.))
+        .bg(colors.field)
+        .border_1()
+        .border_color(colors.border)
+        .text_color(colors.muted_text)
+        .child(text)
+}
+
+/// Framed editable text field used by the capture parameters.
+fn input_field(input: &Entity<InputState>, colors: &StudioColors) -> AnyElement {
+    Input::new(input)
+        .w_full()
+        .h(px(28.))
+        .rounded(px(4.))
+        .bg(colors.field)
+        .border_1()
+        .border_color(colors.border)
+        .into_any_element()
+}
+
+/// One sampling-template row: a selection dot plus the template name and its
+/// Compose description. Disabled rows keep the Compose no-target appearance.
+fn template_row(
+    id: impl Into<ElementId>,
+    name: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    enabled: bool,
+    colors: &StudioColors,
+) -> impl IntoElement {
+    let name = name.into();
+    let description = description.into();
+    let name_color = if enabled {
+        colors.text
+    } else {
+        colors.muted_text
+    };
+    div()
+        .id(id)
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .px(px(9.))
+        .py(px(6.))
+        .rounded(px(6.))
+        .bg(colors.field)
+        .border_1()
+        .border_color(colors.border)
+        .child(
+            div()
+                .size(px(8.))
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(colors.border),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .min_w_0()
+                .child(
+                    div()
+                        .line_height(px(18.))
+                        .text_color(name_color)
+                        .child(name),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .line_height(px(15.))
+                        .text_color(colors.muted_text)
+                        .child(description),
+                ),
+        )
 }
 fn parse_argb(value: &str, short: bool) -> Option<u32> {
     let value = value.trim().strip_prefix('#').unwrap_or(value.trim());
@@ -1549,6 +1817,121 @@ fn save_sdk(path: &Path, value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Theme colour: no "Custom color" heading, and the value/restore controls
+    /// sit in a column right of the picker, separated from the presets.
+    #[::core::prelude::v1::test]
+    fn theme_color_layout_moves_value_and_reset_to_the_right() {
+        let implementation = include_str!("settings_page.rs");
+        let general = implementation
+            .split("fn settings_general(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_configuration(")
+            .next()
+            .unwrap();
+        assert!(!general.contains("SettingsUiCustom"));
+        assert!(general.contains("GENERAL_COLOR_SIDE_WIDTH"));
+        assert!(general.contains(".self_stretch()"));
+        assert!(general.matches("studio::divider(&colors)").count() >= 2);
+    }
+
+    /// Colour value fields (Canvas border colours and the custom accent) render
+    /// inside a visible field frame instead of bare text.
+    #[::core::prelude::v1::test]
+    fn color_value_fields_use_a_visible_frame() {
+        let implementation = include_str!("settings_page.rs");
+        let control = implementation
+            .split("fn color_control(")
+            .nth(1)
+            .unwrap()
+            .split("fn ")
+            .next()
+            .unwrap();
+        assert!(control.contains("Input::new(&self.settings_ui.colors[index])"));
+        assert!(control.contains(".bg(colors.field)"));
+        assert!(control.contains(".border_color(colors.border)"));
+    }
+
+    /// The hit-test order options are a radio group, not tab buttons.
+    #[::core::prelude::v1::test]
+    fn hit_order_options_use_radio_buttons() {
+        let implementation = include_str!("settings_page.rs");
+        let section = implementation
+            .split("TextKey::SettingsUiHitOrder")
+            .nth(1)
+            .unwrap()
+            .split("TextKey::SettingsUiBorderColors")
+            .next()
+            .unwrap();
+        assert!(section.contains("Radio::new"));
+        assert!(!section.contains("tab_button"));
+    }
+
+    /// The Simpleperf settings page mirrors Compose's one-page card layout.
+    #[::core::prelude::v1::test]
+    fn simpleperf_settings_page_mirrors_compose_sections() {
+        let implementation = include_str!("settings_page.rs");
+        let page = implementation
+            .split("fn settings_simpleperf(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_about(")
+            .next()
+            .unwrap();
+        for key in [
+            "SettingsUiTemplates",
+            "SettingsUiSamplingTemplateDescription",
+            "SettingsUiCapture",
+            "SettingsUiCaptureConfigurationDescription",
+            "SettingsUiAdvanced",
+            "SettingsUiAdvancedParametersDescription",
+            "SettingsUiFlame",
+            "SettingsUiFrameInformationBox",
+            "SettingsUiSimpleperfEngine",
+            "SettingsUiAnalysisEngineOptions",
+            "SettingsUiGuide",
+            "SettingsUiUserGuideDescription",
+            "SettingsUiEventRate",
+            "SettingsUiDurationSecondsHint",
+            "SettingsUiFixed",
+            "SettingsUiFollow",
+            "SettingsUiNewEngine",
+            "SettingsUiDwarf",
+            "SettingsUiBothScope",
+        ] {
+            assert!(page.contains(key), "missing Compose section content: {key}");
+        }
+        assert!(page.contains("template_row("));
+        assert!(page.contains("choice_chip("));
+        assert!(page.contains("input_field("));
+        assert!(page.contains("open-user-guide"));
+        assert!(!page.contains("stepper("));
+    }
+
+    /// The Configuration page has no engine selectors: Rust is the only engine,
+    /// so both the CPU analysis engine and the HAR import engine rows are gone.
+    #[::core::prelude::v1::test]
+    fn configuration_page_has_no_engine_rows() {
+        let implementation = include_str!("settings_page.rs");
+        let configuration = implementation
+            .split("fn settings_configuration(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_inspector(")
+            .next()
+            .unwrap();
+        assert!(!configuration.contains("SettingsUiCpuEngine"));
+        assert!(!configuration.contains("SettingsUiHarEngine"));
+        assert!(!configuration.contains("rust_engine"));
+        // The remaining configuration cards stay in place.
+        assert!(configuration.contains("SettingsUiSdk"));
+        assert!(configuration.contains("SettingsUiSemanticNavigation"));
+        // The SDK path field is framed with the shared field colours.
+        assert!(configuration.contains(".bg(colors.field)"));
+        assert!(configuration.contains(".border_color(colors.border)"));
+    }
+
     #[::core::prelude::v1::test]
     fn general_controls_keep_requested_compact_widths() {
         assert_eq!(GENERAL_DROPDOWN_WIDTH, 320. * 0.75);
@@ -1562,7 +1945,10 @@ mod tests {
             .next()
             .unwrap();
         assert_eq!(general.matches(".w(px(GENERAL_DROPDOWN_WIDTH))").count(), 3);
-        assert!(general.contains(".w(relative(0.5))"));
+        assert!(general.contains(".w(relative(0.66))"));
+        // The preset grid keeps a stable width so the wider custom column does
+        // not squeeze the swatch labels.
+        assert!(general.contains(".w(px(330.))"));
         let picker = implementation
             .split("fn sv_picker(")
             .nth(1)

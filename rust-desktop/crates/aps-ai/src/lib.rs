@@ -2,17 +2,37 @@
 //! credential persistence, arbitrary tools or unrestricted script execution.
 mod approval;
 mod catalog;
+mod chat;
+mod claude;
+pub mod conversation;
 mod model;
 mod persistence;
+pub mod platform;
+mod report;
+mod responses;
+pub mod runtime;
 mod sse;
 mod transport;
 
 pub use approval::{Approval, ApprovalScope, AuthorizedRun, PreparedRun, RunCoordinator};
 pub use catalog::{CredentialReference, ModelDescriptor, ProviderCatalog, ProviderConfig};
+pub use conversation::{
+    ChatMetadata, ChatTurnRecord, ConversationRecord, ConversationStore, ConversationTurn,
+    StoredChatTurn, StoredFinding, StoredResult, TranscriptTurn,
+};
 pub use model::{
     AnalysisFinding, AnalysisRequest, AnalysisResult, Evidence, FindingSeverity, SourceCandidate,
 };
 pub use persistence::{AUDIT_FILE_NAME, AuditRecord, AuditState, SessionStore};
+pub use platform::catalog::{
+    ModelCatalogError, claude_models_url, discover as discover_models, openai_models_url,
+};
+pub use platform::import::{ImportedConfig, LocalImportFailure, import_local_config};
+pub use platform::{
+    AgentDescriptor, AiPreferences, AiSecret, AiSecretStore, AiSettingsStore, BUILTIN_AGENTS,
+    CachedCatalog, ConnectionConfig, CredentialError, CredentialKind, ModelCatalogCache,
+    ProviderKind, ReportFormat, ReportLanguage, SettingsError,
+};
 pub use sse::{SseDecoder, StreamEvent, StreamLimits};
 pub use transport::{CredentialResolver, OneShotCredential, OpenAiGateway, SecretCredential};
 
