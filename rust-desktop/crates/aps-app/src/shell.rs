@@ -929,11 +929,13 @@ impl Studio {
     }
     /// Opens the bundled user documentation in the default browser.
     fn open_user_guide(&mut self, cx: &mut Context<Self>) {
-        let Some(path) = user_guide_path(self.settings.language) else {
-            return;
-        };
-        let url = format!("file://{}", path.display()).replace(' ', "%20");
-        cx.open_url(&url);
+        // A file:// page cannot load the docsify bundle: it requests markdown with
+        // an absolute basePath and browsers block XHR from file://. Serve the tree
+        // from loopback instead, matching the Compose launcher.
+        match crate::user_guide::url(self.settings.language) {
+            Ok(url) => cx.open_url(&url),
+            Err(error) => eprintln!("User guide unavailable: {error}"),
+        }
     }
 
     /// IDEA Recent Files (Cmd+E): opens the newest listed session of the active

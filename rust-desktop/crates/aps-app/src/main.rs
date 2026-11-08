@@ -15,6 +15,7 @@ mod source;
 mod studio;
 mod targets;
 mod trace;
+mod user_guide;
 
 use aps_ui_foundation::{Settings, ThemeMode as StudioTheme, typography};
 use gpui_kit::{
