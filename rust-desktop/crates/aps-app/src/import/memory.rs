@@ -41,7 +41,7 @@ impl ImportWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let colors = widgets::memory_colors(cx);
+        let colors = studio::StudioColors::from_theme(cx);
         let mut root = div()
             .id("memory-profiler-workspace")
             .size_full()

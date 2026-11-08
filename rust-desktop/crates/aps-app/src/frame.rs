@@ -7,6 +7,7 @@
 //! approval flow.
 
 mod ai;
+mod analysis_json;
 mod artifact;
 mod capture;
 mod export;
@@ -254,6 +255,13 @@ impl FrameWorkspace {
             cx,
             |this, path, cx| this.import_frame_stats(path, cx),
         );
+    }
+
+    /// Debug-only verification seam: opens an exported frame-analysis.json on
+    /// launch without driving the native file picker.
+    #[cfg(debug_assertions)]
+    pub(crate) fn import_debug_analysis_json(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.import_frame_stats(path, cx);
     }
 
     pub(crate) fn pick_import_perfetto(&mut self, cx: &mut Context<Self>) {
@@ -1059,9 +1067,19 @@ fn import_frame_stats_blocking(
     }
     let text = std::fs::read_to_string(&path)
         .map_err(|_| "FrameStats input must be bounded UTF-8 text".to_owned())?;
-    let package_name = Some("imported".to_owned());
-    let parsed = aps_frame::parse_gfxinfo(&text, &session_id, package_name.as_deref(), true)?;
-    if parsed.frames.is_empty() {
+    // File > Open accepts both a gfxinfo FrameStats capture and this app's own
+    // exported frame-analysis.json report (Compose schemaVersion 3).
+    let exported = analysis_json::looks_like_export(&text);
+    let (frames, parse_warnings, package_name) = if exported {
+        let frames = analysis_json::parse_export(&text, &session_id)?;
+        let package = frames.iter().find_map(|frame| frame.package_name.clone());
+        (frames, Vec::new(), package)
+    } else {
+        let package = Some("imported".to_owned());
+        let parsed = aps_frame::parse_gfxinfo(&text, &session_id, package.as_deref(), true)?;
+        (parsed.frames, parsed.warnings, package)
+    };
+    if frames.is_empty() {
         return Err(format!(
             "No usable frame rows were found in {}.",
             path.file_name()
@@ -1076,9 +1094,16 @@ fn import_frame_stats_blocking(
         .to_owned();
     let sha256 = sha256_hex(&path)?;
     let started_at_unix_ms = now_unix_ms();
+    let session_source = if exported {
+        frames
+            .first()
+            .map_or(FrameSource::Gfxinfo, |frame| frame.source)
+    } else {
+        FrameSource::Gfxinfo
+    };
     let session = FrameCaptureSession {
         id: session_id,
-        source: FrameSource::Gfxinfo,
+        source: session_source,
         started_at_unix_ms,
         package_name,
         device_serial: None,
@@ -1086,19 +1111,20 @@ fn import_frame_stats_blocking(
         agent_protocol: None,
         source_capabilities: Some(FrameSourceCapabilities {
             realtime: false,
-            stage_breakdown: parsed
-                .frames
-                .iter()
-                .any(|frame| !frame.stages.values().is_empty()),
-            platform_jank_classification: false,
-            expected_frame_deadline: parsed
-                .frames
+            stage_breakdown: frames.iter().any(|frame| !frame.stages.values().is_empty()),
+            platform_jank_classification: exported
+                && frames.iter().any(|frame| {
+                    frame.platform_jank.is_some() || !frame.platform_jank_types.is_empty()
+                }),
+            expected_frame_deadline: frames
                 .iter()
                 .any(|frame| frame.expected_duration_ns.is_some()),
-            app_state_labels: false,
+            app_state_labels: exported
+                && frames
+                    .iter()
+                    .any(|frame| !frame.states.is_empty() || frame.interaction_state.is_some()),
         }),
-        observed_refresh_rates_hz: parsed
-            .frames
+        observed_refresh_rates_hz: frames
             .iter()
             .filter_map(|frame| frame.refresh_rate_hz)
             .collect(),
@@ -1106,23 +1132,31 @@ fn import_frame_stats_blocking(
         imported_file_sha256: Some(sha256),
         imported_at_unix_ms: Some(started_at_unix_ms),
         provenance_complete: false,
-        provenance_warnings: vec![
-            "The imported framestats file does not identify its device or Android API level."
-                .to_owned(),
-        ],
+        provenance_warnings: if exported {
+            vec![
+                "The imported frame-analysis.json does not identify its device or Android API level."
+                    .to_owned(),
+                "The exported frame rows were re-analyzed by the current analyzer; the exported summary was not used."
+                    .to_owned(),
+            ]
+        } else {
+            vec![
+                "The imported framestats file does not identify its device or Android API level."
+                    .to_owned(),
+            ]
+        },
         perfetto_trace_file: None,
         artifact: None,
     };
-    let analysis = FrameJankAnalyzer::default().analyze(&parsed.frames);
-    let warnings = parsed
-        .warnings
+    let analysis = FrameJankAnalyzer::default().analyze(&frames);
+    let warnings = parse_warnings
         .into_iter()
         .chain(session.provenance_warnings.clone())
         .collect();
     Ok(LoadedFrameStats {
         analysis,
         session,
-        frames: parsed.frames,
+        frames,
         warnings,
         file_name,
         trace_path: None,
@@ -1413,5 +1447,137 @@ impl FrameWorkspace {
 
     pub(crate) fn inspect_layout_primary(&mut self, cx: &mut Context<Self>) {
         self.inspect_layout(cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aps_frame::ExpectedDurationSource;
+    use aps_frame::model::FrameStages;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "aps-frame-import-{}-{}",
+                std::process::id(),
+                NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn sample() -> FrameSample {
+        FrameSample {
+            frame_id: 1,
+            session_id: "session-1".into(),
+            source: FrameSource::Gfxinfo,
+            package_name: Some("com.example.app".into()),
+            process_id: Some(4242),
+            activity_name: Some("MainActivity".into()),
+            window_id: Some("window:1".into()),
+            intended_vsync_ns: Some(16_666_667),
+            actual_vsync_ns: Some(16_666_667),
+            frame_completed_ns: None,
+            present_ns: None,
+            expected_duration_ns: Some(16_666_667),
+            expected_duration_source: ExpectedDurationSource::FrameInterval,
+            refresh_rate_hz: Some(60.0),
+            frame_timeline_vsync_id: None,
+            total_duration_ns: Some(20_000_000),
+            stages: FrameStages {
+                draw_ns: Some(8_000_000),
+                ..FrameStages::default()
+            },
+            platform_jank: None,
+            platform_jank_types: BTreeSet::new(),
+            platform_jank_rule_id: None,
+            platform_jank_rule_version: None,
+            states: BTreeMap::from([("screen".to_owned(), "feed".to_owned())]),
+            eligible_for_jank: true,
+            dropped_before_sample: 0,
+            layout_snapshot_id: None,
+            fragment_name: None,
+            page_name: None,
+            interaction_state: None,
+            render_thread_name: None,
+            surface_flinger_jank_type: None,
+            jank_stats_jank: None,
+            jank_stats_reasons: BTreeSet::new(),
+            jank_stats_rule_id: None,
+            jank_stats_rule_version: None,
+        }
+    }
+
+    fn exported(directory: &Path) -> PathBuf {
+        let analysis = FrameJankAnalyzer::default().analyze(&[sample()]);
+        let path = directory.join("frame-analysis.json");
+        export::export_json(&analysis, &path).unwrap();
+        path
+    }
+
+    #[::core::prelude::v1::test]
+    fn open_accepts_the_exported_analysis_report() {
+        let directory = TestDirectory::new();
+        let path = exported(directory.path());
+        let loaded = import_frame_stats_blocking(path, "frame-import-test".into()).unwrap();
+        assert_eq!(loaded.analysis.frames.len(), 1);
+        assert_eq!(loaded.frames.len(), 1);
+        assert_eq!(loaded.frames[0].session_id, "frame-import-test");
+        assert_eq!(loaded.file_name, "frame-analysis.json");
+        assert!(loaded.session.imported_file_sha256.is_some());
+        assert_eq!(loaded.session.source, FrameSource::Gfxinfo);
+        assert!(
+            loaded
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("re-analyzed"))
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn open_rejects_an_unsupported_report_version() {
+        let directory = TestDirectory::new();
+        let path = directory.path().join("frame-analysis.json");
+        std::fs::write(&path, "{\"schemaVersion\": 2, \"frames\": []}").unwrap();
+        let error = match import_frame_stats_blocking(path, "frame-import-test".into()) {
+            Ok(_) => panic!("an unsupported report version must fail closed"),
+            Err(error) => error,
+        };
+        assert!(error.contains("Unsupported frame-analysis.json schema version 2"));
+    }
+
+    const FRAMESTATS: &str = r"---PROFILEDATA---
+Flags,IntendedVsync,Vsync,HandleInputStart,AnimationStart,PerformTraversalsStart,DrawStart,FrameDeadline,FrameInterval,SyncQueued,SyncStart,IssueDrawCommandsStart,SwapBuffers,FrameCompleted,GpuCompleted,DisplayPresentTime
+0,100000000,100000000,101000000,102000000,103000000,105000000,108333333,8333333,106000000,106500000,107000000,108000000,110000000,111000000,110000000
+---PROFILEDATA---";
+
+    #[::core::prelude::v1::test]
+    fn open_still_accepts_gfxinfo_frame_stats_text() {
+        let directory = TestDirectory::new();
+        let path = directory.path().join("framestats.txt");
+        std::fs::write(&path, FRAMESTATS).unwrap();
+        let loaded = import_frame_stats_blocking(path, "frame-import-test".into()).unwrap();
+        assert_eq!(loaded.analysis.frames.len(), 1);
+        assert_eq!(loaded.session.source, FrameSource::Gfxinfo);
+        assert_eq!(loaded.warnings.len(), 1);
+        assert!(loaded.warnings[0].contains("framestats file"));
     }
 }

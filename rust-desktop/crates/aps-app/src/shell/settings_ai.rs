@@ -287,8 +287,20 @@ fn ai_models_match_endpoints(view: &AiDraftView) -> bool {
     view.models_endpoints
         .as_ref()
         .is_some_and(|(endpoint, models_endpoint)| {
-            endpoint == &view.endpoint_value && models_endpoint == &view.models_endpoint_value
+            endpoint.trim() == view.endpoint_value.trim()
+                && models_endpoint.trim() == view.models_endpoint_value.trim()
         })
+}
+
+/// Compose refresh enablement: an endpoint plus a stored credential, an imported
+/// secret held by the runtime, or a key typed for this connection.
+fn ai_refresh_enabled(
+    endpoint: &str,
+    configured: bool,
+    imported_secret: bool,
+    api_key: &str,
+) -> bool {
+    !endpoint.trim().is_empty() && (configured || imported_secret || !api_key.trim().is_empty())
 }
 
 fn ai_models_selectable(view: &AiDraftView) -> bool {
@@ -533,7 +545,7 @@ impl Studio {
         };
         if auto_refresh {
             let selected = cx.global::<AiSettingsUiState>().0.selected;
-            self.ai_refresh_models(selected, true, cx);
+            self.ai_refresh_models(selected, cx);
         }
     }
 
@@ -640,20 +652,17 @@ impl Studio {
             .map(|runtime| runtime.preferences().active_provider)
             .unwrap_or(selected);
 
-        let import_button = if selected.saves_locally() {
-            Some(
-                studio::text_button(
-                    "ai-connection-import",
-                    language.text(TextKey::AiSettingsReadLocalConfig),
-                    !disabled,
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.ai_import_config(selected, cx))),
-            )
-        } else {
-            None
-        };
+        // Every Provider reads its own local static configuration source: Codex
+        // and Claude from their own files, the OpenAI-compatible Custom
+        // connection from the gateway declared in the local Codex configuration.
+        let import_button = studio::text_button(
+            "ai-connection-import",
+            language.text(TextKey::AiSettingsReadLocalConfig),
+            !disabled,
+            false,
+            colors,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| this.ai_import_config(selected, cx)));
         let mut card = studio::card(colors);
         if !runtime_available {
             card = card.child(error_line(
@@ -671,7 +680,7 @@ impl Studio {
                     ai_provider_label(selected, language),
                     colors,
                 ))
-                .children(import_button),
+                .child(import_button),
         );
         if let Some(import) = view.import {
             match import {
@@ -739,12 +748,15 @@ impl Studio {
         card = card.child(studio::supporting(
             language.text(if configured {
                 TextKey::AiSettingsCredentialConfigured
+            } else if view.imported_secret {
+                TextKey::AiSettingsImportedCredentialPending
             } else {
                 TextKey::AiSettingsCredentialMissing
             }),
             colors,
         ));
-        if !configured && view.key_value.trim().is_empty() {
+        // An imported secret is pending inside the runtime, not a missing credential.
+        if !configured && !view.imported_secret && view.key_value.trim().is_empty() {
             card = card.child(error_line(
                 language.text(TextKey::AiSettingsCredentialRequired),
                 colors,
@@ -788,34 +800,37 @@ impl Studio {
                     })
             });
         let refresh_enabled = !disabled
-            && !view.endpoint_value.trim().is_empty()
-            && (configured || !view.key_value.trim().is_empty());
-        card =
-            card.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(model_picker)
-                    .child(
-                        studio::text_button(
-                            "ai-refresh-models",
-                            language.text(TextKey::AiSettingsRefreshModels),
-                            refresh_enabled,
-                            false,
-                            colors,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.ai_refresh_models(selected, true, cx)
-                        })),
-                    )
-                    .when(view.models_loading, |row| {
-                        row.child(studio::supporting(
-                            language.text(TextKey::AiSettingsModelsLoading),
-                            colors,
-                        ))
-                    }),
+            && ai_refresh_enabled(
+                &view.endpoint_value,
+                configured,
+                view.imported_secret,
+                &view.key_value,
             );
+        card = card.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(model_picker)
+                .child(
+                    studio::text_button(
+                        "ai-refresh-models",
+                        language.text(TextKey::AiSettingsRefreshModels),
+                        refresh_enabled,
+                        false,
+                        colors,
+                    )
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.ai_refresh_models(selected, cx)),
+                    ),
+                )
+                .when(view.models_loading, |row| {
+                    row.child(studio::supporting(
+                        language.text(TextKey::AiSettingsModelsLoading),
+                        colors,
+                    ))
+                }),
+        );
         if models_match {
             if let Some(code) = view.models_error.clone() {
                 card = card.child(error_line(
@@ -862,16 +877,18 @@ impl Studio {
         }
         card = card
             .child(
-                studio::text_button(
-                    "ai-connection-save",
-                    language.text(TextKey::AiSettingsSaveApply),
-                    save_ready,
-                    true,
-                    colors,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.ai_save_connection(selected, window, cx)
-                })),
+                div().flex().child(
+                    studio::text_button(
+                        "ai-connection-save",
+                        language.text(TextKey::AiSettingsSaveApply),
+                        save_ready,
+                        true,
+                        colors,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.ai_save_connection(selected, window, cx)
+                    })),
+                ),
             )
             .child(studio::supporting(
                 language.text(TextKey::AiSettingsConnectionNote),
@@ -961,7 +978,31 @@ impl Studio {
                     ),
                     colors,
                 ));
+            // Every agent keeps a visible single-select control; unchecked
+            // options draw an empty circle. Chat-only agents are automatic, so
+            // their unchecked control is a muted outline rather than a radio that
+            // could claim the active slot.
             if chat_only {
+                card = card.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .size(px(14.))
+                                .flex_shrink_0()
+                                .rounded_full()
+                                .border_1()
+                                .border_color(colors.muted_text),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(typography::BODY))
+                                .text_color(colors.muted_text)
+                                .child(language.text(TextKey::AiSettingsAgentActive)),
+                        ),
+                );
                 card = card.child(studio::supporting(
                     language.text(TextKey::AiSettingsAgentChatOnly),
                     colors,
@@ -1338,8 +1379,18 @@ impl Studio {
         if !cx.has_global::<AiSettingsUiState>() {
             return;
         }
+        let current_endpoint = cx
+            .global::<AiSettingsUiState>()
+            .0
+            .draft(kind)
+            .endpoint
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
         let mut updates: Vec<(Entity<InputState>, String)> = Vec::new();
         let mut clear_key: Option<Entity<InputState>> = None;
+        let mut imported_secret = false;
         {
             let state = &mut cx.global_mut::<AiSettingsUiState>().0;
             let draft = state.draft_mut(kind);
@@ -1359,11 +1410,19 @@ impl Studio {
                     draft.import = Some(ImportStatus::Imported {
                         has_secret: imported.has_secret,
                     });
+                    imported_secret = imported.has_secret;
+                    let mut clear_models_endpoint = false;
                     if let Some(endpoint) = imported.endpoint {
+                        // The model-list endpoint must share the API origin, so a
+                        // different imported endpoint invalidates it.
+                        clear_models_endpoint = endpoint.trim() != current_endpoint;
                         updates.push((draft.endpoint.clone(), endpoint));
                     }
                     if let Some(model) = imported.model {
                         updates.push((draft.model.clone(), model));
+                    }
+                    if clear_models_endpoint {
+                        updates.push((draft.models_endpoint.clone(), String::new()));
                     }
                     // An imported endpoint never borrows another connection secret.
                     clear_key = Some(draft.api_key.clone());
@@ -1380,23 +1439,32 @@ impl Studio {
         for (input, value) in updates {
             input.update(cx, |input, cx| input.set_value(value, window, cx));
         }
+        // Compose refreshes the catalog right after an import that carried a
+        // credential, so the model list is usable before the connection is saved.
+        if imported_secret {
+            self.ai_refresh_models(kind, cx);
+        }
         cx.notify();
     }
 
-    fn ai_refresh_models(&mut self, kind: ProviderKind, refresh: bool, cx: &mut Context<Self>) {
+    fn ai_refresh_models(&mut self, kind: ProviderKind, cx: &mut Context<Self>) {
         let Some(runtime) = self.ai_runtime(cx) else {
             return;
         };
         if !cx.has_global::<AiSettingsUiState>() {
             return;
         }
-        let (generation, endpoint, models_endpoint) = {
+        // The settings page owns the draft: discovery uses the visible endpoint
+        // pair, credential kind and typed key, never the saved connection alone.
+        let (generation, endpoint, models_endpoint, credential_kind, api_key) = {
             let state = cx.global::<AiSettingsUiState>();
             let draft = state.0.draft(kind);
             (
                 draft.generation,
-                draft.endpoint.read(cx).value().to_string(),
-                draft.models_endpoint.read(cx).value().to_string(),
+                draft.endpoint.read(cx).value().trim().to_owned(),
+                draft.models_endpoint.read(cx).value().trim().to_owned(),
+                draft.credential_kind,
+                draft.api_key.read(cx).value().trim().to_owned(),
             )
         };
         let generation = {
@@ -1413,7 +1481,15 @@ impl Studio {
         };
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.load_models(kind, refresh).await;
+            let result = runtime
+                .load_draft_models(
+                    kind,
+                    &endpoint,
+                    &models_endpoint,
+                    credential_kind,
+                    (!api_key.is_empty()).then_some(api_key.as_str()),
+                )
+                .await;
             let _ = this.update(cx, |studio, cx| {
                 studio.ai_finish_models(kind, generation, endpoint, models_endpoint, result, cx);
             });
@@ -1570,6 +1646,7 @@ impl Studio {
             match result {
                 Ok(()) => {
                     draft.import = None;
+                    draft.imported_secret = false;
                     draft.save_error = None;
                     Some(draft.api_key.clone())
                 }
@@ -1954,9 +2031,55 @@ mod tests {
         let source = include_str!("settings_ai.rs");
         assert!(source.contains("runtime.save_connection("));
         assert!(source.contains("runtime.import_local_config("));
-        assert!(source.contains("runtime.load_models(kind, refresh)"));
+        // Settings discovery uses the visible draft, never the saved connection.
+        assert!(source.contains("runtime.load_draft_models("));
+        assert!(!source.contains(concat!("runtime.load", "_models(")));
         assert!(source.contains("runtime.retain_history("));
         assert!(source.contains("runtime.update_preferences("));
         assert!(!source.contains(concat!("AiSecret", "Store")));
+    }
+
+    #[::core::prelude::v1::test]
+    fn every_provider_exposes_local_configuration_import() {
+        let source = include_str!("settings_ai.rs");
+        // No provider is excluded: the OpenAI-compatible Custom connection reads
+        // the gateway declared in the local Codex configuration.
+        assert!(!source.contains(concat!("saves", "_locally")));
+        assert!(source.contains("TextKey::AiSettingsReadLocalConfig"));
+        assert!(source.contains("\"ai-connection-import\""));
+        // A different imported endpoint invalidates the previous model-list endpoint.
+        assert!(source.contains("clear_models_endpoint"));
+        // An import that carried a credential refreshes the catalog immediately.
+        assert!(source.contains("if imported_secret {"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn refresh_requires_an_endpoint_and_a_usable_credential() {
+        assert!(ai_refresh_enabled(
+            "https://api.example/v1",
+            true,
+            false,
+            ""
+        ));
+        assert!(ai_refresh_enabled(
+            "https://api.example/v1",
+            false,
+            true,
+            ""
+        ));
+        assert!(ai_refresh_enabled(
+            "https://api.example/v1",
+            false,
+            false,
+            "sk-key"
+        ));
+        // No endpoint, or no stored/imported/typed credential, still blocks it.
+        assert!(!ai_refresh_enabled("  ", true, true, "sk-key"));
+        assert!(!ai_refresh_enabled(
+            "https://api.example/v1",
+            false,
+            false,
+            "  "
+        ));
     }
 }

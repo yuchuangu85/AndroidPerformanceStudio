@@ -48,6 +48,7 @@
   "ai_settings_read_local_config": "读取本地配置",
   "ai_settings_imported": "已导入本地配置，请检查字段并保存应用。",
   "ai_settings_imported_without_key": "已导入本地配置，但未包含凭据。请为此连接填写密钥；不会复用其他连接的密钥。",
+  "ai_settings_imported_credential_pending": "已导入的凭据在“保存并应用”写入凭据库前由 AI 运行时持有，密钥绝不写入设置文件。",
   "ai_settings_import_not_found": "未找到此提供方的本地配置文件。",
   "ai_settings_import_malformed": "本地配置文件格式无效。",
   "ai_settings_import_denied": "本地配置文件因权限不足无法读取。",

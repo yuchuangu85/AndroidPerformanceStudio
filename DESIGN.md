@@ -424,8 +424,14 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 ## Status Feedback Visibility (2026-10-28)
 
 - Remove the app-shell global status bar and its permanent 28dp reservation. Navigation and retained workspace content extend to the window's bottom edge; do not replace the removed bar with a spacer. Destination and artifact identity remain in existing navigation/workspace surfaces.
-- Memory shows its own compact footer only during an operation, instance query, error, or nonblank warning/cleanup warning. Blank messages do not reserve height. Running captures/imports still expose Cancel even before a progress message arrives; errors retain Retry. Keep horizontal scrolling and selectable/copyable status text.
-- When Memory's footer is hidden, analysis content ends 4dp above the page bottom. When feedback appears, the same 4dp gap applies above that footer. Showing/hiding feedback must not clear snapshots, selection, details tabs, expansion, or splitter ratios. Other profilers' feature-owned feedback is not removed with the global shell bar.
+- Memory owns its 29px compact footer, permanently visible since 2026-11-08; see Memory Status Footer Always Visible for its idle content and precedence. Running captures/imports still expose Cancel even before a progress message arrives; errors retain Retry. Keep horizontal scrolling and selectable/copyable status text.
+- Analysis content ends 4dp above the permanent Memory footer. Showing/hiding feedback must not clear snapshots, selection, details tabs, expansion, or splitter ratios. Other profilers' feature-owned feedback is not removed with the global shell bar.
+
+## Memory Status Footer Always Visible (2026-11-08)
+
+- The Memory workspace keeps its 29px footer permanently visible instead of releasing its height when idle. The footer anchors the workspace bottom edge, so switching views, loading, importing and feedback no longer move the analysis surface between a 4dp-from-bottom and a 4dp-above-footer geometry.
+- Idle content is evidence, not decoration. With a published snapshot the footer shows the snapshot label plus the class, object and parse-warning counts; without one it shows the localized no-snapshot state. Loading, error and notice precedence is unchanged, and Cancel still replaces the idle text while a capture or import runs.
+- This supersedes the 2026-10-28 Status Feedback Visibility rule that the Memory footer appears only for active feedback. Blank feedback still never replaces the idle identity, and showing or hiding feedback still must not clear snapshots, selection, details tabs, expansion, or splitter ratios.
 
 ## CPU Stack Chart Bounds (2026-10-28)
 
@@ -890,3 +896,121 @@ supersedes those three limitations only; the analyzer contract above is unchange
   pairs; imported identities, paths and diagnostics stay verbatim. Native
   fidelity, real device/benchmark acceptance and packaged qualification remain
   separate evidence gates - this entry records implementation, not those gates.
+
+### Rust AI settings local configuration import (2026-11-08)
+
+The Rust settings port exposed "读取本地配置" only on Codex/Claude and left
+`AiRuntime::import_local_config` returning `E_AI_IMPORT_NOT_FOUND`; the
+OpenAI-compatible Custom connection was manual-only. This entry supersedes that
+gap for the Rust desktop app; Compose source and its settings behavior are
+unchanged.
+
+- Every Provider card now shows the same compact "读取本地配置" action. Codex and
+  Claude read their own static files; the OpenAI-compatible Custom connection
+  reads the local Codex configuration, because a third-party gateway exists only
+  as a `model_providers` entry there. `ProviderKind::local_config_source` owns
+  that mapping, and the imported connection keeps its own kind, so a Custom
+  import never inherits a Codex credential.
+- Import is a real bounded read again: home directory from
+  `aps_platform::home_directory`, an explicit environment map, the ported
+  symlink-rejecting 256 KiB `aps-ai::platform::import` reader, and the stable
+  `E_AI_IMPORT_*` failure taxonomy. No credential helper runs and nothing is
+  written.
+- The imported secret never reaches the page. The runtime holds it in pending
+  imports and writes it to the credential store only when "保存并应用" is confirmed
+  without a replacement key; importing again without a secret drops the stale
+  pending value so it cannot be saved later by accident.
+- An imported API endpoint clears the model-list endpoint input, then drops the
+  discovered catalog and its endpoint pairing, because the API and model-list
+  endpoints must share one origin. Import failure keeps the draft untouched.
+
+### Rust Frame Analyzer exported-analysis import (2026-11-08)
+
+The Rust Frame Analyzer shipped Export → JSON (`frame-analysis.json`, Compose
+schemaVersion 3) but File > Open only parsed gfxinfo FrameStats text, so opening
+an exported report failed with "No usable frame rows were found in
+frame-analysis.json." This entry supersedes that gap for the Rust desktop app;
+Compose source and its File > Open behavior are unchanged.
+
+- File > Open accepts both inputs; the JSON branch is content-detected by a
+  leading `{`, so behavior never depends on a file name. The picker prompt names
+  both formats (`Import FrameStats or frame-analysis.json`).
+- The importer reads only the bounded frame rows through the shared `aps_json`
+  limit boundary, rebuilds `FrameSample`s and re-runs `FrameJankAnalyzer`, so the
+  opened page is self-consistent with the source filter, clusters, attributions
+  and view filters. Exported verdicts, clusters and summary are derived data; the
+  live page never trusts them as state.
+- Unsupported schema versions, unusable rows and malformed documents fail closed
+  with explicit messages instead of the gfxinfo "no usable frame rows" error. The
+  existing bounded text read, SHA-256 content identity and provenance fields are
+  reused, and the imported session persists like any other import.
+- The session keeps the real frame source, package and capabilities, and warns
+  that the report does not identify device/API level and that the exported rows
+  were re-analyzed by the current analyzer.
+- Verified against the user's Compose export (503 frames): the imported summary
+  matched the export (0.0% deadline misses, p50 8.02 ms, p95 13.23 ms, worst
+  123.51 ms) and the page rendered 503 frames with no error. A debug-only
+  `APS_RUST_OPEN_FRAME_JSON` seam opens a report on launch for native
+  verification; release builds never read it.
+
+### Themed Card Surfaces (2026-11-08)
+
+- The persisted accent color (主题色 / Accent) now owns the card surfaces of every
+  profiler workspace, not only the Memory page. `StudioColors` derives the
+  Compose `withWorkspaceStyle()` palette from the active theme accent: cards use
+  an 8% accent panel over the dark base (white cards on the light workspace),
+  section headers and alternating surfaces 6% (the title-bar surface in light),
+  card borders 22% accent (the neutral divider in light) and fields the darker
+  control surface (white in light). Window chrome keeps the title-bar surface, so
+  the rail, title bar and toolbars never compete with the cards.
+- This supersedes the flat-sheet rule that every background in the window painted
+  the title bar color, and the Memory-only workspace-style override that lived in
+  `import/memory/widgets.rs`. No page may re-derive a panel or section palette:
+  `StudioColors::from_theme` is the single source, so changing the accent repaints
+  cards, KPI tiles, table headers, settings cards and inspector panels together
+  while the shell chrome stays stable.
+- Accent-derived `selected_row` tints follow the same source (32% over the dark
+  card, 20% over the light card) instead of hardcoded blue selection colors.
+
+### Memory Empty-State Structure (2026-11-08)
+
+- The Memory workspace never replaces a view with a full-page placeholder before
+  an HPROF is imported. The Classes view keeps its primary filter bar, eight KPI
+  cards, heap-distribution card and the classifier/instance panes; Overview,
+  Dominators and Diff already kept their metric cards, tables and panes. Only
+  data cells are empty.
+- Empty data is explicit, never fabricated: KPI and Overview cards show the
+  localized "Unavailable" value instead of zero, the distribution card keeps its
+  title and bar with a no-snapshot legend, and the classifier/instance tables
+  keep their headers plus the existing import and selection hints. The permanent
+  footer continues to report "No snapshot".
+- Unavailable placeholders derive from `MemoryState::loaded()`, so importing the
+  first snapshot replaces them with real metrics without changing the layout.
+
+### Rust AI settings model discovery (2026-11-08)
+
+After "读取本地配置" the AI settings page could not refresh models: the button only
+enabled for an already-saved credential or a typed key, discovery read the saved
+connection rather than the visible draft, and the app never installed an HTTP
+client (GPUI's default is a null client), so any provider request failed with
+`E_AI_MODEL_CATALOG_NETWORK`.
+
+- "读取本地配置" enables "刷新模型" and starts discovery as soon as an import
+  supplies a credential; the imported secret stays in the runtime's pending
+  imports until Save.
+- Settings discovery uses the visible draft (endpoint pair, credential kind,
+  typed key) through `AiRuntime::load_draft_models`; it never reads or caches the
+  saved connection. A typed key wins, then the saved credential for that
+  provider/kind, then the last local import; the result is not cached because the
+  connection is not saved yet.
+- The app installs a real GPUI HTTP client (`aps-app/src/net.rs`) through the
+  existing host-process boundary: each request runs the system `curl`, headers
+  (including the authorization value) travel through curl's config on stdin so
+  secrets never enter the process argument list, the bounded JSON request body is
+  staged in a private app-owned file for the duration of the request, and the
+  response head returns immediately while the body streams into `AsyncBody` so
+  SSE responses keep working.
+- Verified with a loopback OpenAI-compatible gateway (import -> auto refresh ->
+  picker lists the gateway models; manual refresh repeats the request with the
+  imported bearer token) and with a real HTTPS host (the HTTP status surfaces as
+  `E_AI_HTTP_STATUS` instead of a transport failure).

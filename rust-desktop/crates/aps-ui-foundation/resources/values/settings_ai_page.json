@@ -48,6 +48,7 @@
   "ai_settings_read_local_config": "Read local configuration",
   "ai_settings_imported": "Local configuration imported. Review the values and save to apply.",
   "ai_settings_imported_without_key": "Local configuration imported without a credential. Enter a key for this connection; another connection's secret is never reused.",
+  "ai_settings_imported_credential_pending": "The imported credential stays in the AI runtime until Save and apply writes it to the credential store; the key is never part of settings.",
   "ai_settings_import_not_found": "No local configuration file was found for this provider.",
   "ai_settings_import_malformed": "The local configuration file is malformed.",
   "ai_settings_import_denied": "The local configuration file could not be read because permission was denied.",

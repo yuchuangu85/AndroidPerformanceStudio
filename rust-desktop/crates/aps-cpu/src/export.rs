@@ -524,8 +524,11 @@ struct ThreadBuilder {
 
 impl ThreadBuilder {
     fn add(&mut self, sample: &Sample, files: &BTreeMap<u32, &FileRecord>) -> Result<(), String> {
+        // The engine stores callchains leaf-to-root; the Gecko stackTable stores
+        // each stack as (caller prefix, frame), so it must be built root-to-leaf
+        // or Firefox imports the exported profile upside down.
         let mut prefix = None;
-        for frame in &sample.callchain {
+        for frame in sample.callchain.iter().rev() {
             let (symbol, resource) = labels(files, frame);
             let display = firefox_symbol(&symbol, &resource, frame.virtual_address);
             let frame_id = self.frame(&display, &symbol, &resource);

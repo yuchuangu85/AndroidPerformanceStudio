@@ -49,7 +49,7 @@ pub fn serve(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<()> 
             Ok(bytes) if bytes.len() <= max_response => response,
             _ => error(id, &digest),
         };
-        write_response(writer, &response)?;
+        write_response(writer, &response, max_response)?;
     }
     Ok(())
 }

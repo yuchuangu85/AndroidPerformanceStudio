@@ -44,7 +44,7 @@
   "frame_frames": "Frames",
   "frame_framestats_import_failed": "FrameStats import failed.",
   "frame_import_framestats": "Import FrameStats…",
-  "frame_import_gfxinfo_framestats": "Import gfxinfo FrameStats",
+  "frame_import_gfxinfo_framestats": "Import FrameStats or frame-analysis.json",
   "frame_import_perfetto_frametimeline": "Import Perfetto FrameTimeline…",
   "frame_imported_frames": "Imported {value1} frames.",
   "frame_interaction_state": "Interaction state",

@@ -286,7 +286,10 @@ pub struct AiRuntime {
     secrets: Mutex<AiSecretStore>,
     catalog: ModelCatalogCache,
     conversations: Mutex<Option<ConversationStore>>,
-    pending_imports: Mutex<std::collections::BTreeMap<(ProviderKind, CredentialKind), AiSecret>>,
+    /// Secrets imported from local configuration and held until Save. `Arc`
+    /// shares the one secret value with model discovery without making it cloneable.
+    pending_imports:
+        Mutex<std::collections::BTreeMap<(ProviderKind, CredentialKind), Arc<AiSecret>>>,
     client: Mutex<Option<Arc<dyn http_client::HttpClient>>>,
     prepared: Mutex<Option<PreparedSlot>>,
     next_token: std::sync::atomic::AtomicU64,
@@ -481,14 +484,55 @@ impl AiRuntime {
             .map_err(|_| RuntimeError::Unavailable)
     }
 
-    /// Read the selected user's static Codex/Claude configuration. Never runs
-    /// credential helpers, never reads legacy application settings.
+    /// Read the selected user's static Codex/Claude/openai-compatible
+    /// configuration and hold any imported secret until Save consumes it. Never
+    /// runs credential helpers, never reads legacy application settings and
+    /// never writes a file or the credential store.
     pub fn import_local_config(
         &self,
         kind: ProviderKind,
     ) -> Result<ImportedConnection, ImportFailure> {
-        let _ = kind;
-        Err(ImportFailure::NotFound)
+        let home = aps_platform::home_directory().map_err(|_| ImportFailure::NotFound)?;
+        let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+        self.import_local_config_from(kind, &home, &env)
+    }
+
+    /// Explicit-boundary core used by the wrapper above and by tests. The home
+    /// directory and environment are supplied by the caller, never read here.
+    fn import_local_config_from(
+        &self,
+        kind: ProviderKind,
+        home: &Path,
+        env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<ImportedConnection, ImportFailure> {
+        let imported =
+            crate::platform::import::import_local_config(kind.local_config_source(), home, env)
+                .map_err(map_import_failure)?;
+        let has_secret = {
+            let mut pending = self
+                .pending_imports
+                .lock()
+                .map_err(|_| ImportFailure::PermissionDenied)?;
+            // A fresh import replaces any earlier pending secret for this
+            // connection, so an obsolete one can never be saved later.
+            pending.retain(|(provider, _), _| *provider != kind);
+            match imported.api_key {
+                Some(secret) => {
+                    pending.insert(
+                        (kind, imported.credential_kind),
+                        std::sync::Arc::new(secret),
+                    );
+                    true
+                }
+                None => false,
+            }
+        };
+        Ok(ImportedConnection {
+            endpoint: imported.endpoint,
+            model: imported.model,
+            credential_kind: imported.credential_kind,
+            has_secret,
+        })
     }
 
     /// Save connection metadata and an optional replacement secret, rotate the
@@ -532,7 +576,7 @@ impl AiRuntime {
                 self.secrets
                     .lock()
                     .map_err(|_| RuntimeError::Unavailable)?
-                    .set(kind, credential_kind, &secret)
+                    .set(kind, credential_kind, secret.as_ref())
                     .map_err(|_| RuntimeError::Credential)?;
             }
         }
@@ -611,6 +655,76 @@ impl AiRuntime {
             models: models.clone(),
             saved_at_millis: crate::platform::now_millis(),
         });
+        Ok(models)
+    }
+
+    /// Discover models for the settings page's unsaved connection draft. The
+    /// draft owns the endpoint pair, credential kind and any typed key, so this
+    /// never reads or writes the saved connection or its catalog cache. A typed
+    /// key wins, then the stored credential for the same provider and kind, then
+    /// the secret held by the last local-configuration import.
+    pub async fn load_draft_models(
+        &self,
+        kind: ProviderKind,
+        endpoint: &str,
+        models_endpoint: &str,
+        credential_kind: CredentialKind,
+        api_key: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let endpoint = endpoint.trim();
+        crate::platform::validate_endpoint(endpoint)
+            .map_err(|_| "E_AI_MODEL_CATALOG_INVALID_ENDPOINT".to_owned())?;
+        let models_endpoint = models_endpoint.trim();
+        if !models_endpoint.is_empty() {
+            crate::platform::validate_endpoint(models_endpoint)
+                .map_err(|_| "E_AI_MODEL_CATALOG_INVALID_ENDPOINT".to_owned())?;
+        }
+        // Resolve the credential before any await so no lock is held across I/O.
+        let typed = match api_key.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(value) => {
+                Some(AiSecret::new(value).map_err(|_| "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned())?)
+            }
+            None => None,
+        };
+        let stored = if typed.is_some() {
+            None
+        } else {
+            self.secrets
+                .lock()
+                .map_err(|_| "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned())?
+                .read(kind, credential_kind)
+                .map_err(|_| "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned())?
+        };
+        let pending = if typed.is_none() && stored.is_none() {
+            self.pending_imports
+                .lock()
+                .ok()
+                .and_then(|pending| pending.get(&(kind, credential_kind)).cloned())
+        } else {
+            None
+        };
+        let credential = match (&typed, &stored, &pending) {
+            (Some(typed), _, _) => typed,
+            (_, Some(stored), _) => stored,
+            (_, _, Some(pending)) => pending.as_ref(),
+            _ => return Err("E_AI_MODEL_CATALOG_CREDENTIAL".to_owned()),
+        };
+        let client = self
+            .client
+            .lock()
+            .map_err(|_| "E_AI_UNAVAILABLE".to_owned())?
+            .clone()
+            .ok_or_else(|| "E_AI_UNAVAILABLE".to_owned())?;
+        let models = crate::platform::catalog::discover(
+            client,
+            kind,
+            endpoint,
+            (!models_endpoint.is_empty()).then_some(models_endpoint),
+            credential_kind,
+            credential,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
         Ok(models)
     }
 
@@ -1301,6 +1415,17 @@ fn stored_to_analysis(stored: &StoredResult) -> AnalysisResult {
     }
 }
 
+fn map_import_failure(failure: crate::platform::import::LocalImportFailure) -> ImportFailure {
+    use crate::platform::import::LocalImportFailure;
+    match failure {
+        LocalImportFailure::NotFound => ImportFailure::NotFound,
+        LocalImportFailure::Malformed => ImportFailure::Malformed,
+        LocalImportFailure::PermissionDenied => ImportFailure::PermissionDenied,
+        LocalImportFailure::UnsupportedAuth => ImportFailure::UnsupportedAuth,
+        LocalImportFailure::UnsupportedConfig => ImportFailure::UnsupportedConfig,
+    }
+}
+
 fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError {
     use crate::responses::ResponsesError;
     match error {
@@ -1333,3 +1458,237 @@ pub fn runtime_available() -> bool {
 }
 
 static _RUNNING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_client::{AsyncBody, Request, Response, Url};
+
+    fn workspace_runtime() -> (aps_platform::TempWorkspace, Arc<AiRuntime>) {
+        let root = std::env::temp_dir().canonicalize().unwrap();
+        let workspace = aps_platform::TempWorkspace::create(&root).unwrap();
+        let runtime =
+            AiRuntime::open_with_secret_store(workspace.path().join("ai"), AiSecretStore::memory())
+                .unwrap();
+        (workspace, runtime)
+    }
+
+    fn codex_home(workspace: &aps_platform::TempWorkspace, config: &str) -> PathBuf {
+        let home = workspace.path().join("home");
+        let directory = home.join(".codex");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("config.toml"), config).unwrap();
+        home
+    }
+
+    const GATEWAY: &str = "model = \"gpt-5\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://gateway.example/v1\"\nexperimental_bearer_token = \"sk-test-1234567890\"\n";
+
+    #[test]
+    fn custom_import_holds_the_gateway_secret_until_save() {
+        let (workspace, runtime) = workspace_runtime();
+        let home = codex_home(&workspace, GATEWAY);
+        let imported = runtime
+            .import_local_config_from(
+                ProviderKind::Custom,
+                &home,
+                &std::collections::BTreeMap::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            imported.endpoint.as_deref(),
+            Some("https://gateway.example/v1/responses")
+        );
+        assert_eq!(imported.model.as_deref(), Some("gpt-5"));
+        assert_eq!(imported.credential_kind, CredentialKind::BearerToken);
+        assert!(imported.has_secret);
+        // The page only sees has_secret; the credential store gains the value when
+        // Save consumes the pending import without a replacement key.
+        assert!(!runtime.has_credential(ProviderKind::Custom));
+        runtime
+            .save_connection(
+                ProviderKind::Custom,
+                "https://gateway.example/v1/responses",
+                "",
+                "gpt-5",
+                CredentialKind::BearerToken,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(runtime.has_credential(ProviderKind::Custom));
+    }
+
+    #[test]
+    fn import_without_a_local_configuration_reports_not_found() {
+        let (workspace, runtime) = workspace_runtime();
+        let home = workspace.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        assert_eq!(
+            runtime
+                .import_local_config_from(
+                    ProviderKind::Custom,
+                    &home,
+                    &std::collections::BTreeMap::new()
+                )
+                .err()
+                .unwrap(),
+            ImportFailure::NotFound
+        );
+        assert!(!runtime.has_credential(ProviderKind::Custom));
+    }
+
+    #[test]
+    fn a_later_import_without_a_secret_drops_the_stale_pending_one() {
+        let (workspace, runtime) = workspace_runtime();
+        let home = codex_home(&workspace, GATEWAY);
+        assert!(
+            runtime
+                .import_local_config_from(
+                    ProviderKind::Custom,
+                    &home,
+                    &std::collections::BTreeMap::new()
+                )
+                .unwrap()
+                .has_secret
+        );
+        std::fs::write(
+            home.join(".codex").join("config.toml"),
+            "model = \"gpt-5\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://gateway.example/v1\"\n",
+        )
+        .unwrap();
+        assert!(
+            !runtime
+                .import_local_config_from(
+                    ProviderKind::Custom,
+                    &home,
+                    &std::collections::BTreeMap::new()
+                )
+                .unwrap()
+                .has_secret
+        );
+        runtime
+            .save_connection(
+                ProviderKind::Custom,
+                "https://gateway.example/v1/responses",
+                "",
+                "gpt-5",
+                CredentialKind::BearerToken,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(!runtime.has_credential(ProviderKind::Custom));
+    }
+
+    struct CatalogClient {
+        body: &'static str,
+        requests: Mutex<Vec<String>>,
+    }
+
+    impl CatalogClient {
+        fn new(body: &'static str) -> Arc<Self> {
+            Arc::new(Self {
+                body,
+                requests: Mutex::new(Vec::new()),
+            })
+        }
+    }
+
+    impl http_client::HttpClient for CatalogClient {
+        fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
+            None
+        }
+        fn proxy(&self) -> Option<&Url> {
+            None
+        }
+        fn send(
+            &self,
+            request: Request<AsyncBody>,
+        ) -> futures::future::BoxFuture<'static, http_client::Result<Response<AsyncBody>>> {
+            self.requests.lock().unwrap().push(format!(
+                "{} {} {}",
+                request.method(),
+                request.uri(),
+                request
+                    .headers()
+                    .get(http_client::http::header::AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+            ));
+            let body = self.body.as_bytes().to_vec();
+            Box::pin(async move {
+                Ok(Response::builder()
+                    .status(200)
+                    .header(http_client::http::header::CONTENT_TYPE, "application/json")
+                    .body(AsyncBody::from(body))
+                    .unwrap())
+            })
+        }
+    }
+
+    #[test]
+    fn imported_secret_discovers_models_for_the_unsaved_draft() {
+        let (workspace, runtime) = workspace_runtime();
+        let home = codex_home(&workspace, GATEWAY);
+        assert!(
+            runtime
+                .import_local_config_from(
+                    ProviderKind::Custom,
+                    &home,
+                    &std::collections::BTreeMap::new()
+                )
+                .unwrap()
+                .has_secret
+        );
+        let client = CatalogClient::new(r#"{"data":[{"id":"gpt-5"}]}"#);
+        runtime.set_http_client(client.clone()).unwrap();
+        let models = futures::executor::block_on(runtime.load_draft_models(
+            ProviderKind::Custom,
+            "https://gateway.example/v1/responses",
+            "",
+            CredentialKind::BearerToken,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(models, vec!["gpt-5".to_owned()]);
+        let requests = client.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0].starts_with("GET https://gateway.example/v1/models"),
+            "{}",
+            requests[0]
+        );
+        assert!(requests[0].contains("Bearer sk-test-1234567890"));
+        // Discovery never consumes the pending import: Save still applies it.
+        runtime
+            .save_connection(
+                ProviderKind::Custom,
+                "https://gateway.example/v1/responses",
+                "",
+                "gpt-5",
+                CredentialKind::BearerToken,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(runtime.has_credential(ProviderKind::Custom));
+    }
+
+    #[test]
+    fn draft_discovery_without_a_credential_fails_closed() {
+        let (_workspace, runtime) = workspace_runtime();
+        runtime
+            .set_http_client(CatalogClient::new(r#"{"data":[{"id":"gpt-5"}]}"#))
+            .unwrap();
+        let error = futures::executor::block_on(runtime.load_draft_models(
+            ProviderKind::Custom,
+            "https://gateway.example/v1/responses",
+            "",
+            CredentialKind::ApiKey,
+            None,
+        ))
+        .err()
+        .unwrap();
+        assert_eq!(error, "E_AI_MODEL_CATALOG_CREDENTIAL");
+    }
+}

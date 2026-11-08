@@ -48,7 +48,7 @@
   "cpu_import_a_simpleperf_protobuf_file_to_inspect": "导入 SIMPLEPERF protobuf 或 perf.data 文件以查看摘要和调用树；perf.data 会先使用所选 simpleperf 转换再解析。",
   "cpu_import_perf_data_hint": "导入 perf.data 时会先使用所选 simpleperf 转换，再解析。",
   "cpu_import_profile": "导入 Profile",
-  "cpu_import_simpleperf_protobuf": "导入 SIMPLEPERF protobuf",
+  "cpu_import_simpleperf_protobuf": "导入 SIMPLEPERF protobuf、perf.data 或 Firefox profile",
   "cpu_imported_bytes_are_copied_to_a_rust": "源文件校验通过后，字节会复制到 Rust 自有的内容寻址快照；不会持久化源路径。保存的时钟身份仅限该 trace；生产者、设备、进程和跨产物时钟原点仍未验证。",
   "cpu_inverted": "反向",
   "cpu_kpi_capture_duration": "采集时长",

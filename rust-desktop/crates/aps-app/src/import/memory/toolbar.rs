@@ -326,9 +326,8 @@ impl ImportWorkspace {
                 .as_ref()
                 .map(|notice| notice.render(self.language))
         });
-        if !loading && error.is_none() && notice.is_none() {
-            return div().into_any_element();
-        }
+        // The footer is permanent chrome: it anchors the workspace bottom edge
+        // and keeps the snapshot identity visible while no task is running.
         let mut row = div()
             .id("memory-profiler-status-bar")
             .h(px(29.))
@@ -368,20 +367,47 @@ impl ImportWorkspace {
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
                 );
         }
-        if let Some(error) = error {
+        if let Some(error) = &error {
             row = row.child(
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(colors.error)
-                    .child(error),
+                    .child(error.clone()),
             );
         }
-        if let Some(notice) = notice {
+        if let Some(notice) = &notice {
             row = row.child(
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(colors.warning)
-                    .child(notice),
+                    .child(notice.clone()),
+            );
+        }
+        if !loading && error.is_none() && notice.is_none() {
+            let idle = match self.memory_state.snapshot.as_ref() {
+                Some(snapshot) => {
+                    let counts = language.format(
+                        TextKey::MemoryPageSnapshotCounts,
+                        &[
+                            ("arg_1", &snapshot.metadata.class_count),
+                            ("arg_2", &snapshot.metadata.instance_count),
+                            ("arg_3", &snapshot.metadata.warnings.len()),
+                        ],
+                    );
+                    match self.memory_state.snapshot_label.as_str() {
+                        "" => counts,
+                        label => format!("{label} · {counts}"),
+                    }
+                }
+                None => language
+                    .text(TextKey::MemoryPageMemoryNoSnapshot)
+                    .to_owned(),
+            };
+            row = row.child(
+                div()
+                    .text_size(px(typography::SUPPORTING))
+                    .text_color(colors.muted_text)
+                    .child(idle),
             );
         }
         row.into_any_element()

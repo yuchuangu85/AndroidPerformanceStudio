@@ -61,7 +61,9 @@ impl AppDirectories {
     }
 }
 
-fn home_directory() -> io::Result<PathBuf> {
+/// Host home directory used to resolve user-level static configuration such as
+/// `~/.codex`. Absolute paths only; never a relative or empty value.
+pub fn home_directory() -> io::Result<PathBuf> {
     absolute_environment("HOME")
         .or_else(|| absolute_environment("USERPROFILE"))
         .ok_or_else(|| {

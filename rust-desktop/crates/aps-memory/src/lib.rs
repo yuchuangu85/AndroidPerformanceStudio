@@ -763,10 +763,16 @@ fn read_response(reader: &mut impl Read, max_response: usize) -> Result<Value, M
 }
 
 /// The worker and parent share a framing schema; this is not a public arbitrary
-/// query API. UI callers use the bounded methods on MemorySession.
-pub(crate) fn write_response(writer: &mut impl Write, response: &Value) -> io::Result<()> {
+/// query API. UI callers use the bounded methods on MemorySession. `max_response`
+/// mirrors the budget the parent applies when reading, so the combined snapshot
+/// response may use its larger snapshot allowance instead of the page ceiling.
+pub(crate) fn write_response(
+    writer: &mut impl Write,
+    response: &Value,
+    max_response: usize,
+) -> io::Result<()> {
     let bytes = wire::encode(response).map_err(|_| io::ErrorKind::InvalidData)?;
-    if bytes.is_empty() || bytes.len() > MAX_RESPONSE_BYTES {
+    if bytes.is_empty() || bytes.len() > max_response {
         return Err(io::ErrorKind::InvalidData.into());
     }
     wire::write_encoded(writer, &bytes).map_err(|_| io::ErrorKind::BrokenPipe.into())
@@ -974,6 +980,23 @@ mod tests {
         assert_eq!(MAX_UI_PAGE_SIZE, 500);
         const { assert!(MAX_SNAPSHOT_BYTES <= 16 * 1024 * 1024) };
         const { assert!(MAX_SNAPSHOT_BYTES > MAX_RESPONSE_BYTES) };
+    }
+
+    #[test]
+    fn response_budget_follows_the_caller_not_the_page_ceiling() {
+        // A combined snapshot is larger than one page response; framing it must
+        // use the snapshot allowance the reader also applies, otherwise the
+        // worker aborts the session and the page reports a worker failure.
+        let payload = Value::String("x".repeat(3 * 1024 * 1024));
+        let mut page = Vec::new();
+        assert!(write_response(&mut page, &payload, MAX_RESPONSE_BYTES).is_err());
+        let mut snapshot = Vec::new();
+        write_response(&mut snapshot, &payload, MAX_SNAPSHOT_BYTES).unwrap();
+        assert_eq!(
+            u32::from_be_bytes(snapshot[..4].try_into().unwrap()) as usize,
+            snapshot.len() - 4
+        );
+        assert_eq!(wire::decode(&snapshot[4..]).unwrap(), payload);
     }
 }
 

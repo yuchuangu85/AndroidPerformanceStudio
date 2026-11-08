@@ -1,11 +1,14 @@
-//! Read-only, in-memory CPU sessions for SIMPLEPERF protobuf exports.
+//! Read-only, in-memory CPU sessions for SIMPLEPERF protobuf exports and AOSP
+//! Gecko / Firefox Profiler v24 JSON profiles.
 //!
 //! An input byte budget limits encoded input, not peak memory. Decoded samples
 //! and current complete query projections remain in memory until it closes.
-//! This adapter does not read Linux `perf.data`, invoke ADB, or persist sessions.
+//! This adapter does not read Linux `perf.data` (the application converts it
+//! with a host simpleperf first), invoke ADB, or persist sessions.
 
 mod charts;
 mod export;
+mod gecko;
 mod selection;
 mod top;
 mod transforms;
@@ -19,6 +22,7 @@ pub use export::{
     MAX_HTML_TOP_FUNCTIONS, MAX_PPROF_BYTES, MAX_REPORT_CALL_TREE_ROWS, MAX_REPORT_JSON_BYTES,
     MAX_REPORT_TOP_FUNCTIONS, MAX_SESSION_PACKAGE_BYTES,
 };
+pub use gecko::{is_gecko_profile_prefix, MAX_GECKO_PROFILE_BYTES};
 pub use top::{TopFunction, TopFunctionsPage, TopSort};
 pub use transforms::{TransformSet, MAX_TRANSFORM_NAMES, MAX_TRANSFORM_NAME_BYTES};
 
@@ -93,35 +97,75 @@ impl CpuSession {
             return Err(format!("CPU profile exceeds input limit {limit} bytes"));
         }
         let stream = Self::read_profile(file, limit)?;
+        Self::from_stream(stream, path.to_path_buf(), limit)
+    }
+
+    /// Build a session from an already parsed stream. The native protobuf parser
+    /// and the Gecko JSON reader share this constructor, so both transports
+    /// expose exactly one session model, projection and export surface.
+    fn from_stream(
+        stream: SimpleperfStream,
+        path: PathBuf,
+        input_limit: usize,
+    ) -> Result<Self, String> {
         let (summary, threads, events) = catalog(&stream)?;
         Ok(Self {
-            path: path.to_path_buf(),
+            path,
             stream,
             summary,
             threads,
             events,
             prepared: None,
             top_prepared: None,
-            input_limit: limit,
+            input_limit,
         })
     }
 
     fn read_profile(file: File, limit: usize) -> Result<SimpleperfStream, String> {
         let mut reader = BufReader::new(file);
-        let mut header = [0u8; 8];
-        reader
-            .read_exact(&mut header)
+        // A bounded prefix decides between the two accepted transports without
+        // reading the whole file twice: a JSON object is a Gecko profile, anything
+        // else goes through the streaming SIMPLEPERF parser.
+        let mut sniff = Vec::with_capacity(64);
+        (&mut reader)
+            .take(64)
+            .read_to_end(&mut sniff)
             .map_err(|error| format!("read CPU profile header: {error}"))?;
-        if &header == b"PERFILE2" || &header == b"2ELIFREP" {
+        if sniff.starts_with(b"PERFILE2") || sniff.starts_with(b"2ELIFREP") {
             return Err("perf.data is not supported here; convert with a compatible Simpleperf report-sample --protobuf --show-callchain command".into());
         }
+        let first = sniff
+            .iter()
+            .position(|byte| !byte.is_ascii_whitespace())
+            .map(|index| sniff[index]);
+        if first == Some(b'{') {
+            let mut bytes = sniff;
+            let budget = MAX_GECKO_PROFILE_BYTES.saturating_sub(bytes.len()) + 1;
+            (&mut reader)
+                .take(budget as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|error| format!("read Gecko profile JSON: {error}"))?;
+            if bytes.len() > MAX_GECKO_PROFILE_BYTES {
+                return Err(format!(
+                    "Gecko profile exceeds the {MAX_GECKO_PROFILE_BYTES} byte JSON limit"
+                ));
+            }
+            return gecko::parse_gecko_profile(&bytes);
+        }
         // Replay the small sniffed prefix without rereading or mapping the file.
-        let mut replay = std::io::Cursor::new(header).chain(reader);
+        let mut replay = std::io::Cursor::new(sniff).chain(reader);
         parse_reader_with_limit(&mut replay, limit).map_err(|error| error.to_string())
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Re-point the session at the durable copy of its profile bytes. The
+    /// application uses this after persisting a snapshot so package exports read
+    /// the snapshot instead of a temporary decompression source.
+    pub fn rebind_path(&mut self, path: impl Into<PathBuf>) {
+        self.path = path.into();
     }
 
     pub fn summary(&self) -> &ProfileSummary {

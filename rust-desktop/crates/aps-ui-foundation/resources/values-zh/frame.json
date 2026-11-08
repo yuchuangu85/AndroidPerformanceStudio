@@ -44,7 +44,7 @@
   "frame_frames": "总帧数",
   "frame_framestats_import_failed": "FrameStats 导入失败。",
   "frame_import_framestats": "导入 FrameStats…",
-  "frame_import_gfxinfo_framestats": "导入 gfxinfo FrameStats",
+  "frame_import_gfxinfo_framestats": "导入 FrameStats 或 frame-analysis.json",
   "frame_import_perfetto_frametimeline": "导入 Perfetto FrameTimeline…",
   "frame_imported_frames": "已导入 {value1} 帧。",
   "frame_interaction_state": "交互状态",

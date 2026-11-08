@@ -5,8 +5,10 @@
 //! rewrite keeps the same dense visual language instead of the raw component
 //! library defaults.
 //!
-//! Every background surface uses the title bar color; only borders, accents and
-//! selection tints separate regions.
+//! Window chrome (title bar, rail, menus) keeps the title-bar surface, while
+//! cards, sections and fields use the Compose `withWorkspaceStyle()` surfaces
+//! derived from the persisted accent color, so every profiler card follows the
+//! theme instead of flat shell tokens.
 
 use gpui_kit::{
     base::SelectableText,
@@ -82,10 +84,9 @@ pub struct StudioColors {
     pub detail_row_light: Rgba,
 }
 
-/// Background color of the title bar, which is also the only background color
-/// in the window: the workspace, rail, cards, fields and section surfaces all
-/// paint it, so the app reads as one continuous sheet and only borders, accents
-/// and selection tints separate regions.
+/// Background color of the window chrome (title bar, navigation rail, toolbars).
+/// Cards, sections and fields use the accent-derived surfaces from
+/// [`StudioColors::for_mode_with_accent`] instead.
 pub fn titlebar_background(dark: bool) -> Rgba {
     if dark { rgb(0x29292b) } else { rgb(0xfafafb) }
 }
@@ -98,11 +99,53 @@ pub fn divider_color(dark: bool) -> Rgba {
 }
 
 impl StudioColors {
-    pub fn for_mode(dark: bool) -> Self {
-        if dark { Self::dark() } else { Self::light() }
+    /// Compose `viewerColors(dark, accent)`: the base palette plus the accent
+    /// state tints and `withWorkspaceStyle()` card surfaces.
+    ///
+    /// Chrome keeps the title-bar surface. Cards (`panel`), section headers and
+    /// alternate surfaces (`section_background`), their borders and the light
+    /// field surface derive from the persisted accent: 8% / 6% / 22% accent over
+    /// the dark base, and white cards over the light workspace. Every profiler
+    /// therefore paints the same theme-colored cards without page-local tokens.
+    pub fn for_mode_with_accent(dark: bool, accent: Rgba) -> Self {
+        let mut colors = if dark {
+            Self::dark_palette(accent)
+        } else {
+            Self::light_palette(accent)
+        };
+        colors.accent = accent;
+        if dark {
+            let base = rgb(0x0e0e0e);
+            let panel = base.blend(accent.alpha(0.08));
+            colors.workspace = titlebar_background(true);
+            colors.toolbar = titlebar_background(true);
+            colors.panel = panel;
+            colors.border = panel.blend(accent.alpha(0.22));
+            colors.strong_border = rgb(0x636366);
+            colors.section_background = panel.blend(accent.alpha(0.06));
+            colors.selected_row = panel.blend(accent.alpha(0.32));
+            colors.field = rgb(0x1c1c1e);
+        } else {
+            colors.workspace = titlebar_background(false);
+            colors.toolbar = titlebar_background(false);
+            colors.panel = rgb(0xffffff);
+            colors.border = divider_color(false);
+            colors.strong_border = rgb(0xb8b8bd);
+            colors.section_background = titlebar_background(false);
+            colors.selected_row = colors.panel.blend(accent.alpha(0.20));
+            colors.field = rgb(0xffffff);
+        }
+        colors
     }
 
+    /// Default-accent light palette for palette-level regression tests.
+    #[cfg(test)]
     pub fn light() -> Self {
+        Self::for_mode_with_accent(false, rgb(0x0a84ff))
+    }
+
+    /// The light base palette before workspace-style surfaces are applied.
+    fn light_palette(accent: Rgba) -> Self {
         let background = titlebar_background(false);
         Self {
             dark: false,
@@ -113,7 +156,7 @@ impl StudioColors {
             strong_border: divider_color(false),
             field: background,
             section_background: background,
-            accent: rgb(0x0a84ff),
+            accent,
             accent_text: rgb(0xffffff),
             text: rgb(0x1d1d1f),
             secondary_text: rgb(0x6e6e73),
@@ -129,11 +172,9 @@ impl StudioColors {
         }
     }
 
-    /// Dark palette: every background is the title bar surface, with accent-tinted
-    /// borders and selection tints layered over it.
-    pub fn dark() -> Self {
+    /// The dark base palette before workspace-style surfaces are applied.
+    fn dark_palette(accent: Rgba) -> Self {
         let background = titlebar_background(true);
-        let accent = rgb(0x0a84ff);
         Self {
             dark: true,
             workspace: background,
@@ -160,10 +201,7 @@ impl StudioColors {
     }
 
     pub fn from_theme(cx: &App) -> Self {
-        let mut colors = Self::for_mode(cx.theme().is_dark());
-        colors.accent = cx.theme().accent.into();
-        colors.selected_row = colors.workspace.blend(colors.accent.alpha(0.18));
-        colors
+        Self::for_mode_with_accent(cx.theme().is_dark(), cx.theme().accent.into())
     }
 }
 

@@ -67,9 +67,9 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
-        if !self.memory_state.loaded() {
-            return Self::memory_classes_empty(&self.memory_state, language, colors);
-        }
+        // The workspace chrome (filter bar, KPI cards, distribution, classifier
+        // and instance panes) renders before a snapshot exists; only data cells
+        // fall back to the unavailable value or an empty-row hint.
         let search = self.memory_class_search_input(window, cx);
         let mut page = div()
             .id("memory-investigation-workspace")
@@ -96,54 +96,6 @@ impl ImportWorkspace {
             )
             .child(self.memory_heap_distribution(language, colors));
         page.child(self.memory_class_analysis(colors, cx))
-            .into_any_element()
-    }
-
-    fn memory_classes_empty(
-        state: &MemoryState,
-        language: Language,
-        colors: &StudioColors,
-    ) -> AnyElement {
-        let mut column = div()
-            .id("memory-classes-empty")
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(4.))
-            .p(px(24.));
-        if let Some(error) = state.error.clone() {
-            column = column.child(
-                div()
-                    .text_size(px(TABLE_FONT))
-                    .line_height(px(TABLE_LINE))
-                    .text_color(colors.error)
-                    .text_align(TextAlign::Center)
-                    .child(crate::studio::selectable(error)),
-            );
-        }
-        let message = if state.loading {
-            state
-                .loading_message
-                .clone()
-                .unwrap_or_else(|| language.text(TextKey::MemoryPageLoadingSnapshot).to_owned())
-        } else {
-            language
-                .text(TextKey::MemoryPageImportOrDumpAnHprofFileToShowClassHistogram)
-                .to_owned()
-        };
-        column
-            .child(
-                div()
-                    .text_size(px(TABLE_FONT))
-                    .line_height(px(TABLE_LINE))
-                    .text_color(colors.secondary_text)
-                    .text_align(TextAlign::Center)
-                    .child(crate::studio::selectable(message)),
-            )
             .into_any_element()
     }
 
@@ -362,29 +314,37 @@ impl ImportWorkspace {
     // ---- eight KPI cards ----------------------------------------------
 
     fn memory_class_summary(&self, language: Language, colors: &StudioColors) -> AnyElement {
+        let loaded = self.memory_state.loaded();
         let summary = self.memory_state.class_summary.clone();
         let unavailable = language.text(TextKey::MemoryPageUnavailable).to_owned();
-        let optional_bytes =
-            |value: Option<u64>| value.map_or_else(|| unavailable.clone(), format_bytes);
+        // The pre-import layout keeps the card row but never invents a zero
+        // metric: every value is the localized unavailable placeholder.
+        let metric = |value: String| {
+            if loaded { value } else { unavailable.clone() }
+        };
+        let optional_bytes = |bytes: Option<u64>| match (loaded, bytes) {
+            (true, Some(bytes)) => format_bytes(bytes),
+            _ => unavailable.clone(),
+        };
         let cards: Vec<(TextKey, String, bool)> = vec![
             (
                 TextKey::MemoryPageLifecycleLeaks,
-                integer(summary.leak_count),
-                summary.leak_count > 0,
+                metric(integer(summary.leak_count)),
+                loaded && summary.leak_count > 0,
             ),
             (
                 TextKey::MemoryPageDuplicateBitmaps,
-                integer(summary.duplicate_bitmap_count),
+                metric(integer(summary.duplicate_bitmap_count)),
                 false,
             ),
             (
                 TextKey::MemoryPageClasses,
-                integer(summary.class_count),
+                metric(integer(summary.class_count)),
                 false,
             ),
             (
                 TextKey::MemoryPageCount,
-                integer(summary.total_count),
+                metric(integer(summary.total_count)),
                 false,
             ),
             (
@@ -394,7 +354,7 @@ impl ImportWorkspace {
             ),
             (
                 TextKey::MemoryPageShallow,
-                format_bytes(summary.total_shallow_size),
+                metric(format_bytes(summary.total_shallow_size)),
                 false,
             ),
             (
@@ -438,7 +398,42 @@ impl ImportWorkspace {
 
     fn memory_heap_distribution(&self, language: Language, colors: &StudioColors) -> AnyElement {
         let Some(snapshot) = self.memory_state.snapshot.clone() else {
-            return div().into_any_element();
+            // Keep the distribution card in the pre-import layout; only its bar
+            // and legend are empty.
+            return studio::card(colors)
+                .id("memory-distribution-card")
+                .w_full()
+                .flex_shrink_0()
+                .child(
+                    div()
+                        .text_size(px(TABLE_FONT))
+                        .line_height(px(TABLE_LINE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors.text)
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::MemoryPageHeapDistribution),
+                        )),
+                )
+                .child(
+                    div()
+                        .id("memory-heap-distribution-bar")
+                        .w_full()
+                        .h(px(12.))
+                        .bg(colors.section_background),
+                )
+                .child(
+                    div()
+                        .id("memory-heap-distribution-legend")
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .gap(px(20.))
+                        .child(secondary_text(
+                            language.text(TextKey::MemoryPageMemoryNoSnapshot),
+                            colors,
+                        )),
+                )
+                .into_any_element();
         };
         let segments: Vec<(String, u64)> = snapshot
             .summary

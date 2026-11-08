@@ -55,7 +55,7 @@ fn frames_limits() -> Limits {
     }
 }
 
-fn clipped(value: &str, max_bytes: usize) -> String {
+pub(in crate::frame) fn clipped(value: &str, max_bytes: usize) -> String {
     let mut end = value.len().min(max_bytes);
     while !value.is_char_boundary(end) {
         end -= 1;
@@ -768,7 +768,7 @@ fn parse_stages(value: Option<&Value>) -> Option<FrameStages> {
     })
 }
 
-fn parse_states(value: Option<&Value>) -> BTreeMap<String, String> {
+pub(in crate::frame) fn parse_states(value: Option<&Value>) -> BTreeMap<String, String> {
     value
         .and_then(Value::as_object)
         .map(|object| {
@@ -797,14 +797,18 @@ fn parse_capabilities(value: &Value) -> Option<aps_frame::FrameSourceCapabilitie
     })
 }
 
-fn optional_string(object: &Map<String, Value>, key: &str, max_bytes: usize) -> Option<String> {
+pub(in crate::frame) fn optional_string(
+    object: &Map<String, Value>,
+    key: &str,
+    max_bytes: usize,
+) -> Option<String> {
     object
         .get(key)
         .and_then(Value::as_str)
         .map(|value| clipped(value, max_bytes))
 }
 
-fn string_list(value: Option<&Value>, max_items: usize) -> Vec<String> {
+pub(in crate::frame) fn string_list(value: Option<&Value>, max_items: usize) -> Vec<String> {
     value
         .and_then(Value::as_array)
         .map(|values| {
@@ -818,7 +822,7 @@ fn string_list(value: Option<&Value>, max_items: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn parse_frame_source(value: &str) -> Option<FrameSource> {
+pub(in crate::frame) fn parse_frame_source(value: &str) -> Option<FrameSource> {
     match value {
         "JANK_STATS" => Some(FrameSource::JankStats),
         "FRAME_METRICS" => Some(FrameSource::FrameMetrics),
@@ -828,7 +832,7 @@ fn parse_frame_source(value: &str) -> Option<FrameSource> {
     }
 }
 
-fn parse_expected_source(value: &str) -> Option<ExpectedDurationSource> {
+pub(in crate::frame) fn parse_expected_source(value: &str) -> Option<ExpectedDurationSource> {
     match value {
         "PLATFORM_DEADLINE" => Some(ExpectedDurationSource::PlatformDeadline),
         "FRAME_INTERVAL" => Some(ExpectedDurationSource::FrameInterval),
@@ -839,7 +843,7 @@ fn parse_expected_source(value: &str) -> Option<ExpectedDurationSource> {
     }
 }
 
-fn parse_jank_type(value: &str) -> Option<JankType> {
+pub(in crate::frame) fn parse_jank_type(value: &str) -> Option<JankType> {
     match value {
         "PLATFORM_REPORTED" => Some(JankType::PlatformReported),
         "DEADLINE_MISSED" => Some(JankType::DeadlineMissed),

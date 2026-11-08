@@ -48,7 +48,7 @@
   "cpu_import_a_simpleperf_protobuf_file_to_inspect": "Import a SIMPLEPERF protobuf or perf.data file to inspect its summary and call tree. perf.data is converted with the selected simpleperf before parsing.",
   "cpu_import_perf_data_hint": "Importing a perf.data file converts it with the selected simpleperf before parsing.",
   "cpu_import_profile": "Import profile",
-  "cpu_import_simpleperf_protobuf": "Import SIMPLEPERF protobuf",
+  "cpu_import_simpleperf_protobuf": "Import SIMPLEPERF protobuf, perf.data or Firefox profile",
   "cpu_imported_bytes_are_copied_to_a_rust": "Imported bytes are copied to a Rust-owned content-addressed snapshot after the source checks pass. The source path is not persisted; stored clock identity is trace-local and producer/device/process and cross-artifact epoch remain unverified.",
   "cpu_inverted": "Inverted",
   "cpu_kpi_capture_duration": "Capture Duration",

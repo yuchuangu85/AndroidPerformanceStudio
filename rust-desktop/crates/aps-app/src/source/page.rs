@@ -10,8 +10,8 @@ use super::code_viewer::{CodeLanguage, SourceCodeViewer, SourceDocument};
 use super::{SourceWorkspace, layout, tree};
 use crate::studio::{self, FONT_BODY, FONT_SUPPORTING, StudioColors};
 use aps_source::{
-    ResolutionConfidence, SourceContentState, SourceLanguage, SourceProviderKind,
-    SourceWorkspace as WorkspaceRecord, SourceWorkspacePhase,
+    ResolutionConfidence, SourceContentState, SourceLanguage, SourceProviderConfig,
+    SourceProviderKind, SourceWorkspace as WorkspaceRecord, SourceWorkspacePhase,
 };
 use aps_ui_foundation::{Destination, Language, TextKey};
 use gpui_kit::{
@@ -44,6 +44,9 @@ pub(super) struct PageUi {
     language: Option<Language>,
     search: Entity<InputState>,
     _search_subscription: Subscription,
+    workspace_search: Entity<InputState>,
+    workspace_query: String,
+    _workspace_search_subscription: Subscription,
     viewer: Entity<SourceCodeViewer>,
     drag: Option<SplitterDrag>,
     tree_files_key: Option<(u64, usize, usize)>,
@@ -76,6 +79,17 @@ impl PageUi {
                 },
             )
         };
+        let workspace_search = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(Language::System.text(TextKey::SourceSearchWorkspaces))
+        });
+        let workspace_search_subscription =
+            cx.subscribe(&workspace_search, |this, input, event, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.ui.workspace_query = input.read(cx).value().to_string();
+                    cx.notify();
+                }
+            });
         let viewer = cx.new(|cx| {
             let mut viewer = SourceCodeViewer::new(window, cx);
             viewer.set_lsp_handler(lsp_handler);
@@ -88,6 +102,9 @@ impl PageUi {
             language: None,
             search,
             _search_subscription: search_subscription,
+            workspace_search,
+            workspace_query: String::new(),
+            _workspace_search_subscription: workspace_search_subscription,
             viewer,
             drag: None,
             tree_files_key: None,
@@ -109,6 +126,10 @@ impl PageUi {
         let placeholder = language.text(TextKey::SourceSearchFiles);
         self.search.update(cx, |state, cx| {
             state.set_placeholder(placeholder, window, cx);
+        });
+        let workspace_placeholder = language.text(TextKey::SourceSearchWorkspaces);
+        self.workspace_search.update(cx, |state, cx| {
+            state.set_placeholder(workspace_placeholder, window, cx);
         });
         self.viewer
             .update(cx, |viewer, cx| viewer.set_language(language, window, cx));
@@ -552,6 +573,23 @@ fn body(
         .into_any_element()
 }
 
+fn workspace_matches_query(workspace: &WorkspaceRecord, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    if workspace.display_name.to_lowercase().contains(query) {
+        return true;
+    }
+    let identity = match &workspace.config {
+        SourceProviderConfig::Local { root } => root.to_string_lossy().into_owned(),
+        SourceProviderConfig::GitHub {
+            owner, repository, ..
+        } => format!("{owner}/{repository}"),
+        SourceProviderConfig::Aosp { project, .. } => project.clone(),
+    };
+    identity.to_lowercase().contains(query)
+}
+
 /// The workspace rail keeps equal card insets: the card fills the padded pane
 /// width (and only grows past it when a long display name needs horizontal
 /// scrolling). Scrollbar chrome must not be subtracted here, otherwise the
@@ -568,7 +606,13 @@ fn workspaces_pane(
     cx: &Context<SourceWorkspace>,
 ) -> AnyElement {
     let language = this.language;
-    let longest = workspaces
+    let query = this.ui.workspace_query.trim().to_lowercase();
+    let filtered: Vec<&WorkspaceRecord> = workspaces
+        .iter()
+        .copied()
+        .filter(|workspace| workspace_matches_query(workspace, &query))
+        .collect();
+    let longest = filtered
         .iter()
         .map(|workspace| workspace.display_name.chars().count() as f32 * TEXT_WIDTH_ESTIMATE + 48.)
         .fold(0.0, f32::max);
@@ -600,8 +644,13 @@ fn workspaces_pane(
             language.text(TextKey::SourceEmptyHint),
             colors.secondary_text,
         ));
+    } else if filtered.is_empty() {
+        column = column.child(pane_status(
+            language.text(TextKey::SourceSearchNoWorkspaces),
+            colors.secondary_text,
+        ));
     }
-    for workspace in workspaces {
+    for workspace in filtered {
         let selected = this.selected_workspace == Some(workspace.id);
         let syncing = this.sync_in_flight.contains_key(&workspace.id.to_hex());
         column = column.child(workspace_card(
@@ -619,8 +668,22 @@ fn workspaces_pane(
         .bg(colors.panel)
         .child(
             div()
+                .h(px(SEARCH_ROW_HEIGHT))
+                .w_full()
+                .px(px(6.))
+                .py(px(2.))
+                .child(
+                    Input::new(&this.ui.workspace_search)
+                        .h(px(SEARCH_INPUT_HEIGHT))
+                        .w_full(),
+                ),
+        )
+        .child(
+            div()
                 .id("source-workspaces-scroll")
-                .size_full()
+                .flex_1()
+                .min_h_0()
+                .w_full()
                 .overflow_scrollbar()
                 .child(column),
         )
@@ -1495,6 +1558,28 @@ mod tests {
         let right = pane - pad - card;
         assert_eq!(left, right);
         assert_eq!(workspace_content_width(220., 400.), 400.);
+    }
+
+    #[::core::prelude::v1::test]
+    fn workspace_search_matches_name_or_provider_identity() {
+        use aps_source::SourceWorkspaceId;
+        use std::path::PathBuf;
+        let workspace = WorkspaceRecord {
+            id: SourceWorkspaceId::from_hex(&"ab".repeat(32)).unwrap(),
+            display_name: "Fixture Source".into(),
+            config: SourceProviderConfig::Local {
+                root: PathBuf::from("/tmp/demo-root"),
+            },
+            active_snapshot_id: None,
+            phase: SourceWorkspacePhase::Ready,
+            progress: 1.0,
+            message: None,
+            allow_ai_source_upload: false,
+        };
+        assert!(workspace_matches_query(&workspace, ""));
+        assert!(workspace_matches_query(&workspace, "fixture"));
+        assert!(workspace_matches_query(&workspace, "demo-root"));
+        assert!(!workspace_matches_query(&workspace, "github"));
     }
 
     #[::core::prelude::v1::test]

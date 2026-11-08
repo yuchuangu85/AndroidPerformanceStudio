@@ -2,7 +2,9 @@
 //!
 //! Ports Compose LocalAiConfigurationImporter and its BoundedLocalConfigToml
 //! helper. Only the selected user's static files are read: CODEX_HOME/config.toml
-//! (+ auth.json) and CLAUDE_CONFIG_DIR/settings.json. Credential helpers are
+//! (+ auth.json) and CLAUDE_CONFIG_DIR/settings.json. The OpenAI-compatible
+//! Custom connection reads the same Codex configuration, because a third-party
+//! gateway exists only as a `model_providers` entry there. Credential helpers are
 //! never executed, no OAuth flow is started, nothing is written and no network
 //! is used. All reads are symlink-rejecting, stay at or below 256 KiB and are
 //! decoded as strict UTF-8. Failure taxonomy is stable: NotFound / Malformed /
@@ -83,10 +85,12 @@ impl fmt::Display for LocalImportFailure {
 }
 impl std::error::Error for LocalImportFailure {}
 
-/// Import Codex (ProviderKind::Codex) or Claude (ProviderKind::Claude) static
-/// configuration. home is the selected user's home directory; env is an
-/// explicit environment map so tests and callers never read the process
-/// environment implicitly. ProviderKind::Custom has no local configuration.
+/// Import Codex (ProviderKind::Codex), Claude (ProviderKind::Claude) or the
+/// OpenAI-compatible custom gateway (ProviderKind::Custom) static configuration.
+/// home is the selected user's home directory; env is an explicit environment
+/// map so tests and callers never read the process environment implicitly.
+/// Custom reads the Codex configuration and keeps its own connection identity,
+/// so an imported gateway never inherits another connection's credential.
 pub fn import_local_config(
     source: ProviderKind,
     home: &Path,
@@ -95,7 +99,10 @@ pub fn import_local_config(
     match source {
         ProviderKind::Codex => read_codex(home, env),
         ProviderKind::Claude => read_claude(home, env),
-        ProviderKind::Custom => Err(LocalImportFailure::UnsupportedConfig),
+        ProviderKind::Custom => read_codex(home, env).map(|imported| ImportedConfig {
+            source: ProviderKind::Custom,
+            ..imported
+        }),
     }
 }
 
@@ -1684,13 +1691,34 @@ mod tests {
     }
 
     #[test]
-    fn custom_provider_has_no_local_configuration() {
+    fn custom_connection_imports_the_local_openai_compatible_gateway() {
+        let (_workspace, home) = workspace();
+        codex_config(
+            &home,
+            "model = \"gpt-5\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://gateway.example/v1\"\nenv_key = \"MY_KEY\"\n",
+        );
+        let env = environment(&[("MY_KEY", "sk-test-1234567890")]);
+        let imported = import_local_config(ProviderKind::Custom, &home, &env).unwrap();
+        // The static source is Codex, but the imported connection keeps its own
+        // identity so it never borrows another connection's credential.
+        assert_eq!(imported.source, ProviderKind::Custom);
+        assert_eq!(
+            imported.endpoint.as_deref(),
+            Some("https://gateway.example/v1/responses")
+        );
+        assert_eq!(imported.model.as_deref(), Some("gpt-5"));
+        assert_eq!(imported.credential_kind, CredentialKind::ApiKey);
+        assert_eq!(key_bytes(&imported), b"sk-test-1234567890");
+    }
+
+    #[test]
+    fn custom_connection_without_local_configuration_is_not_found() {
         let (_workspace, home) = workspace();
         assert_eq!(
             import_local_config(ProviderKind::Custom, &home, &BTreeMap::new())
                 .err()
                 .unwrap(),
-            LocalImportFailure::UnsupportedConfig
+            LocalImportFailure::NotFound
         );
     }
 

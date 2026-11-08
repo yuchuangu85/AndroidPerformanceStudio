@@ -9,6 +9,7 @@ mod home_recent;
 mod import;
 mod inspector;
 mod method;
+mod net;
 mod perfetto_tool;
 mod shell;
 mod source;
@@ -166,7 +167,20 @@ fn main() {
         }
         Err(error) => (Settings::default(), Some(error)),
     };
-    application().with_assets(assets::Assets).run(move |cx| {
+    // GPUI's default HTTP client is a null implementation; the AI runtime needs
+    // real transport for model discovery and provider requests. Request bodies
+    // are staged under the Rust-owned data directory, never the settings file.
+    let http_body_root = path
+        .as_ref()
+        .ok()
+        .and_then(|settings| settings.parent())
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    let http_client = std::sync::Arc::new(net::CurlHttpClient::new(http_body_root));
+    let application = application()
+        .with_assets(assets::Assets)
+        .with_http_client(http_client);
+    application.run(move |cx| {
         init(cx);
         apply_theme(&settings, cx);
         cx.on_action(|_: &shell::Quit, cx| cx.quit());

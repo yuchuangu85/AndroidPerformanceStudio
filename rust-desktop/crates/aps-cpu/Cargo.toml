@@ -7,3 +7,7 @@ publish = false
 
 [dependencies]
 aps-simpleperf-engine = { path = "../../../desktop-viewer/simpleperf-viewer/native-engine-rust" }
+aps-json = { path = "../aps-json" }
+
+[dev-dependencies]
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }

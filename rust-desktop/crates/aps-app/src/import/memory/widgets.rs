@@ -2,9 +2,9 @@
 //!
 //! The Compose page uses ViewerColors with the "workspace style" overlay:
 //! cards are an accent-tinted panel, borders are accent-tinted, and table
-//! headers use the section surface. The Rust shell's flat-sheet tokens are
-//! intentionally different for other profilers, so the memory page derives its
-//! own tokens here while still reusing StudioColors.
+//! headers use the section surface. `StudioColors::from_theme` now owns that
+//! derivation for every profiler, so this module only adds Memory-specific
+//! primitives and no longer re-derives the palette.
 use crate::studio::{self, StudioColors};
 use aps_memory::HeapValueKind;
 use aps_ui_foundation::typography;
@@ -30,49 +30,9 @@ pub(super) const METRIC_WIDTH: f32 = 104.;
 /// Compose NAME_WARNING_WIDTH.
 pub(super) const WARNING_WIDTH: f32 = 22.;
 
-/// Compose viewerColors(...).withWorkspaceStyle() projected onto StudioColors.
-pub(super) fn memory_colors(cx: &App) -> StudioColors {
-    let mut colors = StudioColors::from_theme(cx);
-    let accent = colors.accent;
-    if colors.dark {
-        // Dark palette base = canvasBackground(0x1E1E1E) * 0.45, then the
-        // Compose workspace-style accent overlays.
-        let base = rgb(0x0e0e0e);
-        let panel = base.blend(accent.alpha(0.08));
-        colors.workspace = rgb(0x29292b);
-        colors.toolbar = rgb(0x29292b);
-        colors.panel = panel;
-        colors.border = panel.blend(accent.alpha(0.22));
-        colors.strong_border = rgb(0x636366);
-        colors.section_background = panel.blend(accent.alpha(0.06));
-        colors.selected_row = panel.blend(accent.alpha(0.32));
-        colors.field = rgb(0x1c1c1e);
-        colors.text = rgb(0xf5f5f7);
-        colors.secondary_text = rgb(0xaeaeb2);
-        colors.muted_text = rgb(0xaeaeb2);
-        colors.warning = rgb(0xff9f0a);
-        colors.info = accent;
-        colors.error = rgb(0xff453a);
-        colors.success = rgb(0x30d158);
-    } else {
-        colors.workspace = rgb(0xfafafb);
-        colors.toolbar = rgb(0xfafafb);
-        colors.panel = rgb(0xffffff);
-        colors.border = rgb(0xd1d1d6);
-        colors.strong_border = rgb(0xb8b8bd);
-        colors.section_background = rgb(0xfafafb);
-        colors.selected_row = rgb(0xd6eaff);
-        colors.field = rgb(0xffffff);
-        colors.text = rgb(0x1d1d1f);
-        colors.secondary_text = rgb(0x6e6e73);
-        colors.muted_text = rgb(0x6e6e73);
-        colors.warning = rgb(0xff9f0a);
-        colors.info = accent;
-        colors.error = rgb(0xff3b30);
-        colors.success = rgb(0x34c759);
-    }
-    colors
-}
+// The Memory page uses the shared `StudioColors::from_theme` workspace style
+// (accent-derived panel, section, border and field surfaces), not page-local
+// overrides, so its cards match every other profiler workspace.
 
 /// Compose ProfilerCompactButton used in the Memory toolbar and filter bar.
 /// Height 24, 4 dp radius, accent outline, selected rows are accent-filled.

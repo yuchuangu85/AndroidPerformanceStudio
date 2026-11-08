@@ -1959,3 +1959,131 @@ Studio" title is gone; the title bar now starts directly with the window
 controls and the title text. The bottom hairline and the rest of the shell
 framing are unchanged.
 
+
+### CPU import: gzip-compressed profiles are decompressed and imported — 2026-11-08
+
+A gzip-compressed CPU profile (a perf.data capture or a SIMPLEPERF protobuf
+export saved through gzip) was rejected with a message telling the user to
+decompress it first. The CPU workspace now decompresses the wrapper itself and
+imports the profile inside:
+
+- Content classification looks through the gzip magic at the first decompressed
+  bytes, so the payload is still classified by content and never by the picked
+  name. A wrapper around a SIMPLEPERF protobuf or perf.data is accepted; a
+  wrapper around anything else stays an unclassified payload.
+- The decompression streams into the Rust snapshot scratch directory and is
+  bounded independently of the picked file (128 MiB for a SIMPLEPERF payload,
+  512 MiB for perf.data), checking cancellation per chunk. The decompressed file
+  then runs through the same perf.data conversion or SIMPLEPERF parsing route as
+  a plain file.
+- The durable identity stays the profile's own SHA-256 and byte length after
+  decompression, so re-picking the same archive (or importing the extracted
+  file) resolves to the same saved CPU session. The source label names the picked
+  file plus "(gzip) -> SIMPLEPERF protobuf [via <simpleperf>]".
+- Corrupt or over-budget archives get new localized messages
+  (profiler_cpu_source_gzip_decompression_failed,
+  profiler_cpu_source_gzip_too_large). The old "decompress it yourself" hint is
+  removed from both catalogs.
+- The debug-only APS_RUST_OPEN_CPU launch seam opens a picked CPU source on
+  startup like the existing HPROF/FRAME_JSON seams, so an isolated instance can
+  exercise the real import without the native file picker.
+
+Evidence (fresh, this workspace): tests cover classification through the
+wrapper, the rejection mapping, a gzip-wrapped SIMPLEPERF import with snapshot
+persistence and recent re-open, a gzip-wrapped perf.data conversion through a
+stub host simpleperf, corrupt wrappers, and the decompression
+bound/cancellation. cargo test --offline -p aps-app = 417 passed / 0 failed /
+3 ignored (final run) and cargo test --offline -p aps-ui-foundation passes.
+
+The real 841,474-byte gzip SIMPLEPERF fixture
+(build/reports/cpu-firefox-reference/input-simpleperf.trace.gz) was imported
+end to end by the debug binary launched with APS_RUST_DATA_DIR=<scratch>,
+APS_WINDOW_SIZE=1320x860 and APS_RUST_OPEN_CPU=<that .gz>: the CPU Profiler
+shows 1,234 samples / 15 threads / 1.97 s / 626 Hz, Source
+"simpleperf-cpu-clock.trace.gz (gzip) -> SIMPLEPERF protobuf", the persisted
+snapshot is 841,474 bytes with the same SHA-256 the temporary fixture test
+computed, and the Flame Graph renders the AndroidRuntime/ZygoteInit/
+ActivityThread stacks from the decompressed stream. Screenshots:
+build/cpu-gzip-import/cpu-gzip-overview.png and
+build/cpu-gzip-import/cpu-gzip-flame-graph.png (ignored build tree). cargo fmt is
+clean.
+
+### Themed card surfaces across every profiler — 2026-11-08
+
+- The Memory page's Compose workspace-style palette (accent-tinted panel, section,
+  border and field surfaces) moved into `StudioColors::for_mode_with_accent`, and
+  `StudioColors::from_theme` now applies it with the persisted accent color.
+  `import/memory/widgets::memory_colors` was deleted, so the Memory page and all
+  other profiler workspaces share one palette instead of the shell's flat-sheet
+  tokens.
+- Dark cards: 8% accent over the 0x0E0E0E base; section surfaces 6%, card borders
+  22%, fields 0x1C1C1E, selected rows 32%; chrome stays 0x29292B. Light cards are
+  white over the 0xFAFAFB workspace, sections 0xFAFAFB, borders 0xD1D1D6, fields
+  white, selected rows 20% accent over the white card.
+- Verification: `cargo build -p aps-app --bins --offline` and
+  `cargo test -p aps-app` pass; native screenshots of the CPU, Settings and Memory
+  workspaces under the dark theme confirm cards, table headers, KPI tiles and
+  settings cards follow the accent (see DESIGN.md "Themed Card Surfaces").
+
+### Memory empty-state views — 2026-11-08
+
+- The Memory Classes view no longer swaps the whole workspace for a centered hint
+  when no snapshot is loaded. The primary filter bar, eight KPI cards, the
+  heap-distribution card and both classifier and instance panes render with
+  unavailable values and empty-row hints, matching the Overview, Dominators and
+  Diff views that already kept their structure.
+- `render_memory_classes` lost its early `!loaded()` return and the obsolete
+  `memory_classes_empty` helper; KPI values use the localized unavailable
+  placeholder rather than a zeroed summary, and the distribution card renders an
+  empty bar/legend instead of disappearing.
+- Verification: `cargo build -p aps-app --bins`, `cargo test -p aps-app`, and
+  native screenshots of the no-snapshot Classes, Overview, Dominators and Diff
+  views under .dsh-tmp/shots (ignored scratch tree).
+
+
+### CPU import: Firefox/Gecko v24 JSON profiles (plain or gzip) imported — 2026-11-08
+
+Importing the profile that `Export Firefox profile` produces (or any Firefox /
+Gecko v24 JSON profile) failed with "Not a CPU profile", because the CPU workspace
+only accepted SIMPLEPERF protobufs and perf.data. The CPU workspace now imports
+Gecko profiles through the same session model:
+
+- `aps-cpu` gains a Gecko v24 reader (`gecko.rs`) that is a port of the Kotlin
+  `GeckoProfileReader`: per-thread schema-addressed samples/frame/stack/string
+  tables, millisecond timestamps, `symbol (in resource)` locations, null stacks
+  as stack-less samples, leaf-to-root chains (the engine callchain order), and
+  fail-closed validation for versions, missing tables, out-of-range indices,
+  non-finite/negative times, >512-frame chains and record/node budgets. The JSON
+  is bounded at 64 MiB by the shared `aps-json` strict parser.
+- `CpuSession::open` sniffs a JSON object and shares one constructor with the
+  protobuf parser, so paging, flame graphs, exports and recent re-open all work
+  unchanged. Imported Gecko samples carry event type "samples" and unit weight 1.
+- App content classification now probes 64 KiB instead of 10 bytes and recognizes
+  Gecko JSON payloads (plain or inside gzip) alongside perf.data and SIMPLEPERF.
+  Gzip-wrapped Gecko profiles use the 64 MiB payload budget and the source label
+  reads `name.gz (gzip) -> Gecko profile JSON` (plain: `<path> (Gecko profile JSON)`).
+- Import prompt and unknown-format strings now name Firefox/Gecko profiles in both
+  catalogs.
+
+Two defects found while wiring the import:
+
+- The Firefox/Gecko exporter built its stackTable leaf-first, so profiles exported
+  by this app imported into Firefox Profiler upside down. It now builds stacks
+  root-to-leaf; a round-trip test (engine stream -> Firefox gzip export -> Gecko
+  reader) asserts the original leaf-to-root callchains survive byte-for-byte.
+- Gzip imports decompressed into a scratch directory that disappeared after the
+  import, which broke package exports that re-read the profile path. The session is
+  re-pointed at the durable snapshot (`CpuSession::rebind_path`) after persistence.
+
+Evidence (fresh, HEAD worktree at 2ba3227f containing only these changes, because
+the shared working tree has concurrent in-flight AI/network work): `cargo test
+--offline -p aps-app -p aps-cpu` = 411 passed / 0 failed / 3 ignored for aps-app
+plus 7 unit + 6 chart + 5 session tests for aps-cpu, all green; `cargo fmt` clean.
+The reported profile `/Users/yuchuan.gu/Workspace/Perfermance/Source/SimplePerf/perf_data.json.gz`
+(Compose-era export, 30,689 bytes gzipped) was imported end to end by the debug
+binary launched with `APS_RUST_DATA_DIR=<scratch>` and `APS_RUST_OPEN_CPU=<that file>`:
+the CPU Profiler shows 371 samples across 9 threads with the CPU clock timeline,
+Source "perf_data.json.gz (gzip) -> Gecko profile JSON", and the Flame Graph
+renders the `__libc_init -> main -> android::AndroidRuntime::start -> ...` stacks.
+Screenshots: build/cpu-gzip-import/gecko-cpu-overview.png and
+build/cpu-gzip-import/gecko-cpu-flame-graph.png (ignored build tree).

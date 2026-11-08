@@ -837,12 +837,32 @@ impl Studio {
                 _ => studio.destination,
             };
         }
+        // Debug-only verification seam: opens a picked CPU source on launch
+        // without driving the native file picker. Runs after the route seam so an
+        // explicit CPU source always lands on the CPU workspace.
+        #[cfg(debug_assertions)]
+        if let Some(path) = std::env::var_os("APS_RUST_OPEN_CPU") {
+            studio.destination = Destination::Cpu;
+            let cpu = studio.cpu.clone();
+            cpu.update(cx, |cpu, cx| {
+                cpu.open_debug_source(std::path::PathBuf::from(path), cx)
+            });
+        }
         // Debug-only verification seam: opens Settings on the AI page without
         // driving the native navigation.
         #[cfg(debug_assertions)]
         if std::env::var_os("APS_RUST_OPEN_SETTINGS_AI").is_some() {
             studio.destination = Destination::Settings;
             studio.settings_page = SettingsPage::Ai;
+        }
+        // Debug-only verification seam: opens an exported frame-analysis.json
+        // on launch without driving the native file picker.
+        #[cfg(debug_assertions)]
+        if let Some(path) = std::env::var_os("APS_RUST_OPEN_FRAME_JSON") {
+            studio.destination = Destination::Frame;
+            studio.frame.update(cx, |frame, cx| {
+                frame.import_debug_analysis_json(std::path::PathBuf::from(path), cx)
+            });
         }
         // Debug-only verification seam: opens a real Inspector archive without
         // driving the platform file picker.
@@ -1728,9 +1748,8 @@ impl Render for Studio {
         let language = self.settings.language;
         let selected = self.destination;
         let dark = cx.theme().is_dark();
-        // Every background in the shell is the title bar surface, so the whole
-        // window reads as one sheet; borders, accents and the selected-row tint
-        // carry the structure instead.
+        // Shell chrome stays on the title-bar surface; workspace cards paint the
+        // accent-derived panel/section surfaces from StudioColors.
         let background = crate::studio::titlebar_background(dark);
         let border = crate::studio::divider_color(dark);
         let selected_row = if dark { rgb(0x163d66) } else { rgb(0xd6eaff) };

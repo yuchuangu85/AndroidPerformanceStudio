@@ -43,8 +43,14 @@ impl ProviderKind {
             Self::Custom => "Custom (OpenAI compatible)",
         }
     }
-    pub fn saves_locally(self) -> bool {
-        self != Self::Custom
+    /// Local static-configuration source for this connection. An OpenAI-compatible
+    /// gateway is declared in the local Codex configuration (`model_providers`), so
+    /// Custom imports that same static source instead of inventing one of its own.
+    pub fn local_config_source(self) -> ProviderKind {
+        match self {
+            Self::Custom => Self::Codex,
+            other => other,
+        }
     }
     pub fn default_endpoint(self) -> &'static str {
         match self {
@@ -907,6 +913,25 @@ mod tests {
             "https://api.anthropic.com"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn custom_connection_reads_the_codex_local_source() {
+        // A third-party OpenAI-compatible gateway exists only as a Codex
+        // `model_providers` entry, so Custom imports that static source while
+        // keeping its own connection identity.
+        assert_eq!(
+            ProviderKind::Custom.local_config_source(),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderKind::Codex.local_config_source(),
+            ProviderKind::Codex
+        );
+        assert_eq!(
+            ProviderKind::Claude.local_config_source(),
+            ProviderKind::Claude
+        );
     }
 
     #[test]

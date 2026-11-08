@@ -1121,42 +1121,31 @@ impl Studio {
                 .child(
                     div()
                         .flex()
+                        .flex_col()
                         .gap(px(6.))
                         .child(
-                            choice_chip(
-                                ("tooltip-mode", 0usize),
-                                lang.text(TextKey::SettingsUiFixed),
-                                !follow_mouse,
-                                true,
-                                &colors,
-                            )
-                            .on_click(cx.listener(
-                                |this, _, window, cx| {
-                                    if this.settings.simpleperf_follow_tooltip {
+                            Radio::new(("tooltip-mode", 0usize))
+                                .label(lang.text(TextKey::SettingsUiFixed))
+                                .checked(!follow_mouse)
+                                .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                                    if *checked && this.settings.simpleperf_follow_tooltip {
                                         this.settings.simpleperf_follow_tooltip = false;
                                         this.persist_settings(window, cx);
                                         cx.notify();
                                     }
-                                },
-                            )),
+                                })),
                         )
                         .child(
-                            choice_chip(
-                                ("tooltip-mode", 1usize),
-                                lang.text(TextKey::SettingsUiFollow),
-                                follow_mouse,
-                                true,
-                                &colors,
-                            )
-                            .on_click(cx.listener(
-                                |this, _, window, cx| {
-                                    if !this.settings.simpleperf_follow_tooltip {
+                            Radio::new(("tooltip-mode", 1usize))
+                                .label(lang.text(TextKey::SettingsUiFollow))
+                                .checked(follow_mouse)
+                                .on_click(cx.listener(|this, checked: &bool, window, cx| {
+                                    if *checked && !this.settings.simpleperf_follow_tooltip {
                                         this.settings.simpleperf_follow_tooltip = true;
                                         this.persist_settings(window, cx);
                                         cx.notify();
                                     }
-                                },
-                            )),
+                                })),
                         ),
                 ),
         )
@@ -1905,6 +1894,9 @@ mod tests {
         assert!(page.contains("template_row("));
         assert!(page.contains("choice_chip("));
         assert!(page.contains("input_field("));
+        // The flame-graph options are single-select radios, not chips.
+        assert!(page.contains(r#"Radio::new(("tooltip-mode", 0usize))"#));
+        assert!(page.contains(r#"Radio::new(("tooltip-mode", 1usize))"#));
         assert!(page.contains("open-user-guide"));
         assert!(!page.contains("stepper("));
     }

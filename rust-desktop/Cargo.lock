@@ -231,6 +231,8 @@ dependencies = [
  "aps-startup",
  "aps-storage",
  "aps-ui-foundation",
+ "flate2",
+ "futures",
  "gpui-kit",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -282,7 +284,9 @@ dependencies = [
 name = "aps-cpu"
 version = "0.1.0"
 dependencies = [
+ "aps-json",
  "aps-simpleperf-engine",
+ "flate2",
 ]
 
 [[package]]

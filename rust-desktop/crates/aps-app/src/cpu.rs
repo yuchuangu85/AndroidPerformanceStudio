@@ -27,7 +27,7 @@ use std::{
     collections::BTreeSet,
     fs::File,
     hash::{Hash, Hasher},
-    io::{Cursor, Read, Write},
+    io::{BufReader, Cursor, Read, Write},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -41,8 +41,9 @@ const PAGE_SIZE: usize = 128;
 const RECENT_PAGE_SIZE: usize = 20;
 pub(crate) const CPU_MEDIA_TYPE: &str = "application/x-aps-simpleperf-protobuf";
 pub(crate) const CPU_SESSION_PREFIX: &str = "cpu-import-v1:";
-/// Covers the 10-byte SIMPLEPERF magic, so one bounded read classifies a source.
-const CPU_SOURCE_PREFIX_BYTES: usize = 10;
+/// One bounded probe classifies a source by content: it covers the SIMPLEPERF
+/// and perf.data magic and the leading meta/threads keys of a Gecko JSON profile.
+const CPU_SOURCE_PROBE_BYTES: usize = 64 * 1024;
 const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 /// Chart packets are rendered at a fixed logical width and scrolled/painted by
 /// the workspace; the engine viewport is independent of the window width.
@@ -422,6 +423,11 @@ impl CpuWorkspace {
     pub fn open_artifact(&mut self, path: PathBuf, digest: SourceDigest, cx: &mut Context<Self>) {
         self.open_path(path, None, Some(digest), cx);
     }
+    /// Debug-only verification seam: open a picked CPU source on launch without
+    /// driving the platform file picker.
+    pub(crate) fn open_debug_source(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.open_path(path, None, None, cx);
+    }
     pub fn analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
         use crate::evidence::{clipped, object, request};
         if self.busy {
@@ -606,10 +612,12 @@ impl CpuWorkspace {
         // A standalone perf.data record is converted to the SIMPLEPERF protobuf
         // stream with an explicitly resolved host simpleperf. Conversion runs
         // under the bounded process runner and the result is persisted by digest.
-        // Anything else is classified before the engine so a non-profile file
-        // gets an actionable message instead of "invalid SIMPLEPERF magic".
-        let kind = match classify_cpu_source(&path) {
-            Ok(kind) => kind,
+        // A gzip-wrapped profile carries either transport, so it is decompressed
+        // and then follows the same route. Anything else is classified before the
+        // engine so a non-profile file gets an actionable message instead of
+        // "invalid SIMPLEPERF magic".
+        let class = match classify_cpu_source(&path) {
+            Ok(class) => class,
             Err(error) => {
                 self.busy = false;
                 self.error = Some(error);
@@ -617,13 +625,13 @@ impl CpuWorkspace {
                 return;
             }
         };
-        if let Some(error) = kind.rejection() {
+        if let Some(error) = class.rejection() {
             self.busy = false;
             self.error = Some(error);
             cx.notify();
             return;
         }
-        let converter = if kind == CpuSourceKind::PerfData {
+        let converter = if class.kind == CpuSourceKind::PerfData {
             match resolve_simpleperf(self.converter.as_deref()) {
                 Ok(converter) => Some(converter),
                 Err(error) => {
@@ -645,29 +653,14 @@ impl CpuWorkspace {
                     .ok_or(CpuError::Local(TextKey::ProfilerCpuMetadataNotConfigured))?;
                 validate_recent(path, recent)?;
             }
-            let loaded = if let Some(converter) = converter {
-                let loaded =
-                    load_perf_data_source(&path, &converter, snapshot_root.as_deref(), || {
-                        cancel.load(Ordering::Acquire)
-                    })?;
-                if let Some(recent) = &recent {
-                    if loaded.digest != recent.binding.source_digest
-                        || loaded.byte_length != recent.byte_length
-                    {
-                        return Err(CpuError::Local(
-                            TextKey::ProfilerCpuReselectedSourceMismatch,
-                        ));
-                    }
-                }
-                loaded
-            } else {
-                let loaded =
-                    load_cpu_source(&path, recent.as_ref(), || cancel.load(Ordering::Acquire))?;
-                if let Some(root) = snapshot_root.as_deref() {
-                    persist_cpu_snapshot(root, &loaded.path, loaded.digest, loaded.byte_length)?;
-                }
-                loaded
-            };
+            let loaded = load_cpu_import(
+                &path,
+                class,
+                converter.as_deref(),
+                recent.as_ref(),
+                snapshot_root.as_deref(),
+                || cancel.load(Ordering::Acquire),
+            )?;
             if expected.is_some_and(|expected| loaded.digest != expected) {
                 return Err(CpuError::Local(TextKey::ProfilerCpuCapturedDigestChanged));
             }
@@ -6270,7 +6263,7 @@ type CpuOpenResult = (
     Option<CpuError>,
 );
 
-/// Content classification of a picked CPU source.
+/// Payload classification of a picked CPU source.
 ///
 /// The engine reports an unrecognized file as "invalid SIMPLEPERF magic", which
 /// does not say what to import instead. Classifying by content first gives the
@@ -6280,41 +6273,95 @@ type CpuOpenResult = (
 enum CpuSourceKind {
     PerfData,
     Simpleperf,
-    Gzip,
+    /// Firefox / Gecko Profiler v24 JSON profile, plain or gzip-wrapped.
+    GeckoProfile,
     ZipArchive,
     Unknown,
 }
 
-impl CpuSourceKind {
-    /// None when the CPU workspace can parse this source.
+/// The payload kind of a picked source, and whether the picked file is a gzip
+/// wrapper around that payload.
+///
+/// A gzip-compressed CPU profile carries the same profile as the plain file, so
+/// the import transparently decompresses the picked archive and then reuses the
+/// existing perf.data conversion or SIMPLEPERF parsing route. Classification
+/// peeks at the decompressed prefix; the picked name is never trusted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CpuSourceClass {
+    kind: CpuSourceKind,
+    gzip: bool,
+}
+
+impl CpuSourceClass {
+    const fn plain(kind: CpuSourceKind) -> Self {
+        Self { kind, gzip: false }
+    }
+    const fn gzip(kind: CpuSourceKind) -> Self {
+        Self { kind, gzip: true }
+    }
+    /// None when the CPU workspace can import this source.
     fn rejection(self) -> Option<CpuError> {
-        match self {
-            Self::PerfData | Self::Simpleperf => None,
-            Self::Gzip => Some(CpuError::Local(TextKey::ProfilerCpuSourceGzipCompressed)),
-            Self::ZipArchive => Some(CpuError::Local(TextKey::ProfilerCpuSourceZipArchive)),
-            Self::Unknown => Some(CpuError::Local(TextKey::ProfilerCpuSourceUnknownFormat)),
+        match self.kind {
+            CpuSourceKind::PerfData | CpuSourceKind::Simpleperf | CpuSourceKind::GeckoProfile => {
+                None
+            }
+            CpuSourceKind::ZipArchive => {
+                Some(CpuError::Local(TextKey::ProfilerCpuSourceZipArchive))
+            }
+            CpuSourceKind::Unknown => {
+                Some(CpuError::Local(TextKey::ProfilerCpuSourceUnknownFormat))
+            }
         }
     }
 }
 
-fn classify_cpu_source(path: &Path) -> Result<CpuSourceKind, CpuError> {
-    let mut prefix = [0u8; CPU_SOURCE_PREFIX_BYTES];
-    let read = read_cpu_source_prefix(path, &mut prefix)?;
-    let prefix = &prefix[..read];
-    Ok(if is_perf_data(prefix) {
-        CpuSourceKind::PerfData
+fn classify_cpu_source(path: &Path) -> Result<CpuSourceClass, CpuError> {
+    let mut buffer = vec![0u8; CPU_SOURCE_PROBE_BYTES];
+    let read = read_cpu_source_prefix(path, &mut buffer)?;
+    let prefix = &buffer[..read];
+    if is_gzip(prefix) {
+        // Look through the wrapper at the profile it transports. Only the profile
+        // transports are decompressed; anything else inside the archive stays an
+        // unclassified payload instead of becoming a second archive format the
+        // CPU workspace pretends to support.
+        let mut decompressed = vec![0u8; CPU_SOURCE_PROBE_BYTES];
+        let read = read_cpu_source_gzip_prefix(path, &mut decompressed)?;
+        let kind = match payload_kind(&decompressed[..read]) {
+            Some(
+                kind @ (CpuSourceKind::PerfData
+                | CpuSourceKind::Simpleperf
+                | CpuSourceKind::GeckoProfile),
+            ) => kind,
+            _ => CpuSourceKind::Unknown,
+        };
+        return Ok(CpuSourceClass::gzip(kind));
+    }
+    Ok(CpuSourceClass::plain(
+        payload_kind(prefix).unwrap_or(CpuSourceKind::Unknown),
+    ))
+}
+
+/// Payload magic of an uncompressed prefix. gzip is the only wrapper the CPU
+/// workspace looks through, so it reports None here.
+fn payload_kind(prefix: &[u8]) -> Option<CpuSourceKind> {
+    if is_perf_data(prefix) {
+        Some(CpuSourceKind::PerfData)
     } else if prefix.starts_with(SIMPLEPERF_MAGIC) {
-        CpuSourceKind::Simpleperf
-    } else if prefix.starts_with(&[0x1f, 0x8b]) {
-        CpuSourceKind::Gzip
+        Some(CpuSourceKind::Simpleperf)
+    } else if aps_cpu::is_gecko_profile_prefix(prefix) {
+        Some(CpuSourceKind::GeckoProfile)
     } else if prefix.starts_with(b"PK\x03\x04")
         || prefix.starts_with(b"PK\x05\x06")
         || prefix.starts_with(b"PK\x07\x08")
     {
-        CpuSourceKind::ZipArchive
+        Some(CpuSourceKind::ZipArchive)
     } else {
-        CpuSourceKind::Unknown
-    })
+        None
+    }
+}
+
+fn is_gzip(prefix: &[u8]) -> bool {
+    prefix.starts_with(&[0x1f, 0x8b])
 }
 
 /// Current and legacy Linux perf.data magic, in either byte order.
@@ -6339,6 +6386,88 @@ fn read_cpu_source_prefix(path: &Path, buffer: &mut [u8]) -> Result<usize, CpuEr
         }
     }
     Ok(filled)
+}
+
+/// Read only the first decompressed bytes of a gzip wrapper, so classification
+/// stays bounded by the prefix instead of materializing the whole payload. A
+/// wrapper this reader cannot decode is reported as a decompression failure
+/// rather than silently falling back to the unclassified-payload message.
+fn read_cpu_source_gzip_prefix(path: &Path, buffer: &mut [u8]) -> Result<usize, CpuError> {
+    let file =
+        File::open(path).map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceInspectFailed))?;
+    let mut decoder = flate2::read::MultiGzDecoder::new(BufReader::new(file));
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match decoder.read(&mut buffer[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => {
+                return Err(CpuError::Local(
+                    TextKey::ProfilerCpuSourceGzipDecompressionFailed,
+                ));
+            }
+        }
+    }
+    Ok(filled)
+}
+
+const CPU_GZIP_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Decompress a gzip-wrapped profile into an owned scratch directory so the
+/// existing perf.data conversion and SIMPLEPERF parsing routes can read it as a
+/// regular file. The decompressed size is bounded independently of the picked
+/// file because a small archive can expand far past the import limit; the guard
+/// keeps the file alive for exactly as long as the import needs it and removes
+/// the scratch directory afterwards.
+fn decompress_cpu_source(
+    path: &Path,
+    root: &Path,
+    payload_limit: u64,
+    cancelled: impl Fn() -> bool,
+) -> Result<(TempWorkspace, PathBuf), CpuError> {
+    let file =
+        File::open(path).map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceInspectFailed))?;
+    let picked = file
+        .metadata()
+        .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceInspectFailed))?;
+    if !picked.is_file() || picked.len() > MAX_PERF_DATA_INPUT_BYTES {
+        return Err(CpuError::Local(TextKey::ProfilerCpuSourceNotBoundedFile));
+    }
+    let workspace = TempWorkspace::create(root)
+        .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSnapshotLocationUnavailable))?;
+    let target = workspace.path().join("decompressed.cpu-profile");
+    let mut output = File::create(&target)
+        .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceGzipDecompressionFailed))?;
+    let mut decoder = flate2::read::MultiGzDecoder::new(BufReader::new(file));
+    let mut buffer = [0u8; CPU_GZIP_CHUNK_BYTES];
+    let mut written = 0u64;
+    loop {
+        if cancelled() {
+            return Err(CpuError::Local(TextKey::ProfilerCpuImportClosed));
+        }
+        let read = match decoder.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(_) => {
+                return Err(CpuError::Local(
+                    TextKey::ProfilerCpuSourceGzipDecompressionFailed,
+                ));
+            }
+        };
+        written = written
+            .checked_add(read as u64)
+            .filter(|total| *total <= payload_limit)
+            .ok_or(CpuError::Local(TextKey::ProfilerCpuSourceGzipTooLarge))?;
+        output
+            .write_all(&buffer[..read])
+            .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceGzipDecompressionFailed))?;
+    }
+    output
+        .sync_all()
+        .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceGzipDecompressionFailed))?;
+    drop(output);
+    Ok((workspace, target))
 }
 
 fn executable_file(path: &Path) -> bool {
@@ -6575,6 +6704,90 @@ fn load_cpu_source_with(
         digest,
         byte_length: before.len(),
     })
+}
+
+/// Load one picked source through the route its content classification chose.
+///
+/// A gzip wrapper is decompressed into the snapshot root first, so the profile
+/// inside follows exactly the same bounded perf.data conversion or SIMPLEPERF
+/// parsing path as a plain file. The durable identity is the profile's own
+/// SHA-256 and byte length after decompression: re-picking the same archive
+/// decompresses to the same bytes, while the extracted profile also matches.
+fn load_cpu_import(
+    path: &Path,
+    class: CpuSourceClass,
+    converter: Option<&Path>,
+    recent: Option<&RecentCpu>,
+    snapshot_root: Option<&Path>,
+    cancelled: impl Fn() -> bool,
+) -> Result<LoadedCpu, CpuError> {
+    if cancelled() {
+        return Err(CpuError::Local(TextKey::ProfilerCpuImportClosed));
+    }
+    let (source, _workspace, gzip_label) = if class.gzip {
+        let root = snapshot_root.ok_or(CpuError::Local(
+            TextKey::ProfilerCpuSnapshotLocationUnavailable,
+        ))?;
+        let payload_limit = match class.kind {
+            CpuSourceKind::PerfData => MAX_PERF_DATA_INPUT_BYTES,
+            CpuSourceKind::GeckoProfile => aps_cpu::MAX_GECKO_PROFILE_BYTES as u64,
+            _ => aps_cpu::DEFAULT_INPUT_LIMIT as u64,
+        };
+        let (workspace, decompressed) =
+            decompress_cpu_source(path, root, payload_limit, &cancelled)?;
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "gzip CPU profile".into());
+        let label = match (class.kind, converter) {
+            (CpuSourceKind::PerfData, Some(converter)) => format!(
+                "{name} (gzip) -> SIMPLEPERF protobuf via {}",
+                converter.display()
+            ),
+            (CpuSourceKind::GeckoProfile, _) => {
+                format!("{name} (gzip) -> Gecko profile JSON")
+            }
+            _ => format!("{name} (gzip) -> SIMPLEPERF protobuf"),
+        };
+        (decompressed, Some(workspace), Some(label))
+    } else {
+        (path.to_path_buf(), None, None)
+    };
+    let mut loaded = if class.kind == CpuSourceKind::PerfData {
+        let converter = converter.ok_or_else(|| {
+            CpuError::Diagnostic("perf.data needs a compatible host simpleperf".into())
+        })?;
+        let loaded = load_perf_data_source(&source, converter, snapshot_root, &cancelled)?;
+        if let Some(recent) = recent {
+            if loaded.digest != recent.binding.source_digest
+                || loaded.byte_length != recent.byte_length
+            {
+                return Err(CpuError::Local(
+                    TextKey::ProfilerCpuReselectedSourceMismatch,
+                ));
+            }
+        }
+        loaded
+    } else {
+        let mut loaded = load_cpu_source(&source, recent, &cancelled)?;
+        if let Some(root) = snapshot_root {
+            let snapshot =
+                persist_cpu_snapshot(root, &loaded.path, loaded.digest, loaded.byte_length)?;
+            // Gzip imports decompress into an owned scratch directory that is
+            // removed as soon as loading finishes; keep package exports on the
+            // durable snapshot bytes instead.
+            loaded.session.rebind_path(snapshot);
+        }
+        loaded
+    };
+    match gzip_label {
+        Some(label) => loaded.display_label = label,
+        None if class.kind == CpuSourceKind::GeckoProfile => {
+            loaded.display_label = format!("{} (Gecko profile JSON)", loaded.display_label);
+        }
+        None => {}
+    }
+    Ok(loaded)
 }
 
 fn finish_cpu_open(
@@ -7025,13 +7238,16 @@ impl Drop for CpuWorkspace {
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        CPU_MEDIA_TYPE, CpuError, CpuSourceKind, Language, RecentCpu, associate_cpu,
-        check_cpu_binding, classify_cpu_source, cpu_artifact, load_cpu_snapshot, load_cpu_source,
+        CPU_MEDIA_TYPE, CpuError, CpuSourceClass, CpuSourceKind, Language, RecentCpu,
+        associate_cpu, check_cpu_binding, classify_cpu_source, cpu_artifact, cpu_snapshot_path,
+        decompress_cpu_source, load_cpu_import, load_cpu_snapshot, load_cpu_source,
         load_cpu_source_with, persist_cpu_snapshot, recent_cpu, validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
     use aps_storage::{PageRequest, Storage};
+    use aps_ui_foundation::TextKey;
     use std::{
+        io::{Cursor, Write as _},
         path::{Path, PathBuf},
         sync::atomic::{AtomicU64, Ordering},
     };
@@ -7384,43 +7600,286 @@ mod metadata_tests {
         assert!(associate_cpu(&wrong, digest, 4, None).is_err());
         assert!(!wrong.exists());
     }
+    /// Minimal SIMPLEPERF stream the engine accepts (magic + one record word),
+    /// enough to prove the decompressed payload is what the import parses.
+    const MINIMAL_SIMPLEPERF: &[u8] = b"SIMPLEPERF\x01\x00\x00\x00\x00\x00";
+    fn gzip(bytes: &[u8]) -> Vec<u8> {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+    fn gzip_source(fixture: &Fixture, name: &str, payload: &[u8]) -> PathBuf {
+        let path = fixture.root.join(name);
+        std::fs::write(&path, gzip(payload)).unwrap();
+        path
+    }
+    /// Minimal Firefox / Gecko v24 profile: one thread, two samples, one real
+    /// stack plus one stack-less sample.
+    fn gecko_profile() -> Vec<u8> {
+        br#"{"meta":{"interval":1,"product":"Android Performance Studio","version":24},"libs":[],"threads":[{"tid":11,"pid":11,"name":"main","markers":{},"samples":{"schema":{"stack":0,"time":1,"responsiveness":2},"data":[[1,1.5,0],[null,2.5,0]]},"frameTable":{"schema":{"location":0,"category":1},"data":[[0,2],[1,2]]},"stackTable":{"schema":{"prefix":0,"frame":1},"data":[[null,0],[0,1]]},"stringTable":["root (in /lib/liba.so)","leaf (in /lib/liba.so)"]}],"processes":[],"pausedRanges":[]}"#.to_vec()
+    }
+    #[test]
+    fn gecko_json_profiles_are_classified_and_imported() {
+        let fixture = Fixture::new();
+        let document = gecko_profile();
+        let plain = fixture.root.join("perf_data.json");
+        std::fs::write(&plain, &document).unwrap();
+        assert_eq!(
+            classify_cpu_source(&plain).unwrap(),
+            CpuSourceClass::plain(CpuSourceKind::GeckoProfile)
+        );
+        let snapshot_root = fixture.root.join("cpu-artifacts");
+        let loaded = load_cpu_import(
+            &plain,
+            CpuSourceClass::plain(CpuSourceKind::GeckoProfile),
+            None,
+            None,
+            Some(&snapshot_root),
+            || false,
+        )
+        .unwrap();
+        assert_eq!(loaded.byte_length, document.len() as u64);
+        assert!(loaded.display_label.ends_with("(Gecko profile JSON)"));
+        assert_eq!(loaded.session.summary().sample_count, 2);
+        assert_eq!(loaded.session.summary().thread_count, 1);
+        assert_eq!(loaded.session.threads().len(), 1);
+        assert_eq!(loaded.session.events(), ["samples"]);
+        // Non-Gecko JSON stays an unclassified payload instead of a parse error.
+        let other = fixture.root.join("other.json");
+        std::fs::write(&other, br#"{"cells":[1,2,3]}"#).unwrap();
+        assert_eq!(
+            classify_cpu_source(&other).unwrap(),
+            CpuSourceClass::plain(CpuSourceKind::Unknown)
+        );
+    }
+    #[test]
+    fn gzip_wrapped_gecko_profiles_import_and_reopen() {
+        let fixture = Fixture::new();
+        let document = gecko_profile();
+        let archive = gzip_source(&fixture, "perf_data.json.gz", &document);
+        let class = classify_cpu_source(&archive).unwrap();
+        assert_eq!(class, CpuSourceClass::gzip(CpuSourceKind::GeckoProfile));
+        let snapshot_root = fixture.root.join("cpu-artifacts");
+        let loaded =
+            load_cpu_import(&archive, class, None, None, Some(&snapshot_root), || false).unwrap();
+        assert_eq!(
+            loaded.digest,
+            SourceDigest::hash_reader(Cursor::new(&document), 1024).unwrap()
+        );
+        assert_eq!(loaded.byte_length, document.len() as u64);
+        assert!(
+            loaded
+                .display_label
+                .starts_with("perf_data.json.gz (gzip) -> Gecko profile JSON")
+        );
+        let snapshot = cpu_snapshot_path(&snapshot_root, loaded.digest).unwrap();
+        assert_eq!(std::fs::read(&snapshot).unwrap(), document);
+        // The persisted snapshot is re-opened through the same Gecko reader.
+        let binding =
+            associate_cpu(&fixture.database(), loaded.digest, loaded.byte_length, None).unwrap();
+        let mut page = recent_cpu(&fixture.database(), 0).unwrap();
+        let recent = page.rows.remove(0);
+        assert_eq!(recent.binding, binding);
+        let reopened = load_cpu_import(
+            &archive,
+            class,
+            None,
+            Some(&recent),
+            Some(&snapshot_root),
+            || false,
+        )
+        .unwrap();
+        assert_eq!(reopened.digest, loaded.digest);
+        let snapshot_session = load_cpu_snapshot(&snapshot_root, &recent, || false).unwrap();
+        assert_eq!(snapshot_session.session.summary().sample_count, 2);
+    }
     #[test]
     fn cpu_sources_are_classified_by_content_not_by_name() {
         let fixture = Fixture::new();
-        let cases: [(&[u8], CpuSourceKind); 8] = [
+        let plain: [(&[u8], CpuSourceKind); 6] = [
             (b"PERFILE2\x00\x01", CpuSourceKind::PerfData),
             (b"2ELIFREP\x00\x01", CpuSourceKind::PerfData),
             (b"PERFFILE\x00\x01", CpuSourceKind::PerfData),
             (b"SIMPLEPERF\x01\x00", CpuSourceKind::Simpleperf),
-            (&[0x1f, 0x8b, 0x08, 0x00], CpuSourceKind::Gzip),
             (b"PK\x03\x04payload", CpuSourceKind::ZipArchive),
             (b"<!DOCTYPE html>", CpuSourceKind::Unknown),
-            (b"", CpuSourceKind::Unknown),
         ];
-        for (index, (bytes, expected)) in cases.into_iter().enumerate() {
+        for (index, (bytes, expected)) in plain.into_iter().enumerate() {
             let path = fixture.root.join(format!("source-{index}"));
             std::fs::write(&path, bytes).unwrap();
             assert_eq!(
                 classify_cpu_source(&path).unwrap(),
-                expected,
+                CpuSourceClass::plain(expected),
                 "case {index} starting with {bytes:?}"
+            );
+        }
+        let empty = fixture.root.join("empty");
+        std::fs::write(&empty, b"").unwrap();
+        assert_eq!(
+            classify_cpu_source(&empty).unwrap(),
+            CpuSourceClass::plain(CpuSourceKind::Unknown)
+        );
+        // A gzip wrapper is classified by what it transports, not by its name.
+        let wrapped: [(&[u8], CpuSourceKind); 3] = [
+            (b"PERFILE2\x00\x01", CpuSourceKind::PerfData),
+            (b"SIMPLEPERF\x01\x00", CpuSourceKind::Simpleperf),
+            (b"<!DOCTYPE html>", CpuSourceKind::Unknown),
+        ];
+        for (index, (payload, expected)) in wrapped.into_iter().enumerate() {
+            let path = fixture.root.join(format!("wrapped-{index}.gz"));
+            std::fs::write(&path, gzip(payload)).unwrap();
+            assert_eq!(
+                classify_cpu_source(&path).unwrap(),
+                CpuSourceClass::gzip(expected),
+                "wrapped case {index} containing {payload:?}"
             );
         }
     }
     #[test]
     fn only_parseable_cpu_sources_skip_the_rejection_message() {
-        assert!(CpuSourceKind::PerfData.rejection().is_none());
-        assert!(CpuSourceKind::Simpleperf.rejection().is_none());
         for kind in [
-            CpuSourceKind::Gzip,
-            CpuSourceKind::ZipArchive,
-            CpuSourceKind::Unknown,
+            CpuSourceKind::PerfData,
+            CpuSourceKind::Simpleperf,
+            CpuSourceKind::GeckoProfile,
         ] {
+            assert!(CpuSourceClass::plain(kind).rejection().is_none());
+            assert!(CpuSourceClass::gzip(kind).rejection().is_none());
+        }
+        for kind in [CpuSourceKind::ZipArchive, CpuSourceKind::Unknown] {
             assert!(
-                matches!(kind.rejection(), Some(CpuError::Local(_))),
+                matches!(
+                    CpuSourceClass::plain(kind).rejection(),
+                    Some(CpuError::Local(_))
+                ),
                 "{kind:?} must carry an application resource key"
             );
         }
+        // A gzip wrapper around anything else is still not a CPU profile.
+        assert!(matches!(
+            CpuSourceClass::gzip(CpuSourceKind::Unknown).rejection(),
+            Some(CpuError::Local(TextKey::ProfilerCpuSourceUnknownFormat))
+        ));
+    }
+    #[test]
+    fn gzip_wrapped_simpleperf_imports_the_decompressed_profile() {
+        let fixture = Fixture::new();
+        let archive = gzip_source(&fixture, "cpu-profile.trace.gz", MINIMAL_SIMPLEPERF);
+        let class = classify_cpu_source(&archive).unwrap();
+        assert_eq!(class, CpuSourceClass::gzip(CpuSourceKind::Simpleperf));
+        let snapshot_root = fixture.root.join("cpu-artifacts");
+        let loaded =
+            load_cpu_import(&archive, class, None, None, Some(&snapshot_root), || false).unwrap();
+        // The durable identity is the profile inside the archive: re-picking the
+        // archive and importing the extracted file both resolve to these bytes.
+        assert_eq!(
+            loaded.digest,
+            SourceDigest::hash_reader(Cursor::new(MINIMAL_SIMPLEPERF), 1024).unwrap()
+        );
+        assert_eq!(loaded.byte_length, MINIMAL_SIMPLEPERF.len() as u64);
+        assert!(
+            loaded
+                .display_label
+                .starts_with("cpu-profile.trace.gz (gzip)")
+        );
+        let snapshot = cpu_snapshot_path(&snapshot_root, loaded.digest).unwrap();
+        assert_eq!(std::fs::read(&snapshot).unwrap(), MINIMAL_SIMPLEPERF);
+
+        let binding =
+            associate_cpu(&fixture.database(), loaded.digest, loaded.byte_length, None).unwrap();
+        let mut page = recent_cpu(&fixture.database(), 0).unwrap();
+        let recent = page.rows.remove(0);
+        assert_eq!(recent.binding, binding);
+        let reopened = load_cpu_import(
+            &archive,
+            class,
+            None,
+            Some(&recent),
+            Some(&snapshot_root),
+            || false,
+        )
+        .unwrap();
+        assert_eq!(reopened.digest, loaded.digest);
+        assert_eq!(reopened.byte_length, loaded.byte_length);
+    }
+    #[cfg(unix)]
+    fn fake_simpleperf(fixture: &Fixture) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = fixture.root.join("fake-simpleperf.sh");
+        std::fs::write(
+            &path,
+            "#!/bin/sh\nout=\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = \"-o\" ]; then out=\"$2\"; fi\n  shift\ndone\nprintf 'SIMPLEPERF' > \"$out\"\nprintf '\\001\\000\\000\\000\\000\\000' >> \"$out\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+    #[cfg(unix)]
+    #[test]
+    fn gzip_wrapped_perf_data_converts_through_the_resolved_host_simpleperf() {
+        let fixture = Fixture::new();
+        let converter = fake_simpleperf(&fixture);
+        let snapshot_root = fixture.root.join("cpu-artifacts");
+        let archive = gzip_source(
+            &fixture,
+            "capture.perf.data.gz",
+            b"PERFILE2\x00\x01\x00\x00\x00\x00\x00\x00",
+        );
+        let class = classify_cpu_source(&archive).unwrap();
+        assert_eq!(class, CpuSourceClass::gzip(CpuSourceKind::PerfData));
+        let loaded = load_cpu_import(
+            &archive,
+            class,
+            Some(&converter),
+            None,
+            Some(&snapshot_root),
+            || false,
+        )
+        .unwrap();
+        // The durable identity is the converted SIMPLEPERF stream, exactly as a
+        // plain perf.data pick would produce it.
+        assert_eq!(
+            loaded.digest,
+            SourceDigest::hash_reader(Cursor::new(MINIMAL_SIMPLEPERF), 1024).unwrap()
+        );
+        assert_eq!(loaded.byte_length, MINIMAL_SIMPLEPERF.len() as u64);
+        assert!(
+            loaded
+                .display_label
+                .starts_with("capture.perf.data.gz (gzip) -> SIMPLEPERF protobuf via")
+        );
+    }
+    #[test]
+    fn corrupt_gzip_wrappers_are_reported_as_decompression_failures() {
+        let fixture = Fixture::new();
+        let path = fixture.root.join("corrupt.gz");
+        std::fs::write(&path, [0x1f, 0x8b, 0x08, 0x00, 0x00]).unwrap();
+        assert!(matches!(
+            classify_cpu_source(&path),
+            Err(CpuError::Local(
+                TextKey::ProfilerCpuSourceGzipDecompressionFailed
+            ))
+        ));
+        let root = fixture.root.join("cpu-artifacts");
+        assert!(matches!(
+            decompress_cpu_source(&path, &root, 1024, || false),
+            Err(CpuError::Local(
+                TextKey::ProfilerCpuSourceGzipDecompressionFailed
+            ))
+        ));
+    }
+    #[test]
+    fn decompression_is_bounded_and_cancellable() {
+        let fixture = Fixture::new();
+        let archive = gzip_source(&fixture, "large.gz", &[0u8; 4096]);
+        let root = fixture.root.join("cpu-artifacts");
+        assert!(matches!(
+            decompress_cpu_source(&archive, &root, 1024, || false),
+            Err(CpuError::Local(TextKey::ProfilerCpuSourceGzipTooLarge))
+        ));
+        assert!(matches!(
+            decompress_cpu_source(&archive, &root, 8192, || true),
+            Err(CpuError::Local(TextKey::ProfilerCpuImportClosed))
+        ));
     }
     #[test]
     fn unclassified_bytes_still_reach_the_engine_diagnostic_without_precheck() {
