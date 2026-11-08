@@ -41,6 +41,9 @@ const PAGE_SIZE: usize = 128;
 const RECENT_PAGE_SIZE: usize = 20;
 pub(crate) const CPU_MEDIA_TYPE: &str = "application/x-aps-simpleperf-protobuf";
 pub(crate) const CPU_SESSION_PREFIX: &str = "cpu-import-v1:";
+/// Covers the 10-byte SIMPLEPERF magic, so one bounded read classifies a source.
+const CPU_SOURCE_PREFIX_BYTES: usize = 10;
+const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 /// Chart packets are rendered at a fixed logical width and scrolled/painted by
 /// the workspace; the engine viewport is independent of the window width.
 const CHART_WIDTH_PX: f32 = 1400.0;
@@ -603,8 +606,10 @@ impl CpuWorkspace {
         // A standalone perf.data record is converted to the SIMPLEPERF protobuf
         // stream with an explicitly resolved host simpleperf. Conversion runs
         // under the bounded process runner and the result is persisted by digest.
-        let perf_data = match sniff_perf_data(&path) {
-            Ok(perf_data) => perf_data,
+        // Anything else is classified before the engine so a non-profile file
+        // gets an actionable message instead of "invalid SIMPLEPERF magic".
+        let kind = match classify_cpu_source(&path) {
+            Ok(kind) => kind,
             Err(error) => {
                 self.busy = false;
                 self.error = Some(error);
@@ -612,7 +617,13 @@ impl CpuWorkspace {
                 return;
             }
         };
-        let converter = if perf_data {
+        if let Some(error) = kind.rejection() {
+            self.busy = false;
+            self.error = Some(error);
+            cx.notify();
+            return;
+        }
+        let converter = if kind == CpuSourceKind::PerfData {
             match resolve_simpleperf(self.converter.as_deref()) {
                 Ok(converter) => Some(converter),
                 Err(error) => {
@@ -6259,15 +6270,75 @@ type CpuOpenResult = (
     Option<CpuError>,
 );
 
-/// true when the file starts with a Linux perf.data magic (either endianness).
-fn sniff_perf_data(path: &Path) -> Result<bool, CpuError> {
+/// Content classification of a picked CPU source.
+///
+/// The engine reports an unrecognized file as "invalid SIMPLEPERF magic", which
+/// does not say what to import instead. Classifying by content first gives the
+/// user an application-owned, localized message and still routes perf.data to
+/// the converter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CpuSourceKind {
+    PerfData,
+    Simpleperf,
+    Gzip,
+    ZipArchive,
+    Unknown,
+}
+
+impl CpuSourceKind {
+    /// None when the CPU workspace can parse this source.
+    fn rejection(self) -> Option<CpuError> {
+        match self {
+            Self::PerfData | Self::Simpleperf => None,
+            Self::Gzip => Some(CpuError::Local(TextKey::ProfilerCpuSourceGzipCompressed)),
+            Self::ZipArchive => Some(CpuError::Local(TextKey::ProfilerCpuSourceZipArchive)),
+            Self::Unknown => Some(CpuError::Local(TextKey::ProfilerCpuSourceUnknownFormat)),
+        }
+    }
+}
+
+fn classify_cpu_source(path: &Path) -> Result<CpuSourceKind, CpuError> {
+    let mut prefix = [0u8; CPU_SOURCE_PREFIX_BYTES];
+    let read = read_cpu_source_prefix(path, &mut prefix)?;
+    let prefix = &prefix[..read];
+    Ok(if is_perf_data(prefix) {
+        CpuSourceKind::PerfData
+    } else if prefix.starts_with(SIMPLEPERF_MAGIC) {
+        CpuSourceKind::Simpleperf
+    } else if prefix.starts_with(&[0x1f, 0x8b]) {
+        CpuSourceKind::Gzip
+    } else if prefix.starts_with(b"PK\x03\x04")
+        || prefix.starts_with(b"PK\x05\x06")
+        || prefix.starts_with(b"PK\x07\x08")
+    {
+        CpuSourceKind::ZipArchive
+    } else {
+        CpuSourceKind::Unknown
+    })
+}
+
+/// Current and legacy Linux perf.data magic, in either byte order.
+fn is_perf_data(prefix: &[u8]) -> bool {
+    [b"PERFILE2", b"2ELIFREP", b"PERFFILE", b"ELIFFREP"]
+        .iter()
+        .any(|magic| prefix.starts_with(*magic))
+}
+
+fn read_cpu_source_prefix(path: &Path, buffer: &mut [u8]) -> Result<usize, CpuError> {
     let mut file =
         File::open(path).map_err(|_| CpuError::Local(TextKey::ProfilerCpuSourceInspectFailed))?;
-    let mut magic = [0u8; 8];
-    match file.read_exact(&mut magic) {
-        Ok(()) => Ok(&magic == b"PERFILE2" || &magic == b"2ELIFREP"),
-        Err(_) => Ok(false),
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match file.read(&mut buffer[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => {
+                return Err(CpuError::Local(TextKey::ProfilerCpuSourceInspectFailed));
+            }
+        }
     }
+    Ok(filled)
 }
 
 fn executable_file(path: &Path) -> bool {
@@ -6954,9 +7025,9 @@ impl Drop for CpuWorkspace {
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        CPU_MEDIA_TYPE, RecentCpu, associate_cpu, check_cpu_binding, cpu_artifact,
-        load_cpu_snapshot, load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
-        validate_recent,
+        CPU_MEDIA_TYPE, CpuError, CpuSourceKind, Language, RecentCpu, associate_cpu,
+        check_cpu_binding, classify_cpu_source, cpu_artifact, load_cpu_snapshot, load_cpu_source,
+        load_cpu_source_with, persist_cpu_snapshot, recent_cpu, validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
     use aps_storage::{PageRequest, Storage};
@@ -7312,6 +7383,57 @@ mod metadata_tests {
         let wrong = fixture.root.join("legacy.sqlite3");
         assert!(associate_cpu(&wrong, digest, 4, None).is_err());
         assert!(!wrong.exists());
+    }
+    #[test]
+    fn cpu_sources_are_classified_by_content_not_by_name() {
+        let fixture = Fixture::new();
+        let cases: [(&[u8], CpuSourceKind); 8] = [
+            (b"PERFILE2\x00\x01", CpuSourceKind::PerfData),
+            (b"2ELIFREP\x00\x01", CpuSourceKind::PerfData),
+            (b"PERFFILE\x00\x01", CpuSourceKind::PerfData),
+            (b"SIMPLEPERF\x01\x00", CpuSourceKind::Simpleperf),
+            (&[0x1f, 0x8b, 0x08, 0x00], CpuSourceKind::Gzip),
+            (b"PK\x03\x04payload", CpuSourceKind::ZipArchive),
+            (b"<!DOCTYPE html>", CpuSourceKind::Unknown),
+            (b"", CpuSourceKind::Unknown),
+        ];
+        for (index, (bytes, expected)) in cases.into_iter().enumerate() {
+            let path = fixture.root.join(format!("source-{index}"));
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(
+                classify_cpu_source(&path).unwrap(),
+                expected,
+                "case {index} starting with {bytes:?}"
+            );
+        }
+    }
+    #[test]
+    fn only_parseable_cpu_sources_skip_the_rejection_message() {
+        assert!(CpuSourceKind::PerfData.rejection().is_none());
+        assert!(CpuSourceKind::Simpleperf.rejection().is_none());
+        for kind in [
+            CpuSourceKind::Gzip,
+            CpuSourceKind::ZipArchive,
+            CpuSourceKind::Unknown,
+        ] {
+            assert!(
+                matches!(kind.rejection(), Some(CpuError::Local(_))),
+                "{kind:?} must carry an application resource key"
+            );
+        }
+    }
+    #[test]
+    fn unclassified_bytes_still_reach_the_engine_diagnostic_without_precheck() {
+        // Documents why open_path classifies first: the engine only reports the
+        // low-level magic failure, which says nothing about what to import.
+        let fixture = Fixture::new();
+        let path = fixture.root.join("not-a-profile");
+        std::fs::write(&path, b"<!DOCTYPE html>").unwrap();
+        let error = match load_cpu_source(&path, None, || false) {
+            Ok(_) => panic!("unclassified bytes must not parse"),
+            Err(error) => error,
+        };
+        assert_eq!(error.display(Language::English), "invalid SIMPLEPERF magic");
     }
 }
 
