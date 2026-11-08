@@ -135,9 +135,11 @@ impl BenchmarkWorkspace {
 
     #[cfg(debug_assertions)]
     fn debug_export_reports(&mut self, cx: &mut Context<Self>) {
-        let (Some(report), Some(gate), Some(index)) =
-            (self.state.report.clone(), self.state.gate.clone(), self.report_index())
-        else {
+        let (Some(report), Some(gate), Some(index)) = (
+            self.state.report.clone(),
+            self.state.gate.clone(),
+            self.report_index(),
+        ) else {
             return;
         };
         let directory = self.export_directory();
@@ -179,7 +181,10 @@ impl BenchmarkWorkspace {
                                 .run_options
                                 .first()
                                 .map(|option| option.id.clone()),
-                            this.state.run_options.last().map(|option| option.id.clone()),
+                            this.state
+                                .run_options
+                                .last()
+                                .map(|option| option.id.clone()),
                         )
                     })
                     .ok();
@@ -217,10 +222,6 @@ impl BenchmarkWorkspace {
 
     pub(crate) fn analysis_request(&self) -> Result<AnalysisRequest, String> {
         ai::analysis_request(&self.state)
-    }
-
-    pub(in crate::benchmark) fn page_language(&self) -> Language {
-        self.language
     }
 
     fn store_path(&self) -> Option<PathBuf> {

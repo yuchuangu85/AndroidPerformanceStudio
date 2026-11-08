@@ -1574,3 +1574,89 @@ clickable but no longer advertise a shortcut. Menu rows were wired to the new
 real actions so macOS renders the key equivalents, and the route dispatchers
 reuse the pages' existing commands instead of duplicating behaviour.
 
+
+### Benchmark Regression full Compose parity — 2026-11-08
+
+The Benchmark route was the last import-backed generic workspace; it is now a
+dedicated page that ports the Compose `benchmark-regression` feature set.
+Compose remains the read-only behaviour oracle; no Compose source changed.
+
+- App module: `aps-app/src/benchmark.rs` (`BenchmarkWorkspace` state machine,
+  menu bar, render) plus `benchmark/{model,page,table,trend,rail,dialogs,ai}.rs`.
+  The old generic benchmark session (baseline/compare buttons, `Session::Benchmark`
+  and `Session::Comparison`) and its orphan projection file were removed from the
+  import workspace, its route menus and the export kind map.
+- Page: Compose layout — horizontally scrollable header action row (baseline and
+  current 220px run selectors, Compare, Import Run, Run Benchmark, Export PDF/CSV,
+  Share Report, Compare Settings, Open Trace in Perfetto, AI analysis), four summary
+  cards, comparison table with search plus severity/classification filters
+  (weights 2.4/1/1/1.2/1/1/1.2, stable `ComparisonKey` selection, bounded 2000-row
+  render with shown/matching/total disclosure), 210px trend panel and the 320px
+  scrollable report rail (gate summary, policy summary, recent reports, comparison
+  inspector), and a single-line status.
+- Adapters added to `aps-benchmark` as Compose ports: SQLite run catalogue with
+  content-addressed ids (SHA-256 of the JSON bytes, so identical re-imports replace
+  the row), metric-history queries, exported-report JSON index, JSON/CSV/Markdown/
+  JUnit/SARIF writers and a dependency-free PDF 1.4 writer, and the Macrobenchmark
+  plan/command/streaming runner (cancel, timeout, kill+reap)/result locator.
+  Report files are written only through the user's save dialog and catalogued
+  locally; Share Report reveals the file in the platform file manager.
+- Evidence semantics: current-run cases are compared against same-identity baseline
+  metrics; compatibility issues are structured with hard/soft flags; evidence
+  confidence is Exact only when both runs meet the minimum raw sample count;
+  ReleaseGatePolicy/ReleaseGateResult (blocking patterns, allowed regressions,
+  minimum confidence, fail-on-regression, inconclusive handling) is a faithful
+  ReleaseGateEvaluator port. Verdicts still come from the Rust BCa + practical
+  threshold analyzer (`aps-benchmark-bca-median-v1`); Compare Settings exposes its
+  relative/absolute thresholds, minimum samples, BCa iterations, confidence level
+  and same-device requirement next to the gate policy. Baseline Profile experiment
+  comparison is ported with trace pairs.
+- AI: the page publishes the bounded Compose BenchmarkAiContext payload
+  (selected row or eight summary rows, 8 KiB limit, digest-bound evidence id) and
+  fails closed without a published report.
+- Locale: every application-owned string stays an English/Simplified Chinese
+  catalog pair; the strings that described the previous session-only/disabled
+  adapters were replaced with the now-real behaviour. Imported identities, paths
+  and diagnostics remain verbatim.
+- Debug-only verification seams (compiled out of release builds, following the
+  existing `APS_RUST_OPEN_ROUTE`/`APS_WINDOW_SIZE` precedent):
+  `APS_RUST_BENCHMARK_DEMO` selects the oldest/newest stored runs and compares,
+  `APS_RUST_BENCHMARK_DEMO_SELECT` selects the first comparison,
+  `APS_RUST_BENCHMARK_DIALOG=compare|orchestrate` opens a dialog and
+  `APS_RUST_BENCHMARK_EXPORT` writes demo PDF/CSV reports into the report index.
+  They never run without the variables and do not add a production path.
+
+Deviations / boundaries (explicit):
+
+- The analyzer math stays Rust's BCa interval instead of Compose's MAD noise band;
+  Compose's visible policy surface is ported, but a numeric interval is not
+  converted into an invented score.
+- PDF "Created at" prints the stored RFC3339 UTC instant (no timezone crate); the
+  PDF base-14 font replaces non-ASCII characters with '?', while JSON/CSV keep the
+  exact text. Runner merges stderr into the same bounded stream as stdout.
+- The import picker was not driven natively; native verification seeded the run
+  catalogue through the same schema and let the page reparse the fixture JSON from
+  source paths. Macrobenchmark was not executed against Gradle or a device — its
+  command/runner/locator tests use sh fixtures only.
+- Dialogs were opened through the debug seam rather than pointer input: a
+  concurrent second app instance in this workspace repeatedly took focus, the same
+  limitation recorded for earlier pages. Escape-to-dismiss and native
+  keyboard/IME/packaged gates remain deferred; release qualification is not
+  claimed.
+
+Evidence (fresh, this workspace):
+
+- `cargo fmt` on every touched file; `cargo check --offline --workspace
+  --all-targets`: green.
+- `cargo test --offline -p aps-benchmark`: 65 passed / 0 failed (6 lib + 11
+  parser + 20 compare/gate + 3 experiment + 7 storage + 9 exporters/PDF/index +
+  9 orchestration/locator).
+- `cargo test --offline -p aps-app`: 347 passed / 3 ignored / 0 failed, including
+  the 18 new `benchmark::` state/dialog/trend/rail/AI tests.
+- `cargo build --offline -p aps-app --bin aps-app`: green; native captures in
+  `build/benchmark-parity/shots/`: `benchmark-demo.png` (populated page),
+  `benchmark-selected-exported.png` (selected row + inspector + PDF/CSV reports in
+  Recent Reports), `benchmark-compare-dialog.png`, `benchmark-orchestration-dialog.png`.
+  The exported artifacts were re-read from disk: `benchmark-regression.pdf`
+  starts with `%PDF-1.4` and its xref table, the CSV carries the gate columns and
+  `reports/index.json` lists both with sizes.
