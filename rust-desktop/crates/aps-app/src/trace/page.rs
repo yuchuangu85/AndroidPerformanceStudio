@@ -147,16 +147,6 @@ pub(in crate::trace) fn render(
             cx,
         ));
     }
-    if let Some(notice) = this.notice.clone() {
-        root = root.child(message_row(
-            "trace-workspace-notice",
-            notice,
-            colors.secondary_text,
-            language,
-            &colors,
-            cx,
-        ));
-    }
     if let Some(error) = this.tool_error.clone() {
         root = root.child(message_row(
             "trace-tool-error",
@@ -503,7 +493,6 @@ fn workspace(
                     .child(center)
                     .child(right),
             )
-            .child(workspace_status(this, colors))
             .into_any_element()
     } else {
         let sessions = sessions_panel(this, colors, cx);
@@ -559,7 +548,6 @@ fn workspace(
                     .flex_shrink_0()
                     .child(insights),
             )
-            .child(workspace_status(this, colors))
             .into_any_element()
     }
 }
@@ -645,11 +633,8 @@ fn summary_card(
         } else {
             colors.border
         })
-        .bg(if summary.severity.is_some() {
-            colors.panel.blend(accent.alpha(0.10))
-        } else {
-            colors.panel
-        })
+        // Severity colors the outline and the value, never the card fill.
+        .bg(colors.panel)
         .child(
             div()
                 .w_full()
@@ -1306,7 +1291,7 @@ fn source_of_truth_card(language: Language, colors: &StudioColors) -> AnyElement
         .rounded(px(studio::metrics::CARD_RADIUS))
         .border_1()
         .border_color(colors.accent.alpha(0.4))
-        .bg(colors.panel.blend(colors.accent.alpha(0.1)))
+        .bg(colors.panel)
         .child(
             div()
                 .text_size(px(FONT_BODY))
@@ -1500,6 +1485,62 @@ fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
             language.text(TextKey::NoOnlineDevice).to_owned(),
         ),
     };
+    let mut content = div()
+        .id("trace-status-bar-content")
+        .h(px(STATUS_BAR_HEIGHT))
+        .w_full()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .px(px(TOOLBAR_PADDING))
+        .overflow_x_scroll()
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_size(px(FONT_SUPPORTING))
+                .text_color(colors.secondary_text)
+                .child(crate::studio::selectable(format!(
+                    "{}:",
+                    language.text(TextKey::DeviceStatus)
+                ))),
+        )
+        .child(
+            div()
+                .w(px(STATUS_DOT))
+                .h(px(STATUS_DOT))
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(dot),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_size(px(FONT_SUPPORTING))
+                .text_color(colors.secondary_text)
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(crate::studio::selectable(text)),
+        );
+    // Operation feedback shares the one footer instead of stacking a second
+    // status bar above it; the message ellipsizes down to the available width.
+    if let Some((message, is_error)) = status_message(this) {
+        content = content
+            .child(div().w(px(1.)).h(px(12.)).flex_shrink_0().bg(colors.border))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(FONT_SUPPORTING))
+                    .text_color(if is_error {
+                        colors.error
+                    } else {
+                        colors.secondary_text
+                    })
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(crate::studio::selectable(message)),
+            );
+    }
     div()
         .id("trace-status-bar")
         .w_full()
@@ -1507,81 +1548,24 @@ fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
         .flex()
         .flex_col()
         .child(studio::divider(colors))
-        .child(
-            div()
-                .id("trace-status-bar-content")
-                .h(px(STATUS_BAR_HEIGHT))
-                .w_full()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .px(px(TOOLBAR_PADDING))
-                .overflow_x_scroll()
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_size(px(FONT_SUPPORTING))
-                        .text_color(colors.secondary_text)
-                        .child(crate::studio::selectable(format!(
-                            "{}:",
-                            language.text(TextKey::DeviceStatus)
-                        ))),
-                )
-                .child(
-                    div()
-                        .w(px(STATUS_DOT))
-                        .h(px(STATUS_DOT))
-                        .flex_shrink_0()
-                        .rounded_full()
-                        .bg(dot),
-                )
-                .child(
-                    div()
-                        .text_size(px(FONT_SUPPORTING))
-                        .text_color(colors.secondary_text)
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(crate::studio::selectable(text)),
-                ),
-        )
+        .child(content)
         .into_any_element()
 }
 
-fn workspace_status(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
-    let message = if this.importing {
+/// Feedback shown in the bottom status bar: an import or diagnostic run wins
+/// over a failure, and a failure wins over the last completed operation.
+fn status_message(this: &TraceWorkspace) -> Option<(String, bool)> {
+    if this.importing {
         Some((
-            false,
             this.language
                 .text(TextKey::TraceWorkspaceRunning)
                 .to_owned(),
+            false,
         ))
     } else if let Some(error) = this.error.clone() {
-        Some((true, error))
+        Some((error, true))
     } else {
-        this.status.clone().map(|status| (false, status))
-    };
-    match message {
-        Some((is_error, message)) => div()
-            .id(if is_error {
-                "trace-workspace-error"
-            } else {
-                "trace-workspace-status"
-            })
-            .w_full()
-            .flex_shrink_0()
-            .rounded(px(studio::metrics::SMALL_RADIUS))
-            .bg(colors.panel)
-            .px(px(10.))
-            .py(px(5.))
-            .text_size(px(FONT_SUPPORTING))
-            .text_color(if is_error {
-                colors.error
-            } else {
-                colors.secondary_text
-            })
-            .child(crate::studio::selectable(message))
-            .into_any_element(),
-        None => div().into_any_element(),
+        this.status.clone().map(|status| (status, false))
     }
 }
 

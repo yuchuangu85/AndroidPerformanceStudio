@@ -5,10 +5,10 @@
 //! rewrite keeps the same dense visual language instead of the raw component
 //! library defaults.
 //!
-//! Window chrome (title bar, rail, menus) keeps the title-bar surface, while
-//! cards, sections and fields use the Compose `withWorkspaceStyle()` surfaces
-//! derived from the persisted accent color, so every profiler card follows the
-//! theme instead of flat shell tokens.
+//! Every card, section and field keeps a neutral surface: the persisted accent
+//! colors interactive state (selection, focus, controls, charts) and never a
+//! card background, so changing the accent leaves the chrome and card fills
+//! untouched.
 
 use gpui_kit::{
     base::SelectableText,
@@ -85,8 +85,9 @@ pub struct StudioColors {
 }
 
 /// Background color of the window chrome (title bar, navigation rail, toolbars).
-/// Cards, sections and fields use the accent-derived surfaces from
-/// [`StudioColors::for_mode_with_accent`] instead.
+/// Cards, sections and fields use the neutral base palette from
+/// [`StudioColors::for_mode_with_accent`]; the accent is never painted into a
+/// card surface.
 pub fn titlebar_background(dark: bool) -> Rgba {
     if dark { rgb(0x29292b) } else { rgb(0xfafafb) }
 }
@@ -99,14 +100,15 @@ pub fn divider_color(dark: bool) -> Rgba {
 }
 
 impl StudioColors {
-    /// Compose `viewerColors(dark, accent)`: the base palette plus the accent
-    /// state tints and `withWorkspaceStyle()` card surfaces.
+    /// Compose `viewerColors(dark, accent)` with the neutral workspace palette:
+    /// the base palette plus the accent state tints.
     ///
-    /// Chrome keeps the title-bar surface. Cards (`panel`), section headers and
-    /// alternate surfaces (`section_background`), their borders and the light
-    /// field surface derive from the persisted accent: 8% / 6% / 22% accent over
-    /// the dark base, and white cards over the light workspace. Every profiler
-    /// therefore paints the same theme-colored cards without page-local tokens.
+    /// Card surfaces stay neutral. `panel`, `section_background`, `border` and
+    /// `field` mirror the Compose base palette and never composite the accent,
+    /// so no card, KPI tile, table header or settings card is painted in the
+    /// theme color. The accent lives only in interactive state: `accent` draws
+    /// labels, focus, controls and charts, and `selected_row` is the accent
+    /// selection tint over the neutral panel.
     pub fn for_mode_with_accent(dark: bool, accent: Rgba) -> Self {
         let mut colors = if dark {
             Self::dark_palette(accent)
@@ -114,27 +116,9 @@ impl StudioColors {
             Self::light_palette(accent)
         };
         colors.accent = accent;
-        if dark {
-            let base = rgb(0x0e0e0e);
-            let panel = base.blend(accent.alpha(0.08));
-            colors.workspace = titlebar_background(true);
-            colors.toolbar = titlebar_background(true);
-            colors.panel = panel;
-            colors.border = panel.blend(accent.alpha(0.22));
-            colors.strong_border = rgb(0x636366);
-            colors.section_background = panel.blend(accent.alpha(0.06));
-            colors.selected_row = panel.blend(accent.alpha(0.32));
-            colors.field = rgb(0x1c1c1e);
-        } else {
-            colors.workspace = titlebar_background(false);
-            colors.toolbar = titlebar_background(false);
-            colors.panel = rgb(0xffffff);
-            colors.border = divider_color(false);
-            colors.strong_border = rgb(0xb8b8bd);
-            colors.section_background = titlebar_background(false);
-            colors.selected_row = colors.panel.blend(accent.alpha(0.20));
-            colors.field = rgb(0xffffff);
-        }
+        colors.workspace = titlebar_background(dark);
+        colors.toolbar = titlebar_background(dark);
+        colors.selected_row = colors.panel.blend(accent.alpha(if dark { 0.32 } else { 0.20 }));
         colors
     }
 
@@ -144,17 +128,19 @@ impl StudioColors {
         Self::for_mode_with_accent(false, rgb(0x0a84ff))
     }
 
-    /// The light base palette before workspace-style surfaces are applied.
+    /// The light neutral base palette: Compose `ViewerPalettes.light` without
+    /// the accent-composited card surfaces. White cards sit over the toolbar
+    /// workspace; the accent only tints interactive state.
     fn light_palette(accent: Rgba) -> Self {
         let background = titlebar_background(false);
         Self {
             dark: false,
             workspace: background,
             toolbar: background,
-            panel: background,
+            panel: rgb(0xffffff),
             border: divider_color(false),
-            strong_border: divider_color(false),
-            field: background,
+            strong_border: rgb(0xb8b8bd),
+            field: rgb(0xffffff),
             section_background: background,
             accent,
             accent_text: rgb(0xffffff),
@@ -172,18 +158,20 @@ impl StudioColors {
         }
     }
 
-    /// The dark base palette before workspace-style surfaces are applied.
+    /// The dark neutral base palette: Compose `ViewerPalettes.dark` without the
+    /// accent-composited card surfaces. Cards sit on the neutral panel surface and
+    /// never carry the theme color.
     fn dark_palette(accent: Rgba) -> Self {
         let background = titlebar_background(true);
         Self {
             dark: true,
             workspace: background,
             toolbar: background,
-            panel: background,
+            panel: rgb(0x2c2c2e),
             border: divider_color(true),
-            strong_border: divider_color(true),
-            field: background,
-            section_background: background,
+            strong_border: rgb(0x636366),
+            field: rgb(0x1c1c1e),
+            section_background: rgb(0x29292b),
             accent,
             accent_text: rgb(0xffffff),
             text: rgb(0xf5f5f7),
@@ -349,7 +337,8 @@ pub fn kpi_tile(
         )
 }
 
-/// Accent-tinted metric card used by the Overview grid (`StudioMetricCard`).
+/// Metric card used by the Overview grid (`StudioMetricCard`): neutral fill with
+/// a tone-colored label and outline. The accent/tone never paints the fill.
 pub fn metric_card(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,

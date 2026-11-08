@@ -903,7 +903,6 @@ fn summary_cards(
                         studio::card(colors)
                             .id(("network-metric", index))
                             .gap(px(4.))
-                            .bg(colors.panel.blend(tone.alpha(0.10)))
                             .border_color(tone.alpha(0.5))
                             .flex_1()
                             .flex_basis(px(0.))

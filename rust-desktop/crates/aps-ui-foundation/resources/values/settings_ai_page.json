@@ -43,6 +43,7 @@
   "ai_settings_clear_history": "Clear conversation history",
   "ai_settings_open_preflight": "Open AI analysis",
   "ai_settings_applied_provider": "Applied provider: {provider}",
+  "ai_settings_connection_not_applied": "Not applied yet: save and apply this connection; the AI chat uses only the saved provider and model.",
   "ai_settings_connection_kind": "Connection kind",
   "ai_settings_custom_connection_label": "Custom (OpenAI compatible)",
   "ai_settings_read_local_config": "Read local configuration",

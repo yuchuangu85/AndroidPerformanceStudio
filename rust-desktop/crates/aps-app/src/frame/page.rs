@@ -713,7 +713,7 @@ fn metric_card(
         .rounded(px(studio::metrics::CARD_RADIUS))
         .border_1()
         .border_color(tone.alpha(0.5))
-        .bg(colors.panel.blend(tone.alpha(0.10)))
+        .bg(colors.panel)
         .child(div().w(px(3.)).h(px(40.)).flex_shrink_0().bg(tone))
         .child(
             div()

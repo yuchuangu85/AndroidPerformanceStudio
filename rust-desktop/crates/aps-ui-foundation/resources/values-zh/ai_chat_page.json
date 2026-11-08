@@ -79,6 +79,8 @@
   "ai_chat_unable_load_models": "无法加载模型",
   "ai_chat_model_endpoint_unavailable": "模型接口不可用",
   "ai_chat_model_list_unavailable": "模型列表不可用",
+  "ai_chat_model_credential_missing": "此 Provider 尚未保存凭据。请先在 AI 设置中完成「保存并应用」。",
+  "ai_chat_open_ai_settings": "打开 AI 设置",
   "ai_chat_refresh_models": "刷新模型",
   "ai_chat_clear_evidence": "清除证据",
   "ai_chat_wrap_lines": "自动换行",

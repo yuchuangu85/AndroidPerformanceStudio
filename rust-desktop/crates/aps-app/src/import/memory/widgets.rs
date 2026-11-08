@@ -1,10 +1,9 @@
 //! Shared Compose-parity primitives for the Memory Profiler page.
 //!
-//! The Compose page uses ViewerColors with the "workspace style" overlay:
-//! cards are an accent-tinted panel, borders are accent-tinted, and table
-//! headers use the section surface. `StudioColors::from_theme` now owns that
-//! derivation for every profiler, so this module only adds Memory-specific
-//! primitives and no longer re-derives the palette.
+//! Cards use the neutral panel surface, borders the shared divider and table
+//! headers the section surface; the accent colors interactive state only.
+//! `StudioColors::from_theme` owns that palette for every profiler, so this
+//! module only adds Memory-specific primitives and never re-derives colors.
 use crate::studio::{self, StudioColors};
 use aps_memory::HeapValueKind;
 use aps_ui_foundation::typography;
@@ -30,9 +29,9 @@ pub(super) const METRIC_WIDTH: f32 = 104.;
 /// Compose NAME_WARNING_WIDTH.
 pub(super) const WARNING_WIDTH: f32 = 22.;
 
-// The Memory page uses the shared `StudioColors::from_theme` workspace style
-// (accent-derived panel, section, border and field surfaces), not page-local
-// overrides, so its cards match every other profiler workspace.
+// The Memory page uses the shared `StudioColors::from_theme` palette (neutral
+// panel, section, border and field surfaces), not page-local overrides, so its
+// cards match every other profiler workspace and never carry the theme color.
 
 /// Compose ProfilerCompactButton used in the Memory toolbar and filter bar.
 /// Height 24, 4 dp radius, accent outline, selected rows are accent-filled.

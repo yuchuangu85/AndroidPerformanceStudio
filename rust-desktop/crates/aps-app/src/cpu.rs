@@ -18,6 +18,7 @@ use gpui_kit::{
         VirtualListScrollHandle,
         input::{Input, InputState},
         menu::{DropdownMenu, PopupMenuItem},
+        scroll::{Scrollbar, ScrollbarAxis},
         v_virtual_list,
     },
     prelude::*,
@@ -252,8 +253,11 @@ pub struct CpuWorkspace {
     top_descending: bool,
     /// In-flight chart drag: (start fraction, current fraction) of the plot width.
     chart_drag: Option<(f32, f32)>,
-    /// Hover position relative to the chart content, for the facts card.
+    /// Hover position relative to the chart viewport, for the facts card.
     chart_hover_position: Option<(f32, f32)>,
+    /// Scroll state of the flame/stack chart surface; the facts card uses its
+    /// viewport bounds to choose the visible side of the pointer.
+    chart_scroll: ScrollHandle,
     /// Open chart context menu: (x, y, block id).
     chart_menu: Option<(f32, f32, String)>,
     /// Keyboard navigation state for the call-tree table.
@@ -261,8 +265,14 @@ pub struct CpuWorkspace {
     tree_generation: u64,
     tree_visible: Rc<Vec<usize>>,
     tree_sizes: Rc<Vec<Size<Pixels>>>,
+    tree_content_width: f32,
     tree_cache_key: Option<(u64, u64, String)>,
+    /// Vertical scroll of the call-tree rows; the virtual list owns the axis.
     tree_scroll: VirtualListScrollHandle,
+    /// Horizontal scroll shared by the call-tree header and rows.
+    tree_h_scroll: ScrollHandle,
+    /// Vertical scroll of the top-functions rows.
+    top_scroll: ScrollHandle,
     tree_focus: FocusHandle,
     page_focus: FocusHandle,
     /// Optional host simpleperf executable for standalone perf.data import.
@@ -336,13 +346,17 @@ impl CpuWorkspace {
             top_descending: true,
             chart_drag: None,
             chart_hover_position: None,
+            chart_scroll: ScrollHandle::new(),
             chart_menu: None,
             tree: None,
             tree_generation: 0,
             tree_visible: Rc::new(Vec::new()),
             tree_sizes: Rc::new(Vec::new()),
+            tree_content_width: 0.0,
             tree_cache_key: None,
             tree_scroll: VirtualListScrollHandle::new(),
+            tree_h_scroll: ScrollHandle::new(),
+            top_scroll: ScrollHandle::new(),
             tree_focus: cx.focus_handle(),
             page_focus: cx.focus_handle(),
             converter: None,
@@ -700,6 +714,7 @@ impl CpuWorkspace {
                 self.tree = None;
                 self.tree_generation = self.tree_generation.wrapping_add(1);
                 self.tree_visible = Rc::new(Vec::new());
+                self.tree_content_width = 0.0;
                 self.tree_sizes = Rc::new(Vec::new());
                 self.tree_cache_key = None;
                 self.top = None;
@@ -840,6 +855,7 @@ impl CpuWorkspace {
         self.tree = None;
         self.tree_generation = self.tree_generation.wrapping_add(1);
         self.tree_visible = Rc::new(Vec::new());
+        self.tree_content_width = 0.0;
         self.tree_sizes = Rc::new(Vec::new());
         self.tree_cache_key = None;
         self.top = None;
@@ -954,6 +970,7 @@ impl CpuWorkspace {
         self.tree = None;
         self.tree_generation = self.tree_generation.wrapping_add(1);
         self.tree_visible = Rc::new(Vec::new());
+        self.tree_content_width = 0.0;
         self.tree_sizes = Rc::new(Vec::new());
         self.tree_cache_key = None;
         self.top = None;
@@ -1073,8 +1090,17 @@ impl CpuWorkspace {
         match self.tab {
             CpuTab::CallTree => {
                 if let Some(tree) = &self.tree {
-                    if let Some(row) = tree.rows.iter().find(|row| row.name == symbol) {
-                        self.row_selected = Some(row.id.clone());
+                    if let Some(index) = tree.rows.iter().position(|row| row.name == symbol) {
+                        let row_id = tree.rows[index].id.clone();
+                        // The focused row may sit far below the viewport; use the
+                        // current collapse state so a cross-tab focus scrolls to it.
+                        let visible = visible_row_indices(&tree.rows, &self.collapsed);
+                        let position = visible.iter().position(|visible| *visible == index);
+                        self.row_selected = Some(row_id);
+                        if let Some(position) = position {
+                            self.tree_scroll
+                                .scroll_to_item(position, ScrollStrategy::Center);
+                        }
                     }
                 }
             }
@@ -1150,6 +1176,7 @@ impl CpuWorkspace {
         self.tree = None;
         self.tree_generation = self.tree_generation.wrapping_add(1);
         self.tree_visible = Rc::new(Vec::new());
+        self.tree_content_width = 0.0;
         self.tree_sizes = Rc::new(Vec::new());
         self.tree_cache_key = None;
         self.top = None;
@@ -1551,6 +1578,11 @@ impl CpuWorkspace {
         position: Option<(f32, f32)>,
         cx: &mut Context<Self>,
     ) {
+        // Hit testing works in chart-content coordinates; the facts card is
+        // positioned inside the chart viewport, so store the scrolled-into-view
+        // position and let the card choose its side against real viewport bounds.
+        let offset = self.chart_scroll.offset();
+        let position = position.map(|(x, y)| (x + f32::from(offset.x), y + f32::from(offset.y)));
         let mut changed = self.chart_hover != id;
         let quantized =
             |value: Option<(f32, f32)>| value.map(|(x, y)| (x as i32 / 4, y as i32 / 4));
@@ -1939,6 +1971,7 @@ impl CpuWorkspace {
     fn build_tree_cache(&mut self, cx: &App) {
         let Some(tree) = self.tree.as_ref() else {
             self.tree_visible = Rc::new(Vec::new());
+            self.tree_content_width = 0.0;
             self.tree_sizes = Rc::new(Vec::new());
             self.tree_cache_key = None;
             return;
@@ -1962,6 +1995,7 @@ impl CpuWorkspace {
             &empty
         };
         let visible = visible_row_indices(&tree.rows, collapsed);
+        self.tree_content_width = call_tree_content_width(&tree.rows);
         self.tree_sizes = Rc::new(vec![size(px(1.), px(TREE_ROW_HEIGHT)); visible.len()]);
         self.tree_visible = Rc::new(visible);
         self.tree_cache_key = Some(key);
@@ -2139,8 +2173,7 @@ impl CpuWorkspace {
                     .map(|position| position.saturating_sub(1))
                     .unwrap_or(0);
                 self.row_selected = Some(rows[position].0.clone());
-                self.tree_scroll
-                    .scroll_to_item(position, ScrollStrategy::Top);
+                self.top_scroll.scroll_to_item(position);
                 cx.notify();
             }
             "down" => {
@@ -2148,8 +2181,7 @@ impl CpuWorkspace {
                     .map(|position| (position + 1).min(rows.len() - 1))
                     .unwrap_or(0);
                 self.row_selected = Some(rows[position].0.clone());
-                self.tree_scroll
-                    .scroll_to_item(position, ScrollStrategy::Top);
+                self.top_scroll.scroll_to_item(position);
                 cx.notify();
             }
             "enter" => {
@@ -4211,24 +4243,20 @@ fn call_tree_panel(
                     lang.text(TextKey::CpuCallTreeFunction),
                 )),
         );
-    let list = div()
-        .id("cpu-call-tree")
-        .flex_1()
-        .min_h_0()
-        .w_full()
-        .track_focus(&ws.tree_focus)
-        .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-            this.handle_call_tree_key(event, window, cx);
-        }))
-        .child(
-            v_virtual_list(
-                cx.entity(),
-                "cpu-call-tree-virtual",
-                ws.tree_sizes.clone(),
-                move |ws, range, _window, cx| ws.call_tree_rows(range, cx),
-            )
-            .with_scroll_handle(&ws.tree_scroll),
-        );
+    // One horizontal scroller owns the header and the rows together so they stay
+    // aligned while the tree pans sideways; the rows keep their own vertical
+    // virtual list inside it. The content width is the longest rendered row so
+    // deep or long names are reachable instead of being permanently clipped.
+    let content_width = ws.tree_content_width;
+    let list = v_virtual_list(
+        cx.entity(),
+        "cpu-call-tree-rows",
+        ws.tree_sizes.clone(),
+        move |ws, range, _window, cx| ws.call_tree_rows(range, cx),
+    )
+    // The virtual list scrolls vertically only; the horizontal scroller that
+    // also owns the header pans it sideways.
+    .track_scroll(&ws.tree_scroll);
     div()
         .size_full()
         .flex()
@@ -4242,19 +4270,93 @@ fn call_tree_panel(
         .child(toolbar)
         .child(
             div()
+                .id("cpu-call-tree")
+                .relative()
                 .flex_1()
                 .min_h_0()
-                .flex()
-                .flex_col()
+                .w_full()
                 .bg(colors.panel)
                 .border_1()
                 .border_color(colors.border)
                 .rounded(px(studio::metrics::PANEL_RADIUS))
                 .overflow_hidden()
-                .child(header)
-                .child(list),
+                .track_focus(&ws.tree_focus)
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    this.handle_call_tree_key(event, window, cx);
+                }))
+                .child(
+                    div()
+                        .id("cpu-call-tree-hscroll")
+                        .absolute()
+                        .inset_0()
+                        .overflow_x_scroll()
+                        .restrict_scroll_to_axis()
+                        .track_scroll(&ws.tree_h_scroll)
+                        .child(
+                            div()
+                                .h_full()
+                                .w_full()
+                                .min_w(px(content_width))
+                                .flex()
+                                .flex_col()
+                                .child(header)
+                                .child(div().flex_1().min_h_0().w_full().child(list)),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(CALL_TREE_HEADER_HEIGHT))
+                        .bottom(px(0.))
+                        .right(px(0.))
+                        .child(
+                            Scrollbar::new(&ws.tree_scroll)
+                                .id("cpu-call-tree-scrollbar-vertical")
+                                .axis(ScrollbarAxis::Vertical)
+                                .viewport_from_layout(),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .bottom(px(0.))
+                        .left(px(0.))
+                        .right(px(0.))
+                        .child(
+                            Scrollbar::new(&ws.tree_h_scroll)
+                                .id("cpu-call-tree-scrollbar-horizontal")
+                                .axis(ScrollbarAxis::Horizontal)
+                                .viewport_from_layout(),
+                        ),
+                ),
         )
         .into_any_element()
+}
+
+/// Fixed metric columns of a call-tree row (total %, inclusive, self, samples).
+const CALL_TREE_FIXED_COLUMNS: f32 = 95. + 70. + 70. + 64.;
+/// Header row height, used only to keep the vertical scrollbar below it.
+const CALL_TREE_HEADER_HEIGHT: f32 = 28.;
+/// Dense supporting font width estimate for the horizontally scrolled labels.
+const CALL_TREE_TEXT_WIDTH_ESTIMATE: f32 = 8.;
+
+/// Longest call-tree row: metric columns plus depth indent, disclosure toggle and
+/// both the symbol and the path label. Over-estimating only adds empty scroll
+/// range; under-estimating would clip the longest name.
+fn call_tree_content_width(rows: &[QueryRow]) -> f32 {
+    rows.iter()
+        .map(|row| {
+            let label_width = (row.name.chars().count() + row.resource.chars().count()) as f32
+                * CALL_TREE_TEXT_WIDTH_ESTIMATE;
+            CALL_TREE_FIXED_COLUMNS
+                + row.depth.saturating_mul(10).min(400) as f32
+                + 18.
+                + 10.
+                + 8.
+                + 40.
+                + label_width
+        })
+        .fold(0.0, f32::max)
 }
 
 fn top_functions_panel(
@@ -4433,7 +4535,7 @@ fn top_functions_panel(
         .flex_col()
         .gap(px(1.))
         .track_focus(&ws.tree_focus)
-        .track_scroll(&ws.tree_scroll)
+        .track_scroll(&ws.top_scroll)
         .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
             this.handle_top_functions_key(event, window, cx);
         }));
@@ -4847,11 +4949,12 @@ fn chart_scroll(
     cx: &Context<CpuWorkspace>,
 ) -> AnyElement {
     let height = frame.height_px.clamp(48.0, 4000.0);
+    let viewport = chart_viewport_size(ws);
     let tooltip = ws
         .chart_hover
         .as_deref()
         .and_then(|id| frame.selected(id))
-        .map(|block| chart_tooltip(ws, block, colors, ws.chart_hover_position, frame.width_px));
+        .map(|block| chart_tooltip(ws, block, colors, ws.chart_hover_position, viewport));
     let menu = ws.chart_menu.as_ref().and_then(|(x, y, id)| {
         frame
             .selected(id)
@@ -4862,6 +4965,7 @@ fn chart_scroll(
             .id("cpu-chart-scroll")
             .size_full()
             .overflow_scroll()
+            .track_scroll(&ws.chart_scroll)
             .bg(colors.field)
             .rounded(px(studio::metrics::PANEL_RADIUS))
             .border_1()
@@ -5334,7 +5438,7 @@ fn chart_tooltip(
     block: &ChartBlock,
     colors: &StudioColors,
     position: Option<(f32, f32)>,
-    chart_width: f32,
+    viewport: (f32, f32),
 ) -> AnyElement {
     let lang = ws.language;
     let total_weight = match ws.query.weight_type {
@@ -5352,21 +5456,25 @@ fn chart_tooltip(
     } else {
         "—".to_owned()
     };
-    let top = position
-        .filter(|_| ws.follow_tooltip)
-        .map(|(_, y)| (y - 12.0).clamp(6.0, 420.0))
-        .unwrap_or(6.0);
+    let follow = ws.follow_tooltip;
+    let margin = CHART_TOOLTIP_MARGIN;
+    let cursor = position.unwrap_or((margin, margin));
+    let (top, left) = if follow {
+        chart_tooltip_placement(
+            cursor,
+            (CHART_TOOLTIP_WIDTH, chart_tooltip_height(block)),
+            viewport,
+        )
+    } else {
+        // The fixed mode keeps the card in the chart's top-right corner.
+        (margin, margin)
+    };
     let mut card = div()
         .absolute()
         .top(px(top))
-        .when(ws.follow_tooltip, |card| {
-            card.left(px(position
-                .map(|(x, _)| x + 12.)
-                .unwrap_or(6.)
-                .clamp(6., (chart_width.min(600.) - 286.).max(6.))))
-        })
-        .when(!ws.follow_tooltip, |card| card.right(px(6.)))
-        .w(px(280.))
+        .when(follow, |card| card.left(px(left)))
+        .when(!follow, |card| card.right(px(margin)))
+        .w(px(CHART_TOOLTIP_WIDTH))
         .flex()
         .flex_col()
         .gap(px(2.))
@@ -5445,6 +5553,83 @@ fn chart_tooltip(
         ));
     }
     card.into_any_element()
+}
+
+/// Width of the floating facts card, shared by its layout and its placement math.
+const CHART_TOOLTIP_WIDTH: f32 = 280.0;
+/// Distance between the pointer and the card on the chosen side.
+const CHART_TOOLTIP_GAP: f32 = 12.0;
+/// Smallest margin the card keeps from the visible chart edges.
+const CHART_TOOLTIP_MARGIN: f32 = 6.0;
+/// Dense supporting-font line height used to estimate the card height.
+const CHART_TOOLTIP_LINE_HEIGHT: f32 = 16.0;
+
+/// Estimated card height: one row per rendered line (symbol, optional resource,
+/// inclusive/self, samples/share, optional thread/event/timestamps) plus padding
+/// and the 2px row gap. Slightly over-estimating only keeps more space at the
+/// viewport edge.
+fn chart_tooltip_height(block: &ChartBlock) -> f32 {
+    let mut lines = 1.0;
+    if !block.resource.is_empty() {
+        lines += 1.0;
+    }
+    lines += 2.0;
+    if block.thread_id.is_some() {
+        lines += 1.0;
+    }
+    if block.event_type.is_some() {
+        lines += 1.0;
+    }
+    if block.first_timestamp_nanos.is_some() && block.last_timestamp_nanos.is_some() {
+        lines += 1.0;
+    }
+    lines * CHART_TOOLTIP_LINE_HEIGHT + (lines - 1.0) * 2.0 + 16.0
+}
+
+/// Visible chart viewport size. The scroll handle's tracked bounds are the chart
+/// scroll container's own bounds; before the first layout they are empty, and a
+/// conservative fallback keeps the card inside the window rather than at 0x0.
+fn chart_viewport_size(ws: &CpuWorkspace) -> (f32, f32) {
+    let bounds = ws.chart_scroll.bounds();
+    let size = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+    if size.0 > 1.0 && size.1 > 1.0 {
+        size
+    } else {
+        (800.0, 600.0)
+    }
+}
+
+/// Place the follow-mouse facts card on the best side of the pointer: to the
+/// right unless that would overflow, then to the left; below unless that would
+/// overflow, then above; finally clamp fully inside the visible viewport. The
+/// result is (top, left) in viewport coordinates.
+fn chart_tooltip_placement(
+    position: (f32, f32),
+    size: (f32, f32),
+    viewport: (f32, f32),
+) -> (f32, f32) {
+    let (cursor_x, cursor_y) = position;
+    let (width, height) = size;
+    let (viewport_width, viewport_height) = viewport;
+    let right = cursor_x + CHART_TOOLTIP_GAP;
+    let left = cursor_x - CHART_TOOLTIP_GAP - width;
+    let left = if right + width + CHART_TOOLTIP_MARGIN <= viewport_width {
+        right
+    } else if left >= CHART_TOOLTIP_MARGIN {
+        left
+    } else {
+        (viewport_width - width - CHART_TOOLTIP_MARGIN).max(CHART_TOOLTIP_MARGIN)
+    };
+    let below = cursor_y + CHART_TOOLTIP_GAP;
+    let above = cursor_y - CHART_TOOLTIP_GAP - height;
+    let top = if below + height + CHART_TOOLTIP_MARGIN <= viewport_height {
+        below
+    } else if above >= CHART_TOOLTIP_MARGIN {
+        above
+    } else {
+        (viewport_height - height - CHART_TOOLTIP_MARGIN).max(CHART_TOOLTIP_MARGIN)
+    };
+    (top, left)
 }
 
 fn details_pane(
@@ -7239,9 +7424,9 @@ impl Drop for CpuWorkspace {
 mod metadata_tests {
     use super::{
         CPU_MEDIA_TYPE, CpuError, CpuSourceClass, CpuSourceKind, Language, RecentCpu,
-        associate_cpu, check_cpu_binding, classify_cpu_source, cpu_artifact, cpu_snapshot_path,
-        decompress_cpu_source, load_cpu_import, load_cpu_snapshot, load_cpu_source,
-        load_cpu_source_with, persist_cpu_snapshot, recent_cpu, validate_recent,
+        associate_cpu, chart_tooltip_placement, check_cpu_binding, classify_cpu_source,
+        cpu_artifact, cpu_snapshot_path, decompress_cpu_source, load_cpu_import, load_cpu_snapshot,
+        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu, validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
     use aps_storage::{PageRequest, Storage};
@@ -7880,6 +8065,57 @@ mod metadata_tests {
             decompress_cpu_source(&archive, &root, 8192, || true),
             Err(CpuError::Local(TextKey::ProfilerCpuImportClosed))
         ));
+    }
+    #[test]
+    #[test]
+    fn chart_tooltip_placement_flips_to_the_visible_side() {
+        let size = (280.0, 120.0);
+        let viewport = (800.0, 600.0);
+        // Room on the right and below: the preferred side keeps the pointer clear.
+        assert_eq!(
+            chart_tooltip_placement((100.0, 100.0), size, viewport),
+            (112.0, 112.0)
+        );
+        // Near the right edge the card flips to the left of the pointer.
+        assert_eq!(
+            chart_tooltip_placement((700.0, 100.0), size, viewport),
+            (112.0, 700.0 - 12.0 - 280.0)
+        );
+        // Near the bottom edge the card flips above the pointer.
+        assert_eq!(
+            chart_tooltip_placement((100.0, 550.0), size, viewport),
+            (550.0 - 12.0 - 120.0, 112.0)
+        );
+        // A viewport that cannot fit either side clamps the card inside it.
+        assert_eq!(
+            chart_tooltip_placement((50.0, 50.0), size, (300.0, 200.0)),
+            (62.0, 14.0)
+        );
+    }
+    #[test]
+    fn follow_tooltip_uses_the_chart_viewport_not_the_content_width() {
+        let source = include_str!("cpu.rs");
+        assert!(source.contains("fn chart_tooltip_placement("));
+        assert!(source.contains("fn chart_viewport_size("));
+        assert!(source.contains(".track_scroll(&ws.chart_scroll)"));
+        assert!(
+            source.contains("chart_tooltip(ws, block, colors, ws.chart_hover_position, viewport)")
+        );
+    }
+    #[test]
+    fn call_tree_panel_scrolls_both_axes() {
+        // The call tree used to share a scroll handle whose scroll container was
+        // never wired, so neither wheel nor trackpad could move it. One horizontal
+        // scroller now owns the header and rows together, the rows keep their own
+        // vertical virtual list, and the content width is the longest row.
+        let source = include_str!("cpu.rs");
+        assert!(source.contains("cpu-call-tree-hscroll"));
+        assert!(source.contains(".track_scroll(&ws.tree_h_scroll)"));
+        assert!(source.contains("cpu-call-tree-scrollbar-vertical"));
+        assert!(source.contains("cpu-call-tree-scrollbar-horizontal"));
+        assert!(source.contains("min_w(px(content_width))"));
+        assert!(source.contains("fn call_tree_content_width"));
+        assert!(source.contains("restrict_scroll_to_axis"));
     }
     #[test]
     fn unclassified_bytes_still_reach_the_engine_diagnostic_without_precheck() {

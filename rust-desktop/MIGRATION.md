@@ -2087,3 +2087,190 @@ Source "perf_data.json.gz (gzip) -> Gecko profile JSON", and the Flame Graph
 renders the `__libc_init -> main -> android::AndroidRuntime::start -> ...` stacks.
 Screenshots: build/cpu-gzip-import/gecko-cpu-overview.png and
 build/cpu-gzip-import/gecko-cpu-flame-graph.png (ignored build tree).
+
+### Trace Analyzer: operation status merged into the footer — 2026-11-08
+
+- An import (and any diagnostic/preset run) used to render a second, rounded
+  `trace-workspace-status` strip at the end of the workspace, directly above the
+  device footer, so two status bars appeared at the bottom edge. The strip is
+  gone; the bottom `trace-status-bar` now shows the device selection and the
+  operation feedback (running, failure, or last completion) in one row, separated
+  by a hairline. Feedback ellipsizes inside the bar, stays selectable, and uses
+  the error color for failures with the previous precedence (running > error >
+  completion).
+- The header-area notice row (imported trace name · duration plus a copy action,
+  `trace-workspace-notice`) is gone. `TraceWorkspace::notice` was removed with
+  it: import, capture-completion and preset-completion text now report through
+  the footer status (import keeps "name · duration", capture keeps
+  "title · Completed · size"), and device-refresh/tool failures keep their
+  existing error rows.
+- This is an intentional divergence from the Compose workspace's
+  `TraceWorkspaceStatus`; DESIGN.md records it as the Trace Analyzer Footer
+  Status decision.
+- Evidence: `cargo check --locked -p aps-app --all-targets --offline`,
+  `rustfmt --check` and `git diff --check` clean. Native captures at 1400x900
+  with the status forced through a temporary debug seam (removed after capture)
+  show the footer as "Device: ... | Running…" and, for a long failure, an
+  ellipsized error line inside the same bar with no second status strip:
+  `build/trace-analyzer/trace-footer-status.png` and
+  `build/trace-analyzer/trace-footer-error.png` (ignored build tree). A real
+  import of the zero-byte Perfetto fixture (file picker driven natively) shows
+  the toolbar followed directly by the summary cards with no notice row, and the
+  footer reading `Device: ... | aaa-trace-fixture.pftrace · 0.000 ms`:
+  `build/trace-analyzer/trace-import-footer-only.png` (ignored build tree).
+
+
+### CPU call tree: two-axis scrolling — 2026-11-08
+
+The Call Tree table could not be panned: the virtual list was created with
+`with_scroll_handle`, which replaces the list's scroll container with a bare div,
+so the shared `VirtualListScrollHandle` never received wheel or trackpad input and
+the rows were clipped at the pane width with no way to reach long names.
+
+- The call tree now keeps the virtual list's own vertical scroll container
+  (`track_scroll` instead of `with_scroll_handle`) and wraps the header and rows
+  in one horizontal scroller (`cpu-call-tree-hscroll`) that both share, so the
+  header stays aligned with the rows while the tree pans sideways.
+- The horizontal content width is the longest rendered row (decimal columns +
+  depth indent + symbol and path with the dense-font estimate); rows are laid out
+  at least that wide and `min_w` lets the pane widen without clipping. Vertical
+  and horizontal scrollbars overlay the list viewport.
+- Both nested scrollers call `restrict_scroll_to_axis`, so a vertical wheel no
+  longer leaks into horizontal panning (and vice versa); the Top Functions list
+  gets its own scroll handle so its keyboard navigation no longer borrows the
+  call-tree handle.
+- Cross-tab focus (Flame Graph -> Call Tree) now scrolls the selected row into
+  view using the current collapse state.
+
+Evidence (fresh, HEAD worktree at 9dd73270 containing only this change, because
+the shared working tree has concurrent AI-catalog edits mid-flight): `cargo test
+--offline -p aps-app` green, and the debug binary launched with
+`APS_RUST_DATA_DIR=<scratch>` + `APS_RUST_OPEN_CPU=<Gecko profile>` showed the
+Call Tree panning vertically through 1462 rows and horizontally to reveal the full
+`libutil_thread_trampoline(void*) (__uniq:...)` labels, with the header scrolling in
+step with the rows. Screenshots: build/cpu-gzip-import/call-tree-vscroll.png and
+build/cpu-gzip-import/call-tree-hscroll.png (ignored build tree).
+
+
+### Neutral card surfaces — 2026-11-08
+
+Every profiler card, KPI tile, table header and settings card was filled with an
+accent-composited surface (8% accent over a near-black base in dark mode), so
+changing the theme color repainted the whole workspace; the user asked for card
+backgrounds that never use the theme color.
+
+- `StudioColors::for_mode_with_accent` no longer composites the accent into
+  `panel`, `section_background`, `border` or `field`. The dark palette now uses
+  the Compose `ViewerPalettes.dark` neutral surfaces (panel `#2c2c2e`, section
+  `#29292b`, field `#1c1c1e`, divider `#48484a`, strong border `#636366`); the
+  light palette keeps white cards over the `#fafafb` toolbar workspace.
+  `selected_row` keeps the accent selection tint, so selection stays themed.
+- Removed the page-local accent/tone card fills: Memory Overview
+  (`overview_metric_card`), Home summary metrics, Frame metric cards, Network
+  summary cards and the Trace summary + source-of-truth cards now paint
+  `colors.panel`; their semantic tones remain on outlines, labels, icons and
+  bars.
+- Verified with the debug binary in the user's configuration (dark, 暖阳橙
+  `#FFDB7A0E`): Home, CPU, Trace, Memory, Frame, Network, GPU, Settings and AI
+  show neutral card fills with the accent limited to labels, outlines, controls
+  and selection; light mode renders white cards over the toolbar workspace.
+  Screenshots: build/theme-neutral-card-surfaces/dark-*.png and
+  build/theme-neutral-card-surfaces/light-*.png (ignored build tree).
+
+
+### CPU flame/stack facts card: follow-mouse card stays on the visible side — 2026-11-08
+
+With Settings > Simpleperf > flame-graph tooltip mode = Follow mouse, the floating
+facts card always opened to the right/below the pointer, clamped by the chart
+*content* width (`chart_width.min(600) - 286`) and a fixed 420px vertical cap.
+Near the right or bottom edge the card was clipped or parked away from the
+pointer, and after panning a zoomed chart the stored hover position stayed in
+content coordinates while the card was laid out in viewport coordinates.
+
+- The chart scroll container now tracks a `ScrollHandle` (`chart_scroll`); hover
+  positions are translated into viewport coordinates with the current scroll
+  offset, and the card is placed against the scroll handle's real viewport bounds
+  instead of the chart content width.
+- `chart_tooltip_placement` picks the best visible side: right of the pointer when
+  it fits, otherwise left; below when it fits, otherwise above; finally the card
+  is clamped fully inside the visible chart. `chart_tooltip_height` estimates the
+  rendered rows (symbol, optional resource, inclusive/self, samples/share,
+  optional thread, event and timestamps) so vertical flipping uses real height.
+- Fixed mode still pins the card to the chart's top-right corner.
+
+Evidence: unit tests cover the preferred side, right-edge flip, bottom-edge flip
+and the small-viewport clamp, plus a source-inspection guard for viewport
+tracking. `cargo test --offline -p aps-app` = 428 passed / 0 failed / 3 ignored;
+`rustfmt --check` clean. GUI check on the Gecko profile with
+`simpleperfFollowTooltip=true`: hovering left of the flame graph opens the card
+right/below; near the right edge it flips left; near the bottom it flips above.
+Screenshots: build/cpu-gzip-import/tooltip-follow-right.png,
+build/cpu-gzip-import/tooltip-follow-left.png and
+build/cpu-gzip-import/tooltip-follow-above.png (ignored build tree).
+
+
+### Layout Inspector preview zoom: clickable glyphs, reset, wheel/pinch — 2026-11-08
+
+The bottom-right preview zoom controls (− / 100% / +) appeared but clicking a glyph
+often did nothing: the −/+ glyphs were child `selectable` runs, which own pointer
+events, so only the button's 24px padding accepted the click. The scale label was a
+read-only run as well, so the overlay had no reset affordance (only the canvas
+header's Fit button reset the preview).
+
+- The −/+ glyphs are plain text children now, so the full 24×24 button area clicks
+  and steps zoom (50%–250% in 25% steps).
+- The scale label (e.g. 100%) is a clickable reset that restores 100% and clears the
+  preview pan; Fit in the canvas header keeps the Compose-parity reset path.
+- The preview canvas handles Ctrl/Cmd/Alt+wheel as zoom steps and trackpad pinch as a
+  continuous zoom factor, clamped to the same range and re-clamping the preview pan.
+- Added a source-inspection regression test so selectable glyphs cannot return and
+  the wheel/pinch wiring stays.
+
+Evidence: `cargo test --offline -p aps-app` = 429 passed / 0 failed / 3 ignored;
+`rustfmt --check` clean. The debug app opened `verify-inspector.zip`: one click on +
+goes 100% → 125% (the canvas zooms), − steps back, clicking the percentage resets to
+100%, and Ctrl+wheel over the canvas steps 100% → 50% (two wheel-outs).
+Screenshots: build/cpu-gzip-import/inspector-zoom-in.png,
+build/cpu-gzip-import/inspector-zoom-reset.png and
+build/cpu-gzip-import/inspector-zoom-wheel.png (ignored build tree).
+
+
+### Source workspace rail card insets — 2026-11-08
+
+The Source Workspaces rail's workspace card was 4 px from the left shell divider
+but 7 px from the splitter's 1 px line: the shell divider sits on the pane edge
+with no splitter gutter, while the splitter centres its line in a 7 px hit area
+(3 px gutter on each side), so the card's two visible gaps differed.
+
+- The rail now applies `layout::SPLITTER_HALO` (3 px) as a leading inset, and
+  `workspace_content_width` subtracts it from the pane content box, so the card
+  fills the content box without horizontal overflow (pane box 360 px, content
+  box 357 px, card 349 px). The search row keeps its 6 px padding and is
+  symmetric too (9 px / 9 px). The layout regression test was updated to the
+  gutter-aware math.
+- Verified with the debug binary on the persisted AOSP_Frameworks workspace
+  (1300x800 window, dark theme): measured pixel runs give the card 7 px from the
+  shell divider and 7 px from the splitter line (previously 4 px / 7 px); the
+  pane width stays 360 px and the card changes width by the 3 px gutter only.
+  Screenshots: build/source-workspace/source-rail-margins-before.png and
+  build/source-workspace/source-rail-margins-after.png (ignored build tree).
+
+
+### Source workspace card actions at the minimum rail width — 2026-11-08
+
+Dragging the Source Workspaces rail to its 220 px minimum made the workspace
+card's 同步 / AI 源码上传：已禁止 / 移除 buttons paint past the card's right
+border: the action row was one non-wrapping flex line whose min-content width
+(~226 px) exceeded the card interior (~193 px = 220 px rail - 3 px divider
+gutter - 8 px column padding - 16 px card padding).
+
+- The action row is now full-width and `flex_wrap`, so the third button moves to
+  a second row at minimum width; at the default 360 px rail all three still fit
+  on one row. Labels are preserved, so the AI upload state is never ellipsized.
+- Verified with the debug binary and the persisted AOSP_Frameworks workspace: a
+  900x700 window forces both side panes to the 220 px minimum (the body is
+  narrower than `MIN_CONTENT_WIDTH`), and the screenshots show the buttons inside
+  the card before/after; a 1300x800 window shows the single-row layout unchanged.
+  Screenshots: build/source-workspace/source-card-actions-before.png,
+  source-card-actions-after.png and source-card-actions-default.png (ignored
+  build tree).

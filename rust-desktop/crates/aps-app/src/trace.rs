@@ -77,7 +77,6 @@ pub struct TraceWorkspace {
     pub(in crate::trace) viewer: viewer::ViewerServer,
     pub(in crate::trace) status: Option<String>,
     pub(in crate::trace) error: Option<String>,
-    pub(in crate::trace) notice: Option<String>,
     pub(in crate::trace) studio: Option<WeakEntity<crate::shell::Studio>>,
     pub(in crate::trace) ui: page::PageUi,
     pub(in crate::trace) trace_generation: u64,
@@ -147,7 +146,6 @@ impl TraceWorkspace {
             viewer: viewer::ViewerServer::new(9417),
             status: None,
             error: None,
-            notice: None,
             studio: None,
             ui: page::PageUi::new(window, cx),
             trace_generation: 0,
@@ -500,7 +498,6 @@ impl TraceWorkspace {
         }
         self.importing = true;
         self.error = None;
-        self.notice = None;
         self.status = Some(
             self.language
                 .text(TextKey::TraceWorkspaceRunning)
@@ -584,8 +581,9 @@ impl TraceWorkspace {
         self.rebuild_artifact();
         self.rebuild_insights();
         self.load_bookmarks(&artifact_id, cx);
-        self.status = Some(display_name.clone());
-        self.notice = Some(format!(
+        // The imported trace identity and duration live in the footer status
+        // bar; the page renders no separate header notice row.
+        self.status = Some(format!(
             "{display_name} · {}",
             model::format_trace_duration_nanos(Some(duration_nanos as i64))
         ));
@@ -617,7 +615,6 @@ impl TraceWorkspace {
         self.close_trace_state();
         self.status = None;
         self.error = None;
-        self.notice = None;
         cx.notify();
     }
 
@@ -829,7 +826,6 @@ impl TraceWorkspace {
         }
         if index >= query_ids.len() {
             self.preset_running = false;
-            self.status = None;
             let failed = query_ids.len() - succeeded;
             let preset_title = self
                 .presets
@@ -837,7 +833,7 @@ impl TraceWorkspace {
                 .find(|preset| preset.id == self.selected_preset)
                 .map(|preset| preset.title.clone())
                 .unwrap_or_else(|| self.selected_preset.clone());
-            self.notice = Some(self.language.format(
+            self.status = Some(self.language.format(
                 TextKey::TracePresetCompleted,
                 &[
                     ("value1", &preset_title),
@@ -1194,10 +1190,13 @@ impl TraceWorkspace {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(record) => {
-                        this.status = Some(record.title.clone());
-                        this.notice = Some(this.language.format(
-                            TextKey::CompletedMb,
-                            &[("value1", &format_file_mb(&record.trace_path))],
+                        this.status = Some(format!(
+                            "{} · {}",
+                            record.title,
+                            this.language.format(
+                                TextKey::CompletedMb,
+                                &[("value1", &format_file_mb(&record.trace_path))],
+                            )
                         ));
                         this.load_sessions(cx);
                     }

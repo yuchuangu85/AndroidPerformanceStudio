@@ -79,6 +79,8 @@
   "ai_chat_unable_load_models": "Unable to load models",
   "ai_chat_model_endpoint_unavailable": "Model endpoint is unavailable",
   "ai_chat_model_list_unavailable": "Model list is unavailable",
+  "ai_chat_model_credential_missing": "No credential is saved for this provider. Save and apply a connection in AI settings.",
+  "ai_chat_open_ai_settings": "Open AI settings",
   "ai_chat_refresh_models": "Refresh models",
   "ai_chat_clear_evidence": "Clear evidence",
   "ai_chat_wrap_lines": "Wrap lines",

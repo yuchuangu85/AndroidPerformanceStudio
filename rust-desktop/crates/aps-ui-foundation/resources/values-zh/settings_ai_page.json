@@ -43,6 +43,7 @@
   "ai_settings_clear_history": "清除会话历史",
   "ai_settings_open_preflight": "打开 AI 分析",
   "ai_settings_applied_provider": "当前应用：{provider}",
+  "ai_settings_connection_not_applied": "尚未应用：请先「保存并应用」此连接；AI 对话只使用已保存的 Provider 和模型。",
   "ai_settings_connection_kind": "连接类型",
   "ai_settings_custom_connection_label": "自定义（OpenAI 兼容）",
   "ai_settings_read_local_config": "读取本地配置",

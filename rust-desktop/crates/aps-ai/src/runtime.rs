@@ -1675,6 +1675,28 @@ mod tests {
     }
 
     #[test]
+    fn saving_a_connection_publishes_its_catalog_to_the_chat_menu() {
+        let (_workspace, runtime) = workspace_runtime();
+        let models = vec!["gpt-5".to_owned(), "o3".to_owned()];
+        runtime
+            .save_connection(
+                ProviderKind::Custom,
+                "https://gateway.example/v1/responses",
+                "",
+                "gpt-5",
+                CredentialKind::ApiKey,
+                Some("sk-test-1234567890"),
+                Some(&models),
+            )
+            .unwrap();
+        // The AI chat menu reads the saved connection's catalog before any
+        // network request, and no HTTP client is needed for this path.
+        let cached = futures::executor::block_on(runtime.load_models(ProviderKind::Custom, false))
+            .expect("the saved catalog is readable without a provider request");
+        assert_eq!(cached, models);
+    }
+
+    #[test]
     fn draft_discovery_without_a_credential_fails_closed() {
         let (_workspace, runtime) = workspace_runtime();
         runtime

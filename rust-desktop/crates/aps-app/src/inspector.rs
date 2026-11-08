@@ -1111,11 +1111,19 @@ impl InspectorWorkspace {
         }
     }
 
-    fn zoom_by(&mut self, delta: f32, cx: &mut Context<Self>) {
-        self.zoom = (self.zoom + delta).clamp(MIN_ZOOM, MAX_ZOOM);
+    fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let zoom = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+        if zoom == self.zoom {
+            return;
+        }
+        self.zoom = zoom;
         self.preview_pan = self.clamp_preview_pan(self.preview_pan);
         self.preview_drag = None;
         cx.notify();
+    }
+
+    fn zoom_by(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.set_zoom(self.zoom + delta, cx);
     }
 
     fn zoom_reset(&mut self, cx: &mut Context<Self>) {
@@ -1149,10 +1157,12 @@ impl InspectorWorkspace {
             .accessibility_label(language.text(TextKey::InspectorZoomOut))
             .tooltip(language.text(TextKey::InspectorZoomOut))
             .child(
+                // The glyph must not own the click: a selectable text run would
+                // swallow pointer events, leaving only the button padding active.
                 div()
                     .text_size(px(16.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(crate::studio::selectable("−")),
+                    .child("−"),
             )
             .on_click(cx.listener(|this, _, _, cx| this.zoom_by(-ZOOM_STEP, cx)));
         let zoom_in_button = Button::new("inspector-zoom-in")
@@ -1172,7 +1182,7 @@ impl InspectorWorkspace {
                 div()
                     .text_size(px(16.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(crate::studio::selectable("+")),
+                    .child("+"),
             )
             .on_click(cx.listener(|this, _, _, cx| this.zoom_by(ZOOM_STEP, cx)));
         div()
@@ -1190,17 +1200,20 @@ impl InspectorWorkspace {
             .py(px(4.))
             .child(zoom_out_button)
             .child(
+                // Compose renders the scale as a plain label; clicking it resets
+                // to 100% here so the overlay always has a visible reset control
+                // (the canvas header's Fit button stays the Compose-parity path).
                 div()
+                    .id("inspector-zoom-reset")
                     .w(px(42.))
                     .flex()
                     .justify_center()
+                    .cursor_pointer()
                     .font_family("monospace")
                     .text_size(px(studio::FONT_SUPPORTING))
                     .text_color(colors.text)
-                    .child(crate::studio::selectable(format!(
-                        "{}%",
-                        (self.zoom * 100.0).round() as i32
-                    ))),
+                    .on_click(cx.listener(|this, _, _, cx| this.zoom_reset(cx)))
+                    .child(format!("{}%", (self.zoom * 100.0).round() as i32)),
             )
             .child(zoom_in_button)
             .into_any_element()
@@ -2665,6 +2678,27 @@ impl InspectorWorkspace {
             .w_full()
             .overflow_hidden()
             .bg(colors.panel)
+            // Canvas zoom gestures: Ctrl/Cmd/Alt+wheel steps like the overlay
+            // buttons, and a trackpad pinch scales continuously. Both clamp to
+            // the same 50%-250% range and keep the preview pan valid.
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                if !(event.modifiers.control || event.modifiers.platform || event.modifiers.alt) {
+                    return;
+                }
+                let vertical = f32::from(event.delta.pixel_delta(px(16.)).y);
+                if vertical.abs() < 0.01 {
+                    return;
+                }
+                let step = if vertical < 0.0 {
+                    ZOOM_STEP
+                } else {
+                    -ZOOM_STEP
+                };
+                this.zoom_by(step, cx);
+            }))
+            .on_pinch(cx.listener(|this, event: &PinchEvent, _, cx| {
+                this.set_zoom(this.zoom * (1.0 + event.delta), cx);
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -4415,6 +4449,24 @@ mod tests {
         assert!(source.contains("\"inspector-app-only\""));
         assert!(source.contains("\"inspector-hit-order\""));
         assert!(source.contains("fn preview_source("));
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_zoom_controls_click_everywhere_and_reset_from_the_scale_label() {
+        let source = include_str!("inspector.rs");
+        // Exclude the test module so an assertion cannot satisfy itself.
+        let ui = source.split("mod tests").next().unwrap_or(source);
+        // The minus/plus glyphs used to be selectable runs, which swallowed the
+        // button click and left only the 24px padding active.
+        assert!(ui.contains(r#".child("−")"#));
+        assert!(!ui.contains(r#"selectable("−")"#));
+        assert!(!ui.contains(r#"selectable("+")"#));
+        assert!(ui.contains("inspector-zoom-reset"));
+        assert!(ui.contains("fn set_zoom("));
+        assert!(ui.contains("this.zoom_reset(cx)"));
+        // Wheel and pinch gestures share the same clamped 50%-250% range.
+        assert!(ui.contains(".on_pinch("));
+        assert!(ui.contains("fn zoom_by("));
     }
 
     #[::core::prelude::v1::test]

@@ -517,16 +517,35 @@ fn model_popup(
             ));
         }
         ModelMenuStatus::Error(code) => {
-            let label = match code.as_str() {
-                "E_AI_MODEL_CATALOG_INVALID_ENDPOINT" => {
-                    language.text(TextKey::AiChatModelEndpointUnavailable)
-                }
-                "E_AI_MODEL_CATALOG_HTML_RESPONSE" | "E_AI_MODEL_CATALOG_INVALID_RESPONSE" => {
-                    language.text(TextKey::AiChatModelListUnavailable)
-                }
-                _ => language.text(TextKey::AiChatUnableLoadModels),
-            };
-            popup = popup.child(model_status_row(label, colors.error));
+            popup = popup.child(model_status_row(
+                model_menu_error_label(&code, language),
+                colors.error,
+            ));
+            // The fix for every catalog error lives in AI settings: a missing
+            // saved credential, an invalid endpoint or a provider that rejects
+            // the model list. Offer the jump instead of a dead-end message.
+            popup = popup.child(
+                div()
+                    .id(ElementId::Name("ai-chat-model-open-settings".into()))
+                    .w_full()
+                    .h(px(32.))
+                    .flex()
+                    .items_center()
+                    .px(px(8.))
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.state.models_open = false;
+                        this.open_settings(cx);
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                            .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                            .text_color(colors.text)
+                            .child(language.text(TextKey::AiChatOpenAiSettings)),
+                    ),
+            );
         }
         ModelMenuStatus::Empty => {
             popup = popup.child(model_status_row(
@@ -584,6 +603,21 @@ fn model_popup(
     popup.into_any_element()
 }
 
+/// Compose model-menu error copy. A missing saved credential is a different
+/// problem from an unreachable list, and the user fixes it in AI settings.
+fn model_menu_error_label(code: &str, language: Language) -> &'static str {
+    match code {
+        "E_AI_MODEL_CATALOG_CREDENTIAL" => language.text(TextKey::AiChatModelCredentialMissing),
+        "E_AI_MODEL_CATALOG_INVALID_ENDPOINT" => {
+            language.text(TextKey::AiChatModelEndpointUnavailable)
+        }
+        "E_AI_MODEL_CATALOG_HTML_RESPONSE"
+        | "E_AI_MODEL_CATALOG_INVALID_RESPONSE"
+        | "E_AI_HTTP_STATUS" => language.text(TextKey::AiChatModelListUnavailable),
+        _ => language.text(TextKey::AiChatUnableLoadModels),
+    }
+}
+
 fn model_status_row(label: &str, color: Rgba) -> AnyElement {
     div()
         .w_full()
@@ -594,4 +628,40 @@ fn model_status_row(label: &str, color: Rgba) -> AnyElement {
         .text_color(color)
         .child(crate::studio::selectable(label.to_owned()))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn model_menu_errors_name_the_settings_fix() {
+        let english = Language::English;
+        let chinese = Language::SimplifiedChinese;
+        let credential = model_menu_error_label("E_AI_MODEL_CATALOG_CREDENTIAL", english);
+        assert!(credential.contains("credential"), "{credential}");
+        assert!(credential.contains("AI settings"), "{credential}");
+        let credential_zh = model_menu_error_label("E_AI_MODEL_CATALOG_CREDENTIAL", chinese);
+        assert!(credential_zh.contains("凭据"), "{credential_zh}");
+        assert!(credential_zh.contains("保存并应用"), "{credential_zh}");
+        assert_eq!(
+            model_menu_error_label("E_AI_MODEL_CATALOG_INVALID_ENDPOINT", english),
+            english.text(TextKey::AiChatModelEndpointUnavailable)
+        );
+        for code in [
+            "E_AI_MODEL_CATALOG_HTML_RESPONSE",
+            "E_AI_MODEL_CATALOG_INVALID_RESPONSE",
+            "E_AI_HTTP_STATUS",
+        ] {
+            assert_eq!(
+                model_menu_error_label(code, english),
+                english.text(TextKey::AiChatModelListUnavailable)
+            );
+        }
+        // A transport failure keeps the honest, generic code path.
+        assert_eq!(
+            model_menu_error_label("E_AI_MODEL_CATALOG_NETWORK", english),
+            english.text(TextKey::AiChatUnableLoadModels)
+        );
+    }
 }

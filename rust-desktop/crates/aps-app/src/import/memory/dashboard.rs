@@ -36,16 +36,16 @@ fn metric_value(loaded: bool, value: String, unavailable: &str) -> String {
     }
 }
 
-/// Compose StudioMetricCard: accent-tinted card with a semibold 13 px accent
-/// label over a 16/19 semibold value. Card interior is 8 px padding + 4 px
-/// spacing, so the row is 58 px tall (the Compose overview card measures 58).
+/// Compose StudioMetricCard: neutral card with a semibold 13 px accent label
+/// over a 16/19 semibold value. The accent never paints the card fill. Card
+/// interior is 8 px padding + 4 px spacing, so the row is 58 px tall (the
+/// Compose overview card measures 58).
 fn overview_metric_card(
     index: usize,
     label: &'static str,
     value: String,
     colors: &StudioColors,
 ) -> Stateful<Div> {
-    let background = colors.panel.blend(colors.accent.alpha(0.1));
     div()
         .id(("memory-overview-metric", index))
         .flex_1()
@@ -54,7 +54,7 @@ fn overview_metric_card(
         .flex_col()
         .gap(px(4.))
         .p(px(8.))
-        .bg(background)
+        .bg(colors.panel)
         .border_1()
         .border_color(colors.accent.alpha(0.5))
         .rounded(px(studio::metrics::CARD_RADIUS))

@@ -274,7 +274,7 @@ fn metric(
         .flex_1()
         .min_w_0()
         .gap(px(4.))
-        .bg(colors.panel.blend(tone.alpha(0.10)))
+        .bg(colors.panel)
         .border_color(tone.alpha(0.5))
         .child(
             div()

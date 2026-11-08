@@ -9,6 +9,10 @@ pub(super) const WORKSPACES_MIN: f32 = 220.;
 pub(super) const FILES_MIN: f32 = 220.;
 pub(super) const SOURCE_MIN: f32 = 360.;
 pub(super) const SPLITTER_WIDTH: f32 = 7.;
+/// The gutter a splitter leaves on each side of its 1 px divider line. Panes
+/// flanked by splitters get it for free; the workspace rail's left edge is the
+/// shell divider, which has no gutter, so the rail adds it as a leading inset.
+pub(super) const SPLITTER_HALO: f32 = (SPLITTER_WIDTH - 1.) / 2.;
 pub(super) const MIN_CONTENT_WIDTH: f32 =
     WORKSPACES_MIN + FILES_MIN + SOURCE_MIN + SPLITTER_WIDTH * 2.;
 

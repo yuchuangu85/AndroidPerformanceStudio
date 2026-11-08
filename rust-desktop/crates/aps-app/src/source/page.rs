@@ -592,10 +592,13 @@ fn workspace_matches_query(workspace: &WorkspaceRecord, query: &str) -> bool {
 
 /// The workspace rail keeps equal card insets: the card fills the padded pane
 /// width (and only grows past it when a long display name needs horizontal
-/// scrolling). Scrollbar chrome must not be subtracted here, otherwise the
-/// right inset grows by the reserved width and left/right margins differ.
+/// scrolling). The pane's leading splitter gutter is part of the pane box, not
+/// of its content box, so it is removed here as well; otherwise the content
+/// would overflow by the gutter and the right inset would differ again.
+/// Scrollbar chrome must not be subtracted, otherwise the right inset grows by
+/// the reserved width as well.
 fn workspace_content_width(pane_width: f32, longest_name: f32) -> f32 {
-    pane_width.max(longest_name)
+    (pane_width - layout::SPLITTER_HALO).max(longest_name)
 }
 
 fn workspaces_pane(
@@ -666,6 +669,10 @@ fn workspaces_pane(
         .flex_col()
         .overflow_hidden()
         .bg(colors.panel)
+        // The shell divider sits on the pane edge with no splitter gutter; add
+        // the same leading gutter a splitter would leave, so the workspace
+        // cards stay equidistant from the left divider and the splitter line.
+        .pl(px(layout::SPLITTER_HALO))
         .child(
             div()
                 .h(px(SEARCH_ROW_HEIGHT))
@@ -857,9 +864,14 @@ fn workspace_card(
         TextKey::SourceAiUploadBlocked
     });
     let remove_label = language.text(TextKey::SourceRemove);
+    // Actions wrap instead of overflowing the card border: at the rail's 220 px
+    // minimum the three labels cannot share one line, and at the default width
+    // they still fit on one row.
     card.child(
         div()
+            .w_full()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(6.))
             .child(
@@ -1550,12 +1562,18 @@ mod tests {
     #[::core::prelude::v1::test]
     fn workspace_rail_uses_symmetric_card_insets() {
         let pad = studio::metrics::WORKSPACE_PADDING;
+        let halo = layout::SPLITTER_HALO;
         let pane = 360.;
+        // The pane box owns the leading splitter gutter, so the content box and
+        // the card are that much narrower.
         let content = workspace_content_width(pane, 160.);
-        assert_eq!(content, pane);
+        assert_eq!(content, pane - halo);
         let card = content - pad * 2.;
-        let left = pad;
-        let right = pane - pad - card;
+        assert_eq!(card, pane - halo - pad * 2.);
+        // Left: shell divider -> gutter -> card padding. Right: card padding ->
+        // splitter gutter -> 1 px divider line. Both gaps are gutter + padding.
+        let left = halo + pad;
+        let right = (pane - card) - pad;
         assert_eq!(left, right);
         assert_eq!(workspace_content_width(220., 400.), 400.);
     }

@@ -924,6 +924,14 @@ impl Studio {
                 ),
                 colors,
             ));
+        // The chat uses only the saved connection, so never let the applied line
+        // imply that an unsaved draft already reaches the AI conversation.
+        if runtime.is_some_and(|runtime| runtime.connection(applied).revision.trim().is_empty()) {
+            body = body.child(studio::supporting(
+                language.text(TextKey::AiSettingsConnectionNotApplied),
+                colors,
+            ));
+        }
         if let Some(line) = self.ai_settings_error_line(language, colors, cx) {
             body = body.child(line);
         }
@@ -2036,6 +2044,8 @@ mod tests {
         assert!(!source.contains(concat!("runtime.load", "_models(")));
         assert!(source.contains("runtime.retain_history("));
         assert!(source.contains("runtime.update_preferences("));
+        // The applied line never implies an unsaved draft reaches the chat.
+        assert!(source.contains("AiSettingsConnectionNotApplied"));
         assert!(!source.contains(concat!("AiSecret", "Store")));
     }
 

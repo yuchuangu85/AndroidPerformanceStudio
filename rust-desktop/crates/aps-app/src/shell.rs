@@ -522,7 +522,21 @@ impl Studio {
             .and_then(|path| path.parent())
             .map(|root| root.join("ai"));
         if let Some(directory) = ai_data_dir {
-            if let Ok(runtime) = aps_ai::runtime::AiRuntime::open(directory) {
+            // Debug-only verification seam: keep AI credentials in memory so a
+            // native check never writes to the user's login Keychain.
+            #[cfg(debug_assertions)]
+            let opened = std::env::var_os("APS_RUST_AI_MEMORY_SECRETS").map_or_else(
+                || aps_ai::runtime::AiRuntime::open(directory.clone()),
+                |_| {
+                    aps_ai::runtime::AiRuntime::open_with_secret_store(
+                        directory.clone(),
+                        aps_ai::AiSecretStore::memory(),
+                    )
+                },
+            );
+            #[cfg(not(debug_assertions))]
+            let opened = aps_ai::runtime::AiRuntime::open(directory);
+            if let Ok(runtime) = opened {
                 let _ = runtime.set_http_client(cx.http_client());
                 ai.update(cx, |ai, cx| ai.set_runtime(runtime, cx));
             }
@@ -1749,7 +1763,7 @@ impl Render for Studio {
         let selected = self.destination;
         let dark = cx.theme().is_dark();
         // Shell chrome stays on the title-bar surface; workspace cards paint the
-        // accent-derived panel/section surfaces from StudioColors.
+        // neutral panel/section surfaces from StudioColors.
         let background = crate::studio::titlebar_background(dark);
         let border = crate::studio::divider_color(dark);
         let selected_row = if dark { rgb(0x163d66) } else { rgb(0xd6eaff) };
