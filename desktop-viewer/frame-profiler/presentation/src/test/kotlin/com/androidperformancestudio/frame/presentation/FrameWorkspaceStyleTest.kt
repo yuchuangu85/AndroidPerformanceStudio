@@ -147,7 +147,7 @@ class FrameWorkspaceStyleTest {
     fun `metric tones use the shared card without introducing a page theme`() {
         val metric = source.substringAfter("private fun FrameMetricCard(").substringBefore("private fun MetricSparkline(")
         assertTrue(metric.contains("StudioCard("))
-        assertTrue(metric.contains("containerColor = color.copy(alpha = 0.10f)"))
+        assertTrue(metric.contains("containerColor = colors.panel"))
         assertTrue(metric.contains("borderColor = color.copy(alpha = 0.5f)"))
         assertTrue(metric.contains("MetricSparkline(samples, color)"))
         assertFalse(source.contains("CompositionLocalProvider("))

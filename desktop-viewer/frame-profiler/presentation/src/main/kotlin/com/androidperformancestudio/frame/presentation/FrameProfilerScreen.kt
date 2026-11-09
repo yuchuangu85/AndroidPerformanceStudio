@@ -60,7 +60,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
@@ -579,7 +578,7 @@ private fun FrameMetricCard(
     val colors = LocalViewerColors.current
     StudioCard(
         modifier = modifier,
-        containerColor = color.copy(alpha = 0.10f).compositeOver(colors.panel),
+        containerColor = colors.panel,
         borderColor = color.copy(alpha = 0.5f),
         contentSpacing = 4.dp,
     ) {
@@ -1381,7 +1380,7 @@ private fun ClusterRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(if (selected) colors.accent.copy(alpha = 0.12f) else colors.transparent)
+                .background(if (selected) colors.selectedRow else colors.transparent)
                 .then(selectionModifier)
                 .padding(horizontal = StudioTokens.compactContentPadding, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,

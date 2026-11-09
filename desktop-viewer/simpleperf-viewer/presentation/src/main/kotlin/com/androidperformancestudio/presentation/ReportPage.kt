@@ -575,7 +575,7 @@ private fun TopFunctionRow(
                 .fillMaxWidth()
                 .testTag("top-function-row-${function.symbolName}")
                 .semantics { this.selected = selected }
-                .background(if (selected) style.accent.copy(alpha = 0.16f) else style.panel, RoundedCornerShape(9.dp))
+                .background(if (selected) style.selectedRow else style.panel, RoundedCornerShape(9.dp))
                 .border(ViewerDimensions.hairline, if (selected) style.accent else style.border, RoundedCornerShape(9.dp))
                 .clickable(onClick = onSelect)
                 .padding(horizontal = 8.dp, vertical = 7.dp),

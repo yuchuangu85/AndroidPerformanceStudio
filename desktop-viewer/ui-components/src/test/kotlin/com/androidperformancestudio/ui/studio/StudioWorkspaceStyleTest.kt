@@ -3,10 +3,11 @@
 package com.androidperformancestudio.ui.studio
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
+import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.ViewerColors
 import com.androidperformancestudio.ui.ViewerPalettes
@@ -15,29 +16,55 @@ import com.androidperformancestudio.ui.viewerColors
 import com.androidperformancestudio.ui.viewerMaterialColorScheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 @OptIn(ExperimentalTestApi::class)
 class StudioWorkspaceStyleTest {
     @Test
-    fun `workspace background matches the shared sidebar surface in both themes`() {
-        val shared = viewerColors(true)
-        val original = ViewerPalettes.forDark(true, shared.accent)
-        val base = original.canvasBackground.copy(
-            red = original.canvasBackground.red * 0.45f,
-            green = original.canvasBackground.green * 0.45f,
-            blue = original.canvasBackground.blue * 0.45f,
-        )
-        val surface = original.accent.copy(alpha = 0.08f).compositeOver(base)
-
-        assertEquals(surface, shared.panel)
-        assertEquals(shared.toolbar, shared.workspace)
-        assertEquals(viewerColors(false).toolbar, viewerColors(false).workspace)
-        assertEquals(original.accent.copy(alpha = 0.22f).compositeOver(surface), shared.border)
-        assertEquals(original.accent.copy(alpha = 0.06f).compositeOver(surface), shared.sectionBackground)
+    fun `workspace surfaces use fixed colors independent of the accent`() {
+        listOf(false, true).forEach { dark ->
+            val expected = if (dark) Color(0xFF29292B) else Color(0xFFFAFAFB)
+            val baseline = viewerColors(dark)
+            listOf(Color(0xFFFACA2E), Color(0xFF722169), Color(0xFF41B5C2)).forEach { accent ->
+                val colors = viewerColors(dark, accent)
+                listOf(
+                    colors.panel,
+                    colors.canvasBackground,
+                    colors.workspace,
+                    colors.toolbar,
+                    colors.sectionBackground,
+                    colors.field,
+                    colors.detailRowDeep,
+                    colors.detailRowLight,
+                    colors.previewSurface,
+                    colors.previewCanvas,
+                    colors.firefoxLocalTrack,
+                ).forEach { assertEquals(expected, it) }
+                assertEquals(baseline.border, colors.border)
+                assertEquals(baseline.selectedRow, colors.selectedRow)
+                assertNotEquals(expected, colors.selectedRow)
+                assertEquals(baseline.searchMatchRow, colors.searchMatchRow)
+                assertEquals(baseline.searchCurrentMatchRow, colors.searchCurrentMatchRow)
+                assertEquals(accent, colors.accent)
+            }
+        }
     }
 
     @Test
-    fun `shared light surfaces preserve the existing light palette`() {
+    fun `elevated Material surfaces do not reintroduce accent tint`() {
+        listOf(false, true).forEach { dark ->
+            listOf(Color(0xFFFACA2E), Color(0xFF722169)).forEach { accent ->
+                val scheme = viewerMaterialColorScheme(dark, accent)
+                assertEquals(scheme.surface, scheme.surfaceTint)
+                listOf(0.dp, 1.dp, 6.dp, 12.dp, 24.dp).forEach { elevation ->
+                    assertEquals(scheme.surface, scheme.surfaceColorAtElevation(elevation))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `shared light palette remains stable`() {
         val shared = viewerColors(false)
         assertEquals(ViewerPalettes.forDark(false, shared.accent).copy(workspace = shared.toolbar), shared)
     }

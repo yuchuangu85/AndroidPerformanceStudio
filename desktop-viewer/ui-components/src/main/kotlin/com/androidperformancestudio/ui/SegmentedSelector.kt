@@ -104,6 +104,7 @@ public fun <T> SegmentedSelector(
         items.forEachIndexed { index, item ->
             val selected = item == selectedItem
             val canSelect = enabled && itemEnabled(item)
+            val contentColor = if (compact && !selected) colors.accent else colors.primaryText
             Box(
                 modifier =
                     Modifier
@@ -118,7 +119,7 @@ public fun <T> SegmentedSelector(
                         .clip(segmentedItemShape(compact, index, items.size, itemHeight))
                         .background(
                             if (selected) {
-                                if (compact) colors.accent else colors.segmentedSelected
+                                if (compact) colors.selectedRow else colors.segmentedSelected
                             } else {
                                 colors.transparent
                             },
@@ -138,9 +139,7 @@ public fun <T> SegmentedSelector(
                 Text(
                     text = itemLabel(item),
                     style = textStyle,
-                    color =
-                        (if (compact && selected) colors.accentText else if (compact) colors.accent else colors.primaryText)
-                            .copy(alpha = if (canSelect) 1f else DISABLED_CHIP_ALPHA),
+                    color = contentColor.copy(alpha = if (canSelect) 1f else DISABLED_CHIP_ALPHA),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

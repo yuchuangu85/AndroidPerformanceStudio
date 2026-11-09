@@ -275,11 +275,15 @@ private val ViewerShapes =
     )
 
 internal object ViewerPalettes {
+    // Base surfaces stay neutral when the configurable accent changes.
+    private val lightBackground = Color(0xFFFAFAFB)
+    private val darkBackground = Color(0xFF29292B)
+
     private val light =
         ViewerColors(
             isDark = false,
-            panel = Color.White,
-            canvasBackground = Color(0xFFECECEC),
+            panel = lightBackground,
+            canvasBackground = lightBackground,
             border = Color(0xFFD1D1D6),
             accent = Color(0xFF0A84FF),
             primaryText = Color(0xFF1D1D1F),
@@ -289,14 +293,14 @@ internal object ViewerPalettes {
             mutedText = Color(0xFF6E6E73),
             subtleText = Color(0xFF6E6E73),
             selectedRow = Color(0xFFD6EAFF),
-            sectionBackground = Color(0xFFFAFAFB),
+            sectionBackground = lightBackground,
             riskSectionBackground = Color(0xFFFFE5BF),
-            detailRowDeep = Color.White,
-            detailRowLight = Color.White,
+            detailRowDeep = lightBackground,
+            detailRowLight = lightBackground,
             switchTrackOff = Color(0xFFD1D1D6),
             switchThumbOff = Color(0xFF6E6E73),
-            previewSurface = Color.White,
-            previewCanvas = Color(0xFFF5F5F7),
+            previewSurface = lightBackground,
+            previewCanvas = lightBackground,
             visibleViewBounds = Color(0xFF0A84FF),
             previewText = Color(0xFF6E6E73),
             detailLabel = Color(0xFF6E6E73),
@@ -307,20 +311,20 @@ internal object ViewerPalettes {
             searchMatchRow = Color(0x330A84FF),
             searchCurrentMatchRow = Color(0x660A84FF),
             searchHighlightText = Color(0xFF0A84FF),
-            toolbar = Color(0xFFFAFAFB),
-            field = Color.White,
+            toolbar = lightBackground,
+            field = lightBackground,
             strongBorder = Color(0xFFB8B8BD),
             flameTooltipMeter = Color(0xFF45A1FF),
             flameTooltipTrack = Color.Black.copy(alpha = 0.10f),
             firefoxActivity = Color(0xFF5B8DB8),
-            firefoxLocalTrack = Color(0xFFF0F0F4),
+            firefoxLocalTrack = lightBackground,
         )
 
     private val dark =
         ViewerColors(
             isDark = true,
-            panel = Color(0xFF2C2C2E),
-            canvasBackground = Color(0xFF1E1E1E),
+            panel = darkBackground,
+            canvasBackground = darkBackground,
             border = Color(0xFF48484A),
             accent = Color(0xFF0A84FF),
             primaryText = Color(0xFFF5F5F7),
@@ -330,14 +334,14 @@ internal object ViewerPalettes {
             mutedText = Color(0xFFAEAEB2),
             subtleText = Color(0xFFAEAEB2),
             selectedRow = Color(0xFF163D66),
-            sectionBackground = Color(0xFF29292B),
+            sectionBackground = darkBackground,
             riskSectionBackground = Color(0xFF4D3515),
-            detailRowDeep = Color(0xFF1C1C1E),
-            detailRowLight = Color(0xFF2C2C2E),
+            detailRowDeep = darkBackground,
+            detailRowLight = darkBackground,
             switchTrackOff = Color(0xFF48484A),
             switchThumbOff = Color(0xFFAEAEB2),
-            previewSurface = Color(0xFF2C2C2E),
-            previewCanvas = Color(0xFF1E1E20),
+            previewSurface = darkBackground,
+            previewCanvas = darkBackground,
             visibleViewBounds = Color(0xFF0A84FF),
             previewText = Color(0xFFAEAEB2),
             detailLabel = Color(0xFFAEAEB2),
@@ -348,13 +352,13 @@ internal object ViewerPalettes {
             searchMatchRow = Color(0x330A84FF),
             searchCurrentMatchRow = Color(0x660A84FF),
             searchHighlightText = Color(0xFF64B5FF),
-            toolbar = Color(0xFF29292B),
-            field = Color(0xFF1C1C1E),
+            toolbar = darkBackground,
+            field = darkBackground,
             strongBorder = Color(0xFF636366),
             flameTooltipMeter = Color(0xFF0A84FF),
             flameTooltipTrack = Color.White.copy(alpha = 0.10f),
             firefoxActivity = Color(0xFF75A7D4),
-            firefoxLocalTrack = Color(0xFF202124),
+            firefoxLocalTrack = darkBackground,
         )
 
     fun forDark(darkTheme: Boolean, accentColor: Color): ViewerColors =
@@ -367,9 +371,6 @@ private fun ViewerColors.withAccent(accentColor: Color): ViewerColors =
         accentText = accentColor.contentColor(),
         visibleViewBounds = accentColor,
         info = accentColor,
-        selectedRow = accentColor.copy(alpha = if (isDark) 0.32f else 0.20f),
-        searchMatchRow = accentColor.copy(alpha = 0.20f),
-        searchCurrentMatchRow = accentColor.copy(alpha = 0.40f),
         searchHighlightText = accentColor,
         flameTooltipMeter = accentColor,
         firefoxActivity = accentColor,
@@ -477,24 +478,7 @@ public fun scaledViewerDensity(density: Density, displayScale: Float): Density =
 public fun viewerColors(
     darkTheme: Boolean,
     accentColor: Color = DefaultViewerAccent,
-): ViewerColors = ViewerPalettes.forDark(darkTheme, accentColor).withWorkspaceStyle()
-
-private fun ViewerColors.withWorkspaceStyle(): ViewerColors {
-    if (!isDark) return copy(workspace = toolbar)
-    val base =
-        canvasBackground.copy(
-            red = canvasBackground.red * 0.45f,
-            green = canvasBackground.green * 0.45f,
-            blue = canvasBackground.blue * 0.45f,
-        )
-    val surface = accent.copy(alpha = 0.08f).compositeOver(base)
-    return copy(
-        panel = surface,
-        workspace = toolbar,
-        border = accent.copy(alpha = 0.22f).compositeOver(surface),
-        sectionBackground = accent.copy(alpha = 0.06f).compositeOver(surface),
-    )
-}
+): ViewerColors = ViewerPalettes.forDark(darkTheme, accentColor)
 
 public fun viewerMaterialColorScheme(
     darkTheme: Boolean,
@@ -519,7 +503,7 @@ public fun viewerMaterialColorScheme(
         surfaceContainerHigh = colors.sectionBackground,
         surfaceContainerHighest = colors.sectionBackground,
         surfaceVariant = colors.sectionBackground,
-        surfaceTint = colors.accent,
+        surfaceTint = colors.panel,
         primaryContainer = colors.selectedRow,
         onPrimaryContainer = colors.primaryText,
         secondaryContainer = colors.sectionBackground,

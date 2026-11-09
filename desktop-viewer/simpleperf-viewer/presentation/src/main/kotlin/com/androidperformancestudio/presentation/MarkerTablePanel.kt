@@ -110,7 +110,7 @@ private fun MarkerTableRow(
         Modifier
             .fillMaxWidth()
             .testTag("marker-row-${marker.id.value}")
-            .background(if (selected) style.accent.copy(alpha = 0.18f) else style.panel)
+            .background(if (selected) style.selectedRow else style.panel)
             .clickable(onClick = onClick)
             .semantics { this.selected = selected }
             .padding(6.dp),

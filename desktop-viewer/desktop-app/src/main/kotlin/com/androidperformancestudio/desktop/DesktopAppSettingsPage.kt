@@ -1134,7 +1134,7 @@ private fun ThemeColorOption(
 ) {
     StudioCard(
         modifier = modifier.height(38.dp).clickable(onClick = onClick),
-        containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        containerColor = if (selected) LocalViewerColors.current.selectedRow else LocalViewerColors.current.panel,
         borderColor = if (selected) color.color else MaterialTheme.colorScheme.outline,
         contentPadding = 0.dp,
     ) {
@@ -1149,7 +1149,7 @@ private fun ThemeColorOption(
             Text(
                 text = label,
                 modifier = Modifier.weight(1f),
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (selected) LocalViewerColors.current.primaryText else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,

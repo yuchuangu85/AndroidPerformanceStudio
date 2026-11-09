@@ -2,7 +2,6 @@
 
 package com.androidperformancestudio.ui.studio
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,8 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -47,11 +44,10 @@ public fun StudioWorkspaceHeader(
                 .fillMaxWidth()
                 .heightIn(min = StudioTokens.workspaceHeaderMinHeight)
                 .clip(shape)
-                .background(Brush.horizontalGradient(listOf(colors.panel, colors.accent.copy(alpha = 0.22f))))
+                .background(colors.panel)
                 .border(StudioTokens.borderWidth, colors.border, shape),
     ) {
         val showSupportingText = maxWidth >= StudioTokens.workspaceHeaderSupportingMinWidth
-        WorkspaceHeaderGraphic(Modifier.matchParentSize())
         Row(
             modifier = Modifier.fillMaxWidth().align(Alignment.Center).padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -97,25 +93,5 @@ private fun WorkspaceHeaderLabels(
                 style = ViewerTypography.workspaceSubtitle,
             )
         }
-    }
-}
-
-@Composable
-private fun WorkspaceHeaderGraphic(modifier: Modifier) {
-    val accent = LocalViewerColors.current.accent
-    Canvas(modifier) {
-        val startX = (size.width - 240.dp.toPx()).coerceAtLeast(0f)
-        val graphicWidth = size.width - startX
-        val mountain =
-            Path().apply {
-                moveTo(startX, size.height)
-                lineTo(startX + graphicWidth * 0.40f, size.height * 0.42f)
-                lineTo(startX + graphicWidth * 0.55f, size.height * 0.70f)
-                lineTo(startX + graphicWidth * 0.78f, size.height * 0.16f)
-                lineTo(size.width, size.height * 0.63f)
-                lineTo(size.width, size.height)
-                close()
-            }
-        drawPath(mountain, accent.copy(alpha = 0.20f))
     }
 }

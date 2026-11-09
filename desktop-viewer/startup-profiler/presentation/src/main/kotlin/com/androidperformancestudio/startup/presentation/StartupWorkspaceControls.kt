@@ -114,7 +114,7 @@ internal fun StartupTypeTabs(
                     .height(52.dp)
                     .testTag("startup-type-${type.name}")
                     .clip(shape)
-                    .background(if (selected) colors.accent.copy(alpha = 0.32f) else colors.panel)
+                    .background(if (selected) colors.selectedRow else colors.panel)
                     .border(1.dp, if (selected) colors.accent else colors.border, shape)
                     .selectable(selected, enabled = !state.isRunning, role = Role.Tab, onClick = { actions.onSelectStartupType(type) })
                     .padding(horizontal = 16.dp),

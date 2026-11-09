@@ -62,9 +62,10 @@ class DesktopCardSurfaceTest {
     fun `workspace card retains selection progress and independent action callbacks`() {
         val card = functionSource("SourceWorkspacesPage.kt", "WorkspaceCard")
         assertTrue(card.contains("onClick = onSelect"))
+        assertTrue(card.contains("borderColor = if (selected) colors.accent else colors.border"))
         assertTrue(
             card.contains(
-                "if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer",
+                "containerColor = if (selected) colors.selectedRow else colors.panel",
             ),
         )
         assertTrue(card.contains("LinearProgressIndicator(progress = { workspace.progress }"))
@@ -85,7 +86,7 @@ class DesktopCardSurfaceTest {
         assertFalse(card.contains("Column("))
         assertTrue(
             card.contains(
-                "if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface",
+                "val contentColor = colors.primaryText",
             ),
         )
         assertEquals(2, Regex("color = contentColor").findAll(card).count())
@@ -98,7 +99,7 @@ class DesktopCardSurfaceTest {
         assertTrue(option.contains("modifier.height(38.dp).clickable(onClick = onClick)"))
         assertTrue(
             option.contains(
-                "if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant",
+                "containerColor = if (selected) LocalViewerColors.current.selectedRow else LocalViewerColors.current.panel",
             ),
         )
         assertTrue(option.contains("if (selected) color.color else MaterialTheme.colorScheme.outline"))
@@ -116,7 +117,7 @@ class DesktopCardSurfaceTest {
         assertTrue(option.contains("borderColor = if (selected) color.color else MaterialTheme.colorScheme.outline"))
         assertTrue(
             option.contains(
-                "color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant",
+                "color = if (selected) LocalViewerColors.current.primaryText else MaterialTheme.colorScheme.onSurfaceVariant",
             ),
         )
         assertFalse(option.contains("Surface("))

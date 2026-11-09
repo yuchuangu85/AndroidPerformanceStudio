@@ -31,8 +31,8 @@ fun MacOSChoiceChip(
     style: ViewerColors,
     onClick: () -> Unit,
 ) {
-    val background = if (selected) style.accent else style.field
-    val content = if (selected) style.accentText else style.accent
+    val background = if (selected) style.selectedRow else style.field
+    val content = if (selected) style.primaryText else style.accent
     Row(
         modifier = Modifier.padding(start = 4.dp, top = 0.dp, end = 4.dp, bottom = 0.dp),
         verticalAlignment = Alignment.CenterVertically,

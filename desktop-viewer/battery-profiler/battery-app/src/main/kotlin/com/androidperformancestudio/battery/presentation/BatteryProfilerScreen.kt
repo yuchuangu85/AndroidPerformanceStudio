@@ -349,7 +349,7 @@ private fun RunRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else LocalViewerColors.current.transparent)
+            .background(if (selected) LocalViewerColors.current.selectedRow else LocalViewerColors.current.transparent)
             .clickable {
                 onSelect(run.runId)
             }.padding(vertical = 6.dp, horizontal = 8.dp),

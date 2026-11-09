@@ -3269,7 +3269,7 @@ private fun HitTestOrderToggle(
         fontSize = ViewerTypography.label.fontSize,
         fontWeight = FontWeight.Bold,
         modifier = Modifier
-            .background(colors.accent.copy(alpha = 0.14f), RoundedCornerShape(4.dp))
+            .background(colors.panel, RoundedCornerShape(4.dp))
             .clickable(onClick = onToggle)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
@@ -3897,7 +3897,7 @@ private fun TimelineScrollButton(
         modifier = modifier
             .width(28.dp)
             .fillMaxHeight()
-            .background(colors.accent.copy(alpha = 0.08f))
+            .background(colors.panel)
             .border(1.dp, colors.accent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,

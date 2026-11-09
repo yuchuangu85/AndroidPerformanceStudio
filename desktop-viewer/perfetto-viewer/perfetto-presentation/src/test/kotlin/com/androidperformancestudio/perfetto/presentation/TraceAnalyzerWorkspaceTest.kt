@@ -22,6 +22,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.viewerColors
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -146,7 +147,7 @@ class TraceAnalyzerWorkspaceTest {
         }
 
     @Test
-    fun `workspace renders visible themed panels instead of a synthetic timeline`() =
+    fun `workspace renders real panels on uniform backgrounds`() =
         runDesktopComposeUiTest(width = 1200, height = 780) {
             setContent {
                 ViewerTheme(darkTheme = true) {
@@ -169,7 +170,11 @@ class TraceAnalyzerWorkspaceTest {
                     pixels[screenshot.width / 2, screenshot.height / 2],
                     pixels[screenshot.width - 24, screenshot.height / 2],
                 )
-            assertTrue(sampledColors.distinct().size > 1, "Trace workspace should render visible themed panels")
+            sampledColors.forEach { assertEquals(viewerColors(true).panel, it) }
+            onNodeWithTag("trace-sessions-panel").assertIsDisplayed()
+            onNodeWithTag("trace-viewer-panel").assertIsDisplayed()
+            onNodeWithTag("trace-insights-panel").assertIsDisplayed()
+            onNodeWithTag("open-perfetto-viewer").assertIsDisplayed()
         }
 }
 

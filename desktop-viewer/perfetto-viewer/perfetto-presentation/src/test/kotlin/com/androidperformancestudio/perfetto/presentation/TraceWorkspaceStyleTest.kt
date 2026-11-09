@@ -75,7 +75,8 @@ class TraceWorkspaceStyleTest {
         val summary = functionSource("TraceSummaryCard")
         assertTrue(summary.contains("summary.value ?: localizedStringResource(Res.string.trace_workspace_unavailable, language)"))
         assertTrue(summary.contains(".height(72.dp)"))
-        assertTrue(summary.contains("accent.copy(alpha = 0.10f)"))
+        assertTrue(summary.contains("containerColor = colors.panel"))
+        assertTrue(summary.contains("borderColor = if (summary.severity == null) colors.border else accent.copy(alpha = 0.5f)"))
         assertTrue(summary.contains(".padding(StudioTokens.compactContentPadding)"))
         assertTrue(summary.contains("verticalArrangement = Arrangement.SpaceBetween"))
     }

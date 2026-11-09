@@ -206,6 +206,13 @@
 - [ ] 选中节点被隐藏时，Canvas 是否完全不显示选中边框，还是用低透明虚线提示？建议首版不显示，后续根据用户反馈增加“显示隐藏层级边框”选项。
 - [ ] 隐藏状态在手动刷新成功后是完全清空，还是保留仍存在的 nodeId？建议首版刷新/切换窗口清空，避免误判新快照。
 
+## Uniform Desktop Backgrounds (2026-11-09)
+
+- Shared desktop base surfaces use one neutral color per appearance mode: light `#FAFAFB`, dark `#29292B`. Window chrome, workspace, panels, section headers, fields, property rows and preview surrounds use the same palette-owned value.
+- The configurable theme accent must not tint base surfaces, including Material tonal elevation. Keep accent on text, icons, borders and data marks. Optional workspace headers have no accent gradient or decorative background graphic.
+- Selection and search state fills remain visible and independent of the configured accent. Selected text contrasts with the fixed state fill, not with the accent. Risk/error feedback, syntax colors, data visualizations, third-party embedded content and the separate AI chat palette retain their semantic contracts.
+- Validation: light/dark with bright and dark accent choices; shared palette and Material elevation tests; rendered surface pixels and selected text contrast; affected desktop/profiler contracts and integration compilation.
+
 ## Desktop Form Inputs (2026-11-02)
 
 - Ordinary single-line app-owned form fields use shared `ViewerTextField` and `ViewerDimensions.textFieldHeight` (32dp), replacing the 56dp Material default. Use 8dp horizontal and 4dp vertical input padding, shared 13sp body text and the existing theme accent/border colors.
