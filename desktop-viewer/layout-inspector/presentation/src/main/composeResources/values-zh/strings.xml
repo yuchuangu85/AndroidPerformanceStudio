@@ -286,7 +286,7 @@
     <string name="detail_label_unstable_parameters">不稳定参数</string>
     <string name="menu_import_screenshot">截图…</string>
     <string name="menu_export_capture_archive">采集归档…</string>
-    <string name="compose_inspection_project_hint">当前项目可能不是 Compose 项目，只有 Compose 项目才需要注入 Compose Agent。</string>
+    <string name="compose_inspection_project_hint">完整 Compose 检查需要使用可调试 APK 构建的 Compose 应用。不可调试应用仍可使用兼容采集。</string>
     <string name="compose_inspection_show_details">详细信息</string>
     <string name="compose_inspection_hide_details">收起详情</string>
     <string name="compose_agent_title">Compose Agent</string>

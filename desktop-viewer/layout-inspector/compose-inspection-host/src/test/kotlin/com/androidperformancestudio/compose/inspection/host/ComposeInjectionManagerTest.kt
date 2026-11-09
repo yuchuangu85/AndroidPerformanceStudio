@@ -59,6 +59,33 @@ class ComposeInjectionManagerTest {
     }
 
     @Test
+    fun `preflight explains that full Compose inspection needs a debuggable APK`() {
+        val bundle = createBundle(tempDir.resolve("non-debuggable-bundle"))
+        val commands = mutableListOf<List<String>>()
+        val runner = ProcessRunner { arguments ->
+            commands += arguments
+            when {
+                arguments.takeLast(2) == listOf("getprop", "ro.build.version.sdk") -> ProcessResult(0, "34\n", "")
+                arguments.takeLast(2) == listOf("getprop", "ro.product.cpu.abi") -> ProcessResult(0, "arm64-v8a\n", "")
+                arguments.contains("pwd") -> ProcessResult(
+                    1,
+                    "",
+                    "run-as: package not debuggable: com.tcl.ai.app",
+                )
+                else -> ProcessResult(1, "", "unexpected command")
+            }
+        }
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            ComposeInjectionManager(runner).preflight("device", "com.tcl.ai.app", bundle)
+        }
+
+        assertTrue(error.message.orEmpty().contains("com.tcl.ai.app is not debuggable"))
+        assertTrue(error.message.orEmpty().contains("debuggable APK"))
+        assertTrue(commands.none { it.contains("pidof") })
+    }
+
+    @Test
     fun `attach stores native agent at app data root and cleans only session paths`() {
         val bundle = createBundle(tempDir.resolve("bundle"))
         val commands = mutableListOf<List<String>>()
