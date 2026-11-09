@@ -23,6 +23,7 @@ class CommonSettingsBoundaryTest {
         assertTrue(dialog.contains("archiveLimits: CaptureArchiveLimits"))
         assertTrue(dialog.contains("canvasBorderColors: CanvasBorderColors"))
         assertTrue(dialog.contains("Res.string.layout_inspector_settings"))
+        assertTrue(dialog.contains("Res.string.system_composables_hint"))
         assertFalse(dialog.contains("selectedThemePreference"))
         assertFalse(dialog.contains("selectedLanguagePreference"))
     }

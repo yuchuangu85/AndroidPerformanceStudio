@@ -17,6 +17,7 @@ internal data class ViewDisplayOptions(
     val showHierarchyIds: Boolean = true,
     val showHierarchyLayerVisibilityButtons: Boolean = false,
     val showVisibleViewBounds: Boolean = true,
+    val showSystemComposables: Boolean = true,
     val canvasHitTestOrder: CanvasHitTestOrder = CanvasHitTestOrder.SMALL_AREA_FIRST,
 ) {
     fun toggle(option: ViewDisplayOption): ViewDisplayOptions = when (option) {
@@ -62,6 +63,7 @@ internal class ViewDisplayOptionsStore(
             false,
         ),
         showVisibleViewBounds = readBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, true),
+        showSystemComposables = readBoolean(SHOW_SYSTEM_COMPOSABLES_KEY, true),
         canvasHitTestOrder = if (readBoolean(CANVAS_HIT_TEST_ORDER_Z_KEY, false)) {
             CanvasHitTestOrder.Z_ORDER
         } else {
@@ -80,6 +82,7 @@ internal class ViewDisplayOptionsStore(
                 options.showHierarchyLayerVisibilityButtons,
             )
             writeBoolean(SHOW_VISIBLE_VIEW_BOUNDS_KEY, options.showVisibleViewBounds)
+            writeBoolean(SHOW_SYSTEM_COMPOSABLES_KEY, options.showSystemComposables)
             writeBoolean(
                 CANVAS_HIT_TEST_ORDER_Z_KEY,
                 options.canvasHitTestOrder == CanvasHitTestOrder.Z_ORDER,
@@ -96,6 +99,7 @@ internal class ViewDisplayOptionsStore(
         private const val SHOW_HIERARCHY_LAYER_VISIBILITY_BUTTONS_KEY =
             "view.showHierarchyLayerVisibilityButtons"
         private const val SHOW_VISIBLE_VIEW_BOUNDS_KEY = "view.showVisibleViewBounds"
+        private const val SHOW_SYSTEM_COMPOSABLES_KEY = "compose.showSystemComposables"
         private const val CANVAS_HIT_TEST_ORDER_Z_KEY = "view.canvasHitTestOrder.zOrder"
 
         fun desktop(): ViewDisplayOptionsStore {

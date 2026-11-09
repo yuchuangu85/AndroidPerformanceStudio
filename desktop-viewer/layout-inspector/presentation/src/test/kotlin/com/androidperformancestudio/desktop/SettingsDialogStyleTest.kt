@@ -29,6 +29,15 @@ class SettingsDialogStyleTest {
         assertFalse(section.contains(".border("))
         assertFalse(section.contains(".padding("))
         assertTrue(settingsContent.contains("color = colors.accent"))
+        assertTrue(settingsContent.contains("viewOptions.showSystemComposables"))
+        assertTrue(settingsContent.contains("Res.string.system_composables_hint"))
+
+        val legacyDialog =
+            Files.readString(
+                Path.of("src/main/kotlin/com/androidperformancestudio/desktop/ThemeSettingsDialog.kt"),
+            )
+        assertTrue(legacyDialog.contains("viewDisplayOptions.showSystemComposables"))
+        assertTrue(legacyDialog.contains("Res.string.system_composables_hint"))
     }
 
     @Test

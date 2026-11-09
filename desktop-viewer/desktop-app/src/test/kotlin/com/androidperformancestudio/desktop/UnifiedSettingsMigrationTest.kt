@@ -35,6 +35,7 @@ class UnifiedSettingsMigrationTest {
             "showHierarchyIds",
             "showHierarchyLayerVisibilityButtons",
             "showVisibleViewBounds",
+            "showSystemComposables",
             "canvasHitTestOrder",
             "snapshotSizeMultiplier",
             "canvasColorPresets",

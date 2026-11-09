@@ -35,6 +35,7 @@ class ComposeCaptureRoutingSourceTest {
         assertTrue(prepare >= 0 && automatic.indexOf("if (fullComposeEnabled)") > prepare)
         assertTrue(automatic.contains("verifyCaptureTarget(target, capture.snapshot.packageName)"))
         assertTrue(automatic.contains("verifyCaptureTarget(target, snapshot.packageName)"))
+        assertTrue(automatic.contains("activeSession.capture(!viewDisplayOptions.showSystemComposables)"))
     }
 
     @Test
@@ -44,7 +45,9 @@ class ComposeCaptureRoutingSourceTest {
         assertTrue(manual.contains("catch (error: InspectorCaptureTargetChangedException)"))
         assertTrue(manual.contains("composeInspectionWarning = composeCaptureWarning(snapshot, composeUnavailableReason, composeExpected)"))
         assertTrue(manual.contains("composeInspectionWarning = reason"))
-        assertTrue(source.contains("ComposeInspectionWarningBanner(reason, uiLanguage)"))
+        assertTrue(manual.contains("session.capture(!viewDisplayOptions.showSystemComposables)"))
+        assertFalse(source.contains("ComposeInspectionWarningBanner(reason, uiLanguage)"))
+        assertTrue(source.contains("ComposeInspectionWarningBanner(warning, language)"))
     }
 
     @Test

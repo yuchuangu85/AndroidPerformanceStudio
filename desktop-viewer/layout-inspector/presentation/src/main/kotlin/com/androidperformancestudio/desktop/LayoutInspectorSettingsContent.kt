@@ -117,6 +117,11 @@ public fun LayoutInspectorSettingsContent(
                 label = localizedStringResource(Res.string.show_visible_view_bounds, language),
                 checked = viewOptions.showVisibleViewBounds,
             ) { updateViewOptions(viewOptions.copy(showVisibleViewBounds = it)) }
+            SettingsToggleRow(
+                label = localizedStringResource(Res.string.system_composables, language),
+                description = localizedStringResource(Res.string.system_composables_hint, language),
+                checked = viewOptions.showSystemComposables,
+            ) { updateViewOptions(viewOptions.copy(showSystemComposables = it)) }
             CanvasHitTestOrderSetting(viewOptions.canvasHitTestOrder, language) {
                 updateViewOptions(viewOptions.copy(canvasHitTestOrder = it))
             }
@@ -209,6 +214,7 @@ private fun SettingsSection(
 @Composable
 private fun SettingsToggleRow(
     label: String,
+    description: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -217,7 +223,19 @@ private fun SettingsToggleRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            description?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         MacOSSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

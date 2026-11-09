@@ -34,6 +34,7 @@
     <string name="hide_hierarchy_indices">Hide hierarchy indices</string>
     <string name="show_hierarchy_layer_visibility_buttons">Show visibility buttons in hierarchy</string>
     <string name="show_visible_view_bounds">Show all visible view bounds</string>
+    <string name="system_composables_hint">Shows composables reported by inspection as system-created, including common layout nodes such as Box, Row, and Column. Turn it off to hide those nodes and reduce hierarchy noise. The change applies on the next capture or refresh.</string>
     <string name="dismiss">OK</string>
     <string name="cancel">Cancel</string>
     <string name="system_composables">Show system composables (including Box)</string>

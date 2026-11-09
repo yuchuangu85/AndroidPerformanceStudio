@@ -14,6 +14,7 @@ class ViewDisplayOptionsTest {
                 showHierarchyIds = true,
                 showHierarchyLayerVisibilityButtons = false,
                 showVisibleViewBounds = true,
+                showSystemComposables = true,
                 canvasHitTestOrder = CanvasHitTestOrder.SMALL_AREA_FIRST,
             ),
             ViewDisplayOptions(),
@@ -76,11 +77,12 @@ class ViewDisplayOptionsTest {
             showHierarchyIds = false,
             showHierarchyLayerVisibilityButtons = true,
             showVisibleViewBounds = false,
+            showSystemComposables = false,
             canvasHitTestOrder = CanvasHitTestOrder.Z_ORDER,
         )
         store.save(expected)
 
-        assertEquals(7, values.size)
+        assertEquals(8, values.size)
         assertEquals(expected, store.load())
     }
 }

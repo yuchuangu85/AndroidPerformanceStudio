@@ -34,6 +34,7 @@
     <string name="hide_hierarchy_indices">隐藏层级索引</string>
     <string name="show_hierarchy_layer_visibility_buttons">显示层级结构中的显示按钮</string>
     <string name="show_visible_view_bounds">显示全部可见视图边缘</string>
+    <string name="system_composables_hint">开启后显示检查器标记为“系统创建”的 Composable，其中包括 Box、Row、Column 等常见布局节点；关闭后隐藏这些节点，可减少层级噪声。设置会在下一次采集或刷新时生效。</string>
     <string name="dismiss">确定</string>
     <string name="cancel">取消</string>
     <string name="system_composables">显示系统 Composable（包含 Box）</string>

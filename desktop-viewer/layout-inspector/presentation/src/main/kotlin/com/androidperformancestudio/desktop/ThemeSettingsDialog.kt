@@ -97,6 +97,16 @@ internal fun SettingsDialog(
                         )
                     },
                 )
+                SettingsToggleRow(
+                    label = localizedStringResource(Res.string.system_composables, language),
+                    description = localizedStringResource(Res.string.system_composables_hint, language),
+                    enabled = viewDisplayOptions.showSystemComposables,
+                    onToggle = {
+                        onViewDisplayOptionsChanged(
+                            viewDisplayOptions.copy(showSystemComposables = !viewDisplayOptions.showSystemComposables),
+                        )
+                    },
+                )
                 SettingsMenuSeparator()
                 SettingsSectionTitle(localizedStringResource(Res.string.capture_archive, language))
                 Spacer(Modifier.height(8.dp))
@@ -195,6 +205,7 @@ private fun ArchiveSnapshotLimitSetting(
 @Composable
 private fun SettingsToggleRow(
     label: String,
+    description: String? = null,
     enabled: Boolean,
     onToggle: () -> Unit,
 ) {
@@ -207,12 +218,23 @@ private fun SettingsToggleRow(
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            color = colors.primaryText,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
-        )
-        Spacer(Modifier.weight(1f))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = label,
+                color = colors.primaryText,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
+            )
+            description?.let {
+                Text(
+                    text = it,
+                    color = colors.mutedText,
+                    fontSize = ViewerTypography.label.fontSize,
+                )
+            }
+        }
         SettingsToggleSwitch(enabled)
     }
 }
