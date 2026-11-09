@@ -279,6 +279,24 @@ Payload: %4$d bytes</string>
     <string name="select_source_candidate">Select Source Candidate</string>
     <string name="source_candidate">Candidate %1$d · %2$s</string>
     <string name="import_compose_compiler_reports">Import Compose Reports</string>
+    <string name="compose_reports_select_file">Report File…</string>
+    <string name="compose_reports_select_directory">Report Folder…</string>
+    <string name="compose_reports_file_filter">Compose compiler reports (*.txt, *.csv)</string>
+    <string name="compose_reports_importing">Importing Compose Reports…</string>
+    <string name="compose_reports_imported_title">Compose Reports Imported</string>
+    <string name="compose_reports_import_failed_title">Compose Report Import Failed</string>
+    <string name="compose_reports_import_succeeded">Imported %1$d report files: %2$d composables, %3$d classes.
+Source: %4$s</string>
+    <string name="compose_reports_imported_files">Report files:
+%1$s</string>
+    <string name="compose_reports_import_warnings">Parser warnings:
+%1$s</string>
+    <string name="compose_reports_import_failed">Could not import Compose reports:
+%1$s
+
+The previously loaded report has not been changed.</string>
+    <string name="compose_reports_loaded_summary">%1$d files · %2$d composables · %3$d classes</string>
+    <string name="compose_reports_warnings">Warnings</string>
     <string name="compose_compiler_report">Compose Compiler</string>
     <string name="compose_reports_title">Compose compiler reports</string>
     <string name="compose_reports_purpose">Compiler reports describe restartable and skippable composables, parameter stability, and class stability. Importing them supplements matching runtime nodes with compiler flags and available unstable-parameter details, helping identify code to investigate.</string>
@@ -288,7 +306,7 @@ Payload: %4$d bytes</string>
     <string name="compose_reports_generate_hint">Run this command from the target project root. Replace app with the module and release variant containing the target composables. This compiles without packaging an APK; :app:assembleRelease also generates reports. On Windows, use gradlew.bat. If compilation is UP-TO-DATE but reports are missing, append --rerun-tasks.</string>
     <string name="compose_reports_output_hint">Look in app/build/compose_compiler and any variant or target subdirectories for *-composables.txt, *-composables.csv, and *-classes.txt. Names use the module prefix. metricsDestination also produces *-module.json statistics, which this importer does not read.</string>
     <string name="compose_reports_import">3. Import</string>
-    <string name="compose_reports_import_hint">Return to Layout Inspector and click Import Compose Reports in the bottom status bar. Select the directory directly containing the report files, not the APK or individual files. Import scans only that directory, not its subdirectories. Use reports from the same source revision and build variant as the inspected app.</string>
+    <string name="compose_reports_import_hint">Return to Layout Inspector and click Import Compose Reports in the bottom status bar. Choose Report File to select any one of *-composables.txt, *-composables.csv, or *-classes.txt; reports with the same module prefix in that folder are imported together. Or choose Report Folder and select the folder directly containing the reports. Import does not scan subfolders or read APKs. Use reports from the same source revision and build variant as the inspected app.</string>
     <string name="compose_reports_limitations">Reports are optional static compiler diagnostics, not measured recomposition counts, timings, or jank evidence. An unstable parameter does not necessarily prevent skipping, especially with strong skipping. Node matching uses function names and source filenames when available; same-named functions can be ambiguous. Importing a report does not enable full Compose inspection for a non-debuggable app.</string>
     <string name="loaded">Loaded</string>
     <string name="detail_section_compose_compiler">Compose Compiler Stability</string>

@@ -108,6 +108,22 @@ class ComposeCompilerReportGuideTest {
         }
     }
 
+    @Test
+    fun `import guide permits any sibling report file or its containing folder`() {
+        for (language in listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE)) {
+            val hint = localizedStringResource(Res.string.compose_reports_import_hint, language)
+            listOf("*-composables.txt", "*-composables.csv", "*-classes.txt")
+                .forEach { assertTrue(hint.contains(it), "Missing importable sibling format: $it") }
+            if (language == UiLanguage.ENGLISH) {
+                listOf("Report File", "Report Folder", "same module prefix", "does not scan subfolders")
+                    .forEach { assertTrue(hint.contains(it), "Missing selection contract: $it") }
+            } else {
+                listOf("报告文件", "报告文件夹", "相同模块前缀", "不递归扫描")
+                    .forEach { assertTrue(hint.contains(it), "Missing selection contract: $it") }
+            }
+        }
+    }
+
     private fun assertCompleteLayout(layout: TextLayoutResult, width: Int) {
         // Text bounds use whole pixels, while paragraph metrics can retain a fractional pixel.
         assertTrue(

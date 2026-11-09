@@ -279,6 +279,24 @@
     <string name="select_source_candidate">选择源码候选项</string>
     <string name="source_candidate">候选项 %1$d · %2$s</string>
     <string name="import_compose_compiler_reports">导入 Compose 报告</string>
+    <string name="compose_reports_select_file">报告文件…</string>
+    <string name="compose_reports_select_directory">报告文件夹…</string>
+    <string name="compose_reports_file_filter">Compose 编译器报告 (*.txt, *.csv)</string>
+    <string name="compose_reports_importing">正在导入 Compose 报告…</string>
+    <string name="compose_reports_imported_title">Compose 报告导入成功</string>
+    <string name="compose_reports_import_failed_title">Compose 报告导入失败</string>
+    <string name="compose_reports_import_succeeded">已导入 %1$d 个报告文件：%2$d 个 Composable、%3$d 个类。
+来源：%4$s</string>
+    <string name="compose_reports_imported_files">报告文件：
+%1$s</string>
+    <string name="compose_reports_import_warnings">解析警告：
+%1$s</string>
+    <string name="compose_reports_import_failed">无法导入 Compose 报告：
+%1$s
+
+此前已加载的报告未被更改。</string>
+    <string name="compose_reports_loaded_summary">%1$d 个文件 · %2$d 个 Composable · %3$d 个类</string>
+    <string name="compose_reports_warnings">警告</string>
     <string name="compose_compiler_report">Compose 编译器</string>
     <string name="compose_reports_title">Compose 编译器报告</string>
     <string name="compose_reports_purpose">编译器报告描述 Composable 是否可重启、可跳过，以及参数和类的稳定性。导入后，会为匹配的运行时节点补充编译器标记和可用的不稳定参数信息，辅助定位需要进一步分析的代码。</string>
@@ -288,7 +306,7 @@
     <string name="compose_reports_generate_hint">在目标项目根目录运行以下命令，将 app 和 Release 变体替换为目标 Composable 所在的模块与变体。此命令只编译，不打包 APK；:app:assembleRelease 也会生成报告。Windows 使用 gradlew.bat。若编译显示 UP-TO-DATE 但报告缺失，可追加 --rerun-tasks。</string>
     <string name="compose_reports_output_hint">在 app/build/compose_compiler 及其变体或目标子目录中查找 *-composables.txt、*-composables.csv、*-classes.txt，文件名前缀取决于模块名。metricsDestination 还会生成 *-module.json 汇总统计，当前导入器不读取该文件。</string>
     <string name="compose_reports_import">3. 导入</string>
-    <string name="compose_reports_import_hint">返回布局检查器，点击底部状态栏的“导入 Compose 报告”。选择直接包含报告文件的目录，而不是 APK 或单个文件；导入器只扫描所选目录，不递归扫描子目录。请使用与被检查应用相同源码版本、相同构建变体生成的报告。</string>
+    <string name="compose_reports_import_hint">返回布局检查器，点击底部状态栏的“导入 Compose 报告”。选择“报告文件”，选取 *-composables.txt、*-composables.csv、*-classes.txt 中任意一个，同一文件夹内具有相同模块前缀的报告会一起导入。也可选择“报告文件夹”，选取直接包含报告的文件夹。导入器不递归扫描子文件夹，也不读取 APK。请使用与被检查应用相同源码版本、相同构建变体生成的报告。</string>
     <string name="compose_reports_limitations">报告是可选的静态编译分析，不包含实际重组次数、耗时或卡顿证据。不稳定参数不一定阻止跳过重组，启用强跳过时尤其如此。节点按函数名及可用的源码文件名匹配，同名函数可能存在歧义。导入报告不会让不可调试应用获得完整 Compose 检查能力。</string>
     <string name="loaded">已加载</string>
     <string name="detail_section_compose_compiler">Compose 编译器稳定性</string>

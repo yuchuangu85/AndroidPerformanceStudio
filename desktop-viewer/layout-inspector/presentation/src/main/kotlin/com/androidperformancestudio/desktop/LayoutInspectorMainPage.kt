@@ -152,10 +152,10 @@ import com.androidperformancestudio.compose.inspection.host.PreparedComposeInspe
 import com.androidperformancestudio.compose.inspection.host.TargetProcessUnavailableException
 import com.androidperformancestudio.compose.inspection.host.lastTargetCrashReason
 import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
+import com.androidperformancestudio.compose.inspection.ComposeCompilerReport
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.ui.DropdownSelector
-import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -368,6 +368,15 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val aiAnalysisInputBuilder = remember { AiAnalysisInputBuilder() }
     val effectiveAiAnalysisClient = remember(aiAnalysisClient) { aiAnalysisClient ?: OpenAiResponsesAnalysisClient.fromEnvironment() }
     val coroutineScope = rememberCoroutineScope()
+    val composeReportImport = remember(composeCompilerReportParser, store) {
+        ComposeCompilerReportImport(
+            parseReport = { composeCompilerReportParser.parse(it) },
+            loadReport = { report ->
+                store.loadComposeCompilerReport(report)
+                state = store.state
+            },
+        )
+    }
     val aiAnalysisLifecycle = remember(store, effectiveAiAnalysisClient, coroutineScope) {
         LayoutAiAnalysisLifecycle(
             scope = coroutineScope,
@@ -896,15 +905,10 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val uiLanguage = languagePreference.resolve(Locale.getDefault())
-    val importComposeCompilerReports: () -> Unit = {
-        chooseDirectory(
-            window,
-            localizedStringResource(Res.string.import_compose_compiler_reports, uiLanguage),
-        )?.toPath()?.let { directory ->
-            coroutineScope.launch {
-                val report = withContext(Dispatchers.IO) { composeCompilerReportParser.parse(directory) }
-                store.loadComposeCompilerReport(report)
-                state = store.state
+    val importComposeCompilerReports: (ComposeReportImportSource) -> Unit = { source ->
+        coroutineScope.launch {
+            composeReportImport.importReport {
+                chooseComposeCompilerReportSource(window, source, uiLanguage)
             }
         }
     }
@@ -1612,7 +1616,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 fullComposeEnabled = fullComposeEnabled,
                 recompositionActive = recompositionActive,
                 recompositionControlsEnabled = composeSession != null,
-                composeCompilerReportLoaded = state.composeCompilerReport != null,
+                composeCompilerReport = state.composeCompilerReport,
+                composeReportImportInProgress = composeReportImport.uiState == ComposeCompilerReportImportState.Working,
                 onImportComposeCompilerReports = importComposeCompilerReports,
                 onToggleRecomposition = {
                     coroutineScope.launch {
@@ -1655,6 +1660,21 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 onDismiss = {
                     settingsVisible = false
                 },
+            )
+        }
+        when (val importState = composeReportImport.uiState) {
+            ComposeCompilerReportImportState.Idle, ComposeCompilerReportImportState.Working -> Unit
+            is ComposeCompilerReportImportState.Success -> ExportResultDialog(
+                title = localizedStringResource(Res.string.compose_reports_imported_title, uiLanguage),
+                message = composeCompilerReportImportMessage(importState.report, uiLanguage),
+                dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
+                onDismiss = composeReportImport::dismissResult,
+            )
+            is ComposeCompilerReportImportState.Failure -> ExportResultDialog(
+                title = localizedStringResource(Res.string.compose_reports_import_failed_title, uiLanguage),
+                message = localizedStringResource(Res.string.compose_reports_import_failed, uiLanguage, importState.message),
+                dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
+                onDismiss = composeReportImport::dismissResult,
             )
         }
         when (val operationState = archiveUiState) {
@@ -2065,7 +2085,13 @@ private fun ExportResultDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { CopyableText(message, language = LocalLayoutInspectorLanguage.current) },
+        text = {
+            CopyableText(
+                message,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                language = LocalLayoutInspectorLanguage.current,
+            )
+        },
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(dismissLabel)
@@ -2118,8 +2144,9 @@ private fun LayoutInspectorStatusBar(
     fullComposeEnabled: Boolean,
     recompositionActive: Boolean,
     recompositionControlsEnabled: Boolean,
-    composeCompilerReportLoaded: Boolean,
-    onImportComposeCompilerReports: () -> Unit,
+    composeCompilerReport: ComposeCompilerReport?,
+    composeReportImportInProgress: Boolean,
+    onImportComposeCompilerReports: (ComposeReportImportSource) -> Unit,
     onToggleRecomposition: () -> Unit,
     onResetRecomposition: () -> Unit,
 ) {
@@ -2149,17 +2176,30 @@ private fun LayoutInspectorStatusBar(
                 monospace = true,
             )
             StatusBarDivider()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_compose_compiler_reports, language),
-                selected = composeCompilerReportLoaded,
-                onClick = onImportComposeCompilerReports,
+            ComposeReportImportSelector(
+                importInProgress = composeReportImportInProgress,
+                language = language,
+                onImport = onImportComposeCompilerReports,
             )
-            if (composeCompilerReportLoaded) {
+            if (composeCompilerReport != null) {
                 StatusBarValue(
                     label = localizedStringResource(Res.string.compose_compiler_report, language),
-                    value = localizedStringResource(Res.string.loaded, language),
+                    value = localizedStringResource(
+                        Res.string.compose_reports_loaded_summary,
+                        language,
+                        composeCompilerReport.files.size,
+                        composeCompilerReport.functions.size,
+                        composeCompilerReport.classes.size,
+                    ),
                     valueColor = colors.primaryText,
                 )
+                if (composeCompilerReport.warnings.isNotEmpty()) {
+                    StatusBarValue(
+                        label = localizedStringResource(Res.string.compose_reports_warnings, language),
+                        value = composeCompilerReport.warnings.size.toString(),
+                        valueColor = colors.warning,
+                    )
+                }
             }
             StatusBarDivider()
             if (fullComposeEnabled) {
