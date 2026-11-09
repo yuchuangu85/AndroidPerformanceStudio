@@ -16,11 +16,14 @@ historical hosted run never establishes release qualification for a new source r
   currently report unavailable. Enable only with a real implemented native backend;
   the requested gate then fails on missing implementation, unavailable, zero tests or skips.
   A green deterministic Windows/macOS job is not a native sandbox qualification.
-- `release.yml` retains the pre-existing dirty AI composite check. Publication now requires
-  manual `release_qualified=true` and `run_real_provider=true`. A tag push alone fails before
-  creating a draft. Qualification gates the test job; tests gate packaging and candidate
-  receipts; the final publisher alone creates a draft and uploads verified candidates. Existing tags must match the dispatch
-  SHA, so a successful run against an older tag cannot certify newly dispatched code.
+- `release.yml` retains the pre-existing dirty AI composite check. Signed, notarized publication
+  requires a manual `release_qualified=true` and `run_real_provider=true` dispatch: qualification
+  gates the test job; tests gate packaging and candidate receipts; the final publisher alone
+  creates a draft and uploads verified candidates. A `v*` tag push instead publishes unsigned
+  development artifacts without qualification, and its receipts record
+  `unsigned-development-artifact`; it never produces signed, notarized or provider-qualified
+  evidence. Existing tags must match the dispatch SHA, so a successful run against an older tag
+  cannot certify newly dispatched code.
 - Linux DEB/RPM remain unsigned installer artifacts. They depend on strict Linux sandbox and
   the same-source AI matrix, not a fabricated Linux signing certificate. Windows gates below
   qualify outer MSI/EXE Authenticode, not every embedded DLL or installed-app behavior.
@@ -196,8 +199,9 @@ same released source. Signing-script fixtures are not evidence of native resolve
 ## Publication Transaction
 
 The entire workflow is serialized by canonical version, not branch/ref: `1.2.3` and
-`v1.2.3` share one lock; leading-zero aliases are rejected. Tag-only publication remains
-deliberately disabled. A prepackaging check is read-only and rejects any existing Release;
+`v1.2.3` share one lock; leading-zero aliases are rejected. Tag-only qualified publication
+remains deliberately disabled: a tag push can only publish explicitly unsigned development
+artifacts, never a qualified release. A prepackaging check is read-only and rejects any existing Release;
 there is no reset, draft adoption, automatic cleanup, asset overwrite or `--clobber` path.
 
 Each of five packaging jobs records its exact source SHA, version, platform/arch, run ID,
