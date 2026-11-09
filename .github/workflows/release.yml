@@ -186,6 +186,7 @@ jobs:
 
   build-compose-agent:
     name: Build verified Compose inspection runtime
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
     needs: [resolve, test]
     runs-on: ubuntu-24.04
     steps:
@@ -238,6 +239,7 @@ jobs:
 
   prepare-release:
     name: Check release source and refuse existing releases
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
     needs: [resolve, test]
     runs-on: ubuntu-latest
     steps:
@@ -260,6 +262,7 @@ jobs:
 
   package-windows:
     name: Package Windows x64 MSI and EXE
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
     needs: [resolve, test, prepare-release, build-compose-agent]
     runs-on: windows-latest
     environment: aps-release-signing
@@ -405,6 +408,7 @@ jobs:
 
   package-macos:
     name: Package macOS ${{ matrix.arch }} DMG and PKG
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
     needs: [resolve, test, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
@@ -566,6 +570,7 @@ jobs:
 
   package-linux:
     name: Package Linux ${{ matrix.arch }} DEB and RPM
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
     needs: [resolve, test, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
@@ -683,6 +688,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['package-windows'].result == 'success' && needs['package-macos'].result == 'success' && needs['package-linux'].result == 'success' }}
     needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]
     runs-on: ubuntu-latest
     environment: aps-release-signing
