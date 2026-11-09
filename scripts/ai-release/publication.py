@@ -117,7 +117,7 @@ class GitHub:
         self.repository = repository
         self.base = "repos/" + repository
 
-    def request(self, endpoint, method="GET", body=None, missing=False):
+    def request(self, endpoint, method="GET", body=None, missing=False, list_response=False):
         args = ["gh", "api", "--include", "--method", method, self.base + endpoint]
         if body is not None:
             args += ["--input", "-"]
@@ -135,7 +135,10 @@ class GitHub:
             if result.returncode or not 200 <= code < 300:
                 raise ValueError()
             data = json.loads(raw, object_pairs_hook=unique_object)
-            if not isinstance(data, dict):
+            if list_response:
+                if not isinstance(data, list):
+                    raise ValueError()
+            elif not isinstance(data, dict):
                 raise ValueError()
             return data
         except (OSError, ValueError, subprocess.SubprocessError):
@@ -143,6 +146,10 @@ class GitHub:
 
     def release(self, tag):
         return self.request("/releases/tags/" + tag, missing=True)
+
+    def releases(self):
+        # The get-by-tag endpoint hides draft releases, so list them for existence checks.
+        return self.request("/releases?per_page=100", list_response=True)
 
     def tag(self, tag):
         reference = self.request("/git/ref/tags/" + tag, missing=True)
@@ -184,7 +191,10 @@ def check_release(github, version, source_sha):
     tagged = github.tag(tag)
     if tagged is not None and tagged[1] != source_sha:
         raise GateError("Release tag commit differs from the qualified source")
-    if github.release(tag) is not None:
+    releases = github.releases()
+    if not isinstance(releases, list) or any(not isinstance(release, dict) for release in releases):
+        raise GateError("Invalid release listing")
+    if any(release.get("tag_name") == tag for release in releases):
         raise GateError("Release already exists; automatic reset, adoption and clobber are forbidden")
     return tagged
 
@@ -220,10 +230,11 @@ def remote_assets(release, expected):
     return observed
 
 
-def assert_release_binding(github, tag, release_id):
-    bound = github.release(tag)
+def assert_release_binding(github, release_id):
+    # Draft releases are invisible to GET /releases/tags/{tag}; bind the immutable release id.
+    bound = github.request("/releases/" + str(release_id))
     if not isinstance(bound, dict) or bound.get("id") != release_id:
-        raise GateError("Release tag now identifies another or missing release")
+        raise GateError("Release identity changed during publication")
 
 
 def publish(github, root, version, source_sha, run_id, attempt, development=False):
@@ -243,7 +254,7 @@ def publish(github, root, version, source_sha, run_id, attempt, development=Fals
     if release.get("assets") != []:
         raise GateError("A new draft must have no pre-existing assets")
     assert_tag(github, tag, frozen, source_sha)
-    assert_release_binding(github, tag, release_id)
+    assert_release_binding(github, release_id)
     github.upload(tag, [expected[name]["path"] for name in sorted(expected)])
     release = github.request("/releases/" + str(release_id))
     release_metadata(release, release_id, tag, source_sha, True)
@@ -266,7 +277,7 @@ def publish(github, root, version, source_sha, run_id, attempt, development=Fals
     assert_tag(github, tag, frozen, source_sha)
     if remote_assets(final, expected) != uploaded:
         raise GateError("Final published release differs from verified assets")
-    assert_release_binding(github, tag, release_id)
+    assert_release_binding(github, release_id)
 
 
 def main():

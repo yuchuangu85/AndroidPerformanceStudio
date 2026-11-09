@@ -36,6 +36,11 @@ class FakeGitHub:
         self.hook("release", tag)
         return copy.deepcopy(self.release_value)
 
+    def releases(self):
+        self.calls.append(("releases",))
+        self.hook("releases", None)
+        return [copy.deepcopy(self.release_value)] if self.release_value else []
+
     def request(self, path, method="GET", body=None):
         self.calls.append((method, path, copy.deepcopy(body)))
         self.hook(method, path)
@@ -126,8 +131,9 @@ class PublicationFixtures(unittest.TestCase):
         self.assertEqual("unsigned-linux-artifact", json.loads(receipt.read_text())["status"])
 
     def test_existing_release_is_never_adopted_reset_or_clobbered(self):
+        # Draft releases are hidden from the get-by-tag endpoint; the listing must still refuse them.
         github = FakeGitHub()
-        github.release_value = {"id": 55, "draft": True, "assets": []}
+        github.release_value = {"id": 55, "draft": True, "assets": [], "tag_name": "v1.2.3"}
         with self.assertRaisesRegex(GateError, "already exists"):
             self.publish(github)
         self.assertFalse(any(call[0] in ("POST", "PATCH", "upload") for call in github.calls))
