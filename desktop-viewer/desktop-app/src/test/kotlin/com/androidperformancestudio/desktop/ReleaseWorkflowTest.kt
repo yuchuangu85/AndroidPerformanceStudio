@@ -21,7 +21,7 @@ class ReleaseWorkflowTest {
     lateinit var directory: Path
 
     @Test
-    fun `release workflow requires explicit qualified manual publication even for tags`() {
+    fun `tag pushes publish unsigned development artifacts while manual dispatch requires qualified opt in`() {
         val workflow = Files.readString(workflowPath)
 
         assertTrue(workflow.contains("tags:"))
@@ -31,7 +31,10 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("""^v?[0-9]+\.[0-9]+\.[0-9]+${'$'}"""))
         assertTrue(workflow.contains("release_qualified:"))
         assertTrue(workflow.contains("run_real_provider:"))
-        assertTrue(workflow.contains("tag pushes alone cannot publish"))
+        assertTrue(workflow.contains("mode=development"))
+        assertTrue(workflow.contains("mode=release"))
+        assertTrue(workflow.contains("Manual dispatch requires release_qualified=true and run_real_provider=true"))
+        assertTrue(workflow.contains("if: needs.resolve.outputs.mode == 'release'"))
     }
 
     @Test
