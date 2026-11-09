@@ -42,6 +42,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      mode: ${{ steps.release.outputs.mode }}
       manual: ${{ steps.release.outputs.manual }}
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
       tag_exists: ${{ steps.release.outputs.tag_exists }}
@@ -56,16 +57,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$INPUT_RELEASE_QUALIFIED" != true || "$INPUT_REAL_PROVIDER" != true ]]; then
-            echo "::error::Publishing requires explicit manual release_qualified and run_real_provider opt-in. Unsigned development artifacts are not release-qualified; tag pushes alone cannot publish."
-            exit 1
-          fi
+          # Tag pushes publish unsigned development artifacts. Only an explicit manual dispatch
+          # with release_qualified and run_real_provider opts into the signed, notarized release.
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ "$INPUT_RELEASE_QUALIFIED" != true || "$INPUT_REAL_PROVIDER" != true ]]; then
+              echo "::error::Manual dispatch requires release_qualified=true and run_real_provider=true; unsigned development publication is tag-push only."
+              exit 1
+            fi
+            mode=release
             raw_version="${INPUT_VERSION}"
             manual=true
-          else
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            mode=development
             raw_version="${GITHUB_REF_NAME}"
             manual=false
+          else
+            echo "::error::Unsupported release trigger ${GITHUB_EVENT_NAME}."
+            exit 1
           fi
 
           if [[ ! "${raw_version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -106,6 +114,7 @@ jobs:
           {
             echo "version=${version}"
             echo "tag=${tag}"
+            echo "mode=${mode}"
             echo "manual=${manual}"
             echo "checkout_ref=${checkout_ref}"
             echo "tag_exists=${tag_exists}"
@@ -113,6 +122,7 @@ jobs:
 
   ai-qualification:
     name: Required nonpublishing AI qualification
+    if: needs.resolve.outputs.mode == 'release'
     needs: resolve
     uses: ./.github/workflows/ai-qualification.yml
     with:
@@ -125,6 +135,7 @@ jobs:
 
   test:
     name: Test
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.ai-qualification.result == 'success' || needs.ai-qualification.result == 'skipped') }}
     needs: [resolve, ai-qualification]
     runs-on: ubuntu-latest
     steps:
@@ -175,6 +186,7 @@ jobs:
 
   build-compose-agent:
     name: Build verified Compose inspection runtime
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
     needs: [resolve, test]
     runs-on: ubuntu-24.04
     steps:
@@ -227,6 +239,7 @@ jobs:
 
   prepare-release:
     name: Check release source and refuse existing releases
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
     needs: [resolve, test]
     runs-on: ubuntu-latest
     steps:
@@ -249,6 +262,7 @@ jobs:
 
   package-windows:
     name: Package Windows x64 MSI and EXE
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
     needs: [resolve, test, prepare-release, build-compose-agent]
     runs-on: windows-latest
     environment: aps-release-signing
@@ -273,6 +287,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Require Windows signing credential references
+        if: needs.resolve.outputs.mode == 'release'
         env:
           APS_ENABLE_RELEASE_SIGNING: 'true'
           APS_WINDOWS_CERTIFICATE_BASE64: ${{ secrets.APS_WINDOWS_CERTIFICATE_BASE64 }}
@@ -355,6 +370,7 @@ jobs:
           Copy-Item $msiPackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.msi"
           Copy-Item $exePackages[0].FullName "release-assets\AndroidPerfermanceStudio-$VERSION-windows-x64.exe"
       - name: Sign and verify Windows installers with timestamp
+        if: needs.resolve.outputs.mode == 'release'
         shell: bash
         env:
           APS_ENABLE_RELEASE_SIGNING: 'true'
@@ -370,12 +386,17 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
+          MODE: ${{ needs.resolve.outputs.mode }}
         run: |
           set -euo pipefail
-          python scripts/ai-release/sign.py verify windows --output release-assets --receipt release-evidence/windows-x64.json --version "$VERSION" --arch x64 --source-sha "$(git rev-parse HEAD)"
-          python scripts/ai-release/publication.py record --platform windows --arch x64 --version "$VERSION" \
-            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --assets release-assets --candidate release-candidate --signing-receipt release-evidence/windows-x64.json
+          args=(--platform windows --arch x64 --version "$VERSION" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --assets release-assets --candidate release-candidate)
+          if [[ "$MODE" == "release" ]]; then
+            python scripts/ai-release/sign.py verify windows --output release-assets --receipt release-evidence/windows-x64.json --version "$VERSION" --arch x64 --source-sha "$(git rev-parse HEAD)"
+            args+=(--signing-receipt release-evidence/windows-x64.json)
+          else
+            args+=(--development)
+          fi
+          python scripts/ai-release/publication.py record "${args[@]}"
       - name: Preserve immutable Windows candidate and receipt in this run
         uses: actions/upload-artifact@v7
         with:
@@ -387,6 +408,7 @@ jobs:
 
   package-macos:
     name: Package macOS ${{ matrix.arch }} DMG and PKG
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
     needs: [resolve, test, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
@@ -419,6 +441,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Require Developer ID and notarization credential references
+        if: needs.resolve.outputs.mode == 'release'
         env:
           APS_ENABLE_RELEASE_SIGNING: 'true'
           APS_MACOS_CERTIFICATE_BASE64: ${{ secrets.APS_MACOS_CERTIFICATE_BASE64 }}
@@ -477,7 +500,29 @@ jobs:
         run: ./desktop-viewer/gradlew -p desktop-viewer :platform-core:adb-core:smokeBundledAdb --no-daemon
       - name: Build DMG and PKG
         run: ./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -PappVersion=${{ needs.resolve.outputs.version }} -Ptarget.arch=${{ matrix.arch }} --no-daemon
+      - name: Prepare unsigned development macOS assets
+        if: needs.resolve.outputs.mode == 'development'
+        shell: bash
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          dmg_packages=(desktop-viewer/desktop-app/build/compose/binaries/main/dmg/*.dmg)
+          if [[ "${#dmg_packages[@]}" -ne 1 || ! -f "${dmg_packages[0]}" ]]; then
+            echo "::error::Expected exactly one DMG package."
+            exit 1
+          fi
+          pkg_packages=(desktop-viewer/desktop-app/build/compose/binaries/main/pkg/*.pkg)
+          if [[ "${#pkg_packages[@]}" -ne 1 || ! -f "${pkg_packages[0]}" ]]; then
+            echo "::error::Expected exactly one PKG package."
+            exit 1
+          fi
+          mkdir -p release-assets
+          cp "${dmg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.dmg"
+          cp "${pkg_packages[0]}" "release-assets/AndroidPerfermanceStudio-$VERSION-macos-$ARCH.pkg"
       - name: Sign Developer ID app and notarize final macOS assets
+        if: needs.resolve.outputs.mode == 'release'
         shell: bash
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
@@ -503,12 +548,17 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           ARCH: ${{ matrix.arch }}
+          MODE: ${{ needs.resolve.outputs.mode }}
         run: |
           set -euo pipefail
-          python scripts/ai-release/sign.py verify macos --output release-assets --receipt "release-evidence/macos-$ARCH.json" --version "$VERSION" --arch "$ARCH" --source-sha "$(git rev-parse HEAD)"
-          python scripts/ai-release/publication.py record --platform macos --arch "$ARCH" --version "$VERSION" \
-            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --assets release-assets --candidate release-candidate --signing-receipt "release-evidence/macos-$ARCH.json"
+          args=(--platform macos --arch "$ARCH" --version "$VERSION" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --assets release-assets --candidate release-candidate)
+          if [[ "$MODE" == "release" ]]; then
+            python scripts/ai-release/sign.py verify macos --output release-assets --receipt "release-evidence/macos-$ARCH.json" --version "$VERSION" --arch "$ARCH" --source-sha "$(git rev-parse HEAD)"
+            args+=(--signing-receipt "release-evidence/macos-$ARCH.json")
+          else
+            args+=(--development)
+          fi
+          python scripts/ai-release/publication.py record "${args[@]}"
       - name: Preserve immutable macOS candidate and receipt in this run
         uses: actions/upload-artifact@v7
         with:
@@ -520,6 +570,7 @@ jobs:
 
   package-linux:
     name: Package Linux ${{ matrix.arch }} DEB and RPM
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
     needs: [resolve, test, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
@@ -618,11 +669,14 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
           ARCH: ${{ matrix.arch }}
+          MODE: ${{ needs.resolve.outputs.mode }}
         run: |
           set -euo pipefail
-          python scripts/ai-release/publication.py record --platform linux --arch "$ARCH" --version "$VERSION" \
-            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --assets release-assets --candidate release-candidate
+          args=(--platform linux --arch "$ARCH" --version "$VERSION" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --assets release-assets --candidate release-candidate)
+          if [[ "$MODE" == "development" ]]; then
+            args+=(--development)
+          fi
+          python scripts/ai-release/publication.py record "${args[@]}"
       - name: Preserve immutable Linux candidate and receipt in this run
         uses: actions/upload-artifact@v7
         with:
@@ -634,6 +688,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['package-windows'].result == 'success' && needs['package-macos'].result == 'success' && needs['package-linux'].result == 'success' }}
     needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]
     runs-on: ubuntu-latest
     environment: aps-release-signing
@@ -660,9 +715,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          MODE: ${{ needs.resolve.outputs.mode }}
           APS_ENABLE_RELEASE_PUBLICATION: 'true'
         run: |
           set -euo pipefail
-          python scripts/ai-release/publication.py publish --version "$VERSION" --source-sha "$GITHUB_SHA" \
-            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --repository "$GITHUB_REPOSITORY" --candidates release-candidates
+          args=(--version "$VERSION" --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --repository "$GITHUB_REPOSITORY" --candidates release-candidates)
+          if [[ "$MODE" == "development" ]]; then
+            args+=(--development)
+          fi
+          python scripts/ai-release/publication.py publish "${args[@]}"

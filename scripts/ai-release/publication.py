@@ -17,6 +17,8 @@ import sign
 
 TARGETS = (("windows", "x64"), ("macos", "arm64"), ("macos", "x64"), ("linux", "arm64"), ("linux", "x64"))
 STATUSES = {"windows": "authenticode-verified", "macos": "signed-notarized", "linux": "unsigned-linux-artifact"}
+# Tag-push development releases carry no signing or notarization evidence.
+DEVELOPMENT_STATUS = "unsigned-development-artifact"
 
 
 def unique_object(pairs):
@@ -60,10 +62,10 @@ def inventory(directory, expected):
     return result
 
 
-def record_candidate(assets, candidate, target, arch, version, source_sha, run_id, attempt, signing_receipt=None):
+def record_candidate(assets, candidate, target, arch, version, source_sha, run_id, attempt, signing_receipt=None, development=False):
     identity(version, source_sha, run_id, attempt)
     expected = inventory(assets, asset_names(target, version, arch))
-    if target != "linux":
+    if not development and target != "linux":
         if signing_receipt is None:
             raise GateError("Signed release candidate requires a successful signing receipt")
         sign.verify_receipt(signing_receipt, assets, target, version, arch, source_sha)
@@ -72,12 +74,13 @@ def record_candidate(assets, candidate, target, arch, version, source_sha, run_i
     if inventory(candidate / "assets", set(expected)) != expected:
         raise GateError("Candidate bytes changed while recording receipt")
     data = {"schema": 1, "version": version, "source_sha": source_sha, "run_id": run_id, "run_attempt": attempt,
-            "platform": target, "arch": arch, "status": STATUSES[target], "assets": expected}
+            "platform": target, "arch": arch, "status": DEVELOPMENT_STATUS if development else STATUSES[target],
+            "assets": expected}
     with (candidate / "receipt.json").open("x") as stream:
         json.dump(data, stream, sort_keys=True)
 
 
-def candidate_receipts(root, version, source_sha, run_id, attempt):
+def candidate_receipts(root, version, source_sha, run_id, attempt, development=False):
     identity(version, source_sha, run_id, attempt)
     expected_dirs = {"release-candidate-" + target + "-" + arch + "-" + run_id + "-" + attempt for target, arch in TARGETS}
     if root.is_symlink() or not root.is_dir() or {path.name for path in root.iterdir()} != expected_dirs:
@@ -96,7 +99,8 @@ def candidate_receipts(root, version, source_sha, run_id, attempt):
             raise GateError("Invalid per-job release receipt") from None
         actual = inventory(folder / "assets", asset_names(target, version, arch))
         expected = {"schema": 1, "version": version, "source_sha": source_sha, "run_id": run_id, "run_attempt": attempt,
-                    "platform": target, "arch": arch, "status": STATUSES[target], "assets": actual}
+                    "platform": target, "arch": arch, "status": DEVELOPMENT_STATUS if development else STATUSES[target],
+                    "assets": actual}
         if not isinstance(data, dict) or type(data.get("schema")) is not int or data != expected:
             raise GateError("Per-job receipt source, run, signing status or bytes do not match")
         for name, digest in actual.items():
@@ -222,8 +226,8 @@ def assert_release_binding(github, tag, release_id):
         raise GateError("Release tag now identifies another or missing release")
 
 
-def publish(github, root, version, source_sha, run_id, attempt):
-    expected = candidate_receipts(root, version, source_sha, run_id, attempt)
+def publish(github, root, version, source_sha, run_id, attempt, development=False):
+    expected = candidate_receipts(root, version, source_sha, run_id, attempt, development)
     tag = "v" + version
     frozen = check_release(github, version, source_sha)
     if frozen is None:
@@ -279,11 +283,14 @@ def main():
     parser.add_argument("--candidates", type=Path)
     parser.add_argument("--signing-receipt", type=Path)
     parser.add_argument("--repository")
+    parser.add_argument("--development", action="store_true",
+                        help="tag-push development release without signing or live-provider evidence")
     args = parser.parse_args()
     try:
         identity(args.version, args.source_sha, args.run_id, args.run_attempt)
         if args.action == "publish" and (os.environ.get("APS_ENABLE_RELEASE_PUBLICATION") != "true"
-                                         or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"):
+                                         or (os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+                                             and not args.development)):
             raise GateError("Release publication requires explicit manual opt-in")
         if sign.command(["git", "rev-parse", "HEAD"]).strip() != args.source_sha:
             raise GateError("Publication source SHA differs from the checkout")
@@ -291,7 +298,7 @@ def main():
             if not args.assets or not args.candidate or not args.platform or not args.arch:
                 raise GateError("Explicit candidate target and paths are required")
             record_candidate(args.assets, args.candidate, args.platform, args.arch, args.version, args.source_sha,
-                             args.run_id, args.run_attempt, args.signing_receipt)
+                             args.run_id, args.run_attempt, args.signing_receipt, args.development)
         else:
             require_environment(("GH_TOKEN",))
             github = GitHub(args.repository or "")
@@ -300,7 +307,8 @@ def main():
             else:
                 if not args.candidates:
                     raise GateError("Per-job candidates are required before publication")
-                publish(github, args.candidates, args.version, args.source_sha, args.run_id, args.run_attempt)
+                publish(github, args.candidates, args.version, args.source_sha, args.run_id, args.run_attempt,
+                        args.development)
     except (GateError, OSError, ValueError, TypeError, KeyError):
         error = sys.exc_info()[1]
         print(str(error) if isinstance(error, GateError) else "Release publication gate failed; details withheld", file=sys.stderr)

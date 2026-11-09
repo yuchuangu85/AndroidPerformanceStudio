@@ -192,7 +192,7 @@ An application image is not an installer. Build installers on a matching operati
 
 The application version is centralized in [desktop-viewer/build.gradle.kts](desktop-viewer/build.gradle.kts) and can be overridden with `-PappVersion=0.7.1`. A custom packaging JDK can be selected with `-Ptarget.javaHome=/absolute/path/to/jdk`.
 
-The release workflow accepts version tags or a manual version input. It runs tests, prepares the inspection runtime, builds the ten installers in the platform matrix, and publishes only after checking the uploaded assets. Signing and notarization are separate release requirements; they are not configured by this workflow.
+The release workflow has two publication paths. Pushing a `v*` tag publishes unsigned development installers: it runs tests, prepares the inspection runtime, builds the ten installers in the platform matrix, and publishes only after re-verifying the uploaded assets. A manual `workflow_dispatch` with `release_qualified=true` and `run_real_provider=true` publishes the signed, notarized release instead; that path requires the macOS notarization, Windows Authenticode and real-provider credentials to be configured.
 
 ## Project layout
 

@@ -2,15 +2,22 @@
 
 package com.androidperformancestudio.desktop
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,11 +34,15 @@ import com.androidperformancestudio.presentation.generated.resources.compose_age
 import com.androidperformancestudio.presentation.generated.resources.compose_agent_preflight
 import com.androidperformancestudio.presentation.generated.resources.compose_agent_title
 import com.androidperformancestudio.presentation.generated.resources.compose_agent_yes
+import com.androidperformancestudio.presentation.generated.resources.compose_inspection_enable_title
+import com.androidperformancestudio.presentation.generated.resources.compose_inspection_toggle_hint
 import com.androidperformancestudio.ui.CopyableText
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ComposeAgentToggle(
     checked: Boolean,
@@ -40,21 +51,42 @@ internal fun ComposeAgentToggle(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val enabled = checked || canEnable
-    Row(
-        modifier =
-            Modifier
-                .testTag("layout-compose-agent-toggle")
-                .toggleable(
-                    value = checked,
-                    enabled = enabled,
-                    role = Role.Checkbox,
-                    onValueChange = onCheckedChange,
-                ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    val colors = LocalViewerColors.current
+    TooltipArea(
+        tooltip = {
+            Surface(
+                modifier = Modifier.widthIn(max = 320.dp),
+                shape = RoundedCornerShape(4.dp),
+                color = colors.panel,
+                contentColor = colors.primaryText,
+                border = BorderStroke(1.dp, colors.border),
+                shadowElevation = 4.dp,
+            ) {
+                CopyableText(
+                    text = localizedStringResource(Res.string.compose_inspection_toggle_hint, language),
+                    modifier = Modifier.padding(8.dp).testTag("layout-compose-inspection-tooltip"),
+                    style = ViewerTypography.body,
+                    language = language,
+                )
+            }
+        },
     ) {
-        Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.size(22.dp), enabled = enabled)
-        Text(localizedStringResource(Res.string.compose_agent_title, language), style = ViewerTypography.label)
+        Row(
+            modifier =
+                Modifier
+                    .testTag("layout-compose-agent-toggle")
+                    .toggleable(
+                        value = checked,
+                        enabled = enabled,
+                        role = Role.Checkbox,
+                        onValueChange = onCheckedChange,
+                    ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.size(22.dp), enabled = enabled)
+            Text(localizedStringResource(Res.string.compose_agent_title, language), style = ViewerTypography.label)
+        }
     }
 }
 
@@ -69,7 +101,7 @@ internal fun ComposeAgentAuthorizationDialog(
     val no = localizedStringResource(Res.string.compose_agent_no, language)
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text(localizedStringResource(Res.string.compose_agent_title, language)) },
+        title = { Text(localizedStringResource(Res.string.compose_inspection_enable_title, language)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 CopyableText(

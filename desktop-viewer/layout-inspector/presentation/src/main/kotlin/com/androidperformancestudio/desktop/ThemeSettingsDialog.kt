@@ -43,7 +43,7 @@ import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.roundToInt
 
 internal object SettingsDialogStyle {
-    const val SECTION_SEPARATOR_COUNT = 2
+    const val SECTION_SEPARATOR_COUNT = 3
     const val SEPARATOR_HEIGHT_DP = 1
     const val SEPARATOR_VERTICAL_PADDING_DP = 12
 }
@@ -97,6 +97,16 @@ internal fun SettingsDialog(
                         )
                     },
                 )
+                SettingsToggleRow(
+                    label = localizedStringResource(Res.string.system_composables, language),
+                    description = localizedStringResource(Res.string.system_composables_hint, language),
+                    enabled = viewDisplayOptions.showSystemComposables,
+                    onToggle = {
+                        onViewDisplayOptionsChanged(
+                            viewDisplayOptions.copy(showSystemComposables = !viewDisplayOptions.showSystemComposables),
+                        )
+                    },
+                )
                 SettingsMenuSeparator()
                 SettingsSectionTitle(localizedStringResource(Res.string.capture_archive, language))
                 Spacer(Modifier.height(8.dp))
@@ -122,6 +132,10 @@ internal fun SettingsDialog(
                     canvasBorderColors.selected,
                     CanvasBorderColors().selected,
                 ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(selected = it)) }
+                SettingsMenuSeparator()
+                SettingsSectionTitle(localizedStringResource(Res.string.compose_reports_title, language))
+                Spacer(Modifier.height(8.dp))
+                ComposeCompilerReportGuide(language)
             }
         },
         confirmButton = {},
@@ -195,6 +209,7 @@ private fun ArchiveSnapshotLimitSetting(
 @Composable
 private fun SettingsToggleRow(
     label: String,
+    description: String? = null,
     enabled: Boolean,
     onToggle: () -> Unit,
 ) {
@@ -207,12 +222,23 @@ private fun SettingsToggleRow(
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = label,
-            color = colors.primaryText,
-            fontSize = ViewerTypography.bodyCompact.fontSize,
-        )
-        Spacer(Modifier.weight(1f))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = label,
+                color = colors.primaryText,
+                fontSize = ViewerTypography.bodyCompact.fontSize,
+            )
+            description?.let {
+                Text(
+                    text = it,
+                    color = colors.mutedText,
+                    fontSize = ViewerTypography.label.fontSize,
+                )
+            }
+        }
         SettingsToggleSwitch(enabled)
     }
 }

@@ -1,8 +1,8 @@
 package com.androidperformancestudio.desktop
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ComposeInspectionVisibilityTest {
@@ -73,6 +73,6 @@ class ComposeInspectionVisibilityTest {
 
     @Test
     fun `system composables are shown by default when the full Compose tree is available`() {
-        assertFalse(DEFAULT_HIDE_SYSTEM_COMPOSABLES)
+        assertTrue(ViewDisplayOptions().showSystemComposables)
     }
 }

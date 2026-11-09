@@ -1,22 +1,35 @@
 package com.androidperformancestudio.desktop
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
+import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.compose.inspection.host.ComposeInspectionPreflight
+import com.androidperformancestudio.presentation.generated.resources.Res
+import com.androidperformancestudio.presentation.generated.resources.compose_inspection_toggle_hint
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTheme
+import com.androidperformancestudio.ui.localizedStringResource
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,6 +39,48 @@ import java.nio.file.Path
 
 @OptIn(ExperimentalTestApi::class)
 class ComposeAgentControlsTest {
+    @Test
+    fun `inspection label and hover explanation are localized even when enabling is unavailable`() {
+        for (language in listOf(UiLanguage.ENGLISH, UiLanguage.SIMPLIFIED_CHINESE)) {
+            for (canEnable in listOf(false, true)) {
+                runDesktopComposeUiTest(width = 420, height = 320) {
+                    var requests = 0
+                    setContent {
+                        ViewerTheme(darkTheme = false) {
+                            Box(Modifier.fillMaxSize().padding(24.dp)) {
+                                ComposeAgentToggle(false, canEnable, language) { requests++ }
+                            }
+                        }
+                    }
+                    val label = if (language == UiLanguage.ENGLISH) "Full Compose Inspection" else "完整 Compose 检查"
+                    onNodeWithText(label).assertIsDisplayed()
+                    onNodeWithText("Compose Agent").assertDoesNotExist()
+                    val toggle = onNodeWithTag("layout-compose-agent-toggle").assertIsOff()
+                    if (!canEnable) toggle.assertIsNotEnabled()
+
+                    val tooltipTag = "layout-compose-inspection-tooltip"
+                    onNodeWithTag(tooltipTag).assertDoesNotExist()
+                    toggle.performMouseInput { moveTo(center) }
+                    mainClock.advanceTimeBy(1_000)
+                    waitUntil(timeoutMillis = 2_500) {
+                        onAllNodesWithTag(tooltipTag).fetchSemanticsNodes().isNotEmpty()
+                    }
+                    val hint = onNodeWithTag(tooltipTag)
+                    hint.assertIsDisplayed().assertTextEquals(
+                        localizedStringResource(Res.string.compose_inspection_toggle_hint, language),
+                    )
+                    assertTrue(hint.fetchSemanticsNode().config[SemanticsActions.CustomActions].isNotEmpty())
+                    assertEquals(0, requests, "Hovering must not request inspection")
+                    toggle.performMouseInput { moveTo(Offset(-20f, -20f)) }
+                    mainClock.advanceTimeBy(1_000)
+                    waitUntil(timeoutMillis = 2_500) {
+                        onAllNodesWithTag(tooltipTag).fetchSemanticsNodes().isEmpty()
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun `agent toggle is off by default and always permits disabling`() =
         runDesktopComposeUiTest {
@@ -58,6 +113,8 @@ class ComposeAgentControlsTest {
                     )
                 }
             }
+            onNodeWithText("Enable Full Compose Inspection").assertIsDisplayed()
+            onNodeWithText("Allow Inspection").assertIsDisplayed()
             onNodeWithText("dev.sample", substring = true).assertExists()
             assertEquals(0, confirmed)
             onNodeWithText("Cancel").performClick()
@@ -159,8 +216,14 @@ class ComposeAgentControlsTest {
             }
             val message = onNodeWithText("dev.sample", substring = true).fetchSemanticsNode()
             val text = message.config[SemanticsProperties.Text].single().text
+            onNodeWithText("启用完整 Compose 检查").assertIsDisplayed()
+            onNodeWithText("允许检查").assertIsDisplayed()
             assertTrue(text.contains("需要下载：是"))
             assertTrue(text.contains("需要重启：否"))
+            assertTrue(text.contains("将在此目标进程中加载 Compose 检查组件"))
+            assertTrue(text.contains("CPU 和内存开销"))
+            assertTrue(text.contains("恢复兼容采集"))
+            assertFalse(text.contains("Compose Agent"))
             assertEquals("复制完整提示", message.config[SemanticsActions.CustomActions].single().label)
             onNodeWithTag("layout-compose-agent-authorize").assertExists()
         }

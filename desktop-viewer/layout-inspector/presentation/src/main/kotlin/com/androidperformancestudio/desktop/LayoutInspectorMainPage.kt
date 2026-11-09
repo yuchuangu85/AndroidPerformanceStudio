@@ -152,10 +152,10 @@ import com.androidperformancestudio.compose.inspection.host.PreparedComposeInspe
 import com.androidperformancestudio.compose.inspection.host.TargetProcessUnavailableException
 import com.androidperformancestudio.compose.inspection.host.lastTargetCrashReason
 import com.androidperformancestudio.compose.inspection.ComposeArchivePrivacy
+import com.androidperformancestudio.compose.inspection.ComposeCompilerReport
 import com.androidperformancestudio.compose.inspection.ComposeParameterReference
 import com.androidperformancestudio.compose.inspection.ComposeValue
 import com.androidperformancestudio.ui.DropdownSelector
-import com.androidperformancestudio.ui.chooseDirectory
 import com.androidperformancestudio.ui.HeaderDivider
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
@@ -189,9 +189,6 @@ internal const val AUTO_SCAN_DEFAULT_ENABLED = false
 // Source-aware payload preflight is complete; keep the user-facing analysis entry available.
 internal const val AI_ANALYSIS_ENTRY_VISIBLE = true
 internal const val SYSTEM_UI_PACKAGE_NAME = "com.android.systemui"
-// Full Compose inspection exposes layout-only nodes such as Box, Row, and Column. It is prepared
-// automatically for the foreground app when the verified AOSP agent bundle is available.
-internal const val DEFAULT_HIDE_SYSTEM_COMPOSABLES: Boolean = false
 
 /** Node id prefix the Compose projection puts on full-fidelity composable nodes. */
 internal const val COMPOSE_NODE_ID_PREFIX = "compose-inspection:"
@@ -315,10 +312,13 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             ?: (error.message ?: error.javaClass.simpleName)
     }
     val composeCompilerReportParser = remember { ComposeCompilerReportParser() }
+    val viewDisplayOptionsStore = remember { ViewDisplayOptionsStore.desktop() }
+    var viewDisplayOptions by remember {
+        mutableStateOf(viewDisplayOptionsStore.load())
+    }
     var composeAgentRequested by remember { mutableStateOf(false) }
     var pendingComposeAuthorization by remember { mutableStateOf<PreparedComposeInspection?>(null) }
     var fullComposeEnabled by remember { mutableStateOf(false) }
-    var hideSystemComposables by remember { mutableStateOf(DEFAULT_HIDE_SYSTEM_COMPOSABLES) }
     var composeAuthorization by remember { mutableStateOf<AuthorizedComposeTarget?>(null) }
     var composeSession by remember { mutableStateOf<ComposeLiveSession?>(null) }
     var recompositionActive by remember { mutableStateOf(false) }
@@ -368,6 +368,15 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     val aiAnalysisInputBuilder = remember { AiAnalysisInputBuilder() }
     val effectiveAiAnalysisClient = remember(aiAnalysisClient) { aiAnalysisClient ?: OpenAiResponsesAnalysisClient.fromEnvironment() }
     val coroutineScope = rememberCoroutineScope()
+    val composeReportImport = remember(composeCompilerReportParser, store) {
+        ComposeCompilerReportImport(
+            parseReport = { composeCompilerReportParser.parse(it) },
+            loadReport = { report ->
+                store.loadComposeCompilerReport(report)
+                state = store.state
+            },
+        )
+    }
     val aiAnalysisLifecycle = remember(store, effectiveAiAnalysisClient, coroutineScope) {
         LayoutAiAnalysisLifecycle(
             scope = coroutineScope,
@@ -550,7 +559,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         }
     }
 
-    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization, titleBarTargets?.selectedDeviceSerial, composeAgentRequested) {
+    LaunchedEffect(autoScanEnabled, selectedDeviceSerial, captureTargetMode, fullComposeEnabled, composeAuthorization, titleBarTargets?.selectedDeviceSerial, composeAgentRequested, viewDisplayOptions.showSystemComposables) {
         if (!autoScanEnabled) {
             if (store.state.connectionStatus != ConnectionStatus.ARCHIVE &&
                 store.state.connectionStatus != ConnectionStatus.ERROR
@@ -602,7 +611,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     }
                     while (currentCoroutineContext().isActive) {
                         val capture = withContext(Dispatchers.IO) {
-                            activeSession.capture(hideSystemComposables)
+                            activeSession.capture(!viewDisplayOptions.showSystemComposables)
                         }
                         verifyCaptureTarget(target, capture.snapshot.packageName)
                         store.loadCapture(
@@ -807,7 +816,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                                 expectedComposeVersion = checkNotNull(authorized.prepared.preflight.composeVersion),
                                 explicitLocalArtifact = System.getProperty("agentperf.compose.inspector.path")
                                     ?.takeIf(String::isNotBlank)?.let(Path::of),
-                            ).use { session -> session.capture(hideSystemComposables) }
+                            ).use { session -> session.capture(!viewDisplayOptions.showSystemComposables) }
                         } finally {
                             injected.close()
                         }
@@ -918,24 +927,15 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var panelVisibility by remember { mutableStateOf(PanelVisibility()) }
     var hierarchyTreeState by remember { mutableStateOf(HierarchyTreeState()) }
     var hierarchyIsolationState by remember { mutableStateOf(HierarchyIsolationState()) }
-    val viewDisplayOptionsStore = remember { ViewDisplayOptionsStore.desktop() }
-    var viewDisplayOptions by remember {
-        mutableStateOf(viewDisplayOptionsStore.load())
-    }
     val languagePreference =
         commonLanguagePreference?.let(LanguagePreference::fromStorage) ?: LanguagePreference.SYSTEM
     val canvasBorderColorStore = remember { CanvasBorderColorStore.desktop() }
     var canvasBorderColors by remember { mutableStateOf(canvasBorderColorStore.load()) }
     val uiLanguage = languagePreference.resolve(Locale.getDefault())
-    val importComposeCompilerReports: () -> Unit = {
-        chooseDirectory(
-            window,
-            localizedStringResource(Res.string.import_compose_compiler_reports, uiLanguage),
-        )?.toPath()?.let { directory ->
-            coroutineScope.launch {
-                val report = withContext(Dispatchers.IO) { composeCompilerReportParser.parse(directory) }
-                store.loadComposeCompilerReport(report)
-                state = store.state
+    val importComposeCompilerReports: (ComposeReportImportSource) -> Unit = { source ->
+        coroutineScope.launch {
+            composeReportImport.importReport {
+                chooseComposeCompilerReportSource(window, source, uiLanguage)
             }
         }
     }
@@ -1455,9 +1455,6 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                     onClick = { performAction(ViewerAction.TOGGLE_DETAILS) },
                 )
             }
-            state.composeInspectionWarning?.let { reason ->
-                ComposeInspectionWarningBanner(reason, uiLanguage)
-            }
             correlationHint?.let { hint ->
                 CorrelationBanner(
                     hint = hint,
@@ -1676,12 +1673,11 @@ fun FrameWindowScope.LayoutInspectorMainPage(
             LayoutInspectorStatusBar(
                 model = model,
                 fullComposeEnabled = fullComposeEnabled,
-                hideSystemComposables = hideSystemComposables,
                 recompositionActive = recompositionActive,
                 recompositionControlsEnabled = composeSession != null,
-                composeCompilerReportLoaded = state.composeCompilerReport != null,
+                composeCompilerReport = state.composeCompilerReport,
+                composeReportImportInProgress = composeReportImport.uiState == ComposeCompilerReportImportState.Working,
                 onImportComposeCompilerReports = importComposeCompilerReports,
-                onToggleSystemComposables = { hideSystemComposables = !hideSystemComposables },
                 onToggleRecomposition = {
                     coroutineScope.launch {
                         withContext(Dispatchers.IO) {
@@ -1744,6 +1740,21 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 onDismiss = {
                     settingsVisible = false
                 },
+            )
+        }
+        when (val importState = composeReportImport.uiState) {
+            ComposeCompilerReportImportState.Idle, ComposeCompilerReportImportState.Working -> Unit
+            is ComposeCompilerReportImportState.Success -> ExportResultDialog(
+                title = localizedStringResource(Res.string.compose_reports_imported_title, uiLanguage),
+                message = composeCompilerReportImportMessage(importState.report, uiLanguage),
+                dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
+                onDismiss = composeReportImport::dismissResult,
+            )
+            is ComposeCompilerReportImportState.Failure -> ExportResultDialog(
+                title = localizedStringResource(Res.string.compose_reports_import_failed_title, uiLanguage),
+                message = localizedStringResource(Res.string.compose_reports_import_failed, uiLanguage, importState.message),
+                dismissLabel = localizedStringResource(Res.string.dismiss, uiLanguage),
+                onDismiss = composeReportImport::dismissResult,
             )
         }
         when (val operationState = archiveUiState) {
@@ -2154,7 +2165,13 @@ private fun ExportResultDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { CopyableText(message, language = LocalLayoutInspectorLanguage.current) },
+        text = {
+            CopyableText(
+                message,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                language = LocalLayoutInspectorLanguage.current,
+            )
+        },
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(dismissLabel)
@@ -2205,12 +2222,11 @@ private fun ScanModeButtons(
 private fun LayoutInspectorStatusBar(
     model: InspectorScreenModel,
     fullComposeEnabled: Boolean,
-    hideSystemComposables: Boolean,
     recompositionActive: Boolean,
     recompositionControlsEnabled: Boolean,
-    composeCompilerReportLoaded: Boolean,
-    onImportComposeCompilerReports: () -> Unit,
-    onToggleSystemComposables: () -> Unit,
+    composeCompilerReport: ComposeCompilerReport?,
+    composeReportImportInProgress: Boolean,
+    onImportComposeCompilerReports: (ComposeReportImportSource) -> Unit,
     onToggleRecomposition: () -> Unit,
     onResetRecomposition: () -> Unit,
     stateReadsAvailable: Boolean,
@@ -2244,25 +2260,33 @@ private fun LayoutInspectorStatusBar(
                 monospace = true,
             )
             StatusBarDivider()
-            ProfilerCompactButton(
-                text = localizedStringResource(Res.string.import_compose_compiler_reports, language),
-                selected = composeCompilerReportLoaded,
-                onClick = onImportComposeCompilerReports,
+            ComposeReportImportSelector(
+                importInProgress = composeReportImportInProgress,
+                language = language,
+                onImport = onImportComposeCompilerReports,
             )
-            if (composeCompilerReportLoaded) {
+            if (composeCompilerReport != null) {
                 StatusBarValue(
                     label = localizedStringResource(Res.string.compose_compiler_report, language),
-                    value = localizedStringResource(Res.string.loaded, language),
+                    value = localizedStringResource(
+                        Res.string.compose_reports_loaded_summary,
+                        language,
+                        composeCompilerReport.files.size,
+                        composeCompilerReport.functions.size,
+                        composeCompilerReport.classes.size,
+                    ),
                     valueColor = colors.primaryText,
                 )
+                if (composeCompilerReport.warnings.isNotEmpty()) {
+                    StatusBarValue(
+                        label = localizedStringResource(Res.string.compose_reports_warnings, language),
+                        value = composeCompilerReport.warnings.size.toString(),
+                        valueColor = colors.warning,
+                    )
+                }
             }
             StatusBarDivider()
             if (fullComposeEnabled) {
-                ProfilerCompactButton(
-                    text = localizedStringResource(Res.string.system_composables, language),
-                    selected = !hideSystemComposables,
-                    onClick = onToggleSystemComposables,
-                )
                 ProfilerCompactButton(
                     text = localizedStringResource(
                         if (recompositionActive) Res.string.stop_recomposition else Res.string.start_recomposition,

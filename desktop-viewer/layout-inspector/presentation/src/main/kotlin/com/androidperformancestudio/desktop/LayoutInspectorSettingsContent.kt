@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.viewerOutlinedTextFieldColors
 import com.androidperformancestudio.ui.radiobutton.MacOSChoiceChip
@@ -117,6 +119,11 @@ public fun LayoutInspectorSettingsContent(
                 label = localizedStringResource(Res.string.show_visible_view_bounds, language),
                 checked = viewOptions.showVisibleViewBounds,
             ) { updateViewOptions(viewOptions.copy(showVisibleViewBounds = it)) }
+            SettingsToggleRow(
+                label = localizedStringResource(Res.string.system_composables, language),
+                description = localizedStringResource(Res.string.system_composables_hint, language),
+                checked = viewOptions.showSystemComposables,
+            ) { updateViewOptions(viewOptions.copy(showSystemComposables = it)) }
             CanvasHitTestOrderSetting(viewOptions.canvasHitTestOrder, language) {
                 updateViewOptions(viewOptions.copy(canvasHitTestOrder = it))
             }
@@ -182,6 +189,10 @@ public fun LayoutInspectorSettingsContent(
                 language = language,
             ) { updateBorderColors(borderColors.copy(selected = it)) }
         }
+
+        SettingsSection(localizedStringResource(Res.string.compose_reports_title, language)) {
+            ComposeCompilerReportGuide(language)
+        }
     }
 }
 
@@ -199,8 +210,10 @@ private fun SettingsSection(
     ) {
         Text(
             text = title,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp),
             color = colors.accent,
             style = MaterialTheme.typography.titleMedium,
+            lineHeight = 20.sp,
         )
         content()
     }
@@ -209,6 +222,7 @@ private fun SettingsSection(
 @Composable
 private fun SettingsToggleRow(
     label: String,
+    description: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
@@ -217,7 +231,19 @@ private fun SettingsToggleRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            description?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         MacOSSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

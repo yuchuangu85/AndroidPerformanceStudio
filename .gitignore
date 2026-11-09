@@ -49,3 +49,7 @@ google-services.json
 
 # Local Perfetto trace_processor launcher
 /trace_processor
+
+.claude/
+.omx/
+.omc/

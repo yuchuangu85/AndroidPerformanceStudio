@@ -1,5 +1,6 @@
 package com.androidperformancestudio.desktop
 
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
@@ -23,13 +24,16 @@ class DetailsPaneCategoryWiringTest {
     }
 
     @Test
-    fun `manual Compose refresh falls back and shows why`() {
+    fun `manual Compose refresh keeps the warning in node properties only`() {
         val source = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/desktop/LayoutInspectorMainPage.kt"))
         assertTrue(source.contains("captureCompatibleFallback"))
         assertTrue(source.contains("manualRefreshSession.capture(target.serial)"))
         assertTrue(source.contains("composeInspectionWarning = reason"))
-        assertTrue(source.contains("ComposeInspectionWarningBanner(reason, uiLanguage)"))
-        assertTrue(source.contains("state.composeInspectionWarning?.let"))
-        assertTrue(source.contains("ComposeInspectionWarningBanner(warning, language)"))
+        val headerContent = source.substringAfter("HeaderToolbar(").substringBefore("correlationHint?.let")
+        assertFalse(headerContent.contains("ComposeInspectionWarningBanner"))
+
+        val detailsPane = source.substringAfter("internal fun DetailsPane(").substringBefore("private fun DetailSection(")
+        assertTrue(detailsPane.contains("state.composeInspectionWarning?.let"))
+        assertTrue(detailsPane.contains("ComposeInspectionWarningBanner(warning, language)"))
     }
 }

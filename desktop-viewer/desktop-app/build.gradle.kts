@@ -1,13 +1,21 @@
 import groovy.json.JsonSlurper
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
 import java.io.RandomAccessFile
+import java.io.Closeable
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.HexFormat
 import java.util.Properties
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.zip.ZipFile
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -557,18 +565,145 @@ compose.desktop {
     }
 }
 
-// Keep the development process independent from the application JAR. Gradle may rebuild that JAR
-// while an existing app instance is still running; loading a settings screen afterwards must not
-// fail because the class loader is holding an obsolete JAR handle.
+class DevelopmentRuntimeSnapshot(originalClasspath: List<File>) : Closeable {
+    val directory: File = Files.createTempDirectory("aps-desktop-runtime-").toFile()
+    val entries: List<File>
+
+    init {
+        try {
+            entries = originalClasspath.mapIndexedNotNull { index, source ->
+                // Missing output directories are normal when a source set has no Java sources.
+                if (!source.exists()) {
+                    check(!source.extension.equals("jar", ignoreCase = true)) { "Missing runtime JAR: $source" }
+                    return@mapIndexedNotNull null
+                }
+                val target = File(directory, "$index/${source.name}")
+                check(target.parentFile.mkdirs()) { "Cannot create runtime snapshot directory: $target" }
+                if (source.isDirectory) {
+                    source.copyRecursively(target, overwrite = false)
+                } else {
+                    source.copyTo(target, overwrite = false)
+                    if (target.extension.equals("jar", ignoreCase = true)) {
+                        ZipFile(target).use { zip ->
+                            zip.entries().asSequence().filterNot { it.isDirectory }.forEach { entry ->
+                                zip.getInputStream(entry).use { it.copyTo(OutputStream.nullOutputStream()) }
+                            }
+                        }
+                    }
+                }
+                target
+            }
+        } catch (error: Exception) {
+            close()
+            throw GradleException("Cannot snapshot the desktop runtime classpath. Retry after other builds finish.", error)
+        }
+    }
+
+    override fun close() {
+        if (!directory.deleteRecursively()) {
+            System.err.println("[desktop-run] Could not remove runtime snapshot: $directory")
+        }
+    }
+}
+
+abstract class DevelopmentRuntimeSnapshots : BuildService<BuildServiceParameters.None>, AutoCloseable {
+    private val snapshots = CopyOnWriteArrayList<DevelopmentRuntimeSnapshot>()
+
+    fun capture(classpath: List<File>): DevelopmentRuntimeSnapshot =
+        DevelopmentRuntimeSnapshot(classpath).also { snapshots.add(it) }
+
+    override fun close() {
+        snapshots.forEach { it.close() }
+    }
+}
+
+val developmentRuntimeSnapshots =
+    gradle.sharedServices.registerIfAbsent("desktopDevelopmentRuntimeSnapshots", DevelopmentRuntimeSnapshots::class) {}
+
+// All runtime entries, including included-build resources, must stay unchanged for this process.
+// Source-set outputs alone still reference dependency JARs that other Gradle builds can overwrite.
 tasks.withType<JavaExec>().configureEach {
     if (name == "run") {
         dependsOn(prepareHprofEngineResources)
         systemProperty("aps.hprofEngine.path", hprofEngineBinary.absolutePath)
         val developmentRuntimeClasspath = sourceSets["main"].runtimeClasspath
+        dependsOn(developmentRuntimeClasspath)
+        val isolatedRuntimeClasspath = objects.fileCollection()
+        val snapshots = developmentRuntimeSnapshots
+        usesService(snapshots)
         doFirst {
-            classpath = developmentRuntimeClasspath
+            val snapshot = snapshots.get().capture(developmentRuntimeClasspath.files.toList())
+            isolatedRuntimeClasspath.setFrom(snapshot.entries)
+            classpath = isolatedRuntimeClasspath
+            logger.lifecycle("[desktop-run] Isolated runtime classpath: ${snapshot.directory}")
         }
     }
+}
+
+tasks.register("verifyDevelopmentRuntimeIsolation") {
+    group = "verification"
+    description = "Checks that desktop runtime resources survive original classpath files being rebuilt."
+    doLast {
+        val fixture = Files.createTempDirectory("aps-runtime-isolation-test-").toFile()
+        try {
+            fun writeJar(file: File, value: String) {
+                file.parentFile.mkdirs()
+                ZipOutputStream(file.outputStream()).use { zip ->
+                    zip.putNextEntry(ZipEntry("composeResources/values/strings.main.cvr"))
+                    zip.write(value.toByteArray())
+                    zip.closeEntry()
+                }
+            }
+            fun readResource(file: File): String = ZipFile(file).use { zip ->
+                zip.getInputStream(zip.getEntry("composeResources/values/strings.main.cvr")).bufferedReader().use { it.readText() }
+            }
+            val firstJar = File(fixture, "first/presentation.jar")
+            val secondJar = File(fixture, "second/presentation.jar")
+            val classes = File(fixture, "classes").apply { mkdirs() }
+            val classFile = File(classes, "Main.class").apply { writeText("original-class") }
+            writeJar(firstJar, "original-string")
+            writeJar(secondJar, "other-module")
+            val classpath = listOf(firstJar, secondJar, classes, File(fixture, "missing-output"))
+            DevelopmentRuntimeSnapshot(classpath).use { first ->
+                check(first.entries.size == 3) { "Missing optional output directories must not remain live classpath entries" }
+                check(first.entries[0] != first.entries[1]) { "Same-named JARs must remain distinct" }
+                ZipFile(first.entries[0]).use { opened ->
+                    writeJar(firstJar, "rebuilt-string-with-a-different-length")
+                    classFile.writeText("rebuilt-class")
+                    check(opened.getInputStream(opened.entries().nextElement()).bufferedReader().use { it.readText() } == "original-string")
+                }
+                check(readResource(first.entries[0]) == "original-string")
+                check(readResource(first.entries[1]) == "other-module")
+                check(File(first.entries[2], "Main.class").readText() == "original-class")
+                DevelopmentRuntimeSnapshot(classpath).use { second ->
+                    check(second.directory != first.directory)
+                    check(readResource(second.entries[0]) == "rebuilt-string-with-a-different-length")
+                    check(readResource(first.entries[0]) == "original-string")
+                }
+                check(first.directory.isDirectory) { "Another snapshot must not remove this runtime" }
+            }
+            check(firstJar.isFile && secondJar.isFile && classFile.readText() == "rebuilt-class")
+            val missingJar = File(fixture, "missing.jar")
+            check(runCatching { DevelopmentRuntimeSnapshot(listOf(missingJar)).use {} }.isFailure)
+            val invalidJar = File(fixture, "invalid.jar").apply { writeText("not a zip archive") }
+            check(runCatching { DevelopmentRuntimeSnapshot(listOf(invalidJar)).use {} }.isFailure)
+            val invalidLocalHeader = File(fixture, "invalid-local-header.jar")
+            writeJar(invalidLocalHeader, "corrupted-local-entry")
+            RandomAccessFile(invalidLocalHeader, "rw").use { it.writeInt(0) }
+            ZipFile(invalidLocalHeader).use { check(it.size() == 1) }
+            check(runCatching { readResource(invalidLocalHeader) }.exceptionOrNull() is java.util.zip.ZipException)
+            check(runCatching { DevelopmentRuntimeSnapshot(listOf(invalidLocalHeader)).use {} }.isFailure) {
+                "Snapshot validation must read JAR entries, not only the central directory"
+            }
+            logger.lifecycle("Development runtime isolation verified (JAR rewrite, directory rewrite, order, and independent launches).")
+        } finally {
+            fixture.deleteRecursively()
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn("verifyDevelopmentRuntimeIsolation")
 }
 
 // Suppress known ProGuard warnings from transitive dependency version mismatches.
