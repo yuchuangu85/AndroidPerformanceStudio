@@ -31,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -290,7 +289,7 @@ private fun TraceSummaryCard(
             modifier
                 .height(72.dp)
                 .testTag("trace-summary-${summary.category.name.lowercase()}"),
-        containerColor = if (summary.severity == null) colors.panel else accent.copy(alpha = 0.10f).compositeOver(colors.panel),
+        containerColor = colors.panel,
         borderColor = if (summary.severity == null) colors.border else accent.copy(alpha = 0.5f),
         contentPadding = 0.dp,
         contentSpacing = 0.dp,
@@ -395,12 +394,7 @@ private fun TraceSessionRow(
                 .fillMaxWidth()
                 .clickable { actions.onSelectSession(session.sessionId) }
                 .testTag("trace-session-${session.sessionId}"),
-        containerColor =
-            if (selected) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
+        containerColor = if (selected) LocalViewerColors.current.selectedRow else LocalViewerColors.current.panel,
         borderColor = borderColor,
         contentSpacing = 4.dp,
     ) {
@@ -547,7 +541,7 @@ private fun TraceViewerPanel(
                         Modifier
                             .fillMaxWidth()
                             .testTag("perfetto-source-of-truth"),
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                    containerColor = LocalViewerColors.current.panel,
                     borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
                     contentSpacing = 4.dp,
                 ) {
@@ -662,12 +656,7 @@ private fun TraceInsightCard(
             Modifier
                 .fillMaxWidth()
                 .testTag("trace-insight-${insight.queryId}"),
-        containerColor =
-            if (selected) {
-                accent.copy(alpha = 0.12f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
+        containerColor = if (selected) LocalViewerColors.current.selectedRow else LocalViewerColors.current.panel,
         borderColor = if (selected) accent else MaterialTheme.colorScheme.outlineVariant,
         contentSpacing = 5.dp,
     ) {
@@ -804,7 +793,7 @@ private fun PerfettoMark() {
             Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                .background(LocalViewerColors.current.panel)
                 .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center,
     ) {

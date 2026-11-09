@@ -216,7 +216,7 @@ class SegmentedSelectorTest {
             val selected = onNodeWithTag("segmented-selector-item-0").captureToImage().toPixelMap()
             val unselected = onNodeWithTag("segmented-selector-item-1").captureToImage().toPixelMap()
             val colors = viewerColors(darkTheme = true)
-            assertEquals(colors.accent, selected[selected.width / 2, 2])
+            assertEquals(colors.selectedRow, selected[selected.width / 2, 2])
             assertEquals(colors.panel, unselected[unselected.width / 2, 2])
             assertEquals(
                 ViewerDimensions.compactControlHeight.value.toInt(),

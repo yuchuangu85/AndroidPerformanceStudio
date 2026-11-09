@@ -337,7 +337,7 @@ private fun RunRow(
     language: UiLanguage,
 ) {
     val colors = LocalViewerColors.current
-    val background = if (selected) colors.accent.copy(alpha = 0.12f) else colors.transparent
+    val background = if (selected) colors.selectedRow else colors.transparent
     Row(
         modifier =
             Modifier

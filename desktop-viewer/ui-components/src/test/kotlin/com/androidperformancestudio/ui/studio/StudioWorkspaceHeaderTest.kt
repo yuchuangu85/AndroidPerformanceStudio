@@ -24,7 +24,6 @@ import com.androidperformancestudio.ui.ViewerTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -72,7 +71,7 @@ class StudioWorkspaceHeaderTest {
         assertLargeFontHeader("应用性能分析与证据工作区", "查看真实采集数据和设备状态，核对每条分析证据。")
 
     @Test
-    fun `header graphic is rendered inside a scroll compatible surface`() =
+    fun `header uses a uniform background without accent decoration`() =
         runDesktopComposeUiTest(width = 800, height = 300) {
             setContent {
                 ViewerTheme(darkTheme = true) {
@@ -81,7 +80,7 @@ class StudioWorkspaceHeaderTest {
             }
 
             val pixels = onNodeWithTag("header").captureToImage().toPixelMap()
-            assertNotEquals(pixels[pixels.width - 10, 10], pixels[pixels.width - 10, pixels.height - 10])
+            assertEquals(pixels[pixels.width - 10, 10], pixels[pixels.width - 10, pixels.height - 10])
         }
 
     private fun assertLargeFontHeader(

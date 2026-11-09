@@ -28,7 +28,6 @@ class DesktopStartupWorkspaceStyleTest {
         val source = Files.readString(sourceRoot.resolve("AppHomePage.kt"))
         assertFalse(source.contains("StudioWorkspaceHeader("))
         assertTrue(source.contains("if (maxWidth.value >= HOME_TWO_COLUMN_MIN_WIDTH_DP)"))
-        assertTrue(source.contains(".padding(StudioTokens.workspacePadding)"))
         assertTrue(source.contains("color = colors.workspace"))
         assertFalse(source.contains("HomeHero("))
         assertFalse(source.contains("Res.string.home_hero_subtitle"))
@@ -55,12 +54,13 @@ class DesktopStartupWorkspaceStyleTest {
         assertTrue(home.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
         assertTrue(settings.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
         assertTrue(settings.contains("contentPadding = StudioTokens.workspacePadding"))
-        assertTrue(source.contains(".padding(StudioTokens.workspacePadding)"))
+        assertTrue(source.contains(".padding(start = scrollbarThickness + StudioTokens.workspacePadding, end = StudioTokens.workspacePadding)"))
         assertTrue(source.contains("Arrangement.spacedBy(StudioTokens.cardGap)"))
         assertTrue(source.contains("contentPadding = StudioTokens.compactContentPadding"))
         val workspacePane =
             source.substringAfter("private fun WorkspaceListPane(").substringBefore("private fun SourceFileListPane(")
         assertTrue(workspacePane.contains(".padding(end = scrollbarThickness, bottom = scrollbarThickness)"))
+        assertTrue(workspacePane.contains(".padding(start = scrollbarThickness + StudioTokens.workspacePadding, end = StudioTokens.workspacePadding)"))
         assertTrue(workspacePane.contains("(maxWidth - scrollbarThickness).value"))
         assertFalse(workspacePane.contains(".padding(12.dp)"))
     }

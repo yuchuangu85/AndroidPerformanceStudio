@@ -40,6 +40,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.snap
 import com.androidperformancestudio.memory.presentation.generated.resources.snapshots
 import com.androidperformancestudio.memory.presentation.generated.resources.unavailable
 import com.androidperformancestudio.memory.presentation.generated.resources.unknown_snapshot
+import com.androidperformancestudio.ui.LocalViewerColors
 import com.androidperformancestudio.ui.UiLanguage
 import com.androidperformancestudio.ui.ViewerTypography
 import com.androidperformancestudio.ui.localizedStringResource
@@ -93,7 +94,7 @@ private fun SnapshotTabCard(
     onCloseSnapshot: (String) -> Unit,
 ) {
     val shape = RoundedCornerShape(0.dp)
-    val containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+    val containerColor = if (selected) LocalViewerColors.current.selectedRow else LocalViewerColors.current.panel
     TooltipArea(tooltip = {
         androidx.compose.material3.Surface(shadowElevation = 4.dp) {
             Text(evidence.accessibilityLabel, Modifier.widthIn(max = 500.dp).padding(10.dp))

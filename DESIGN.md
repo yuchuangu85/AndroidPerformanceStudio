@@ -206,6 +206,13 @@
 - [ ] 选中节点被隐藏时，Canvas 是否完全不显示选中边框，还是用低透明虚线提示？建议首版不显示，后续根据用户反馈增加“显示隐藏层级边框”选项。
 - [ ] 隐藏状态在手动刷新成功后是完全清空，还是保留仍存在的 nodeId？建议首版刷新/切换窗口清空，避免误判新快照。
 
+## Uniform Desktop Backgrounds (2026-11-09)
+
+- Shared desktop base surfaces use one neutral color per appearance mode: light `#FAFAFB`, dark `#29292B`. Window chrome, workspace, panels, section headers, fields, property rows and preview surrounds use the same palette-owned value.
+- The configurable theme accent must not tint base surfaces, including Material tonal elevation. Keep accent on text, icons, borders and data marks. Optional workspace headers have no accent gradient or decorative background graphic.
+- Selection and search state fills remain visible and independent of the configured accent. Selected text contrasts with the fixed state fill, not with the accent. Risk/error feedback, syntax colors, data visualizations, third-party embedded content and the separate AI chat palette retain their semantic contracts.
+- Validation: light/dark with bright and dark accent choices; shared palette and Material elevation tests; rendered surface pixels and selected text contrast; affected desktop/profiler contracts and integration compilation.
+
 ## Desktop Form Inputs (2026-11-02)
 
 - Ordinary single-line app-owned form fields use shared `ViewerTextField` and `ViewerDimensions.textFieldHeight` (32dp), replacing the 56dp Material default. Use 8dp horizontal and 4dp vertical input padding, shared 13sp body text and the existing theme accent/border colors.
@@ -482,7 +489,7 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 ## AI 平台全局窗口增量（2026-10-31）
 
 - 产品依据：`docs/ai/conversation-window.md`、`docs/ai/dsh-chat-parity.md`、`agent-platform-todo.md`、ADR-0037；本轮以用户“AI 界面只保留对话，管理移入 AI 设置，参照 DSH”覆盖旧版管理标签页及常驻右侧证据栏布局。
-- 全局独立 Compose 窗口从 app menu、Navigation Rail 和 Cmd/Ctrl+Shift+A 打开；新建时没有报告也可普通聊天，使用明确的 `CHAT/CONVERSATION` 空上下文及无 Skill/子 Agent 的 `aps.chat`，不伪造性能证据、不开放源码/脚本/Artifact 权限，仍保留预检和显式确认。历史报告分析缺失绑定时显示 unavailable，不降级为普通聊天或把另一页面的数据当成当前上下文。
+- 全局独立 Compose 窗口从 app menu、Navigation Rail 和 Cmd/Ctrl+Shift+A 打开；新建时没有报告也可普通聊天，使用明确的 `CHAT/CONVERSATION` 空上下文及无 Skill/子 Agent 的 `aps.chat`，不伪造性能证据、不开放源码/脚本/Artifact 权限。对话内发送视为该次请求的执行授权，预检成功后直接执行，不再二次确认。历史报告分析缺失绑定时显示 unavailable，不降级为普通聊天或把另一页面的数据当成当前上下文。
 - 布局检查器“问题”（FINDINGS）区的“AI 分析”（Run AI）在桌面宿主中直接打开统一会话预检，仅在该窗口确认后调用已保存的 Provider、模型和 Agent，并沿用报告格式及权限设置；不再叠加布局页的旧确认框。发起时暂停自动扫描，默认仅提交当前选中节点的有界脱敏布局证据，不发送截图、运行时文字或源码片段。结果按节点引用回写 Findings；快照、活动窗口或时间线变化后取消旧任务，禁止旧结果覆盖新布局。独立运行布局检查器时仍保留原有本地预检。
 - 大布局可在“仅性能数据”模式分析有界摘要：投影最多 200 个节点、子树深度 8、每节点 24 个子节点，JSON UTF-8 不超过 48 KiB；按字节预算减少规则和节点，保留选中节点及可用的父节点上下文。`coverage.complete=false` 明确标注覆盖范围、裁剪与限制，原布局指标和实际发送树的指标分别记录，不以缺失节点推断整棵树无问题。未验证覆盖标记的截断输入仍拒绝，部分摘要不允许自动解析或上传源码。
 - 布局 AI 默认采用最小性能白名单：显示尺寸/密度、节点引用、控件类型短名、边界、可见性、透明度、父子关系、文字长度、规则命中及覆盖范围。包名、采集时间、截图存在标记、资源名称、无障碍描述长度和完整类名不写入性能 payload；规则仅携带 ID、级别、节点 ID 及白名单数值参数，不带自由文本说明。完整类名、资源名和原始文字留在本地，源码解析仍需单独显式授权。
@@ -507,11 +514,11 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - 连接保存使用带回滚的“保存并应用”操作，统一设置发布失败时恢复旧连接；无法恢复时保持不可用，不以新接口搭配旧模型继续运行。请求预检记录非秘密连接版本，连接变化后旧授权失效，需要重新预检，不能把已确认 payload 静默发往新 endpoint。
 - AI 设置中 OpenAI/Codex 和 Claude 的模型列表统一复用紧凑 macOS 风格 `DropdownSelector`，保留主题边框、展开箭头和选中态。控件宽度不随模型名变化，长名称省略，菜单限高滚动；加载中或列表为空时禁用，成功查询但无可选模型时显示明确的空结果提示，不伪装成请求失败，也不阻止手动填写模型或显式保存。
 - OpenAI/Codex 目录按模型 ID 最后一段识别文本模型家族和非文本排除项；网关命名空间只参与路由，不造成整批模型被误过滤。选择、请求和保存均保留服务端返回的完整 ID，不去掉前缀或合并不同命名空间的模型。
-- 执行先预检实际 immutable payload，明确 source snippets、字节、evidence/candidate 数及 provider/model；用户确认后发起，支持取消/重试/历史恢复，恢复不重放。
+- 执行先预检实际 immutable payload，冻结 source snippets、字节、evidence/candidate 数及 provider/model；对话内主动发送、重试和已排队消息预检成功后直接批准该冻结请求并执行，不显示二次确认。外部页面创建的待确认分析仍由用户确认；打开窗口、重组和历史恢复不授权、不发起请求。底层 payload/hash、连接版本、权限及源码上传校验不变。
 - 会话提供新建、搜索、置顶、重命名、分支、归档/取消归档、复制 ID；持久化有界脱敏问题和会话元数据，回复沿用已校验结构化结果。新建、打开历史和元数据操作不发起模型请求；历史恢复不重放。连续追问只携带同 Analysis Session/context 的最近 4 个成功 turn，作为不可信对话背景，不作为性能事实或权限。
 - 单个会话菜单增加紧凑 32dp 的删除项，始终先显示不可恢复的二次确认；取消、关闭确认框不发起删除或停止操作。确认后删除会话记录、消息及其内部 Agent 子任务；若删除当前会话，停止其请求并切换到新会话，删除其他会话不影响当前会话、草稿与运行。用户显式创建的分支不随父会话隐式删除，存在分支依赖时返回明确错误并保留记录；共享 Artifact 内容不因会话删除而任意移除。
-- 输入支持 Enter 预检、Shift+Enter 换行、IME 提交保护、空输入上箭头取回问题、两次独立 Escape 停止；忙碌时问题进入本地会话队列，下一次仍需独立预检与确认。与 DSH 的 Steer/持久化 Inbox/互补发送快捷键差距按参照文档列出，不显示假能力。
-- 会话中的失败、不可用与中断消息显示带刷新图标的“重试”；点击某条消息只重试该条问题，不误取最后一条问题，不覆盖未发送草稿。预检失败可保留失败输入并在修正设置后重试；报告入口没有手写问题时也可重试原报告。每次读取最新已保存 Provider、模型、Agent、报告格式和语言，生成新 run 并重新确认；忙碌、证据未绑定或源码未授权时禁用，不重放旧授权。
+- 输入支持 Enter 发送、Shift+Enter 换行、IME 提交保护、空输入上箭头取回问题、两次独立 Escape 停止；忙碌时问题进入本地会话队列，成功后按顺序独立预检并执行一次，不重复确认，不重放旧授权。与 DSH 的 Steer/持久化 Inbox/互补发送快捷键差距按参照文档列出，不显示假能力。
+- 会话中的失败、不可用与中断消息显示带刷新图标的“重试”；点击某条消息只重试该条问题，不误取最后一条问题，不覆盖未发送草稿。预检失败可保留失败输入并在修正设置后重试；报告入口没有手写问题时也可重试原报告。每次读取最新已保存 Provider、模型、Agent、报告格式和语言，生成新 run 并直接执行；忙碌、证据未绑定或源码未授权时禁用，不重放旧授权。
 - 输入框底部右侧依次为模型选择入口、4dp 间距、发送/停止按钮；发送/停止始终是最右侧控件，距输入框右边保留 12dp 内边距，并在状态切换和模型名变化时保持相同位置及 28dp 尺寸。模型入口位于按钮左侧，长名称在剩余空间中省略，不挤压发送按钮；弹出模型列表带选中态、加载/空/错误状态和显式刷新，宽高有界且可滚动，上下文入口仍位于左侧。
 - 设置页成功加载并应用的模型目录按 Provider 和连接版本缓存，供对话菜单复用；缺失时读取当前已保存连接，显式刷新绕过缓存。未保存草稿或过期请求不得替换对话目录。模型切换不提交问题，运行或待确认时禁用；下一次发送、重试或排队预检使用最新已保存模型。
 - 每次从导航栏、菜单或协调器打开 AI 都产生新的窗口激活请求：已有窗口恢复最小化、移至前台并请求焦点，不重建 Runtime、不清空草稿或取消执行。仅将可见开关重复设为 true 不视为完成激活。

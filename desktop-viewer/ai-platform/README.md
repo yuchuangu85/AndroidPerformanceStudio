@@ -46,8 +46,11 @@ Shutdown cancels and joins owned work before closing history and releasing profi
 boots that runtime and hosts one global conversation window, reached from the navigation rail,
 application menu and keyboard action. The window binds the active page's immutable business context;
 missing or expired evidence means unavailable, not unrestricted chat. It provides explicit
-prepare/confirm/cancel/retry, evidence and source-candidate navigation, an Agent/Skill timeline,
+send/cancel/retry, evidence and source-candidate navigation, an Agent/Skill timeline,
 read-only history restoration and opt-in verified HTML artifacts.
+Sending, retrying and dispatching a locally queued question execute the frozen request after preflight
+without a second confirmation click. Opening the window or restoring history never starts a request;
+externally prepared profiler analyses retain their explicit confirmation step.
 
 Unified application AI settings contain Provider/Agent/Skill/Policy categories. Provider is the former
 Connection page with a Codex/Claude/Custom selector and one connection card. Local imports and manual
@@ -78,8 +81,10 @@ derived analysis, not new performance evidence or source locations. Package/run/
 identify producers. The transformation policy is approval-bound. Derived context exceeding the
 4096-character question boundary fails before the parent request; it is not silently truncated.
 
-The host prepares a frozen `AnalysisRequest` and displays payload size, evidence/candidate counts,
-provider/model, planned model/script counts and session before explicit approval. The private pending-run registry binds approval
+The host prepares a frozen `AnalysisRequest`; an explicit chat send authorizes only that request,
+using saved settings and the selected source opt-in. Externally prepared analyses display payload size,
+evidence/candidate counts, provider/model and planned calls before confirmation.
+The private pending-run registry binds approval
 to the context, plan/package hashes, permissions, provider/model and generation; an `ApprovalGrant`
 DTO alone grants nothing. Execution rechecks content/trust and live source-snippet authorization.
 Stale or cancelled output cannot replace the active run. Scripts additionally require an explicit

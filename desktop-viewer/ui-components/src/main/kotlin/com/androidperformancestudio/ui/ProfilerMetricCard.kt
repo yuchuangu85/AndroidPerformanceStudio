@@ -8,7 +8,6 @@ import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.androidperformancestudio.ui.studio.StudioCard
@@ -27,7 +26,7 @@ public fun ProfilerMetricCard(
     val metricTone = tone ?: colors.accent
     StudioCard(
         modifier = modifier,
-        containerColor = metricTone.copy(alpha = 0.10f).compositeOver(containerColor),
+        containerColor = containerColor,
         borderColor = metricTone.copy(alpha = 0.5f),
         contentColor = contentColorFor(containerColor),
         contentSpacing = 4.dp,

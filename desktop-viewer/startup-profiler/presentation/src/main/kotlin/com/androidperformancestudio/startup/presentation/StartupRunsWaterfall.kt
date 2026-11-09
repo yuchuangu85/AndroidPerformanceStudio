@@ -178,7 +178,7 @@ internal fun StartupRunsWaterfall(
                             .height(25.dp)
                             .testTag("startup-waterfall-${run.id}")
                             .semantics { contentDescription = "$source · $rowDescription" }
-                            .background(if (isSelected) colors.accent.copy(alpha = 0.09f) else colors.transparent)
+                            .background(if (isSelected) colors.selectedRow else colors.transparent)
                             .selectable(isSelected, role = Role.RadioButton, onClick = { actions.onSelectRun(run.id) }),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),

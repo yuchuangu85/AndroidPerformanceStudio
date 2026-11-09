@@ -806,7 +806,7 @@ private fun QuickActionCard(
                     Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(colors.accent.copy(alpha = if (colors.isDark) 0.24f else 0.12f)),
+                        .background(colors.panel),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -871,7 +871,7 @@ private fun FeatureEntryCard(
                     Modifier
                         .size(34.dp)
                         .clip(RoundedCornerShape(9.dp))
-                        .background(colors.accent.copy(alpha = if (colors.isDark) 0.22f else 0.12f)),
+                        .background(colors.panel),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(

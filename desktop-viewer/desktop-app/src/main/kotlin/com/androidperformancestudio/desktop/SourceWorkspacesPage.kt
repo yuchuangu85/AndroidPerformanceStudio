@@ -349,7 +349,7 @@ private fun WorkspaceListPane(
                         Modifier
                             .width(contentWidthDp.dp)
                             .fillMaxHeight()
-                            .padding(StudioTokens.workspacePadding),
+                            .padding(start = scrollbarThickness + StudioTokens.workspacePadding, end = StudioTokens.workspacePadding),
                     verticalArrangement = Arrangement.spacedBy(StudioTokens.cardGap),
                 ) {
                     if (workspaces.isEmpty()) {
@@ -666,10 +666,12 @@ private fun WorkspaceCard(
     onToggleAiUpload: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+    val colors = LocalViewerColors.current
+    val contentColor = colors.primaryText
     StudioCard(
         modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onSelect),
-        containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        containerColor = if (selected) colors.selectedRow else colors.panel,
+        borderColor = if (selected) colors.accent else colors.border,
         contentColor = contentColor,
         contentPadding = StudioTokens.compactContentPadding,
         contentSpacing = 4.dp,

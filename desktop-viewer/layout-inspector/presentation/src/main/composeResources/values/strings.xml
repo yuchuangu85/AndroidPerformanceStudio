@@ -292,7 +292,7 @@ Payload: %4$d bytes</string>
     <string name="detail_label_unstable_parameters">Unstable parameters</string>
     <string name="menu_import_screenshot">Screenshot…</string>
     <string name="menu_export_capture_archive">Capture Archive…</string>
-    <string name="compose_inspection_project_hint">This project may not use Compose. Only Compose projects need Compose Agent injection.</string>
+    <string name="compose_inspection_project_hint">Full Compose inspection requires a Compose app built as a debuggable APK. Non-debuggable apps can still use compatible inspection.</string>
     <string name="compose_inspection_show_details">Details</string>
     <string name="compose_inspection_hide_details">Hide details</string>
     <string name="compose_agent_title">Compose Agent</string>

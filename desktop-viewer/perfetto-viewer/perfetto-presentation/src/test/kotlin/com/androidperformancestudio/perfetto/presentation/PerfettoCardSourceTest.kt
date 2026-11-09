@@ -51,7 +51,8 @@ class PerfettoCardSourceTest {
         val viewer = functionSource(source, "TraceViewerPanel")
         assertTrue(viewer.contains("StudioCard("))
         assertTrue(viewer.contains(".testTag(\"perfetto-source-of-truth\")"))
-        assertTrue(viewer.contains("containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)"))
+        assertTrue(viewer.contains("containerColor = LocalViewerColors.current.panel"))
+        assertTrue(viewer.contains("borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)"))
     }
 
     @Test

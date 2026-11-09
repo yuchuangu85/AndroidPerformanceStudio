@@ -56,7 +56,7 @@ class ComposeInjectionManager(
         require(api >= 29) { "Compose inspection requires Android API 29 or newer" }
         val abi = checked(AdbCommandFactory.getProperty(serial, "ro.product.cpu.abi")).stdout.trim()
         val bundle = ComposeAgentBundle.load(bundleRoot, abi)
-        val appDataDir = checked(AdbCommandFactory.runAsPwd(serial, packageName)).stdout.trim()
+        val appDataDir = checkedRunAsPwd(serial, packageName)
         require(appDataDir.startsWith("/data/") && !appDataDir.split('/').contains("..")) {
             "Target app is not debuggable or returned an unsafe data directory"
         }
@@ -88,6 +88,21 @@ class ComposeInjectionManager(
             bundle = bundle,
             appDataDir = appDataDir,
         )
+    }
+
+    private fun checkedRunAsPwd(serial: String, packageName: String): String {
+        val arguments = AdbCommandFactory.runAsPwd(serial, packageName)
+        val result = processRunner.run(arguments)
+        if (result.exitCode == 0) return result.stdout.trim()
+
+        val detail = result.stderr.ifBlank { result.stdout }.trim()
+        if (detail.contains("package not debuggable", ignoreCase = true)) {
+            error(
+                "Target package $packageName is not debuggable. " +
+                    "Full Compose inspection requires a debuggable APK; use a debug build of the app.",
+            )
+        }
+        throw AdbCommandException(arguments, result)
     }
 
     private fun detectComposeVersion(serial: String, packageName: String): String? {

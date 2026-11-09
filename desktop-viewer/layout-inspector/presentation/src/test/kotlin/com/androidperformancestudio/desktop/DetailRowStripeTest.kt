@@ -23,19 +23,19 @@ class DetailRowStripeTest {
         val light = viewerColors(false)
         val dark = viewerColors(true)
 
-        assertEquals(Color.White, light.detailRowDeep)
-        assertEquals(Color.White, light.detailRowLight)
-        assertEquals(Color(0xFF1C1C1E), dark.detailRowDeep)
-        assertEquals(Color(0xFF2C2C2E), dark.detailRowLight)
+        assertEquals(Color(0xFFFAFAFB), light.detailRowDeep)
+        assertEquals(Color(0xFFFAFAFB), light.detailRowLight)
+        assertEquals(Color(0xFF29292B), dark.detailRowDeep)
+        assertEquals(Color(0xFF29292B), dark.detailRowLight)
     }
 
     @Test
-    fun `section headers remain distinct from property rows`() {
+    fun `risk section headers remain distinct from unified property rows`() {
         listOf(viewerColors(false), viewerColors(true)).forEach { palette ->
-            listOf(palette.sectionBackground, palette.riskSectionBackground).forEach { header ->
-                assertNotEquals(header, palette.detailRowDeep)
-                assertNotEquals(header, palette.detailRowLight)
-            }
+            assertEquals(palette.detailRowDeep, palette.sectionBackground)
+            assertEquals(palette.detailRowLight, palette.sectionBackground)
+            assertNotEquals(palette.riskSectionBackground, palette.detailRowDeep)
+            assertNotEquals(palette.riskSectionBackground, palette.detailRowLight)
         }
     }
 }

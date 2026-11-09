@@ -30,9 +30,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.text.AnnotatedString
+import com.androidperformancestudio.ai.AiAnalysisGateway
 import com.androidperformancestudio.ai.AiHttpRequest
 import com.androidperformancestudio.ai.AiHttpResponse
 import com.androidperformancestudio.ai.AiHttpTransport
+import com.androidperformancestudio.ai.AnalysisResult
 import com.androidperformancestudio.ai.CredentialStore
 import com.androidperformancestudio.ai.ImportedAiConfiguration
 import com.androidperformancestudio.ai.ImportedCredentialKind
@@ -74,6 +76,7 @@ class AiSettingsGroupingTest {
     @Test
     fun `saved settings catalog is reused by chat and selecting its model updates the next request without navigation`() {
         val requests = CopyOnWriteArrayList<AiHttpRequest>()
+        val inferenceModels = CopyOnWriteArrayList<String>()
         withFixture(AiHttpTransport { request ->
             requests += request
             check(request.method == com.androidperformancestudio.ai.AiHttpMethod.GET)
@@ -90,8 +93,13 @@ class AiSettingsGroupingTest {
             try {
                 AiPlatformRuntime.open(
                     root.resolve("profile"),
-                    openAiGateway = { error("Selecting a chat model must not execute a provider") },
-                    openAiAvailable = { false },
+                    openAiGateway = { model ->
+                        AiAnalysisGateway { request ->
+                            inferenceModels += model
+                            AnalysisResult(request.sessionId, model, "Fixture answer", emptyList())
+                        }
+                    },
+                    openAiAvailable = { true },
                 ).use { platform ->
                     runDesktopComposeUiTest(width = 1000, height = 900) {
                         var chat by mutableStateOf(false)
@@ -140,11 +148,14 @@ class AiSettingsGroupingTest {
                         assertEquals(before.copy(model = "gateway/gpt-next"), fixture.settings.load())
                         assertEquals(0, navigations)
                         assertEquals(null, platform.service.state.value.status)
+                        assertTrue(inferenceModels.isEmpty(), "Model selection must not execute an inference")
                         onNodeWithTag("ai-send").performClick()
-                        waitUntil(timeoutMillis = 10_000) { platform.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                        waitUntil(timeoutMillis = 10_000) { platform.service.state.value.status == RunStatus.SUCCEEDED }
                         assertEquals("gateway/gpt-next", platform.service.state.value.prepared?.model)
                         assertEquals("codex", platform.service.state.value.prepared?.providerId)
-                        assertEquals(1, requests.size, "Preflight must not execute an inference")
+                        assertEquals(listOf("gateway/gpt-next"), inferenceModels.toList())
+                        assertEquals(1, requests.size, "Sending must not reload the applied model catalog")
+                        onNodeWithTag("ai-confirm").assertDoesNotExist()
                     }
                 }
             } finally {

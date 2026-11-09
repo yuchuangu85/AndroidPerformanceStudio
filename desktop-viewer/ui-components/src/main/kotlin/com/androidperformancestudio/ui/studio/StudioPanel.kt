@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -98,7 +97,7 @@ public fun StudioMetricCard(
             modifier.semantics {
                 contentDescription = "$label: $value"
             },
-        containerColor = metricTone.copy(alpha = 0.10f).compositeOver(colors.panel),
+        containerColor = colors.panel,
         borderColor = metricTone.copy(alpha = 0.5f),
         contentSpacing = 4.dp,
     ) {
