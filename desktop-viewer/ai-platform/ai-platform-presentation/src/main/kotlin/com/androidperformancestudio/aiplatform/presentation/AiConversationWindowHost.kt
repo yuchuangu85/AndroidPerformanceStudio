@@ -58,6 +58,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -356,6 +358,9 @@ internal fun ConversationWorkspace(
             if (submittedDraft != null && memory.draft == submittedDraft) memory.draft = TextFieldValue("")
             memory.drafts.remove(id)
             refresh++
+            // Send authorizes this frozen request; runtime approval still validates its scope.
+            currentCoroutineContext().ensureActive()
+            runtime.service.approveAndRun(checkNotNull(acquired).approval)
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { acquired?.let { runtime.service.cancel(it.approval.runId) } }
             throw cancelled
@@ -501,7 +506,7 @@ internal fun ConversationWorkspace(
             loadedConversationId = id
         }
     }
-    LaunchedEffect(state.status, state.lastTurnRunId) {
+    LaunchedEffect(preparing, state.status, state.lastTurnRunId) {
         val next = memory.queued.firstOrNull { it.conversationId == memory.conversationId }
         if (!preparing &&
             !transitioning &&
@@ -540,7 +545,7 @@ internal fun ConversationWorkspace(
                 busy,
                 state.status,
                 message ?: state.errorCode,
-                state.prepared.takeIf { state.status == RunStatus.AWAITING_APPROVAL },
+                state.prepared.takeIf { state.status == RunStatus.AWAITING_APPROVAL && !preparing },
                 state.timeline,
                 includeSource,
                 !busy && bound?.request?.sourceCandidates?.isNotEmpty() == true,

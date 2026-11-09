@@ -59,6 +59,238 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class AiConversationWorkspaceTest {
     @Test
+    fun `first send and followup each run once without showing a second confirmation`() {
+        val entered = List(2) { CompletableDeferred<Unit>() }
+        val release = List(2) { CompletableDeferred<Unit>() }
+        val attempts = AtomicInteger()
+        WorkspaceFixture(beforeResult = {
+            val index = attempts.getAndIncrement()
+            entered[index].complete(Unit)
+            release[index].await()
+        }).use { fixture ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("direct-send"),
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                assertEquals(0, fixture.calls.get(), "Opening the workspace must not send a request")
+                val runIds = mutableListOf<String>()
+                for ((index, question) in listOf("First question", "Followup question").withIndex()) {
+                    onNodeWithTag("ai-question").performTextReplacement(question)
+                    onNodeWithTag("ai-send").assertIsEnabled().performClick()
+                    waitUntil(timeoutMillis = 10_000) { entered[index].isCompleted }
+                    assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
+                    onNodeWithTag("ai-confirm").assertDoesNotExist()
+                    onNodeWithTag("ai-approval-row").assertDoesNotExist()
+                    val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+                    assertTrue(prepared.approval.runId !in runIds)
+                    assertEquals(question, prepared.analysisPreview?.userQuestion)
+                    assertEquals(runIds, prepared.analysisPreview?.conversationContext?.map { it.runId })
+                    runIds += prepared.approval.runId
+                    assertEquals(index + 1, fixture.calls.get())
+                    release[index].complete(Unit)
+                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                    waitForIdle()
+                    onNodeWithTag("ai-chat-history")
+                        .performScrollToNode(hasTestTag("ai-summary-${prepared.approval.runId}"))
+                    onNodeWithTag("ai-summary-${prepared.approval.runId}").assertExists()
+                    onNodeWithTag("ai-confirm").assertDoesNotExist()
+                    onNodeWithTag("ai-approval-row").assertDoesNotExist()
+                    assertEquals(index + 1, fixture.calls.get(), "Each explicit send must execute exactly once")
+                }
+                assertEquals(listOf("First question", "Followup question"), fixture.requests.map { it.userQuestion })
+            }
+        }
+    }
+
+    @Test
+    fun `queued requests drain once without confirmation even when providers complete immediately`() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        WorkspaceFixture(beforeResult = {
+            entered.complete(Unit)
+            release.await()
+        }).use { fixture ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            context("fast-queue"),
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                onNodeWithTag("ai-question").performTextReplacement("First question")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                onNodeWithTag("ai-approval-row").assertDoesNotExist()
+                for ((index, question) in listOf("Queued question one", "Queued question two").withIndex()) {
+                    onNodeWithTag("ai-question").performTextReplacement(question)
+                    onNodeWithTag("ai-send").assertIsEnabled().performClick()
+                    onNodeWithTag("ai-queued-$index").assertTextContains(question)
+                }
+                assertEquals(1, fixture.calls.get())
+                onNodeWithTag("ai-question").performTextReplacement("Keep this unsent draft")
+                release.complete(Unit)
+                waitUntil(timeoutMillis = 10_000) {
+                    fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED &&
+                        fixture.runtime.service.state.value.prepared
+                            ?.analysisPreview
+                            ?.userQuestion == "Queued question two"
+                }
+                waitForIdle()
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                onNodeWithTag("ai-approval-row").assertDoesNotExist()
+                onNodeWithTag("ai-queued-0").assertDoesNotExist()
+                onNodeWithTag("ai-queued-1").assertDoesNotExist()
+                onNodeWithTag("ai-question").assertTextContains("Keep this unsent draft")
+                assertEquals(3, fixture.calls.get(), "Each queued request must execute exactly once")
+                assertEquals(
+                    listOf("First question", "Queued question one", "Queued question two"),
+                    fixture.requests.map { it.userQuestion },
+                )
+                val conversationId = checkNotNull(fixture.runtime.service.state.value.conversationId)
+                val turns = runBlocking { fixture.runtime.service.transcript(conversationId) }
+                assertEquals(3, turns.size)
+                assertEquals(3, turns.map { it.runId }.distinct().size)
+                assertTrue(turns.all { it.status == RunStatus.SUCCEEDED })
+            }
+        }
+    }
+
+    @Test
+    fun `direct send does not include available source candidates without explicit opt in`() =
+        WorkspaceFixture(authorizeSource = true).use { fixture ->
+            val evidence = context("source-opt-in")
+            val canonical =
+                evidence.copy(
+                    request =
+                        evidence.request.copy(
+                            sourceCandidates = listOf(AiSourceCandidate("candidate", "Main.kt", null, "EXACT", emptyList(), "source-body")),
+                        ),
+                )
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        AiConversationWorkspace(
+                            fixture.runtime,
+                            canonical,
+                            UiLanguage.ENGLISH,
+                            "fake-model",
+                            settingsStoreOverride = fixture.settings,
+                        )
+                    }
+                }
+                assertEquals(0, fixture.calls.get())
+                onNodeWithTag("ai-question").performTextReplacement("Analyze evidence without source")
+                onNodeWithTag("ai-send").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                onNodeWithTag("ai-approval-row").assertDoesNotExist()
+                val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
+                assertEquals(emptyList(), prepared.analysisPreview?.sourceCandidates)
+                assertTrue(Permission.READ_SOURCE_CANDIDATES !in prepared.approval.permissions)
+                assertEquals(emptyList(), fixture.requests.single().sourceCandidates)
+                assertEquals(canonical.request.evidence, fixture.requests.single().evidence)
+                assertEquals(1, fixture.calls.get())
+            }
+        }
+
+    @Test
+    fun `opening and reopening an external prepared run keeps its frozen snapshot and requires manual confirmation`() =
+        WorkspaceFixture().use { fixture ->
+            val canonical = context("external-reopen")
+            val prepared =
+                runBlocking {
+                    fixture.runtime.service.prepare(
+                        "external-reopen",
+                        canonical.request.copy(outputLanguage = ReportLanguage.SIMPLIFIED_CHINESE),
+                        "aps.report",
+                        "openai",
+                        "external-frozen-model",
+                        permissions + Permission.WRITE_ARTIFACT,
+                        reportFormat = ArtifactFormat.MARKDOWN,
+                    )
+                }
+            val memory = ChatWindowMemory(canonical)
+            var visible by mutableStateOf(true)
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                setContent {
+                    ViewerTheme(false) {
+                        if (visible) {
+                            ConversationWorkspace(
+                                fixture.runtime,
+                                canonical,
+                                UiLanguage.ENGLISH,
+                                "fake-model",
+                                {},
+                                {},
+                                fixture.settings,
+                                memory,
+                            )
+                        }
+                    }
+                }
+                waitForIdle()
+                assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
+                assertEquals(0, fixture.calls.get(), "Opening an external prepared run must not approve it")
+                runOnIdle {
+                    fixture.newSettingsStore().save(
+                        fixture.settings.load().copy(
+                            providerId = "codex",
+                            model = "changed-while-awaiting",
+                            agentId = "aps.main",
+                            reportFormat = ArtifactFormat.HTML,
+                            reportLanguage = ReportLanguage.ENGLISH,
+                        ),
+                    )
+                    visible = false
+                }
+                waitForIdle()
+                runOnIdle { visible = true }
+                waitForIdle()
+                assertSame(prepared, fixture.runtime.service.state.value.prepared)
+                assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
+                assertEquals(0, fixture.calls.get(), "Reopening must leave external approval pending")
+                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
+                onNodeWithTag("ai-approval-row").assertExists()
+                onNodeWithText("openai / external-frozen-model", substring = true).assertExists()
+                onNodeWithTag("ai-planned-invocations").assertTextContains("Model requests: 1", substring = true)
+                onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
+                onNodeWithTag("ai-report-language").assertTextContains("Simplified Chinese", substring = true)
+                onNodeWithTag("ai-confirm").performClick()
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                assertEquals(listOf("external-frozen-model"), fixture.models.toList())
+                assertEquals(ReportLanguage.SIMPLIFIED_CHINESE, fixture.requests.single().outputLanguage)
+                val artifact = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
+                assertEquals(
+                    ArtifactFormat.MARKDOWN,
+                    fixture.runtime.artifacts
+                        .metadata(artifact)
+                        .format,
+                )
+                runBlocking { fixture.runtime.service.restore(prepared.conversationId) }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.restored }
+                waitForIdle()
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                onNodeWithTag("ai-approval-row").assertDoesNotExist()
+                assertEquals(1, fixture.calls.get(), "Restoring must not repeat the confirmed external request")
+            }
+        }
+
+    @Test
     fun `external page analysis keeps its terminal result and conversation after the initial context changes`() {
         for (fail in listOf(false, true)) {
             WorkspaceFixture(beforeResult = { if (fail) error("fixture failure") }).use { fixture ->
@@ -94,6 +326,8 @@ class AiConversationWorkspaceTest {
                     runOnIdle { active = canonical }
                     waitForIdle()
                     onNodeWithTag("ai-bound-context").assertTextContains("Report page-entry")
+                    assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
+                    assertEquals(0, fixture.calls.get())
                     onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
                     onNodeWithTag("ai-confirm").performClick()
                     val expected = if (fail) RunStatus.PERMANENT_FAILURE else RunStatus.SUCCEEDED
@@ -129,11 +363,8 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Delete only this conversation")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
                 onNodeWithTag("ai-session-menu-$id").performClick()
                 onNodeWithTag("ai-session-delete").performClick()
                 assertTrue(
@@ -189,11 +420,8 @@ class AiConversationWorkspaceTest {
                 for (question in listOf("Conversation A", "Conversation B")) {
                     onNodeWithTag("ai-question").performTextReplacement(question)
                     onNodeWithTag("ai-send").performClick()
-                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                    ids += checkNotNull(fixture.runtime.service.state.value.conversationId)
-                    onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                    onNodeWithTag("ai-confirm").performClick()
                     waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                    ids += checkNotNull(fixture.runtime.service.state.value.conversationId)
                     if (ids.size == 1) {
                         onNodeWithTag("ai-new-chat").performClick()
                         waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
@@ -215,7 +443,7 @@ class AiConversationWorkspaceTest {
         }
 
     @Test
-    fun `report analysis without a typed question can retry after a provider failure`() =
+    fun `report analysis without a typed question retries once without confirmation after a provider failure`() =
         WorkspaceFixture(beforeResult = { error("fixture provider failure") }).use { fixture ->
             val canonical = context("report-only-retry")
             val original =
@@ -240,19 +468,33 @@ class AiConversationWorkspaceTest {
                 val tag = "ai-retry-${original.approval.runId}"
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag(tag))
                 onNodeWithTag(tag).performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) {
+                    val current = fixture.runtime.service.state.value
+                    current.status == RunStatus.PERMANENT_FAILURE &&
+                        current.prepared?.let { it.approval.runId != original.approval.runId } == true
+                }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val retry = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals(null, retry.analysisPreview?.userQuestion)
                 assertEquals(canonical.request.sessionId, retry.analysisPreview?.sessionId)
                 assertEquals(original.conversationId, retry.conversationId)
                 assertTrue(original.approval.runId != retry.approval.runId)
-                assertEquals(1, fixture.calls.get())
+                assertEquals(2, fixture.calls.get())
             }
         }
 
     @Test
-    fun `retrying an older failed turn uses its own question and latest settings with fresh approval`() =
-        WorkspaceFixture(beforeResult = { error("fixture provider failure") }).use { fixture ->
+    fun `retrying an older failed turn runs once without confirmation using its own question and latest settings`() {
+        val attempts = AtomicInteger()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        WorkspaceFixture(beforeResult = {
+            if (attempts.incrementAndGet() > 2) {
+                entered.complete(Unit)
+                release.await()
+            }
+            error("fixture provider failure")
+        }).use { fixture ->
             runDesktopComposeUiTest(width = 1280, height = 720) {
                 setContent {
                     ViewerTheme(false) {
@@ -269,11 +511,13 @@ class AiConversationWorkspaceTest {
                 for (question in listOf("First failed question", "Second failed question")) {
                     onNodeWithTag("ai-question").performTextReplacement(question)
                     onNodeWithTag("ai-send").performClick()
-                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                    waitUntil(timeoutMillis = 10_000) {
+                        fixture.runtime.service.state.value.status == RunStatus.PERMANENT_FAILURE &&
+                            fixture.runtime.service.state.value.prepared
+                                ?.analysisPreview
+                                ?.userQuestion == question
+                    }
                     failedRuns += checkNotNull(fixture.runtime.service.state.value.prepared).approval.runId
-                    onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                    onNodeWithTag("ai-confirm").performClick()
-                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.PERMANENT_FAILURE }
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Keep this unsent draft")
                 runOnIdle {
@@ -282,21 +526,28 @@ class AiConversationWorkspaceTest {
                 val retryTag = "ai-retry-${failedRuns.first()}"
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag(retryTag))
                 onNodeWithTag(retryTag).performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val retried = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("First failed question", retried.analysisPreview?.userQuestion)
                 assertEquals("retry-model", retried.model)
                 assertEquals(ReportLanguage.ENGLISH, retried.analysisPreview?.outputLanguage)
                 assertTrue(retried.approval.runId !in failedRuns)
-                assertEquals(2, fixture.calls.get())
+                assertEquals(3, fixture.calls.get())
                 onNodeWithTag("ai-question").assertTextContains("Keep this unsent draft")
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag(retryTag))
                 onNodeWithTag(retryTag).assertIsNotEnabled()
+                release.complete(Unit)
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.PERMANENT_FAILURE }
+                waitForIdle()
+                assertEquals(3, fixture.calls.get(), "Retry must not execute twice")
             }
         }
+    }
 
     @Test
-    fun `preflight failure can retry the original question after correcting settings without a provider call`() =
+    fun `preflight failure makes no provider call and corrected retry runs the original question without confirmation`() =
         WorkspaceFixture().use { fixture ->
             fixture.settings.update { it.copy(agentId = "aps.missing") }
             runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -316,15 +567,17 @@ class AiConversationWorkspaceTest {
                 waitUntil(timeoutMillis = 10_000) {
                     onAllNodesWithTag("ai-chat-error").fetchSemanticsNodes().isNotEmpty()
                 }
+                assertEquals(0, fixture.calls.get())
                 runOnIdle { fixture.settings.update { it.copy(agentId = "aps.report", model = "corrected-model") } }
                 onNodeWithTag("ai-question").performTextReplacement("A different unsent draft")
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-retry"))
                 onNodeWithTag("ai-retry").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val retried = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("Retry this original question", retried.analysisPreview?.userQuestion)
                 assertEquals("corrected-model", retried.model)
-                assertEquals(0, fixture.calls.get())
+                assertEquals(1, fixture.calls.get())
                 onNodeWithTag("ai-question").assertTextContains("A different unsent draft")
             }
         }
@@ -373,13 +626,14 @@ class AiConversationWorkspaceTest {
                 assertEquals(0, settingsOpened)
                 onNodeWithTag("ai-question").performTextReplacement("Use the model selected in this chat")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 assertEquals(
                     "free/gpt-next-model",
                     fixture.runtime.service.state.value.prepared
                         ?.model,
                 )
-                assertEquals(0, fixture.calls.get())
+                assertEquals(listOf("free/gpt-next-model"), fixture.models.toList())
+                assertEquals(1, fixture.calls.get())
             }
         }
 
@@ -521,16 +775,14 @@ class AiConversationWorkspaceTest {
                 assertEquals(0, fixture.calls.get())
                 onNodeWithTag("ai-question").performTextReplacement("Explain the current frame")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("codex", prepared.providerId)
                 assertEquals("codex-idle", prepared.model)
                 assertTrue(prepared.plannedProviderCallCount >= 2, "Saved Main Agent must plan its report child")
                 assertEquals(context("idle").request.sessionId, prepared.analysisPreview?.sessionId)
-                assertEquals(0, fixture.calls.get())
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                assertEquals(prepared.plannedProviderCallCount, fixture.calls.get())
                 assertTrue(
                     fixture.runtime.service.state.value.timeline.any {
                         it.kind == ExecutionKind.RUN && it.phase == ExecutionPhase.STARTED && it.subjectId == "aps.main"
@@ -541,8 +793,13 @@ class AiConversationWorkspaceTest {
         }
 
     @Test
-    fun `saved report format and language apply to new runs and cannot replace a pending snapshot`() =
-        WorkspaceFixture().use { fixture ->
+    fun `saved report format and language apply to new runs and cannot replace a running snapshot`() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        WorkspaceFixture(beforeResult = {
+            entered.complete(Unit)
+            release.await()
+        }).use { fixture ->
             fixture.settings.update {
                 it.copy(
                     allowArtifacts = true,
@@ -564,13 +821,13 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Write the selected evidence report")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals(ArtifactFormat.MARKDOWN, prepared.reportFormat)
                 assertEquals(ReportLanguage.SIMPLIFIED_CHINESE, prepared.analysisPreview?.outputLanguage)
                 assertTrue(Permission.WRITE_ARTIFACT in prepared.approval.permissions)
-                onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
-                onNodeWithTag("ai-report-language").assertTextContains("Simplified Chinese", substring = true)
                 runOnIdle {
                     fixture.newSettingsStore().update {
                         it.copy(reportFormat = ArtifactFormat.HTML, reportLanguage = ReportLanguage.ENGLISH)
@@ -578,10 +835,10 @@ class AiConversationWorkspaceTest {
                 }
                 waitForIdle()
                 assertSame(prepared, fixture.runtime.service.state.value.prepared)
-                onNodeWithTag("ai-report-format").assertTextContains("Markdown (.md)", substring = true)
-                onNodeWithTag("ai-report-language").assertTextContains("Simplified Chinese", substring = true)
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
+                assertEquals(1, fixture.calls.get())
+                assertEquals(ReportLanguage.SIMPLIFIED_CHINESE, fixture.requests.single().outputLanguage)
+                release.complete(Unit)
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 val hash = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
                 assertEquals(
@@ -599,22 +856,35 @@ class AiConversationWorkspaceTest {
 
                 onNodeWithTag("ai-question").performTextReplacement("Write the next report")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) {
+                    val current = fixture.runtime.service.state.value
+                    current.status == RunStatus.SUCCEEDED &&
+                        current.prepared?.let { it.approval.runId != prepared.approval.runId } == true
+                }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 assertEquals(
                     ArtifactFormat.HTML,
                     fixture.runtime.service.state.value.prepared
                         ?.reportFormat,
                 )
-                onNodeWithTag("ai-report-format").assertTextContains("HTML (.html)", substring = true)
                 assertEquals(
                     ReportLanguage.ENGLISH,
                     fixture.runtime.service.state.value.prepared
                         ?.analysisPreview
                         ?.outputLanguage,
                 )
-                onNodeWithTag("ai-report-language").assertTextContains("English", substring = true)
+                val nextHash = checkNotNull(fixture.runtime.service.state.value.publishedArtifactHash)
+                assertEquals(
+                    ArtifactFormat.HTML,
+                    fixture.runtime.artifacts
+                        .metadata(nextHash)
+                        .format,
+                )
+                assertEquals(ReportLanguage.ENGLISH, fixture.requests.last().outputLanguage)
+                assertEquals(2, fixture.calls.get())
             }
         }
+    }
 
     @Test
     fun `idle send reads saved provider model and agent before settings observation synchronizes`() =
@@ -634,24 +904,25 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-question").performTextReplacement("Use the settings saved immediately before sending")
                 onNodeWithTag("ai-send").performSemanticsAction(SemanticsActions.OnClick) { send ->
                     fixture.newSettingsStore().save(
-                        fixture.settings.load().copy(providerId = "claude", model = "claude-at-send", agentId = "aps.main"),
+                        fixture.settings.load().copy(providerId = "codex", model = "codex-at-send", agentId = "aps.main"),
                     )
                     send()
                 }
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
-                assertEquals("claude", prepared.providerId)
-                assertEquals("claude-at-send", prepared.model)
+                assertEquals("codex", prepared.providerId)
+                assertEquals("codex-at-send", prepared.model)
                 assertTrue(prepared.plannedProviderCallCount >= 2, "Saved Main Agent must plan its report child")
                 assertEquals(permissions, prepared.approval.permissions)
                 assertEquals(context("action-boundary").request.sessionId, prepared.analysisPreview?.sessionId)
-                onNodeWithTag("ai-model").assertTextContains("claude-at-send", substring = true)
-                assertEquals(0, fixture.calls.get())
+                onNodeWithTag("ai-model").assertTextContains("codex-at-send", substring = true)
+                assertEquals(List(prepared.plannedProviderCallCount) { "codex-at-send" }, fixture.models.toList())
+                assertEquals(prepared.plannedProviderCallCount, fixture.calls.get())
             }
         }
 
     @Test
-    fun `awaiting and running keep frozen settings and next question uses latest settings`() {
+    fun `running keeps frozen settings and next question uses latest settings without confirmation`() {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         WorkspaceFixture(beforeResult = {
@@ -672,32 +943,26 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("First question")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("openai", prepared.providerId)
                 assertEquals("frozen-model", prepared.model)
                 assertEquals(1, prepared.plannedProviderCallCount)
                 runOnIdle {
                     fixture.newSettingsStore().save(
-                        fixture.settings.load().copy(providerId = "codex", model = "changed-awaiting", agentId = "aps.main"),
+                        fixture.settings.load().copy(providerId = "codex", model = "changed-first", agentId = "aps.main"),
                     )
                 }
                 waitForIdle()
                 assertSame(prepared, fixture.runtime.service.state.value.prepared)
-                assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
-                assertEquals(0, fixture.calls.get())
-                onNodeWithText("openai / frozen-model", substring = true).assertExists()
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) {
-                    entered.isCompleted ||
-                        fixture.runtime.service.state.value.status
-                            ?.terminal == true
-                }
-                assertTrue(entered.isCompleted, "Provider was not entered: ${fixture.runtime.service.state.value}")
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
+                assertEquals(1, fixture.calls.get())
+                onNodeWithTag("ai-model").assertTextContains("frozen-model", substring = true)
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 runOnIdle {
                     fixture.newSettingsStore().save(
-                        fixture.settings.load().copy(providerId = "claude", model = "changed-running", agentId = "aps.main"),
+                        fixture.settings.load().copy(providerId = "codex", model = "changed-running", agentId = "aps.main"),
                     )
                 }
                 waitForIdle()
@@ -714,14 +979,20 @@ class AiConversationWorkspaceTest {
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 onNodeWithTag("ai-question").performTextReplacement("Second question")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) {
+                    val current = fixture.runtime.service.state.value
+                    current.status == RunStatus.SUCCEEDED &&
+                        current.prepared?.let { it.approval.runId != prepared.approval.runId } == true
+                }
                 val next = checkNotNull(fixture.runtime.service.state.value.prepared)
-                assertEquals("claude", next.providerId)
+                assertEquals("codex", next.providerId)
                 assertEquals("changed-running", next.model)
                 assertTrue(next.plannedProviderCallCount >= 2, "Next question must use the saved Main Agent")
                 assertTrue(next.approval.runId != prepared.approval.runId)
                 assertEquals(1, next.analysisPreview!!.conversationContext.size)
-                assertEquals(1, fixture.calls.get())
+                assertEquals(1 + next.plannedProviderCallCount, fixture.calls.get())
+                assertEquals(listOf("frozen-model") + List(next.plannedProviderCallCount) { "changed-running" }, fixture.models.toList())
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
             }
         }
     }
@@ -743,10 +1014,6 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Explain this finding")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                waitForIdle()
-                onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-finding-evidence-evidence-known"))
                 onNodeWithTag("ai-finding-evidence-evidence-known").performClick()
@@ -787,10 +1054,13 @@ class AiConversationWorkspaceTest {
                 for (question in listOf("First question", "Second question")) {
                     onNodeWithTag("ai-question").performTextReplacement(question)
                     onNodeWithTag("ai-send").performClick()
-                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                    onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                    onNodeWithTag("ai-confirm").performClick()
-                    waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                    waitUntil(timeoutMillis = 10_000) {
+                        fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED &&
+                            fixture.runtime.service.state.value.prepared
+                                ?.analysisPreview
+                                ?.userQuestion == question
+                    }
+                    onNodeWithTag("ai-confirm").assertDoesNotExist()
                 }
                 val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
                 assertEquals(
@@ -809,18 +1079,29 @@ class AiConversationWorkspaceTest {
                 assertEquals(2, fixture.calls.get())
                 onNodeWithTag("ai-question").performTextReplacement("Continue the same report")
                 onNodeWithTag("ai-send").assertIsEnabled().performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) {
+                    fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED &&
+                        fixture.runtime.service.state.value.prepared
+                            ?.analysisPreview
+                            ?.userQuestion == "Continue the same report"
+                }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val followup = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals(id, followup.conversationId)
                 assertEquals(context("history").request.evidence, fixture.requests.last().evidence)
                 assertEquals(2, followup.analysisPreview?.conversationContext?.size)
-                assertEquals(2, fixture.calls.get())
+                assertEquals(3, fixture.calls.get())
             }
         }
 
     @Test
-    fun `missing historical evidence can start an ordinary chat without losing the draft`() =
-        WorkspaceFixture().use { fixture ->
+    fun `missing historical evidence can start an ordinary chat without losing the draft`() {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        WorkspaceFixture(beforeResult = {
+            entered.complete(Unit)
+            release.await()
+        }).use { fixture ->
             runDesktopComposeUiTest(width = 1280, height = 720) {
                 var active by mutableStateOf<BusinessContext?>(context("missing"))
                 setContent {
@@ -836,14 +1117,18 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("First report question")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
                 val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
-                onNodeWithTag("ai-cancel-preflight").performClick()
+                onNodeWithTag("ai-stop").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.CANCELLED }
+                assertEquals(1, fixture.calls.get())
+                release.complete(Unit)
                 runOnIdle { active = context("other") }
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
                 onNodeWithTag("ai-session-$id").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.restored }
+                assertEquals(1, fixture.calls.get(), "Restoring a cancelled run must not execute it")
                 onNodeWithTag("ai-question").performTextReplacement("An ordinary question")
                 onNodeWithTag("ai-send").assertIsNotEnabled()
                 onNodeWithTag("ai-start-ordinary-chat").performClick()
@@ -851,15 +1136,17 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-question").assertTextContains("An ordinary question")
                 onNodeWithTag("ai-bound-context").assertDoesNotExist()
                 onNodeWithTag("ai-send").assertIsEnabled().performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertTrue(prepared.conversationId != id)
                 assertEquals(emptyList(), prepared.analysisPreview?.evidence)
                 assertEquals(emptyList(), prepared.analysisPreview?.sourceCandidates)
                 assertEquals("An ordinary question", prepared.analysisPreview?.userQuestion)
-                assertEquals(0, fixture.calls.get())
+                assertEquals(2, fixture.calls.get())
             }
         }
+    }
 
     @Test
     fun `changing report hides previous answers without resending and keeps old history`() =
@@ -879,9 +1166,6 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Question A")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 val old = fixture.runtime.service.state.value.conversationId!!
                 runOnIdle { active = context("b") }
@@ -894,7 +1178,7 @@ class AiConversationWorkspaceTest {
         }
 
     @Test
-    fun `queued question uses settings saved after enqueue and still requires a new approval`() {
+    fun `queued question uses settings saved after enqueue and executes once without confirmation`() {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         WorkspaceFixture(beforeResult = {
@@ -915,16 +1199,9 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("First question")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { entered.isCompleted }
+                assertEquals(RunStatus.RUNNING, fixture.runtime.service.state.value.status)
                 val first = checkNotNull(fixture.runtime.service.state.value.prepared)
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) {
-                    entered.isCompleted ||
-                        fixture.runtime.service.state.value.status
-                            ?.terminal == true
-                }
-                assertTrue(entered.isCompleted, "Provider was not entered: ${fixture.runtime.service.state.value}")
                 runOnIdle {
                     fixture.newSettingsStore().save(
                         fixture.settings.load().copy(providerId = "claude", model = "saved-at-enqueue", agentId = "aps.source-evidence"),
@@ -943,11 +1220,11 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-question").performTextReplacement("A third unsent draft")
                 release.complete(Unit)
                 waitUntil(timeoutMillis = 10_000) {
-                    fixture.runtime.service.state.value.prepared
-                        ?.analysisPreview
-                        ?.userQuestion == "Queued question"
+                    fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED &&
+                        fixture.runtime.service.state.value.prepared
+                            ?.analysisPreview
+                            ?.userQuestion == "Queued question"
                 }
-                assertEquals(RunStatus.AWAITING_APPROVAL, fixture.runtime.service.state.value.status)
                 val queued = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("codex", queued.providerId)
                 assertEquals("saved-before-claim", queued.model)
@@ -958,12 +1235,10 @@ class AiConversationWorkspaceTest {
                 assertEquals(first.analysisPreview?.evidence, queued.analysisPreview?.evidence)
                 assertEquals(emptyList(), queued.analysisPreview?.sourceCandidates)
                 assertEquals(permissions, queued.approval.permissions)
-                assertEquals(1, fixture.calls.get())
+                assertEquals(1 + queued.plannedProviderCallCount, fixture.calls.get())
                 onNodeWithTag("ai-model").assertTextContains("saved-before-claim", substring = true)
                 onNodeWithTag("ai-question").assertTextContains("A third unsent draft")
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 waitForIdle()
                 assertEquals(1 + queued.plannedProviderCallCount, fixture.calls.get(), "Claimed queued draft must not execute twice")
                 assertEquals(
@@ -1019,9 +1294,6 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Question A")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 val oldId = fixture.runtime.service.state.value.conversationId!!
                 runOnIdle { visible = false }
@@ -1073,6 +1345,7 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-question").performTextReplacement("Do not send into the external approval")
                 onNodeWithTag("ai-stop").assertExists()
                 onNodeWithTag("ai-context-unavailable").assertExists()
+                assertEquals(0, fixture.calls.get())
                 onNodeWithTag("ai-cancel-preflight").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.CANCELLED }
                 assertEquals(0, fixture.calls.get())
@@ -1133,15 +1406,17 @@ class AiConversationWorkspaceTest {
                 waitForIdle()
                 onNodeWithTag("ai-question").assertTextContains("Keep this cancelled draft")
                 onNodeWithTag("ai-send").assertIsEnabled()
+                assertEquals(0, fixture.calls.get(), "Cancelled preparation must never reach the provider")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 assertEquals(
                     "Keep this cancelled draft",
                     fixture.runtime.service.state.value.prepared
                         ?.analysisPreview
                         ?.userQuestion,
                 )
-                assertEquals(0, fixture.calls.get())
+                assertEquals(1, fixture.calls.get())
             }
         }
 
@@ -1180,16 +1455,13 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-include-source").performClick()
                 onNodeWithTag("ai-question").performTextReplacement("Explain the source")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status != null }
-                assertEquals(
-                    RunStatus.AWAITING_APPROVAL,
-                    fixture.runtime.service.state.value.status,
-                    fixture.runtime.service.state.value.errorCode,
-                )
-                val callCount = checkNotNull(fixture.runtime.service.state.value.prepared).plannedProviderCallCount
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                val first = checkNotNull(fixture.runtime.service.state.value.prepared)
+                val callCount = first.plannedProviderCallCount
+                assertEquals(callCount, fixture.calls.get())
+                assertEquals(listOf("candidate"), first.analysisPreview?.sourceCandidates?.map { it.id })
+                assertTrue(Permission.READ_SOURCE_CANDIDATES in first.approval.permissions)
                 val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
                 onNodeWithTag("ai-question").performTextReplacement("Unsent source followup")
                 onNodeWithTag("ai-context-menu").performClick()
@@ -1216,13 +1488,21 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-context-unavailable").assertExists()
                 onNodeWithTag("ai-reauthorize-source").performClick()
                 onNodeWithTag("ai-send").assertIsEnabled()
+                assertEquals(callCount, fixture.calls.get(), "Reopening restoring and authorizing source must not execute a request")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) {
+                    val current = fixture.runtime.service.state.value
+                    current.status == RunStatus.SUCCEEDED &&
+                        !current.restored &&
+                        current.prepared?.let { it.approval.runId != first.approval.runId } == true
+                }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals(id, prepared.conversationId)
                 assertEquals("Follow up on this source", prepared.analysisPreview?.userQuestion)
                 assertEquals(listOf("candidate"), prepared.analysisPreview?.sourceCandidates?.map { it.id })
-                assertEquals(callCount, fixture.calls.get())
+                assertTrue(Permission.READ_SOURCE_CANDIDATES in prepared.approval.permissions)
+                assertEquals(callCount + prepared.plannedProviderCallCount, fixture.calls.get())
             }
         }
 
@@ -1248,7 +1528,8 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("An ordinary chat question")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val prepared = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("codex", prepared.providerId)
                 assertEquals("saved-chat-model", prepared.model)
@@ -1257,10 +1538,6 @@ class AiConversationWorkspaceTest {
                 assertEquals(permissions, prepared.approval.permissions)
                 assertEquals(emptyList(), prepared.analysisPreview?.evidence)
                 assertEquals(emptyList(), prepared.analysisPreview?.sourceCandidates)
-                assertEquals(0, fixture.calls.get())
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 assertTrue(
                     fixture.runtime.history.audit(prepared.conversationId).any {
                         it.kind == ExecutionKind.RUN && it.phase == ExecutionPhase.STARTED && it.subjectId == "aps.chat"
@@ -1272,7 +1549,7 @@ class AiConversationWorkspaceTest {
         }
 
     @Test
-    fun `chat without a report sends with approval and restores bounded followup history`() =
+    fun `chat without a report sends without confirmation and restores bounded followup history without implicit requests`() =
         WorkspaceFixture().use { fixture ->
             fixture.settings.save(fixture.settings.load().copy(agentId = "aps.main", allowScripts = true, allowArtifacts = true))
             runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -1289,26 +1566,20 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("A question")
                 onNodeWithTag("ai-send").assertIsEnabled().performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
                 val first = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals(1, first.plannedProviderCallCount)
                 assertEquals(0, first.plannedScriptCount)
                 assertEquals(permissions, first.approval.permissions)
                 assertEquals(emptyList(), first.analysisPreview?.evidence)
                 assertEquals(emptyList(), first.analysisPreview?.sourceCandidates)
-                assertEquals(0, fixture.calls.get())
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 assertEquals(1, fixture.calls.get())
                 val id = checkNotNull(fixture.runtime.service.state.value.conversationId)
                 onNodeWithTag("ai-new-chat").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == null }
                 onNodeWithTag("ai-question").performTextReplacement("Another chat")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 val otherId = checkNotNull(fixture.runtime.service.state.value.conversationId)
                 onNodeWithTag("ai-new-chat").performClick()
@@ -1325,12 +1596,13 @@ class AiConversationWorkspaceTest {
                 onNodeWithTag("ai-send").assertIsEnabled()
                 onNodeWithTag("ai-session-$id").performClick()
                 waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.conversationId == id }
+                assertEquals(2, fixture.calls.get(), "Restoring and switching conversations must not execute a request")
                 onNodeWithTag("ai-send").assertIsEnabled().performClick()
                 waitUntil(timeoutMillis = 10_000) {
-                    fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL &&
-                        fixture.runtime.service.state.value.prepared
-                            ?.approval
-                            ?.runId != first.approval.runId
+                    val current = fixture.runtime.service.state.value
+                    current.status == RunStatus.SUCCEEDED &&
+                        !current.restored &&
+                        current.prepared?.let { it.approval.runId != first.approval.runId } == true
                 }
                 val followup = checkNotNull(fixture.runtime.service.state.value.prepared)
                 assertEquals("A followup", followup.analysisPreview?.userQuestion)
@@ -1338,12 +1610,13 @@ class AiConversationWorkspaceTest {
                 assertEquals(listOf(first.approval.runId), followup.analysisPreview?.conversationContext?.map { it.runId })
                 assertEquals(emptyList(), followup.analysisPreview?.evidence)
                 assertEquals(emptyList(), followup.analysisPreview?.sourceCandidates)
-                assertEquals(2, fixture.calls.get())
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                assertEquals(3, fixture.calls.get())
             }
         }
 
     @Test
-    fun `preflight displays actual child model call count and respects declared permissions`() =
+    fun `send executes actual child model call count and respects declared permissions without confirmation`() =
         WorkspaceFixture().use { fixture ->
             fixture.settings.save(fixture.settings.load().copy(agentId = "aps.main", allowScripts = true))
             runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -1360,17 +1633,13 @@ class AiConversationWorkspaceTest {
                 }
                 onNodeWithTag("ai-question").performTextReplacement("Analyze the evidence")
                 onNodeWithTag("ai-send").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.AWAITING_APPROVAL }
+                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
                 val prepared = fixture.runtime.service.state.value.prepared!!
                 assertTrue(prepared.plannedProviderCallCount >= 2)
                 assertTrue(Permission.EXECUTE_SCRIPT !in prepared.approval.permissions)
-                onNodeWithTag(
-                    "ai-planned-invocations",
-                ).assertTextContains("Model requests: ${prepared.plannedProviderCallCount}", substring = true)
-                assertEquals(0, fixture.calls.get())
-                onNodeWithTag("ai-chat-history").performScrollToNode(hasTestTag("ai-confirm"))
-                onNodeWithTag("ai-confirm").performClick()
-                waitUntil(timeoutMillis = 10_000) { fixture.runtime.service.state.value.status == RunStatus.SUCCEEDED }
+                onNodeWithTag("ai-confirm").assertDoesNotExist()
+                onNodeWithTag("ai-planned-invocations").assertDoesNotExist()
+                assertEquals(0, prepared.plannedScriptCount)
                 assertEquals(prepared.plannedProviderCallCount, fixture.calls.get())
             }
         }
