@@ -43,7 +43,7 @@ import com.androidperformancestudio.ui.localizedStringResource
 import kotlin.math.roundToInt
 
 internal object SettingsDialogStyle {
-    const val SECTION_SEPARATOR_COUNT = 2
+    const val SECTION_SEPARATOR_COUNT = 3
     const val SEPARATOR_HEIGHT_DP = 1
     const val SEPARATOR_VERTICAL_PADDING_DP = 12
 }
@@ -132,6 +132,10 @@ internal fun SettingsDialog(
                     canvasBorderColors.selected,
                     CanvasBorderColors().selected,
                 ) { onCanvasBorderColorsChanged(canvasBorderColors.copy(selected = it)) }
+                SettingsMenuSeparator()
+                SettingsSectionTitle(localizedStringResource(Res.string.compose_reports_title, language))
+                Spacer(Modifier.height(8.dp))
+                ComposeCompilerReportGuide(language)
             }
         },
         confirmButton = {},

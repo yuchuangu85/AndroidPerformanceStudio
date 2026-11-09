@@ -280,6 +280,16 @@
     <string name="source_candidate">候选项 %1$d · %2$s</string>
     <string name="import_compose_compiler_reports">导入 Compose 报告</string>
     <string name="compose_compiler_report">Compose 编译器</string>
+    <string name="compose_reports_title">Compose 编译器报告</string>
+    <string name="compose_reports_purpose">编译器报告描述 Composable 是否可重启、可跳过，以及参数和类的稳定性。导入后，会为匹配的运行时节点补充编译器标记和可用的不稳定参数信息，辅助定位需要进一步分析的代码。</string>
+    <string name="compose_reports_configure">1. 配置</string>
+    <string name="compose_reports_configure_hint">适用于已启用 org.jetbrains.kotlin.plugin.compose 插件的 Kotlin 2.x 项目。在每个 Compose 模块的 build.gradle.kts 中添加以下顶层配置，放在 android {} 外。reportsDestination 生成可导入的报告；metricsDestination 可选，用于生成汇总统计。</string>
+    <string name="compose_reports_generate">2. 生成</string>
+    <string name="compose_reports_generate_hint">在目标项目根目录运行以下命令，将 app 和 Release 变体替换为目标 Composable 所在的模块与变体。此命令只编译，不打包 APK；:app:assembleRelease 也会生成报告。Windows 使用 gradlew.bat。若编译显示 UP-TO-DATE 但报告缺失，可追加 --rerun-tasks。</string>
+    <string name="compose_reports_output_hint">在 app/build/compose_compiler 及其变体或目标子目录中查找 *-composables.txt、*-composables.csv、*-classes.txt，文件名前缀取决于模块名。metricsDestination 还会生成 *-module.json 汇总统计，当前导入器不读取该文件。</string>
+    <string name="compose_reports_import">3. 导入</string>
+    <string name="compose_reports_import_hint">返回布局检查器，点击底部状态栏的“导入 Compose 报告”。选择直接包含报告文件的目录，而不是 APK 或单个文件；导入器只扫描所选目录，不递归扫描子目录。请使用与被检查应用相同源码版本、相同构建变体生成的报告。</string>
+    <string name="compose_reports_limitations">报告是可选的静态编译分析，不包含实际重组次数、耗时或卡顿证据。不稳定参数不一定阻止跳过重组，启用强跳过时尤其如此。节点按函数名及可用的源码文件名匹配，同名函数可能存在歧义。导入报告不会让不可调试应用获得完整 Compose 检查能力。</string>
     <string name="loaded">已加载</string>
     <string name="detail_section_compose_compiler">Compose 编译器稳定性</string>
     <string name="detail_label_restartable">可重启</string>
@@ -290,8 +300,10 @@
     <string name="compose_inspection_project_hint">完整 Compose 检查需要使用可调试 APK 构建的 Compose 应用。不可调试应用仍可使用兼容采集。</string>
     <string name="compose_inspection_show_details">详细信息</string>
     <string name="compose_inspection_hide_details">收起详情</string>
-    <string name="compose_agent_title">Compose Agent</string>
-    <string name="compose_agent_authorize">允许注入</string>
+    <string name="compose_agent_title">完整 Compose 检查</string>
+    <string name="compose_inspection_enable_title">启用完整 Compose 检查</string>
+    <string name="compose_inspection_toggle_hint">检查更完整的 Composable 层级、运行时参数和重组信息。需要可调试的 Compose 应用，可能增加 CPU 和内存开销。关闭后使用兼容采集。</string>
+    <string name="compose_agent_authorize">允许检查</string>
     <string name="compose_agent_yes">是</string>
     <string name="compose_agent_no">否</string>
     <string name="compose_agent_preflight">设备：%1$s
@@ -301,5 +313,5 @@ Compose：%6$s
 Inspector 来源：%7$s
 需要下载：%8$s · 需要重启：%9$s
 
-是否向此进程注入 Compose 检查器？它可能增加 CPU 和内存开销。关闭 Compose Agent 后使用兼容采集，不再注入 JVMTI Agent。</string>
+将在此目标进程中加载 Compose 检查组件，以检查 Composable 层级、运行时参数和重组信息。此操作可能增加 CPU 和内存开销。是否允许检查？关闭“完整 Compose 检查”后恢复兼容采集，不再向目标进程注入检查组件。</string>
 </resources>

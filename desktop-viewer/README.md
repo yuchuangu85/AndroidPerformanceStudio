@@ -31,6 +31,13 @@ Prerequisites:
 ./gradlew :desktop-app:run
 ```
 
+Development runs copy their classpath (including Compose resources from included builds) into a
+per-run temporary directory before starting the JVM. Later builds do not replace files used by
+that process; restart the app to use newly compiled code or strings. The snapshot is removed when
+the launch build finishes, including failed launches. External tools and app-resource directories
+are not part of this classpath snapshot. Verify this behavior with
+`./gradlew :desktop-app:verifyDevelopmentRuntimeIsolation`.
+
 The desktop application's maximum heap defaults to 4 GiB. On a larger machine, the
 `apsDesktopMaxHeap` property can raise the limit, for example
 `./gradlew :desktop-app:run -PapsDesktopMaxHeap=8g`. `org.gradle.jvmargs` controls

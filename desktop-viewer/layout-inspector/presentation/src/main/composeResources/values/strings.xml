@@ -280,6 +280,16 @@ Payload: %4$d bytes</string>
     <string name="source_candidate">Candidate %1$d · %2$s</string>
     <string name="import_compose_compiler_reports">Import Compose Reports</string>
     <string name="compose_compiler_report">Compose Compiler</string>
+    <string name="compose_reports_title">Compose compiler reports</string>
+    <string name="compose_reports_purpose">Compiler reports describe restartable and skippable composables, parameter stability, and class stability. Importing them supplements matching runtime nodes with compiler flags and available unstable-parameter details, helping identify code to investigate.</string>
+    <string name="compose_reports_configure">1. Configure</string>
+    <string name="compose_reports_configure_hint">For Kotlin 2.x projects with org.jetbrains.kotlin.plugin.compose already applied, add this top-level block to each Compose module in build.gradle.kts, outside android {}. reportsDestination enables the importable reports; metricsDestination optionally enables aggregate statistics.</string>
+    <string name="compose_reports_generate">2. Generate</string>
+    <string name="compose_reports_generate_hint">Run this command from the target project root. Replace app with the module and release variant containing the target composables. This compiles without packaging an APK; :app:assembleRelease also generates reports. On Windows, use gradlew.bat. If compilation is UP-TO-DATE but reports are missing, append --rerun-tasks.</string>
+    <string name="compose_reports_output_hint">Look in app/build/compose_compiler and any variant or target subdirectories for *-composables.txt, *-composables.csv, and *-classes.txt. Names use the module prefix. metricsDestination also produces *-module.json statistics, which this importer does not read.</string>
+    <string name="compose_reports_import">3. Import</string>
+    <string name="compose_reports_import_hint">Return to Layout Inspector and click Import Compose Reports in the bottom status bar. Select the directory directly containing the report files, not the APK or individual files. Import scans only that directory, not its subdirectories. Use reports from the same source revision and build variant as the inspected app.</string>
+    <string name="compose_reports_limitations">Reports are optional static compiler diagnostics, not measured recomposition counts, timings, or jank evidence. An unstable parameter does not necessarily prevent skipping, especially with strong skipping. Node matching uses function names and source filenames when available; same-named functions can be ambiguous. Importing a report does not enable full Compose inspection for a non-debuggable app.</string>
     <string name="loaded">Loaded</string>
     <string name="detail_section_compose_compiler">Compose Compiler Stability</string>
     <string name="detail_label_restartable">Restartable</string>
@@ -290,8 +300,10 @@ Payload: %4$d bytes</string>
     <string name="compose_inspection_project_hint">Full Compose inspection requires a Compose app built as a debuggable APK. Non-debuggable apps can still use compatible inspection.</string>
     <string name="compose_inspection_show_details">Details</string>
     <string name="compose_inspection_hide_details">Hide details</string>
-    <string name="compose_agent_title">Compose Agent</string>
-    <string name="compose_agent_authorize">Allow Attach</string>
+    <string name="compose_agent_title">Full Compose Inspection</string>
+    <string name="compose_inspection_enable_title">Enable Full Compose Inspection</string>
+    <string name="compose_inspection_toggle_hint">Inspect the full composable hierarchy, runtime parameters, and recomposition data. Requires a debuggable Compose app and may add CPU and memory overhead. Turning this off uses compatible capture.</string>
+    <string name="compose_agent_authorize">Allow Inspection</string>
     <string name="compose_agent_yes">Yes</string>
     <string name="compose_agent_no">No</string>
     <string name="compose_agent_preflight">Device: %1$s
@@ -301,5 +313,5 @@ Compose: %6$s
 Inspector source: %7$s
 Download required: %8$s · Restart required: %9$s
 
-Attach the Compose inspector to this process? It may add CPU and memory overhead. Turning off Compose Agent returns to compatible capture without JVMTI injection.</string>
+This will load the Compose inspection component into this target process to inspect the composable hierarchy, runtime parameters, and recomposition data. It may add CPU and memory overhead. Allow inspection? Turning off Full Compose Inspection returns to compatible capture without JVMTI injection.</string>
 </resources>

@@ -18,13 +18,18 @@ class UnifiedDesktopShellTest {
     }
 
     @Test
-    fun `development run loads desktop classes from source set outputs`() {
+    fun `development run isolates desktop classes and dependency resources from later rebuilds`() {
         val buildScript = Files.readString(Path.of("build.gradle.kts"))
 
         assertTrue(buildScript.contains("tasks.withType<JavaExec>().configureEach"))
         assertTrue(buildScript.contains("if (name == \"run\")"))
         assertTrue(buildScript.contains("val developmentRuntimeClasspath = sourceSets[\"main\"].runtimeClasspath"))
-        assertTrue(buildScript.contains("classpath = developmentRuntimeClasspath"))
+        assertTrue(buildScript.contains("snapshots.get().capture(developmentRuntimeClasspath.files.toList())"))
+        assertTrue(buildScript.contains("dependsOn(developmentRuntimeClasspath)"))
+        assertTrue(buildScript.contains("usesService(snapshots)"))
+        assertTrue(buildScript.contains("classpath = isolatedRuntimeClasspath"))
+        assertFalse(buildScript.contains("classpath = developmentRuntimeClasspath"))
+        assertTrue(buildScript.contains("verifyDevelopmentRuntimeIsolation"))
     }
 
     @Test
