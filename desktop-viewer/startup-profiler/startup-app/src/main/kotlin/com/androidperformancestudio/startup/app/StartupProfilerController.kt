@@ -191,10 +191,11 @@ internal class StartupProfilerController(
         }
         val serial = snapshot.selectedDeviceSerial ?: return
         val target = snapshot.targets.firstOrNull { it.componentName == snapshot.selectedComponentName } ?: return
+        mutableState.value = snapshot.copy(completedDurationSeconds = null)
         val runner =
             when (val result = backend.openRunner(serial, target)) {
                 is StartupBackendResult.Failure -> {
-                    mutableState.value = snapshot.copy(errorMessage = result.message)
+                    mutableState.value = snapshot.copy(errorMessage = result.message, completedDurationSeconds = null)
                     return
                 }
                 is StartupBackendResult.Success -> result.value
@@ -202,6 +203,7 @@ internal class StartupProfilerController(
         mutableState.value =
             snapshot.copy(
                 isRunning = true,
+                completedDurationSeconds = null,
                 completedRuns = 0,
                 totalRuns = snapshot.config.compilationWarmups + snapshot.config.measuredRuns,
                 operationMessage = localizedStringResource(Res.string.preparing_startup_experiment, language),
@@ -219,6 +221,7 @@ internal class StartupProfilerController(
                             operationMessage = progress.localizedMessage(language),
                         )
                 }
+            val analysisStarted = System.nanoTime()
             val processedRuns = enrichPerfettoEvidence(result.runs)
             val analysis = analyzer.analyze(processedRuns)
             val comparison =
@@ -229,6 +232,7 @@ internal class StartupProfilerController(
             mutableState.value =
                 mutableState.value.copy(
                     analysis = analysis,
+                    completedDurationSeconds = (System.nanoTime() - analysisStarted) / 1_000_000_000.0,
                     baseline = snapshot.analysis,
                     comparison = comparison,
                     selectedRunId = analysis.runs.firstOrNull()?.id,
@@ -268,6 +272,8 @@ internal class StartupProfilerController(
     ): Boolean {
         val snapshot = mutableState.value
         if (snapshot.isRunning) return false
+        mutableState.value = snapshot.copy(completedDurationSeconds = null, errorMessage = null)
+        val importStarted = System.nanoTime()
         return runCatching { withContext(importDispatcher) { jsonImporter.import(input) } }
             .fold(
                 onSuccess = { analysis ->
@@ -276,6 +282,7 @@ internal class StartupProfilerController(
                     mutableState.value =
                         current.copy(
                             analysis = analysis,
+                            completedDurationSeconds = (System.nanoTime() - importStarted) / 1_000_000_000.0,
                             baseline = snapshot.analysis,
                             comparison =
                                 snapshot.analysis?.let { baseline ->

@@ -89,6 +89,7 @@ public data class BenchmarkReportsState(
     val recentReports: List<BenchmarkReportEntry> = emptyList(),
     val busy: Boolean = false,
     val message: String? = null,
+    val completedDurationSeconds: Double? = null,
     val error: String? = null,
 ) {
     public val comparisons: List<MetricComparison> get() = report?.comparisons.orEmpty()

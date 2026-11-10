@@ -356,6 +356,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
         BatteryProfilerStatusBar(
             language = language,
             operationMessage = state.operationMessage,
+            completedDurationSeconds = state.completedDurationSeconds,
             errorMessage = state.errorMessage,
         )
     }
@@ -489,6 +490,7 @@ public fun FrameWindowScope.BatteryProfilerMainPage(
 private fun BatteryProfilerStatusBar(
     language: UiLanguage,
     operationMessage: String?,
+    completedDurationSeconds: Double?,
     errorMessage: String?,
 ) {
     val colors = LocalViewerColors.current
@@ -509,6 +511,9 @@ private fun BatteryProfilerStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (errorMessage == null) completedDurationSeconds?.let {
+                CopyableText(String.format(java.util.Locale.ROOT, "%.2f s", it), language = language, maxLines = 1)
+            }
             status?.let {
                 Text(
                     text = "${localizedStringResource(Res.string.status, language)}:",

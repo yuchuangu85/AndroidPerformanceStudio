@@ -1,7 +1,6 @@
 package com.androidperformancestudio.memory.app
 
 import com.androidperformancestudio.memory.model.HprofEngine
-import com.androidperformancestudio.memory.presentation.MemoryProfilerViewMode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -9,40 +8,36 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
 import java.nio.file.Files
-import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
-class RustEngineLifecycleTest {
+class HeapSnapshotLifecycleTest {
     @Test
-    fun `backend defaults to Rust for Android and standard heaps without an explicit selection`() =
+    fun `backend defaults to Kotlin for Android and standard heaps without an explicit selection`() =
         runBlocking {
-            val root = createTempDirectory("rust-engine-default")
+            val root = createTempDirectory("kotlin-engine-default")
             try {
                 for (android in listOf(false, true)) {
-                    val file = RustHprofFixture.write(root.resolve("heap-$android.hprof"), 4, android = android)
+                    val file = HprofSnapshotFixture.write(root.resolve("heap-$android.hprof"), 4, android = android)
                     val backend =
                         DesktopMemoryProfilerBackend(
                             root.resolve("data-$android"),
                             adbLocator = { null },
-                            rustExecutable = { Path.of(checkNotNull(System.getProperty("aps.hprofEngine.path"))) },
                             hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
                         )
 
                     val result = assertIs<MemoryBackendResult.Success<LoadedSnapshot>>(backend.importHprof(file))
                     result.value.use { snapshot ->
-                        assertIs<RustLoadedSnapshot>(snapshot)
-                        assertEquals(HprofEngine.RUST, snapshot.engine)
-                        assertNotNull(snapshot.source.query.detailOf(RustHprofFixture.NODE))
+                        assertIs<HeapDumpLoadedSnapshot>(snapshot)
+                        assertEquals(HprofEngine.KOTLIN, snapshot.engine)
+                        assertNotNull(snapshot.source.query.detailOf(HprofSnapshotFixture.NODE))
                     }
                 }
             } finally {
@@ -77,18 +72,17 @@ class RustEngineLifecycleTest {
     }
 
     @Test
-    fun `cancelled dispatcher delivery releases the successful Rust snapshot before mapping reload`() =
+    fun `cancelled dispatcher delivery releases the successful Kotlin snapshot before mapping reload`() =
         runBlocking {
-            val root = createTempDirectory("rust-cancelled-delivery")
+            val root = createTempDirectory("kotlin-cancelled-delivery")
             val release = CountDownLatch(1)
             val ready = CompletableDeferred<Unit>()
             try {
-                val file = RustHprofFixture.write(root.resolve("heap.hprof"), 4, android = true)
+                val file = HprofSnapshotFixture.write(root.resolve("heap.hprof"), 4, android = true)
                 val backend =
                     DesktopMemoryProfilerBackend(
                         root.resolve("data"),
                         adbLocator = { null },
-                        rustExecutable = { Path.of(checkNotNull(System.getProperty("aps.hprofEngine.path"))) },
                         hprofClassMetricsAnalyzer = HprofClassMetricsAnalyzer { null },
                     )
                 val delivery =
@@ -112,8 +106,4 @@ class RustEngineLifecycleTest {
                 root.toFile().deleteRecursively()
             }
         }
-
-
-
-
 }

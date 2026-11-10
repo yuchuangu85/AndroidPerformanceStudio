@@ -96,7 +96,6 @@ fun FrameWindowScope.MemoryProfilerMainPage(
     initialImportFile: Path? = null,
     initialImportRequestId: Long = 0L,
     initialImportIsJavaHeap: Boolean = false,
-    graphStorage: String = "memory",
 ) {
     val controller =
         remember {

@@ -15,6 +15,7 @@
     <string name="process_selector">Process selector</string>
     <string name="process">Process</string>
     <string name="in_progress">In progress</string>
+    <string name="import_duration">Import duration: %1$s s</string>
     <string name="cleanup_warning">Cleanup warning</string>
     <string name="warning">Warning</string>
     <string name="count">Count</string>

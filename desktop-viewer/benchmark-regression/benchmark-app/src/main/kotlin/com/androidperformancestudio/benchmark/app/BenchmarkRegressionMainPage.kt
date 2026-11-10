@@ -2,6 +2,11 @@
 
 package com.androidperformancestudio.benchmark.app
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.LocalViewerColors
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -134,6 +139,8 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
         explicitResult: String?,
     ) {
         scope.launch {
+            state = state.copy(completedDurationSeconds = null, error = null)
+            val started = System.nanoTime()
             val located = withContext(Dispatchers.IO) { BenchmarkResultLocator.locate(projectRoot, explicitResult) }
             if (located == null) {
                 orchestrationStatus = localizedStringResource(Res.string.orchestrate_result_missing, language)
@@ -154,6 +161,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
                         localizedStringResource(Res.string.orchestrate_imported, language, located.fileName.toString())
                     refreshOptions()
                     if (baseline != null) compare(baseline, run, state.regressionPolicy, state.gatePolicy)
+                    state = state.copy(completedDurationSeconds = (System.nanoTime() - started) / 1_000_000_000.0)
                 },
                 onFailure = { failure ->
                     orchestrationStatus = failure.message ?: localizedStringResource(Res.string.import_failed, language)
@@ -219,6 +227,8 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
         asBaseline: Boolean,
     ) {
         scope.launch {
+            state = state.copy(completedDurationSeconds = null, error = null)
+            val started = System.nanoTime()
             val parsed = withContext(Dispatchers.IO) {
                 runCatching { parser.parse(Path.of(option.sourcePath)) }
             }
@@ -235,6 +245,7 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
                     if (baseline != null && current != null) {
                         compare(baseline, current, state.regressionPolicy, state.gatePolicy)
                     }
+                    state = state.copy(completedDurationSeconds = (System.nanoTime() - started) / 1_000_000_000.0)
                 },
                 onFailure = { failure ->
                     state = state.copy(error = localizedStringResource(Res.string.reports_missing_source, language, option.sourcePath) + " " + (failure.message ?: ""))
@@ -267,7 +278,20 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
     }
     val benchmarkActions =
         BenchmarkReportsActions(
-            onImportRun = { chooseBenchmarkJson(window, language)?.let { importRun(parser, storePath, it, language, scope) { refreshOptions() } } },
+            onImportRun = {
+                chooseBenchmarkJson(window, language)?.let { file ->
+                    state = state.copy(completedDurationSeconds = null, error = null)
+                    importRun(parser, storePath, file, scope) { result ->
+                        result.fold(
+                            onSuccess = { seconds ->
+                                state = state.copy(completedDurationSeconds = seconds)
+                                refreshOptions()
+                            },
+                            onFailure = { failure -> state = state.copy(error = failure.message ?: localizedStringResource(Res.string.import_failed, language)) },
+                        )
+                    }
+                }
+            },
             onOrchestrateRun = { orchestrationVisible = true },
             onSelectBaseline = { id -> state.runOptions.firstOrNull { it.id == id }?.let { loadRun(it, asBaseline = true) } },
             onSelectCurrent = { id -> state.runOptions.firstOrNull { it.id == id }?.let { loadRun(it, asBaseline = false) } },
@@ -343,6 +367,19 @@ public fun FrameWindowScope.BenchmarkRegressionMainPage(
             modifier = Modifier.weight(1f),
             actions = benchmarkActions,
         )
+        Row(
+            Modifier.fillMaxWidth().height(ViewerDimensions.footerHeight)
+                .background(LocalViewerColors.current.toolbar).horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProfilerToolbarStatus(state.message, state.error)
+            if (state.error == null) state.completedDurationSeconds?.let {
+                com.androidperformancestudio.ui.CopyableText(
+                    String.format(java.util.Locale.ROOT, "%.2f s", it), language = language, maxLines = 1,
+                )
+            }
+        }
     }
 
     if (settingsVisible) {
@@ -385,22 +422,18 @@ private fun importRun(
     parser: BenchmarkJsonParser,
     storePath: Path,
     file: File,
-    language: UiLanguage,
     scope: kotlinx.coroutines.CoroutineScope,
-    onImported: () -> Unit,
+    onImported: (Result<Double>) -> Unit,
 ) {
     scope.launch {
+        val started = System.nanoTime()
         val result = withContext(Dispatchers.IO) {
             runCatching {
                 val run = parser.parse(file.toPath())
                 SqliteBenchmarkStore.open(storePath).use { it.save(run) }
             }
         }
-        result.onSuccess { onImported() }
-        result.onFailure { /* surfaced by the page status line on the next action */ }
-        if (result.isFailure && language == UiLanguage.SIMPLIFIED_CHINESE) {
-            System.err.println("[benchmark] import failed: " + (result.exceptionOrNull()?.message ?: ""))
-        }
+        onImported(result.map { (System.nanoTime() - started) / 1_000_000_000.0 })
     }
 }
 

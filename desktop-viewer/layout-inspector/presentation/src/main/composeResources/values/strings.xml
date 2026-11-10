@@ -51,6 +51,7 @@
     <string name="auto_scan">Auto scan</string>
     <string name="package_name">Package</string>
     <string name="metrics">Metrics</string>
+    <string name="import_time">Import time</string>
     <string name="timeline">Timeline</string>
     <string name="auto_device">Auto device</string>
     <string name="capture_target">Target</string>

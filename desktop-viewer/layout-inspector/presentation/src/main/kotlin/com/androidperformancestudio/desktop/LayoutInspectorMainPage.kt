@@ -396,6 +396,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
     var archiveUiState by remember {
         mutableStateOf<CaptureArchiveUiState>(CaptureArchiveUiState.Idle)
     }
+    var importElapsedNanos by remember { mutableStateOf<Long?>(null) }
     var importedRawArtifacts by remember {
         mutableStateOf<CaptureRawArtifacts?>(null)
     }
@@ -1029,6 +1030,8 @@ fun FrameWindowScope.LayoutInspectorMainPage(
         manualRefreshInvalidation += 1
         manualRefreshInProgress = false
         updateComposeAgentRequested(false)
+        val importStartedAtNanos = System.nanoTime()
+        importElapsedNanos = null
         archiveUiState = CaptureArchiveUiState.Working(CaptureArchiveOperation.IMPORT)
         coroutineScope.launch {
             try {
@@ -1052,6 +1055,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 recentArchives = withContext(Dispatchers.IO) {
                     recentArchiveStore.record(source)
                 }
+                importElapsedNanos = System.nanoTime() - importStartedAtNanos
                 archiveUiState = CaptureArchiveUiState.Success(
                     operation = CaptureArchiveOperation.IMPORT,
                     path = source,
@@ -1677,6 +1681,7 @@ fun FrameWindowScope.LayoutInspectorMainPage(
                 recompositionControlsEnabled = composeSession != null,
                 composeCompilerReport = state.composeCompilerReport,
                 composeReportImportInProgress = composeReportImport.uiState == ComposeCompilerReportImportState.Working,
+                importElapsed = importElapsedNanos.takeIf { state.connectionStatus == ConnectionStatus.ARCHIVE },
                 onImportComposeCompilerReports = importComposeCompilerReports,
                 onToggleRecomposition = {
                     coroutineScope.launch {
@@ -2226,6 +2231,7 @@ private fun LayoutInspectorStatusBar(
     recompositionControlsEnabled: Boolean,
     composeCompilerReport: ComposeCompilerReport?,
     composeReportImportInProgress: Boolean,
+    importElapsed: Long?,
     onImportComposeCompilerReports: (ComposeReportImportSource) -> Unit,
     onToggleRecomposition: () -> Unit,
     onResetRecomposition: () -> Unit,
@@ -2317,6 +2323,11 @@ private fun LayoutInspectorStatusBar(
                 )
                 StatusBarDivider()
             }
+            StatusBarValue(
+                label = localizedStringResource(Res.string.import_time, language),
+                value = importElapsed?.let(::formatImportElapsedSeconds) ?: "--",
+                valueColor = colors.subtleText,
+            )
             StatusBarValue(
                 label = localizedStringResource(Res.string.metrics, language),
                 value = model.metricsText,

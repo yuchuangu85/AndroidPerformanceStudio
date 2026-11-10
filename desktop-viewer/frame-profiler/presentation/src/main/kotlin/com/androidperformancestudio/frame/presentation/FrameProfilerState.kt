@@ -16,6 +16,7 @@ public data class FrameProfilerState(
     val selectedFrameId: Long? = null,
     val perfettoTraceFile: Path? = null,
     val artifact: CaptureArtifact? = null,
+    val importDurationNanos: Long? = null,
     val isLoading: Boolean = false,
     val isRefreshingDevices: Boolean = false,
     val isCapturing: Boolean = false,

@@ -359,6 +359,7 @@ internal class MemoryProfilerController(
     private val backend: MemoryProfilerBackend,
     @Volatile private var language: UiLanguage = UiLanguage.ENGLISH,
     private val selectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val mutableState = MutableStateFlow(MemoryProfilerState())
     private var activeOperationJob: Job? = null
@@ -384,6 +385,7 @@ internal class MemoryProfilerController(
     val recentSessions: StateFlow<List<MemorySessionMetadata>> = mutableRecentSessions.asStateFlow()
 
     private val loadedHeapsBySnapshotId = linkedMapOf<String, LoadedSnapshot>()
+    private val importDurationsBySnapshotId = mutableMapOf<String, Long>()
     private var selectedQueryClasses: List<String> = emptyList()
     private var selectedQueryHeap: String? = null
     private var previousBitmapDump: LoadedBitmapDump? = null
@@ -466,6 +468,7 @@ internal class MemoryProfilerController(
         targetSubscription.close()
         loadedHeapsBySnapshotId.values.forEach { it.close() }
         loadedHeapsBySnapshotId.clear()
+        importDurationsBySnapshotId.clear()
     }
 
     suspend fun refreshDevices() {
@@ -1730,10 +1733,12 @@ internal class MemoryProfilerController(
     @Suppress("TooGenericExceptionCaught")
     suspend fun importHprof(file: Path) {
         activeOperationJob = currentCoroutineContext()[Job]
-        val importStarted = System.nanoTime()
+        val importStarted = nanoTime()
         mutableState.value =
             mutableState.value.copy(
                 isDumping = true,
+                importDurationMillis = null,
+                importEngine = null,
                 operationMessage = localizedStringResource(Res.string.importing, language, file.fileName),
                 loadPhase = HeapLoadPhase.PROBE,
                 loadProgress = 0,
@@ -1771,7 +1776,9 @@ internal class MemoryProfilerController(
             }
         applyLoadedResult(result)
         if (result is MemoryBackendResult.Success) {
-            mutableState.value = mutableState.value.copy(importDurationMillis = (System.nanoTime() - importStarted) / 1_000_000L, importEngine = result.value.engine.name)
+            val durationMillis = (nanoTime() - importStarted) / 1_000_000L
+            mutableState.value.activeSnapshotId?.let { importDurationsBySnapshotId[it] = durationMillis }
+            mutableState.value = mutableState.value.copy(importDurationMillis = durationMillis, importEngine = result.value.engine.name)
         }
         activeOperationJob = null
     }
@@ -2003,6 +2010,8 @@ internal class MemoryProfilerController(
                         snapshotSummary = snapshotSummary,
                         snapshotSummaries = snapshotSummaries,
                         activeSnapshotId = snapshotSummary.id,
+                        importDurationMillis = importDurationsBySnapshotId[snapshotSummary.id],
+                        importEngine = result.value.engine.name.takeIf { snapshotSummary.id in importDurationsBySnapshotId },
                         savedFilterPresets =
                             result.value.uiSettings.filterPresets
                                 .map { it.toPresentation() },
@@ -2075,6 +2084,7 @@ internal class MemoryProfilerController(
                         useRegex = false,
                     )
                 val retainedIds = snapshotSummaries.mapTo(hashSetOf()) { it.id }
+                importDurationsBySnapshotId.keys.retainAll(retainedIds)
                 loadedHeapsBySnapshotId.keys.filterNot { it in retainedIds }.forEach { id ->
                     loadedHeapsBySnapshotId.remove(id)?.close()
                 }

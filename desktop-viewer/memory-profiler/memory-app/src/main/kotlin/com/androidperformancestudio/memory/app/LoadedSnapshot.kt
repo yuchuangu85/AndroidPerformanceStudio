@@ -38,37 +38,6 @@ internal sealed interface LoadedSnapshot : AutoCloseable {
     override fun close() = source.close()
 }
 
-internal data class RustLoadedSnapshot(
-    override val id: String,
-    override val rawHprofFile: Path?,
-    override val convertedHprofFile: Path?,
-    override val capturedAt: Instant,
-    override val source: HeapSnapshotSource,
-    override val findings: HeapFindings,
-    override val histogram: HeapHistogram,
-    override val warning: String? = null,
-    override val cleanupWarning: String? = null,
-    override val mapping: ProguardMapping? = null,
-    override val availableHeaps: List<String> = emptyList(),
-    override val perHeapClasses: Map<String, List<ClassStats>> = emptyMap(),
-    override val uiSettings: MemorySessionUiSettings = MemorySessionUiSettings(),
-    override val sourceFileDigest: String? = null,
-    override val analysisSourceDigest: String? = null,
-    override val mappingDigest: String? = null,
-    override val indexFile: Path? = null,
-    override val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
-    override val artifact: CaptureArtifact? = null,
-    val sourceLeases: List<AutoCloseable> = emptyList(),
-) : LoadedSnapshot {
-    override val engine: HprofEngine get() = HprofEngine.RUST
-
-    override fun withLeakReport(report: LeakCanaryReport): LoadedSnapshot = copy(leakCanaryReport = report)
-
-    override fun close() {
-        closeHeapResources(listOf(source) + sourceLeases)
-    }
-}
-
 internal data class HeapDumpLoadedSnapshot(
     val heapDump: HeapDump,
     override val histogram: HeapHistogram,
@@ -84,8 +53,9 @@ internal data class HeapDumpLoadedSnapshot(
     override val mappingDigest: String? = null,
     override val indexFile: Path? = null,
     override val leakCanaryReport: LeakCanaryReport = LeakCanaryReport(),
+    val sourceLeases: List<AutoCloseable> = emptyList(),
 ) : LoadedSnapshot {
-    override val engine: HprofEngine get() = HprofEngine.RUST
+    override val engine: HprofEngine get() = HprofEngine.KOTLIN
     override val id: String get() = heapDump.id
     override val rawHprofFile: Path? get() = heapDump.rawHprofFile
     override val convertedHprofFile: Path? get() = heapDump.convertedHprofFile
@@ -93,6 +63,8 @@ internal data class HeapDumpLoadedSnapshot(
     override val artifact get() = heapDump.artifact
 
     override fun withLeakReport(report: LeakCanaryReport): LoadedSnapshot = copy(leakCanaryReport = report)
+
+    override fun close() = closeHeapResources(listOf(source) + sourceLeases)
 }
 
 /** Release every owned resource even if an earlier close fails. */

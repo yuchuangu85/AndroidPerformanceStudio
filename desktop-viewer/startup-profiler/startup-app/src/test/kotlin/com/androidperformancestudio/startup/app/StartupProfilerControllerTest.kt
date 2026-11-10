@@ -84,6 +84,10 @@ class StartupProfilerControllerTest {
             assertNull(state.baseline)
             assertNull(state.comparison)
             assertNull(state.errorMessage)
+            assertTrue(assertNotNull(state.completedDurationSeconds) >= 0.0)
+
+            assertFalse(controller.importJson(directory.resolve("missing.json")))
+            assertNull(controller.state.value.completedDurationSeconds)
         }
 
     @Test

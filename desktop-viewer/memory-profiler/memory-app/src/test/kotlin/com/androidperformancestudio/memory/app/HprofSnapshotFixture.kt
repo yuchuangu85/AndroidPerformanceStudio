@@ -9,7 +9,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /** Identical object graph in standard HPROF and Android's segmented, heap-labelled format. */
-internal object RustHprofFixture {
+internal object HprofSnapshotFixture {
     const val NODE = 1L
     const val CYCLE = 2L
     const val OTHER_NODE = 3L

@@ -2,9 +2,11 @@ package com.androidperformancestudio.network.app
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 class NetworkProfilerWorkspaceSourceTest {
     private val source =
@@ -37,13 +39,23 @@ class NetworkProfilerWorkspaceSourceTest {
     }
 
     @Test
+    fun `import duration formatting always uses two decimal seconds`() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            assertEquals("1.23 s", formatImportDuration(1_234L))
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
+    }
+
+    @Test
     fun `toolbar preserves capture import and export wiring with enabled predicates`() {
         assertButtonContains(
             "text = localizedStringResource(Res.string.import_har, language)",
             "enabled = !state.capturing",
             "chooseOpenFile(",
-            "val mode = if (nativeHarEngineEnabled) HarImportMode.NATIVE_WITH_LEGACY_FALLBACK else HarImportMode.SHADOW",
-            "HarImportParser(mode, executable).parse(file.toPath()) { context.ensureActive() }",
+            "HarImportParser().parse(file.toPath()) { context.ensureActive() }",
             "complete(",
         )
         assertButtonContains(

@@ -511,7 +511,7 @@ private fun fileIdentity(path: Path): String =
         .fileKey()
         .toString()
 
-/** A real second JVM, independent of Gradle workers and the unfinished Rust sidecar. */
+/** A real second JVM, independent of Gradle workers. */
 internal object ManagedHprofLeaseTestChild {
     @JvmStatic
     fun main(args: Array<String>) {

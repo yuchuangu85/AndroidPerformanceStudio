@@ -32,6 +32,7 @@ public data class BatteryProfilerState(
     val completedSteps: Int = 0,
     val totalSteps: Int = 0,
     val operationMessage: String? = null,
+    val completedDurationSeconds: Double? = null,
     val warnings: List<String> = emptyList(),
     val errorMessage: String? = null,
     val artifact: CaptureArtifact? = null,

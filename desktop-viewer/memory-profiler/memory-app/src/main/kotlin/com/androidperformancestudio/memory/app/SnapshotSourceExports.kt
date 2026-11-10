@@ -51,7 +51,7 @@ internal object SnapshotSourceExports {
                             EXPORT_PAGE_SIZE,
                             ordinaryOnly = true,
                         )
-                    check(page.rows.isNotEmpty() || offset >= page.total) { "Incomplete Rust instance export page" }
+                    check(page.rows.isNotEmpty() || offset >= page.total) { "Incomplete instance export page" }
                     page.rows.forEach { row ->
                         yield(
                             HeapExportInstance(

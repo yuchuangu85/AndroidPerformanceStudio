@@ -38,7 +38,6 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
-import com.androidperformancestudio.platform.toolchain.NativeSummaryShadow
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -65,12 +64,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 
 @Composable
 public fun FrameWindowScope.NetworkProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
-    nativeHarEngineEnabled: Boolean = true,
 ) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
@@ -104,7 +103,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         val serial = state.deviceSerial
         val packageName = state.packageName
         stopRequested = false
-        state = state.copy(capturing = true, liveEventCount = 0, message = null, error = null)
+        state = state.copy(capturing = true, liveEventCount = 0, message = null, error = null, importDurationMillis = null, importEngine = null)
         pollJob = scope.launch {
             runNetworkCaptureSession(
                 start = { capture.start(serial, packageName) },
@@ -166,29 +165,14 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                                 "json",
                             )?.let { file ->
                                 stopRequested = false
-                                state = state.copy(capturing = true, error = null)
+                                state = state.copy(capturing = true, error = null, importDurationMillis = null, importEngine = null)
                                 pollJob = scope.launch {
                                     try {
                                         val importStarted = System.nanoTime()
                                         val imported = withContext(Dispatchers.IO) {
-                                            val executable = NativeSummaryShadow.configured("aps.harEngine.path", "APS_HAR_ENGINE")
-                                            val mode = if (nativeHarEngineEnabled) HarImportMode.NATIVE_WITH_LEGACY_FALLBACK else HarImportMode.SHADOW
-                                            val shadowExecutable = executable?.takeIf { !nativeHarEngineEnabled }
-                                            val digest = shadowExecutable?.let { ArtifactFileEvidence.sha256(file.toPath()).value }
                                             val context = currentCoroutineContext()
-                                            val result = HarImportParser(mode, executable).parse(file.toPath()) { context.ensureActive() }
+                                            val result = HarImportParser().parse(file.toPath()) { context.ensureActive() }
                                             val artifact = NetworkArtifactFactory().har(file.toPath(), result)
-                                            shadowExecutable?.let {
-                                                val shadow = NativeSummaryShadow().compare(
-                                                    it, file.toPath(), mapOf("entryCount" to result.calls.size.toLong()),
-                                                    expectedSourceDigest = digest,
-                                                )
-                                                runCatching {
-                                                    val directory = db.toAbsolutePath().parent.resolve("native-shadow")
-                                                    Files.createDirectories(directory)
-                                                    Files.writeString(directory.resolve("${artifact.id.value}.properties"), shadow.properties())
-                                                }
-                                            }
                                             result to artifact
                                         }
                                         complete(
@@ -196,7 +180,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                                             localizedStringResource(Res.string.imported_redacted, language, file.name),
                                             imported.second,
                                             (System.nanoTime() - importStarted) / 1_000_000L,
-                                            if (nativeHarEngineEnabled) "Rust" else "Legacy",
+                                            "Kotlin",
                                         )
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
@@ -298,9 +282,10 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
-        if (state.importDurationMillis != null && state.importEngine != null) {
+        val importDurationMillis = state.importDurationMillis
+        if (importDurationMillis != null && state.importEngine != null) {
             Text(
-                text = "${state.importEngine} · import ${state.importDurationMillis} ms",
+                text = "${state.importEngine} · import ${formatImportDuration(importDurationMillis)}",
                 modifier = Modifier.fillMaxWidth().widthIn(min = 0.dp).padding(horizontal = 12.dp, vertical = 4.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
@@ -308,6 +293,9 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         }
     }
 }
+
+internal fun formatImportDuration(durationMillis: Long): String =
+    String.format(Locale.ROOT, "%.2f s", durationMillis / 1_000.0)
 
 internal fun NetworkProfilerState.withTitleBarTarget(host: TitleBarTargetHost?): NetworkProfilerState {
     if (host == null || capturing) return this

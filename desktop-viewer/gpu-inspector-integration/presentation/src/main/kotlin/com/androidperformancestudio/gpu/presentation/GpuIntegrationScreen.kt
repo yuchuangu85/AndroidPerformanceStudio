@@ -54,6 +54,7 @@ public data class GpuIntegrationState(
     val isRefreshingDevices: Boolean = false,
     val isInspectingDevice: Boolean = false,
     val message: String? = null,
+    val completedDurationSeconds: Double? = null,
     val error: String? = null,
     val deviceError: String? = null,
     val hubTab: GpuHubTab = GpuHubTab.OVERVIEW,

@@ -32,7 +32,7 @@ class MemorySnapshotEvidenceTest {
                 objectCount = 400,
                 warningCount = 2,
                 capabilities = setOf(HeapCapability.HEAP_GRAPH, HeapCapability.GC_ROOTS),
-                engine = HprofEngine.RUST,
+                engine = HprofEngine.KOTLIN,
             )
 
         val lines = snapshot.evidenceLines(UiLanguage.ENGLISH)
@@ -45,7 +45,7 @@ class MemorySnapshotEvidenceTest {
         assertTrue(lines.any { it.contains("0123456789abcdef") })
         assertTrue(lines.any { it.contains("GC_ROOTS") && it.contains("HEAP_GRAPH") })
         assertFalse(lines.any { it.contains("/private/app-data") })
-        assertTrue(lines.any { it == "HPROF engine: RUST" })
+        assertTrue(lines.any { it == "HPROF engine: KOTLIN" })
     }
 
     @Test

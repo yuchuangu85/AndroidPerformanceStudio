@@ -661,7 +661,7 @@ private fun CaptureStatus(
             info.importDurationMillis?.let { duration ->
                 Spacer(Modifier.width(8.dp))
                 CopyableText(
-                    "${info.importEngine ?: "Engine"} · import ${duration} ms",
+                    "${info.importEngine ?: "Engine"} · import ${String.format(java.util.Locale.ROOT, "%.2f s", duration / 1_000.0)}",
                     color = style.text,
                     fontSize = ViewerTypography.label.fontSize,
                     fontWeight = FontWeight.Medium,
