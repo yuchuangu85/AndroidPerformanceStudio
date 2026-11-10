@@ -19,6 +19,9 @@ const MAX_PAGE: usize = 200;
 pub struct InspectorProtocolFrame {
     pub archive: InspectorArchive,
     pub generation: u64,
+    /// True when the frame came from the in-app agent transport
+    /// (`LiveDeviceClient` agent-first capture), not an ADB projection.
+    pub from_agent: bool,
 }
 
 pub struct InspectorProtocolSession {
@@ -97,6 +100,7 @@ impl InspectorProtocolSession {
         self.frame = Some(InspectorProtocolFrame {
             archive,
             generation: self.generation,
+            from_agent: false,
         });
         Response::ok(
             &request,

@@ -101,6 +101,9 @@ impl ImportWorkspace {
         if self.kind != Destination::Memory || self.memory_snapshot_id == Some(id) {
             return;
         }
+        if self.memory_capture.in_progress {
+            self.cancel_work(cx);
+        }
         let Some(index) = self
             .memory_snapshots
             .iter()
@@ -134,6 +137,9 @@ impl ImportWorkspace {
     pub(super) fn close_memory_snapshot(&mut self, id: u64, cx: &mut Context<Self>) {
         if self.kind != Destination::Memory {
             return;
+        }
+        if self.memory_capture.in_progress {
+            self.cancel_work(cx);
         }
         if self.memory_snapshot_id != Some(id) {
             if let Some(index) = self

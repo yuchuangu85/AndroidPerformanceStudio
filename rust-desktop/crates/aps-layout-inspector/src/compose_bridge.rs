@@ -1,4 +1,6 @@
 //! Blocking Compose helper adapter. UI callers schedule every operation off-thread.
+mod foreground;
+
 use crate::{InspectorArchive, InspectorProtocolFrame};
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner};
 use serde_json::Value;
@@ -23,6 +25,19 @@ pub struct ComposeBridge {
 impl ComposeBridge {
     pub fn receipt(&self) -> &Value {
         &self.receipt
+    }
+
+    /// Resolves the current foreground app without depending on the shared
+    /// profiler process picker. Preflight still does not authorize injection.
+    pub fn preflight_foreground(
+        adb: PathBuf,
+        serial: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Self, String> {
+        let target = foreground::Target::resolve(&adb, serial, cancel)?;
+        let bridge = Self::preflight(adb, serial, &target.package, target.pid, cancel)?;
+        bridge.validate_foreground(serial, &target.package, target.pid, cancel)?;
+        Ok(bridge)
     }
 
     pub fn preflight(
@@ -117,6 +132,16 @@ impl ComposeBridge {
         request
     }
 
+    fn validate_foreground(
+        &self,
+        serial: &str,
+        package: &str,
+        pid: u32,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        foreground::Target::resolve(&self.adb, serial, cancel)?.validate(package, pid)
+    }
+
     /// Called only by the confirmation action, or refresh under that same target grant.
     pub fn capture(
         &self,
@@ -131,6 +156,9 @@ impl ComposeBridge {
             .as_str()
             .ok_or("Missing receipt package")?;
         let pid = identity["pid"].as_u64().ok_or("Missing receipt pid")? as u32;
+        // A foreground switch or process restart never transfers an existing
+        // injection grant to the newly visible app.
+        self.validate_foreground(serial, package, pid, cancel)?;
         let marker = self.directory.join("cancel");
         let output = self.directory.join(format!("capture-{generation}.zip"));
         let _ = std::fs::remove_file(&marker);
@@ -180,12 +208,14 @@ impl ComposeBridge {
         let archive = InspectorArchive::open(&output, cancel).map_err(|error| error.to_string());
         let _ = std::fs::remove_file(output);
         let archive = archive?;
+        self.validate_foreground(serial, package, pid, cancel)?;
         if archive.frame.package_name != package || archive.compose.is_none() {
             return Err("Compose helper archive target or sidecar mismatch".into());
         }
         Ok(InspectorProtocolFrame {
             archive,
             generation,
+            from_agent: false,
         })
     }
 }

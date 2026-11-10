@@ -133,7 +133,7 @@
   "memory_page_callstack_option": "Callstack",
   "memory_page_cancel": "Cancel",
   "memory_page_capture_native_heap": "Capture Native Heap",
-  "memory_page_capture_unavailable": "Live device capture is not wired in this build; import an artifact instead.",
+  "memory_page_capture_unavailable": "This capture mode is not connected in this build.",
   "memory_page_class_histogram": "Class histogram",
   "memory_page_class_level_diff": "Class-level diff; object identity is not stable across snapshots.",
   "memory_page_class_list": "Class List",

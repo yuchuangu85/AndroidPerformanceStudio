@@ -51,6 +51,38 @@ fn fixture(snapshot: &str, expected_digest: Option<&str>, extra: Option<(&str, &
 }
 const SNAPSHOT: &str = r#"{"protocolVersion":{"major":1,"minor":0},"packageName":"example.test","capturedAtEpochMillis":42,"display":{"widthPx":1080,"heightPx":2400,"density":3.0},"capabilities":{"viewHierarchy":true,"composeSemantics":false,"screenshots":false,"timeline":false},"root":{"type":"view","id":"root","className":"android.widget.FrameLayout","bounds":{"left":0,"top":0,"right":1080,"bottom":2400},"visible":true,"alpha":1.0,"text":"sensitive runtime content","children":[{"type":"compose","id":"child","className":"Example","bounds":{"left":10,"top":20,"right":100,"bottom":80},"children":[]}]}}"#;
 
+fn deep_snapshot(depth: usize) -> String {
+    let mut child = String::new();
+    for index in (0..=depth).rev() {
+        child = format!(
+            r#"{{"type":"compose","id":"node-{index}","className":"Example","bounds":{{"left":0,"top":0,"right":10,"bottom":10}},"children":[{child}]}}"#
+        );
+    }
+    format!(
+        "{}\"root\":{child}}}",
+        SNAPSHOT.split("\"root\":").next().unwrap()
+    )
+}
+
+#[test]
+fn imports_a_deep_compose_tree_without_truncating_or_disabling_hierarchy_limits() {
+    // The real failed capture has 79 logical levels and 163 JSON levels.
+    let file = fixture(&deep_snapshot(79), None, None);
+    let archive = InspectorArchive::open(&file.0, &CancellationToken::new()).unwrap();
+    assert_eq!(archive.windows[0].nodes.len(), 80);
+    assert_eq!(archive.windows[0].nodes.last().unwrap().depth, 79);
+    let limit = fixture(&deep_snapshot(129), None, None);
+    assert!(matches!(
+        InspectorArchive::open(&limit.0, &CancellationToken::new()),
+        Err(InspectorError::Limit)
+    ));
+    let duplicate = fixture(&deep_snapshot(79).replace("node-79", "node-0"), None, None);
+    assert!(matches!(
+        InspectorArchive::open(&duplicate.0, &CancellationToken::new()),
+        Err(InspectorError::InvalidSnapshot)
+    ));
+}
+
 #[test]
 fn imports_native_zip_and_preserves_frame_hierarchy_canvas_properties() {
     let file = fixture(SNAPSHOT, None, None);

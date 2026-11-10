@@ -23,6 +23,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::studio::{self, StudioColors};
 
 const MAX_CANVAS_NODES: usize = 4000;
@@ -352,6 +353,9 @@ pub struct InspectorWorkspace {
     zoom: f32,
     show_bounds: bool,
     compatible_capture: bool,
+    /// True when the current live frame came from the in-app agent transport
+    /// instead of the ADB View/UIAutomator projection.
+    agent_capture: bool,
     capturing: bool,
     busy: bool,
     error: Option<String>,
@@ -359,7 +363,6 @@ pub struct InspectorWorkspace {
     cancel: CancellationToken,
     studio: Option<WeakEntity<crate::shell::Studio>>,
     target_serial: Option<String>,
-    target_pid: Option<u32>,
     capture_target: CaptureTargetMode,
     /// Compose `CanvasPane` local state: crop the preview to the app window
     /// instead of the full display. Presentation-only; never persisted.
@@ -414,6 +417,7 @@ impl InspectorWorkspace {
             zoom: 1.0,
             show_bounds: true,
             compatible_capture: false,
+            agent_capture: false,
             capturing: false,
             busy: false,
             error: None,
@@ -421,7 +425,6 @@ impl InspectorWorkspace {
             cancel: CancellationToken::new(),
             studio: None,
             target_serial: None,
-            target_pid: None,
             capture_target: CaptureTargetMode::ForegroundApp,
             app_only: true,
             screenshot_image: None,
@@ -453,8 +456,10 @@ impl InspectorWorkspace {
         cx.notify();
     }
 
-    pub fn set_target(&mut self, serial: Option<String>, pid: Option<u32>, cx: &mut Context<Self>) {
-        if self.target_serial != serial || self.target_pid != pid {
+    /// Inspector targets the device's foreground app, independently of the
+    /// process selected for other profilers.
+    pub fn set_target(&mut self, serial: Option<String>, cx: &mut Context<Self>) {
+        if self.target_serial != serial {
             self.compose_bridge = None;
             self.compose_agent = false;
             self.compose_inspection_confirmation_pending = false;
@@ -465,7 +470,6 @@ impl InspectorWorkspace {
             }
         }
         self.target_serial = serial;
-        self.target_pid = pid;
         cx.notify();
     }
 
@@ -511,6 +515,7 @@ impl InspectorWorkspace {
         let screenshot_png = frame.archive.screenshot_png.clone();
         self.archive = Some(Arc::new(frame.archive));
         self.compatible_capture = false;
+        self.agent_capture = false;
         self.compose_inspection_confirmation_pending = false;
         self.screenshot_image = screenshot_png
             .as_deref()
@@ -653,6 +658,29 @@ impl InspectorWorkspace {
         self.open(path, cx);
     }
 
+    /// One-shot capture used when the Layout Inspector page is entered or the
+    /// selected device changes: it fills an empty page without a manual Refresh
+    /// click, while never re-capturing over an existing frame or racing another
+    /// capture. The Refresh button keeps working for later refresh cycles.
+    pub fn capture_if_idle(&mut self, cx: &mut Context<Self>) {
+        if self.archive.is_some()
+            || self.busy
+            || self.capturing
+            || self.compose_agent
+            || self.compose_inspection_confirmation_pending
+        {
+            return;
+        }
+        if self
+            .target_serial
+            .as_deref()
+            .is_none_or(|serial| serial.is_empty())
+        {
+            return;
+        }
+        self.refresh(cx);
+    }
+
     /// One background capture at a time; cancellation keeps it busy until reaped.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.compose_agent {
@@ -686,29 +714,12 @@ impl InspectorWorkspace {
             }
             CaptureTargetMode::SystemUi => aps_layout_inspector::CompatibleTarget::SystemUi,
         };
-        let pid = self.target_pid;
         let task = cx.background_executor().spawn(async move {
             aps_adb::validate_serial(&serial).map_err(|error| error.to_string())?;
             let adb = aps_adb::AdbLocator::new()
                 .locate(None)
                 .map_err(|error| error.to_string())?;
-            let client = aps_adb::AdbClient::new(adb.clone());
-            let expected = if matches!(target, aps_layout_inspector::CompatibleTarget::ForegroundApp) {
-                if let Some(pid) = pid {
-                    Some(client.target_snapshot(&serial, &cancel).map_err(|error| error.to_string())?
-                        .application_processes().into_iter().find(|process| process.pid == pid)
-                        .ok_or("Selected process is no longer available; select it again")?)
-                } else { None }
-            } else { None };
-            let frame = aps_layout_inspector::capture_compatible(&adb, &serial, target, generation, &cancel)?;
-            if let Some(expected) = expected {
-                let current = client.target_snapshot(&serial, &cancel).map_err(|error| error.to_string())?
-                    .application_processes().into_iter().find(|process| process.pid == expected.pid);
-                if current.as_ref() != Some(&expected) || frame.archive.frame.package_name != expected.package_name {
-                    return Err("Selected app is not the captured foreground app or its process changed; bring it to the foreground and refresh".into());
-                }
-            }
-            Ok(frame)
+            aps_layout_inspector::capture_compatible(&adb, &serial, target, generation, &cancel)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -717,14 +728,18 @@ impl InspectorWorkspace {
                 this.busy = false;
                 if this.generation == generation {
                     match result {
-                        Ok(frame) => match this.publish_protocol_frame(frame, cx) {
-                            Ok(()) => {
-                                this.compatible_capture = true;
-                                this.compose_agent = false;
-                                this.app_only = false;
+                        Ok(frame) => {
+                            let from_agent = frame.from_agent;
+                            match this.publish_protocol_frame(frame, cx) {
+                                Ok(()) => {
+                                    this.agent_capture = from_agent;
+                                    this.compatible_capture = !from_agent;
+                                    this.compose_agent = false;
+                                    this.app_only = false;
+                                }
+                                Err(error) => this.error = Some(error),
                             }
-                            Err(error) => this.error = Some(error),
-                        },
+                        }
                         Err(error) => this.error = Some(error),
                     }
                 }
@@ -740,11 +755,12 @@ impl InspectorWorkspace {
         if self.busy || self.capturing {
             return;
         }
-        let (Some(serial), Some(pid)) = (self.target_serial.clone(), self.target_pid) else {
-            self.error = Some(
-                "Select a device and a running debuggable app process before Compose inspection"
-                    .into(),
-            );
+        let Some(serial) = self
+            .target_serial
+            .clone()
+            .filter(|serial| !serial.is_empty())
+        else {
+            self.error = Some(self.language.text(TextKey::InspectorNoDevice).into());
             cx.notify();
             return;
         };
@@ -768,18 +784,9 @@ impl InspectorWorkspace {
             let adb = aps_adb::AdbLocator::new()
                 .locate(None)
                 .map_err(|error| error.to_string())?;
-            let target = aps_adb::AdbClient::new(adb.clone())
-                .target_snapshot(&serial, &cancel)
-                .map_err(|error| error.to_string())?
-                .application_processes()
-                .into_iter()
-                .find(|process| process.pid == pid)
-                .ok_or("Selected process is no longer available")?;
-            aps_layout_inspector::ComposeBridge::preflight(
+            aps_layout_inspector::ComposeBridge::preflight_foreground(
                 adb.executable,
                 &serial,
-                &target.package_name,
-                pid,
                 &cancel,
             )
             .map(Arc::new)
@@ -894,6 +901,7 @@ impl InspectorWorkspace {
                             InspectorProtocolFrame {
                                 archive,
                                 generation,
+                                from_agent: false,
                             },
                             cx,
                         );
@@ -1014,23 +1022,14 @@ impl InspectorWorkspace {
                     .whitespace_nowrap()
                     .child(if self.compatible_capture {
                         language.text(TextKey::InspectorCompatibleView).to_owned()
+                    } else if self.agent_capture {
+                        language.text(TextKey::InspectorAgentView).to_owned()
                     } else if self.compose_agent && self.compose_bridge.is_some() {
                         language.text(TextKey::InspectorComposeAgent).to_owned()
                     } else if archive.is_some() {
                         language.text(TextKey::InspectorOfflineArchive).to_owned()
                     } else if let Some(serial) = &self.target_serial {
-                        language.format(
-                            TextKey::InspectorDeviceLinked,
-                            &[
-                                ("serial", serial),
-                                (
-                                    "pid",
-                                    &self
-                                        .target_pid
-                                        .map_or_else(|| "—".to_owned(), |pid| pid.to_string()),
-                                ),
-                            ],
-                        )
+                        language.format(TextKey::InspectorDeviceLinked, &[("serial", serial)])
                     } else {
                         language
                             .text(TextKey::InspectorLiveCaptureUnavailable)
@@ -1512,6 +1511,7 @@ impl Render for InspectorWorkspace {
             visible_nodes,
             &self.hidden,
             self.compatible_capture,
+            self.agent_capture,
             self.compose_agent && self.compose_bridge.is_some(),
         );
 
@@ -1621,24 +1621,6 @@ impl Render for InspectorWorkspace {
             .text_color(colors.text)
             .text_size(px(studio::FONT_BODY))
             .child(header_toolbar)
-            .children(self.error.clone().map(|error| {
-                div()
-                    .flex_shrink_0()
-                    .px(px(10.))
-                    .py(px(4.))
-                    .text_size(px(studio::FONT_SUPPORTING))
-                    .text_color(colors.error)
-                    .child(crate::studio::selectable(error))
-            }))
-            .children(self.compatible_capture.then(|| {
-                div()
-                    .flex_shrink_0()
-                    .px(px(10.))
-                    .py(px(4.))
-                    .text_size(px(studio::FONT_SUPPORTING))
-                    .text_color(colors.warning)
-                    .child(language.text(TextKey::InspectorCompatibleNotice))
-            }))
             .children(self.busy.then(|| {
                 div()
                     .flex_shrink_0()
@@ -1689,14 +1671,38 @@ fn compose_inspection_confirmation(
         &[("serial", &serial), ("package", &package), ("pid", &pid)],
     );
     let message = receipt.map_or_else(String::new, |receipt| {
-        let value = |key: &str| receipt["identity"][key].as_str().map(str::to_owned).unwrap_or_else(|| receipt["identity"][key].to_string());
+        let value = |key: &str| {
+            receipt["identity"][key]
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| receipt["identity"][key].to_string())
+        };
         let version = value("composeVersion");
         let api = value("apiLevel");
         let abi = value("abi");
         let bundle = value("bundleFingerprint");
         let source = receipt["inspectorSource"].as_str().unwrap_or("?");
-        let download = language.text(if receipt["inspectorDownloadRequired"].as_bool().unwrap_or(true) { TextKey::InspectorValueYes } else { TextKey::InspectorValueNo });
-        language.format(TextKey::InspectorComposePreflightDetails, &[("version", &version), ("api", &api), ("abi", &abi), ("source", &source), ("download", &download), ("bundle", &bundle)])
+        let download = language.text(
+            if receipt["inspectorDownloadRequired"]
+                .as_bool()
+                .unwrap_or(true)
+            {
+                TextKey::InspectorValueYes
+            } else {
+                TextKey::InspectorValueNo
+            },
+        );
+        language.format(
+            TextKey::InspectorComposePreflightDetails,
+            &[
+                ("version", &version),
+                ("api", &api),
+                ("abi", &abi),
+                ("source", &source),
+                ("download", &download),
+                ("bundle", &bundle),
+            ],
+        )
     });
     let confirm = language.text(TextKey::InspectorComposeInspectionConfirm);
     let cancel = language.text(TextKey::InspectorComposeInspectionCancel);
@@ -2457,6 +2463,7 @@ fn status_bar(
     visible_count: usize,
     hidden: &BTreeSet<String>,
     compatible_capture: bool,
+    agent_capture: bool,
     full_compose_capture: bool,
 ) -> AnyElement {
     let package = archive.map_or_else(
@@ -2515,7 +2522,9 @@ fn status_bar(
         .child(status_value(
             language.text(TextKey::InspectorStatusSource),
             language
-                .text(if compatible_capture {
+                .text(if agent_capture {
+                    TextKey::InspectorAgentView
+                } else if compatible_capture {
                     TextKey::InspectorCompatibleView
                 } else if full_compose_capture {
                     TextKey::InspectorComposeAgent
@@ -4701,6 +4710,28 @@ impl InspectorWorkspace {
             return;
         };
         self.toggle_collapsed(id, cx);
+    }
+}
+
+impl NoticeSource for InspectorWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if self.compatible_capture {
+            // The ADB capture-mode explanation moved from the toolbar strip into
+            // the title-bar notification panel so it stays available and copyable
+            // without occupying layout space above the hierarchy.
+            notices.push(NoticeSnapshot::warning(
+                self.language
+                    .text(TextKey::InspectorCompatibleNotice)
+                    .to_owned(),
+            ));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
     }
 }
 

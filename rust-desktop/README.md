@@ -94,12 +94,19 @@ provenance, stage breakdown details, warnings, evidence copy, and the same
 bounded export lifecycle.
 
 These pages are deliberately bounded by the Rust engines currently available:
-Memory is offline HPROF analysis through the isolated worker; Frame is offline
-gfxinfo FrameStats analysis. Online Android capture, Perfetto FrameTimeline,
+Memory supports offline HPROF analysis and explicit Java heap capture from the
+title-bar device/process target. Dump Heap runs bounded ADB commands, retains
+the captured file for its snapshot tab, and loads it through the isolated
+worker. The device must permit `am dumpheap` for that process; the application
+does not root the device, restart a process or bypass Android permissions.
+Cancellation or a changed target discards the pending result and preserves the
+previous snapshot. Closing its tab removes the owned local capture files.
+Frame is offline gfxinfo FrameStats analysis. Other live capture modes, Perfetto
+FrameTimeline,
 FrameMetrics/JankStats attribution, native heap, ART samples, Bitmap dump files,
 LeakCanary/Shark and multi-source provenance still require separate Rust
-adapters and are shown as unavailable rather than being simulated. Live capture
-buttons are visibly disabled rather than faked. Snapshot comparison
+adapters and are shown as unavailable rather than being simulated. These
+unsupported capture buttons remain disabled. Snapshot comparison
 uses only class aggregates from two independent dumps; equal object IDs never
 imply shared identity. Live timeline/GC markers and native/bitmap metrics are
 not inferred from an offline HPROF.

@@ -16,6 +16,7 @@ mod state;
 mod style;
 mod widgets;
 
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_ai::runtime::{AiRuntime, FrozenRun, RunStatus, SessionSummary, TurnRecord};
 use aps_ai::{AnalysisRequest, ProviderCatalog, ReportFormat, ReportLanguage};
 use aps_ui_foundation::{Language, TextKey};
@@ -1556,5 +1557,20 @@ impl crate::shell::menubar::MenuHost for AiWorkspace {
             AiMenuCommand::FocusSearch => self.focus_search(window, cx),
             AiMenuCommand::ClearEvidence => self.invalidate_origin(cx),
         }
+    }
+}
+
+impl NoticeSource for AiWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.state.error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.state.models_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
     }
 }

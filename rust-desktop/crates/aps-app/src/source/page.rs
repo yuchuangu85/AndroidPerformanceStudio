@@ -231,14 +231,6 @@ pub(super) fn render(
         )
         .child(toolbar(this, &colors, cx))
         .child(studio::divider(&colors));
-    if let Some(error) = this.page_error.clone() {
-        root = root.child(message_line(error, colors.error));
-    }
-    if let Some(error) = this.permissions_error.clone() {
-        if this.page_error.as_deref() != Some(error.as_str()) {
-            root = root.child(message_line(error, colors.error));
-        }
-    }
     root.child(
         div()
             .flex_1()
@@ -1346,18 +1338,6 @@ fn lsp_usages_panel(
         );
     }
     card.into_any_element()
-}
-
-fn message_line(message: String, color: Rgba) -> AnyElement {
-    div()
-        .w_full()
-        .flex_shrink_0()
-        .px(px(12.))
-        .py(px(8.))
-        .text_size(px(FONT_SUPPORTING))
-        .text_color(color)
-        .child(crate::studio::selectable(message))
-        .into_any_element()
 }
 
 fn pane_status(message: impl Into<SharedString>, color: Rgba) -> AnyElement {

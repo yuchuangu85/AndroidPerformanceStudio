@@ -103,10 +103,12 @@ class CpuProfilerPendingCardsTest {
 
             onNodeWithTag("cpu-kpi-strip-pending").assertExists()
             assertEquals(
-                CPU_BASE_KPI_KINDS.size,
+                CPU_BASE_KPI_KINDS.size + 1,
                 onAllNodes(hasText("Session did not load")).fetchSemanticsNodes().size,
             )
-            onNodeWithText("SESSION_BROKEN: perf.data truncated").assertExists()
+            assertTrue(
+                onAllNodes(hasText("SESSION_BROKEN: perf.data truncated")).fetchSemanticsNodes().isEmpty(),
+            )
             onNodeWithText("Back").performClick()
             assertTrue(closed)
         }

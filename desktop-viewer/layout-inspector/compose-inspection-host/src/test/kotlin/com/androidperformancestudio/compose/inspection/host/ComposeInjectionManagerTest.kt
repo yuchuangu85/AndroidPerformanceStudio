@@ -24,6 +24,41 @@ class ComposeInjectionManagerTest {
     lateinit var tempDir: Path
 
     @Test
+    fun `socket discovery matches the exact PID rather than another PID prefix`() {
+        assertTrue(inspectorSocketPresent("000: 00000002 0001 01 123 @ui_inspector_6124\n", 6124))
+        assertTrue(inspectorSocketPresent("@ui_inspector_6124\n", 6124))
+        assertFalse(inspectorSocketPresent("000: 00000002 0001 01 123 @ui_inspector_61240\n", 6124))
+        assertFalse(inspectorSocketPresent("@ui_inspector_6124_suffix\n", 6124))
+    }
+
+    @Test
+    fun `preflight waits for a recently closed session without injecting`() {
+        var socketReads = 0
+        val fixture = delayedAttachFixture(logcat = "") { arguments ->
+            if (arguments.takeLast(2) == listOf("cat", "/proc/net/unix")) {
+                socketReads++
+                ProcessResult(0, if (socketReads == 1) "@ui_inspector_1234\n" else "", "")
+            } else null
+        }
+        assertEquals(2, socketReads)
+        assertFalse(fixture.commands.any { it.contains("attach-agent") || it.contains("forward") })
+    }
+
+    @Test
+    fun `preflight explains a persistent socket without disconnecting an unknown session`() {
+        val error = assertThrows(IllegalStateException::class.java) {
+            delayedAttachFixture(logcat = "") { arguments ->
+                if (arguments.takeLast(2) == listOf("cat", "/proc/net/unix")) {
+                    ProcessResult(0, "@ui_inspector_1234\n", "")
+                } else null
+            }
+        }
+        assertTrue(error.message.orEmpty().contains("previous inspection session"))
+        assertTrue(error.message.orEmpty().contains("5 minutes"))
+        assertTrue(error.message.orEmpty().contains("will not disconnect an unknown session"))
+    }
+
+    @Test
     fun `preflight detects exact APK version without injecting and reports artifact download`() {
         val bundle = createBundle(tempDir.resolve("bundle"))
         val commands = mutableListOf<List<String>>()

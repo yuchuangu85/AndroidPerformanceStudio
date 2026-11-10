@@ -133,7 +133,7 @@
   "memory_page_callstack_option": "调用栈",
   "memory_page_cancel": "取消",
   "memory_page_capture_native_heap": "抓取 Native 堆",
-  "memory_page_capture_unavailable": "此构建尚未接入实时设备采集；请改为导入产物。",
+  "memory_page_capture_unavailable": "此构建尚未接入该采集模式。",
   "memory_page_class_histogram": "类直方图",
   "memory_page_class_level_diff": "类级别差异；不同快照之间不建立稳定对象身份。",
   "memory_page_class_list": "类列表",

@@ -3,6 +3,7 @@
 //! All heap analysis runs in the isolated `aps-memory` worker; this module owns
 //! the GPUI state machine, background queries and the Compose-shaped page.
 pub(super) mod auxiliary;
+pub(super) mod capture;
 pub(super) mod classes;
 pub(super) mod comparison;
 pub(super) mod dashboard;
@@ -273,6 +274,7 @@ impl ImportWorkspace {
         };
         self.memory_state.selection_generation += 1;
         let generation = self.memory_state.selection_generation;
+        let snapshot_id = self.memory_snapshot_id;
         let heap = self.memory_state.selected_class_heap.clone();
         let cancel = CancellationToken::new();
         self.memory_state.instances_loading = true;
@@ -294,7 +296,9 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                if this.memory_state.selection_generation != generation {
+                if this.memory_snapshot_id != snapshot_id
+                    || this.memory_state.selection_generation != generation
+                {
                     return;
                 }
                 this.memory_state.instances_loading = false;
@@ -330,6 +334,7 @@ impl ImportWorkspace {
         };
         self.memory_state.detail_generation += 1;
         let generation = self.memory_state.detail_generation;
+        let snapshot_id = self.memory_snapshot_id;
         let cancel = CancellationToken::new();
         self.memory_state.detail_loading = true;
         self.memory_state.detail = None;
@@ -345,7 +350,9 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                if this.memory_state.detail_generation != generation {
+                if this.memory_snapshot_id != snapshot_id
+                    || this.memory_state.detail_generation != generation
+                {
                     return;
                 }
                 this.memory_state.detail_loading = false;
@@ -390,6 +397,7 @@ impl ImportWorkspace {
         };
         self.memory_state.dominator_generation += 1;
         let generation = self.memory_state.dominator_generation;
+        let snapshot_id = self.memory_snapshot_id;
         if let Some(parent) = parent {
             if !self.memory_state.dominator_loading.insert(parent) {
                 return;
@@ -408,7 +416,9 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                if this.memory_state.dominator_generation != generation {
+                if this.memory_snapshot_id != snapshot_id
+                    || this.memory_state.dominator_generation != generation
+                {
                     return;
                 }
                 if let Some(parent) = parent {
@@ -512,6 +522,7 @@ impl ImportWorkspace {
         }
         self.memory_state.comparison_generation += 1;
         let generation = self.memory_state.comparison_generation;
+        let snapshot_id = self.memory_snapshot_id;
         self.memory_state.comparison_loading = true;
         self.memory_state.comparison_error = None;
         let task = cx
@@ -520,7 +531,9 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let report = task.await;
             this.update(cx, |this, cx| {
-                if this.memory_state.comparison_generation != generation {
+                if this.memory_snapshot_id != snapshot_id
+                    || this.memory_state.comparison_generation != generation
+                {
                     return;
                 }
                 this.memory_state.comparison_loading = false;

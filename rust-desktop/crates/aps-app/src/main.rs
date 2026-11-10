@@ -10,6 +10,7 @@ mod import;
 mod inspector;
 mod method;
 mod net;
+mod notifications;
 mod perfetto_tool;
 mod shell;
 mod source;

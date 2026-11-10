@@ -2274,3 +2274,402 @@ gutter - 8 px column padding - 16 px card padding).
   Screenshots: build/source-workspace/source-card-actions-before.png,
   source-card-actions-after.png and source-card-actions-default.png (ignored
   build tree).
+
+### Memory Java heap capture target wiring - 2026-11-10
+
+- The Memory toolbar's Dump Heap action now follows the title-bar device and
+  application-process selection instead of staying permanently disabled.
+  Device/process changes, cancellation and snapshot switching invalidate a
+  pending capture. Selecting a target alone never starts device work.
+- The blocking adapter reuses the shared ADB locator, verifies the online
+  device and process descriptor, checks boot ID/process start time, issues an
+  explicit `am dumpheap`, pulls a validated raw Android HPROF and attempts
+  cleanup of only its generated device path. No root, restart, agent injection,
+  `hprof-conv` or new dependency is required. Android dump permissions remain
+  authoritative and bounded device diagnostics are surfaced on failure.
+- The existing isolated HPROF worker parses and projects the captured bytes
+  before the UI publishes a new snapshot. Failure retains the old snapshot.
+  Snapshot IDs bind late instance/detail/dominator/comparison query results.
+  Capture scratch ownership follows its tab and pending exports; user export
+  destinations cannot be inside that temporary capture directory.
+- Native heap, ART samples, bitmap capture and agent injection remain disabled
+  with explicit unavailable tooltips. This is a Java heap capture addition,
+  not a complete Memory feature-parity or release claim.
+- Identity observations are not atomic, and the ADB pull size watchdog is not
+  a hard disk-write ceiling. A disconnected device can prevent remote cleanup.
+  Full payload acceptance remains with the isolated worker.
+- Authored capture/target/lifecycle regression sources are compiled only.
+  Test execution, live device dumping and native GUI acceptance remain deferred
+  under the existing rewrite policy.
+- Fresh local evidence: `cargo check --locked --offline -p aps-app --all-targets`,
+  `cargo clippy --locked --offline -p aps-app --all-targets --no-deps`, app and
+  `aps-memory-worker` builds completed. Changed Rust files passed `rustfmt`
+  checks and the diff passed whitespace validation. Repository warnings remain;
+  these checks do not establish real-device or native-UI acceptance.
+
+
+### Layout Inspector live capture: Compose-parity ADB View tree — 2026-11-10
+
+The Rust Layout Inspector could only show an accessibility projection: live refresh
+ran `adb exec-out uiautomator dump /dev/tty` and labelled the result an "ADB
+compatible view". The Compose version instead captures the runtime View tree with
+`adb exec-out cmd window dump-visible-window-views` and only falls back to
+UIAutomator. On the same device that difference is visible: for the launcher the
+Rust page showed one UIAutomator window while Compose shows the launcher's two
+real windows with runtime classes and 91 raw View properties per node.
+
+This slice ports the Compose capture path (`AdbFallbackCapture.capture`,
+`captureHierarchy`, `expandShallowComposeHierarchy` and
+`VisibleWindowHierarchyParser`) into `aps-layout-inspector`:
+
+- `crates/aps-layout-inspector/src/visible_window.rs` (new) decodes the
+  `dump-visible-window-views` ZIP. Each entry is Android's `ViewHierarchyEncoder`
+  wire format (big-endian typed values `Z/B/S/I/J/F/D/R/M`, typed-short maps, a
+  trailing property-name index and `window:left`/`window:top` prefix pairs). The
+  module keeps the Kotlin oracle's window filtering (package containment, System
+  UI title list, Android 16 launcher taskbar), window id/title/type derivation,
+  absolute bounds composition (parent + scroll + drawing translation), visibility
+  propagation, `ViewAttributes` projection and sorted raw properties (with Java
+  `Float/Double.toString` formatting). It also owns the UIAutomator
+  `promoteComposeSemantics` parity used when the accessibility projection is
+  adopted.
+- `crates/aps-layout-inspector/src/compatible.rs` now tries the runtime View dump
+  three times (75 ms apart) and falls back to the UIAutomator projection; a
+  window containing `ComposeView`/`AndroidComposeView` also runs the
+  accessibility projection and adopts it only when it carries Compose semantics
+  and has more nodes, exactly like `expandShallowComposeHierarchy`. Adopted
+  accessibility nodes use Kotlin's structural ids (`root/0/1`), window identity
+  (`window:uiautomator`, type `ACTIVITY`, package-derived title), blank
+  text/resource/content-description filtering, `visible-to-user` mapping and the
+  five accessibility raw properties. The System UI target no longer requires a
+  foreground app, and the foreground marker priority matches
+  `AdbOutputParser.parseForegroundPackage`.
+- `crates/aps-layout-inspector/src/lib.rs` now treats optional display-only
+  bounds (`layoutBounds`, `clipBounds`) as evidence instead of structural bounds:
+  an inverted clip rect from a real System UI window used to fail the whole
+  attribute projection and silently drop every attribute and raw property of
+  that node. Only node/window bounds keep the order invariant.
+- Locale copy in both catalogs now describes the ADB view-tree capture, the
+  Compose-host accessibility expansion and the non-atomic hierarchy/screenshot
+  pair. The crate README documents the adapter and its bounds.
+
+The independent parity audit (Python decoder written from the Kotlin oracle,
+fake-adb replays of recorded device bytes, live device captures) reports 0
+mismatches for the native path: 333 launcher nodes, 695 shaded System UI nodes
+(all 42 `ViewAttributes` fields plus raw properties, ids, titles, kinds, default
+window) and 0 mismatches for the promoted Compose projection apart from the
+intentional deviations below; its inverted-clip and adoption-condition findings
+were fixed as described. For `com.codemx.anrdemo` (Compose) the capture adopts
+the accessibility projection: 66 nodes, 4 View + 62 Compose nodes, structural
+ids `root/...`, and Kotlin semantic property names.
+
+Deliberate deviations from the Kotlin fallback, required by the Rust ingestion
+contract or evidence policy:
+
+- Runtime-dump decode is bounded: input/entry/decoded-byte/entry-count caps,
+  depth capped at 63 (children deeper are dropped), 100k nodes across the dump
+  (further children dropped), absolute coordinates bounded to +/-1e6, non-finite
+  attribute floats omitted and alpha clamped to `0..=1`.
+- Accessibility projection bounds are sanity-bounded instead of being clamped to
+  the display (Kotlin keeps offscreen/inverted bounds); inverted sides coerce to
+  a zero extent so the structural invariant holds.
+- `display.density` uses `wm density / 160` (3.5 on the test device) while the
+  Kotlin fallback reports `1.0`; the Rust canvas uses the real density.
+- Protocol version stays `1.0` (Kotlin `CURRENT_PROTOCOL_VERSION` is `1.1`).
+- Window titles are carried in the capture snapshot JSON, but the Rust
+  `LayoutWindow`/status bar still show window ids; Compose's window-selector
+  titles (e.g. `NotificationShade`) remain a presentation gap.
+- Screenshot failure is fatal and `wm size`/foreground are re-checked after
+  capture, so a non-atomic pair is rejected rather than published; Kotlin
+  tolerates a missing screenshot and does not re-check.
+- The in-app agent capture path (`run-as` session + socket `CaptureFrame`) is not
+  ported; the Kotlin `ComposeBridge` helper remains the opt-in full Compose
+  inspection path. `capture_compatible` therefore matches the Compose *ADB
+  fallback* capture, not the agent-backed capture for instrumented apps.
+
+Evidence: `cargo fmt -p aps-layout-inspector`, `cargo check --locked --offline -p
+aps-layout-inspector --all-targets` (clean), and live capture on the attached
+device (TCL T853K, Android 17/API 37, 1280x2772 @ 560 dpi): launcher 2 windows /
+23+310 nodes (depth 6/16), System UI with shade 3 windows / 81+594+20 nodes
+(depth 18/14/4, inverted-clip node keeps 91 raw properties), Compose sample app
+adopted 66-node promoted accessibility projection. Independent audit artifacts
+are outside the repo (`.dsh-tmp/inspector-visible-window/`, `/tmp/aps-insp/`).
+A native smoke run of the debug binary with `APS_RUST_OPEN_ROUTE=inspector`
+renders the Inspector route with the device link and the new view-capture status
+text (screenshot in the ignored build tree at
+`build/live-capture-verification/inspector-route.png`); the interactive refresh
+click-through was not scriptable because this session was not granted macOS
+accessibility automation, so the live capture itself was verified through the
+probe and the independent audit rather than through the GUI.
+
+Tests were authored (wire-format fixture, bounds composition, child ordering,
+filters, ids/titles/types, snapshot shape, promotion, malformed/oversized/deep
+input, inverted clipBounds retention, adoption condition) but were not executed,
+per the rewrite validation policy.
+
+
+### Layout Inspector agent-first live capture — 2026-11-10
+
+The previous slice matched the Compose host's ADB *fallback* capture. Compose is
+agent-first: `LiveDeviceClient.connectWithFallback` reads the target app's
+`files/agentperf/session.json`, talks to the in-app Kotlin/Java agent over an
+`adb forward`ed abstract socket and captures the real runtime View tree plus a
+PixelCopy screenshot; only an unreadable agent session falls back to ADB. This
+slice ports that transport:
+
+- `crates/aps-layout-inspector/src/agent_bridge.rs` (new) ports
+  `LiveDeviceClient.connectAgent`, `AgentSessionDescriptor`, `CaptureFrameCodec`
+  and the agent part of `ConnectedDeviceSession.capture`: bounded `run-as` session
+  read, descriptor validation (protocol major 1, safe socket name, whitespace-free
+  token), ephemeral loopback port + `adb forward` with an RAII removal guard,
+  `PING <token>` -> `PONG 1.0` authentication, a second connection for
+  `CAPTURE <token>` with the `CAPTURE <snapshotBytes> <screenshotBytes>` /
+  `ERROR <code> <message>` framing (<=128 B header, 8 MiB snapshot, 32 MiB
+  screenshot, exact reads, 5 s socket timeouts, 30 s adb timeout), token redaction
+  from remote text, multi-window full-display `screencap -p` replacement with the
+  display extent replaced by the PNG dimensions, screenshot/display consistency,
+  and projection through the shared bounded `parse_snapshot` ingestion. Token and
+  frame bytes are never logged; every forward is removed on success, error and
+  cancellation paths.
+- `crates/aps-layout-inspector/src/compatible.rs` now tries the agent first for
+  the foreground app, post-verifies the foreground package and returns the agent
+  frame; `Unavailable` falls through to the existing ADB View/UIAutomator capture.
+  The System UI target never tries the agent.
+- `InspectorProtocolFrame` gained `from_agent`, propagated into the GPUI
+  `InspectorWorkspace`: agent frames show no ADB-compatibility notice and the
+  status source reads `Agent view` / `Agent 视图` (new locale key), while ADB
+  frames keep the existing notice and label.
+
+Deliberate strictness beyond Kotlin (evidence integrity): only an unreadable
+session descriptor is fallback-worthy; malformed descriptors, forward failures,
+authentication mismatches, remote `ERROR`s, invalid snapshots and a failed
+multi-window screencap are hard errors instead of Compose's raw-frame/
+`runCatching` best effort. The agent screenshot must match the final display
+extent, and the archive ingestion limits still apply (depth 64, 100k nodes,
+unique node ids, structural bounds). A stale session descriptor whose abstract
+socket is gone (force-stopped app) is also a hard error, matching Compose; only
+an unreadable descriptor falls back to ADB. Each capture uses its own short-lived
+forward rather than Compose's reusable session, so refreshes pay one extra
+`run-as`/forward/AUTH round-trip but never leak a forwarding socket. The
+injected-agent path for Compose *inspection* remains the separate Kotlin
+`ComposeBridge` helper; this transport is the view/hierarchy capture path.
+
+Evidence: `cargo fmt -p aps-layout-inspector -- --check`, `cargo check --locked
+--offline -p aps-layout-inspector --all-targets` and `cargo clippy --locked
+--offline -p aps-layout-inspector --all-targets` are clean, and `aps-app` builds
+with the new status source. Agent transport was exercised end-to-end against a
+fake agent (7/7 scenarios: single window, multi-window screencap replacement,
+remote ERROR, auth mismatch, cancellation, run-as unavailable, empty descriptor)
+and against a real agent-enabled debug sample app on the attached device (TCL
+T853K, Android 17/API 37): live Rust probe returned `from_agent=true`, package
+`com.androidperformancestudio.sample`, one `window:1` ACTIVITY, 8 nodes depth 4,
+display 1280x2772 density 3.5, screenshot 75740 B 1280x2772 with SHA-256
+`bac5132...` byte-identical to the independent Python oracle, and the adb forward
+list was empty afterwards. The independent oracle comparison reports 0
+mismatches over 8 nodes / 451 compared values and 16/16 frame checks; the
+non-agent fallback was re-verified with the launcher (fromAgent=false, two ADB
+View windows). Oracle artifacts live outside the repo in
+`.dsh-tmp/inspector-agent/` and `/tmp/aps-insp/agent/`.
+
+Remaining gaps: the real multi-window full-display replacement path was only
+exercised through the fake adb shim (the sample app has one window); no real
+Compose app was available for real Compose-semantics nodes (synthetic fixture
+only); session reuse is not implemented; interactive GUI click-through was not
+possible in this session (no macOS accessibility automation permission), so the
+agent frame was verified through the same `capture_compatible` API the UI calls.
+
+Pre-existing Kotlin-side issue found while building the agent sample (out of
+scope, repo sources unchanged): `StartupMetricsAgent.kt:145` removes the frame
+metrics listener twice when the first-frame callback fires twice, crashing any
+agent-enabled app on API 37 (fatal `IllegalArgumentException` on
+`agentperf-startup-metrics`). The canonical repo build of the sample app is also
+currently broken independently of this port (AGP 9.4.1 built-in Kotlin/KGP
+classpath `BaseVariant` failure, sample `minSdk 21` vs
+`androidx.activity 1.13.0` requiring 23); the device verification used an
+out-of-repo staged build with only that listener removal guarded.
+
+
+### Window title bar centres the active page name — 2026-11-10
+
+The app-drawn title strip showed only the product name on the left and the
+device/process targets on the right, so the current page was not identifiable
+without reading the navigation rail or the page itself. Compose retitles its
+native window with the active destination (`DesktopAppMainPage.kt` sets
+`windowTitle.value = navigator.destination.titleResource`) and draws that title
+in the hidden-title-bar strip; the Rust window title is hidden
+(`titlebar.title: None`), so the strip had no page identity at all.
+
+- `Studio::render` now builds the title bar in three zones: the product name on
+the traffic-light edge, the active destination's localized name
+(`Destination::label(language)`, the same catalog the navigation rail, Home and
+menus use) in the middle, and the target selectors on the trailing edge. Equal
+`flex_1` side zones centre the label in the content box; because the macOS
+traffic-light inset (78 px) is 62 px wider than the trailing gap (16 px), the
+label adds that difference as trailing padding so its text lands on the
+window's true horizontal centre rather than 31 px right of it.
+- Below a 1140 px window width the fixed 200 px device/process selectors plus the
+leading name cannot coexist with the centred label, so the strip keeps the old
+leading-name layout instead of overlapping controls. The default 1320 px window
+and every normal desktop size show the page name.
+- No new locale keys: the title reuses the existing destination labels in both
+catalogs, so English/Simplified Chinese follow the language setting.
+
+Evidence: `cargo check --locked --offline -p aps-app --all-targets` (clean) and
+`rustfmt --check --edition 2024 crates/aps-app/src/shell.rs` (clean); an authored
+source-inspection test (`titlebar_centres_active_page_name`) guards that the
+centred label, the trailing compensation and the narrow-window threshold stay in
+the render path (not executed, per policy). Native runs with
+`APS_RUST_OPEN_ROUTE=...` show `布局检查器` on the Layout Inspector route,
+`首页` on Home and `基准回归分析` at a 1140x700 debug window (no overlap);
+screenshots are in the ignored build tree under `build/titlebar-page-name/`
+(`inspector-clean.png`, `home.png`, `benchmark-1140.png` at the wide layout,
+`narrow.png` at 1000x700 showing the fallback layout).
+
+
+### Layout Inspector fills its page when a device is linked — 2026-11-10
+
+The page showed `设备已连接` (device linked) in the header and then empty panes:
+entering the Layout Inspector only set the target and waited for a manual
+`刷新` click, so a connected device looked like a failed capture. The header
+status also mislabelled live frames from the in-app agent as `离线归档`
+(offline archive) because the status branch only knew the ADB-compatible flag
+before falling back to "archive present".
+
+- `InspectorWorkspace::capture_if_idle` runs the normal `refresh` exactly once
+  for the page entry case: only when a device serial is selected, no frame is
+  loaded, no capture is running and no Compose-inspection authorization is
+  pending. It never replaces an existing frame and keeps a single background
+  capture, so the Refresh button remains the manual path for later refreshes.
+- `Studio::new`/`Studio::navigate` trigger it when the Layout Inspector route is
+  entered, and the `TargetSelectionChanged` subscription triggers it when a
+  device resolves while the page is already open (first launch, reconnect, or a
+  device selected from the title bar). Both paths share the same guard, so they
+  cannot double-capture.
+- The header status now distinguishes agent frames (`Agent 视图`) from ADB frames
+  (`ADB 视图采集`) and offline archives (`离线归档`). The bottom status bar already
+  did this; the header had been showing `离线归档` for agent captures.
+- Debug-only verification seam `APS_RUST_INSPECTOR_CAPTURE=<serial>` starts one
+  live capture on launch without native clicks; `APS_RUST_OPEN_ROUTE=inspector`
+  alone is enough to verify the new auto-capture path.
+
+Evidence: `cargo check --locked --offline -p aps-app --all-targets` clean; an
+authored source-inspection test (`inspector_page_auto_captures_once_on_entry`)
+guards the navigate/selection wiring and the `archive.is_some()` guard (not
+executed, per policy). Native runs of `APS_RUST_OPEN_ROUTE=inspector` with a
+connected device show the Agent sample app hierarchy (8 nodes, source
+`Agent 视图`) and the non-agent sample hierarchy (73 nodes, source `ADB 视图采集`)
+without any manual click; screenshots are in the ignored build tree
+(`build/inspector-capture-verify/auto-agent.png`, `auto-adb.png`).
+
+
+### Title-bar notification center for page errors and tips — 2026-11-10
+
+Errors and tips were scattered across the pages as transient local state (red
+lines, warnings, cancellation notices) with no history and no way to copy them
+as a whole. The title bar now ends with a bell button after the process selector:
+clicking it opens an anchored popover where every page error or tip becomes a
+copyable card.
+
+- `crates/aps-app/src/notifications.rs` (new) owns the bounded history and the
+  panel: `NoticeLevel` (Info/Warning/Error), `NoticeSnapshot`,
+  `NoticeSource`, `NoticeCard` and `NotificationCenter`. Cards are newest-first
+  (<=200 cards, <=8 messages per source, <=8 KiB per message). A workspace
+  exposes its *current* messages; the center pushes a card only for messages that
+  changed, coalesces a reappearing identical message into the existing card with
+  an occurrence count, keeps the last snapshot on Clear so still-visible errors
+  do not pop back, marks cards seen when the panel opens, and derives the unread
+  badge from unseen cards. Each card shows severity, source page, relative age
+  and count; the message is a selectable run and its own Copy button copies
+  `[level] source (age) message`. The header adds Copy all, Mark all read, Clear
+  and close; the title-bar badge shows unseen count (9+ cap).
+- `shell.rs` owns the `NotificationCenter` entity, samples every workspace every
+  500 ms through `NoticeSource` in `collect_notices`, and feeds the App-level
+  shell notice plus target discovery errors. The bell button sits at the trailing
+  edge of the title bar (after the device/process selectors, still present on the
+  AI page), and the popover is an absolute overlay below the title bar with a
+  window-wide backdrop (click closes) and Escape handling. The center is observed
+  by the shell, so opening/closing and badge changes repaint immediately.
+- `NoticeSource` adapters were added to CpuWorkspace, AiWorkspace,
+  FrameWorkspace (error + warnings), BenchmarkWorkspace, SourceWorkspace
+  (page/list/permissions errors), CaptureWorkspace (error + cancellation as
+  Info), MethodWorkspace, TraceWorkspace (error/tool/sessions/search errors),
+  InspectorWorkspace, ImportWorkspace (shared error, memory errors, GPU error,
+  page warnings, notices; covers the Memory/Network/Startup/Battery/GPU pages)
+  and TargetsWorkspace (device/process discovery errors). Messages are
+  blank-filtered, clipped to 8 KiB and capped at 8 per source.
+- Locale keys (`shell_notification_*`) were added to both catalogs for the
+  button, panel, levels, ages, empty state and actions; the notification source
+  reuses each destination's localized page name.
+
+Deliberate limits: sampling is state-based, so an error that appears and clears
+within one 500 ms tick may not be recorded; battery report warnings are only
+retained inside parsed report data and are not mapped; neutral statuses (AI save
+success, benchmark run status, memory loading text) are intentionally skipped.
+
+Evidence: `cargo check --locked --offline -p aps-app --all-targets` clean (only
+pre-existing warnings elsewhere); authored unit tests in `notifications.rs` cover
+the snapshot diff/coalescing/clear/unread/copy text logic (not executed, per
+policy). Native runs with `APS_RUST_NOTIFICATIONS_DEMO=1` seed one card per
+severity and `APS_RUST_OPEN_NOTIFICATIONS=1` opens the panel for verification;
+screenshots in the ignored build tree: `build/notifications/badge.png` (unread
+badge 4), `build/notifications/panel.png` (four demo/app cards) and
+`build/notifications/panel-after-adapters.png`, where a real SourceWorkspace
+failure (`cannot lock metadata database for migration`) was collected
+automatically alongside the shell settings notice. The panel, backdrop and
+Escape close, copy buttons and selectable message runs were exercised visually;
+per-card copying writes the same text the Copy all path formats.
+
+
+### Remove the legacy inline error/notice widgets — 2026-11-10
+
+The pages still rendered their old inline message banners next to the new
+notification center, so the same error appeared twice. With every page exposing
+its messages through `NoticeSource`, the duplicated widgets were removed:
+
+- Studio shell notice row (the red line under the title bar shown on every page).
+- Layout Inspector inline error row.
+- Import workspace notice/error banner and the per-import page notice/error rows.
+- Method workspace error row and Capture workspace error row.
+- CPU inline error and metadata-unavailable banners.
+- Battery content error/notice rows.
+- Source Workspaces page-level error banners (dead `message_line` helper removed).
+
+The fields themselves are unchanged and remain the single source for both the
+notification adapters and existing status/validation logic. Progress/busy
+indicators, empty states, bottom status bars (snapshot identity, run state) and
+the Layout Inspector capture-mode explanation were kept because they are status
+chrome rather than copies of the notification stream. Errors now surface only as
+unread cards on the title-bar bell until the panel is opened.
+
+Evidence: `cargo check --locked --offline -p aps-app --all-targets` clean; native
+run with `APS_RUST_NOTIFICATIONS_DEMO=1 APS_RUST_OPEN_NOTIFICATIONS=1` on Home
+shows no inline red settings line while the panel lists the same App-level
+settings error plus a real Source Workspaces failure and the demo cards
+(`build/notifications/without-inline-banners2.png`).
+
+
+### Move the ADB capture-mode notice into the notification center — 2026-11-10
+
+The Layout Inspector still drew the ADB compatibility explanation as an inline
+row between `HeaderToolbar` and the hierarchy pane. That row is gone; the same
+text is now a WARNING card in the title-bar notification panel, where it is
+copyable and no longer consumes vertical layout above the hierarchy.
+
+- `InspectorWorkspace::notice_snapshot` (the existing NoticeSource adapter) now
+  emits `InspectorCompatibleNotice` as a `NoticeSnapshot::warning` whenever the
+  published frame came from the ADB path (`compatible_capture`). The polling
+  notification center turns that into a card on the next tick; switching to an
+  agent capture removes it from the current snapshot without deleting the
+  historical card (matching every other page notice).
+- The inline render block (`self.compatible_capture.then(...)` below
+  `header_toolbar`) was deleted; the hierarchy pane now starts directly under the
+  toolbar. The compact `ADB 视图采集` / `Agent 视图` status chip in the toolbar is
+  unchanged, and the bottom status bar source label is unchanged.
+
+Evidence: `cargo check --locked --offline -p aps-app --all-targets` clean and
+`rustfmt --check` clean on `inspector.rs`. Native run with
+`APS_RUST_OPEN_ROUTE=inspector APS_RUST_OPEN_NOTIFICATIONS=1` against the
+non-agent sample app shows the hierarchy starting directly under the toolbar and
+the panel listing `警告 · 布局检查器 · ADB capture-mode explanation` together with
+the App-level settings error and a real Source Workspaces failure
+(`build/notifications/open-test-15s.png`).

@@ -6,6 +6,7 @@
 //! refreshes, and publishes changes so feature pages can follow the title-bar
 //! target. Discovery is read-only; selection never authorizes capture.
 
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_adb::{AdbClient, AdbDevice, AdbLocator, AndroidApplicationProcess};
 use aps_platform::CancellationToken;
 use aps_ui_foundation::{Language, TextKey};
@@ -805,6 +806,21 @@ fn retained_process(
     let pid = current?;
     let old = previous.iter().find(|process| process.pid == pid)?;
     next.iter().any(|process| process == old).then_some(pid)
+}
+
+impl NoticeSource for TargetsWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = self.discovery.device_error() {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.discovery.process_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
+    }
 }
 
 #[cfg(test)]

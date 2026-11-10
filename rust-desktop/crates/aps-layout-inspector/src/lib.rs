@@ -1,5 +1,7 @@
-//! Read-only native Inspector capture archive import. ZIP/manifest integrity is
-//! checked before publishing a frame; no ADB, Agent injection or runtime capture.
+//! Native Inspector capture: bounded archive import plus live capture projections.
+//! ZIP/manifest integrity is checked before publishing an archive frame; the
+//! live agent-first and ADB capture paths are documented in `agent_bridge` and
+//! `compatible`. The Android Agents remain Kotlin/Java.
 
 use aps_contracts::SourceDigest;
 use aps_json::{Limits, Value};
@@ -11,9 +13,12 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use zip::{CompressionMethod, ZipArchive};
 
+mod agent_bridge;
 mod compatible;
 mod compose_bridge;
 mod protocol;
+mod visible_window;
+pub use agent_bridge::{AgentCapture, capture_agent};
 pub use compatible::{CompatibleTarget, capture_compatible};
 pub use compose_bridge::ComposeBridge;
 pub use protocol::{InspectorProtocolFrame, InspectorProtocolSession};
@@ -25,6 +30,10 @@ const SCREENSHOT: &str = "capture/screenshot.png";
 const MAX_ARCHIVE: u64 = 172 * 1024 * 1024;
 const MAX_TOTAL: u64 = 156 * 1024 * 1024;
 const MAX_NODES: usize = 100_000;
+const MAX_HIERARCHY_DEPTH: usize = 128;
+// Each UiNode adds both an object and a children array. Leave room for the
+// archive/window/sidecar envelopes and bounded leaf attributes/parameter data.
+const MAX_HIERARCHY_JSON_DEPTH: usize = 2 * MAX_HIERARCHY_DEPTH + 32;
 pub const MAX_PAGE_SIZE: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -452,14 +461,20 @@ impl InspectorArchive {
             match entry.name.as_str() {
                 SNAPSHOT => {
                     snapshot = Some(
-                        aps_json::parse_slice(&bytes, json_limits(entry_limit(SNAPSHOT)))
-                            .map_err(|_| InspectorError::InvalidSnapshot)?,
+                        aps_json::parse_slice_with_extended_depth(
+                            &bytes,
+                            hierarchy_json_limits(entry_limit(SNAPSHOT)),
+                        )
+                        .map_err(|_| InspectorError::InvalidSnapshot)?,
                     )
                 }
                 COMPOSE => {
                     compose = Some(parse_compose(
-                        &aps_json::parse_slice(&bytes, json_limits(entry_limit(COMPOSE)))
-                            .map_err(|_| InspectorError::InvalidSnapshot)?,
+                        &aps_json::parse_slice_with_extended_depth(
+                            &bytes,
+                            hierarchy_json_limits(entry_limit(COMPOSE)),
+                        )
+                        .map_err(|_| InspectorError::InvalidSnapshot)?,
                         &package,
                         captured_at,
                     )?)
@@ -668,6 +683,12 @@ fn json_limits(max_bytes: u64) -> Limits {
         max_nodes: 2_000_000,
         max_string_bytes: 256 * 1024,
         max_collection_items: MAX_NODES,
+    }
+}
+fn hierarchy_json_limits(max_bytes: u64) -> Limits {
+    Limits {
+        max_depth: MAX_HIERARCHY_JSON_DEPTH,
+        ..json_limits(max_bytes)
     }
 }
 fn check_cancel(cancel: &CancellationToken) -> Result<(), InspectorError> {
@@ -939,10 +960,31 @@ fn optional_bounds(
     map: &aps_json::Map<String, Value>,
     key: &str,
 ) -> Result<Option<Bounds>, InspectorError> {
-    match map.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(value) => bounds(value).map(Some),
-    }
+    // Optional display-only bounds (`layoutBounds`, `clipBounds`) are not
+    // structural hierarchy bounds. Kotlin's protocol `Bounds` carries arbitrary
+    // i32 sides and only coerces width/height when displayed; real System UI
+    // windows have been observed with an inverted clip rect. Reading them with
+    // the structural order check used to fail the whole attribute projection and
+    // silently drop every other attribute and raw property of that node, so only
+    // node and window bounds stay order-validated.
+    let Some(value) = map.get(key).filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let map = object(value)?;
+    Ok(Some(Bounds {
+        left: integer(map, "left")?
+            .try_into()
+            .map_err(|_| InspectorError::InvalidSnapshot)?,
+        top: integer(map, "top")?
+            .try_into()
+            .map_err(|_| InspectorError::InvalidSnapshot)?,
+        right: integer(map, "right")?
+            .try_into()
+            .map_err(|_| InspectorError::InvalidSnapshot)?,
+        bottom: integer(map, "bottom")?
+            .try_into()
+            .map_err(|_| InspectorError::InvalidSnapshot)?,
+    }))
 }
 
 fn optional_insets(
@@ -1070,7 +1112,7 @@ fn flatten(
     total: &mut usize,
     raw_budget: &mut u64,
 ) -> Result<(), InspectorError> {
-    if depth > 64 || *total >= MAX_NODES {
+    if depth > MAX_HIERARCHY_DEPTH || *total >= MAX_NODES {
         return Err(InspectorError::Limit);
     }
     let map = object(value)?;
@@ -1162,7 +1204,11 @@ fn parse_compose_source(value: &Value) -> Result<ComposeSourceLocation, Inspecto
 fn parse_compose_node(
     value: &Value,
     nodes: &mut std::collections::BTreeMap<i64, ComposeNodeEvidence>,
+    depth: usize,
 ) -> Result<(), InspectorError> {
+    if depth > MAX_HIERARCHY_DEPTH {
+        return Err(InspectorError::Limit);
+    }
     if nodes.len() >= MAX_COMPOSE_NODES {
         return Ok(());
     }
@@ -1201,7 +1247,7 @@ fn parse_compose_node(
     );
     if let Some(children) = map.get("children").filter(|value| !value.is_null()) {
         for child in children.as_array().ok_or(InspectorError::InvalidSnapshot)? {
-            parse_compose_node(child, nodes)?;
+            parse_compose_node(child, nodes, depth + 1)?;
         }
     }
     Ok(())
@@ -1220,7 +1266,7 @@ fn parse_compose_nodes(
             continue;
         };
         for child in children.as_array().ok_or(InspectorError::InvalidSnapshot)? {
-            parse_compose_node(child, &mut nodes)?;
+            parse_compose_node(child, &mut nodes, 0)?;
         }
     }
     Ok(nodes)
@@ -1489,4 +1535,71 @@ fn parse_compose(
         details,
         state_reads,
     })
+}
+
+#[cfg(test)]
+mod hierarchy_depth_tests {
+    use super::*;
+
+    #[test]
+    fn deep_compose_sidecar_keeps_all_node_evidence() {
+        let mut child = String::new();
+        for id in (0..80).rev() {
+            child =
+                format!(r#"{{"id":{id},"anchorHash":0,"name":"Example","children":[{child}]}}"#);
+        }
+        let json = format!(
+            r#"{{"schemaVersion":1,"packageName":"example.test","capturedAtEpochMillis":42,"frame":{{"frameId":"frame","generation":1,"mode":"FULL","capabilities":[],"roots":[{{"nodes":[{child}]}}]}}}}"#
+        );
+        let parsed = aps_json::parse_slice_with_extended_depth(
+            json.as_bytes(),
+            hierarchy_json_limits(entry_limit(COMPOSE)),
+        )
+        .unwrap();
+        let evidence = parse_compose(&parsed, "example.test", 42).unwrap();
+        assert_eq!(evidence.nodes.len(), 80);
+        assert!(evidence.nodes.contains_key(&79));
+    }
+}
+
+#[cfg(test)]
+mod clip_bounds_tests {
+    use super::*;
+
+    /// Real System UI windows can carry an inverted clipBounds (Rect(0,498-1280,170)).
+    /// It is display-only evidence: it must not discard the node's other attributes
+    /// and raw properties, while structural node bounds keep their order invariant.
+    #[test]
+    fn inverted_display_only_bounds_do_not_drop_node_attributes() {
+        let snapshot = serde_json::json!({
+            "protocolVersion": {"major": 1, "minor": 0},
+            "packageName": "example.app",
+            "capturedAtEpochMillis": 1,
+            "display": {"widthPx": 10, "heightPx": 10, "density": 1.0},
+            "capabilities": {"viewHierarchy": true},
+            "root": {
+                "type": "view",
+                "id": "root",
+                "className": "android.view.View",
+                "bounds": {"left": 0, "top": 0, "right": 10, "bottom": 10},
+                "attributes": {
+                    "rawProperties": {"layout:left": "0"},
+                    "clipBounds": {"left": 0, "top": 498, "right": 1280, "bottom": 170}
+                }
+            },
+            "windows": []
+        });
+        let frame = FrameIdentity {
+            source_digest: SourceDigest::hash_reader([0u8; 1].as_slice(), 8).unwrap(),
+            package_name: "example.app".into(),
+            captured_at_epoch_millis: 1,
+            protocol_major: 1,
+            protocol_minor: 0,
+        };
+        let archive = parse_snapshot(&snapshot, frame, 1).unwrap();
+        let node = &archive.windows[0].nodes[0];
+        assert_eq!(node.attributes.raw_properties["layout:left"], "0");
+        let clip = node.attributes.clip_bounds.unwrap();
+        assert_eq!((clip.top, clip.bottom), (498, 170));
+    }
 }

@@ -14,6 +14,7 @@ mod permissions;
 mod service;
 mod tree;
 
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_ai::AnalysisRequest;
 use aps_source::{
     PerformanceEvidenceId, ResolutionCandidate, ResolutionConfidence, SourceFile, SourceLocation,
@@ -1159,6 +1160,24 @@ fn open_external_path(path: &Path) {
 impl Render for SourceWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         page::render(self, window, cx)
+    }
+}
+
+impl NoticeSource for SourceWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.page_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.list_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.permissions_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
     }
 }
 

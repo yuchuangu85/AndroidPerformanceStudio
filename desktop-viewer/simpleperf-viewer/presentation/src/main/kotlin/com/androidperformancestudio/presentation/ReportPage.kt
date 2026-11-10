@@ -213,7 +213,10 @@ private fun ReportPendingStatus(
                 )
             is ReportLoadState.Failed ->
                 ReportStatus(
-                    "${loadState.error.code}: ${loadState.error.message}",
+                    localizedStringResource(
+                        SimpleperfViewerRes.sp_kpi_pending_failed,
+                        currentSimpleperfLanguage(),
+                    ),
                     style,
                     actionLabel = localizedStringResource(SimpleperfViewerRes.sp_capture_back, currentSimpleperfLanguage()),
                     onAction = actions.onCloseSession,

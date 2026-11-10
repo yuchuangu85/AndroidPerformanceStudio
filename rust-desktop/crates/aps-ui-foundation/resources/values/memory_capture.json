@@ -1,0 +1,8 @@
+{
+  "memory_page_capture_select_target": "Select an online device and a running application process.",
+  "memory_page_capture_target": "Java heap: {process} (PID {pid}) on {serial}",
+  "memory_page_capture_storage_unavailable": "The local heap capture directory is unavailable.",
+  "memory_page_capture_complete": "Heap captured and analyzed: {process} (PID {pid}).",
+  "memory_page_capture_failed": "Heap capture failed: {detail}",
+  "memory_page_capture_export_outside": "Choose an export destination outside the temporary heap capture directory."
+}

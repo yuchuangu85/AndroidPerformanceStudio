@@ -16,6 +16,7 @@ mod page;
 mod perfetto;
 mod sessions;
 
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_adb::{AdbDevice, AndroidApplicationProcess};
 use aps_ai::AnalysisRequest;
 use aps_contracts::SourceDigest;
@@ -1499,6 +1500,23 @@ impl FrameWorkspace {
 
     pub(crate) fn inspect_layout_primary(&mut self, cx: &mut Context<Self>) {
         self.inspect_layout(cx);
+    }
+}
+
+impl NoticeSource for FrameWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        for warning in self.warnings.iter().take(8) {
+            notices.push(NoticeSnapshot::warning(crate::evidence::clipped(
+                warning, 8192,
+            )));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
     }
 }
 

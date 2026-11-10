@@ -144,10 +144,20 @@ class AospInspectorProtocolClient private constructor(
             socketFactory: (Int) -> Socket = { port ->
                 Socket(InetAddress.getLoopbackAddress(), port).apply { soTimeout = 5_000 }
             },
-        ): AospInspectorProtocolClient = AospInspectorProtocolClient(
-            socket = socketFactory(hostPort),
-            token = token,
-            onEvent = onEvent,
-        )
+        ): AospInspectorProtocolClient {
+            val socket = socketFactory(hostPort)
+            try {
+                return AospInspectorProtocolClient(socket, token, onEvent)
+            } catch (error: Throwable) {
+                // Authentication writes can fail during construction. Closing
+                // this socket lets the agent observe the broken connection.
+                try {
+                    socket.close()
+                } catch (cleanup: Throwable) {
+                    error.addSuppressed(cleanup)
+                }
+                throw error
+            }
+        }
     }
 }

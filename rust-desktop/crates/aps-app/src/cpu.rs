@@ -1,3 +1,4 @@
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::shell::menubar::MenuGroup;
 use crate::studio::{self, StudioColors};
 use aps_contracts::{
@@ -48,8 +49,8 @@ const CPU_SOURCE_PROBE_BYTES: usize = 64 * 1024;
 const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 /// Chart packets are rendered at a fixed logical width and scrolled/painted by
 /// the workspace; the engine viewport is independent of the window width.
-const CHART_WIDTH_PX: f32 = 1400.0;
-const TIMELINE_WIDTH_PX: f32 = 1400.0;
+const CHART_WIDTH_PX: f32 = 1024.0;
+const TIMELINE_WIDTH_PX: f32 = 1024.0;
 const CHART_ROW_HEIGHT_PX: f32 = 18.0;
 const TIMELINE_BUCKETS: usize = 160;
 const TIMELINE_MAX_TRACKS: usize = 24;
@@ -2369,18 +2370,7 @@ impl Render for CpuWorkspace {
                 }),
             )
             .child(workspace_toolbar(self, &colors, cx));
-        if let Some(error) = self.error.clone() {
-            root = root.child(message_line(error.display(self.language), colors.error));
-        }
-        if let Some(error) = self.metadata_error.clone() {
-            let message = format!(
-                "{}: {}",
-                self.language
-                    .text(TextKey::CpuMetadataUnavailableLocalResultsRemainUsable),
-                error.display(self.language)
-            );
-            root = root.child(message_line(message, colors.warning));
-        }
+
         if self.catalog.is_none() {
             return root
                 .child(empty_state(self, &colors, available, cx))
@@ -3357,7 +3347,7 @@ fn timeline_panel(
                                             }
                                         } else {
                                             this.chart_drag = None;
-                                            this.select_thread_filter(thread_id, cx);
+                                            cx.notify();
                                         }
                                     }),
                                 )
@@ -7420,6 +7410,34 @@ impl Drop for CpuWorkspace {
     }
 }
 
+impl NoticeSource for CpuWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            let message = error.display(self.language);
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(
+                &message, 8192,
+            )));
+        }
+        if let Some(error) = &self.metadata_error {
+            let message = error.display(self.language);
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(
+                &message, 8192,
+            )));
+        }
+        if let Some(error) = self
+            .disassembly
+            .as_ref()
+            .and_then(|panel| panel.error.as_deref())
+        {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
+    }
+}
+
 #[cfg(test)]
 mod metadata_tests {
     use super::{
@@ -8101,6 +8119,22 @@ mod metadata_tests {
         assert!(
             source.contains("chart_tooltip(ws, block, colors, ws.chart_hover_position, viewport)")
         );
+    }
+    #[test]
+    fn timeline_plot_click_does_not_filter_threads() {
+        let source = include_str!("cpu.rs");
+        let timeline = source
+            .split("fn timeline_panel(")
+            .nth(1)
+            .unwrap()
+            .split("fn time_range_fractions(")
+            .next()
+            .unwrap();
+        assert_eq!(
+            timeline.matches("select_thread_filter(thread_id").count(),
+            1
+        );
+        assert!(source.contains("const CHART_WIDTH_PX: f32 = 1024.0;"));
     }
     #[test]
     fn call_tree_panel_scrolls_both_axes() {

@@ -77,5 +77,22 @@
   "shell_menu_recent_files": "最近文件…",
   "shell_menu_focus_search": "聚焦搜索",
   "shell_menu_hide_all_panes": "隐藏全部面板",
-  "shell_menu_show_all_panes": "显示全部面板"
+  "shell_menu_show_all_panes": "显示全部面板",
+  "shell_notification_title": "通知",
+  "shell_notification_tooltip": "所有页面的报错与提示",
+  "shell_notification_empty": "暂无报错或提示",
+  "shell_notification_copy": "复制",
+  "shell_notification_copy_all": "复制全部",
+  "shell_notification_mark_all_read": "全部已读",
+  "shell_notification_clear": "清空",
+  "shell_notification_unread": "{count} 条新通知",
+  "shell_notification_count": "{count} 条",
+  "shell_notification_level_info": "提示",
+  "shell_notification_level_warning": "警告",
+  "shell_notification_level_error": "错误",
+  "shell_notification_age_now": "刚刚",
+  "shell_notification_age_seconds": "{seconds} 秒前",
+  "shell_notification_age_minutes": "{minutes} 分钟前",
+  "shell_notification_age_hours": "{hours} 小时前",
+  "shell_notification_source_app": "应用"
 }

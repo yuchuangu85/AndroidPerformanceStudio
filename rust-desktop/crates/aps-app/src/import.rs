@@ -8,6 +8,7 @@ mod menus;
 mod network;
 mod snapshots;
 mod startup;
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::studio;
 use aps_battery::BatteryReport;
 use aps_contracts::SourceDigest;
@@ -269,6 +270,7 @@ pub struct ImportWorkspace {
     cancel: CancellationToken,
     trace_view: TraceView,
     memory_state: MemoryState,
+    memory_capture: memory::capture::MemoryCaptureUi,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
     studio: Option<WeakEntity<crate::shell::Studio>>,
@@ -314,6 +316,7 @@ impl ImportWorkspace {
             cancel: CancellationToken::new(),
             trace_view: TraceView::Processes,
             memory_state: MemoryState::new(),
+            memory_capture: memory::capture::MemoryCaptureUi::default(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,
             studio: None,
@@ -447,6 +450,7 @@ impl ImportWorkspace {
         self.cancel = CancellationToken::new();
         self.generation += 1;
         self.import_started = Some(Instant::now());
+        self.memory_capture.in_progress = false;
         self.import_duration = None;
         let generation = self.generation;
         self.busy = true;
@@ -665,6 +669,9 @@ impl ImportWorkspace {
         self.page(0, cx);
     }
     fn close(&mut self, cx: &mut Context<Self>) {
+        if self.memory_capture.in_progress {
+            self.cancel_work(cx);
+        }
         if self.kind == Destination::Memory {
             if let Some(id) = self.memory_snapshot_id {
                 self.close_memory_snapshot(id, cx);
@@ -710,7 +717,9 @@ impl ImportWorkspace {
         self.cancel.cancel();
         self.generation += 1;
         self.busy = false;
+        self.memory_capture.in_progress = false;
         if self.kind == Destination::Memory {
+            self.cancel = CancellationToken::new();
             self.memory_state.load_generation += 1;
             self.memory_state.loading = false;
             self.memory_state.loading_message = None;
@@ -950,13 +959,7 @@ fn open_selected(
         )),
         Destination::Memory => {
             let digest = SourceDigest::hash_file(path, aps_memory::MAX_INPUT_BYTES)?;
-            let worker = std::env::current_exe()
-                .map_err(|_| TextKey::ImportUiCannotLocateApp)?
-                .with_file_name(if cfg!(target_os = "windows") {
-                    "aps-memory-worker.exe"
-                } else {
-                    "aps-memory-worker"
-                });
+            let worker = memory_worker_executable()?;
             Session::Memory(Arc::new(Mutex::new(
                 MemorySession::open(&worker, path, &digest.to_hex(), cancel)
                     .map_err(|e| e.to_string())?,
@@ -985,6 +988,16 @@ fn open_selected(
     };
     let page = page_for(&session, view, 0, None, cancel)?;
     Ok((session, page))
+}
+
+fn memory_worker_executable() -> Result<PathBuf, UiText> {
+    Ok(std::env::current_exe()
+        .map_err(|_| TextKey::ImportUiCannotLocateApp)?
+        .with_file_name(if cfg!(target_os = "windows") {
+            "aps-memory-worker.exe"
+        } else {
+            "aps-memory-worker"
+        }))
 }
 
 /// Release builds never depend on a developer checkout. A present but invalid
@@ -1385,46 +1398,30 @@ impl Render for ImportWorkspace {
         }
         let lang = self.language;
         let busy = self.busy;
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        Button::new("artifact-import")
-                            .primary()
-                            .label(lang.text(TextKey::ImportImportLocalArtifact))
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.pick(cx))),
-                    )
-                    .child(
-                        Button::new("artifact-cancel")
-                            .label(lang.text(TextKey::ImportCancelOperation))
-                            .disabled(!busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
-                    )
-                    .child(
-                        Button::new("artifact-close")
-                            .label(lang.text(TextKey::CommonClose))
-                            .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
-                    ),
-            )
-            .children(self.notice.as_ref().map(|notice| {
-                div()
-                    .text_size(px(typography::SUPPORTING))
-                    .child(notice.render(lang))
-            }))
-            .children(self.error.as_ref().map(|error| {
-                div()
-                    .p_3()
-                    .text_color(cx.theme().danger)
-                    .child(error.render(lang))
-            }));
+        let mut body = div().flex().flex_col().gap_3().p_4().child(
+            div()
+                .flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    Button::new("artifact-import")
+                        .primary()
+                        .label(lang.text(TextKey::ImportImportLocalArtifact))
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.pick(cx))),
+                )
+                .child(
+                    Button::new("artifact-cancel")
+                        .label(lang.text(TextKey::ImportCancelOperation))
+                        .disabled(!busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
+                )
+                .child(
+                    Button::new("artifact-close")
+                        .label(lang.text(TextKey::CommonClose))
+                        .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+                ),
+        );
         if self.page.is_some() {
             body = body
                 .child(
@@ -1952,21 +1949,6 @@ impl ImportWorkspace {
             .p_4()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground);
-        if let Some(notice) = &self.notice {
-            root = root.child(
-                div()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(notice.render(language)),
-            );
-        }
-        if let Some(error) = &self.error {
-            root = root.child(
-                div()
-                    .p_3()
-                    .text_color(cx.theme().danger)
-                    .child(error.render(language)),
-            );
-        }
         if busy {
             root = root.child(div().text_color(cx.theme().muted_foreground).child(
                 crate::studio::selectable(language.text(TextKey::ImportLoadingQuerying)),
@@ -1996,6 +1978,46 @@ fn optional_ui<T: std::fmt::Display>(value: Option<T>) -> UiText {
         || TextKey::ImportUiUnavailable.into(),
         |value| value.to_string().into(),
     )
+}
+
+impl NoticeSource for ImportWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            let message = error.render(self.language);
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(
+                &message, 8192,
+            )));
+        }
+        for error in [
+            self.memory_state.error.as_deref(),
+            self.memory_state.dominator_error.as_deref(),
+            self.memory_state.comparison_error.as_deref(),
+            self.gpu.device_error.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(page) = &self.page {
+            for (index, _) in page.warnings.iter().enumerate().take(5) {
+                let warning = page.display_warning(index, self.language);
+                notices.push(NoticeSnapshot::warning(crate::evidence::clipped(
+                    &warning, 8192,
+                )));
+            }
+        }
+        if let Some(notice) = &self.notice {
+            let message = notice.render(self.language);
+            notices.push(NoticeSnapshot::info(crate::evidence::clipped(
+                &message, 8192,
+            )));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
+    }
 }
 
 #[cfg(test)]

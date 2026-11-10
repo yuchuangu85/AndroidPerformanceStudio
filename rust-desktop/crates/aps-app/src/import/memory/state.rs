@@ -105,6 +105,7 @@ pub(crate) struct MemoryExportAvailability {
 
 /// Immutable snapshot + presenter projections for the active HPROF tab.
 pub(crate) struct MemoryState {
+    pub(super) capture_artifact: Option<Arc<super::capture::transport::CapturedHeap>>,
     pub view_mode: MemoryViewMode,
     pub snapshot: Option<Arc<MemorySnapshot>>,
     pub snapshot_label: String,
@@ -194,6 +195,7 @@ impl Default for MemoryState {
 impl MemoryState {
     pub(crate) fn new() -> Self {
         Self {
+            capture_artifact: None,
             view_mode: MemoryViewMode::Classes,
             snapshot: None,
             snapshot_label: String::new(),

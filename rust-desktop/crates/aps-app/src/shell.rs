@@ -3,6 +3,7 @@ pub(crate) mod menubar;
 mod settings_ai;
 mod settings_page;
 
+use crate::notifications::{NoticeSnapshot, NoticeSource, NotificationCenter};
 use crate::{
     ai::AiWorkspace,
     benchmark::{BenchmarkWorkspace, OpenBenchmarkTrace},
@@ -24,7 +25,7 @@ use gpui_kit::{
     base::{TextSelection, TextSelectionLayer},
     component::InteractiveElementExt,
     component::{
-        ActiveTheme, Disableable, Placement, Selectable,
+        ActiveTheme, Disableable, IconName, Placement, Selectable,
         button::{Button, ButtonVariants},
         menu::{DropdownMenu, PopupMenuItem},
     },
@@ -462,6 +463,9 @@ pub struct Studio {
     imports: HashMap<Destination, Entity<ImportWorkspace>>,
     focus: FocusHandle,
     notice: Option<String>,
+    notifications: Entity<NotificationCenter>,
+    /// Sampling task that feeds page errors into the notification center.
+    notice_task: Option<Task<()>>,
     save_generation: u64,
     settings_save: Option<Task<()>>,
     targets: Entity<TargetsWorkspace>,
@@ -730,18 +734,37 @@ impl Studio {
             &mut subscriptions,
         );
         let targets = cx.new(|cx| TargetsWorkspace::new(settings.language.resolved(), window, cx));
+        let notifications = cx.new(|_cx| NotificationCenter::new(settings.language.resolved()));
+        subscriptions.push(cx.observe(&notifications, |_, _, cx| cx.notify()));
         let initial_target_lists = targets.read(cx).current_lists();
         subscriptions.push(cx.subscribe(
             &targets,
-            |this, _, event: &TargetSelectionChanged, cx| {
+            |this, targets, event: &TargetSelectionChanged, cx| {
                 let serial = event.serial.clone();
                 let pid = event.pid;
+                let lists = targets.read(cx).current_lists();
+                if let Some(memory) = this.imports.get(&Destination::Memory) {
+                    memory.update(cx, |memory, cx| {
+                        memory.set_memory_capture_target(serial.clone(), pid, cx);
+                        if let Some(lists) = &lists {
+                            memory.apply_memory_capture_targets(
+                                &lists.devices,
+                                &lists.processes,
+                                cx,
+                            );
+                        }
+                    });
+                }
                 this.capture.update(cx, |capture, cx| {
                     capture.set_shared_target(serial.clone(), pid, cx)
                 });
                 this.inspector.update(cx, |inspector, cx| {
-                    inspector.set_target(event.serial.clone(), event.pid, cx)
+                    inspector.set_target(event.serial.clone(), cx)
                 });
+                if this.destination == Destination::LayoutInspector {
+                    this.inspector
+                        .update(cx, |inspector, cx| inspector.capture_if_idle(cx));
+                }
                 this.trace.update(cx, |trace, cx| {
                     trace.select_capture_device(serial.clone(), cx)
                 });
@@ -757,6 +780,11 @@ impl Studio {
         ));
         subscriptions.push(
             cx.subscribe(&targets, |this, _, event: &TargetListsChanged, cx| {
+                if let Some(memory) = this.imports.get(&Destination::Memory) {
+                    memory.update(cx, |memory, cx| {
+                        memory.apply_memory_capture_targets(&event.devices, &event.processes, cx);
+                    });
+                }
                 this.trace.update(cx, |trace, cx| {
                     trace.apply_shared_target_devices(&event.devices, cx);
                 });
@@ -776,6 +804,11 @@ impl Studio {
             }),
         );
         if let Some(lists) = initial_target_lists {
+            if let Some(memory) = imports.get(&Destination::Memory) {
+                memory.update(cx, |memory, cx| {
+                    memory.apply_memory_capture_targets(&lists.devices, &lists.processes, cx);
+                });
+            }
             trace.update(cx, |trace, cx| {
                 trace.apply_shared_target_devices(&lists.devices, cx);
             });
@@ -829,6 +862,8 @@ impl Studio {
             imports,
             focus,
             notice,
+            notifications,
+            notice_task: None,
             save_generation: 0,
             settings_save: None,
             targets,
@@ -849,6 +884,21 @@ impl Studio {
         };
         studio.refresh_route_menus(cx);
         studio.refresh_home_recent(cx);
+        // Page errors are transient UI state, so the shell samples each workspace
+        // on a bounded cadence and turns changed messages into notification cards.
+        studio.notice_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(500))
+                    .await;
+                if this
+                    .update(cx, |studio, cx| studio.collect_notices(cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
         // Debug-only verification seam: lets a headless/native UI check open a
         // real HPROF on launch without driving the native file picker. Release
         // builds never read the variable.
@@ -923,6 +973,58 @@ impl Studio {
                 inspector.open_debug_archive(std::path::PathBuf::from(path), cx)
             });
         }
+        // Debug-only verification seam: triggers one live Inspector capture on
+        // launch so the layout rendering path can be checked without native
+        // clicks. The value is the target device serial.
+        // Debug-only verification seam: seeds the notification panel with one card
+        // per severity so the popover can be checked without triggering failures.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("APS_RUST_NOTIFICATIONS_DEMO").is_some() {
+            studio.notifications.update(cx, |notifications, cx| {
+                notifications.push_debug(
+                    crate::notifications::NoticeLevel::Info,
+                    "Home",
+                    "App started; layout capture is ready.",
+                );
+                notifications.push_debug(
+                    crate::notifications::NoticeLevel::Warning,
+                    "Layout Inspector",
+                    "Device target changed during capture; refresh again.",
+                );
+                notifications.push_debug(
+                    crate::notifications::NoticeLevel::Error,
+                    "Memory",
+                    "Capture failed: adb exec-out screencap -p failed (exit Some(1))",
+                );
+                cx.notify();
+            });
+        }
+        // Debug-only verification seam: opens the notification popover on launch.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("APS_RUST_OPEN_NOTIFICATIONS").is_some() {
+            studio.notifications.update(cx, |notifications, cx| {
+                notifications.open();
+                cx.notify();
+            });
+        }
+        #[cfg(debug_assertions)]
+        if let Some(serial) = std::env::var_os("APS_RUST_INSPECTOR_CAPTURE") {
+            studio.destination = Destination::LayoutInspector;
+            let serial = serial.to_string_lossy().into_owned();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(1500))
+                    .await;
+                this.update(cx, |studio, cx| {
+                    studio.inspector.update(cx, |inspector, cx| {
+                        inspector.set_target(Some(serial), cx);
+                        inspector.refresh(cx);
+                    });
+                })
+                .ok();
+            })
+            .detach();
+        }
         studio
     }
 
@@ -938,7 +1040,7 @@ impl Studio {
         );
         let _ = &request.package_name;
         self.inspector.update(cx, |inspector, cx| {
-            inspector.set_target(request.device_serial.clone(), None, cx)
+            inspector.set_target(request.device_serial.clone(), cx)
         });
         self.navigate(Destination::LayoutInspector, cx);
     }
@@ -1123,6 +1225,11 @@ impl Studio {
             Destination::Frame => {
                 self.frame
                     .update(cx, |frame, cx| frame.start_capture_primary(cx));
+            }
+            Destination::Memory => {
+                if let Some(memory) = self.imports.get(&Destination::Memory) {
+                    memory.update(cx, |memory, cx| memory.capture_memory_heap(cx));
+                }
             }
             _ => {}
         }
@@ -1486,9 +1593,12 @@ impl Studio {
                 cx,
             )
         });
-        self.cpu.update(cx, |cpu, cx| {
-            cpu.set_language(self.settings.language.resolved(), window, cx)
+        let language = self.settings.language.resolved();
+        self.notifications.update(cx, |notifications, cx| {
+            notifications.set_language(language, cx)
         });
+        self.cpu
+            .update(cx, |cpu, cx| cpu.set_language(language, window, cx));
         self.ai.update(cx, |ai, cx| {
             ai.set_language(self.settings.language.resolved(), window, cx)
         });
@@ -1558,11 +1668,84 @@ impl Studio {
 
     /// Home activation refreshes only the Rust-owned history projection. Device
     /// refresh remains owned by the shared title bar and cannot reload history.
+    /// Samples every page workspace and forwards changed user-visible messages to
+    /// the notification center. Workspaces only expose current state through
+    /// NoticeSource; they do not know about the title-bar surface.
+    fn collect_notices(&mut self, cx: &mut Context<Self>) {
+        let language = self.settings.language.resolved();
+        let mut batches: Vec<(String, Vec<NoticeSnapshot>)> = Vec::new();
+        batches.push((
+            Destination::Cpu.label(language).to_owned(),
+            self.cpu.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::Ai.label(language).to_owned(),
+            self.ai.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::Frame.label(language).to_owned(),
+            self.frame.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::Benchmark.label(language).to_owned(),
+            self.benchmark.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::SourceWorkspaces.label(language).to_owned(),
+            self.source.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::Capture.label(language).to_owned(),
+            self.capture.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::MethodRecording.label(language).to_owned(),
+            self.method.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::Trace.label(language).to_owned(),
+            self.trace.read(cx).notice_snapshot(),
+        ));
+        batches.push((
+            Destination::LayoutInspector.label(language).to_owned(),
+            self.inspector.read(cx).notice_snapshot(),
+        ));
+        for (destination, workspace) in &self.imports {
+            batches.push((
+                destination.label(language).to_owned(),
+                workspace.read(cx).notice_snapshot(),
+            ));
+        }
+        let mut app = self.targets.read(cx).notice_snapshot();
+        if let Some(notice) = &self.notice {
+            app.push(NoticeSnapshot::error(notice.clone()));
+        }
+        batches.push((
+            language
+                .text(TextKey::ShellNotificationSourceApp)
+                .to_owned(),
+            app,
+        ));
+        self.notifications.update(cx, |notifications, cx| {
+            for (source, notices) in batches {
+                notifications.sync_source(&source, notices);
+            }
+            cx.notify();
+        });
+    }
+
     fn navigate(&mut self, destination: Destination, cx: &mut Context<Self>) {
         let entering_home = destination == Destination::Home && self.destination != destination;
         let route = destination;
         self.destination = destination;
         self.refresh_route_menus(cx);
+        if destination == Destination::LayoutInspector {
+            // Entering the page with a connected device fills an empty page once,
+            // so "device linked" is followed by the foreground app's layout
+            // instead of empty panes; the Refresh button remains the manual path.
+            self.inspector
+                .update(cx, |inspector, cx| inspector.capture_if_idle(cx));
+        }
         if self.entered_route(route, cx) {
             cx.notify();
             return;
@@ -1787,6 +1970,67 @@ impl Focusable for Studio {
     }
 }
 
+/// Bell button at the trailing edge of the title bar. The badge counts unseen
+/// cards; clicking toggles the popover owned by the notification center.
+fn titlebar_notification_button(
+    notifications: &Entity<NotificationCenter>,
+    unread: usize,
+    open: bool,
+    colors: &crate::studio::StudioColors,
+) -> AnyElement {
+    let entity = notifications.clone();
+    let badge = (unread > 0).then(|| {
+        if unread > 9 {
+            "9+".to_owned()
+        } else {
+            unread.to_string()
+        }
+    });
+    let hover = colors.section_background;
+    let mut button = div()
+        .id("titlebar-notifications")
+        .relative()
+        .flex_shrink_0()
+        .size(px(26.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(5.))
+        .cursor_pointer()
+        .text_color(colors.text)
+        .text_size(px(16.))
+        .when(open, |this| this.bg(hover))
+        .hover(move |style| style.bg(hover))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(move |_, _, cx| {
+            entity.update(cx, |notifications, cx| {
+                notifications.toggle();
+                cx.notify();
+            });
+        })
+        .child(IconName::Bell);
+    if let Some(badge) = badge {
+        button = button.child(
+            div()
+                .absolute()
+                .top(px(1.))
+                .right(px(0.))
+                .min_w(px(14.))
+                .h(px(14.))
+                .px(px(3.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(7.))
+                .bg(colors.error)
+                .text_size(px(9.))
+                .text_color(rgb(0xffffff))
+                .child(badge),
+        );
+    }
+    button.into_any_element()
+}
+
 impl Render for Studio {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let language = self.settings.language;
@@ -1844,16 +2088,50 @@ impl Render for Studio {
             self.route_menu_dispatch.clone(),
             &studio_colors,
         );
+        // The macOS traffic lights own a 78 px leading inset while the window gap
+        // is 16 px, so a centred page label compensates by the 62 px difference on
+        // its trailing edge to sit on the window's centre instead of the content
+        // box's centre.
+        const TITLEBAR_LEADING_INSET: f32 = 78.;
+        const TITLEBAR_TRAILING_INSET: f32 = 16.;
+        // Narrower windows cannot fit the fixed 200 px target selectors on both
+        // sides of a centred label, so the strip keeps the simple leading-name
+        // layout there instead of overlapping.
+        const PAGE_TITLE_MIN_WIDTH: f32 = 1140.;
+        let show_page_title = f32::from(window.viewport_size().width) >= PAGE_TITLE_MIN_WIDTH;
+        let app_name = |flex: bool| {
+            let zone = div().min_w_0().flex().items_center();
+            let zone = if flex { zone.flex_1() } else { zone };
+            zone.child(
+                div()
+                    .text_color(primary_text)
+                    .text_size(px(typography::BODY))
+                    .whitespace_nowrap()
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::FoundationAndroidPerformanceStudio),
+                    )),
+            )
+        };
+        let notifications_open = self.notifications.read(cx).is_open();
+        let unread_notifications = self.notifications.read(cx).unread_count();
+        let notification_button = || {
+            titlebar_notification_button(
+                &self.notifications,
+                unread_notifications,
+                notifications_open,
+                &studio_colors,
+            )
+        };
         let titlebar_state = window.use_state(cx, |_, _| TitlebarDragState { should_move: false });
-        let titlebar = div()
+        let mut titlebar = div()
             .id("studio-titlebar")
             .h(px(36.))
             .w_full()
             .flex()
             .items_center()
             .gap(px(8.))
-            .pl(px(78.))
-            .pr_4()
+            .pl(px(TITLEBAR_LEADING_INSET))
+            .pr(px(TITLEBAR_TRAILING_INSET))
             .bg(background)
             .border_b_1()
             .border_color(border)
@@ -1878,21 +2156,74 @@ impl Render for Studio {
                     window.start_window_move();
                 }
             }))
-            .on_double_click(|_, window, _| window.titlebar_double_click())
-            .child(
-                div()
-                    .text_color(primary_text)
-                    .text_size(px(typography::BODY))
-                    .child(crate::studio::selectable(
-                        language.text(TextKey::FoundationAndroidPerformanceStudio),
-                    )),
-            )
-            .child(div().flex_1())
-            // The AI Analysis window has its own chat surface and no device
-            // target; Compose's conversation window does not show one either.
-            .when(selected != Destination::Ai, |this| {
-                this.child(self.targets.clone())
-            });
+            .on_double_click(|_, window, _| window.titlebar_double_click());
+        if show_page_title {
+            // Compose retitles its native window per destination; the Rust window
+            // title is hidden, so the app-drawn strip carries the active page name
+            // in the middle while the product name and targets keep their edges.
+            titlebar = titlebar
+                .child(app_name(true))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .pr(px(TITLEBAR_LEADING_INSET - TITLEBAR_TRAILING_INSET))
+                        .text_color(primary_text)
+                        .text_size(px(typography::BODY))
+                        .font_weight(FontWeight::MEDIUM)
+                        .whitespace_nowrap()
+                        .child(selected.label(language)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .justify_end()
+                        // The AI Analysis window has its own chat surface and no
+                        // device target; Compose's conversation window does not
+                        // show one either.
+                        .when(selected != Destination::Ai, |this| {
+                            this.child(self.targets.clone())
+                        })
+                        .child(notification_button()),
+                );
+        } else {
+            titlebar = titlebar
+                .child(app_name(false))
+                .child(div().flex_1())
+                .when(selected != Destination::Ai, |this| {
+                    this.child(self.targets.clone())
+                })
+                .child(notification_button());
+        }
+        // Popover surface: a full-window transparent backdrop closes the panel,
+        // and the notification center renders the cards above it.
+        let notification_backdrop = div()
+            .id("notification-backdrop")
+            .absolute()
+            .inset_0()
+            .bg(rgba(0x00000026))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.notifications.update(cx, |notifications, cx| {
+                        notifications.close();
+                        cx.notify();
+                    });
+                    cx.notify();
+                }),
+            );
+        let notification_panel = div()
+            .id("notification-popover")
+            .absolute()
+            .top(px(40.))
+            .right(px(10.))
+            .w(px(440.))
+            // Block pointer events from reaching the closing backdrop underneath
+            // so selecting or copying card text never dismisses the panel.
+            .occlude()
+            .child(self.notifications.clone());
         div()
             .id("studio-root")
             .key_context(if selected == Destination::LayoutInspector {
@@ -1918,6 +2249,18 @@ impl Render for Studio {
                     _ => {}
                 }
             })
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key.eq_ignore_ascii_case("escape")
+                    && this.notifications.read(cx).is_open()
+                {
+                    this.notifications.update(cx, |notifications, cx| {
+                        notifications.close();
+                        cx.notify();
+                    });
+                    cx.notify();
+                    cx.stop_propagation();
+                }
+            }))
             .on_action(cx.listener(Self::open_cpu))
             .on_action(cx.listener(|this, _: &OpenActiveRouteFile, window, cx| {
                 this.open_active_route_file(window, cx);
@@ -2265,12 +2608,6 @@ impl Render for Studio {
                                             )
                                     }),
                             )
-                            .children(self.notice.clone().map(|notice| {
-                                div()
-                                    .p_3()
-                                    .text_color(cx.theme().danger)
-                                    .child(crate::studio::selectable(notice))
-                            }))
                             .child({
                                 // The CPU report is a fill-height layout with its
                                 // own internal viewports; every other page keeps
@@ -2299,6 +2636,9 @@ impl Render for Studio {
                             }),
                     ),
             )
+            .when(notifications_open, |this| {
+                this.child(notification_backdrop).child(notification_panel)
+            })
     }
 }
 
@@ -2334,6 +2674,51 @@ mod menubar_tests {
         assert_eq!(help.len(), 2);
         #[cfg(not(target_os = "macos"))]
         assert_eq!(help.len(), 3);
+    }
+
+    /// Entering the Layout Inspector (or receiving a device selection while it is
+    /// open) fills an empty page with one live capture, so a connected device is
+    /// followed by content instead of empty panes; an existing frame and active
+    /// captures are never disturbed and the Refresh button remains the manual path.
+    #[::core::prelude::v1::test]
+    fn inspector_page_auto_captures_once_on_entry() {
+        let source = include_str!("shell.rs");
+        let navigate = source
+            .split("fn navigate(")
+            .nth(1)
+            .expect("navigate")
+            .split("fn entered_route(")
+            .next()
+            .expect("navigate body");
+        assert!(navigate.contains("inspector.capture_if_idle(cx)"));
+        let selection = source
+            .split("event: &TargetSelectionChanged")
+            .nth(1)
+            .expect("target selection subscription")
+            .split("event: &TargetListsChanged")
+            .next()
+            .expect("selection body");
+        assert!(selection.contains("capture_if_idle(cx)"));
+        let inspector = include_str!("inspector.rs");
+        assert!(inspector.contains("pub fn capture_if_idle("));
+        assert!(inspector.contains("self.archive.is_some()"));
+    }
+
+    /// The app-drawn title bar carries the active destination's localized name in
+    /// the middle (Compose retitles its native window instead); narrower windows
+    /// fall back to the leading-name layout so the fixed target selectors cannot
+    /// overlap the label.
+    #[::core::prelude::v1::test]
+    fn titlebar_centres_active_page_name() {
+        let source = include_str!("shell.rs");
+        let titlebar = source
+            .split("impl Render for Studio")
+            .nth(1)
+            .expect("Studio render");
+        assert!(titlebar.contains("PAGE_TITLE_MIN_WIDTH"));
+        assert!(titlebar.contains(".child(selected.label(language))"));
+        assert!(titlebar.contains("justify_end()"));
+        assert!(titlebar.contains("TITLEBAR_LEADING_INSET - TITLEBAR_TRAILING_INSET"));
     }
 
     /// The Layout Inspector window menu mirrors Compose NativeViewerMenuBar:

@@ -109,6 +109,33 @@ class DeviceTargetPageBehaviorTest {
         }
 
     @Test
+    fun `report load errors are shown in the persistent bottom status bar`() =
+        runDesktopComposeUiTest(width = 1100, height = 760) {
+            val errorText = "SESSION_BROKEN: perf.data truncated"
+            setContent {
+                HomeScreen(
+                    state = readyState(ThreadOption(pid = 42, tid = 43, name = "RenderThread")),
+                    captureState = CaptureState.Idle,
+                    reportState =
+                        ReportState(
+                            loadState =
+                                com.androidperformancestudio.application.ReportLoadState.Failed(
+                                    Path.of("/tmp/aps-session"),
+                                    StudioError(ErrorCategory.IO, "SESSION_BROKEN", "perf.data truncated"),
+                                ),
+                        ),
+                    actions = deviceActions(),
+                    reportActions = goldenActions(),
+                )
+            }
+
+            onNodeWithTag("cpu-workspace-status-bar").assertIsDisplayed()
+            onNodeWithText(errorText).assertIsDisplayed()
+            val statusBar = onNodeWithTag("cpu-workspace-status-bar").fetchSemanticsNode().boundsInRoot
+            assertTrue(statusBar.bottom >= 759f, "CPU status bar must remain anchored to the bottom: $statusBar")
+        }
+
+    @Test
     fun `adb not found configuration direction is localized`() =
         runDesktopComposeUiTest(width = 1100, height = 760) {
             setContent {

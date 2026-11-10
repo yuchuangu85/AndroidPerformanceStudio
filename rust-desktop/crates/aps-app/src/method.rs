@@ -1,6 +1,7 @@
 //! Offline ART method-event workspace. Import and page projection stay off the
 //! UI thread. Generation checks also cover the picker, so closing never allows
 //! an earlier selection/import completion to reopen a trace.
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_method_recording::{
     ClockSource, DiagnosticKind, DurationTotals, ImportLimits, MethodId, MethodRecordingSession,
     MethodStatistics, NodeId, Page, Thread, ThreadId, TimelineQuery,
@@ -499,13 +500,7 @@ impl Render for MethodWorkspace {
                     .child(crate::studio::selectable(
                         lang.text(TextKey::MethodSupportedExistingBinaryFirstSlowV2V3),
                     )),
-            )
-            .children(self.error.clone().map(|error| {
-                div()
-                    .p_2()
-                    .text_color(cx.theme().danger)
-                    .child(crate::studio::selectable(error))
-            }));
+            );
         if let Some(path) = &self.path {
             body = body.child(
                 div()
@@ -1208,5 +1203,17 @@ impl crate::shell::menubar::MenuHost for MethodWorkspace {
 impl MethodWorkspace {
     pub(crate) fn close_primary(&mut self, cx: &mut Context<Self>) {
         self.close(cx);
+    }
+}
+
+impl NoticeSource for MethodWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
     }
 }

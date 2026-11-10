@@ -1,5 +1,6 @@
 //! CPU capture is never triggered by navigation or planning. A single explicit
 //! confirmation consumes a freshly observed plan and starts the displayed run.
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_adb::{AdbClient, AdbLocator};
 use aps_capture::{
     CaptureController, CaptureHandle, CaptureOutput, CaptureState, CpuCaptureRequest,
@@ -463,12 +464,7 @@ impl Render for CaptureWorkspace {
                             .disabled(busy)
                             .on_click(cx.listener(|this, _, _, cx| this.clear(cx))),
                     ),
-            )
-            .children(self.error.clone().map(|error| {
-                div()
-                    .text_color(cx.theme().danger)
-                    .child(crate::studio::selectable(error))
-            }));
+            );
         if busy {
             body = body.child(self.handle.as_ref().map_or_else(
                 || lang.text(TextKey::CaptureObservingTarget).to_owned(),
@@ -590,6 +586,26 @@ fn capture_state_key(state: CaptureState) -> TextKey {
         CaptureState::Failed => TextKey::DetailsCaptureStateFailed,
     }
 }
+impl NoticeSource for CaptureWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if self.cancellation_notice {
+            let message = self
+                .language
+                .text(TextKey::CaptureCaptureCancellationRequestedTheExactRemotePid);
+            notices.push(NoticeSnapshot::info(crate::evidence::clipped(
+                message, 8192,
+            )));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

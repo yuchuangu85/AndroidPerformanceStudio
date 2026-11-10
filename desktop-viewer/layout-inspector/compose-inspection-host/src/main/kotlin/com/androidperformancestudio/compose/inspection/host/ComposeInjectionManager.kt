@@ -65,10 +65,7 @@ class ComposeInjectionManager(
         val pid = requestedPid?.also { require(it in pids) { "Target PID is not running" } }
             ?: pids.singleOrNull()
             ?: error(if (pids.isEmpty()) "Target app is not running" else "Target app has multiple processes; select a PID")
-        val socketName = socketName(pid)
-        require(!checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains("@$socketName")) {
-            "Another Layout Inspector is already attached to PID $pid"
-        }
+        requireInspectorAvailable(serial, pid)
         val composeVersion = detectComposeVersion(serial, packageName)
             ?: error("Jetpack Compose version metadata was not found in the target APK")
         require(isSupportedComposeVersion(composeVersion)) { "Compose 1.2 or newer is required; found $composeVersion" }
@@ -159,10 +156,7 @@ class ComposeInjectionManager(
         // A session that has just ended releases the device agent asynchronously: it is shut down and
         // its files are removed through adb. Give the socket a moment to disappear so switching
         // between live and manual capture does not report a conflict with itself.
-        awaitInspectorDetached(target.serial, target.pid)
-        require(!checked(AdbCommandFactory.readUnixSockets(target.serial)).stdout.contains("@${socketName(target.pid)}")) {
-            "Another Layout Inspector is already attached to PID ${target.pid}"
-        }
+        requireInspectorAvailable(target.serial, target.pid)
         val suffix = token.value.take(32)
         val staging = "/data/local/tmp/aps-ui-inspector-$suffix"
         val privateDir = "${prepared.appDataDir}/code_cache/aps-ui-inspector-$suffix"
@@ -224,19 +218,24 @@ class ComposeInjectionManager(
     }
 
     /** Waits, bounded, for a previously attached inspector of this target to release its socket. */
-    private fun awaitInspectorDetached(serial: String, pid: Int) {
-        val expected = "@${socketName(pid)}"
+    private fun requireInspectorAvailable(serial: String, pid: Int) {
         repeat(SOCKET_RELEASE_ATTEMPTS) { attempt ->
-            if (!checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains(expected)) return
-            sleeper(SOCKET_RELEASE_INTERVAL_MILLIS)
+            if (!inspectorSocketPresent(checked(AdbCommandFactory.readUnixSockets(serial)).stdout, pid)) return
+            if (attempt + 1 < SOCKET_RELEASE_ATTEMPTS) sleeper(SOCKET_RELEASE_INTERVAL_MILLIS)
         }
+        error(
+            "An inspector agent socket still exists for PID $pid. It may be an active Layout Inspector " +
+                "or a previous inspection session that has not finished closing. Close any active inspector " +
+                "and retry; a disconnected APS agent normally expires after 5 minutes. " +
+                "If it persists, restart the target app when it is safe to lose its current runtime state. " +
+                "APS will not disconnect an unknown session or restart the app automatically.",
+        )
     }
 
     private fun waitForSocket(serial: String, pid: Int, attachStartedAt: String?, token: InspectorSessionToken) {
-        val expected = "@${socketName(pid)}"
         var diagnostics: ComposeAgentAttachDiagnostics? = null
         repeat(10) { attempt ->
-            if (checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains(expected)) return
+            if (inspectorSocketPresent(checked(AdbCommandFactory.readUnixSockets(serial)).stdout, pid)) return
             if (attempt >= 2) {
                 readAgentDiagnostics(serial, pid, attachStartedAt, token)?.let { diagnostics = it }
                 // The timestamp only has second precision: even bootstrap errors may belong to a
@@ -244,7 +243,7 @@ class ComposeInjectionManager(
             }
             sleeper((100L shl attempt.coerceAtMost(3)))
         }
-        if (checked(AdbCommandFactory.readUnixSockets(serial)).stdout.contains(expected)) return
+        if (inspectorSocketPresent(checked(AdbCommandFactory.readUnixSockets(serial)).stdout, pid)) return
         diagnostics?.let { error(attachFailureMessage(pid, it)) }
         error(
             "Timed out waiting for Compose inspector agent socket for PID $pid; check device logcat for " +
@@ -296,6 +295,10 @@ class ComposeInjectionManager(
         val COMPOSE_VERSION_PATTERN = Regex("[0-9A-Za-z._+-]+")
     }
 }
+
+/** Match the entire abstract socket name, not a PID prefix (6124 also matched 61240). */
+internal fun inspectorSocketPresent(output: String, pid: Int): Boolean =
+    output.lineSequence().any { it.trimEnd().takeLastWhile { character -> !character.isWhitespace() } == "@ui_inspector_$pid" }
 
 class PreparedComposeInspection internal constructor(
     val preflight: ComposeInspectionPreflight,

@@ -1,0 +1,105 @@
+--- a/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/SessionHandler.java
++++ b/agent/payload/src/main/java/com/android/tools/ui/inspector/payload/SessionHandler.java
+@@ -104,12 +104,14 @@
+    * received.
+    */
+   public void processCommands() {
++    boolean authenticated = false;
+     try {
+       if (expectedToken.length > 0 &&
+           !MessageDigest.isEqual(expectedToken, FramingProtocol.readMessage(inputStream))) {
+         Log.w(TAG, "Rejected unauthenticated inspector connection");
+         return;
+       }
++      authenticated = expectedToken.length > 0;
+       while (!Thread.currentThread().isInterrupted()) {
+         byte[] commandBytes = FramingProtocol.readMessage(inputStream);
+         UiInspectorProtocol.Command command = UiInspectorProtocol.Command.parseFrom(commandBytes);
+@@ -128,6 +130,10 @@
+       Log.e(TAG, "Error handling client session", e);
+       crashListener.onCrash(e);
+     } finally {
++      // APS grants belong to one authenticated transport, not a resumable listener.
++      // EOF, a timeout or a crashed host must release that grant and its socket.
++      // Rejected/partial authentication must not stop an unrelated active agent.
++      if (authenticated) shutdownLatch.countDown();
+       // Clear active connections in each inspector
+       for (InspectorBridge bridge : inspectorBridges.values()) {
+         bridge.updateConnection(null);
+@@ -206,6 +212,10 @@
+   private void handleShutdown(int commandId) throws IOException {
+     UiInspectorProtocol.Response.Builder responseBuilder = UiInspectorProtocol.Response.newBuilder();
+     responseBuilder.setShutdown(UiInspectorProtocol.ShutdownResponse.newBuilder().build());
+-    reply(commandId, responseBuilder);
+-    shutdownLatch.countDown();
++    try {
++      reply(commandId, responseBuilder);
++    } finally {
++      // The host may already have timed out and closed its end of the socket.
++      shutdownLatch.countDown();
++    }
+   }
+--- /dev/null
++++ b/agent/payload/src/test/java/com/android/tools/ui/inspector/payload/SessionShutdownLifecycleTest.java
+@@ -0,0 +1,61 @@
++/* Copyright (C) 2026 The Android Open Source Project
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may obtain a copy at https://www.apache.org/licenses/LICENSE-2.0
++ */
++package com.android.tools.ui.inspector.payload;
++
++import static com.google.common.truth.Truth.assertThat;
++
++import com.android.tools.ui.inspector.common.FramingProtocol;
++import com.android.tools.ui.inspector.protocol.UiInspectorProtocol;
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.io.OutputStream;
++import java.nio.charset.StandardCharsets;
++import java.util.HashMap;
++import java.util.concurrent.CountDownLatch;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.robolectric.RobolectricTestRunner;
++
++@RunWith(RobolectricTestRunner.class)
++public class SessionShutdownLifecycleTest {
++  private static final byte[] TOKEN = "test-session-token".getBytes(StandardCharsets.UTF_8);
++
++  @Test
++  public void authenticatedEofReleasesTheAgent() throws Exception {
++    assertThat(runSession(TOKEN, false, new ByteArrayOutputStream()).getCount()).isEqualTo(0);
++  }
++
++  @Test
++  public void rejectedAuthenticationDoesNotReleaseTheAgent() throws Exception {
++    assertThat(runSession("wrong-token".getBytes(StandardCharsets.UTF_8), false,
++        new ByteArrayOutputStream()).getCount()).isEqualTo(1);
++  }
++
++  @Test
++  public void failedShutdownAcknowledgementStillReleasesTheAgent() throws Exception {
++    OutputStream brokenPeer = new OutputStream() {
++      @Override public void write(int value) throws IOException {
++        throw new IOException("host already disconnected");
++      }
++    };
++    assertThat(runSession(TOKEN, true, brokenPeer).getCount()).isEqualTo(0);
++  }
++
++  private CountDownLatch runSession(byte[] token, boolean shutdown, OutputStream output)
++      throws Exception {
++    ByteArrayOutputStream input = new ByteArrayOutputStream();
++    FramingProtocol.writeMessage(input, token);
++    if (shutdown) {
++      FramingProtocol.writeMessage(input, UiInspectorProtocol.Command.newBuilder()
++          .setCommandId(1).setShutdown(UiInspectorProtocol.ShutdownCommand.getDefaultInstance())
++          .build().toByteArray());
++    }
++    CountDownLatch latch = new CountDownLatch(1);
++    new SessionHandler(new ByteArrayInputStream(input.toByteArray()), output, error -> {},
++        latch, new HashMap<>(), TOKEN).processCommands();
++    return latch;
++  }
++}

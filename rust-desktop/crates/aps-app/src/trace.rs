@@ -15,6 +15,7 @@ mod page;
 mod sessions;
 pub(crate) mod viewer;
 
+use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_ai::AnalysisRequest;
 use aps_perfetto::{
     DiagnosticCategory, DiagnosticFindingLevel, DiagnosticMetricKind, DiagnosticPreset,
@@ -1413,6 +1414,27 @@ fn export_directory(data_dir: Option<&Path>, trace_path: &Path) -> PathBuf {
         .map(Path::to_path_buf)
         .or_else(|| trace_path.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+impl NoticeSource for TraceWorkspace {
+    fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
+        let mut notices = Vec::new();
+        if let Some(error) = &self.error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.tool_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.sessions_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        if let Some(error) = &self.search_error {
+            notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
+        }
+        notices.retain(|notice| !notice.message.trim().is_empty());
+        notices.truncate(8);
+        notices
+    }
 }
 
 fn search_hit_view(hit: SearchHit) -> model::TraceSearchHit {

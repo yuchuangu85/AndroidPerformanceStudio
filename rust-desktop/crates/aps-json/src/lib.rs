@@ -89,11 +89,34 @@ pub fn read(path: &Path, limits: Limits) -> Result<Value, JsonError> {
 
 pub fn parse_slice(bytes: &[u8], limits: Limits) -> Result<Value, JsonError> {
     validate_limits(limits)?;
+    parse_validated_slice(bytes, limits, false)
+}
+
+/// Opt-in for nested hierarchy archives, where each node adds an object and a
+/// children array. The ordinary read/parse/write APIs keep their 64-level cap.
+/// All other strict budgets, including duplicate-key rejection, are unchanged.
+pub fn parse_slice_with_extended_depth(bytes: &[u8], limits: Limits) -> Result<Value, JsonError> {
+    if limits.max_depth > 320 {
+        return Err(JsonError::InvalidLimits);
+    }
+    validate_limits(Limits {
+        max_depth: limits.max_depth.min(64),
+        ..limits
+    })?;
+    parse_validated_slice(bytes, limits, true)
+}
+
+fn parse_validated_slice(bytes: &[u8], limits: Limits, extended: bool) -> Result<Value, JsonError> {
     if bytes.len() as u64 > limits.max_bytes {
         return Err(JsonError::TooLarge);
     }
     let remaining = Cell::new(limits.max_nodes);
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    if extended {
+        // Seed checks the explicit depth budget before every value. Disable
+        // serde_json's independent 128-container cap only on this bounded path.
+        deserializer.disable_recursion_limit();
+    }
     let value = Seed {
         limits,
         remaining: &remaining,

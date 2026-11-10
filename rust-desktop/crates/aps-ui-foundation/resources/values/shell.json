@@ -77,5 +77,22 @@
   "shell_menu_recent_files": "Recent Files…",
   "shell_menu_focus_search": "Focus Search",
   "shell_menu_hide_all_panes": "Hide All Panes",
-  "shell_menu_show_all_panes": "Show All Panes"
+  "shell_menu_show_all_panes": "Show All Panes",
+  "shell_notification_title": "Notifications",
+  "shell_notification_tooltip": "Errors and tips from every page",
+  "shell_notification_empty": "No errors or tips yet",
+  "shell_notification_copy": "Copy",
+  "shell_notification_copy_all": "Copy all",
+  "shell_notification_mark_all_read": "Mark all read",
+  "shell_notification_clear": "Clear",
+  "shell_notification_unread": "{count} new",
+  "shell_notification_count": "{count} items",
+  "shell_notification_level_info": "Info",
+  "shell_notification_level_warning": "Warning",
+  "shell_notification_level_error": "Error",
+  "shell_notification_age_now": "just now",
+  "shell_notification_age_seconds": "{seconds}s ago",
+  "shell_notification_age_minutes": "{minutes}m ago",
+  "shell_notification_age_hours": "{hours}h ago",
+  "shell_notification_source_app": "App"
 }

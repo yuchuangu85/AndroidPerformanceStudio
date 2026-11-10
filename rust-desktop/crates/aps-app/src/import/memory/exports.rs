@@ -801,13 +801,17 @@ impl ImportWorkspace {
             return;
         }
         let language = self.language;
-        let directory = self
-            .path
-            .as_ref()
-            .and_then(|path| path.parent())
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
+        let directory = if self.memory_state.capture_artifact.is_some() {
+            aps_platform::home_directory().unwrap_or_else(|_| std::env::temp_dir())
+        } else {
+            self.path
+                .as_ref()
+                .and_then(|path| path.parent())
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."))
+        };
         let source_path = self.path.clone();
+        let capture_artifact = self.memory_state.capture_artifact.clone();
         let session = self.session.clone();
         let snapshot = self.memory_state.snapshot.clone();
         let instances = self.memory_state.instances.clone();
@@ -858,6 +862,28 @@ impl ImportWorkspace {
             let result = cx
                 .background_executor()
                 .spawn(async move {
+                    if let Some(artifact) = &capture_artifact {
+                        let destination_error = || {
+                            language
+                                .text(TextKey::MemoryPageCaptureExportOutside)
+                                .to_owned()
+                        };
+                        let capture_directory = artifact
+                            .path
+                            .parent()
+                            .ok_or_else(destination_error)?
+                            .canonicalize()
+                            .map_err(|_| destination_error())?;
+                        let target_directory = target
+                            .parent()
+                            .ok_or_else(destination_error)?
+                            .canonicalize()
+                            .map_err(|_| destination_error())?;
+                        if target_directory.starts_with(capture_directory) {
+                            return Err(destination_error());
+                        }
+                    }
+                    let _capture_artifact = capture_artifact;
                     match kind {
                         MemoryExportKind::RawHprof => {
                             let session = session.ok_or_else(|| {

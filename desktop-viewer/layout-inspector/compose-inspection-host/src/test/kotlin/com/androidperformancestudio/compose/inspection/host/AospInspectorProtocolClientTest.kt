@@ -1,13 +1,44 @@
 package com.androidperformancestudio.compose.inspection.host
 
 import com.android.tools.ui.inspector.protocol.UiInspectorProtocol
+import java.io.IOException
+import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.CompletableFuture
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AospInspectorProtocolClientTest {
+    @Test
+    fun `failed authentication write closes the partially constructed socket`() {
+        val failure = IOException("authentication write failed")
+        var closed = false
+        val socket = object : Socket() {
+            override fun getOutputStream(): OutputStream = object : OutputStream() {
+                override fun write(value: Int) {
+                    throw failure
+                }
+            }
+            override fun close() {
+                closed = true
+            }
+        }
+        val error = assertThrows(IOException::class.java) {
+            AospInspectorProtocolClient.connect(
+                1234,
+                InspectorSessionToken.parse("ab".repeat(32)),
+                socketFactory = { socket },
+            )
+        }
+        assertSame(failure, error)
+        assertTrue(closed)
+    }
+
     @Test
     fun `auth token is the first frame before any protobuf command`() {
         val token = InspectorSessionToken.parse("ab".repeat(32))

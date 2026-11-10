@@ -268,13 +268,6 @@ impl ImportWorkspace {
                     .child(note(self.language.text(TextKey::BatteryEmptyHint), &colors)),
             );
         }
-        if let Some(error) = &self.error {
-            content =
-                content.child(note(error.render(self.language), &colors).text_color(colors.error));
-        }
-        if let Some(notice) = &self.notice {
-            content = content.child(note(notice.render(self.language), &colors));
-        }
         let mut panes = div()
             .id("battery-session-workspace")
             .flex()

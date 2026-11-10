@@ -1,5 +1,80 @@
 //! Deferred tests: do not run before complete migration implementation.
-use aps_json::{JsonError, Limits, Value, parse_slice, to_vec};
+use aps_json::{JsonError, Limits, Value, parse_slice, parse_slice_with_extended_depth, to_vec};
+
+#[test]
+fn extended_depth_is_explicit_bounded_and_does_not_relax_other_input_checks() {
+    let input = format!("{}0{}", "[".repeat(163), "]".repeat(163));
+    let limits = Limits {
+        max_depth: 288,
+        ..Limits::default()
+    };
+    assert!(parse_slice(input.as_bytes(), Limits::default()).is_err());
+    assert_eq!(parse_slice(b"{}", limits), Err(JsonError::InvalidLimits));
+    assert!(parse_slice_with_extended_depth(input.as_bytes(), limits).is_ok());
+    assert!(
+        parse_slice_with_extended_depth(
+            input.as_bytes(),
+            Limits {
+                max_depth: 162,
+                ..limits
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(
+        parse_slice_with_extended_depth(
+            b"{}",
+            Limits {
+                max_depth: 321,
+                ..limits
+            }
+        ),
+        Err(JsonError::InvalidLimits)
+    );
+    for invalid in [r#"{"a":1,"a":2}"#, "{} {}", r#""\ud800""#] {
+        assert!(parse_slice_with_extended_depth(invalid.as_bytes(), limits).is_err());
+    }
+    assert_eq!(
+        parse_slice_with_extended_depth(
+            b"[1,2,3]",
+            Limits {
+                max_bytes: 2,
+                ..limits
+            }
+        ),
+        Err(JsonError::TooLarge)
+    );
+    assert!(
+        parse_slice_with_extended_depth(
+            b"[1,2,3]",
+            Limits {
+                max_nodes: 2,
+                ..limits
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        parse_slice_with_extended_depth(
+            b"[1,2,3]",
+            Limits {
+                max_collection_items: 2,
+                ..limits
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        parse_slice_with_extended_depth(
+            br#""oversized""#,
+            Limits {
+                max_string_bytes: 2,
+                ..limits
+            }
+        )
+        .is_err()
+    );
+}
 
 #[test]
 fn arrays_booleans_and_unicode_are_preserved() {

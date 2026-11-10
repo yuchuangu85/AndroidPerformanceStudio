@@ -108,9 +108,15 @@ class ComposeLiveSession private constructor(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         activeSessions.remove(this)
-        runCatching { protocol.shutdownAgent() }
-        protocol.close()
-        injection.close()
+        try {
+            runCatching { protocol.shutdownAgent() }
+        } finally {
+            try {
+                protocol.close()
+            } finally {
+                injection.close()
+            }
+        }
     }
 
     companion object {
@@ -135,8 +141,10 @@ class ComposeLiveSession private constructor(
             expectedComposeVersion: String,
             explicitLocalArtifact: java.nio.file.Path? = null,
         ): ComposeLiveSession {
-            val protocol = AospInspectorProtocolClient.connect(injection.hostPort, injection.token)
+            var connection: AospInspectorProtocolClient? = null
             try {
+                val protocol = AospInspectorProtocolClient.connect(injection.hostPort, injection.token)
+                connection = protocol
                 protocol.createInspector(
                     AospInspectorProtocolClient.VIEW_INSPECTOR_ID,
                     injection.privateViewInspectorPath,
@@ -162,9 +170,18 @@ class ComposeLiveSession private constructor(
                 activeSessions += session
                 return session
             } catch (error: Throwable) {
-                runCatching { protocol.shutdownAgent() }
-                protocol.close()
-                injection.close()
+                runCatching { connection?.shutdownAgent() }
+                // Keep the initiating failure while attempting every cleanup.
+                try {
+                    connection?.close()
+                } catch (cleanup: Throwable) {
+                    error.addSuppressed(cleanup)
+                }
+                try {
+                    injection.close()
+                } catch (cleanup: Throwable) {
+                    error.addSuppressed(cleanup)
+                }
                 throw error
             }
         }

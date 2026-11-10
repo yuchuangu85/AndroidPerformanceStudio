@@ -602,6 +602,7 @@ private fun WorkspaceFooter(
         Row(
             Modifier
                 .fillMaxWidth()
+                .testTag("cpu-workspace-status-bar")
                 .height(ViewerDimensions.footerHeight)
                 .background(style.toolbar)
                 .border(
@@ -627,10 +628,12 @@ private fun CaptureStatus(
     modifier: Modifier,
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        val error = state.error
-        val hasCaptureError = captureState is CaptureState.Failed
-        val color = if (error != null || hasCaptureError) style.error else style.online
-        val fileInfo = captureFooterFileInfo(error != null || hasCaptureError, reportState, captureState)
+        val error =
+            state.error
+                ?: (captureState as? CaptureState.Failed)?.error
+                ?: (reportState.loadState as? ReportLoadState.Failed)?.error
+        val color = if (error != null) style.error else style.online
+        val fileInfo = captureFooterFileInfo(error != null, reportState, captureState)
         StatusDot(color)
         Spacer(Modifier.width(7.dp))
         CopyableText(

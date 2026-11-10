@@ -1,0 +1,8 @@
+{
+  "memory_page_capture_select_target": "请选择在线设备和运行中的应用进程。",
+  "memory_page_capture_target": "Java 堆：{process}（PID {pid}），设备 {serial}",
+  "memory_page_capture_storage_unavailable": "本地堆抓取目录不可用。",
+  "memory_page_capture_complete": "已抓取并分析堆快照：{process}（PID {pid}）。",
+  "memory_page_capture_failed": "堆抓取失败：{detail}",
+  "memory_page_capture_export_outside": "请选择临时堆抓取目录之外的位置保存导出文件。"
+}
