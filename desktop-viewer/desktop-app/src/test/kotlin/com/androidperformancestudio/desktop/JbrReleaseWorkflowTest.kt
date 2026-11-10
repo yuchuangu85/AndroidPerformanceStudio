@@ -95,7 +95,7 @@ class JbrReleaseWorkflowTest {
             val invocation = packageStep.lineSequence().single { it.contains(":desktop-app:$task") }
             assertTrue(invocation.contains("\"-Ptarget.javaHome=${'$'}env:APS_JBR_HOME\""))
         }
-        listOf("test", "build-compose-agent", "package-macos", "package-linux").forEach { job ->
+        listOf("resolve", "build-compose-agent", "prepare-release", "package-macos", "package-linux", "publish").forEach { job ->
             val other = workflowJob(workflow, job)
             assertFalse(other.contains("install-jbr.ps1"), job)
             assertFalse(other.contains("APS_JBR_HOME"), job)
@@ -108,7 +108,7 @@ class JbrReleaseWorkflowTest {
         val crlf = lf.replace("\n", "\r\n")
         val jobs =
             listOf(
-                "test",
+                "resolve",
                 "build-compose-agent",
                 "prepare-release",
                 "package-windows",

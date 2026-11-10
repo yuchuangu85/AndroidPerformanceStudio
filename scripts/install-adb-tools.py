@@ -12,6 +12,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -37,6 +39,28 @@ def sha256(path):
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def download_archive(url, archive):
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as incoming, archive.open("wb") as destination:
+                while True:
+                    block = incoming.read(1024 * 1024)
+                    if not block:
+                        break
+                    destination.write(block)
+                    if destination.tell() > MAX_ARCHIVE_BYTES:
+                        raise ValueError("ADB download exceeds archive limit")
+            return
+        except urllib.error.HTTPError as error:
+            if error.code not in (408, 429, 500, 502, 503, 504) or attempt == 2:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt == 2:
+                raise
+        print(f"ADB download failed; retrying ({attempt + 2}/3)", file=sys.stderr)
+        time.sleep(2 ** attempt)
 
 
 def extract_archive(archive, expected_checksum, output):
@@ -116,14 +140,7 @@ def install(args):
         else:
             archive = args.archive.resolve() if args.archive else scratch / "platform-tools.zip"
             if not args.archive:
-                with urllib.request.urlopen(artifact["url"], timeout=60) as incoming, archive.open("wb") as destination:
-                    while True:
-                        block = incoming.read(1024 * 1024)
-                        if not block:
-                            break
-                        destination.write(block)
-                        if destination.tell() > MAX_ARCHIVE_BYTES:
-                            raise ValueError("ADB download exceeds archive limit")
+                download_archive(artifact["url"], archive)
             source = extract_archive(archive, artifact["sha256"], scratch / "extracted")
         prepare(source, output, host, artifact)
     # Probe only host-compatible tools; macOS universal ADB also supports cross-arch packaging.
