@@ -30,6 +30,14 @@ pub struct TargetSelectionChanged {
     pub pid: Option<u32>,
 }
 
+/// Latest shared ADB lists. Pages subscribe instead of running their own startup
+/// discovery, and the shell replays this event immediately when lists already exist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TargetListsChanged {
+    pub devices: Vec<AdbDevice>,
+    pub processes: Vec<AndroidApplicationProcess>,
+}
+
 /// Read-only Home projection of the latest completed device-discovery tick.
 /// An error never publishes the retained title-bar list as current device facts.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -185,6 +193,7 @@ pub struct TargetsWorkspace {
 }
 
 impl EventEmitter<TargetSelectionChanged> for TargetsWorkspace {}
+impl EventEmitter<TargetListsChanged> for TargetsWorkspace {}
 
 impl TargetsWorkspace {
     pub fn new(language: Language, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -247,6 +256,13 @@ impl TargetsWorkspace {
 
     pub fn selected_process(&self) -> Option<u32> {
         self.selected_process
+    }
+
+    pub fn current_lists(&self) -> Option<TargetListsChanged> {
+        self.discovery.loaded_devices().then(|| TargetListsChanged {
+            devices: self.devices.clone(),
+            processes: self.processes.clone(),
+        })
     }
 
     /// Reuses the existing three-second ADB loop; this method never starts work.
@@ -339,6 +355,10 @@ impl TargetsWorkspace {
             }
         }
         self.emit_selection(cx);
+        cx.emit(TargetListsChanged {
+            devices: self.devices.clone(),
+            processes: self.processes.clone(),
+        });
         cx.notify();
     }
 
@@ -369,6 +389,10 @@ impl TargetsWorkspace {
             Err(error) => self.discovery.record_processes(Err(error)),
         }
         self.emit_selection(cx);
+        cx.emit(TargetListsChanged {
+            devices: self.devices.clone(),
+            processes: self.processes.clone(),
+        });
         cx.notify();
     }
 
@@ -404,6 +428,10 @@ impl TargetsWorkspace {
         self.selected_process = Some(pid);
         self.selection_revision = self.selection_revision.wrapping_add(1);
         self.emit_selection(cx);
+        cx.emit(TargetListsChanged {
+            devices: self.devices.clone(),
+            processes: self.processes.clone(),
+        });
         cx.notify();
     }
 

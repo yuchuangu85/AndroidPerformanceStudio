@@ -13,7 +13,7 @@ use crate::{
     inspector::{InspectorPanelVisibility, InspectorPanelsChanged, InspectorWorkspace},
     method::MethodWorkspace,
     source::SourceWorkspace,
-    targets::{TargetSelectionChanged, TargetsWorkspace},
+    targets::{TargetListsChanged, TargetSelectionChanged, TargetsWorkspace},
     trace::TraceWorkspace,
 };
 use aps_ui_foundation::{
@@ -730,6 +730,7 @@ impl Studio {
             &mut subscriptions,
         );
         let targets = cx.new(|cx| TargetsWorkspace::new(settings.language.resolved(), window, cx));
+        let initial_target_lists = targets.read(cx).current_lists();
         subscriptions.push(cx.subscribe(
             &targets,
             |this, _, event: &TargetSelectionChanged, cx| {
@@ -746,10 +747,7 @@ impl Studio {
                 });
                 if let Some(serial) = event.serial.clone() {
                     this.frame.update(cx, |frame, cx| {
-                        frame.select_device(serial, cx);
-                        if let Some(pid) = pid {
-                            frame.select_process(pid as i32, cx);
-                        }
+                        frame.set_shared_target(Some(serial), pid, cx);
                     });
                 }
                 if let Some(gpu) = this.imports.get(&Destination::Gpu) {
@@ -757,6 +755,38 @@ impl Studio {
                 }
             },
         ));
+        subscriptions.push(
+            cx.subscribe(&targets, |this, _, event: &TargetListsChanged, cx| {
+                this.frame.update(cx, |frame, cx| {
+                    let selection = (
+                        frame.selected_shared_target().0.map(str::to_owned),
+                        frame.selected_shared_target().1,
+                    );
+                    frame.apply_shared_target_lists(
+                        &event.devices,
+                        &event.processes,
+                        selection.0.as_deref(),
+                        selection.1,
+                        cx,
+                    )
+                });
+            }),
+        );
+        if let Some(lists) = initial_target_lists {
+            frame.update(cx, |frame, cx| {
+                let selection = (
+                    frame.selected_shared_target().0.map(str::to_owned),
+                    frame.selected_shared_target().1,
+                );
+                frame.apply_shared_target_lists(
+                    &lists.devices,
+                    &lists.processes,
+                    selection.0.as_deref(),
+                    selection.1,
+                    cx,
+                );
+            });
+        }
         subscriptions.push(cx.observe(&ai, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&targets, |_, _, cx| cx.notify()));
         subscriptions.push(cx.subscribe_in(
@@ -1539,14 +1569,8 @@ impl Studio {
 
     fn entered_route(&mut self, destination: Destination, cx: &mut Context<Self>) -> bool {
         match destination {
-            Destination::Trace => {
-                self.trace.update(cx, |trace, cx| trace.refresh_devices(cx));
-                true
-            }
-            Destination::Frame => {
-                self.frame.update(cx, |frame, cx| frame.refresh_devices(cx));
-                true
-            }
+            Destination::Trace => true,
+            Destination::Frame => true,
             _ => false,
         }
     }

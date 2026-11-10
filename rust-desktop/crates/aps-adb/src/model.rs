@@ -301,7 +301,15 @@ pub fn parse_processes(output: &str) -> Result<Vec<AndroidProcess>, AdbError> {
         // column. The first three columns are fixed by the explicit -o
         // request; keep the remainder intact instead of rejecting a valid
         // process row because its command contains whitespace.
-        let columns: Vec<_> = line.splitn(4, char::is_whitespace).collect();
+        let mut remainder = line;
+        let mut columns = Vec::with_capacity(4);
+        for _ in 0..3 {
+            remainder = remainder.trim_start();
+            let end = remainder.find(char::is_whitespace).unwrap_or(remainder.len());
+            columns.push(&remainder[..end]);
+            remainder = &remainder[end..];
+        }
+        columns.push(remainder.trim());
         if columns.len() != 4 || columns[3].trim().is_empty() {
             return Err(AdbError::MalformedOutput("invalid process row"));
         }

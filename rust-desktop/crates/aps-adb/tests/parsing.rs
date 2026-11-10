@@ -81,6 +81,20 @@ fn process_name_preserves_spaces_after_fixed_columns() {
 }
 
 #[test]
+fn process_rows_accept_aligned_spaces_tabs_and_crlf() {
+    let processes = parse_processes(
+        "  PID  PPID USER         NAME\r\n   80     1 u0_a1        com.example.app:worker helper\r\n20\t\t0\troot\tinit\r\n",
+    )
+    .unwrap();
+    assert_eq!(processes.len(), 2);
+    assert_eq!(processes[0].parent_pid, 0);
+    assert_eq!(processes[1].parent_pid, 1);
+    assert_eq!(processes[1].user, "u0_a1");
+    assert_eq!(processes[1].name, "com.example.app:worker helper");
+    assert!(parse_processes("PID PPID USER NAME\n80 invalid u0_a1 com.example.app\n").is_err());
+}
+
+#[test]
 fn online_state_is_derived_from_device_state() {
     let devices =
         parse_devices("List of devices attached\nemulator-5554 device\nR58M unauthorized\n")

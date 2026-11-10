@@ -16,6 +16,7 @@ mod page;
 mod perfetto;
 mod sessions;
 
+use aps_adb::{AdbDevice, AndroidApplicationProcess};
 use aps_ai::AnalysisRequest;
 use aps_contracts::SourceDigest;
 use aps_frame::analysis::AnalyzedFrame;
@@ -138,6 +139,57 @@ impl FrameWorkspace {
 
     pub(crate) fn page_language(&self) -> Language {
         self.language
+    }
+
+    pub(crate) fn selected_shared_target(&self) -> (Option<&str>, Option<u32>) {
+        (
+            self.selected_device_serial.as_deref(),
+            self.selected_process_pid.map(|pid| pid as u32),
+        )
+    }
+
+    pub(crate) fn apply_shared_target_lists(
+        &mut self,
+        devices: &[AdbDevice],
+        processes: &[AndroidApplicationProcess],
+        selected_serial: Option<&str>,
+        selected_pid: Option<u32>,
+        cx: &mut Context<Self>,
+    ) {
+        self.devices = devices
+            .iter()
+            .map(|device| capture::FrameDeviceOption {
+                serial: device.serial.clone(),
+                name: device.display_name(),
+                online: device.is_online(),
+            })
+            .collect();
+        self.processes = processes
+            .iter()
+            .map(|process| capture::FrameProcessOption {
+                pid: process.pid as i32,
+                name: process.name.clone(),
+                package_name: process.package_name.clone(),
+            })
+            .collect();
+        self.selected_device_serial = selected_serial.map(str::to_owned);
+        self.selected_process_pid = selected_pid.map(|pid| pid as i32);
+        self.pending_process_pid = None;
+        self.is_refreshing_devices = false;
+        self.error = None;
+        cx.notify();
+    }
+
+    pub(crate) fn set_shared_target(
+        &mut self,
+        serial: Option<String>,
+        pid: Option<u32>,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_device_serial = serial;
+        self.selected_process_pid = pid.map(|value| value as i32);
+        self.pending_process_pid = None;
+        cx.notify();
     }
 
     // ---------------- device / process discovery ----------------
