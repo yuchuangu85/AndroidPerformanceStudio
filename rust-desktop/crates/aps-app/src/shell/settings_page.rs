@@ -1595,7 +1595,7 @@ fn choice_chip(
         .border_color(if selected {
             colors.accent
         } else {
-            colors.border
+            colors.strong_border
         })
         .bg(if selected {
             colors.selected_row
@@ -1897,7 +1897,7 @@ mod tests {
             assert!(page.contains(key), "missing Compose section content: {key}");
         }
         assert!(page.contains("template_row("));
-        assert!(page.contains("choice_chip("));
+        assert!(page.contains("colors.strong_border"));
         assert!(page.contains("input_field("));
         // The flame-graph options are single-select radios, not chips.
         assert!(page.contains(r#"Radio::new(("tooltip-mode", 0usize))"#));
