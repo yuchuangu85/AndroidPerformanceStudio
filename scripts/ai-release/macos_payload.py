@@ -91,8 +91,7 @@ def tool_inventories(app, arch):
     for resources in sorted(app.rglob("resources")):
         if resources.is_symlink():
             raise GateError("Symlinked application resources rejected")
-        for kind, relative in (("hprof", "hprof-engine/aps-hprof-engine"),
-                               ("trace-processor", "perfetto-tools/trace_processor_shell")):
+        for kind, relative in (("trace-processor", "perfetto-tools/trace_processor_shell"),):
             binary = resources / relative
             if not binary.exists() and not binary.is_symlink():
                 if binary.parent.exists():
@@ -102,37 +101,26 @@ def tool_inventories(app, arch):
             with binary.open("rb") as stream:
                 if not native_header(stream.read(8)):
                     raise GateError("Expected native macOS tool payload")
-            if kind == "hprof":
-                metadata = safe_file(binary.with_name(binary.name + ".sha256"), app)
-                if metadata.stat().st_size > 1024:
-                    raise GateError("Invalid original HPROF checksum size")
-                original = metadata.read_bytes()
-                try:
-                    upstream = original.decode("ascii").strip()
-                except UnicodeError:
-                    raise GateError("Invalid original HPROF checksum") from None
-                sidecar = binary.with_name(binary.name + ".upstream.sha256")
-            else:
-                metadata = PINNED_TP_MANIFEST
-                if metadata.stat().st_size > 1024 * 1024:
-                    raise GateError("Pinned Trace Processor provenance is too large")
-                original = metadata.read_bytes()
-                try:
-                    pinned = json.loads(original)
-                    version = pinned["version"]
-                    upstream = pinned["artifacts"]["macos-" + arch]["sha256"]
-                    if not re.fullmatch(r"v[0-9]+(?:\.[0-9]+)*", version):
-                        raise ValueError()
-                except (ValueError, KeyError, TypeError):
-                    raise GateError("Invalid pinned Trace Processor provenance") from None
-                sidecar = binary.parent / SIGNED_TP_MANIFEST
+            metadata = PINNED_TP_MANIFEST
+            if metadata.stat().st_size > 1024 * 1024:
+                raise GateError("Pinned Trace Processor provenance is too large")
+            original = metadata.read_bytes()
+            try:
+                pinned = json.loads(original)
+                version = pinned["version"]
+                upstream = pinned["artifacts"]["macos-" + arch]["sha256"]
+                if not re.fullmatch(r"v[0-9]+(?:\.[0-9]+)*", version):
+                    raise ValueError()
+            except (ValueError, KeyError, TypeError):
+                raise GateError("Invalid pinned Trace Processor provenance") from None
+            sidecar = binary.parent / SIGNED_TP_MANIFEST
             if not isinstance(upstream, str) or not re.fullmatch(r"[0-9a-f]{64}", upstream) or sha256_file(binary) != upstream:
                 raise GateError("Original bundled tool SHA-256 does not match verified provenance")
             if sidecar.exists() or sidecar.is_symlink():
                 raise GateError("Refusing already-transformed tool provenance")
             records.append({"kind": kind, "binary": binary, "metadata": metadata, "original": original,
                             "upstream": upstream, "sidecar": sidecar,
-                            "version": version if kind == "trace-processor" else None})
+                            "version": version})
     return records
 
 
@@ -150,13 +138,9 @@ def refresh_tool_inventories(app, arch, records, signed_hashes, team):
             raise GateError("Cannot refresh a tool without verified signed bytes")
         if record["sidecar"].exists() or record["sidecar"].is_symlink():
             raise GateError("Signed tool inventory was replaced during signing")
-        if record["kind"] == "hprof":
-            updates.append((record["sidecar"], (record["upstream"] + "\n").encode("ascii"), True))
-            updates.append((metadata, (actual + "\n").encode("ascii"), False))
-        else:
-            data = {"schemaVersion": 1, "upstreamVersion": record["version"], "binary": "trace_processor_shell",
-                    "upstreamSha256": record["upstream"], "signedSha256": actual, "teamId": team}
-            updates.append((record["sidecar"], (json.dumps(data, sort_keys=True) + "\n").encode("ascii"), True))
+        data = {"schemaVersion": 1, "upstreamVersion": record["version"], "binary": "trace_processor_shell",
+                "upstreamSha256": record["upstream"], "signedSha256": actual, "teamId": team}
+        updates.append((record["sidecar"], (json.dumps(data, sort_keys=True) + "\n").encode("ascii"), True))
     # Validate the entire set before changing any checksum or provenance file.
     for path, data, exclusive in updates:
         with path.open("xb" if exclusive else "wb") as stream:

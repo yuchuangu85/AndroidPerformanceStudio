@@ -80,14 +80,16 @@ class MemoryProfilerControllerTest {
     @Test
     fun `import timing follows the selected snapshot`() =
         runTest {
-            val controller = MemoryProfilerController(FakeBackend())
+            val ticks = ArrayDeque(listOf(0L, 12_340_999_999L, 20_000_000_000L, 20_008_000_000L))
+            val controller = MemoryProfilerController(FakeBackend(), nanoTime = { ticks.removeFirst() })
             controller.importHprof(Path.of("before.hprof"))
             val beforeDuration = controller.state.value.importDurationMillis
             val beforeEngine = controller.state.value.importEngine
-            assertNotNull(beforeDuration)
+            assertEquals(12_340L, beforeDuration)
             assertNotNull(beforeEngine)
             controller.importHprof(Path.of("after.hprof"))
             val afterDuration = controller.state.value.importDurationMillis
+            assertEquals(8L, afterDuration)
             controller.selectSnapshot("before.hprof")
             assertEquals(beforeDuration, controller.state.value.importDurationMillis)
             assertEquals(beforeEngine, controller.state.value.importEngine)

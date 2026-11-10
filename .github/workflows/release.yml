@@ -232,13 +232,6 @@ jobs:
       - name: Install pinned Windows JBRSDK
         shell: pwsh
         run: ./scripts/install-jbr.ps1
-      - name: Set up pinned Rust 1.85.1
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup run 1.85.1 rustc --version
-          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
       - name: Test Windows title bar on the packaged JBRSDK
         shell: pwsh
         env:
@@ -402,13 +395,6 @@ jobs:
             echo "::error::Expected $EXPECTED_ARCH runner, got $actual_arch."
             exit 1
           fi
-      - name: Set up pinned Rust 1.85.1
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup run 1.85.1 rustc --version
-          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
       - name: Verify bundled ADB without SDK or PATH
         run: ./desktop-viewer/gradlew -p desktop-viewer :platform-core:adb-core:smokeBundledAdb --no-daemon
       - name: Build DMG and PKG
@@ -546,13 +532,6 @@ jobs:
             sudo apt-get install -y adb patchelf
           fi
           python3 ./scripts/install-adb-tools.py --host linux-${{ matrix.arch }}
-      - name: Set up pinned Rust 1.85.1
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup run 1.85.1 rustc --version
-          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
       - name: Verify bundled ADB without SDK or PATH
         run: ./desktop-viewer/gradlew -p desktop-viewer :platform-core:adb-core:smokeBundledAdb --no-daemon
       - name: Build DEB and RPM

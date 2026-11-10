@@ -359,6 +359,7 @@ internal class MemoryProfilerController(
     private val backend: MemoryProfilerBackend,
     @Volatile private var language: UiLanguage = UiLanguage.ENGLISH,
     private val selectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val mutableState = MutableStateFlow(MemoryProfilerState())
     private var activeOperationJob: Job? = null
@@ -1732,10 +1733,12 @@ internal class MemoryProfilerController(
     @Suppress("TooGenericExceptionCaught")
     suspend fun importHprof(file: Path) {
         activeOperationJob = currentCoroutineContext()[Job]
-        val importStarted = System.nanoTime()
+        val importStarted = nanoTime()
         mutableState.value =
             mutableState.value.copy(
                 isDumping = true,
+                importDurationMillis = null,
+                importEngine = null,
                 operationMessage = localizedStringResource(Res.string.importing, language, file.fileName),
                 loadPhase = HeapLoadPhase.PROBE,
                 loadProgress = 0,
@@ -1773,7 +1776,7 @@ internal class MemoryProfilerController(
             }
         applyLoadedResult(result)
         if (result is MemoryBackendResult.Success) {
-            val durationMillis = (System.nanoTime() - importStarted) / 1_000_000L
+            val durationMillis = (nanoTime() - importStarted) / 1_000_000L
             mutableState.value.activeSnapshotId?.let { importDurationsBySnapshotId[it] = durationMillis }
             mutableState.value = mutableState.value.copy(importDurationMillis = durationMillis, importEngine = result.value.engine.name)
         }

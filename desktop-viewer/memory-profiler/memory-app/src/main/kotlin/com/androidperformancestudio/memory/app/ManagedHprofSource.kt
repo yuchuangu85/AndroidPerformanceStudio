@@ -159,7 +159,7 @@ internal class ManagedHprofSource(
             "Managed HPROF source checksum mismatch"
         }
         require(sha256(source, checkpoint) == digest) { "HPROF source changed while opening the snapshot" }
-        // Avoid chmod on an unchanged winner: it changes ctime and invalidates Rust's source identity.
+        // Avoid changing source metadata for an unchanged immutable snapshot.
         restrictPermissions(target, CONTENT_PERMISSIONS)
     }
 

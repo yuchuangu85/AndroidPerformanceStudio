@@ -83,6 +83,7 @@ import com.androidperformancestudio.memory.presentation.generated.resources.coun
 import com.androidperformancestudio.memory.presentation.generated.resources.dominator_tree
 import com.androidperformancestudio.memory.presentation.generated.resources.heap_size
 import com.androidperformancestudio.memory.presentation.generated.resources.import_or_dump_an_hprof_file_to_show_class_histogram
+import com.androidperformancestudio.memory.presentation.generated.resources.import_duration
 import com.androidperformancestudio.memory.presentation.generated.resources.in_progress
 import com.androidperformancestudio.memory.presentation.generated.resources.mapping_loaded_note
 import com.androidperformancestudio.memory.presentation.generated.resources.objects
@@ -426,9 +427,6 @@ private fun MemoryProfilerStatusBar(
 ) {
     val operationMessage = state.operationMessage?.takeIf { it.isNotBlank() }
     val showOperation = state.isDumping || operationMessage != null
-    val hasImportTiming = state.importDurationMillis != null && state.importEngine != null
-    val hasTask = showOperation || state.isSelectionLoading || hasImportTiming
-    val hasProblem = state.error != null || !state.cleanupWarning.isNullOrBlank() || !state.warning.isNullOrBlank()
     val colors = LocalViewerColors.current
     var hasStatus = false
     SelectionContainer {
@@ -448,9 +446,15 @@ private fun MemoryProfilerStatusBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (state.importDurationMillis != null && state.importEngine != null && !showOperation && state.error == null) {
-                val duration = String.format(java.util.Locale.ROOT, "%.2fs", state.importDurationMillis / 1000.0)
-                CopyableText("${state.importEngine} · import $duration", color = colors.secondaryText, fontSize = ViewerTypography.label.fontSize, modifier = Modifier.testTag("memory-import-timing"))
+            state.importDurationMillis?.let { millis ->
+                val duration = String.format(java.util.Locale.ROOT, "%.2f", millis / 1000.0)
+                val timing = localizedStringResource(Res.string.import_duration, language, duration)
+                CopyableText(
+                    text = listOfNotNull(state.importEngine?.takeIf { it.isNotBlank() }, timing).joinToString(" · "),
+                    color = colors.secondaryText,
+                    fontSize = ViewerTypography.label.fontSize,
+                    modifier = Modifier.testTag("memory-import-timing"),
+                )
                 state.snapshotSummary?.sourceFile?.let { file ->
                     MemoryProfilerStatusDivider()
                     CopyableText(
@@ -464,6 +468,7 @@ private fun MemoryProfilerStatusBar(
                 hasStatus = true
             }
             if (showOperation) {
+                if (hasStatus) MemoryProfilerStatusDivider()
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,

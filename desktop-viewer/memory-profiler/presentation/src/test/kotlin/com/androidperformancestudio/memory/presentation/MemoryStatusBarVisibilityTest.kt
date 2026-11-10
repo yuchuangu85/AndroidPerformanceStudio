@@ -22,6 +22,36 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class MemoryStatusBarVisibilityTest {
     @Test
+    fun `import duration is localized and remains visible without engine during other feedback`() {
+        UiLanguage.entries.forEach { language ->
+            runDesktopComposeUiTest(width = 1280, height = 720) {
+                val imported = fixture().copy(importDurationMillis = 12_340)
+                var state by mutableStateOf(imported)
+                setContent {
+                    ViewerTheme(darkTheme = false) { MemoryProfilerScreen(state, MemoryProfilerActions(), language) }
+                }
+                val expected = if (language == UiLanguage.ENGLISH) "Import duration: 12.34 s" else "导入耗时：12.34 秒"
+                listOf(
+                    imported,
+                    imported.copy(error = MemoryProfilerError("Analysis failed", "Try again")),
+                    imported.copy(operationMessage = "Analyzing imported snapshot"),
+                    imported.copy(isSelectionLoading = true),
+                    imported.copy(warning = "Mapping unavailable", cleanupWarning = "Cleanup pending"),
+                ).forEach { feedback ->
+                    runOnIdle { state = feedback }
+                    onNodeWithTag("memory-import-timing").assertIsDisplayed()
+                    onNodeWithText(expected, useUnmergedTree = true).assertIsDisplayed()
+                }
+                runOnIdle { state = imported.copy(importDurationMillis = 0) }
+                onNodeWithText(
+                    if (language == UiLanguage.ENGLISH) "Import duration: 0.00 s" else "导入耗时：0.00 秒",
+                    useUnmergedTree = true,
+                ).assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
     fun `imported file path and elapsed seconds remain visible while idle`() =
         runDesktopComposeUiTest(width = 1280, height = 720) {
             val path = java.nio.file.Path.of("/tmp/heap captures/sample.hprof")
@@ -36,9 +66,9 @@ class MemoryStatusBarVisibilityTest {
                 ViewerTheme(darkTheme = false) { MemoryProfilerScreen(state, MemoryProfilerActions()) }
             }
             onNodeWithText(path.toAbsolutePath().normalize().toString()).assertIsDisplayed()
-            listOf(0L to "0.00s", 8L to "0.01s", 1234L to "1.23s", 1236L to "1.24s", 12300L to "12.30s").forEach { (millis, expected) ->
+            listOf(0L to "0.00", 8L to "0.01", 1234L to "1.23", 1236L to "1.24", 12300L to "12.30").forEach { (millis, expected) ->
                 runOnIdle { state = state.copy(importDurationMillis = millis) }
-                onNodeWithText("RUST · import $expected").assertIsDisplayed()
+                onNodeWithText("RUST · Import duration: $expected s").assertIsDisplayed()
                 onNodeWithTag("memory-import-path").assertIsDisplayed()
             }
         }

@@ -86,32 +86,15 @@ class UnifiedSettingsMigrationTest {
     }
 
     @Test
-    fun `analysis engine configuration reuses the shared choice control and localized options`() {
-        val configuration =
-            desktopSource("DesktopAppSettingsPage.kt")
-                .substringAfter("private fun ConfigurationSettingsContent(")
-                .substringBefore("private fun ThemeColorSettingsContent(")
-
-        assertTrue(configuration.contains("SettingsChoice("))
-        assertTrue(configuration.contains("current = settings.cpuAnalysisEngine"))
-        assertTrue(configuration.contains("options = CpuAnalysisEngine.entries"))
-        assertTrue(configuration.contains("CpuAnalysisEngine.RUST -> Res.string.cpu_engine_rust_projection"))
-        assertTrue(configuration.contains("onSettingsChanged(settings.copy(cpuAnalysisEngine = it))"))
-        assertTrue(configuration.contains("current = settings.harImportEngine"))
-        assertTrue(configuration.contains("options = HarImportEngine.entries"))
-        assertTrue(configuration.contains("HarImportEngine.RUST -> Res.string.har_engine_rust"))
-        assertTrue(configuration.contains("onSettingsChanged(settings.copy(harImportEngine = it))"))
-
-        val english = desktopStrings("values")
-        val chinese = desktopStrings("values-zh")
-        assertEquals("CPU analysis engine", english["cpu_analysis_engine"])
-        assertEquals("CPU 分析引擎", chinese["cpu_analysis_engine"])
-        assertEquals("Rust projection", english["cpu_engine_rust_projection"])
-        assertEquals("Rust 投影", chinese["cpu_engine_rust_projection"])
-        assertEquals("HAR import engine", english["har_import_engine"])
-        assertEquals("HAR 导入引擎", chinese["har_import_engine"])
-        assertEquals("Rust", english["har_engine_rust"])
-        assertEquals("Rust", chinese["har_engine_rust"])
+    fun `configuration no longer exposes removed Rust engine choices`() {
+        val configuration = desktopSource("DesktopAppSettingsPage.kt")
+        assertFalse(configuration.contains("settings.cpuAnalysisEngine"))
+        assertFalse(configuration.contains("settings.harImportEngine"))
+        for (locale in listOf("values", "values-zh")) {
+            val strings = desktopStrings(locale)
+            assertFalse(strings.containsKey("cpu_analysis_engine"))
+            assertFalse(strings.containsKey("har_import_engine"))
+        }
     }
 
     private fun desktopStrings(localeDirectory: String): Map<String, String> {

@@ -80,7 +80,7 @@ internal interface HeapSnapshotQuery {
     ): InstanceQueryDetail?
 }
 
-/** Owns the graph independently of the UI; Rust never exposes a synthetic HeapDump. */
+/** Owns the graph independently of the UI. */
 internal interface HeapSnapshotSource : AutoCloseable {
     val metadata: HeapSourceMetadata
     val query: HeapSnapshotQuery

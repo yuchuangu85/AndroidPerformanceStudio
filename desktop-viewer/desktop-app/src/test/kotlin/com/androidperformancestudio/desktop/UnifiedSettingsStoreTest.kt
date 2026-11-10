@@ -131,67 +131,17 @@ class UnifiedSettingsStoreTest {
     }
 
     @Test
-    fun `new analysis engines default to Rust implementations for fresh profiles`() {
-        assertEquals(CpuAnalysisEngine.RUST, CpuAnalysisEngine.DEFAULT)
-        assertEquals(HarImportEngine.RUST, HarImportEngine.DEFAULT)
-        assertEquals(CpuAnalysisEngine.RUST, ApplicationUiSettings().cpuAnalysisEngine)
-        assertEquals(HarImportEngine.RUST, ApplicationUiSettings().harImportEngine)
-
-        val values = mutableMapOf<String, String>()
-        val loaded = ApplicationUiSettingsStore(values::get, values::set).load()
-
-        assertEquals(CpuAnalysisEngine.RUST, loaded.cpuAnalysisEngine)
-        assertEquals(HarImportEngine.RUST, loaded.harImportEngine)
-        assertFalse(values.containsKey("application.cpuAnalysisEngine"))
-        assertFalse(values.containsKey("application.harImportEngine"))
-    }
-
-    @Test
-    fun `new analysis engine preferences parse supported values and reject invalid values without rewriting`() {
-        listOf("RUST", "Rust", " rust ").forEach { storedValue ->
-            val values = mutableMapOf("application.cpuAnalysisEngine" to storedValue)
-            assertEquals(
-                CpuAnalysisEngine.RUST,
-                ApplicationUiSettingsStore(values::get, values::set).load().cpuAnalysisEngine,
-            )
-        }
-        listOf("RUST", "Rust", " rust ").forEach { storedValue ->
-            val values = mutableMapOf("application.harImportEngine" to storedValue)
-            assertEquals(
-                HarImportEngine.RUST,
-                ApplicationUiSettingsStore(values::get, values::set).load().harImportEngine,
-            )
-        }
-
-        listOf("", "unknown", "future-engine").forEach { storedValue ->
-            val values = mutableMapOf(
-                "application.cpuAnalysisEngine" to storedValue,
-                "application.harImportEngine" to storedValue,
-            )
-            val original = values.toMap()
-            val loaded = ApplicationUiSettingsStore(values::get, values::set).load()
-
-            assertEquals(CpuAnalysisEngine.RUST, loaded.cpuAnalysisEngine)
-            assertEquals(HarImportEngine.RUST, loaded.harImportEngine)
-            assertEquals(original, values)
-        }
-    }
-
-    @Test
-    fun `new analysis engine preferences round trip under independent application keys`() {
-        val values = mutableMapOf<String, String>()
+    fun `removed analysis engine preferences are ignored and never written`() {
+        val values = mutableMapOf("application.cpuAnalysisEngine" to "rust", "application.harImportEngine" to "rust")
+        val original = values.toMap()
         val store = ApplicationUiSettingsStore(values::get, values::set)
-        val settings =
-            ApplicationUiSettings(
-                cpuAnalysisEngine = CpuAnalysisEngine.LEGACY,
-                harImportEngine = HarImportEngine.LEGACY,
-            )
-
-        assertTrue(store.save(settings))
-
-        assertEquals("legacy", values["application.cpuAnalysisEngine"])
-        assertEquals("legacy", values["application.harImportEngine"])
-        assertEquals(settings, ApplicationUiSettingsStore(values::get, values::set).load())
+        assertEquals(ApplicationUiSettings(), store.load())
+        assertTrue(store.save(store.load()))
+        original.forEach { (key, value) -> assertEquals(value, values[key]) }
+        val freshValues = mutableMapOf<String, String>()
+        assertTrue(ApplicationUiSettingsStore(freshValues::get, freshValues::set).save(ApplicationUiSettings()))
+        assertFalse(freshValues.containsKey("application.cpuAnalysisEngine"))
+        assertFalse(freshValues.containsKey("application.harImportEngine"))
     }
 
     @Test

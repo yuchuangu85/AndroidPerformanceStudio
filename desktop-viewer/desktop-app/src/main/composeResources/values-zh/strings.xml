@@ -68,12 +68,6 @@
     <string name="advanced_parameters">高级参数</string>
     <string name="flame_graph">火焰图</string>
     <string name="simpleperf_engine">分析引擎</string>
-    <string name="cpu_analysis_engine">CPU 分析引擎</string>
-    <string name="cpu_engine_legacy">Legacy（旧版）</string>
-    <string name="cpu_engine_rust_projection">Rust 投影</string>
-    <string name="har_import_engine">HAR 导入引擎</string>
-    <string name="har_engine_legacy">Legacy（旧版）</string>
-    <string name="har_engine_rust">Rust</string>
     <string name="user_guide">用户指南</string>
     <string name="android_performance_studio">Android Performance Studio</string>
     <string name="layout_inspector">布局检查器</string>

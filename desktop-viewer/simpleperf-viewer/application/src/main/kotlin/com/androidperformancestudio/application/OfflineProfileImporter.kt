@@ -30,8 +30,6 @@ import com.androidperformancestudio.parser.SimpleperfReadSummary
 import com.androidperformancestudio.parser.SimpleperfRecordReader
 import com.androidperformancestudio.parser.SimpleperfReportConverter
 import com.androidperformancestudio.platform.toolchain.HostCancellationSignal
-import com.androidperformancestudio.platform.toolchain.NativeShadowResult
-import com.androidperformancestudio.platform.toolchain.NativeSummaryShadow
 import com.androidperformancestudio.storage.DataQualitySummary
 import com.androidperformancestudio.storage.ProfileImportResult
 import com.androidperformancestudio.storage.SQLiteSampleStore
@@ -86,7 +84,6 @@ data class OfflineImportResult(
     val profileImport: ProfileImportResult,
     val quality: DataQualitySummary,
     val artifact: CaptureArtifact? = null,
-    val nativeShadow: NativeShadowResult? = null,
     val importDurationMillis: Long = 0L,
 )
 
@@ -107,9 +104,6 @@ class OfflineProfileImporter(
     private val perfDataConverter: PerfDataConverter,
     private val recordReader: SimpleperfRecordReader = SimpleperfRecordReader(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val nativeEngineExecutable: () -> Path? = {
-        NativeSummaryShadow.configured("aps.simpleperfEngine.path", "APS_SIMPLEPERF_ENGINE")
-    },
 ) {
     private val geckoProfileReader = GeckoProfileReader()
     constructor(
@@ -238,34 +232,7 @@ class OfflineProfileImporter(
                 is StudioResult.Success -> converted.value
             }
         ensureActive(cancellationSignal)
-        val shadowExecutable = nativeEngineExecutable()
-        val shadowDigest = shadowExecutable?.let { ArtifactFileEvidence.sha256(prepared.protobufTrace).value }
-        return when (val result = indexTrace(request, artifacts, prepared, cancellationSignal)) {
-            is StudioResult.Failure -> result
-            is StudioResult.Success -> {
-                val executable = shadowExecutable ?: return result
-                val imported = result.value
-                val shadow =
-                    NativeSummaryShadow().compare(
-                        executable,
-                        prepared.protobufTrace,
-                            mapOf(
-                                "recordCount" to imported.readSummary.recordCount,
-                                "sampleCount" to imported.quality.sampleCount,
-                            ),
-                        expectedSourceDigest = shadowDigest,
-                        isCancellationRequested = { cancellationSignal.isCancelled },
-                    )
-                // A shadow result is diagnostic only; never rewrite the accepted artifact.
-                runCatching {
-                    Files.writeString(
-                        artifacts.sessionDirectory.resolve("rust-shadow.properties"),
-                        shadow.properties(),
-                    )
-                }
-                StudioResult.Success(imported.copy(nativeShadow = shadow))
-            }
-        }
+        return indexTrace(request, artifacts, prepared, cancellationSignal)
     }
 
     private fun prepareArtifacts(request: OfflineImportRequest): ImportArtifacts {
@@ -540,7 +507,7 @@ private fun writeSuccess(
             add("recordCount=${result.readSummary.recordCount}")
             add("sampleCount=${result.profileImport.importedSamples}")
             add("importDurationMillis=${result.importDurationMillis}")
-            add("importEngine=${if (result.nativeShadow != null) "Rust" else "Legacy"}")
+            add("importEngine=Kotlin")
             host?.let {
                 add("hostSimpleperfVersion=${it.version}")
                 add("hostSimpleperfSha256=${it.sha256}")

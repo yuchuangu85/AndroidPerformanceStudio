@@ -38,9 +38,6 @@ class PayloadFixtures(unittest.TestCase):
                    "CFBundleExecutable": "libjli.dylib"}))
         self.write(self.runtime / "Contents/MacOS/libjli.dylib", MACHO + b"runtime")
         self.resources = self.app / "Contents/app/resources"
-        self.hprof = self.write(self.resources / "hprof-engine/aps-hprof-engine", MACHO + b"hprof")
-        self.hprof_hash = self.write(self.hprof.with_name(self.hprof.name + ".sha256"),
-                                     (payload.sha256_file(self.hprof) + "\n").encode())
         self.tp = self.write(self.resources / "perfetto-tools/trace_processor_shell", MACHO + b"trace-processor")
         self.pinned = self.write(self.root / "pinned.json", json.dumps({"version": "v59.1", "artifacts": {
             "macos-arm64": {"sha256": payload.sha256_file(self.tp)}, "macos-x64": {"sha256": "f" * 64}}}).encode())
@@ -108,16 +105,13 @@ class PayloadFixtures(unittest.TestCase):
         self.assertTrue((runtime / "Contents/_CodeSignature/CodeResources").is_file())
         self.assertTrue(any(args[1:5] == ["--verify", "--deep", "--strict", str(runtime)] for args in self.calls))
 
-    def test_hprof_and_exact_tp_inventory_are_refreshed_before_any_enclosing_seal(self):
-        before_hprof = payload.sha256_file(self.hprof)
+    def test_exact_tp_inventory_are_refreshed_before_any_enclosing_seal(self):
         before_tp = payload.sha256_file(self.tp)
         pinned_bytes = self.pinned.read_bytes()
         seen = []
 
         def on_bundle(path):
-            signed_hprof, signed_tp = self.staged(self.hprof), self.staged(self.tp)
-            self.assertEqual(payload.sha256_file(signed_hprof), self.staged(self.hprof_hash).read_text().strip())
-            self.assertEqual(before_hprof, signed_hprof.with_name(signed_hprof.name + ".upstream.sha256").read_text().strip())
+            signed_tp = self.staged(self.tp)
             data = json.loads((signed_tp.parent / payload.SIGNED_TP_MANIFEST).read_text())
             self.assertEqual({"schemaVersion": 1, "upstreamVersion": "v59.1", "binary": "trace_processor_shell",
                               "upstreamSha256": before_tp, "signedSha256": payload.sha256_file(signed_tp), "teamId": TEAM}, data)
@@ -127,11 +121,10 @@ class PayloadFixtures(unittest.TestCase):
         self.signing(on_bundle=on_bundle)
         self.assertIn(self.copied, seen)
         self.assertEqual(pinned_bytes, self.pinned.read_bytes())
-        self.assertEqual(before_hprof, self.hprof_hash.read_text().strip())
         self.assertFalse((self.tp.parent / payload.SIGNED_TP_MANIFEST).exists(), "Unsigned development app is untouched")
 
-    def test_bad_upstream_hprof_and_tp_cannot_be_blessed_by_signing(self):
-        for binary in (self.hprof, self.tp):
+    def test_bad_upstream_tp_cannot_be_blessed_by_signing(self):
+        for binary in (self.tp,):
             with self.subTest(binary=binary.name):
                 original = binary.read_bytes()
                 binary.write_bytes(original + b"tampered")
@@ -143,24 +136,23 @@ class PayloadFixtures(unittest.TestCase):
 
     def test_changed_metadata_during_signing_never_replaces_provenance_or_seals_app(self):
         def tamper(path):
-            if path == self.staged(self.hprof):
-                self.staged(self.hprof_hash).write_text("f" * 64 + "\n")
+            if path == self.staged(self.tp):
+                self.pinned.write_text("{}")
 
         with self.assertRaisesRegex(GateError, "provenance changed"):
             self.signing(on_file=tamper)
         self.assertNotIn(self.copied, self.signatures())
         self.assertFalse((self.staged(self.tp).parent / payload.SIGNED_TP_MANIFEST).exists())
-        self.assertFalse(self.staged(self.hprof).with_name(self.hprof.name + ".upstream.sha256").exists())
 
     def test_changed_signed_binary_cannot_be_recorded_as_verified_bytes(self):
         def tamper(path):
             if path == self.copied / "Contents/MacOS/Fixture":
-                self.staged(self.hprof).write_bytes(b"unverified replacement")
+                self.staged(self.tp).write_bytes(b"unverified replacement")
 
         with self.assertRaisesRegex(GateError, "verified signed bytes"):
             self.signing(on_file=tamper)
         self.assertNotIn(self.copied, self.signatures())
-        self.assertEqual(payload.sha256_file(self.hprof), self.staged(self.hprof_hash).read_text().strip())
+        self.assertFalse((self.staged(self.tp).parent / payload.SIGNED_TP_MANIFEST).exists())
 
     def test_inventory_symlinks_and_already_transformed_inputs_fail_closed(self):
         sidecar = self.tp.parent / payload.SIGNED_TP_MANIFEST
@@ -171,7 +163,7 @@ class PayloadFixtures(unittest.TestCase):
         sidecar.unlink()
         is_symlink = Path.is_symlink
         # This is a contract fixture, not a request for Windows symlink-creation privilege.
-        with patch.object(Path, "is_symlink", lambda path: path == self.hprof_hash or is_symlink(path)), \
+        with patch.object(Path, "is_symlink", lambda path: path == self.tp or is_symlink(path)), \
                 patch.object(payload, "PINNED_TP_MANIFEST", self.pinned):
             with self.assertRaises(GateError):
                 payload.tool_inventories(self.app, "arm64")
@@ -254,4 +246,4 @@ class PayloadFixtures(unittest.TestCase):
 
     def test_hashing_supports_system_python_without_file_digest(self):
         with patch.object(sign.hashlib, "file_digest", None, create=True):
-            self.assertEqual(payload.sha256_file(self.hprof), self.hprof_hash.read_text().strip())
+            self.assertEqual(payload.sha256_file(self.tp), json.loads(self.pinned.read_text())["artifacts"]["macos-arm64"]["sha256"])

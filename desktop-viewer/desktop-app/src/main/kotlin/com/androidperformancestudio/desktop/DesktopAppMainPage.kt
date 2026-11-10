@@ -484,7 +484,6 @@ fun FrameWindowScope.DesktopAppMainPage(
                                     window = window,
                                     settings = simpleperfSettings,
                                     androidSdkPath = applicationSettings.androidSdkPath?.let { path -> runCatching { java.nio.file.Path.of(path) }.getOrNull() },
-                                    nativeCpuEngineEnabled = applicationSettings.cpuAnalysisEngine == CpuAnalysisEngine.RUST,
                                     initialSessionFile = navigator.simpleperfSessionRequest?.path,
                                     initialSessionRequestId = navigator.simpleperfSessionRequest?.requestId ?: 0L,
                                     onSettingsChanged = updateSimpleperfPreferences,
@@ -588,7 +587,6 @@ fun FrameWindowScope.DesktopAppMainPage(
                                 NetworkProfilerMainPage(
                                     language = language,
                                     onBack = { navigator.open(AppDestination.HOME) },
-                                    nativeHarEngineEnabled = applicationSettings.harImportEngine == HarImportEngine.RUST,
                                 )
                             AppDestination.GPU_INSPECTOR ->
                                 GpuIntegrationMainPage(

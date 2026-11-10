@@ -38,7 +38,6 @@ import com.androidperformancestudio.network.presentation.NetworkProfilerActions
 import com.androidperformancestudio.network.presentation.NetworkProfilerScreen
 import com.androidperformancestudio.network.presentation.NetworkProfilerState
 import com.androidperformancestudio.network.storage.SqliteNetworkStore
-import com.androidperformancestudio.platform.toolchain.NativeSummaryShadow
 import com.androidperformancestudio.ui.HeaderSpacer
 import com.androidperformancestudio.ui.HeaderToolbar
 import com.androidperformancestudio.ui.LocalTitleBarTargetHost
@@ -71,7 +70,6 @@ import java.util.Locale
 public fun FrameWindowScope.NetworkProfilerMainPage(
     language: UiLanguage = UiLanguage.ENGLISH,
     onBack: () -> Unit = {},
-    nativeHarEngineEnabled: Boolean = true,
 ) {
     val analyzer = remember { NetworkAnalyzer() }
     val exporter = remember { NetworkExporter() }
@@ -172,24 +170,9 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                                     try {
                                         val importStarted = System.nanoTime()
                                         val imported = withContext(Dispatchers.IO) {
-                                            val executable = NativeSummaryShadow.configured("aps.harEngine.path", "APS_HAR_ENGINE")
-                                            val mode = if (nativeHarEngineEnabled) HarImportMode.NATIVE_WITH_LEGACY_FALLBACK else HarImportMode.SHADOW
-                                            val shadowExecutable = executable?.takeIf { !nativeHarEngineEnabled }
-                                            val digest = shadowExecutable?.let { ArtifactFileEvidence.sha256(file.toPath()).value }
                                             val context = currentCoroutineContext()
-                                            val result = HarImportParser(mode, executable).parse(file.toPath()) { context.ensureActive() }
+                                            val result = HarImportParser().parse(file.toPath()) { context.ensureActive() }
                                             val artifact = NetworkArtifactFactory().har(file.toPath(), result)
-                                            shadowExecutable?.let {
-                                                val shadow = NativeSummaryShadow().compare(
-                                                    it, file.toPath(), mapOf("entryCount" to result.calls.size.toLong()),
-                                                    expectedSourceDigest = digest,
-                                                )
-                                                runCatching {
-                                                    val directory = db.toAbsolutePath().parent.resolve("native-shadow")
-                                                    Files.createDirectories(directory)
-                                                    Files.writeString(directory.resolve("${artifact.id.value}.properties"), shadow.properties())
-                                                }
-                                            }
                                             result to artifact
                                         }
                                         complete(
@@ -197,7 +180,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                                             localizedStringResource(Res.string.imported_redacted, language, file.name),
                                             imported.second,
                                             (System.nanoTime() - importStarted) / 1_000_000L,
-                                            if (nativeHarEngineEnabled) "Rust" else "Legacy",
+                                            "Kotlin",
                                         )
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
