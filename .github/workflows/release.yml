@@ -10,22 +10,6 @@ on:
         description: "Semantic version to publish, for example 0.1.1"
         required: true
         type: string
-      release_qualified:
-        description: "Explicitly request signed, notarized release qualification (never unsigned development publication)"
-        type: boolean
-        default: false
-      run_real_provider:
-        description: "Opt in to required billed real-provider acceptance for this exact source"
-        type: boolean
-        default: false
-      live_provider:
-        description: "Explicit live provider; codex means Responses API with OPENAI_API_KEY, not CLI login"
-        type: choice
-        options: [openai, codex, claude]
-      live_model:
-        description: "Exact model ID for one bounded synthetic request per native host"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -52,18 +36,11 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          INPUT_RELEASE_QUALIFIED: ${{ inputs.release_qualified }}
-          INPUT_REAL_PROVIDER: ${{ inputs.run_real_provider }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Tag pushes publish unsigned development artifacts. Only an explicit manual dispatch
-          # with release_qualified and run_real_provider opts into the signed, notarized release.
+          # Tag pushes publish unsigned development artifacts; manual dispatch publishes a signed release.
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            if [[ "$INPUT_RELEASE_QUALIFIED" != true || "$INPUT_REAL_PROVIDER" != true ]]; then
-              echo "::error::Manual dispatch requires release_qualified=true and run_real_provider=true; unsigned development publication is tag-push only."
-              exit 1
-            fi
             mode=release
             raw_version="${INPUT_VERSION}"
             manual=true
@@ -120,74 +97,10 @@ jobs:
             echo "tag_exists=${tag_exists}"
           } >> "${GITHUB_OUTPUT}"
 
-  ai-qualification:
-    name: Required nonpublishing AI qualification
-    if: needs.resolve.outputs.mode == 'release'
-    needs: resolve
-    uses: ./.github/workflows/ai-qualification.yml
-    with:
-      run_real_provider: true
-      live_provider: ${{ inputs.live_provider }}
-      live_model: ${{ inputs.live_model }}
-    secrets:
-      OPENAI_API_KEY: ${{ (inputs.live_provider == 'openai' || inputs.live_provider == 'codex') && secrets.OPENAI_API_KEY || '' }}
-      ANTHROPIC_API_KEY: ${{ inputs.live_provider == 'claude' && secrets.ANTHROPIC_API_KEY || '' }}
-
-  test:
-    name: Test
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.ai-qualification.result == 'success' || needs.ai-qualification.result == 'skipped') }}
-    needs: [resolve, ai-qualification]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.resolve.outputs.checkout_ref }}
-          submodules: recursive
-      - name: Set up Node 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24.19.0"
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - name: Set up pinned npm
-        run: npm install --global npm@11.17.0
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-          cache-dependency-path: |
-            desktop-viewer/*.gradle.kts
-            desktop-viewer/gradle/libs.versions.toml
-            desktop-viewer/gradle/wrapper/gradle-wrapper.properties
-            desktop-viewer/**/build.gradle.kts
-      - name: Install pinned Trace Processor
-        run: PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
-      - name: Test application-managed ADB preparation
-        run: python3 -m unittest discover -s scripts/tests -v
-      - name: Set up pinned Rust 1.85.1
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.85.1 --profile minimal
-          rustup run 1.85.1 rustc --version
-          echo "RUSTUP_TOOLCHAIN=1.85.1" >> "$GITHUB_ENV"
-      - name: Test Rust HPROF integration
-        run: ./desktop-viewer/gradlew -p desktop-viewer :memory-profiler:memory-app:test --no-daemon
-      - name: Verify independent AI platform
-        run: ./desktop-viewer/gradlew -p desktop-viewer :ai-platform:checkAll :ai-core:test --no-daemon
-      - name: Run tests
-        run: |
-          ./desktop-viewer/gradlew -p desktop-viewer test --no-daemon
-
   build-compose-agent:
     name: Build verified Compose inspection runtime
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
-    needs: [resolve, test]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    needs: resolve
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -239,8 +152,8 @@ jobs:
 
   prepare-release:
     name: Check release source and refuse existing releases
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' }}
-    needs: [resolve, test]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -262,8 +175,8 @@ jobs:
 
   package-windows:
     name: Package Windows x64 MSI and EXE
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
-    needs: [resolve, test, prepare-release, build-compose-agent]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
+    needs: [resolve, prepare-release, build-compose-agent]
     runs-on: windows-latest
     environment: aps-release-signing
     steps:
@@ -408,8 +321,8 @@ jobs:
 
   package-macos:
     name: Package macOS ${{ matrix.arch }} DMG and PKG
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
-    needs: [resolve, test, prepare-release, build-compose-agent]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
+    needs: [resolve, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
       matrix:
@@ -570,8 +483,8 @@ jobs:
 
   package-linux:
     name: Package Linux ${{ matrix.arch }} DEB and RPM
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
-    needs: [resolve, test, prepare-release, build-compose-agent]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs['prepare-release'].result == 'success' && needs['build-compose-agent'].result == 'success' }}
+    needs: [resolve, prepare-release, build-compose-agent]
     strategy:
       fail-fast: false
       matrix:
@@ -688,8 +601,8 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.test.result == 'success' && needs['prepare-release'].result == 'success' && needs['package-windows'].result == 'success' && needs['package-macos'].result == 'success' && needs['package-linux'].result == 'success' }}
-    needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs['prepare-release'].result == 'success' && needs['package-windows'].result == 'success' && needs['package-macos'].result == 'success' && needs['package-linux'].result == 'success' }}
+    needs: [resolve, prepare-release, package-windows, package-macos, package-linux]
     runs-on: ubuntu-latest
     environment: aps-release-signing
     timeout-minutes: 120

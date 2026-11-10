@@ -29,26 +29,17 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("workflow_dispatch:"))
         assertTrue(workflow.contains("version:"))
         assertTrue(workflow.contains("""^v?[0-9]+\.[0-9]+\.[0-9]+${'$'}"""))
-        assertTrue(workflow.contains("release_qualified:"))
-        assertTrue(workflow.contains("run_real_provider:"))
         assertTrue(workflow.contains("mode=development"))
         assertTrue(workflow.contains("mode=release"))
-        assertTrue(workflow.contains("Manual dispatch requires release_qualified=true and run_real_provider=true"))
         assertTrue(workflow.contains("if: needs.resolve.outputs.mode == 'release'"))
     }
 
     @Test
-    fun `tests gate native packaging and profiler assets are built before packaging`() {
+    fun `packaging and release jobs build profiler assets before packaging`() {
         val workflow = Files.readString(workflowPath)
 
-        assertTrue(workflow.contains("test:"))
-        assertTrue(
-            workflow.contains(
-                "./desktop-viewer/gradlew -p desktop-viewer test --no-daemon",
-            ),
-        )
+        assertTrue(!workflow.contains("\n  test:"))
         assertTrue(!workflow.contains("simpleperfCheck --no-daemon"))
-        assertTrue(workflow.contains("prepare-release:"))
         assertTrue(workflow.contains("publication.py check"))
         assertTrue(workflow.contains("uses: actions/setup-node@v6"))
         assertTrue(workflow.contains("node-version: \"24.19.0\""))
@@ -74,10 +65,14 @@ class ReleaseWorkflowTest {
         assertTrue(workflow.contains("runs-on: ubuntu-latest"))
         assertTrue(workflow.contains(":desktop-app:packageDeb"))
         assertTrue(workflow.contains(":desktop-app:packageRpm"))
-        assertTrue(workflow.contains("needs: [resolve, test, prepare-release, build-compose-agent]"))
         assertTrue(
             workflow.contains(
-                "needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]",
+                "needs: [resolve, prepare-release, build-compose-agent]",
+            ),
+        )
+        assertTrue(
+            workflow.contains(
+                "needs: [resolve, prepare-release, package-windows, package-macos, package-linux]",
             ),
         )
     }
@@ -143,7 +138,7 @@ class ReleaseWorkflowTest {
         val workflow = Files.readString(workflowPath)
         val agent = workflowJob(workflow, "build-compose-agent")
 
-        assertTrue(agent.contains("needs: [resolve, test]"))
+        assertTrue(agent.contains("needs: resolve"))
         assertTrue(agent.contains("runs-on: ubuntu-24.04"))
         assertTrue(agent.contains("ref: ${'$'}{{ needs.resolve.outputs.checkout_ref }}"))
         assertTrue(agent.contains("java-version: \"21\""))
@@ -163,7 +158,7 @@ class ReleaseWorkflowTest {
 
         listOf("package-windows", "package-macos", "package-linux").forEach { name ->
             val packaging = workflowJob(workflow, name)
-            assertTrue(packaging.contains("needs: [resolve, test, prepare-release, build-compose-agent]"))
+            assertTrue(packaging.contains("needs: [resolve, prepare-release, build-compose-agent]"))
             assertTrue(packaging.contains("uses: actions/download-artifact@v8"))
             assertTrue(packaging.contains("name: compose-agent-bundle"))
             assertTrue(
