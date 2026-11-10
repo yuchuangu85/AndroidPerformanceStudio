@@ -68,7 +68,6 @@ impl ImportWorkspace {
         };
         root.child(content)
             .child(self.render_memory_status(&colors, cx))
-            .child(self.import_status(&colors))
             .into_any_element()
     }
 

@@ -343,11 +343,15 @@ impl ImportWorkspace {
             selected_trace_row: None,
         }
     }
-    pub(super) fn import_status(&self, colors: &studio::StudioColors) -> AnyElement {
-        let value = self.import_duration.map_or_else(
-            || "—".to_owned(),
-            |duration| format!("Import · {:.2}s", duration.as_secs_f64()),
-        );
+    fn import_duration_text(&self) -> Option<String> {
+        self.import_duration
+            .map(|duration| format!("Import · {:.2}s", duration.as_secs_f64()))
+    }
+
+    pub(super) fn import_status(&self, colors: &studio::StudioColors) -> Stateful<Div> {
+        let value = self
+            .import_duration_text()
+            .unwrap_or_else(|| "—".to_owned());
         div()
             .id("import-operation-status")
             .flex()
@@ -358,7 +362,6 @@ impl ImportWorkspace {
             .border_t_1()
             .border_color(colors.border)
             .child(studio::supporting(value, colors))
-            .into_any_element()
     }
 
     pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {
@@ -1998,6 +2001,56 @@ fn optional_ui<T: std::fmt::Display>(value: Option<T>) -> UiText {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn import_duration_is_absent_until_available_and_keeps_elapsed_seconds() {
+        for kind in [
+            Destination::Memory,
+            Destination::Startup,
+            Destination::Battery,
+        ] {
+            let mut workspace = ImportWorkspace::new(kind, Language::English);
+            assert_eq!(workspace.import_duration_text(), None);
+            workspace.import_duration = Some(Duration::ZERO);
+            assert_eq!(
+                workspace.import_duration_text().as_deref(),
+                Some("Import · 0.00s")
+            );
+            workspace.import_duration = Some(Duration::from_millis(1234));
+            assert_eq!(
+                workspace.import_duration_text().as_deref(),
+                Some("Import · 1.23s")
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn dedicated_profiler_status_bars_include_import_time_without_a_second_footer() {
+        for (page, footer, status_id) in [
+            (
+                include_str!("import/memory.rs"),
+                include_str!("import/memory/toolbar.rs"),
+                "memory-profiler-status-bar",
+            ),
+            (
+                include_str!("import/startup.rs"),
+                include_str!("import/startup.rs"),
+                "startup-status-bar",
+            ),
+            (
+                include_str!("import/battery.rs"),
+                include_str!("import/battery.rs"),
+                "battery-status-bar",
+            ),
+        ] {
+            assert!(!page.contains(".child(self.import_status("), "{status_id}");
+            assert_eq!(footer.matches(status_id).count(), 1, "{status_id}");
+            assert!(
+                footer.contains("self.import_duration_text()"),
+                "{status_id}"
+            );
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn workspace_starts_without_implicit_artifact_or_evidence() {

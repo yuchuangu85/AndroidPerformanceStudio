@@ -9,6 +9,8 @@ use aps_network::{
 };
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
+const NETWORK_STATUS_HEIGHT: f32 = 26.;
+
 #[derive(Default)]
 pub(super) struct NetworkUi {
     pub query: EntryQuery,
@@ -325,10 +327,7 @@ impl ImportWorkspace {
                         .child(detail),
                 );
         }
-        content = content
-            .child(panes)
-            .child(self.network_footer(&colors, cx))
-            .child(self.import_status(&colors));
+        content = content.child(panes).child(self.network_footer(&colors, cx));
         div()
             .id("network-profiler-workspace")
             .size_full()
@@ -348,6 +347,12 @@ impl ImportWorkspace {
                     .min_w_0()
                     .overflow_y_scroll()
                     .child(content),
+            )
+            .child(
+                self.import_status(&colors)
+                    .id("network-status-bar")
+                    .h(px(NETWORK_STATUS_HEIGHT))
+                    .line_height(px(16.)),
             )
             .into_any_element()
     }
@@ -725,7 +730,7 @@ impl NetworkLayout {
                 0.
             }
             + messages.min(3) as f32 * 42.;
-        let viewport_height = (height - 40.).max(0.);
+        let viewport_height = (height - 40. - NETWORK_STATUS_HEIGHT).max(0.);
         Self {
             narrow,
             viewport_height,
@@ -1076,7 +1081,7 @@ mod tests {
     fn short_windows_preserve_list_and_detail_space_under_one_scroll_owner() {
         let short = NetworkLayout::new(980., 550., true, false, 0);
         assert!(short.narrow);
-        assert_eq!(short.viewport_height, 510.);
+        assert_eq!(short.viewport_height, 484.);
         assert_eq!(short.minimum_panes_height, 400.);
         assert_eq!(short.panes_height, 400.);
         let expanded = NetworkLayout::new(980., 550., true, true, 0);
@@ -1085,7 +1090,7 @@ mod tests {
         assert_eq!(messages.panes_height, 400.);
         let tall = NetworkLayout::new(1280., 1400., true, false, 0);
         assert!(!tall.narrow);
-        assert_eq!(tall.viewport_height, 1360.);
+        assert_eq!(tall.viewport_height, 1334.);
         assert!(tall.panes_height > tall.minimum_panes_height);
         assert_eq!(tall.minimum_panes_height, 220.);
         assert!(!NetworkLayout::new(1000., 900., false, false, 0).narrow);
@@ -1103,6 +1108,33 @@ mod tests {
             .unwrap();
         assert!(page.contains(".h_auto()"));
         assert!(!page.contains(".h(px("));
+    }
+
+    #[::core::prelude::v1::test]
+    fn status_bar_is_a_fixed_sibling_after_the_workspace_scroller() {
+        let source = include_str!("network.rs");
+        let content = source
+            .split("let mut content = studio::page(&colors)")
+            .nth(1)
+            .unwrap()
+            .split(".id(\"network-profiler-workspace\")")
+            .next()
+            .unwrap();
+        assert!(!content.contains("self.import_status("));
+        let workspace = source
+            .split(".id(\"network-profiler-workspace\")")
+            .nth(1)
+            .unwrap()
+            .split("fn network_toolbar(")
+            .next()
+            .unwrap();
+        assert!(workspace.contains(".child(content),\n            )\n            .child("));
+        assert!(workspace.contains("self.import_status(&colors)"));
+        assert!(workspace.contains(".h(px(NETWORK_STATUS_HEIGHT))"));
+        assert_eq!(workspace.matches("self.import_status(").count(), 1);
+        let tiny = NetworkLayout::new(320., 40., false, false, 0);
+        assert_eq!(tiny.viewport_height, 0.);
+        assert_eq!(tiny.panes_height, tiny.minimum_panes_height);
     }
 
     #[::core::prelude::v1::test]

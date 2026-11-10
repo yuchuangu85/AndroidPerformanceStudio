@@ -117,7 +117,6 @@ fn unify_background_surfaces(theme: &mut Theme, surface: Hsla) {
         button,
         button_secondary,
         group_box,
-        input,
         list,
         list_even,
         list_head,
@@ -135,6 +134,11 @@ fn unify_background_surfaces(theme: &mut Theme, surface: Hsla) {
         table_head,
         title_bar,
     );
+    // `input` is the control border, including unchecked radio rings, not a fill.
+    theme.colors.input =
+        studio::StudioColors::for_mode_with_accent(theme.is_dark(), theme.accent.into())
+            .secondary_text
+            .into();
 }
 
 /// Unbundled macOS binaries take the application-menu and Dock name from the
@@ -354,4 +358,68 @@ fn main() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    fn luminance(color: Rgba) -> f32 {
+        let linear = |value: f32| {
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b)
+    }
+
+    #[::core::prelude::v1::test]
+    fn unchecked_control_borders_stay_visible_on_light_and_dark_surfaces() {
+        for dark in [false, true] {
+            let mut theme = Theme::default();
+            theme.mode = if dark {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            };
+            let surface: Hsla = studio::titlebar_background(dark).into();
+            unify_background_surfaces(&mut theme, surface);
+            let border: Rgba = theme.input.into();
+            assert_eq!(border.a, 1.);
+            let colors = studio::StudioColors::for_mode_with_accent(dark, theme.accent.into());
+            for background in [colors.workspace, colors.panel, colors.field] {
+                let border_luminance = luminance(border);
+                let background_luminance = luminance(background);
+                let ratio = (border_luminance.max(background_luminance) + 0.05)
+                    / (border_luminance.min(background_luminance) + 0.05);
+                assert!(ratio >= 3., "dark={dark}: contrast={ratio}");
+            }
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn control_border_fix_preserves_selected_colors_and_neutral_surfaces() {
+        for dark in [false, true] {
+            let mut theme = Theme::default();
+            theme.mode = if dark {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            };
+            let primary = theme.primary;
+            let primary_foreground = theme.primary_foreground;
+            let accent = theme.accent;
+            let surface: Hsla = studio::titlebar_background(dark).into();
+            unify_background_surfaces(&mut theme, surface);
+            assert_eq!(theme.primary, primary);
+            assert_eq!(theme.primary_foreground, primary_foreground);
+            assert_eq!(theme.accent, accent);
+            assert_eq!(theme.background, surface);
+            assert_eq!(theme.group_box, surface);
+            assert_eq!(theme.sidebar, surface);
+            assert_ne!(theme.input, surface);
+        }
+    }
 }

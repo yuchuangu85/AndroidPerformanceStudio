@@ -757,6 +757,9 @@ impl Studio {
         ));
         subscriptions.push(
             cx.subscribe(&targets, |this, _, event: &TargetListsChanged, cx| {
+                this.trace.update(cx, |trace, cx| {
+                    trace.apply_shared_target_devices(&event.devices, cx);
+                });
                 this.frame.update(cx, |frame, cx| {
                     let selection = (
                         frame.selected_shared_target().0.map(str::to_owned),
@@ -773,6 +776,9 @@ impl Studio {
             }),
         );
         if let Some(lists) = initial_target_lists {
+            trace.update(cx, |trace, cx| {
+                trace.apply_shared_target_devices(&lists.devices, cx);
+            });
             frame.update(cx, |frame, cx| {
                 let selection = (
                     frame.selected_shared_target().0.map(str::to_owned),
@@ -2408,6 +2414,22 @@ mod menubar_tests {
         ] {
             assert!(source.contains(marker), "missing route menus: {marker}");
         }
+    }
+
+    #[::core::prelude::v1::test]
+    fn trace_receives_shared_device_ticks_and_the_initial_device_list() {
+        let source = include_str!("shell.rs");
+        let wiring = source
+            .split("let initial_target_lists = targets.read(cx).current_lists();")
+            .nth(1)
+            .unwrap()
+            .split("subscriptions.push(cx.observe(&ai,")
+            .next()
+            .unwrap();
+        assert!(wiring.contains("event: &TargetListsChanged"));
+        assert!(wiring.contains("trace.apply_shared_target_devices(&event.devices, cx)"));
+        assert!(wiring.contains("if let Some(lists) = initial_target_lists"));
+        assert!(wiring.contains("trace.apply_shared_target_devices(&lists.devices, cx)"));
     }
 
     /// macOS shows the route menus in the native application menu bar; other

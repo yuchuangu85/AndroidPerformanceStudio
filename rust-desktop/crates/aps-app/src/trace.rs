@@ -1138,9 +1138,15 @@ impl TraceWorkspace {
     }
 
     pub(crate) fn select_capture_device(&mut self, serial: Option<String>, cx: &mut Context<Self>) {
-        if let Some(serial) = serial {
-            self.capture.select_device(serial, cx);
-        }
+        self.capture.select_device(serial, cx);
+    }
+
+    pub(crate) fn apply_shared_target_devices(
+        &mut self,
+        devices: &[aps_adb::AdbDevice],
+        cx: &mut Context<Self>,
+    ) {
+        self.capture.apply_devices(devices, cx);
     }
 
     pub(in crate::trace) fn start_capture(

@@ -329,7 +329,6 @@ impl ImportWorkspace {
             .child(self.battery_toolbar(&colors, cx))
             .child(panes)
             .child(self.battery_status(&colors, cx))
-            .child(self.import_status(&colors))
             .into_any_element()
     }
 
@@ -1007,6 +1006,11 @@ impl ImportWorkspace {
             .border_t_1()
             .border_color(colors.border)
             .child(note(text, colors).flex_1().min_w_0())
+            .children(self.import_duration_text().map(|value| {
+                studio::supporting(value, colors)
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+            }))
             .child(
                 studio::compact_text_button(
                     "battery-copy-status",

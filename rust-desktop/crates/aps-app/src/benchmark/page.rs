@@ -2,7 +2,7 @@
 //!
 //! The page is the oracle layout: one scrollable header action row, four summary metric cards, then
 //! the comparison table (fills) above the 210px trend panel beside the 320px report rail, and a
-//! single copyable status line at the bottom. Every visible application-owned string is a
+//! permanent copyable status bar at the bottom. Every visible application-owned string is a
 //! \`TextKey\`; imported identities, paths and diagnostics render verbatim.
 
 use super::model::{BenchmarkReportsState, RunOption};
@@ -153,7 +153,7 @@ pub(in crate::benchmark) fn render(
         .child(header(state, language, &colors, cx))
         .child(studio::divider(&colors))
         .child(body)
-        .child(status_line(state, &colors))
+        .child(status_bar(state, language, &colors))
         .into_any_element()
 }
 
@@ -482,24 +482,23 @@ fn summary(state: &BenchmarkReportsState, language: Language, colors: &StudioCol
         .into_any_element()
 }
 
-/// Compose \`StatusLine\`: the single error-or-message line, one line, ellipsized and selectable.
-fn status_line(state: &BenchmarkReportsState, colors: &StudioColors) -> AnyElement {
-    let status = state
-        .error
-        .as_ref()
-        .map(|error| (error, true))
-        .or_else(|| state.message.as_ref().map(|message| (message, false)));
-    let Some((text, is_error)) = status else {
-        return div().h(px(0.)).w_full().flex_shrink_0().into_any_element();
-    };
+fn status_bar(
+    state: &BenchmarkReportsState,
+    language: Language,
+    colors: &StudioColors,
+) -> AnyElement {
+    let (text, is_error) = status_message(state, language);
     div()
-        .id("benchmark-status-line")
+        .id("benchmark-status-bar")
         .h(px(STATUS_HEIGHT))
         .w_full()
         .flex_shrink_0()
         .flex()
         .items_center()
         .px(px(studio::metrics::WORKSPACE_PADDING))
+        .border_t_1()
+        .border_color(colors.border)
+        .bg(colors.toolbar)
         .child(
             div()
                 .w_full()
@@ -512,7 +511,106 @@ fn status_line(state: &BenchmarkReportsState, colors: &StudioColors) -> AnyEleme
                 })
                 .whitespace_nowrap()
                 .text_ellipsis()
-                .child(studio::selectable(text.clone())),
+                .child(studio::selectable(text)),
         )
         .into_any_element()
+}
+
+fn status_message(state: &BenchmarkReportsState, language: Language) -> (String, bool) {
+    if let Some(error) = &state.error {
+        return (error.clone(), true);
+    }
+    let text = if state.busy {
+        language.text(TextKey::BenchmarkWorking).to_owned()
+    } else if let Some(message) = &state.message {
+        message.clone()
+    } else if state.run_options.is_empty() {
+        language.text(TextKey::BenchmarkNoRuns).to_owned()
+    } else {
+        language.format(
+            TextKey::BenchmarkRunCount,
+            &[("count", &state.run_options.len())],
+        )
+    };
+    (text, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn idle_status_is_localized_with_or_without_imported_runs() {
+        let mut state = BenchmarkReportsState::default();
+        for language in [Language::English, Language::SimplifiedChinese] {
+            assert_eq!(
+                status_message(&state, language),
+                (language.text(TextKey::BenchmarkNoRuns).to_owned(), false)
+            );
+        }
+        state.run_options.push(RunOption {
+            id: "run".into(),
+            label: "Run".into(),
+            detail: String::new(),
+            source_path: String::new(),
+            available: true,
+        });
+        for language in [Language::English, Language::SimplifiedChinese] {
+            assert_eq!(
+                status_message(&state, language),
+                (
+                    language.format(TextKey::BenchmarkRunCount, &[("count", &1)]),
+                    false,
+                )
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn errors_and_busy_work_take_precedence_over_previous_messages() {
+        let mut state = BenchmarkReportsState {
+            message: Some("previous operation".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            status_message(&state, Language::English),
+            ("previous operation".into(), false)
+        );
+        state.busy = true;
+        assert_eq!(
+            status_message(&state, Language::English),
+            (
+                Language::English.text(TextKey::BenchmarkWorking).into(),
+                false
+            )
+        );
+        state.error = Some("import failed".into());
+        assert_eq!(
+            status_message(&state, Language::English),
+            ("import failed".into(), true)
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn status_bar_is_permanent_and_outside_scrolling_content() {
+        let source = include_str!("page.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(
+            source.contains(".child(body)\n        .child(status_bar(state, language, &colors))")
+        );
+        let footer = source
+            .split("fn status_bar(")
+            .nth(1)
+            .unwrap()
+            .split("fn status_message(")
+            .next()
+            .unwrap();
+        assert!(footer.contains(".h(px(STATUS_HEIGHT))"));
+        assert!(footer.contains(".flex_shrink_0()"));
+        assert!(footer.contains(".border_t_1()"));
+        assert!(footer.contains("studio::selectable(text)"));
+        assert!(!footer.contains("return div()"));
+    }
 }

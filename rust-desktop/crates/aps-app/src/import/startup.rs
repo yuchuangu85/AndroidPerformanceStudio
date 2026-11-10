@@ -302,10 +302,12 @@ impl ImportWorkspace {
             .child(body)
             .child(
                 div()
+                    .id("startup-status-bar")
                     .h(px(26.))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
+                    .gap(px(8.))
                     .px(px(8.))
                     .border_t_1()
                     .border_color(colors.border)
@@ -314,11 +316,17 @@ impl ImportWorkspace {
                             format!("{}: {status}", self.language.text(TextKey::StartupStatus)),
                             &colors,
                         )
+                        .flex_1()
+                        .min_w_0()
                         .text_ellipsis()
                         .whitespace_nowrap(),
-                    ),
+                    )
+                    .children(self.import_duration_text().map(|value| {
+                        studio::supporting(value, &colors)
+                            .flex_shrink_0()
+                            .whitespace_nowrap()
+                    })),
             )
-            .child(self.import_status(&colors))
             .into_any_element()
     }
 

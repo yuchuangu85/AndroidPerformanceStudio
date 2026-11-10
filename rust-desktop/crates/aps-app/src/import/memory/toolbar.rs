@@ -315,7 +315,7 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
-        let loading = self.memory_state.loading;
+        let loading = self.memory_state.loading || self.busy;
         let error = self
             .memory_state
             .error
@@ -410,7 +410,13 @@ impl ImportWorkspace {
                     .child(idle),
             );
         }
-        row.into_any_element()
+        row.child(div().flex_1())
+            .children(self.import_duration_text().map(|value| {
+                studio::supporting(value, colors)
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+            }))
+            .into_any_element()
     }
 }
 

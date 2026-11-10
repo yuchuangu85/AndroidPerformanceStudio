@@ -361,7 +361,7 @@ fn device_selector(
                         .on_click(move |_, _, cx| {
                             let serial = serial.clone();
                             let _ = entity.update(cx, |this, cx| {
-                                this.capture.select_device(serial, cx);
+                                this.capture.select_device(Some(serial), cx);
                                 cx.notify();
                             });
                         }),
@@ -1464,15 +1464,24 @@ fn vertical_scrollbar(id: &'static str, handle: &UniformListScrollHandle) -> Any
         .into_any_element()
 }
 
-fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
-    let language = this.language;
-    let selected = this.capture.selected_serial().and_then(|serial| {
-        this.capture
-            .devices()
-            .iter()
-            .find(|device| device.serial == serial)
-    });
-    let (dot, text) = match selected {
+fn device_status(
+    capture: &super::capture::Capture,
+    language: Language,
+    colors: &StudioColors,
+) -> (Rgba, String) {
+    if capture.refresh_error().is_some() {
+        return (
+            colors.error,
+            language.text(TextKey::DeviceRefreshFailed).to_owned(),
+        );
+    }
+    if !capture.devices_loaded() {
+        return (
+            colors.muted_text,
+            language.text(TextKey::ShellDiscovering).to_owned(),
+        );
+    }
+    match capture.selected_device() {
         Some(device) if device.online => (
             colors.success,
             language.format(
@@ -1480,11 +1489,20 @@ fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
                 &[("value1", &device.display_name)],
             ),
         ),
+        _ if capture.devices().iter().any(|device| device.online) => (
+            colors.warning,
+            language.text(TextKey::SelectDevice).to_owned(),
+        ),
         _ => (
             colors.error,
             language.text(TextKey::NoOnlineDevice).to_owned(),
         ),
-    };
+    }
+}
+
+fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
+    let language = this.language;
+    let (dot, text) = device_status(&this.capture, language, colors);
     let mut content = div()
         .id("trace-status-bar-content")
         .h(px(STATUS_BAR_HEIGHT))
@@ -2480,4 +2498,55 @@ fn row_actions(
             }),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn status_distinguishes_discovery_selection_connection_and_disconnection() {
+        let colors = StudioColors::light();
+        let one = aps_adb::parse_devices("one device model:Pixel_8\n").unwrap();
+        let two =
+            aps_adb::parse_devices("one device model:Pixel_8\ntwo device model:Pixel_9\n").unwrap();
+        let offline = aps_adb::parse_devices("one offline model:Pixel_8\n").unwrap();
+        for language in [Language::English, Language::SimplifiedChinese] {
+            let mut capture = super::super::capture::Capture::new(None);
+            assert_eq!(
+                device_status(&capture, language, &colors),
+                (
+                    colors.muted_text,
+                    language.text(TextKey::ShellDiscovering).into()
+                )
+            );
+            capture.publish_devices(&[]);
+            assert_eq!(
+                device_status(&capture, language, &colors),
+                (colors.error, language.text(TextKey::NoOnlineDevice).into())
+            );
+            capture.publish_devices(&two);
+            assert_eq!(capture.selected_serial(), None);
+            assert_eq!(
+                device_status(&capture, language, &colors),
+                (colors.warning, language.text(TextKey::SelectDevice).into())
+            );
+            capture.publish_devices(&one);
+            assert_eq!(
+                device_status(&capture, language, &colors),
+                (
+                    colors.success,
+                    language.format(
+                        TextKey::DeviceConnected,
+                        &[("value1", &one[0].display_name())]
+                    ),
+                )
+            );
+            capture.publish_devices(&offline);
+            assert_eq!(
+                device_status(&capture, language, &colors),
+                (colors.error, language.text(TextKey::NoOnlineDevice).into())
+            );
+        }
+    }
 }

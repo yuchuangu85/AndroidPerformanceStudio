@@ -14,7 +14,7 @@
 //! value is the serial, validated by aps_adb::validate_serial. Device output
 //! is parsed defensively and bounded.
 
-use aps_adb::{AdbLocator, validate_serial};
+use aps_adb::{AdbDevice, AdbLocator, validate_serial};
 use aps_platform::{
     CancellationToken, MAX_OUTPUT_LIMIT, ProcessError, ProcessOutput, ProcessRequest, ProcessRunner,
 };
@@ -1532,6 +1532,7 @@ pub(in crate::trace) struct Capture {
     data_dir: Option<PathBuf>,
     language: Language,
     devices: Vec<CaptureDevice>,
+    devices_loaded: bool,
     selected_serial: Option<String>,
     refresh_in_progress: bool,
     refresh_error: Option<String>,
@@ -1554,6 +1555,7 @@ impl Capture {
             data_dir,
             language: Language::English,
             devices: Vec::new(),
+            devices_loaded: false,
             selected_serial: None,
             refresh_in_progress: false,
             refresh_error: None,
@@ -1577,6 +1579,10 @@ impl Capture {
         &self.devices
     }
 
+    pub(in crate::trace) fn devices_loaded(&self) -> bool {
+        self.devices_loaded
+    }
+
     pub(in crate::trace) fn selected_serial(&self) -> Option<&str> {
         self.selected_serial.as_deref()
     }
@@ -1596,6 +1602,44 @@ impl Capture {
 
     pub(in crate::trace) fn refresh_error(&self) -> Option<&str> {
         self.refresh_error.as_deref()
+    }
+
+    pub(in crate::trace) fn publish_devices(&mut self, devices: &[AdbDevice]) {
+        self.devices = devices
+            .iter()
+            .map(|device| CaptureDevice {
+                serial: device.serial.clone(),
+                display_name: device.display_name(),
+                online: device.is_online(),
+            })
+            .collect();
+        self.devices_loaded = true;
+        // A newer shared snapshot supersedes a pending page-local refresh.
+        self.device_generation = self.device_generation.wrapping_add(1);
+        self.refresh_in_progress = false;
+        self.refresh_error = None;
+        let preferred = preferred_device_serial(self.selected_serial.as_deref(), &self.devices);
+        self.set_selected_serial(preferred);
+    }
+
+    fn set_selected_serial(&mut self, serial: Option<String>) {
+        if self.selected_serial == serial {
+            return;
+        }
+        self.selected_serial = serial;
+        self.capabilities = None;
+        self.capabilities_in_progress = false;
+        self.capability_generation = self.capability_generation.wrapping_add(1);
+    }
+
+    pub(in crate::trace) fn apply_devices(
+        &mut self,
+        devices: &[AdbDevice],
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        self.publish_devices(devices);
+        self.refresh_missing_capabilities(cx);
+        cx.notify();
     }
 
     /// Explicit refresh only: adb devices -l through the read-only adapter.
@@ -1629,34 +1673,7 @@ impl Capture {
                 this.capture.refresh_in_progress = false;
                 match result {
                     Ok(devices) => {
-                        let previous = this.capture.selected_serial.clone();
-                        this.capture.devices = devices
-                            .into_iter()
-                            .map(|device| {
-                                let display_name = device.display_name();
-                                let online = device.is_online();
-                                CaptureDevice {
-                                    serial: device.serial,
-                                    display_name,
-                                    online,
-                                }
-                            })
-                            .collect();
-                        let preferred =
-                            preferred_device_serial(previous.as_deref(), &this.capture.devices);
-                        let changed = preferred != this.capture.selected_serial;
-                        if changed {
-                            this.capture.selected_serial = preferred;
-                            this.capture.capabilities = None;
-                            this.capture.capability_generation =
-                                this.capture.capability_generation.wrapping_add(1);
-                        }
-                        this.capture.refresh_error = None;
-                        if changed
-                            || (this.capture.device_ready() && this.capture.capabilities.is_none())
-                        {
-                            this.capture.refresh_capabilities(cx);
-                        }
+                        this.capture.apply_devices(&devices, cx);
                     }
                     Err(error) => this.capture.refresh_error = Some(error),
                 }
@@ -1670,17 +1687,11 @@ impl Capture {
 
     pub(in crate::trace) fn select_device(
         &mut self,
-        serial: String,
+        serial: Option<String>,
         cx: &mut Context<crate::trace::TraceWorkspace>,
     ) {
-        if self.selected_serial.as_deref() == Some(serial.as_str()) && self.capabilities.is_some() {
-            cx.notify();
-            return;
-        }
-        self.selected_serial = Some(serial);
-        self.capabilities = None;
-        self.capability_generation = self.capability_generation.wrapping_add(1);
-        self.refresh_capabilities(cx);
+        self.set_selected_serial(serial);
+        self.refresh_missing_capabilities(cx);
         cx.notify();
     }
 
@@ -1693,6 +1704,12 @@ impl Capture {
     #[allow(dead_code)]
     pub(in crate::trace) fn capabilities_in_progress(&self) -> bool {
         self.capabilities_in_progress
+    }
+
+    fn refresh_missing_capabilities(&mut self, cx: &mut Context<crate::trace::TraceWorkspace>) {
+        if self.device_ready() && self.capabilities.is_none() && !self.capabilities_in_progress {
+            self.refresh_capabilities(cx);
+        }
     }
 
     fn refresh_capabilities(&mut self, cx: &mut Context<crate::trace::TraceWorkspace>) {
@@ -2104,6 +2121,66 @@ impl Drop for Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn shared_devices_populate_the_selected_target_without_opening_capture() {
+        let devices = aps_adb::parse_devices("serial device model:Pixel_8\n").unwrap();
+        let mut capture = Capture::new(None);
+        capture.set_selected_serial(Some("serial".into()));
+        capture.refresh_in_progress = true;
+        let refresh_generation = capture.device_generation;
+        capture.publish_devices(&devices);
+        assert!(capture.devices_loaded());
+        assert!(capture.device_ready());
+        assert_eq!(capture.selected_serial(), Some("serial"));
+        assert_eq!(capture.devices()[0].display_name, devices[0].display_name());
+        assert_ne!(capture.device_generation, refresh_generation);
+        assert!(!capture.refresh_in_progress());
+        assert!(matches!(capture.state, CaptureState::Idle));
+    }
+
+    #[::core::prelude::v1::test]
+    fn unchanged_shared_devices_preserve_cached_and_pending_capabilities() {
+        let devices = aps_adb::parse_devices("serial device model:Pixel_8\n").unwrap();
+        let mut capture = Capture::new(None);
+        capture.publish_devices(&devices);
+        capture.capabilities = Some(DeviceCapabilities::default());
+        let generation = capture.capability_generation;
+        capture.publish_devices(&devices);
+        assert!(capture.capabilities().is_some());
+        assert_eq!(capture.capability_generation, generation);
+        capture.capabilities = None;
+        capture.capabilities_in_progress = true;
+        capture.publish_devices(&devices);
+        assert!(capture.capabilities_in_progress());
+        assert_eq!(capture.capability_generation, generation);
+    }
+
+    #[::core::prelude::v1::test]
+    fn disconnected_and_cleared_targets_invalidate_old_capability_results() {
+        let devices = aps_adb::parse_devices("serial device model:Pixel_8\n").unwrap();
+        let offline = aps_adb::parse_devices("serial offline model:Pixel_8\n").unwrap();
+        let mut capture = Capture::new(None);
+        capture.publish_devices(&devices);
+        capture.capabilities_in_progress = true;
+        let generation = capture.capability_generation;
+        capture.publish_devices(&offline);
+        assert!(!capture.device_ready());
+        assert_eq!(capture.selected_serial(), None);
+        assert!(!capture.capabilities_in_progress());
+        assert_ne!(capture.capability_generation, generation);
+        capture.publish_devices(&devices);
+        assert!(capture.device_ready());
+        capture.capabilities = Some(DeviceCapabilities::default());
+        let generation = capture.capability_generation;
+        capture.set_selected_serial(None);
+        assert_eq!(capture.selected_serial(), None);
+        assert!(capture.capabilities().is_none());
+        assert_ne!(capture.capability_generation, generation);
+        capture.publish_devices(&[]);
+        assert!(capture.devices().is_empty());
+        assert!(!capture.device_ready());
+    }
 
     fn custom(text: &str) -> CaptureConfig {
         let mut config = CaptureConfig::new(CaptureTemplate::Custom);
