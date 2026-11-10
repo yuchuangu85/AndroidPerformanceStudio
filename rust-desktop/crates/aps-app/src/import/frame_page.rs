@@ -244,6 +244,7 @@ impl ImportWorkspace {
             language.text(TextKey::FramePageEvidenceBoundary),
             &colors,
         ))
+        .child(self.import_status(&colors))
         .into_any_element()
     }
 

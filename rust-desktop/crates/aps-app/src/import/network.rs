@@ -325,7 +325,10 @@ impl ImportWorkspace {
                         .child(detail),
                 );
         }
-        content = content.child(panes).child(self.network_footer(&colors, cx));
+        content = content
+            .child(panes)
+            .child(self.network_footer(&colors, cx))
+            .child(self.import_status(&colors));
         div()
             .id("network-profiler-workspace")
             .size_full()

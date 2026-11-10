@@ -318,6 +318,7 @@ impl ImportWorkspace {
                         .whitespace_nowrap(),
                     ),
             )
+            .child(self.import_status(&colors))
             .into_any_element()
     }
 

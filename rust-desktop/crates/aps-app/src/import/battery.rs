@@ -329,6 +329,7 @@ impl ImportWorkspace {
             .child(self.battery_toolbar(&colors, cx))
             .child(panes)
             .child(self.battery_status(&colors, cx))
+            .child(self.import_status(&colors))
             .into_any_element()
     }
 

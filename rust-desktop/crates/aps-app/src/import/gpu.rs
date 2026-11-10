@@ -283,6 +283,7 @@ impl ImportWorkspace {
                     .overflow_y_scroll()
                     .child(body),
             )
+            .child(self.import_status(&colors))
             .into_any_element()
     }
     fn gpu_summary(&self, width: f32, colors: &studio::StudioColors) -> AnyElement {

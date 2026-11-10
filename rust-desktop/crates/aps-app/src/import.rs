@@ -36,7 +36,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const PAGE: usize = 100;
@@ -262,6 +262,8 @@ pub struct ImportWorkspace {
     path: Option<PathBuf>,
     page: Option<PageData>,
     busy: bool,
+    import_started: Option<Instant>,
+    import_duration: Option<Duration>,
     error: Option<UiText>,
     generation: u64,
     cancel: CancellationToken,
@@ -305,6 +307,8 @@ impl ImportWorkspace {
             path: None,
             page: None,
             busy: false,
+            import_started: None,
+            import_duration: None,
             error: None,
             generation: 0,
             cancel: CancellationToken::new(),
@@ -339,6 +343,24 @@ impl ImportWorkspace {
             selected_trace_row: None,
         }
     }
+    pub(super) fn import_status(&self, colors: &studio::StudioColors) -> AnyElement {
+        let value = self.import_duration.map_or_else(
+            || "—".to_owned(),
+            |duration| format!("Import · {:.2}s", duration.as_secs_f64()),
+        );
+        div()
+            .id("import-operation-status")
+            .flex()
+            .items_center()
+            .px(px(8.))
+            .py(px(3.))
+            .flex_shrink_0()
+            .border_t_1()
+            .border_color(colors.border)
+            .child(studio::supporting(value, colors))
+            .into_any_element()
+    }
+
     pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {
         self.language = language;
         cx.notify();
@@ -378,8 +400,15 @@ impl ImportWorkspace {
                 this.busy = false;
                 match result {
                     Ok(Ok(Some(paths))) if paths.len() == 1 => this.open(paths[0].clone(), cx),
-                    Ok(Err(_)) => this.error = Some(TextKey::ImportUiFilePickerFailed.into()),
-                    _ => {}
+                    Ok(Err(_)) => {
+                        this.import_started = None;
+                        this.import_duration = None;
+                        this.error = Some(TextKey::ImportUiFilePickerFailed.into());
+                    }
+                    _ => {
+                        this.import_started = None;
+                        this.import_duration = None;
+                    }
                 }
                 cx.notify();
             })
@@ -414,6 +443,8 @@ impl ImportWorkspace {
         self.cancel.cancel();
         self.cancel = CancellationToken::new();
         self.generation += 1;
+        self.import_started = Some(Instant::now());
+        self.import_duration = None;
         let generation = self.generation;
         self.busy = true;
         self.error = None;
@@ -481,6 +512,8 @@ impl ImportWorkspace {
                             }
                         }
                         this.path = Some(path);
+                        this.import_duration =
+                            this.import_started.take().map(|started| started.elapsed());
                         this.session = Some(session);
                         this.page = Some(page);
                         this.session_id = Some(new_session_id());
