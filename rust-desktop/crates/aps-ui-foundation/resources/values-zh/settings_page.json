@@ -48,6 +48,8 @@
   "settings_ui_semantic_navigation_hint": "实验功能。会启动本地语言服务器（JDT LS、Kotlin LSP 或 clangd）以支持跳转定义和查找引用；服务器可能占用数百 MB 内存，源码不会离开本机。",
   "settings_ui_semantic_navigation_warning": "开启语义导航？将启动本地语言服务器进程，可能占用数百 MB 内存。",
   "settings_ui_show_bounds": "显示可见视图边界",
+  "settings_ui_show_system_composables": "显示系统 Composable（包含 Box）",
+  "settings_ui_show_system_composables_hint": "显示检查器标记为“系统创建”的 Composable，例如 Box、Row、Column 等常见布局节点。设置会在下一次采集或刷新时生效。",
   "settings_ui_show_ids": "显示层级 ID",
   "settings_ui_show_layers": "显示层级图层可见性按钮",
   "settings_ui_smallest": "小面积优先",

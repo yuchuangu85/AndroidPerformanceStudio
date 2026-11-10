@@ -48,6 +48,8 @@
   "settings_ui_semantic_navigation_hint": "Experimental. Launches a local language server (JDT LS, Kotlin LSP or clangd) for go-to-definition and find usages. Servers can use hundreds of MB of memory; source text never leaves this machine.",
   "settings_ui_semantic_navigation_warning": "Enable semantic navigation? A local language server process will be started and may use hundreds of MB of memory.",
   "settings_ui_show_bounds": "Show visible view bounds",
+  "settings_ui_show_system_composables": "Show system Composables (including Box)",
+  "settings_ui_show_system_composables_hint": "Show Composables marked as system-created, including common layout nodes such as Box, Row, and Column. The setting takes effect on the next capture or refresh.",
   "settings_ui_show_ids": "Show hierarchy IDs",
   "settings_ui_show_layers": "Show layer visibility buttons",
   "settings_ui_smallest": "Smallest area first",

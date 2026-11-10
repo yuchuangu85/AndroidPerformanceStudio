@@ -750,6 +750,10 @@ impl Studio {
                 TextKey::SettingsUiHideFindings,
                 prefs.hide_invisible_findings,
             ),
+            (
+                TextKey::SettingsUiShowSystemComposables,
+                prefs.show_system_composables,
+            ),
             (TextKey::SettingsUiHideIndices, prefs.hide_indices),
             (TextKey::SettingsUiShowIds, prefs.show_ids),
             (TextKey::SettingsUiShowLayers, prefs.show_layer_buttons),
@@ -769,9 +773,10 @@ impl Studio {
                         match index {
                             0 => this.settings.layout.hide_invisible_hierarchy = *checked,
                             1 => this.settings.layout.hide_invisible_findings = *checked,
-                            2 => this.settings.layout.hide_indices = *checked,
-                            3 => this.settings.layout.show_ids = *checked,
-                            4 => this.settings.layout.show_layer_buttons = *checked,
+                            2 => this.settings.layout.show_system_composables = *checked,
+                            3 => this.settings.layout.hide_indices = *checked,
+                            4 => this.settings.layout.show_ids = *checked,
+                            5 => this.settings.layout.show_layer_buttons = *checked,
                             _ => this.settings.layout.show_visible_bounds = *checked,
                         };
                         this.persist_settings(window, cx);

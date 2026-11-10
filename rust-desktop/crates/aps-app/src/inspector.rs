@@ -367,6 +367,8 @@ pub struct InspectorWorkspace {
     /// archives have no live injection; checking it reveals the Compose
     /// inspection sidecar (Compose category/summary) captured in the archive.
     compose_agent: bool,
+    /// The explicit confirmation dialog shown before enabling full Compose inspection.
+    compose_inspection_confirmation_pending: bool,
     /// Resizable pane sizes, mirroring Compose's remembered pane widths and
     /// findings height. Session state only, like Compose's remember state.
     hierarchy_width: f32,
@@ -419,6 +421,7 @@ impl InspectorWorkspace {
             app_only: true,
             screenshot_image: None,
             compose_agent: false,
+            compose_inspection_confirmation_pending: false,
             hierarchy_width: HIERARCHY_WIDTH,
             properties_width: PROPERTIES_WIDTH,
             findings_height: FINDINGS_HEIGHT,
@@ -491,6 +494,7 @@ impl InspectorWorkspace {
         self.generation = frame.generation;
         let screenshot_png = frame.archive.screenshot_png.clone();
         self.archive = Some(Arc::new(frame.archive));
+        self.compose_inspection_confirmation_pending = false;
         self.screenshot_image = screenshot_png
             .as_deref()
             .and_then(|bytes| decode_screenshot(bytes, cx));
@@ -905,6 +909,14 @@ impl InspectorWorkspace {
             }
             if self.preferences.hide_invisible_hierarchy && !node.visible {
                 skip_depth = Some(node.depth);
+                continue;
+            }
+            if !self.preferences.show_system_composables
+                && node.kind == NodeKind::Compose
+                && compose_node_id(&node.id)
+                    .and_then(|id| archive.compose.as_ref()?.nodes.get(&id))
+                    .is_some_and(|compose_node| compose_node.system_created)
+            {
                 continue;
             }
             if self.collapsed.contains(&node.id) && self.has_children(index) {
@@ -1379,7 +1391,117 @@ impl Render for InspectorWorkspace {
             }))
             .child(workspace)
             .child(status)
+            .children(self.compose_inspection_confirmation_pending.then(|| {
+                compose_inspection_confirmation(
+                    language,
+                    &colors,
+                    self.target_serial.as_deref(),
+                    self.target_pid,
+                    archive.as_ref(),
+                    entity.clone(),
+                )
+            }))
     }
+}
+
+fn compose_inspection_confirmation(
+    language: Language,
+    colors: &StudioColors,
+    serial: Option<&str>,
+    pid: Option<u32>,
+    archive: Option<&Arc<InspectorArchive>>,
+    entity: Entity<InspectorWorkspace>,
+) -> AnyElement {
+    let package = archive.map_or("—", |value| value.frame.package_name.as_str());
+    let serial = serial.unwrap_or("—");
+    let pid = pid.map_or_else(|| "—".to_owned(), |value| value.to_string());
+    let target = language.format(
+        TextKey::InspectorComposeInspectionTarget,
+        &[("serial", &serial), ("package", &package), ("pid", &pid)],
+    );
+    let message = language.text(TextKey::InspectorComposeInspectionMessage);
+    let confirm = language.text(TextKey::InspectorComposeInspectionConfirm);
+    let cancel = language.text(TextKey::InspectorComposeInspectionCancel);
+    let close_entity = entity.clone();
+    let cancel_button = Button::new("inspector-compose-inspection-cancel")
+        .ghost()
+        .label(cancel)
+        .on_click(move |_, _, cx| {
+            close_entity.update(cx, |this, cx| {
+                this.compose_inspection_confirmation_pending = false;
+                cx.notify();
+            });
+        });
+    let confirm_entity = entity.clone();
+    let backdrop_entity = entity;
+    let confirm_button = Button::new("inspector-compose-inspection-confirm")
+        .primary()
+        .label(confirm)
+        .on_click(move |_, _, cx| {
+            confirm_entity.update(cx, |this, cx| {
+                this.compose_inspection_confirmation_pending = false;
+                this.compose_agent = true;
+                if this.selected_is_compose() {
+                    this.details_tab = DetailsTab::Compose;
+                }
+                cx.notify();
+            });
+        });
+    div()
+        .id("inspector-compose-inspection-backdrop")
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(rgba(0x00000052))
+        .on_click(move |_, _, cx| {
+            backdrop_entity.update(cx, |this, cx| {
+                this.compose_inspection_confirmation_pending = false;
+                cx.notify();
+            });
+        })
+        .child(
+            div()
+                .id("inspector-compose-inspection-dialog")
+                .w(px(460.))
+                .p(px(12.))
+                .bg(colors.panel)
+                .border_1()
+                .border_color(colors.strong_border)
+                .rounded(px(studio::metrics::CARD_RADIUS))
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .text_size(px(studio::FONT_BODY))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.accent)
+                                .child(crate::studio::selectable(
+                                    language.text(TextKey::InspectorComposeInspectionTitle),
+                                )),
+                        )
+                        .child(studio::divider(colors))
+                        .child(crate::studio::selectable(target))
+                        .child(crate::studio::selectable(message))
+                        .child(studio::divider(colors))
+                        .child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .items_center()
+                                .justify_end()
+                                .gap(px(8.))
+                                .child(cancel_button)
+                                .child(confirm_button),
+                        ),
+                ),
+        )
+        .into_any_element()
 }
 
 /// Preview source rectangle in display pixels, mirroring Compose
@@ -1864,9 +1986,11 @@ fn compose_agent_control(
         control = control
             .cursor_pointer()
             .on_click(cx.listener(|this, _, _, cx| {
-                this.compose_agent = !this.compose_agent;
-                if this.compose_agent && this.selected_is_compose() {
-                    this.details_tab = DetailsTab::Compose;
+                if this.compose_agent {
+                    this.compose_agent = false;
+                    this.compose_inspection_confirmation_pending = false;
+                } else {
+                    this.compose_inspection_confirmation_pending = true;
                 }
                 cx.notify();
             }));

@@ -38,6 +38,7 @@ fn parse_capture_default(
 pub struct LayoutPreferences {
     pub hide_invisible_hierarchy: bool,
     pub hide_invisible_findings: bool,
+    pub show_system_composables: bool,
     pub hide_indices: bool,
     pub show_ids: bool,
     pub show_layer_buttons: bool,
@@ -54,6 +55,7 @@ impl Default for LayoutPreferences {
         Self {
             hide_invisible_hierarchy: false,
             hide_invisible_findings: false,
+            show_system_composables: true,
             hide_indices: false,
             show_ids: true,
             show_layer_buttons: false,
@@ -198,14 +200,16 @@ impl Settings {
         let version = lines.next();
         if !matches!(
             version,
-            Some("version=1" | "version=2" | "version=3" | "version=4")
+            Some("version=1" | "version=2" | "version=3" | "version=4" | "version=5")
         ) {
             return Err(SettingsError::Invalid(
-                "expected version=1, version=2, version=3 or version=4",
+                "expected version=1, version=2, version=3, version=4 or version=5",
             ));
         }
         let language = match lines.next() {
-            Some("language=system") if matches!(version, Some("version=3" | "version=4")) => {
+            Some("language=system")
+                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+            {
                 Language::System
             }
             Some("language=en") => Language::English,
@@ -217,7 +221,9 @@ impl Settings {
             }
         };
         let theme = match lines.next() {
-            Some("theme=system") if matches!(version, Some("version=3" | "version=4")) => {
+            Some("theme=system")
+                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+            {
                 ThemeMode::System
             }
             Some("theme=light") => ThemeMode::Light,
@@ -244,7 +250,9 @@ impl Settings {
             Some("displayScale=100") => DisplayScale::Percent100,
             Some("displayScale=110") => DisplayScale::Percent110,
             Some("displayScale=125") => DisplayScale::Percent125,
-            Some("displayScale=150") if matches!(version, Some("version=3" | "version=4")) => {
+            Some("displayScale=150")
+                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+            {
                 DisplayScale::Percent150
             }
             _ => {
@@ -268,13 +276,19 @@ impl Settings {
             Some("accent=jade") => AccentColor::Jade,
             Some("accent=orange") => AccentColor::Orange,
             Some("accent=purple") => AccentColor::Purple,
-            Some("accent=bananaRed") if matches!(version, Some("version=3" | "version=4")) => {
+            Some("accent=bananaRed")
+                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+            {
                 AccentColor::BananaRed
             }
-            Some("accent=merlotPink") if matches!(version, Some("version=3" | "version=4")) => {
+            Some("accent=merlotPink")
+                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+            {
                 AccentColor::MerlotPink
             }
-            Some("accent=lemonYellow") if matches!(version, Some("version=3" | "version=4")) => {
+            Some("accent=lemonYellow")
+                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+            {
                 AccentColor::LemonYellow
             }
             _ => return Err(SettingsError::Invalid("invalid accent color")),
@@ -303,7 +317,7 @@ impl Settings {
             capture_frequency_hz,
             ..Self::default()
         };
-        if matches!(version, Some("version=3" | "version=4")) {
+        if matches!(version, Some("version=3" | "version=4" | "version=5")) {
             settings.custom_accent = match parse_value(lines.next(), "customAccent")? {
                 "none" => None,
                 color => Some(parse_argb(color)?),
@@ -311,6 +325,11 @@ impl Settings {
             settings.layout = LayoutPreferences {
                 hide_invisible_hierarchy: parse_bool(lines.next(), "layoutHideInvisibleHierarchy")?,
                 hide_invisible_findings: parse_bool(lines.next(), "layoutHideInvisibleFindings")?,
+                show_system_composables: if version == Some("version=5") {
+                    parse_bool(lines.next(), "layoutShowSystemComposables")?
+                } else {
+                    false
+                },
                 hide_indices: parse_bool(lines.next(), "layoutHideIndices")?,
                 show_ids: parse_bool(lines.next(), "layoutShowIds")?,
                 show_layer_buttons: parse_bool(lines.next(), "layoutShowLayerButtons")?,
@@ -332,7 +351,7 @@ impl Settings {
                 parse_index(lines.next(), "simpleperfViewerEngine", 2)?;
             settings.ai_settings_tab = parse_index(lines.next(), "aiSettingsTab", 3)?;
         }
-        if version == Some("version=4") {
+        if version == Some("version=4") || version == Some("version=5") {
             settings.source_lsp_enabled = parse_bool(lines.next(), "sourceLspEnabled")?;
         }
         if lines.next().is_some() {
@@ -416,7 +435,7 @@ impl Settings {
         };
         write!(
             file,
-            "version=4\nlanguage={language}\ntheme={theme}\ndisplayScale={display_scale}\nnavigationRail={navigation_rail}\naccent={accent}\ncaptureDuration={}\ncaptureFrequency={}\n",
+            "version=5\nlanguage={language}\ntheme={theme}\ndisplayScale={display_scale}\nnavigationRail={navigation_rail}\naccent={accent}\ncaptureDuration={}\ncaptureFrequency={}\n",
             self.capture_duration_seconds, self.capture_frequency_hz,
         )?;
         let custom_accent = self
@@ -426,9 +445,10 @@ impl Settings {
         let layout = self.layout;
         write!(
             file,
-            "customAccent={custom_accent}\nlayoutHideInvisibleHierarchy={}\nlayoutHideInvisibleFindings={}\nlayoutHideIndices={}\nlayoutShowIds={}\nlayoutShowLayerButtons={}\nlayoutShowVisibleBounds={}\nlayoutHitSmallest={}\nlayoutArchiveMultiplier={}\nlayoutNormalColor={:08X}\nlayoutHoverColor={:08X}\nlayoutSelectedColor={:08X}\nsimpleperfFollowTooltip={}\nsimpleperfViewerEngine={}\naiSettingsTab={}\nsourceLspEnabled={}\n",
+            "customAccent={custom_accent}\nlayoutHideInvisibleHierarchy={}\nlayoutHideInvisibleFindings={}\nlayoutShowSystemComposables={}\nlayoutHideIndices={}\nlayoutShowIds={}\nlayoutShowLayerButtons={}\nlayoutShowVisibleBounds={}\nlayoutHitSmallest={}\nlayoutArchiveMultiplier={}\nlayoutNormalColor={:08X}\nlayoutHoverColor={:08X}\nlayoutSelectedColor={:08X}\nsimpleperfFollowTooltip={}\nsimpleperfViewerEngine={}\naiSettingsTab={}\nsourceLspEnabled={}\n",
             layout.hide_invisible_hierarchy,
             layout.hide_invisible_findings,
+            layout.show_system_composables,
             layout.hide_indices,
             layout.show_ids,
             layout.show_layer_buttons,
@@ -562,6 +582,7 @@ mod tests {
             layout: LayoutPreferences {
                 hide_invisible_hierarchy: true,
                 hide_invisible_findings: true,
+                show_system_composables: true,
                 hide_indices: true,
                 show_ids: false,
                 show_layer_buttons: true,
@@ -580,7 +601,7 @@ mod tests {
         };
         settings.save(&temp.file()).unwrap();
         let text = fs::read_to_string(temp.file()).unwrap();
-        assert!(text.starts_with("version=4\n"));
+        assert!(text.starts_with("version=5\n"));
         assert!(text.len() <= MAX_SETTINGS_BYTES);
         assert_eq!(Settings::load(&temp.file()).unwrap(), settings);
     }
