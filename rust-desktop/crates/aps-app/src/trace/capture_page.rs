@@ -15,7 +15,7 @@ use crate::studio::{self, FONT_BODY, FONT_SUPPORTING, StudioColors};
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     component::{
-        Disableable,
+        Disableable, Sizable,
         checkbox::Checkbox,
         input::{Input, InputState, Textarea, TextareaState},
     },
@@ -423,6 +423,7 @@ fn probe_option(
         .gap(px(5.))
         .child(
             Checkbox::new(("capture-probe", probe as usize))
+                .with_size(gpui_kit::component::Size::Small)
                 .checked(checked)
                 .disabled(disabled)
                 .on_change(move |checked, _, cx| {

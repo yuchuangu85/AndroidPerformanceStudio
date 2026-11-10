@@ -156,7 +156,7 @@ pub(super) fn icon_button(
         )
 }
 
-/// Compose FilterCheckbox: 18 dp Material checkbox plus a body-compact label.
+/// Compose FilterCheckbox: 14 dp compact checkbox plus a body-compact label.
 pub(super) fn checkbox(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -179,8 +179,8 @@ pub(super) fn checkbox(
         .when(!enabled, |element| element.opacity(0.45))
         .child(
             div()
-                .w(px(18.))
-                .h(px(18.))
+                .w(px(14.))
+                .h(px(14.))
                 .flex()
                 .items_center()
                 .justify_center()

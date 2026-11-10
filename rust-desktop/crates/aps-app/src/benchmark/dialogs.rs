@@ -15,6 +15,7 @@ use aps_benchmark::{
     ReleaseGatePolicy, StartupMode,
 };
 use aps_ui_foundation::{Language, TextKey};
+use gpui_kit::component::Sizable;
 use gpui_kit::{
     component::{
         button::Button,
@@ -649,6 +650,7 @@ fn toggle_row(
         .gap(px(6.))
         .child(
             Checkbox::new(id)
+                .with_size(gpui_kit::component::Size::Small)
                 .checked(checked)
                 .on_change(move |checked, _, cx| {
                     let checked = *checked;

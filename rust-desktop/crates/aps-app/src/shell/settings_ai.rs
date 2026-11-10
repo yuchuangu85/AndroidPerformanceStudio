@@ -19,6 +19,7 @@ use aps_ai::{
     AgentDescriptor, AiPreferences, BUILTIN_AGENTS, CredentialKind, ProviderKind, ReportFormat,
     ReportLanguage,
 };
+use gpui_kit::component::Sizable;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::radio::Radio;
@@ -1031,6 +1032,7 @@ impl Studio {
             }
             card = card.child(
                 Checkbox::new(("ai-agent-enabled", index))
+                    .with_size(gpui_kit::component::Size::Small)
                     .label(language.text(TextKey::AiSettingsEnabled))
                     .checked(true)
                     .disabled(true),
@@ -1092,6 +1094,7 @@ impl Studio {
             .unwrap_or((false, false, None, None));
 
         let artifacts = Checkbox::new("ai-policy-allow-artifacts")
+            .with_size(gpui_kit::component::Size::Small)
             .label(language.text(TextKey::AiSettingsAllowReports))
             .checked(preferences.allow_artifacts)
             .disabled(!runtime_available)
@@ -1102,6 +1105,7 @@ impl Studio {
                 });
             }));
         let scripts = Checkbox::new("ai-policy-allow-scripts")
+            .with_size(gpui_kit::component::Size::Small)
             .label(language.text(TextKey::AiSettingsAllowScripts))
             .checked(false)
             .disabled(true);

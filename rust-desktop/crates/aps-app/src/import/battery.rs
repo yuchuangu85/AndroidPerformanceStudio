@@ -3,6 +3,7 @@
 mod model;
 pub(super) mod workspace;
 use super::*;
+use gpui_kit::component::Sizable;
 use gpui_kit::component::{
     WindowExt,
     checkbox::Checkbox,
@@ -960,6 +961,7 @@ impl ImportWorkspace {
             }
             controls = controls.child(
                 Checkbox::new("battery-config-launch")
+                    .with_size(gpui_kit::component::Size::Small)
                     .label(language.text(TextKey::BatteryLaunchApp))
                     .checked(false)
                     .disabled(true),

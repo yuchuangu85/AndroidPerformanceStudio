@@ -2228,7 +2228,7 @@ fn compose_agent_control(
         .gap(px(4.))
         .child(
             div()
-                .size(px(18.))
+                .size(px(14.))
                 .flex_shrink_0()
                 .flex()
                 .items_center()
