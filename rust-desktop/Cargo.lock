@@ -324,10 +324,14 @@ dependencies = [
 name = "aps-layout-inspector"
 version = "0.1.0"
 dependencies = [
+ "aps-adb",
  "aps-contracts",
  "aps-json",
  "aps-platform",
  "aps-protocol",
+ "png 0.18.1",
+ "roxmltree 0.21.2",
+ "serde_json",
  "zip",
 ]
 

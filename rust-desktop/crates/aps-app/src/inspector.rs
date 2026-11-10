@@ -351,6 +351,8 @@ pub struct InspectorWorkspace {
     findings_tone: FindingsTone,
     zoom: f32,
     show_bounds: bool,
+    compatible_capture: bool,
+    capturing: bool,
     busy: bool,
     error: Option<String>,
     generation: u64,
@@ -369,6 +371,7 @@ pub struct InspectorWorkspace {
     compose_agent: bool,
     /// The explicit confirmation dialog shown before enabling full Compose inspection.
     compose_inspection_confirmation_pending: bool,
+    compose_bridge: Option<Arc<aps_layout_inspector::ComposeBridge>>,
     /// Resizable pane sizes, mirroring Compose's remembered pane widths and
     /// findings height. Session state only, like Compose's remember state.
     hierarchy_width: f32,
@@ -410,6 +413,8 @@ impl InspectorWorkspace {
             findings_tone: FindingsTone::All,
             zoom: 1.0,
             show_bounds: true,
+            compatible_capture: false,
+            capturing: false,
             busy: false,
             error: None,
             generation: 0,
@@ -422,6 +427,7 @@ impl InspectorWorkspace {
             screenshot_image: None,
             compose_agent: false,
             compose_inspection_confirmation_pending: false,
+            compose_bridge: None,
             hierarchy_width: HIERARCHY_WIDTH,
             properties_width: PROPERTIES_WIDTH,
             findings_height: FINDINGS_HEIGHT,
@@ -448,6 +454,16 @@ impl InspectorWorkspace {
     }
 
     pub fn set_target(&mut self, serial: Option<String>, pid: Option<u32>, cx: &mut Context<Self>) {
+        if self.target_serial != serial || self.target_pid != pid {
+            self.compose_bridge = None;
+            self.compose_agent = false;
+            self.compose_inspection_confirmation_pending = false;
+            self.cancel.cancel();
+            self.generation += 1;
+            if !self.capturing {
+                self.busy = false;
+            }
+        }
         self.target_serial = serial;
         self.target_pid = pid;
         cx.notify();
@@ -494,6 +510,7 @@ impl InspectorWorkspace {
         self.generation = frame.generation;
         let screenshot_png = frame.archive.screenshot_png.clone();
         self.archive = Some(Arc::new(frame.archive));
+        self.compatible_capture = false;
         self.compose_inspection_confirmation_pending = false;
         self.screenshot_image = screenshot_png
             .as_deref()
@@ -636,6 +653,223 @@ impl InspectorWorkspace {
         self.open(path, cx);
     }
 
+    /// One background capture at a time; cancellation keeps it busy until reaped.
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        if self.compose_agent {
+            self.capture_compose(cx);
+            return;
+        }
+        if self.busy || self.capturing {
+            return;
+        }
+        let Some(serial) = self
+            .target_serial
+            .clone()
+            .filter(|serial| !serial.is_empty())
+        else {
+            self.error = Some(self.language.text(TextKey::InspectorNoDevice).into());
+            cx.notify();
+            return;
+        };
+        self.cancel.cancel();
+        self.cancel = CancellationToken::new();
+        let cancel = self.cancel.clone();
+        self.generation += 1;
+        let generation = self.generation;
+        self.busy = true;
+        self.capturing = true;
+        self.error = None;
+        self.compose_inspection_confirmation_pending = false;
+        let target = match self.capture_target {
+            CaptureTargetMode::ForegroundApp => {
+                aps_layout_inspector::CompatibleTarget::ForegroundApp
+            }
+            CaptureTargetMode::SystemUi => aps_layout_inspector::CompatibleTarget::SystemUi,
+        };
+        let pid = self.target_pid;
+        let task = cx.background_executor().spawn(async move {
+            aps_adb::validate_serial(&serial).map_err(|error| error.to_string())?;
+            let adb = aps_adb::AdbLocator::new()
+                .locate(None)
+                .map_err(|error| error.to_string())?;
+            let client = aps_adb::AdbClient::new(adb.clone());
+            let expected = if matches!(target, aps_layout_inspector::CompatibleTarget::ForegroundApp) {
+                if let Some(pid) = pid {
+                    Some(client.target_snapshot(&serial, &cancel).map_err(|error| error.to_string())?
+                        .application_processes().into_iter().find(|process| process.pid == pid)
+                        .ok_or("Selected process is no longer available; select it again")?)
+                } else { None }
+            } else { None };
+            let frame = aps_layout_inspector::capture_compatible(&adb, &serial, target, generation, &cancel)?;
+            if let Some(expected) = expected {
+                let current = client.target_snapshot(&serial, &cancel).map_err(|error| error.to_string())?
+                    .application_processes().into_iter().find(|process| process.pid == expected.pid);
+                if current.as_ref() != Some(&expected) || frame.archive.frame.package_name != expected.package_name {
+                    return Err("Selected app is not the captured foreground app or its process changed; bring it to the foreground and refresh".into());
+                }
+            }
+            Ok(frame)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                this.capturing = false;
+                this.busy = false;
+                if this.generation == generation {
+                    match result {
+                        Ok(frame) => match this.publish_protocol_frame(frame, cx) {
+                            Ok(()) => {
+                                this.compatible_capture = true;
+                                this.compose_agent = false;
+                                this.app_only = false;
+                            }
+                            Err(error) => this.error = Some(error),
+                        },
+                        Err(error) => this.error = Some(error),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn prepare_compose(&mut self, cx: &mut Context<Self>) {
+        if self.busy || self.capturing {
+            return;
+        }
+        let (Some(serial), Some(pid)) = (self.target_serial.clone(), self.target_pid) else {
+            self.error = Some(
+                "Select a device and a running debuggable app process before Compose inspection"
+                    .into(),
+            );
+            cx.notify();
+            return;
+        };
+        if self.capture_target != CaptureTargetMode::ForegroundApp {
+            self.error = Some(
+                "Full Compose inspection requires an app process, not System UI capture".into(),
+            );
+            cx.notify();
+            return;
+        }
+        self.cancel.cancel();
+        self.cancel = CancellationToken::new();
+        let cancel = self.cancel.clone();
+        self.generation += 1;
+        let generation = self.generation;
+        self.busy = true;
+        self.capturing = true;
+        self.error = None;
+        self.compose_bridge = None;
+        let task = cx.background_executor().spawn(async move {
+            let adb = aps_adb::AdbLocator::new()
+                .locate(None)
+                .map_err(|error| error.to_string())?;
+            let target = aps_adb::AdbClient::new(adb.clone())
+                .target_snapshot(&serial, &cancel)
+                .map_err(|error| error.to_string())?
+                .application_processes()
+                .into_iter()
+                .find(|process| process.pid == pid)
+                .ok_or("Selected process is no longer available")?;
+            aps_layout_inspector::ComposeBridge::preflight(
+                adb.executable,
+                &serial,
+                &target.package_name,
+                pid,
+                &cancel,
+            )
+            .map(Arc::new)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                this.busy = false;
+                this.capturing = false;
+                if this.generation == generation {
+                    match result {
+                        Ok(bridge) => {
+                            this.compose_bridge = Some(bridge);
+                            this.compose_inspection_confirmation_pending = true;
+                        }
+                        Err(error) => this.error = Some(error),
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn capture_compose(&mut self, cx: &mut Context<Self>) {
+        if self.busy || self.capturing {
+            return;
+        }
+        let Some(bridge) = self.compose_bridge.clone() else {
+            self.compose_agent = false;
+            self.prepare_compose(cx);
+            return;
+        };
+        self.cancel.cancel();
+        self.cancel = CancellationToken::new();
+        let cancel = self.cancel.clone();
+        self.generation += 1;
+        let generation = self.generation;
+        self.busy = true;
+        self.capturing = true;
+        self.error = None;
+        self.compose_inspection_confirmation_pending = false;
+        let task = cx
+            .background_executor()
+            .spawn(async move { bridge.capture(generation, &cancel) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                this.busy = false;
+                this.capturing = false;
+                if this.generation == generation {
+                    match result {
+                        Ok(frame) => match this.publish_protocol_frame(frame, cx) {
+                            Ok(()) => {
+                                this.compose_agent = true;
+                                this.app_only = false;
+                            }
+                            Err(error) => this.error = Some(error),
+                        },
+                        Err(error) => {
+                            this.error = Some(error);
+                            this.compose_agent = false;
+                            this.compose_bridge = None;
+                        }
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn cancel_operation(&mut self, cx: &mut Context<Self>) {
+        self.cancel.cancel();
+        self.generation += 1;
+        if !self.capturing {
+            self.busy = false;
+        }
+        self.error = Some(
+            self.language
+                .text(TextKey::ImportOperationCancelledPreviousPublishedPageRetained)
+                .into(),
+        );
+        cx.notify();
+    }
+
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.cancel.cancel();
         self.cancel = CancellationToken::new();
@@ -717,6 +951,12 @@ impl InspectorWorkspace {
 
     fn set_capture_target(&mut self, mode: CaptureTargetMode, cx: &mut Context<Self>) {
         if self.capture_target != mode {
+            if self.capturing {
+                self.cancel_operation(cx);
+            }
+            self.compose_bridge = None;
+            self.compose_agent = false;
+            self.compose_inspection_confirmation_pending = false;
             self.capture_target = mode;
             cx.notify();
         }
@@ -772,7 +1012,11 @@ impl InspectorWorkspace {
                     .text_size(px(studio::FONT_SUPPORTING))
                     .text_color(colors.warning)
                     .whitespace_nowrap()
-                    .child(if archive.is_some() {
+                    .child(if self.compatible_capture {
+                        language.text(TextKey::InspectorCompatibleView).to_owned()
+                    } else if self.compose_agent && self.compose_bridge.is_some() {
+                        language.text(TextKey::InspectorComposeAgent).to_owned()
+                    } else if archive.is_some() {
                         language.text(TextKey::InspectorOfflineArchive).to_owned()
                     } else if let Some(serial) = &self.target_serial {
                         language.format(
@@ -801,9 +1045,16 @@ impl InspectorWorkspace {
                     .and_then(|archive| archive.compose.as_ref())
                     .is_some(),
                 self.compose_agent,
+                !self.busy && !self.capturing,
                 cx,
             ))
-            .child(scan_mode_control(language, colors));
+            .child(scan_mode_control(
+                language,
+                colors,
+                !self.busy && self.target_serial.is_some(),
+                self.busy,
+                cx,
+            ));
 
         div()
             .id("inspector-header-toolbar")
@@ -1261,6 +1512,8 @@ impl Render for InspectorWorkspace {
             node_count,
             visible_nodes,
             &self.hidden,
+            self.compatible_capture,
+            self.compose_agent && self.compose_bridge.is_some(),
         );
 
         let mut panes = div()
@@ -1378,6 +1631,15 @@ impl Render for InspectorWorkspace {
                     .text_color(colors.error)
                     .child(crate::studio::selectable(error))
             }))
+            .children(self.compatible_capture.then(|| {
+                div()
+                    .flex_shrink_0()
+                    .px(px(10.))
+                    .py(px(4.))
+                    .text_size(px(studio::FONT_SUPPORTING))
+                    .text_color(colors.warning)
+                    .child(language.text(TextKey::InspectorCompatibleNotice))
+            }))
             .children(self.busy.then(|| {
                 div()
                     .flex_shrink_0()
@@ -1385,9 +1647,13 @@ impl Render for InspectorWorkspace {
                     .py(px(4.))
                     .text_size(px(studio::FONT_SUPPORTING))
                     .text_color(colors.muted_text)
-                    .child(crate::studio::selectable(
-                        language.text(TextKey::InspectorValidatingArchive),
-                    ))
+                    .child(crate::studio::selectable(language.text(
+                        if self.capturing {
+                            TextKey::InspectorCapturingCompatible
+                        } else {
+                            TextKey::InspectorValidatingArchive
+                        },
+                    )))
             }))
             .child(workspace)
             .child(status)
@@ -1395,9 +1661,7 @@ impl Render for InspectorWorkspace {
                 compose_inspection_confirmation(
                     language,
                     &colors,
-                    self.target_serial.as_deref(),
-                    self.target_pid,
-                    archive.as_ref(),
+                    self.compose_bridge.as_deref(),
                     entity.clone(),
                 )
             }))
@@ -1407,19 +1671,34 @@ impl Render for InspectorWorkspace {
 fn compose_inspection_confirmation(
     language: Language,
     colors: &StudioColors,
-    serial: Option<&str>,
-    pid: Option<u32>,
-    archive: Option<&Arc<InspectorArchive>>,
+    bridge: Option<&aps_layout_inspector::ComposeBridge>,
     entity: Entity<InspectorWorkspace>,
 ) -> AnyElement {
-    let package = archive.map_or("—", |value| value.frame.package_name.as_str());
-    let serial = serial.unwrap_or("—");
-    let pid = pid.map_or_else(|| "—".to_owned(), |value| value.to_string());
+    let receipt = bridge.map(|bridge| bridge.receipt());
+    let identity = receipt.map(|receipt| &receipt["identity"]);
+    let package = identity
+        .and_then(|identity| identity["packageName"].as_str())
+        .unwrap_or("—");
+    let serial = identity
+        .and_then(|identity| identity["serial"].as_str())
+        .unwrap_or("—");
+    let pid = identity
+        .and_then(|identity| identity["pid"].as_u64())
+        .map_or_else(|| "—".to_owned(), |value| value.to_string());
     let target = language.format(
         TextKey::InspectorComposeInspectionTarget,
         &[("serial", &serial), ("package", &package), ("pid", &pid)],
     );
-    let message = language.text(TextKey::InspectorComposeInspectionMessage);
+    let message = receipt.map_or_else(String::new, |receipt| {
+        let value = |key: &str| receipt["identity"][key].as_str().map(str::to_owned).unwrap_or_else(|| receipt["identity"][key].to_string());
+        let version = value("composeVersion");
+        let api = value("apiLevel");
+        let abi = value("abi");
+        let bundle = value("bundleFingerprint");
+        let source = receipt["inspectorSource"].as_str().unwrap_or("?");
+        let download = language.text(if receipt["inspectorDownloadRequired"].as_bool().unwrap_or(true) { TextKey::InspectorValueYes } else { TextKey::InspectorValueNo });
+        language.format(TextKey::InspectorComposePreflightDetails, &[("version", &version), ("api", &api), ("abi", &abi), ("source", &source), ("download", &download), ("bundle", &bundle)])
+    });
     let confirm = language.text(TextKey::InspectorComposeInspectionConfirm);
     let cancel = language.text(TextKey::InspectorComposeInspectionCancel);
     let close_entity = entity.clone();
@@ -1429,6 +1708,7 @@ fn compose_inspection_confirmation(
         .on_click(move |_, _, cx| {
             close_entity.update(cx, |this, cx| {
                 this.compose_inspection_confirmation_pending = false;
+                this.compose_bridge = None;
                 cx.notify();
             });
         });
@@ -1440,11 +1720,7 @@ fn compose_inspection_confirmation(
         .on_click(move |_, _, cx| {
             confirm_entity.update(cx, |this, cx| {
                 this.compose_inspection_confirmation_pending = false;
-                this.compose_agent = true;
-                if this.selected_is_compose() {
-                    this.details_tab = DetailsTab::Compose;
-                }
-                cx.notify();
+                this.capture_compose(cx);
             });
         });
     div()
@@ -1458,6 +1734,7 @@ fn compose_inspection_confirmation(
         .on_click(move |_, _, cx| {
             backdrop_entity.update(cx, |this, cx| {
                 this.compose_inspection_confirmation_pending = false;
+                this.compose_bridge = None;
                 cx.notify();
             });
         })
@@ -1934,9 +2211,9 @@ fn compose_agent_control(
     colors: &StudioColors,
     available: bool,
     checked: bool,
+    enabled: bool,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
-    let enabled = checked || available;
     let border = if checked {
         colors.accent
     } else if enabled {
@@ -1985,12 +2262,18 @@ fn compose_agent_control(
     if enabled {
         control = control
             .cursor_pointer()
-            .on_click(cx.listener(|this, _, _, cx| {
+            .on_click(cx.listener(move |this, _, _, cx| {
                 if this.compose_agent {
                     this.compose_agent = false;
+                    this.compose_bridge = None;
                     this.compose_inspection_confirmation_pending = false;
+                } else if available && this.compose_bridge.is_none() {
+                    this.compose_agent = true;
+                    if this.selected_is_compose() {
+                        this.details_tab = DetailsTab::Compose;
+                    }
                 } else {
-                    this.compose_inspection_confirmation_pending = true;
+                    this.prepare_compose(cx);
                 }
                 cx.notify();
             }));
@@ -2055,28 +2338,46 @@ fn segmented_item(
         )
 }
 
-fn scan_mode_control(language: Language, colors: &StudioColors) -> AnyElement {
-    let entries = [
-        (TextKey::InspectorRefresh, true),
-        (TextKey::InspectorAutoScan, false),
-    ];
-    let mut track = segmented_track("inspector-scan-mode", colors);
-    for (index, (key, selected)) in entries.into_iter().enumerate() {
-        if index > 0 {
-            track = track.child(segmented_divider(colors));
-        }
-        track = track.child(
+fn scan_mode_control(
+    language: Language,
+    colors: &StudioColors,
+    enabled: bool,
+    busy: bool,
+    cx: &mut Context<InspectorWorkspace>,
+) -> AnyElement {
+    segmented_track("inspector-scan-mode", colors)
+        .child(
             segmented_item(
-                ("inspector-scan-mode", index),
-                language.text(key),
-                selected,
+                "inspector-refresh",
+                language.text(TextKey::InspectorRefresh),
+                true,
+                enabled,
+                colors,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+        )
+        .child(segmented_divider(colors))
+        .child(
+            segmented_item(
+                "inspector-auto-scan",
+                language.text(TextKey::InspectorAutoScan),
+                false,
                 false,
                 colors,
             )
             .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
-        );
-    }
-    track.into_any_element()
+        )
+        .children(busy.then(|| {
+            segmented_item(
+                "inspector-cancel",
+                language.text(TextKey::CommonCancel),
+                false,
+                true,
+                colors,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.cancel_operation(cx)))
+        }))
+        .into_any_element()
 }
 
 /// Compose `PanelToggleButton`: 26 x 21, accent-tinted when the pane is
@@ -2167,6 +2468,8 @@ fn status_bar(
     node_count: usize,
     visible_count: usize,
     hidden: &BTreeSet<String>,
+    compatible_capture: bool,
+    full_compose_capture: bool,
 ) -> AnyElement {
     let package = archive.map_or_else(
         || language.text(TextKey::InspectorNoArchive).to_owned(),
@@ -2223,7 +2526,15 @@ fn status_bar(
     bar.child(div().flex_1())
         .child(status_value(
             language.text(TextKey::InspectorStatusSource),
-            language.text(TextKey::InspectorOfflineArchive).to_owned(),
+            language
+                .text(if compatible_capture {
+                    TextKey::InspectorCompatibleView
+                } else if full_compose_capture {
+                    TextKey::InspectorComposeAgent
+                } else {
+                    TextKey::InspectorOfflineArchive
+                })
+                .to_owned(),
             false,
             colors,
         ))

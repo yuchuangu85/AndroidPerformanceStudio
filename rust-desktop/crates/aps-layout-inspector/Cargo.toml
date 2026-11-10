@@ -10,4 +10,8 @@ aps-contracts = { path = "../aps-contracts" }
 aps-platform = { path = "../aps-platform" }
 aps-json = { path = "../aps-json" }
 aps-protocol = { path = "../aps-protocol" }
+aps-adb = { path = "../aps-adb" }
+serde_json.workspace = true
+roxmltree = "=0.21.2"
+png = "=0.18.1"
 zip = { version = "=9.4.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

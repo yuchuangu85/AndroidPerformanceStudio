@@ -1,10 +1,23 @@
-# Offline native Inspector archive adapter
+# Native Inspector archive and compatible ADB adapter
 
 Reads the existing **ZIP** `agentperf-inspector-capture` archive versions 1 and 2,
 not a replacement JSON format. The contracts are the retained Kotlin
 `CaptureArchiveCodec.kt`, `CaptureArchive.kt`, `ProtocolModels.kt` and
-`ComposeInspectionModels.kt`. Android Agents remain Kotlin/Java. This crate
-performs no ADB, injection, device mutation, socket connection or live capture.
+`ComposeInspectionModels.kt`. Android Agents remain Kotlin/Java. Archive import
+performs no ADB or injection. The separate blocking `capture_compatible` adapter
+uses `aps-adb` location/serial validation and cancellable, bounded ProcessRunner
+commands: `wm size`, `wm density`, UIAutomator XML to `/dev/tty`, and binary
+`screencap -p`. It does not install helpers or change device settings. The host
+provides manual refresh only, and publishes after every stage succeeds.
+
+Compatible capture is a visible-package accessibility projection, not a selected
+PID's runtime View tree or full Compose inspection. XML and screenshot are
+sequential/non-atomic; display rotation, size, bounds and PNG decode budgets are
+validated. Package identity comes from XML; ambiguous app roots are rejected.
+Node/window IDs are refresh-local, and app-only cropping is not strict package
+isolation. XML uses cached `roxmltree` with DTD disabled and byte/depth/node
+limits; `png` validates bounded screenshot decoding. No atomicity or Compose
+capability is inferred from successful capture.
 
 `InspectorArchive::open` freezes a bounded byte sequence from one file handle,
 then hashes and parses that exact immutable buffer (no path reopen). This retains

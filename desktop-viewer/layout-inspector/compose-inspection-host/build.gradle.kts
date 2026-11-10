@@ -1,8 +1,14 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    application
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.protobuf)
+}
+
+application {
+    mainClass.set("com.androidperformancestudio.compose.inspection.host.ComposeHeadlessMainKt")
+    applicationName = "aps-compose-inspection"
 }
 
 kotlin {

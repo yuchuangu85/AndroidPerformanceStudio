@@ -11,7 +11,11 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use zip::{CompressionMethod, ZipArchive};
 
+mod compatible;
+mod compose_bridge;
 mod protocol;
+pub use compatible::{CompatibleTarget, capture_compatible};
+pub use compose_bridge::ComposeBridge;
 pub use protocol::{InspectorProtocolFrame, InspectorProtocolSession};
 
 const MANIFEST: &str = "manifest.json";
