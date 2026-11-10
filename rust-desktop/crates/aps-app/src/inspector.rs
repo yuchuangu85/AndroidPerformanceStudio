@@ -1052,7 +1052,6 @@ impl InspectorWorkspace {
                 language,
                 colors,
                 !self.busy && self.target_serial.is_some(),
-                self.busy,
                 cx,
             ));
 
@@ -2342,7 +2341,6 @@ fn scan_mode_control(
     language: Language,
     colors: &StudioColors,
     enabled: bool,
-    busy: bool,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     segmented_track("inspector-scan-mode", colors)
@@ -2367,16 +2365,6 @@ fn scan_mode_control(
             )
             .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
         )
-        .children(busy.then(|| {
-            segmented_item(
-                "inspector-cancel",
-                language.text(TextKey::CommonCancel),
-                false,
-                true,
-                colors,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.cancel_operation(cx)))
-        }))
         .into_any_element()
 }
 
@@ -5051,6 +5039,21 @@ mod tests {
             !app.contains("cx.set_menus("),
             "The shell module owns the application menu"
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn refresh_toolbar_does_not_render_a_cancel_button() {
+        let source = include_str!("inspector.rs");
+        let scan_control = source
+            .split("fn scan_mode_control(")
+            .nth(1)
+            .unwrap()
+            .split("/// Compose `PanelToggleButton")
+            .next()
+            .unwrap();
+        assert!(scan_control.contains("inspector-refresh"));
+        assert!(!scan_control.contains("inspector-cancel"));
+        assert!(!scan_control.contains("CommonCancel"));
     }
 }
 
