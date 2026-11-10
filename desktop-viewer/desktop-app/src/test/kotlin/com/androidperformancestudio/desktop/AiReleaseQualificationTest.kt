@@ -167,31 +167,8 @@ class AiReleaseQualificationTest {
     }
 
     @Test
-    fun `hosted AI qualification is native nonpublishing and real acceptance is opt in`() {
-        val workflow = Files.readString(repository.resolve(".github/workflows/ai-qualification.yml"))
-        listOf("ubuntu-24.04", "macos-15", "windows-2025", ":ai-platform:checkAll :ai-core:test").forEach {
-            assertTrue(workflow.contains(it), it)
-        }
-        assertTrue(workflow.contains("APS_REQUIRE_LINUX_SANDBOX: 'true'"))
-        assertTrue(workflow.contains("APS_REQUIRE_NATIVE_SANDBOX: 'true'"))
-        assertTrue(workflow.contains("github.event_name != 'pull_request' && inputs.run_real_provider"))
-        assertTrue(workflow.contains("environment: aps-ai-provider-acceptance"))
-        assertTrue(workflow.contains("bash scripts/ai-provider-acceptance.sh --check"))
-        assertTrue(workflow.contains("secrets.OPENAI_API_KEY"))
-        assertTrue(workflow.contains("secrets.ANTHROPIC_API_KEY"))
-        assertTrue(workflow.contains("Codex is Responses API"))
-        listOf("gh release", "contents: write", "sign.py sign", "secrets: inherit", "continue-on-error").forEach {
-            assertFalse(workflow.contains(it), it)
-        }
-    }
-
-    @Test
-    fun `publication requires explicit qualification and signed artifact checks before upload`() {
+    fun `publication retains signed artifact checks before upload`() {
         val workflow = Files.readString(repository.resolve(".github/workflows/release.yml"))
-        assertTrue(workflow.contains("needs: [resolve, ai-qualification]"))
-        assertTrue(workflow.contains(":ai-platform:checkAll :ai-core:test --no-daemon"))
-        assertTrue(workflow.contains("INPUT_RELEASE_QUALIFIED"))
-        assertTrue(workflow.contains("INPUT_REAL_PROVIDER"))
         assertTrue(workflow.contains("Existing tag differs from the dispatched source"))
         listOf("macos", "windows").forEach { platform ->
             val job =

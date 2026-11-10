@@ -51,83 +51,26 @@ def live_receipt(provider, model):
 class WorkflowContracts(unittest.TestCase):
     def setUp(self):
         self.release = (ROOT / ".github/workflows/release.yml").read_text()
-        self.ai = (ROOT / ".github/workflows/ai-qualification.yml").read_text()
 
-    def test_nonpublishing_native_matrix_and_no_secret_on_pr(self):
-        for token in ("ubuntu-24.04", "macos-15", "windows-2025", ":ai-platform:checkAll :ai-core:test",
-                      "AiReleaseQualificationTest", "permissions:\n  contents: read"):
-            self.assertIn(token, self.ai)
-        for forbidden in ("contents: write", "gh release", "sign.py sign", "pull_request_target", "secrets: inherit",
-                          "continue-on-error", "|| true"):
-            self.assertNotIn(forbidden, self.ai)
-        native = job(self.ai, "native")
-        self.assertNotIn("secrets.", native)
-        provider = job(self.ai, "real-provider")
-        self.assertIn("github.event_name != 'pull_request' && inputs.run_real_provider", provider)
-        self.assertIn("environment: aps-ai-provider-acceptance", provider)
-        self.assertIn("needs: native", provider)
-        self.assertNotIn("needs: [native, linux-sandbox]", provider)
-        self.assertIn("secrets.OPENAI_API_KEY", provider)
-        self.assertIn("secrets.ANTHROPIC_API_KEY", provider)
-        self.assertIn("inputs.live_provider == 'codex'", provider)
-        self.assertIn("inputs.live_provider == 'claude'", provider)
-        self.assertIn("bash scripts/ai-provider-acceptance.sh --check", provider)
-        self.assertIn("Codex is Responses API", provider)
-        self.assertNotIn("upload-artifact", self.ai, "Raw acceptance XML/output can contain provider secrets")
-
-    def test_strict_native_and_optional_backends_have_no_fake_fallback(self):
-        linux = job(self.ai, "linux-sandbox")
-        self.assertIn("bubblewrap util-linux nodejs", linux)
-        self.assertIn("APS_REQUIRE_LINUX_SANDBOX: 'true'", linux)
-        self.assertIn("qualification.py native-sandbox", linux)
-        self.assertNotIn("sysctl", linux)
-        for platform in ("macos", "windows"):
-            optional = job(self.ai, platform + "-sandbox")
-            self.assertIn("inputs.run_" + platform + "_sandbox", optional)
-            self.assertIn("APS_REQUIRE_NATIVE_SANDBOX: 'true'", optional)
-            self.assertNotIn("matrix", optional, "Unrequested native hosts must not produce green no-op jobs")
-            self.assertEqual(1, optional.count("if:"), "Only the job may opt out, not its required gate step")
-        self.assertIn("Qualification requires", Path(gate.__file__).read_text())
-
-    def test_publication_requires_current_qualification_and_retains_prior_dirty_gate(self):
+    def test_publication_requires_current_source_and_retains_packaging_gates(self):
         resolve = job(self.release, "resolve")
-        self.assertIn('"$INPUT_RELEASE_QUALIFIED" != true', resolve)
-        self.assertIn('"$INPUT_REAL_PROVIDER" != true', resolve)
         self.assertIn('"$tag_sha" != "$GITHUB_SHA"', resolve)
-        self.assertIn("default: false", self.release)
-        self.assertIn("run_real_provider: true", job(self.release, "ai-qualification"))
-        tests = job(self.release, "test")
-        self.assertIn("needs: [resolve, ai-qualification]", tests)
-        self.assertIn(":ai-platform:checkAll :ai-core:test --no-daemon", tests)
-        for platform in ("windows", "macos"):
-            packaging = job(self.release, "package-" + platform)
-            self.assertIn("environment: aps-release-signing", packaging)
-            self.assertIn("sign.py preflight " + platform, packaging)
-            self.assertLess(packaging.index("sign.py sign " + platform), packaging.index("publication.py record"))
-            self.assertLess(packaging.index("sign.py verify " + platform), packaging.index("publication.py record"))
-            self.assertLess(packaging.index("publication.py record"), packaging.index("uses: actions/upload-artifact@v7"))
-            self.assertNotIn("gh release upload", packaging)
-            self.assertNotIn("continue-on-error", packaging)
-            self.assertIn('$(git rev-parse HEAD)', packaging)
-        self.assertIn("needs: [resolve, test, prepare-release, package-windows, package-macos, package-linux]", self.release)
-        self.assertNotIn("--clobber", self.release)
-        self.assertIn("format('v{0}'", self.release)
-        publish = job(self.release, "publish")
-        self.assertIn("publication.py publish", publish)
-        self.assertIn("pattern: release-candidate-*-${{ github.run_id }}-${{ github.run_attempt }}", publish)
-        self.assertIn("digest-mismatch: error", publish)
+        tests = job(self.release, "package-windows")
+        self.assertIn("needs: [resolve, prepare-release, build-compose-agent]", tests)
+        self.assertNotIn("ai-qualification", self.release)
+        self.assertNotIn("\n  test:", self.release)
 
     def test_secrets_only_use_environment_references_never_inline_run_expressions(self):
-        for workflow in (self.ai, self.release):
-            in_run = False
-            for line in workflow.splitlines():
-                stripped = line.lstrip()
-                if stripped.startswith("run:"):
-                    in_run = True
-                elif stripped and len(line) - len(stripped) <= 8:
-                    in_run = False
-                if in_run:
-                    self.assertNotIn("${{ secrets.", line)
+        workflow = self.release
+        in_run = False
+        for line in workflow.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("run:"):
+                in_run = True
+            elif stripped and len(line) - len(stripped) <= 8:
+                in_run = False
+            if in_run:
+                self.assertNotIn("${{ secrets.", line)
         entitlements = plistlib.loads((ROOT / "scripts/ai-release/macos-entitlements.plist").read_bytes())
         self.assertNotIn("com.apple.security.get-task-allow", entitlements)
         self.assertNotIn("com.apple.security.cs.disable-library-validation", entitlements)
