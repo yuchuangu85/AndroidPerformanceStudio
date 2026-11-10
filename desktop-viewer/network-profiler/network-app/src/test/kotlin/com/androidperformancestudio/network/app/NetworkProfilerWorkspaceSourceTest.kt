@@ -2,9 +2,11 @@ package com.androidperformancestudio.network.app
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 class NetworkProfilerWorkspaceSourceTest {
     private val source =
@@ -34,6 +36,17 @@ class NetworkProfilerWorkspaceSourceTest {
         assertTrue(toolbar.contains("ProfilerAiAnalysisButton(aiContext, language)"))
         assertTrue(toolbar.contains("Modifier.weight(1f).horizontalScroll(rememberScrollState())"))
         assertTrue(toolbar.contains("ProfilerToolbarStatus(state.message, state.error, Modifier.widthIn(max = 240.dp))"))
+    }
+
+    @Test
+    fun `import duration formatting always uses two decimal seconds`() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            assertEquals("1.23 s", formatImportDuration(1_234L))
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 
     @Test

@@ -48,6 +48,8 @@ class FrameProfilerControllerTest {
             assertNull(state.errorMessage)
             assertEquals("framestats.txt", state.importedFileName)
             assertEquals(2, assertNotNull(state.analysis).summary.totalFrames)
+            assertNotNull(state.importDurationNanos)
+            assertTrue(state.importDurationNanos!! >= 0L)
             assertNotNull(state.selectedFrameId)
         }
 
@@ -63,6 +65,7 @@ class FrameProfilerControllerTest {
 
             assertNotNull(controller.state.value.errorMessage)
             assertNull(controller.state.value.analysis)
+            assertNull(controller.state.value.importDurationNanos)
         }
 
     @Test

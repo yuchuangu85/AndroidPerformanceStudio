@@ -110,7 +110,8 @@ class MethodRecordingController(
         path: Path,
         artifact: CaptureArtifact? = null,
     ) {
-        mutableState.value = mutableState.value.copy(isLoading = true, error = null)
+        mutableState.value = mutableState.value.copy(isLoading = true, error = null, importDurationMillis = null)
+        val importStarted = System.nanoTime()
         when (val result = ArtTraceParser.parse(path)) {
             is ArtTraceParseResult.Failure ->
                 mutableState.value = mutableState.value.copy(isLoading = false, error = result.message)
@@ -135,6 +136,7 @@ class MethodRecordingController(
                             ),
                         capturePhase = MethodTraceCapturePhase.Completed(path),
                         artifact = evidence,
+                        importDurationMillis = (System.nanoTime() - importStarted) / 1_000_000L,
                         error = null,
                     )
             }

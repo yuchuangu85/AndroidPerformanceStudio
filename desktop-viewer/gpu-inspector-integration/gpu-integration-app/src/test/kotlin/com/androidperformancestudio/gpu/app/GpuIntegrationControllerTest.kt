@@ -34,6 +34,11 @@ class GpuIntegrationControllerTest {
             controller.initialize()
             assertFalse(controller.state.value.isBusy)
             assertEquals(artifact.id, controller.state.value.selectedArtifactId)
+            assertTrue(assertNotNull(controller.state.value.completedDurationSeconds) >= 0.0)
+            controller.importArtifact(artifactFile)
+            assertTrue(assertNotNull(controller.state.value.completedDurationSeconds) >= 0.0)
+            controller.importArtifact(directory.resolve("missing.pftrace"))
+            assertNull(controller.state.value.completedDurationSeconds)
 
             controller.refreshDevices()
             assertEquals(null, controller.state.value.selectedDeviceSerial)

@@ -35,6 +35,7 @@ data class MethodRecordingState(
     val traceLabel: String? = null,
     /** Provenance and completeness for the loaded method timeline evidence. */
     val artifact: CaptureArtifact? = null,
+    val importDurationMillis: Long? = null,
     val error: String? = null,
     val isLoading: Boolean = false,
 )

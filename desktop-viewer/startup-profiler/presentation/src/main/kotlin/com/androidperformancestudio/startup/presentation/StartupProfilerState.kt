@@ -26,6 +26,7 @@ public data class StartupProfilerState(
     val completedRuns: Int = 0,
     val totalRuns: Int = 0,
     val operationMessage: String? = null,
+    val completedDurationSeconds: Double? = null,
     val warnings: List<String> = emptyList(),
     val errorMessage: String? = null,
     val compilationConfirmationRequired: Boolean = false,

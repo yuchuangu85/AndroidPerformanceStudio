@@ -429,7 +429,6 @@ private fun MemoryProfilerStatusBar(
     val hasImportTiming = state.importDurationMillis != null && state.importEngine != null
     val hasTask = showOperation || state.isSelectionLoading || hasImportTiming
     val hasProblem = state.error != null || !state.cleanupWarning.isNullOrBlank() || !state.warning.isNullOrBlank()
-    if (!hasTask && !hasProblem) return
     val colors = LocalViewerColors.current
     var hasStatus = false
     SelectionContainer {
@@ -450,7 +449,18 @@ private fun MemoryProfilerStatusBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (state.importDurationMillis != null && state.importEngine != null && !showOperation && state.error == null) {
-                CopyableText("${state.importEngine} · import ${state.importDurationMillis} ms", color = colors.secondaryText, fontSize = ViewerTypography.label.fontSize, modifier = Modifier.testTag("memory-import-timing"))
+                val duration = String.format(java.util.Locale.ROOT, "%.2fs", state.importDurationMillis / 1000.0)
+                CopyableText("${state.importEngine} · import $duration", color = colors.secondaryText, fontSize = ViewerTypography.label.fontSize, modifier = Modifier.testTag("memory-import-timing"))
+                state.snapshotSummary?.sourceFile?.let { file ->
+                    MemoryProfilerStatusDivider()
+                    CopyableText(
+                        text = file.toAbsolutePath().normalize().toString(),
+                        color = colors.secondaryText,
+                        fontSize = ViewerTypography.label.fontSize,
+                        maxLines = 1,
+                        modifier = Modifier.testTag("memory-import-path"),
+                    )
+                }
                 hasStatus = true
             }
             if (showOperation) {

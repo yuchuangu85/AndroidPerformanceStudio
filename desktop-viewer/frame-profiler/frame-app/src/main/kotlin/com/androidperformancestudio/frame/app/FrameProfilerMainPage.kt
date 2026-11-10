@@ -84,6 +84,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -363,6 +364,7 @@ public fun FrameWindowScope.FrameProfilerMainPage(
             language = language,
             operationMessage = operationMessage,
             errorMessage = state.errorMessage,
+            importDurationNanos = state.importDurationNanos,
         )
     }
 
@@ -386,9 +388,11 @@ private fun FrameProfilerStatusBar(
     language: UiLanguage,
     operationMessage: String?,
     errorMessage: String?,
+    importDurationNanos: Long?,
 ) {
     val colors = LocalViewerColors.current
     val status = errorMessage ?: operationMessage
+    val elapsed = importDurationNanos?.let { String.format(Locale.ROOT, "%.2fs", it / 1_000_000_000.0) }
     SelectionContainer {
         Row(
             modifier =
@@ -419,6 +423,15 @@ private fun FrameProfilerStatusBar(
                     color = if (errorMessage != null) MaterialTheme.colorScheme.error else colors.secondaryText,
                     fontSize = ViewerTypography.secondary.fontSize,
                     lineHeight = ViewerTypography.secondary.lineHeight,
+                    maxLines = 1,
+                )
+            }
+            elapsed?.let {
+                if (status != null) Spacer(Modifier.width(8.dp))
+                CopyableText(
+                    text = "import $it",
+                    color = colors.secondaryText,
+                    fontSize = ViewerTypography.label.fontSize,
                     maxLines = 1,
                 )
             }

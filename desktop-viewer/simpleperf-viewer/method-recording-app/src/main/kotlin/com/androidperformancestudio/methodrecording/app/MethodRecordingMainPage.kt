@@ -70,6 +70,7 @@ import com.androidperformancestudio.ui.boundedAiContext
 import com.androidperformancestudio.ui.localizedStringResource
 import kotlinx.coroutines.launch
 import java.nio.file.Path
+import java.util.Locale
 
 /** Follows the application-wide device and process target owned by the fixed title bar. */
 @Composable
@@ -293,6 +294,15 @@ private fun MethodRecordingStatusBar(
                 maxLines = 1,
                 language = language,
             )
+            state.importDurationMillis?.let { durationMillis ->
+                CopyableText(
+                    text = "Import ${String.format(Locale.ROOT, "%.2f s", durationMillis / 1_000.0)}",
+                    color = colors.text,
+                    fontSize = ViewerTypography.label.fontSize,
+                    maxLines = 1,
+                    language = language,
+                )
+            }
         }
     }
 }

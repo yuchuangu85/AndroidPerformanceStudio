@@ -4,6 +4,10 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+internal fun formatImportElapsedSeconds(elapsedNanos: Long): String =
+    String.format(Locale.ROOT, "%.2fs", elapsedNanos.coerceAtLeast(0L) / 1_000_000_000.0)
 
 internal enum class CaptureArchiveOperation {
     IMPORT,

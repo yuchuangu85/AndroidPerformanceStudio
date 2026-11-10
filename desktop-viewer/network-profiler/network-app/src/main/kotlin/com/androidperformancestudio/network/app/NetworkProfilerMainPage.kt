@@ -65,6 +65,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 
 @Composable
 public fun FrameWindowScope.NetworkProfilerMainPage(
@@ -104,7 +105,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         val serial = state.deviceSerial
         val packageName = state.packageName
         stopRequested = false
-        state = state.copy(capturing = true, liveEventCount = 0, message = null, error = null)
+        state = state.copy(capturing = true, liveEventCount = 0, message = null, error = null, importDurationMillis = null, importEngine = null)
         pollJob = scope.launch {
             runNetworkCaptureSession(
                 start = { capture.start(serial, packageName) },
@@ -166,7 +167,7 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
                                 "json",
                             )?.let { file ->
                                 stopRequested = false
-                                state = state.copy(capturing = true, error = null)
+                                state = state.copy(capturing = true, error = null, importDurationMillis = null, importEngine = null)
                                 pollJob = scope.launch {
                                     try {
                                         val importStarted = System.nanoTime()
@@ -298,9 +299,10 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         NetworkProfilerScreen(state, NetworkProfilerActions { state = state.copy(selectedCallId = it) }, language, Modifier.weight(1f))
-        if (state.importDurationMillis != null && state.importEngine != null) {
+        val importDurationMillis = state.importDurationMillis
+        if (importDurationMillis != null && state.importEngine != null) {
             Text(
-                text = "${state.importEngine} · import ${state.importDurationMillis} ms",
+                text = "${state.importEngine} · import ${formatImportDuration(importDurationMillis)}",
                 modifier = Modifier.fillMaxWidth().widthIn(min = 0.dp).padding(horizontal = 12.dp, vertical = 4.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium,
@@ -308,6 +310,9 @@ public fun FrameWindowScope.NetworkProfilerMainPage(
         }
     }
 }
+
+internal fun formatImportDuration(durationMillis: Long): String =
+    String.format(Locale.ROOT, "%.2f s", durationMillis / 1_000.0)
 
 internal fun NetworkProfilerState.withTitleBarTarget(host: TitleBarTargetHost?): NetworkProfilerState {
     if (host == null || capturing) return this

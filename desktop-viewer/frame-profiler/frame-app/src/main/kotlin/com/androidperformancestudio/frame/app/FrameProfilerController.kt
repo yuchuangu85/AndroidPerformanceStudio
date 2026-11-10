@@ -204,6 +204,7 @@ internal class FrameProfilerController(
                 mutableState.value =
                     snapshot.copy(
                         importedFileName = null,
+                        importDurationNanos = null,
                         analysis = null,
                         observedRefreshRatesHz = capture.metadata.observedRefreshRatesHz,
                         selectedFrameId = null,
@@ -415,7 +416,8 @@ internal class FrameProfilerController(
 
     suspend fun importFrameStats(file: Path) {
         if (mutableState.value.isCapturing) return
-        mutableState.value = mutableState.value.copy(isLoading = true, errorMessage = null, operationStatus = null)
+        val importStarted = System.nanoTime()
+        mutableState.value = mutableState.value.copy(isLoading = true, errorMessage = null, operationStatus = null, importDurationNanos = null)
         runCatching {
             withContext(Dispatchers.IO) {
                 val sessionId = UUID.randomUUID().toString()
@@ -457,6 +459,7 @@ internal class FrameProfilerController(
                             ?.sample
                             ?.frameId,
                     perfettoTraceFile = null,
+                    importDurationNanos = System.nanoTime() - importStarted,
                     isLoading = false,
                     operationStatus = FrameOperationStatus.ImportedFrames(loaded.analysis.summary.totalFrames),
                     warnings = loaded.warnings,
@@ -466,6 +469,7 @@ internal class FrameProfilerController(
             mutableState.value =
                 mutableState.value.copy(
                     isLoading = false,
+                    importDurationNanos = null,
                     errorMessage = error.message ?: "FrameStats import failed.",
                 )
         }
@@ -475,7 +479,8 @@ internal class FrameProfilerController(
     @Suppress("LongMethod")
     suspend fun importPerfettoTrace(file: Path) {
         if (mutableState.value.isCapturing) return
-        mutableState.value = mutableState.value.copy(isLoading = true, errorMessage = null, operationStatus = null)
+        val importStarted = System.nanoTime()
+        mutableState.value = mutableState.value.copy(isLoading = true, errorMessage = null, operationStatus = null, importDurationNanos = null)
         runCatching {
             withContext(Dispatchers.IO) {
                 require(Files.isRegularFile(file)) { "Trace file does not exist: $file" }
@@ -526,6 +531,7 @@ internal class FrameProfilerController(
                             ?.frameId,
                     perfettoTraceFile = file.toAbsolutePath(),
                     artifact = loaded.session.artifact,
+                    importDurationNanos = System.nanoTime() - importStarted,
                     isLoading = false,
                     operationStatus = FrameOperationStatus.ImportedFrames(loaded.analysis.summary.totalFrames),
                     warnings = loaded.warnings,
@@ -533,7 +539,11 @@ internal class FrameProfilerController(
                 )
         }.onFailure { error ->
             mutableState.value =
-                mutableState.value.copy(isLoading = false, errorMessage = error.message ?: "Perfetto FrameTimeline import failed.")
+                mutableState.value.copy(
+                    isLoading = false,
+                    importDurationNanos = null,
+                    errorMessage = error.message ?: "Perfetto FrameTimeline import failed.",
+                )
         }
     }
 

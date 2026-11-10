@@ -25,6 +25,22 @@ class MethodRecordingControllerTest {
             assertTrue(state.topMethods.isNotEmpty())
             assertEquals(null, state.error)
             assertNotNull(state.traceLabel)
+            assertNotNull(state.importDurationMillis)
+            assertTrue(state.importDurationMillis >= 0L)
+        }
+
+    @Test
+    fun `failed trace import clears prior success duration`() =
+        runTest {
+            val controller = MethodRecordingController(adbExecutable = null, sessionRoot = Files.createTempDirectory("mr"))
+            controller.importTrace(writeTraceFixture())
+            val badFile = Files.createTempFile("not-a-trace", ".trace")
+            Files.writeString(badFile, "this is not a trace")
+
+            controller.importTrace(badFile)
+
+            assertNotNull(controller.state.value.error)
+            assertEquals(null, controller.state.value.importDurationMillis)
         }
 
     @Test

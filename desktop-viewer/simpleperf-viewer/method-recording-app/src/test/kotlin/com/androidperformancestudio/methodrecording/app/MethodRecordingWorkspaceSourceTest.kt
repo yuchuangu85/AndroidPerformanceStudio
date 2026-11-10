@@ -56,6 +56,13 @@ class MethodRecordingWorkspaceSourceTest {
     }
 
     @Test
+    fun `trace import duration is retained and shown in the bottom status bar`() {
+        assertTrue(source.contains("state.importDurationMillis?.let { durationMillis ->"))
+        assertTrue(source.contains("String.format(Locale.ROOT, \"%.2f s\", durationMillis / 1_000.0)"))
+        assertFalse(source.contains("durationMillis ms"))
+    }
+
+    @Test
     fun `trace content omits the decorative workspace banner before all content states`() {
         val screen = Files.readString(Path.of("src/main/kotlin/com/androidperformancestudio/methodrecording/app/MethodRecordingScreen.kt"))
         assertFalse(screen.contains("StudioWorkspaceHeader("))

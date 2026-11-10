@@ -41,4 +41,14 @@ class CaptureArchiveUiStateTest {
             ),
         )
     }
+
+    @Test
+    fun `formats import elapsed time with two locale independent decimals`() {
+        assertEquals("1.23s", formatImportElapsedSeconds(1_230_000_000L))
+    }
+
+    @Test
+    fun `formats negative elapsed time as zero`() {
+        assertEquals("0.00s", formatImportElapsedSeconds(-1L))
+    }
 }

@@ -162,6 +162,7 @@ import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.time.Instant
+import java.util.Locale
 import java.util.UUID
 import kotlin.io.path.fileSize
 
@@ -252,6 +253,7 @@ fun FrameWindowScope.PerfettoMainPage(
     val analysisMutex = remember { Mutex() }
     var fileDialogOpen by remember { mutableStateOf(false) }
     var traceOpenJob by remember { mutableStateOf<Job?>(null) }
+    var traceImportDurationNanos by remember { mutableStateOf<Long?>(null) }
     val aiContext = remember(activeArtifact?.id, diagnosticQuery, diagnosticOutcomes) {
         runCatching {
             val outcome = diagnosticQuery?.id?.let { diagnosticOutcomes[it] }
@@ -262,6 +264,8 @@ fun FrameWindowScope.PerfettoMainPage(
     val traceOpenMutex = remember { Mutex() }
     val openTrace: (Path, com.androidperformancestudio.contracts.CaptureArtifact?, Long?) -> Unit = { traceFile, artifact, timestamp ->
         traceOpenJob?.cancel()
+        traceImportDurationNanos = null
+        val importStarted = System.nanoTime()
         traceOpenJob =
             coroutineScope.launch {
                 traceOpenMutex.withLock {
@@ -276,6 +280,7 @@ fun FrameWindowScope.PerfettoMainPage(
                             is StudioResult.Success -> prepared.value
                             is StudioResult.Failure -> {
                                 diagnosticError = prepared.error.message
+                                traceImportDurationNanos = null
                                 return@withLock
                             }
                         }
@@ -283,8 +288,14 @@ fun FrameWindowScope.PerfettoMainPage(
                     activeArtifact = importedArtifact
                     recentFiles = (listOf(traceFile) + recentFiles).distinct().take(10)
                     when (val opened = withContext(Dispatchers.IO) { launchTraceInUi(traceFile, uiServer, timestamp) }) {
-                        is StudioResult.Failure -> diagnosticError = opened.error.message
-                        is StudioResult.Success -> diagnosticError = null
+                        is StudioResult.Failure -> {
+                            diagnosticError = opened.error.message
+                            traceImportDurationNanos = null
+                        }
+                        is StudioResult.Success -> {
+                            diagnosticError = null
+                            traceImportDurationNanos = System.nanoTime() - importStarted
+                        }
                     }
                 }
             }
@@ -911,6 +922,7 @@ fun FrameWindowScope.PerfettoMainPage(
                 devices = devices,
                 selectedDeviceSerial = selectedDeviceSerial,
                 language = language,
+                traceImportDurationNanos = traceImportDurationNanos,
             )
         }
     }
@@ -947,11 +959,13 @@ private fun PerfettoStatusBar(
     devices: List<PerfettoDevice>,
     selectedDeviceSerial: String?,
     language: UiLanguage,
+    traceImportDurationNanos: Long?,
 ) {
     val selectedDevice = devices.firstOrNull { it.serial == selectedDeviceSerial }
     val statusText =
         selectedDevice?.let { localizedStringResource(Res.string.device_connected, language, it.displayName) }
             ?: localizedStringResource(Res.string.no_online_device, language)
+    val elapsed = traceImportDurationNanos?.let { String.format(Locale.ROOT, "%.2fs", it / 1_000_000_000.0) }
     SelectionContainer {
         Row(
             modifier =
@@ -990,6 +1004,14 @@ private fun PerfettoStatusBar(
                 maxLines = 1,
                 language = language,
             )
+            elapsed?.let {
+                CopyableText(
+                    text = "import $it",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = ViewerTypography.label.fontSize,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }

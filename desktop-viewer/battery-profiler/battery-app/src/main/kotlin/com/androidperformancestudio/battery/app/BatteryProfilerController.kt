@@ -101,9 +101,11 @@ internal class BatteryProfilerController(
 
     suspend fun openSession(sessionId: String) {
         if (mutableState.value.isRunning || mutableState.value.isLoadingSession) return
+        val loadStarted = System.nanoTime()
         mutableState.value =
             mutableState.value.copy(
                 isLoadingSession = true,
+                completedDurationSeconds = null,
                 sessionError = null,
                 operationMessage = localizedStringResource(Res.string.sessions_loading, language),
             )
@@ -122,6 +124,7 @@ internal class BatteryProfilerController(
                     mutableState.value.copy(
                         experiment = null,
                         analysis = evidence.analysis,
+                        completedDurationSeconds = (System.nanoTime() - loadStarted) / 1_000_000_000.0,
                         storedRuns = evidence.runs,
                         baseline = null,
                         selectedRunId =
@@ -164,6 +167,7 @@ internal class BatteryProfilerController(
                 warnings = emptyList(),
                 errorMessage = null,
                 operationMessage = null,
+                completedDurationSeconds = null,
                 completedSteps = 0,
                 totalSteps = 0,
             )
@@ -264,10 +268,12 @@ internal class BatteryProfilerController(
     suspend fun startInteractive() {
         val snapshot = mutableState.value
         if (snapshot.isRunning || snapshot.isLoadingSession) return
+        mutableState.value = snapshot.copy(completedDurationSeconds = null)
         val selectedRunner = openRunner(snapshot) ?: return
         mutableState.value =
             snapshot.copy(
                 isRunning = true,
+                completedDurationSeconds = null,
                 operationMessage = localizedStringResource(Res.string.capturing_baseline_snapshot, language),
                 warnings = emptyList(),
                 errorMessage = null,
@@ -357,10 +363,12 @@ internal class BatteryProfilerController(
     suspend fun runAutomatic() {
         val snapshot = mutableState.value
         if (snapshot.isRunning || snapshot.isLoadingSession) return
+        mutableState.value = snapshot.copy(completedDurationSeconds = null)
         val selectedRunner = openRunner(snapshot) ?: return
         mutableState.value =
             snapshot.copy(
                 isRunning = true,
+                completedDurationSeconds = null,
                 completedSteps = 0,
                 totalSteps = snapshot.config.measuredRuns * 2,
                 operationMessage = localizedStringResource(Res.string.preparing_battery_experiment, language),
@@ -419,6 +427,8 @@ internal class BatteryProfilerController(
 
     suspend fun importJson(input: Path): Boolean {
         if (mutableState.value.isRunning || mutableState.value.isLoadingSession) return false
+        mutableState.value = mutableState.value.copy(completedDurationSeconds = null, errorMessage = null)
+        val importStarted = System.nanoTime()
         return runCatching { withContext(Dispatchers.IO) { jsonImporter.import(input) } }
             .fold(
                 onSuccess = { analysis ->
@@ -432,6 +442,7 @@ internal class BatteryProfilerController(
                             viewedAttributionScope = null,
                             sessionError = null,
                             analysis = analysis,
+                            completedDurationSeconds = (System.nanoTime() - importStarted) / 1_000_000_000.0,
                             baseline = null,
                             selectedRunId = analysis.runs.firstOrNull()?.runId,
                             completedSteps = 0,
@@ -548,7 +559,7 @@ internal class BatteryProfilerController(
         val target = snapshot.targets.firstOrNull { it.packageName == snapshot.selectedPackageName } ?: return null
         return when (val result = backend.openRunner(serial, target)) {
             is BatteryBackendResult.Failure -> {
-                mutableState.value = snapshot.copy(errorMessage = result.message)
+                mutableState.value = snapshot.copy(errorMessage = result.message, completedDurationSeconds = null)
                 null
             }
             is BatteryBackendResult.Success -> result.value
@@ -556,6 +567,7 @@ internal class BatteryProfilerController(
     }
 
     private suspend fun complete(experiment: BatteryExperimentResult) {
+        val analysisStarted = System.nanoTime()
         val analysis = analyzer.analyze(experiment.runs)
         val previousExperiment = mutableState.value.experiment
         val previous =
@@ -579,6 +591,7 @@ internal class BatteryProfilerController(
                 storedRuns = emptyList(),
                 viewedStoredSessionId = experiment.session.id,
                 analysis = analysis,
+                completedDurationSeconds = (System.nanoTime() - analysisStarted) / 1_000_000_000.0,
                 baseline = previous,
                 selectedRunId = analysis.runs.firstOrNull()?.runId,
                 isRunning = false,

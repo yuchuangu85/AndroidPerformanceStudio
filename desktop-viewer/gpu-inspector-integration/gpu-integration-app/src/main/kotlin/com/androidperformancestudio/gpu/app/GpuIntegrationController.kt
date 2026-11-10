@@ -41,10 +41,12 @@ internal class GpuIntegrationController(
         artifacts.associate { it.id to artifactAvailability(it, capability, indexer) }
     }
     val reportError: (Exception) -> Unit = { failure ->
-        mutableState.update { it.copy(message = null, error = failure.message) }
+        mutableState.update { it.copy(message = null, error = failure.message, completedDurationSeconds = null) }
     }
 
     suspend fun initialize() {
+        val started = System.nanoTime()
+        mutableState.update { it.copy(completedDurationSeconds = null) }
         try {
             val loaded = withContext(io) { store.load() }
             val capability = withContext(io) { locator.locate(preferences.load()) }
@@ -53,6 +55,7 @@ internal class GpuIntegrationController(
                 it.copy(
                     capability = capability,
                     artifacts = loaded,
+                    completedDurationSeconds = (System.nanoTime() - started) / 1_000_000_000.0,
                     selectedArtifactId = loaded.firstOrNull()?.id,
                     availabilityByArtifactId = availability,
                     isBusy = false,
@@ -83,7 +86,7 @@ internal class GpuIntegrationController(
     }
 
     suspend fun importArtifact(path: Path, message: String? = null) {
-        operation(message) {
+        operation(message, timed = true) {
             require(!indexLoadFailed) { "GPU artifact index could not be loaded; existing index will not be overwritten" }
             val current = state.value
             val artifact = withContext(io) { indexer.import(path, agiVersion = current.capability?.version) }
@@ -95,7 +98,7 @@ internal class GpuIntegrationController(
     }
 
     suspend fun relocateArtifact(artifact: GpuArtifact, path: Path, message: String? = null) {
-        operation(message) {
+        operation(message, timed = true) {
             require(!indexLoadFailed) { "GPU artifact index could not be loaded; existing index will not be overwritten" }
             val updated = withContext(io) {
                 val relocated = indexer.relocate(artifact, path)
@@ -200,11 +203,15 @@ internal class GpuIntegrationController(
         mutableState.update { it.copy(artifacts = artifacts, selectedArtifactId = selectedId, availabilityByArtifactId = availability) }
     }
 
-    private suspend fun operation(message: String? = null, block: suspend () -> Unit) {
+    private suspend fun operation(message: String? = null, timed: Boolean = false, block: suspend () -> Unit) {
         if (state.value.isBusy) return
-        mutableState.update { it.copy(isBusy = true, error = null, message = null) }
+        mutableState.update { it.copy(isBusy = true, error = null, message = null, completedDurationSeconds = null) }
+        val started = System.nanoTime()
         try {
             block()
+            if (timed && state.value.error == null) {
+                mutableState.update { it.copy(completedDurationSeconds = (System.nanoTime() - started) / 1_000_000_000.0) }
+            }
             if (message != null) mutableState.update { it.copy(message = message) }
         } catch (failure: CancellationException) {
             throw failure

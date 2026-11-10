@@ -2,6 +2,12 @@
 
 package com.androidperformancestudio.gpu.app
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import com.androidperformancestudio.ui.ViewerDimensions
+import com.androidperformancestudio.ui.LocalViewerColors
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -203,6 +209,19 @@ public fun FrameWindowScope.GpuIntegrationMainPage(
             language = language,
             modifier = Modifier.weight(1f),
         )
+        Row(
+            Modifier.fillMaxWidth().height(ViewerDimensions.footerHeight)
+                .background(LocalViewerColors.current.toolbar).padding(horizontal = 16.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ProfilerToolbarStatus(state.message, state.error)
+            if (state.error == null) state.completedDurationSeconds?.let {
+                com.androidperformancestudio.ui.CopyableText(
+                    String.format(java.util.Locale.ROOT, "%.2f s", it), language = language, maxLines = 1,
+                )
+            }
+        }
     }
 }
 

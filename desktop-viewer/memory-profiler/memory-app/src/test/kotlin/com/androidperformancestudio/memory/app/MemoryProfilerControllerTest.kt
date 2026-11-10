@@ -78,6 +78,25 @@ private typealias TargetSubscription = AndroidTargetSubscription
 
 class MemoryProfilerControllerTest {
     @Test
+    fun `import timing follows the selected snapshot`() =
+        runTest {
+            val controller = MemoryProfilerController(FakeBackend())
+            controller.importHprof(Path.of("before.hprof"))
+            val beforeDuration = controller.state.value.importDurationMillis
+            val beforeEngine = controller.state.value.importEngine
+            assertNotNull(beforeDuration)
+            assertNotNull(beforeEngine)
+            controller.importHprof(Path.of("after.hprof"))
+            val afterDuration = controller.state.value.importDurationMillis
+            controller.selectSnapshot("before.hprof")
+            assertEquals(beforeDuration, controller.state.value.importDurationMillis)
+            assertEquals(beforeEngine, controller.state.value.importEngine)
+            controller.selectSnapshot("after.hprof")
+            assertEquals(afterDuration, controller.state.value.importDurationMillis)
+            controller.close()
+        }
+
+    @Test
     fun `language changes preserve loaded snapshots query selection and cached inspector evidence`() =
         runTest {
             val backend = FakeBackend().apply { heapOverride = inspectorHeap() }

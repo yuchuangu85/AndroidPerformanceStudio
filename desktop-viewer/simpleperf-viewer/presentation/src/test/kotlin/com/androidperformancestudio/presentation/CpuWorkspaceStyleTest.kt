@@ -17,6 +17,13 @@ class CpuWorkspaceStyleTest {
     }
 
     @Test
+    fun `simpleperf footer shows import duration as locale independent seconds`() {
+        val source = source("DeviceTargetPage.kt")
+        assertTrue(source.contains("String.format(java.util.Locale.ROOT, \"%.2f s\", duration / 1_000.0)"))
+        assertFalse(source.contains("${'$'}{duration} ms"))
+    }
+
+    @Test
     fun `report panes and capture settings do not repeat the workspace heading`() {
         listOf("HomeScreen.kt", "ReportPage.kt", "FirefoxReportWorkspace.kt", "CaptureSettingsSection.kt").forEach { file ->
             assertFalse(source(file).contains("StudioWorkspaceHeader("), file)

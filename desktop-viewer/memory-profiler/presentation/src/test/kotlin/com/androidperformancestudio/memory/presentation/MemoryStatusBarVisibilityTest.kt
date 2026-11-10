@@ -22,7 +22,29 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class MemoryStatusBarVisibilityTest {
     @Test
-    fun `status feedback appears only for active work errors and nonblank warnings then releases its height`() {
+    fun `imported file path and elapsed seconds remain visible while idle`() =
+        runDesktopComposeUiTest(width = 1280, height = 720) {
+            val path = java.nio.file.Path.of("/tmp/heap captures/sample.hprof")
+            var state by mutableStateOf(
+                fixture().copy(
+                    snapshotSummary = HeapSnapshotSummary("status-visibility", sourceFile = path),
+                    importDurationMillis = 0,
+                    importEngine = "RUST",
+                ),
+            )
+            setContent {
+                ViewerTheme(darkTheme = false) { MemoryProfilerScreen(state, MemoryProfilerActions()) }
+            }
+            onNodeWithText(path.toAbsolutePath().normalize().toString()).assertIsDisplayed()
+            listOf(0L to "0.00s", 8L to "0.01s", 1234L to "1.23s", 1236L to "1.24s", 12300L to "12.30s").forEach { (millis, expected) ->
+                runOnIdle { state = state.copy(importDurationMillis = millis) }
+                onNodeWithText("RUST · import $expected").assertIsDisplayed()
+                onNodeWithTag("memory-import-path").assertIsDisplayed()
+            }
+        }
+
+    @Test
+    fun `status feedback appears only for active work errors and nonblank warnings while the footer stays visible`() {
         UiLanguage.entries.forEach { language ->
             listOf(false, true).forEach { dark ->
                 runDesktopComposeUiTest(width = 1280, height = 720) {
@@ -33,8 +55,7 @@ class MemoryStatusBarVisibilityTest {
                     }
                     val references = if (language == UiLanguage.ENGLISH) "References" else "\u5f15\u7528"
                     onNodeWithText(references).performClick().assertIsSelected()
-                    assertIdleGeometry()
-                    val idleHeight = onNodeWithTag(CARD).fetchSemanticsNode().boundsInRoot.height
+                    val idleGeometry = assertIdleGeometry()
                     listOf(
                         idle.copy(isDumping = true),
                         idle.copy(operationMessage = "Importing sample.hprof"),
@@ -44,13 +65,9 @@ class MemoryStatusBarVisibilityTest {
                         idle.copy(warning = "Mapping is unavailable"),
                     ).forEach { active ->
                         runOnIdle { state = active }
-                        val footer = onNodeWithTag(STATUS).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-                        val root = onRoot().fetchSemanticsNode().boundsInRoot
-                        val card = onNodeWithTag(CARD).fetchSemanticsNode().boundsInRoot
-                        assertEquals(root.bottom, footer.bottom)
-                        assertEquals(29f, footer.height, 0.6f)
-                        assertEquals(4f, footer.top - card.bottom, 0.6f)
-                        assertEquals(idleHeight - footer.height, card.height, 0.6f)
+                        val footer = onNodeWithTag(STATUS).assertIsDisplayed()
+                        val activeGeometry = statusGeometry()
+                        assertEquals(idleGeometry, activeGeometry)
                         onNodeWithText(references).assertIsSelected()
                         onNodeWithTag("memory-instance-row-42").assertIsSelected()
                         runOnIdle { state = idle }
@@ -100,13 +117,29 @@ class MemoryStatusBarVisibilityTest {
             assertEquals(idle, state)
         }
 
-    private fun DesktopComposeUiTest.assertIdleGeometry() {
-        onNodeWithTag(STATUS).assertDoesNotExist()
-        val root = onRoot().fetchSemanticsNode().boundsInRoot
-        val card = onNodeWithTag(CARD).fetchSemanticsNode().boundsInRoot
-        assertEquals(4f, root.bottom - card.bottom, 0.6f)
+    private fun DesktopComposeUiTest.assertIdleGeometry(): StatusGeometry {
+        onNodeWithTag(STATUS).assertIsDisplayed()
+        val geometry = statusGeometry()
+        assertEquals(720f, geometry.rootBottom)
+        assertEquals(29f, geometry.footerHeight, 0.6f)
+        assertEquals(4f, geometry.footerTop - geometry.cardBottom, 0.6f)
         onNodeWithTag("memory-instance-row-42").assertIsSelected()
+        return geometry
     }
+
+    private fun DesktopComposeUiTest.statusGeometry(): StatusGeometry {
+        val root = onRoot().fetchSemanticsNode().boundsInRoot
+        val footer = onNodeWithTag(STATUS).fetchSemanticsNode().boundsInRoot
+        val card = onNodeWithTag(CARD).fetchSemanticsNode().boundsInRoot
+        return StatusGeometry(root.bottom, footer.top, footer.height, card.bottom)
+    }
+
+    private data class StatusGeometry(
+        val rootBottom: Float,
+        val footerTop: Float,
+        val footerHeight: Float,
+        val cardBottom: Float,
+    )
 
     private fun fixture(): MemoryProfilerState =
         MemoryProfilerState(
