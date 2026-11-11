@@ -175,7 +175,7 @@ impl ChartFrame {
 struct Builder {
     viewport: ChartViewport,
     blocks: Vec<ChartBlock>,
-    pixels: BTreeMap<(usize, u32), ChartBlock>,
+    pixels: BTreeMap<(usize, u32, Option<i32>), ChartBlock>,
     omitted: usize,
     text_bytes: usize,
 }
@@ -211,7 +211,7 @@ impl Builder {
         }
         if width < 1.0 {
             let pixel = x.floor() as u32;
-            if let Some(block) = self.pixels.get_mut(&(row.depth, pixel)) {
+            if let Some(block) = self.pixels.get_mut(&(row.depth, pixel, None)) {
                 add(&mut block.inclusive_weight, row.inclusive_weight)?;
                 add(&mut block.self_weight, row.self_weight)?;
                 add(&mut block.sample_count, row.sample_count)?;
@@ -223,7 +223,7 @@ impl Builder {
                 self.omitted += 1;
             } else {
                 self.pixels.insert(
-                    (row.depth, pixel),
+                    (row.depth, pixel, None),
                     ChartBlock {
                         id: format!("flame-pixel:{}:{pixel}", row.depth),
                         label: "1 subpixel function".into(),
@@ -404,6 +404,7 @@ pub(crate) fn stack(
     stream: &SimpleperfStream,
     query: &Query,
     viewport: TimelineViewport,
+    separate_threads: bool,
 ) -> Result<ChartFrame, String> {
     viewport.chart.validate()?;
     if viewport.start_nanos >= viewport.end_nanos {
@@ -442,7 +443,8 @@ pub(crate) fn stack(
                 "aps-sample-point-v1:{}:{ordinal}:{depth}",
                 query.direction.as_str()
             );
-            if let Some(block) = builder.pixels.get_mut(&(depth, x)) {
+            let key = (depth, x, separate_threads.then_some(sample.thread_id));
+            if let Some(block) = builder.pixels.get_mut(&key) {
                 add(&mut block.inclusive_weight, value)?;
                 if source == 0 {
                     add(&mut block.self_weight, value)?;
@@ -450,7 +452,11 @@ pub(crate) fn stack(
                 add(&mut block.sample_count, 1)?;
                 block.source_count += 1;
                 block.kind = ChartBlockKind::PixelAggregate;
-                block.id = format!("stack-pixel:{depth}:{x}");
+                block.id = if separate_threads {
+                    format!("stack-thread-pixel:{}:{depth}:{x}", sample.thread_id)
+                } else {
+                    format!("stack-pixel:{depth}:{x}")
+                };
                 block.label = format!("{} sample points", block.source_count);
                 block.resource.clear();
                 block.first_timestamp_nanos =
@@ -477,7 +483,7 @@ pub(crate) fn stack(
                 builder.omitted += 1;
             } else {
                 builder.pixels.insert(
-                    (depth, x),
+                    key,
                     ChartBlock {
                         id,
                         label,

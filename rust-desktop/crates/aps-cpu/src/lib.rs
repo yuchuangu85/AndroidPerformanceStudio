@@ -330,7 +330,17 @@ impl CpuSession {
         query: &Query,
         viewport: TimelineViewport,
     ) -> Result<ChartFrame, String> {
-        charts::stack(&self.stream, query, viewport)
+        charts::stack(&self.stream, query, viewport, false)
+    }
+
+    /// Preserves thread identity when sample points share a pixel. Callers
+    /// group these blocks by thread before painting separate timeline tracks.
+    pub fn thread_timeline(
+        &self,
+        query: &Query,
+        viewport: TimelineViewport,
+    ) -> Result<ChartFrame, String> {
+        charts::stack(&self.stream, query, viewport, true)
     }
 
     /// Returns a bounded UTF-8 CSV, without writing or overwriting any file.

@@ -50,9 +50,9 @@ const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 /// Chart packets are rendered at a fixed logical width and scrolled/painted by
 /// the workspace; the engine viewport is independent of the window width.
 const CHART_WIDTH_PX: f32 = 1024.0;
-const TIMELINE_WIDTH_PX: f32 = 1024.0;
 const CHART_ROW_HEIGHT_PX: f32 = 18.0;
 const TIMELINE_BUCKETS: usize = 160;
+const TIMELINE_BAR_MAX_WIDTH_PX: f32 = 3.0;
 const TIMELINE_MAX_TRACKS: usize = 24;
 const KPI_MAX_COLUMNS: usize = 6;
 const KPI_MEDIUM_COLUMNS: usize = 3;
@@ -906,9 +906,9 @@ impl CpuWorkspace {
         self.shared_busy = true;
         self.shared_generation += 1;
         let generation = self.shared_generation;
-        self.timeline = None;
         self.overview_top = None;
         let query = self.query.clone();
+        let timeline_query = timeline_query(&query);
         let (start, end) = self.time_bounds();
         let metadata_path = self.metadata_path.clone();
         let association = self.association.clone();
@@ -917,14 +917,17 @@ impl CpuWorkspace {
                 .lock()
                 .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSessionLockPoisoned))?;
             let viewport = ChartViewport {
-                width_px: TIMELINE_WIDTH_PX,
+                // The timeline is rendered as a fixed 160-bucket histogram;
+                // matching the engine width prevents per-thread pixel packets
+                // from consuming the chart budget before UI bucketing.
+                width_px: TIMELINE_BUCKETS as f32,
                 row_height_px: 6.0,
                 first_depth: 0,
                 depth_count: 1,
                 max_blocks: 20_000,
             };
-            let timeline = session.stack_chart(
-                &query,
+            let timeline = session.thread_timeline(
+                &timeline_query,
                 TimelineViewport {
                     chart: viewport,
                     start_nanos: start,
@@ -1494,11 +1497,7 @@ impl CpuWorkspace {
         let next = current
             .and_then(|id| ids.iter().position(|candidate| *candidate == id))
             .map_or_else(|| ids.first().copied(), |index| ids.get(index + 1).copied());
-        self.query.thread_ids = next.into_iter().collect();
-        self.query.offset = 0;
-        self.reset_results();
-        self.refresh_shared(cx);
-        self.reload(cx);
+        self.select_thread_filter(next, cx);
     }
 
     fn cycle_event(&mut self, cx: &mut Context<Self>) {
@@ -1769,7 +1768,13 @@ impl CpuWorkspace {
     fn select_thread_filter(&mut self, thread_id: Option<i32>, cx: &mut Context<Self>) {
         self.query.thread_ids = thread_id.into_iter().collect();
         self.query.offset = 0;
-        self.reset_results();
+        self.row_selected = None;
+        self.chart_hover = None;
+        self.chart_hover_position = None;
+        self.chart_menu = None;
+        self.pending_focus = None;
+        self.collapsed.clear();
+        self.export_message = None;
         self.refresh_shared(cx);
         self.reload(cx);
     }
@@ -3068,6 +3073,17 @@ struct TimelineModel {
     tracks: Vec<TimelineTrack>,
 }
 
+fn timeline_query(query: &Query) -> Query {
+    let mut query = query.clone();
+    // Thread selection narrows the analysis below, not the available tracks.
+    query.thread_ids.clear();
+    query
+}
+
+fn timeline_bar_width(bucket_width: f32) -> f32 {
+    (bucket_width * 0.5).min(TIMELINE_BAR_MAX_WIDTH_PX)
+}
+
 fn build_timeline(ws: &CpuWorkspace) -> Option<TimelineModel> {
     let frame = ws.timeline.as_ref()?;
     let catalog = ws.catalog.as_ref()?;
@@ -3361,6 +3377,7 @@ fn timeline_panel(
                                         move |bounds, _, window, _| {
                                             let width = f32::from(bounds.size.width)
                                                 / TIMELINE_BUCKETS as f32;
+                                            let bar_width = timeline_bar_width(width);
                                             let height = f32::from(bounds.size.height);
                                             for (bucket, count) in buckets.iter().enumerate() {
                                                 if *count == 0 {
@@ -3370,12 +3387,14 @@ fn timeline_panel(
                                                 let bar = (height * fraction)
                                                     .max(1.0)
                                                     .min(height.max(1.0));
-                                                let x = bounds.origin.x + px(bucket as f32 * width);
+                                                let x = bounds.origin.x
+                                                    + px(bucket as f32 * width
+                                                        + (width - bar_width) * 0.5);
                                                 let y = bounds.origin.y + px(height - bar);
                                                 window.paint_quad(quad(
                                                     Bounds {
                                                         origin: point(x, y),
-                                                        size: size(px(width.max(1.0)), px(bar)),
+                                                        size: size(px(bar_width), px(bar)),
                                                     },
                                                     px(0.),
                                                     paint_activity,
@@ -7444,9 +7463,11 @@ mod metadata_tests {
         CPU_MEDIA_TYPE, CpuError, CpuSourceClass, CpuSourceKind, Language, RecentCpu,
         associate_cpu, chart_tooltip_placement, check_cpu_binding, classify_cpu_source,
         cpu_artifact, cpu_snapshot_path, decompress_cpu_source, load_cpu_import, load_cpu_snapshot,
-        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu, validate_recent,
+        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu, timeline_bar_width,
+        timeline_query, validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
+    use aps_cpu::{ChartViewport, CpuSession, Direction, Query, TimelineViewport, WeightType};
     use aps_storage::{PageRequest, Storage};
     use aps_ui_foundation::TextKey;
     use std::{
@@ -8135,6 +8156,140 @@ mod metadata_tests {
             1
         );
         assert!(source.contains("const CHART_WIDTH_PX: f32 = 1024.0;"));
+    }
+    #[test]
+    fn timeline_bars_are_half_a_bucket_wide_and_capped_at_three_pixels() {
+        for (bucket_width, expected) in [
+            (0.0, 0.0),
+            (0.5, 0.25),
+            (1.0, 0.5),
+            (4.0, 2.0),
+            (6.4, 3.0),
+            (16.0, 3.0),
+        ] {
+            let width = timeline_bar_width(bucket_width);
+            assert_eq!(width, expected);
+            assert!(width <= bucket_width * 0.5);
+        }
+    }
+    #[test]
+    fn timeline_query_preserves_every_filter_except_thread_selection() {
+        let query = Query {
+            thread_ids: [11, 22].into(),
+            event_types: ["cpu-cycles".to_owned()].into(),
+            start: Some(100),
+            end: Some(900),
+            direction: Direction::Inverted,
+            weight_type: WeightType::EventCount,
+            offset: 128,
+            limit: 64,
+        };
+        let timeline = timeline_query(&query);
+        assert!(timeline.thread_ids.is_empty());
+        assert_eq!(query.thread_ids, [11, 22].into());
+        assert_eq!(
+            timeline,
+            Query {
+                thread_ids: Default::default(),
+                ..query
+            }
+        );
+    }
+    #[test]
+    fn timeline_keeps_both_threads_while_flame_graph_switches_between_them() {
+        let fixture = Fixture::new();
+        let mut document: serde_json::Value = serde_json::from_slice(&gecko_profile()).unwrap();
+        document["threads"][0]["stringTable"]
+            .as_array_mut()
+            .unwrap()
+            .push("worker_leaf (in /lib/liba.so)".into());
+        document["threads"][0]["frameTable"]["data"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!([2, 2]));
+        document["threads"][0]["stackTable"]["data"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!([0, 2]));
+        let mut worker = document["threads"][0].clone();
+        worker["tid"] = 22.into();
+        worker["name"] = "worker".into();
+        worker["samples"]["data"] = serde_json::json!([[2, 1.5, 0]]);
+        document["threads"].as_array_mut().unwrap().push(worker);
+        let path = fixture.root.join("two-threads.json");
+        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let mut session = CpuSession::open(&path).unwrap();
+        let viewport = TimelineViewport {
+            chart: ChartViewport {
+                width_px: super::TIMELINE_BUCKETS as f32,
+                depth_count: 1,
+                ..ChartViewport::default()
+            },
+            start_nanos: 1_000_000,
+            end_nanos: 3_000_000,
+        };
+        let initial = session
+            .thread_timeline(&Query::default(), viewport)
+            .unwrap();
+        for (thread_id, selected, other) in [
+            (11, "leaf", "worker_leaf"),
+            (22, "worker_leaf", "leaf"),
+            (11, "leaf", "worker_leaf"),
+        ] {
+            let query = Query {
+                thread_ids: [thread_id].into(),
+                ..Query::default()
+            };
+            let timeline = session
+                .thread_timeline(&timeline_query(&query), viewport)
+                .unwrap();
+            assert_eq!(timeline.blocks, initial.blocks);
+            for id in [11, 22] {
+                assert!(
+                    timeline
+                        .blocks
+                        .iter()
+                        .any(|block| block.thread_id == Some(id))
+                );
+            }
+            let flame = session
+                .flame_graph(&query, ChartViewport::default())
+                .unwrap();
+            assert!(flame.blocks.iter().any(|block| block.label == selected));
+            assert!(!flame.blocks.iter().any(|block| block.label == other));
+        }
+    }
+    #[test]
+    fn thread_selection_does_not_clear_the_published_timeline() {
+        let source = include_str!("cpu.rs");
+        let selection = source
+            .split("fn select_thread_filter(")
+            .nth(1)
+            .unwrap()
+            .split("fn copy_symbol(")
+            .next()
+            .unwrap();
+        assert!(!selection.contains("reset_results("));
+        assert!(!selection.contains("self.timeline = None"));
+        assert!(selection.contains("self.reload(cx)"));
+        let refresh = source
+            .split("fn refresh_shared(")
+            .nth(1)
+            .unwrap()
+            .split("fn reload(")
+            .next()
+            .unwrap();
+        assert!(!refresh.contains("self.timeline = None"));
+        assert!(refresh.contains("let timeline_query = timeline_query(&query)"));
+        assert!(refresh.contains("&timeline_query,"));
+        let cycle = source
+            .split("fn cycle_thread(")
+            .nth(1)
+            .unwrap()
+            .split("fn cycle_event(")
+            .next()
+            .unwrap();
+        assert!(cycle.contains("self.select_thread_filter(next, cx)"));
     }
     #[test]
     fn call_tree_panel_scrolls_both_axes() {

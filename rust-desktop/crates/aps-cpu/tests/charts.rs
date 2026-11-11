@@ -182,6 +182,78 @@ fn subpixel_flame_bins_and_output_limits_are_explicit() {
 }
 
 #[test]
+fn thread_timeline_keeps_cross_thread_pixel_collisions_separate_and_bounded() {
+    let mut stream = profile();
+    stream
+        .records
+        .retain(|record| !matches!(record, Record::Sample(_)));
+    stream.records.extend([
+        sample(10, 11, 0, 7, &[1, 0]),
+        sample(10, 22, 0, 3, &[2, 0]),
+        sample(11, 11, 0, 5, &[1, 0]),
+        sample(11, 22, 0, 2, &[2, 0]),
+    ]);
+    let fixture = Fixture::stream(&stream);
+    let session = fixture.session();
+    let viewport = TimelineViewport {
+        chart: ChartViewport {
+            width_px: 1.0,
+            depth_count: 1,
+            ..ChartViewport::default()
+        },
+        start_nanos: 10,
+        end_nanos: 12,
+    };
+    let query = Query::default();
+    let frame = session.thread_timeline(&query, viewport).unwrap();
+    assert_eq!(frame.blocks.len(), 2);
+    assert!(!frame.truncated);
+    assert_ne!(frame.blocks[0].id, frame.blocks[1].id);
+    for thread in [11, 22] {
+        let block = frame
+            .blocks
+            .iter()
+            .find(|block| block.thread_id == Some(thread))
+            .unwrap();
+        assert_eq!(block.sample_count, 2);
+        assert_eq!(block.source_count, 2);
+        assert_eq!(block.kind, ChartBlockKind::PixelAggregate);
+        assert_eq!((block.x, block.width), (0.0, 1.0));
+    }
+    let selected = session
+        .thread_timeline(
+            &Query {
+                thread_ids: BTreeSet::from([22]),
+                ..query.clone()
+            },
+            viewport,
+        )
+        .unwrap();
+    assert_eq!(selected.blocks.len(), 1);
+    assert_eq!(selected.blocks[0].thread_id, Some(22));
+    let limited = session
+        .thread_timeline(
+            &query,
+            TimelineViewport {
+                chart: ChartViewport {
+                    max_blocks: 1,
+                    ..viewport.chart
+                },
+                ..viewport
+            },
+        )
+        .unwrap();
+    assert_eq!(limited.blocks.len(), 1);
+    assert!(limited.truncated);
+    assert_eq!(limited.omitted_blocks, 2);
+    // The standalone Stack Chart retains its cross-thread aggregation.
+    let stack = session.stack_chart(&query, viewport).unwrap();
+    assert_eq!(stack.blocks.len(), 1);
+    assert_eq!(stack.blocks[0].thread_id, None);
+    assert_eq!(stack.blocks[0].sample_count, 4);
+}
+
+#[test]
 fn timeline_marks_points_not_fake_execution_durations_and_aggregates_pixel_collisions() {
     let fixture = Fixture::stream(&profile());
     let session = fixture.session();
