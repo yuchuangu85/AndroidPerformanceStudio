@@ -495,13 +495,15 @@ fn status_bar(
         .flex_shrink_0()
         .flex()
         .items_center()
+        .gap(px(8.))
         .px(px(studio::metrics::WORKSPACE_PADDING))
         .border_t_1()
         .border_color(colors.border)
         .bg(colors.toolbar)
+        .overflow_x_scroll()
         .child(
             div()
-                .w_full()
+                .flex_1()
                 .min_w_0()
                 .text_size(px(studio::FONT_SUPPORTING))
                 .text_color(if is_error {
@@ -513,6 +515,14 @@ fn status_bar(
                 .text_ellipsis()
                 .child(studio::selectable(text)),
         )
+        .children(state.import_timing.text(language).map(|timing| {
+            div()
+                .flex_shrink_0()
+                .text_size(px(studio::FONT_SUPPORTING))
+                .text_color(colors.secondary_text)
+                .whitespace_nowrap()
+                .child(studio::selectable(timing))
+        }))
         .into_any_element()
 }
 
@@ -612,5 +622,33 @@ mod tests {
         assert!(footer.contains(".border_t_1()"));
         assert!(footer.contains("studio::selectable(text)"));
         assert!(!footer.contains("return div()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn import_timing_is_separate_from_operation_feedback() {
+        let mut state = BenchmarkReportsState::default();
+        assert_eq!(state.import_timing.text(Language::English), None);
+        state.import_timing = crate::import_timing::ImportTiming::from_duration(
+            std::time::Duration::from_millis(1234),
+        );
+        state.message = Some("report exported".into());
+        state.error = Some("next import failed".into());
+        assert_eq!(
+            status_message(&state, Language::English),
+            ("next import failed".into(), true)
+        );
+        assert_eq!(
+            state.import_timing.text(Language::English).as_deref(),
+            Some("Import time: 1.23 s")
+        );
+        let footer = include_str!("page.rs")
+            .split("fn status_bar(")
+            .nth(1)
+            .unwrap()
+            .split("fn status_message(")
+            .next()
+            .unwrap();
+        assert!(footer.contains("state.import_timing.text(language)"));
+        assert!(footer.contains("studio::selectable(timing)"));
     }
 }

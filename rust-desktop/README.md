@@ -25,10 +25,12 @@ or overwrite Compose settings automatically.
 
 ## Validation policy
 
-Per the user's November 5 instruction, **do not execute tests during the rewrite**.
-Tests may be authored and dependency/compilation checks may run. Run the complete
-validation matrix only after all implementation work is connected. No compile,
-unit-test, screenshot, native GUI or packaging evidence substitutes for another.
+The November 11 request to test all functionality supersedes the earlier
+development-only test deferral. Run targeted regressions for each changed path
+and the locked offline workspace suite after integration. Track remaining
+Compose parity work in [FUNCTIONAL_PARITY.md](FUNCTIONAL_PARITY.md).
+Compilation, domain tests, same-input parity, native interaction, device/provider
+execution and packaging remain separate evidence classes.
 
 See [migration progress](MIGRATION.md) for current implementation and remaining gates.
 
@@ -71,6 +73,16 @@ without executing tests. Catalog validation itself also runs on normal builds.
 
 ## Profiler UI Scope
 
+Data-import workspaces show **Import time** in their bottom status bar. The
+monotonic wall-clock interval begins after file/folder selection and includes
+conversion, parsing and initial page preparation, not time spent in the picker,
+recording duration or the artifact's timestamps. Durations belong to the active
+artifact/snapshot (including independent Native/ART/Bitmap datasets and Compose
+compiler reports); queries and exports do not replace them. Failed/cancelled
+imports retain the previous value while its data remains, and closing or
+replacing it with unmeasured captured data clears the value. These are observed
+import costs, not benchmark or capture performance claims.
+
 Memory and Frame now use dedicated GPUI workspaces instead of the generic import
 table. Memory follows the Compose Memory Profiler page: a command toolbar
 (import, capture actions, Overview/Classes/Dominators/Diff, auxiliary views,
@@ -81,8 +93,10 @@ duplicate tints), instance list paging and the inline object inspector
 (Fields/References, nearest GC root, drill-in navigation and array paging). Dominators has KPIs, distribution, filters, a lazy dominator tree and
 the inspector; Diff compares class counts/shallow/retained between two dumps
 without cross-dump identity; Leak Analysis renders HPROF heuristic findings.
-Bitmaps, Native Heap and ART Samples use Compose-shaped pages with explicit
-unavailable states. The typed `aps-memory` domain ports the Compose presenter
+Native Heap and ART Samples use bounded heapprofd trace projections in dedicated
+pages; Bitmap image dumps use isolated extraction and image preview/export.
+These artifacts remain separate from ordinary Java HPROF findings, and missing
+samples/unsupported image dumps remain explicit. The typed `aps-memory` domain ports the Compose presenter
 (including a bounded dependency-free regex subset) and runs one bounded
 snapshot read plus typed instance/detail/dominator pages through the isolated
 HPROF worker. Mapping import (ProGuard/R8) and seven HPROF export formats are
@@ -101,12 +115,16 @@ worker. The device must permit `am dumpheap` for that process; the application
 does not root the device, restart a process or bypass Android permissions.
 Cancellation or a changed target discards the pending result and preserves the
 previous snapshot. Closing its tab removes the owned local capture files.
-Frame is offline gfxinfo FrameStats analysis. Other live capture modes, Perfetto
-FrameTimeline,
-FrameMetrics/JankStats attribution, native heap, ART samples, Bitmap dump files,
-LeakCanary/Shark and multi-source provenance still require separate Rust
-adapters and are shown as unavailable rather than being simulated. These
-unsupported capture buttons remain disabled. Snapshot comparison
+Native/ART and FrameTimeline recording use a shared, duration/size-bounded
+Perfetto adapter with owned detached-session keys. Cancellation stops only the
+owned session; an unconfirmed stop retains exact recovery paths. Native/ART
+also recheck boot/process identity and retain their local recording while its
+dataset is open. Bitmap capture requests Android's supported bitmap heap-dump
+extension, then extracts PNGs in the bounded memory worker; host cancellation
+does not claim to terminate Android's heap-dump operation. This development
+follow-up does not establish FrameMetrics/JankStats, LeakCanary/Shark or complete
+multi-source runtime acceptance. Unsupported actions stay visibly unavailable.
+Snapshot comparison
 uses only class aggregates from two independent dumps; equal object IDs never
 imply shared identity. Live timeline/GC markers and native/bitmap metrics are
 not inferred from an offline HPROF.
@@ -139,9 +157,14 @@ and before/after identity checks, including ordinary pathname replacement.
 This is **not full Network feature parity**. The existing minimization policy
 removes URLs/hosts, timestamps, headers and bodies. Domain aggregation, a real
 activity timeline, per-phase timing and content sections therefore show explicit
-unavailable states; live Android capture and HAR export are disabled. No raw
-traffic is recovered to make the reference page appear populated. Native visual,
-device, provider and packaged acceptance are separate deferred gates.
+unavailable states for HAR evidence. Live Android capture now connects the
+existing APS Agent v2 after explicit consent, using owned ADB forwarding,
+bounded polling, observed outcomes and nullable phase timing. It does not
+recover raw URLs, headers or content to populate missing regions; domain
+aggregation and HAR export remain unavailable. The Android Agent's normal
+Gradle build is currently blocked before Kotlin compilation by an AGP
+`KotlinAndroidTarget` / missing `BaseVariant` configuration failure. Native
+visual, device, provider and packaged acceptance are separate deferred gates.
 
 ## Startup workspace
 
@@ -153,7 +176,10 @@ shared Studio typography/colors and actual-container responsive layout. Empty
 states retain the complete page structure. Narrow views stack evidence below the
 main content; the table scrolls horizontally without separating its header.
 
-The available adapter still imports Startup CSV only. Mode cards filter requested
+The adapters support Startup CSV and explicitly reviewed, bounded live
+Cold/Warm/Hot experiments. The review identifies the target and any required
+force-stop/launch preparation; the application does not change global compiler
+or permission state. Mode cards filter requested
 mode, while observed mode remains distinct and can be Unknown. Whole-cohort
 statistics run off-thread; rows, summary, pagination, export and AI share one
 published projection. Stable run-ID selection no longer reads/writes Frame state.
@@ -161,17 +187,32 @@ Failed/cancelled operations retain the previous publication. Missing TTID/TTFD
 never use TotalTime or an Agent declaration as a fallback. MAD follows the same
 nearest-rank median convention as the reference overview.
 
-This is **not full Startup feature or pixel parity**. Live experiments and their
+This is **not full Startup feature or pixel parity**. Extended experiment
 configuration, Agent first-frame/phase intervals, comparable baseline statistics
 and trace navigation/correlation need additional adapters. Their regions remain
 visible with explicit unavailable explanations; no synthetic phase bars, device
 identity, verification, root-cause or regression delta is inferred. Compiler,
-Profile, device and trace fields are imported declarations, not independently
-verified facts. JSON/CSV exports contain the current published page only, not a
+Profile, device and trace fields in imported CSV are declarations, not
+independently verified facts. Live runs retain their own bounded target and
+platform-event evidence; missing/ambiguous launch events stay unassigned.
+JSON/CSV exports contain the current published page only, not a
 lossless report, and cannot be reimported as Startup CSV. Regression sources are
 authored/compiled only. Native empty-state previews were inspected in wide and
 stacked layouts; populated-report interaction, pixel matching, keyboard,
 real-device, provider and package acceptance remain deferred separately.
+
+## Battery live capture
+
+Battery supports explicitly reviewed, read-only snapshots bound to the selected
+UID, boot and package-installation/process identity. Stop publishes conservative
+cumulative differences; cancel or stale results retain the previous report.
+The optional minimized evidence ZIP contains the complete analysis JSON,
+manifest and bounded parsed snapshots, not whole-device raw history. No global
+BatteryStats reset is performed. Historian, qualified baseline comparison,
+saved sessions and whole-bundle import remain separate unavailable capabilities.
+
+See `LIVE_CAPTURE_DEVELOPMENT.md` for this development follow-up's implementation,
+compile/static evidence and deliberate no-test/no-device/no-GUI boundaries.
 
 ## Dependency provenance
 
@@ -189,8 +230,18 @@ Settings now follows the Compose six-section layout: General, Configuration,
 Layout Inspector, Simpleperf, AI and About. System theme/language, eight accent
 presets/custom HSV and hex colors, SDK path management, offline Inspector view
 and border preferences, capture defaults and native chart tooltip mode are wired
-to Rust behavior. Preferences use version 3 with v1/v2 read compatibility; the
+to Rust behavior. Preferences use version 5 with older-version read compatibility; the
 separate SDK file and all writes remain Rust-owned and atomic.
+
+CPU Settings and the capture planner now share one live draft: five Compose
+sampling templates, event, Frequency/Period, USER/KERNEL/BOTH and DWARF/Frame
+Pointer/None feed the actual recorder. Prepared requests and confirmation values
+are immutable; later edits require Inspect again. Valid Hz/duration defaults are
+persisted, including a mode-only switch to Frequency; period counts never become
+Hz preferences. Invalid inputs remain visible rather than silently clamping.
+CPU toolbar/Tools actions and its capture shortcut now open this explicit planner
+without starting device recording. Current bounds remain 1..300 integer seconds
+and 1..4000 Hz; manual duration/Stop-and-save and event discovery are unfinished.
 
 This is not full settings parity: Legacy/Firefox engines, device-dependent
 capture configuration, live capture archive limits, extension/agent/skill
@@ -198,8 +249,9 @@ package management and sandboxed script execution still need Rust adapters and
 remain visibly disabled. AI provider connections, local Codex/Claude config
 import, model discovery, built-in agent selection, report format/language and
 retention controls are wired to the Rust AI runtime. General scaling covers base
-fonts and rem-based controls, not every explicit-pixel profiler element. Tests,
-native visual matching and device/provider/package acceptance remain deferred.
+fonts and rem-based controls, not every explicit-pixel profiler element. Current
+automated evidence is recorded in the continuation report; native visual matching
+and device/provider/package acceptance remain separate open gates.
 
 ## AI Analysis workspace
 
@@ -246,16 +298,31 @@ Start Capture and Run Startup Test navigate without automatically running work.
 The native File menu exposes Home import actions only while Home handles them.
 
 Device facts come from the existing shared ADB discovery and distinguish loading,
-zero devices and errors. Recent history currently reads only the Rust-owned CPU
-index, with at most six usable artifacts from 200 inspected sessions, and states
-that Layout/Trace/Memory recent adapters are not connected. Unknown package and
-capture time stay `—`; imported/index timestamps are never used as capture time.
-Passive discovery does not parse profiles, initialize storage or migrate Compose
-indexes. Explicit opening still validates saved identity and the complete digest.
+zero devices and errors. Recent history now interleaves Layout, CPU, Trace and
+Memory sources in Compose source order, with at most six usable entries and
+bounded per-source scans. Successful imports record paths in separate Rust-owned
+indexes; captured Trace sessions also use the existing read-only session catalog.
+Corrupt sources are isolated and missing/nonregular artifacts are skipped without
+repairing the index. Unknown package/capture time remain unavailable; import time
+and file mtime never impersonate capture time. Reopening a captured Trace keeps
+its known timestamp even after its path enters the MRU list.
 
-This is reference-shaped UI, not verified pixel or full four-source history parity.
-Tests, native visual/keyboard acceptance, device and packaged checks remain
-separate deferred gates under the rewrite validation policy.
+Successful Java heap captures retain a digest-verified private history copy only
+after current-generation publication. Copy and index registration form one
+background transaction; registration failure removes only a newly created copy,
+not existing deduplicated evidence. Scratch ownership and cleanup are unchanged.
+Clearing history does not delete retained evidence. Inspector now has an async
+ten-file recent menu with full-path labels for same-name archives and nondestructive
+Clear Menu. Shell mutations run in UI event order, so earlier delayed records
+cannot restore cleared history. CPU/Trace/Battery recent-menu separation, Memory
+saved-session menus, retention quotas and crash-orphan recovery remain open work.
+
+Passive Home discovery does not parse profiles, initialize storage or migrate
+Compose indexes. Opening delegates to each feature importer; CPU retains its
+saved-session/digest checks. This is not pixel or complete native interaction
+acceptance. On November 11, current native imports published real CPU/HPROF/Trace
+and a Layout fixture into isolated history, but the locked macOS session blocked
+screenshots and click/reopen acceptance. See the current continuation report.
 
 ## Source Workspaces
 

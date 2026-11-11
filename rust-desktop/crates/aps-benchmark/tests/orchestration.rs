@@ -38,6 +38,7 @@ fn builds_reproducible_connected_benchmark_command() {
     write_wrapper(&root, "#!/bin/sh\n");
     let command = build_command(&MacrobenchmarkPlan {
         project_root: root.clone(),
+        device_serial: Some("device-serial".into()),
         gradle_task: ":macrobenchmark:connectedCheck".to_string(),
         benchmark_filter: Some("com.example.Benchmark#startup".to_string()),
         compilation_mode: CompilationMode::SpeedProfile,
@@ -50,6 +51,19 @@ fn builds_reproducible_connected_benchmark_command() {
     .unwrap();
 
     assert_eq!(command.working_directory, root);
+    assert_eq!(
+        command
+            .environment
+            .get("ANDROID_SERIAL")
+            .map(String::as_str),
+        Some("device-serial")
+    );
+    assert!(
+        command
+            .arguments
+            .iter()
+            .any(|arg| arg == "-Pandroid.injected.device.serial=device-serial")
+    );
     for expected in [
         ":macrobenchmark:connectedCheck",
         "--no-daemon",

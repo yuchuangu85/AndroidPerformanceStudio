@@ -1,5 +1,6 @@
 {
-  "shell_capture_completed_notice": "采集已完成。请使用“打开已采集 CPU”校验并导入 protobuf。",
+  "shell_capture_completed_notice": "采集已完成，protobuf 已保留。请在工作区就绪后使用“打开已采集 CPU”校验并导入。",
+  "shell_capture_opening_notice": "采集已完成，正在 CPU 工作区打开 protobuf 并校验摘要。",
   "shell_raw_capture_completed_notice": "原始数据采集已完成。导入 CPU 前需要先转换为 protobuf。",
   "shell_select_profiler_first": "请先选择已导入数据的分析工作区",
   "shell_ai_generation_exhausted": "AI 代次计数已耗尽，需要重启应用",

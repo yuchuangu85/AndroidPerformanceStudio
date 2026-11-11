@@ -15,6 +15,10 @@ const GENERAL_CUSTOM_COLOR_WIDTH: f32 = 120.;
 const GENERAL_COLOR_SIDE_WIDTH: f32 = 160.;
 /// Non-linguistic color literal placeholder; never translated.
 const HEX_COLOR_PLACEHOLDER: &str = "#AARRGGBB";
+// Kept verbatim with ComposeCompilerReportGuide: these are target-project
+// snippets, not settings saved or executed by the desktop application.
+const COMPOSE_REPORT_CONFIGURATION: &str = "composeCompiler {\n    reportsDestination =\n        layout.buildDirectory.dir(\"compose_compiler\")\n    metricsDestination =\n        layout.buildDirectory.dir(\"compose_compiler\")\n}";
+const COMPOSE_REPORT_GENERATE_COMMAND: &str = "./gradlew :app:compileReleaseKotlin";
 
 use std::{
     path::Path,
@@ -32,9 +36,6 @@ pub(super) struct SettingsUi {
     hue: Entity<SliderState>,
     hsv: (f32, f32, f32),
     archive: Entity<SliderState>,
-    /// Simpleperf capture defaults, editable from the settings page.
-    rate: Entity<InputState>,
-    duration: Entity<InputState>,
     lsp_confirm: bool,
 }
 
@@ -42,6 +43,7 @@ impl SettingsUi {
     pub(super) fn new(
         settings: &Settings,
         path: Option<&Path>,
+        capture: &Entity<CaptureWorkspace>,
         window: &mut Window,
         cx: &mut Context<Studio>,
         subscriptions: &mut Vec<Subscription>,
@@ -157,47 +159,31 @@ impl SettingsUi {
                 }
             }),
         );
-        let rate = cx.new(|cx| {
-            InputState::new(window, cx)
-                .default_value(settings.capture_frequency_hz.to_string())
-                .validate(|value, _| value.len() <= 4)
-        });
-        subscriptions.push(
-            cx.subscribe_in(&rate, window, |this, _, event, window, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let text = this.settings_ui.rate.read(cx).value().to_string();
-                    if let Ok(value) = text.trim().parse::<u32>() {
-                        let value = value.clamp(1, 4000);
-                        if value != this.settings.capture_frequency_hz {
-                            this.settings.capture_frequency_hz = value;
-                            this.persist_settings(window, cx);
-                        }
+        // Settings and capture render the same entities. Only whole duration/Hz
+        // values update preferences; manual/fractional drafts and periods stay live.
+        let [_, rate, duration] = capture.read(cx).sampling_inputs();
+        for input in [&rate, &duration] {
+            subscriptions.push(
+                cx.subscribe_in(input, window, |this, _, event, window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.persist_capture_defaults(window, cx);
+                        cx.notify();
                     }
-                    cx.notify();
-                }
-            }),
-        );
-        let duration = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(settings.language.text(TextKey::ShellDurationSeconds))
-                .default_value(settings.capture_duration_seconds.to_string())
-                .validate(|value, _| value.len() <= 3)
-        });
-        subscriptions.push(
-            cx.subscribe_in(&duration, window, |this, _, event, window, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let text = this.settings_ui.duration.read(cx).value().to_string();
-                    if let Ok(value) = text.trim().parse::<u32>() {
-                        let value = value.clamp(1, 300);
-                        if value != this.settings.capture_duration_seconds {
-                            this.settings.capture_duration_seconds = value;
-                            this.persist_settings(window, cx);
-                        }
-                    }
-                    cx.notify();
-                }
-            }),
-        );
+                }),
+            );
+        }
+        subscriptions.push(cx.subscribe_in(
+            capture,
+            window,
+            |this, _, _: &crate::capture::CaptureDefaultsChanged, window, cx| {
+                this.persist_capture_defaults(window, cx);
+                cx.notify();
+            },
+        ));
+        subscriptions.push(cx.observe(capture, |this, _, cx| {
+            this.refresh_route_menus(cx);
+            cx.notify();
+        }));
         Self {
             sdk,
             saved_sdk,
@@ -209,14 +195,26 @@ impl SettingsUi {
             hue,
             hsv,
             archive,
-            rate,
-            duration,
             lsp_confirm: false,
         }
     }
 }
 
 impl Studio {
+    fn persist_capture_defaults(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let draft = self.capture.read(cx).draft(cx);
+        let previous = (
+            self.settings.capture_duration_seconds,
+            self.settings.capture_frequency_hz,
+        );
+        let next = capture_defaults_for_draft(&draft, previous);
+        if previous != next {
+            self.settings.capture_duration_seconds = next.0;
+            self.settings.capture_frequency_hz = next.1;
+            self.persist_settings(window, cx);
+        }
+    }
+
     pub(super) fn settings_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let language = self.settings.language;
         let colors = StudioColors::from_theme(cx);
@@ -241,7 +239,7 @@ impl Studio {
                     SettingsPage::LayoutInspector => {
                         include_bytes!("../../assets/navigation/ic_nav_layout_inspector.svg")
                     }
-                    SettingsPage::Simpleperf => {
+                    SettingsPage::Simpleperf | SettingsPage::CpuCapture => {
                         include_bytes!("../../assets/navigation/ic_nav_cpu_profiler.svg")
                     }
                     SettingsPage::Ai => {
@@ -254,6 +252,7 @@ impl Studio {
                 let selected = self.settings_page == page;
                 Button::new(("settings-page", page as usize))
                     .ghost()
+                    .accessibility_label(page.label(language))
                     .w_full()
                     .h(px(32.))
                     .px(px(12.))
@@ -297,6 +296,7 @@ impl Studio {
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.settings_page = page;
+                        this.refresh_route_menus(cx);
                         cx.notify();
                     }))
             }));
@@ -305,6 +305,7 @@ impl Studio {
             SettingsPage::Configuration => self.settings_configuration(cx),
             SettingsPage::LayoutInspector => self.settings_inspector(cx),
             SettingsPage::Simpleperf => self.settings_simpleperf(cx),
+            SettingsPage::CpuCapture => self.capture.clone().into_any_element(),
             SettingsPage::Ai => self.settings_ai(cx),
             SettingsPage::About => self.settings_about(cx),
         };
@@ -321,9 +322,13 @@ impl Studio {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .when(self.settings_page != SettingsPage::Ai, |element| {
-                        element.overflow_y_scroll()
-                    })
+                    .when(
+                        !matches!(
+                            self.settings_page,
+                            SettingsPage::Ai | SettingsPage::CpuCapture
+                        ),
+                        |element| element.overflow_y_scroll(),
+                    )
                     .child(content),
             )
             .into_any_element()
@@ -782,6 +787,12 @@ impl Studio {
                         this.persist_settings(window, cx);
                     })),
             ));
+            if key == TextKey::SettingsUiShowSystemComposables {
+                view = view.child(div().px(px(8.)).pb(px(4.)).child(studio::supporting(
+                    lang.text(TextKey::SettingsUiShowSystemComposablesHint),
+                    &colors,
+                )));
+            }
         }
         view = view
             .child(studio::section_title(
@@ -920,42 +931,77 @@ impl Studio {
                     )),
             )
             .child(color_card)
+            .child(self.compose_reports_guide(&colors, cx))
             .into_any_element()
     }
 
-    /// Compose's Simpleperf settings page: one page whose six capture sections
-    /// are cards (sampling template, capture configuration, advanced parameters,
-    /// flame graph, analysis engine, user guide). Template/event/period/scope
-    /// adapters are not connected in Rust, so those controls render disabled;
-    /// the capture defaults, flame tooltip mode, engine and user guide are real.
+    fn compose_reports_guide(&self, colors: &StudioColors, cx: &mut Context<Self>) -> Div {
+        let language = self.settings.language;
+        studio::card(colors)
+            .child(studio::section_title(
+                language.text(TextKey::ComposeReportsTitle),
+                colors,
+            ))
+            .child(crate::studio::selectable(
+                language.text(TextKey::ComposeReportsPurpose),
+            ))
+            .child(studio::section_title(
+                language.text(TextKey::ComposeReportsConfigure),
+                colors,
+            ))
+            .child(crate::studio::selectable(
+                language.text(TextKey::ComposeReportsConfigureHint),
+            ))
+            .child(compose_report_code(
+                "compose-report-configuration",
+                COMPOSE_REPORT_CONFIGURATION,
+                TextKey::ComposeReportsCopyConfiguration,
+                language,
+                colors,
+                cx,
+            ))
+            .child(studio::section_title(
+                language.text(TextKey::ComposeReportsGenerate),
+                colors,
+            ))
+            .child(crate::studio::selectable(
+                language.text(TextKey::ComposeReportsGenerateHint),
+            ))
+            .child(compose_report_code(
+                "compose-report-generate-command",
+                COMPOSE_REPORT_GENERATE_COMMAND,
+                TextKey::ComposeReportsCopyCommand,
+                language,
+                colors,
+                cx,
+            ))
+            .child(crate::studio::selectable(
+                language.text(TextKey::ComposeReportsOutputHint),
+            ))
+            .child(studio::section_title(
+                language.text(TextKey::ComposeReportsImportStep),
+                colors,
+            ))
+            .child(crate::studio::selectable(
+                language.text(TextKey::ComposeReportsImportHint),
+            ))
+            .child(studio::supporting(
+                language.text(TextKey::ComposeReportsLimitations),
+                colors,
+            ))
+    }
+
+    /// Sampling controls share CaptureWorkspace's draft; applying a template or
+    /// changing an input never edits a frozen plan or starts device recording.
     fn settings_simpleperf(&self, cx: &mut Context<Self>) -> AnyElement {
         let lang = self.settings.language;
         let colors = StudioColors::from_theme(cx);
-        let no_target = self.targets.read(cx).selected_device().is_none()
-            || self.targets.read(cx).selected_process().is_none();
+        let capture = self.capture.read(cx);
+        let no_target = !capture.has_target(cx);
+        let can_edit = !no_target && capture.can_edit_configuration();
+        let draft = capture.draft(cx);
+        let [event, rate, duration] = capture.sampling_inputs();
         let follow_mouse = self.settings.simpleperf_follow_tooltip;
-        let templates = [
-            (
-                TextKey::SettingsUiTemplateBasic,
-                TextKey::SettingsUiTemplateAppCpuBasicDescription,
-            ),
-            (
-                TextKey::SettingsUiTemplateUi,
-                TextKey::SettingsUiTemplateUiThreadFocusDescription,
-            ),
-            (
-                TextKey::SettingsUiTemplateNative,
-                TextKey::SettingsUiTemplateNativeHotspotDescription,
-            ),
-            (
-                TextKey::SettingsUiTemplateLow,
-                TextKey::SettingsUiTemplateLowOverheadDescription,
-            ),
-            (
-                TextKey::SettingsUiTemplateSystem,
-                TextKey::SettingsUiTemplateSystemProcessDescription,
-            ),
-        ];
         let mut view = page(lang.text(TextKey::CommonSimpleperf), &colors);
         if no_target {
             view = view.child(studio::supporting(
@@ -974,23 +1020,50 @@ impl Studio {
                     &colors,
                 ))
                 .children(
-                    templates
+                    aps_capture::SamplingTemplate::ALL
                         .into_iter()
                         .enumerate()
-                        .map(|(index, (name, description))| {
-                            template_row(
-                                ("sampling-template", index),
-                                lang.text(name),
-                                lang.text(description),
-                                false,
-                                &colors,
-                            )
+                        .map(|(index, template)| {
+                            div()
+                                .w_full()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    Radio::new(("sampling-template", index))
+                                        .label(lang.text(crate::capture::template_label(template)))
+                                        .checked(draft.template == Some(template))
+                                        .disabled(!can_edit)
+                                        .on_click(cx.listener(
+                                            move |this, _: &bool, window, cx| {
+                                                if can_edit {
+                                                    let targets = this.targets.read(cx);
+                                                    let lists = targets.current_lists();
+                                                    let app_scoped =
+                                                        this.capture.read(cx).template_app_scoped(
+                                                            targets.selected_device(),
+                                                            lists.as_ref().map_or(&[], |lists| {
+                                                                lists.processes.as_slice()
+                                                            }),
+                                                            cx,
+                                                        );
+                                                    this.capture.update(cx, |capture, cx| {
+                                                        capture.apply_template(
+                                                            template, app_scoped, window, cx,
+                                                        )
+                                                    });
+                                                    this.persist_capture_defaults(window, cx);
+                                                    cx.notify();
+                                                }
+                                            },
+                                        )),
+                                )
+                                .child(studio::supporting(
+                                    lang.text(crate::capture::template_description(template)),
+                                    &colors,
+                                ))
                         }),
-                )
-                .child(studio::supporting(
-                    lang.text(TextKey::SettingsUiAdaptersNotConnected),
-                    &colors,
-                )),
+                ),
         )
         .child(
             studio::card(&colors)
@@ -1007,47 +1080,74 @@ impl Studio {
                     &colors,
                 ))
                 .child(field_label(lang.text(TextKey::SettingsUiEvent), &colors))
-                .child(readonly_field("cpu-clock", &colors))
+                .child(input_field(&event, &colors, can_edit))
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiAvailableEvents),
+                    &colors,
+                ))
                 .child(field_label(lang.text(TextKey::SettingsUiSampling), &colors))
                 .child(
-                    div()
-                        .flex()
-                        .gap(px(5.))
-                        .child(choice_chip(
-                            ("rate-mode", 0usize),
-                            lang.text(TextKey::SettingsUiFrequency),
-                            true,
-                            true,
-                            &colors,
-                        ))
-                        .child(choice_chip(
-                            ("rate-mode", 1usize),
-                            lang.text(TextKey::SettingsUiPeriod),
-                            false,
-                            false,
-                            &colors,
-                        )),
+                    div().flex().flex_wrap().gap(px(5.)).children(
+                        [false, true]
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, period)| {
+                                Radio::new(("rate-mode", index))
+                                    .label(lang.text(if period {
+                                        TextKey::SettingsUiPeriod
+                                    } else {
+                                        TextKey::SettingsUiFrequency
+                                    }))
+                                    .checked(draft.period_mode == period)
+                                    .disabled(!can_edit)
+                                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                                        if *checked && can_edit {
+                                            this.capture.update(cx, |capture, cx| {
+                                                capture.set_period_mode(period, cx)
+                                            });
+                                            cx.notify();
+                                        }
+                                    }))
+                            }),
+                    ),
                 )
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
                         .gap(px(8.))
                         .child(
                             div()
                                 .flex_1()
-                                .child(field_label("Hz", &colors))
-                                .child(input_field(&self.settings_ui.rate, &colors)),
+                                .min_w(px(140.))
+                                .child(field_label(
+                                    lang.text(if draft.period_mode {
+                                        TextKey::SettingsUiEventsPerSample
+                                    } else {
+                                        TextKey::CaptureFrequencyHzPlaceholder
+                                    }),
+                                    &colors,
+                                ))
+                                .child(input_field(&rate, &colors, can_edit)),
                         )
                         .child(
                             div()
                                 .flex_1()
+                                .min_w(px(140.))
                                 .child(field_label(
                                     lang.text(TextKey::SettingsUiDurationSecondsHint),
                                     &colors,
                                 ))
-                                .child(input_field(&self.settings_ui.duration, &colors)),
+                                .child(input_field(&duration, &colors, can_edit)),
                         ),
                 )
+                .child(studio::supporting(
+                    lang.text(TextKey::CaptureDurationLimit),
+                    &colors,
+                ))
+                .when_some(draft.validate().err(), |card, error| {
+                    card.child(div().text_color(colors.error).child(lang.text(error)))
+                })
                 .when(no_target, |card| {
                     card.child(studio::supporting(
                         lang.text(TextKey::SettingsUiSamplingTargetRequired),
@@ -1070,38 +1170,44 @@ impl Studio {
                     &colors,
                 ))
                 .child(
-                    div().flex().gap(px(5.)).children(
-                        [
-                            TextKey::SettingsUiDwarf,
-                            TextKey::SettingsUiFramePointer,
-                            TextKey::SettingsUiNone,
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, key)| {
-                            choice_chip(("callgraph", index), lang.text(key), false, false, &colors)
-                        }),
+                    div().flex().flex_wrap().gap(px(5.)).children(
+                        aps_capture::CallGraphMode::ALL.into_iter().enumerate().map(
+                            |(index, mode)| {
+                                Radio::new(("callgraph", index))
+                                    .label(lang.text(crate::capture::call_graph_label(mode)))
+                                    .checked(draft.call_graph == mode)
+                                    .disabled(!can_edit)
+                                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                                        if *checked && can_edit {
+                                            this.capture.update(cx, |capture, cx| {
+                                                capture.set_call_graph(mode, cx)
+                                            });
+                                            cx.notify();
+                                        }
+                                    }))
+                            },
+                        ),
                     ),
                 )
                 .child(field_label(lang.text(TextKey::SettingsUiScope), &colors))
                 .child(
-                    div().flex().gap(px(5.)).children(
-                        [
-                            TextKey::SettingsUiUserScope,
-                            TextKey::SettingsUiKernelScope,
-                            TextKey::SettingsUiBothScope,
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, key)| {
-                            choice_chip(
-                                ("event-scope", index),
-                                lang.text(key),
-                                false,
-                                false,
-                                &colors,
-                            )
-                        }),
+                    div().flex().flex_wrap().gap(px(5.)).children(
+                        aps_capture::EventScope::ALL.into_iter().enumerate().map(
+                            |(index, scope)| {
+                                Radio::new(("event-scope", index))
+                                    .label(lang.text(crate::capture::scope_label(scope)))
+                                    .checked(draft.scope == scope)
+                                    .disabled(!can_edit)
+                                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                                        if *checked && can_edit {
+                                            this.capture.update(cx, |capture, cx| {
+                                                capture.set_scope(scope, cx)
+                                            });
+                                            cx.notify();
+                                        }
+                                    }))
+                            },
+                        ),
                     ),
                 ),
         )
@@ -1538,6 +1644,46 @@ impl Studio {
     }
 }
 
+fn compose_report_code(
+    id: &'static str,
+    code: &'static str,
+    copy_key: TextKey,
+    language: Language,
+    colors: &StudioColors,
+    cx: &mut Context<Studio>,
+) -> Div {
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(px(8.))
+        .p(px(8.))
+        .rounded(px(4.))
+        .bg(colors.workspace)
+        .border_1()
+        .border_color(colors.border)
+        .child(
+            div()
+                .w_full()
+                .font_family("monospace")
+                .text_size(px(studio::FONT_SUPPORTING))
+                .child(crate::studio::selectable_keyed(id, code)),
+        )
+        .child(
+            studio::compact_text_button(
+                ElementId::Name(format!("{id}-copy").into()),
+                language.text(copy_key),
+                true,
+                false,
+                colors,
+            )
+            .on_click(cx.listener(move |_, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(code.to_owned()));
+            })),
+        )
+}
+
 fn page(title: &str, colors: &StudioColors) -> Div {
     div()
         .flex()
@@ -1619,26 +1765,10 @@ fn field_label(label: impl Into<SharedString>, colors: &StudioColors) -> Div {
         .child(label.into())
 }
 
-/// Framed read-only value that mirrors a disabled Compose text field.
-fn readonly_field(text: impl Into<SharedString>, colors: &StudioColors) -> Div {
-    let text = text.into();
-    div()
-        .h(px(28.))
-        .w_full()
-        .flex()
-        .items_center()
-        .px(px(8.))
-        .rounded(px(4.))
-        .bg(colors.field)
-        .border_1()
-        .border_color(colors.border)
-        .text_color(colors.muted_text)
-        .child(text)
-}
-
 /// Framed editable text field used by the capture parameters.
-fn input_field(input: &Entity<InputState>, colors: &StudioColors) -> AnyElement {
+fn input_field(input: &Entity<InputState>, colors: &StudioColors, enabled: bool) -> AnyElement {
     Input::new(input)
+        .disabled(!enabled)
         .w_full()
         .h(px(28.))
         .rounded(px(4.))
@@ -1648,61 +1778,15 @@ fn input_field(input: &Entity<InputState>, colors: &StudioColors) -> AnyElement 
         .into_any_element()
 }
 
-/// One sampling-template row: a selection dot plus the template name and its
-/// Compose description. Disabled rows keep the Compose no-target appearance.
-fn template_row(
-    id: impl Into<ElementId>,
-    name: impl Into<SharedString>,
-    description: impl Into<SharedString>,
-    enabled: bool,
-    colors: &StudioColors,
-) -> impl IntoElement {
-    let name = name.into();
-    let description = description.into();
-    let name_color = if enabled {
-        colors.text
-    } else {
-        colors.muted_text
-    };
-    div()
-        .id(id)
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .px(px(9.))
-        .py(px(6.))
-        .rounded(px(6.))
-        .bg(colors.field)
-        .border_1()
-        .border_color(colors.border)
-        .child(
-            div()
-                .size(px(8.))
-                .flex_shrink_0()
-                .rounded_full()
-                .bg(colors.border),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(1.))
-                .min_w_0()
-                .child(
-                    div()
-                        .line_height(px(18.))
-                        .text_color(name_color)
-                        .child(name),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .line_height(px(15.))
-                        .text_color(colors.muted_text)
-                        .child(description),
-                ),
-        )
+fn capture_defaults_for_draft(
+    draft: &crate::capture::CpuCaptureDraft,
+    previous: (u32, u32),
+) -> (u32, u32) {
+    let (duration, frequency) = draft.persistable_defaults();
+    (
+        duration.unwrap_or(previous.0),
+        frequency.unwrap_or(previous.1),
+    )
 }
 fn parse_argb(value: &str, short: bool) -> Option<u32> {
     let value = value.trim().strip_prefix('#').unwrap_or(value.trim());
@@ -1809,8 +1893,335 @@ fn save_sdk(path: &Path, value: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
+mod cpu_capture_host_tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn capture_planning_is_a_localized_settings_section_with_one_shared_owner() {
+        assert_eq!(
+            SettingsPage::ALL
+                .iter()
+                .filter(|&&page| page == SettingsPage::CpuCapture)
+                .count(),
+            1
+        );
+        for language in [Language::English, Language::SimplifiedChinese] {
+            assert_eq!(
+                SettingsPage::CpuCapture.label(language),
+                language.text(TextKey::FoundationCapturePlanning)
+            );
+        }
+        let source = include_str!("settings_page.rs");
+        let page = source
+            .split("pub(super) fn settings_page(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_general(")
+            .next()
+            .unwrap();
+        assert!(
+            page.contains("SettingsPage::CpuCapture => self.capture.clone().into_any_element()")
+        );
+        assert!(!page.contains("CaptureWorkspace::new("));
+        assert!(page.contains("SettingsPage::Ai | SettingsPage::CpuCapture"));
+        assert!(page.contains("this.refresh_route_menus(cx)"));
+        assert!(page.contains(".accessibility_label(page.label(language))"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn switching_from_period_to_frequency_without_editing_text_saves_only_the_new_hz() {
+        let saved = (10, 99);
+        let mut draft = crate::capture::CpuCaptureDraft::new(saved.0, saved.1);
+        draft.period_mode = true;
+        draft.rate = "500".into();
+        assert_eq!(capture_defaults_for_draft(&draft, saved), saved);
+        draft.period_mode = false;
+        let next = capture_defaults_for_draft(&draft, saved);
+        assert_eq!(next, (10, 500));
+        let root = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let path = root.path().join("settings.conf");
+        let settings = Settings {
+            capture_duration_seconds: next.0,
+            capture_frequency_hz: next.1,
+            ..Settings::default()
+        };
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).unwrap().capture_frequency_hz, 500);
+
+        // Both mode controls use the workspace setter, whose explicit event
+        // persists mode-only changes even when InputEvent::Change never fires.
+        let source = include_str!("../capture.rs");
+        let setter = source
+            .split("pub(crate) fn set_period_mode(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn apply_template(")
+            .next()
+            .unwrap();
+        assert!(setter.contains("cx.emit(CaptureDefaultsChanged)"));
+        let source = include_str!("settings_page.rs");
+        let handler = source
+            .split("_: &crate::capture::CaptureDefaultsChanged,")
+            .nth(1)
+            .unwrap()
+            .split("subscriptions.push(cx.observe(capture")
+            .next()
+            .unwrap();
+        assert!(handler.contains("this.persist_capture_defaults(window, cx)"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn capture_preferences_follow_valid_shared_draft_values_without_persisting_period_as_hz() {
+        let saved = (37, 123);
+        let mut draft = crate::capture::CpuCaptureDraft::new(saved.0, saved.1);
+        draft.duration = "24".into();
+        draft.rate = "456".into();
+        assert_eq!(capture_defaults_for_draft(&draft, saved), (24, 456));
+        draft.period_mode = true;
+        assert_eq!(capture_defaults_for_draft(&draft, saved), (24, 123));
+        let request = draft
+            .request("run".into(), "device".into(), 42, None)
+            .unwrap();
+        assert_eq!(
+            request.sampling.rate,
+            aps_capture::SamplingRate::Period(456)
+        );
+        assert_eq!(request.duration.whole_seconds(), Some(24));
+        draft.rate = i64::MAX.to_string();
+        assert_eq!(capture_defaults_for_draft(&draft, saved), (24, 123));
+        draft.period_mode = false;
+        assert_eq!(capture_defaults_for_draft(&draft, saved), (24, 123));
+        assert!(
+            draft
+                .request("run".into(), "device".into(), 42, None)
+                .is_err()
+        );
+        assert_eq!(draft.rate, i64::MAX.to_string());
+    }
+
+    #[::core::prelude::v1::test]
+    fn invalid_settings_text_is_not_saved_clamped_or_substituted_in_requests() {
+        let saved = (37, 123);
+        for text in ["", "0", "-1", "NaN", "4001", "10000", "1.5"] {
+            let mut draft = crate::capture::CpuCaptureDraft::new(saved.0, saved.1);
+            draft.rate = text.into();
+            draft.duration = text.into();
+            let before = draft.clone();
+            assert_eq!(capture_defaults_for_draft(&draft, saved), saved);
+            assert!(
+                draft
+                    .request("run".into(), "device".into(), 42, None)
+                    .is_err()
+            );
+            assert_eq!(draft, before);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn applying_each_template_feeds_both_persistable_defaults_and_the_next_request() {
+        for template in aps_capture::SamplingTemplate::ALL {
+            let mut draft = crate::capture::CpuCaptureDraft::new(37, 123);
+            draft.period_mode = true;
+            draft.rate = "9223372036854775807".into();
+            draft.apply_template(template, true);
+            let (duration, frequency) = capture_defaults_for_draft(&draft, (37, 123));
+            let request = draft
+                .request("run".into(), "device".into(), 42, None)
+                .unwrap();
+            assert_eq!(duration, 10);
+            assert_eq!(request.duration.whole_seconds(), Some(duration));
+            assert_eq!(
+                request.sampling.rate,
+                aps_capture::SamplingRate::Frequency(frequency)
+            );
+            assert_eq!(request.sampling, template.create(true));
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn manual_and_fractional_settings_are_live_requests_not_rounded_integer_preferences() {
+        let saved = (37, 123);
+        for (text, expected) in [
+            ("", None),
+            (" \t", None),
+            ("0.25", Some("0.25")),
+            ("37.5", Some("37.5")),
+        ] {
+            let mut draft = crate::capture::CpuCaptureDraft::new(saved.0, saved.1);
+            draft.duration = text.into();
+            draft.rate = "456".into();
+            let request = draft
+                .request("run".into(), "device".into(), 42, None)
+                .unwrap();
+            assert_eq!(request.duration.seconds_argument().as_deref(), expected);
+            assert_eq!(request.duration.whole_seconds(), None);
+            let defaults = capture_defaults_for_draft(&draft, saved);
+            assert_eq!(defaults, (37, 456));
+            let root = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+            let path = root.path().join("settings.conf");
+            Settings {
+                capture_duration_seconds: defaults.0,
+                capture_frequency_hz: defaults.1,
+                ..Settings::default()
+            }
+            .save(&path)
+            .unwrap();
+            let loaded = Settings::load(&path).unwrap();
+            assert_eq!(loaded.capture_duration_seconds, 37);
+            assert_eq!(loaded.capture_frequency_hz, 456);
+            assert_eq!(draft.duration, text);
+            draft.period_mode = true;
+            assert_eq!(capture_defaults_for_draft(&draft, saved), saved);
+            assert_eq!(draft.duration, text);
+        }
+        for (text, expected) in [("1", 1), ("24", 24), ("300", 300), ("10.0", 10)] {
+            let mut draft = crate::capture::CpuCaptureDraft::new(saved.0, saved.1);
+            draft.duration = text.into();
+            assert_eq!(capture_defaults_for_draft(&draft, saved), (expected, 123));
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn invalid_duration_settings_remain_visible_and_cannot_form_a_request_with_valid_hz() {
+        let saved = (37, 123);
+        for text in ["0", "-1", "301", "NaN", "inf", "300.000000001", "0.25s"] {
+            let mut draft = crate::capture::CpuCaptureDraft::new(saved.0, saved.1);
+            draft.duration = text.into();
+            assert_eq!(capture_defaults_for_draft(&draft, saved), saved);
+            assert_eq!(
+                draft
+                    .request("run".into(), "device".into(), 42, None)
+                    .unwrap_err(),
+                TextKey::CaptureInvalidDuration
+            );
+            assert_eq!(draft.duration, text);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn system_composable_setting_describes_visibility_and_next_capture() {
+        let implementation = include_str!("settings_page.rs");
+        let inspector = implementation
+            .split("fn settings_inspector(")
+            .nth(1)
+            .unwrap()
+            .split("fn compose_reports_guide(")
+            .next()
+            .unwrap();
+        assert!(inspector.contains("TextKey::SettingsUiShowSystemComposablesHint"));
+        let hint = Language::SimplifiedChinese.text(TextKey::SettingsUiShowSystemComposablesHint);
+        for content in [
+            "系统创建",
+            "Box",
+            "Row",
+            "Column",
+            "关闭后隐藏",
+            "减少层级噪声",
+            "下一次采集或刷新",
+        ] {
+            assert!(
+                hint.contains(content),
+                "missing setting explanation: {content}"
+            );
+        }
+        let english = Language::English.text(TextKey::SettingsUiShowSystemComposablesHint);
+        assert!(english.contains("next capture or refresh"));
+        assert!(english.contains("reduce hierarchy noise"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn compose_report_guide_preserves_copyable_project_snippets() {
+        assert_eq!(
+            COMPOSE_REPORT_CONFIGURATION,
+            "composeCompiler {\n    reportsDestination =\n        layout.buildDirectory.dir(\"compose_compiler\")\n    metricsDestination =\n        layout.buildDirectory.dir(\"compose_compiler\")\n}"
+        );
+        assert_eq!(
+            COMPOSE_REPORT_GENERATE_COMMAND,
+            "./gradlew :app:compileReleaseKotlin"
+        );
+        let implementation = include_str!("settings_page.rs");
+        let inspector = implementation
+            .split("fn settings_inspector(")
+            .nth(1)
+            .unwrap()
+            .split("fn compose_reports_guide(")
+            .next()
+            .unwrap();
+        assert!(inspector.contains(".child(self.compose_reports_guide(&colors, cx))"));
+        let guide = implementation
+            .split("fn compose_reports_guide(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_simpleperf(")
+            .next()
+            .unwrap();
+        for key in [
+            "ComposeReportsPurpose",
+            "ComposeReportsConfigureHint",
+            "ComposeReportsGenerateHint",
+            "ComposeReportsOutputHint",
+            "ComposeReportsImportHint",
+            "ComposeReportsLimitations",
+        ] {
+            assert!(guide.contains(key), "missing guide section: {key}");
+        }
+        assert_eq!(guide.matches(".child(compose_report_code(").count(), 2);
+        let copy = implementation
+            .split("fn compose_report_code(")
+            .nth(1)
+            .unwrap()
+            .split("fn page(")
+            .next()
+            .unwrap();
+        assert!(copy.contains("selectable_keyed(id, code)"));
+        assert!(copy.contains("ClipboardItem::new_string(code.to_owned())"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn compose_report_guide_localizes_description_not_commands() {
+        for language in [Language::English, Language::SimplifiedChinese] {
+            assert!(
+                language
+                    .text(TextKey::ComposeReportsConfigureHint)
+                    .contains("org.jetbrains.kotlin.plugin.compose")
+            );
+            let outputs = language.text(TextKey::ComposeReportsOutputHint);
+            for name in [
+                "*-composables.txt",
+                "*-composables.csv",
+                "*-classes.txt",
+                "*-module.json",
+            ] {
+                assert!(outputs.contains(name), "missing report format {name}");
+            }
+            let generation = language.text(TextKey::ComposeReportsGenerateHint);
+            for command in [":app:assembleRelease", "gradlew.bat", "--rerun-tasks"] {
+                assert!(
+                    generation.contains(command),
+                    "missing generation hint {command}"
+                );
+            }
+        }
+        assert!(
+            Language::English
+                .text(TextKey::ComposeReportsImportHint)
+                .contains("does not scan subfolders")
+        );
+        assert!(
+            Language::SimplifiedChinese
+                .text(TextKey::ComposeReportsImportHint)
+                .contains("不递归扫描子文件夹")
+        );
+        assert_ne!(
+            Language::English.text(TextKey::ComposeReportsPurpose),
+            Language::SimplifiedChinese.text(TextKey::ComposeReportsPurpose)
+        );
+    }
 
     /// Theme colour: no "Custom color" heading, and the value/restore controls
     /// sit in a column right of the picker, separated from the presets.
@@ -1891,17 +2302,27 @@ mod tests {
             "SettingsUiFixed",
             "SettingsUiFollow",
             "SettingsUiNewEngine",
-            "SettingsUiDwarf",
-            "SettingsUiBothScope",
         ] {
             assert!(page.contains(key), "missing Compose section content: {key}");
         }
-        assert!(page.contains("template_row("));
-        assert!(page.contains("colors.strong_border"));
+        assert!(page.contains(r#"Radio::new(("sampling-template", index))"#));
+        assert!(page.contains("capture.apply_template("));
+        // Native Radio controls inherit the shared theme's control border;
+        // this page no longer draws the old choice-chip border itself.
         assert!(page.contains("input_field("));
         // The flame-graph options are single-select radios, not chips.
         assert!(page.contains(r#"Radio::new(("tooltip-mode", 0usize))"#));
         assert!(page.contains(r#"Radio::new(("tooltip-mode", 1usize))"#));
+        assert!(page.contains(r#"Radio::new(("callgraph", index))"#));
+        assert!(page.contains("capture.set_call_graph(mode, cx)"));
+        assert!(page.contains(".checked(draft.call_graph == mode)"));
+        assert!(page.contains(".disabled(!can_edit)"));
+        assert!(page.contains("capture.sampling_inputs()"));
+        assert!(page.contains(".checked(draft.scope == scope)"));
+        assert!(page.contains(".checked(draft.period_mode == period)"));
+        assert!(!page.contains("settings_ui.rate"));
+        assert!(!page.contains("settings_ui.duration"));
+        assert!(!page.contains("SettingsUiAdaptersNotConnected"));
         assert!(page.contains("open-user-guide"));
         assert!(!page.contains("stepper("));
     }

@@ -1,0 +1,17 @@
+{
+  "memory_live_recording": "正在录制所选进程；Trace 时长为 10 秒。取消仅请求停止本次创建的录制会话。",
+  "memory_live_bitmap_recording": "正在转储所选进程的 Bitmap 堆并提取图像，应用可能短暂停顿。取消会停止本次主机传输/提取；Android 端的转储可能仍独立完成。",
+  "memory_live_ai_unavailable": "Native Heap、ART 采样与 Bitmap 图像转储尚未连接 AI 证据导出。保留的 Java 堆不是当前工作区的证据。",
+  "memory_live_published": "真实采集产物已分析并发布；缺失样本仍标为不可用。",
+  "memory_live_exported": "已将校验后的产物导出到所选位置。",
+  "memory_live_capture": "采集所选进程",
+  "memory_live_import": "导入产物…",
+  "memory_live_export": "导出产物…",
+  "memory_live_native_boundary": "10 秒 · 4096 字节采样间隔 · Android 10+。Native 数值是录制区间内的采样分配记账，不是精确分配量或完整存活堆；净值可能为负。",
+  "memory_live_art_boundary": "10 秒 · 4096 字节采样间隔 · Android 12+。仅分析 com.android.art 的正向分配采样：不代表完整覆盖、对象类型、释放、GC 或持有关系。",
+  "memory_live_heap_columns": "PID / UPID · 调用点 · 样本行数 · 加权分配数量 / 字节 · 采样净数量 / 字节 · 叶帧",
+  "memory_live_no_samples": "此页没有分配采样。Trace 非空并不证明具备采样权限或已观测到分配。",
+  "memory_live_bitmap_boundary": "Android 15+ Bitmap.dumpData PNG 图像，由隔离 worker 提取。普通 HPROF 的 Bitmap 实例不等于图像转储。提取有数量与字节上限，省略数量明确展示。",
+  "memory_live_bitmap_summary": "已记录 {recorded} / 已发现 {discovered} · 提取 {images} · 省略 {omitted} · PNG 存储 {bytes} B",
+  "memory_live_target": "采集目标：{serial} 上的 {process}（PID {pid}）"
+}

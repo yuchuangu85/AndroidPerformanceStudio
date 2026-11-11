@@ -1559,6 +1559,18 @@ fn status_bar(this: &TraceWorkspace, colors: &StudioColors) -> AnyElement {
                     .child(crate::studio::selectable(message)),
             );
     }
+    if let Some(timing) = this.import_timing.text(language) {
+        content = content
+            .child(div().w(px(1.)).h(px(12.)).flex_shrink_0().bg(colors.border))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(px(FONT_SUPPORTING))
+                    .text_color(colors.secondary_text)
+                    .whitespace_nowrap()
+                    .child(crate::studio::selectable(timing)),
+            );
+    }
     div()
         .id("trace-status-bar")
         .w_full()

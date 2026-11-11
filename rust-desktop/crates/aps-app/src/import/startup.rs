@@ -1,6 +1,10 @@
-//! Reference-shaped Startup workspace over explicitly imported CSV evidence.
-//! Live experiment configuration and correlated phase evidence are not invented.
+//! Startup workspace over explicit platform experiments and imported CSV evidence.
+//! Missing events and correlated phase evidence are never invented.
+mod capture;
+pub(in crate::import) use capture::StartupCaptureUi;
 mod model;
+mod reports;
+pub(in crate::import) use reports::open_session;
 #[cfg(test)]
 mod tests;
 use super::*;
@@ -55,11 +59,12 @@ pub(super) fn load_page(
     ui.startup_mad = mad;
     Ok(PageData {
         summary: format!(
-            "{} runs · {} unknown observed modes · TTID {} measured · TTFD {} measured",
+            "{} runs · {} unknown observed modes · TTID {} measured · TTFD {} measured · source {}",
             page.summary.runs,
             page.summary.unknown_observed_modes,
             page.summary.ttid.count,
-            page.summary.ttfd.count
+            page.summary.ttfd.count,
+            cohort_origin(session.runs())
         ),
         columns: [
             "Iteration",
@@ -69,6 +74,7 @@ pub(super) fn load_page(
             "TTID ms",
             "TTFD ms",
             "TotalTime ms",
+            "Evidence source",
         ]
         .into_iter()
         .map(str::to_owned)
@@ -90,6 +96,7 @@ pub(super) fn load_page(
                         .map_or_else(String::new, |v| v.to_string()),
                     run.total_time_ms
                         .map_or_else(String::new, |v| v.to_string()),
+                    evidence_origin(run).to_owned(),
                 ]
             })
             .collect(),
@@ -102,7 +109,15 @@ pub(super) fn load_page(
 }
 
 impl ImportWorkspace {
+    fn startup_evidence_is_live(&self) -> bool {
+        matches!(&self.session, Some(Session::Startup(session))
+            if !session.runs().is_empty() && session.runs().iter().all(capture::is_live_run))
+    }
+
     pub(super) fn publish_startup_selection(&mut self) {
+        if let Some(Session::Startup(session)) = &self.session {
+            self.startup_capture.reports.publish(session.clone());
+        }
         if let Some(query) = self
             .page
             .as_ref()
@@ -135,6 +150,7 @@ impl ImportWorkspace {
             return;
         };
         self.cancel.cancel();
+        self.startup_capture.cancel_export();
         self.cancel = CancellationToken::new();
         self.generation += 1;
         self.export_generation += 1;
@@ -178,6 +194,7 @@ impl ImportWorkspace {
     }
 
     pub(super) fn render_startup_workspace(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        self.schedule_startup_comparison(cx);
         let entity = cx.entity();
         container_query(move |size, _, cx| {
             entity.update(cx, |this, cx| this.startup_content(size, cx))
@@ -203,10 +220,11 @@ impl ImportWorkspace {
             .min_w_0()
             .flex_shrink_0()
             .child(self.startup_modes(&colors, cx))
-            .child(scenario(self.language, &colors))
+            .child(self.render_startup_capture_config(&colors, cx))
             .child(metrics(
                 page.map(|page| &page.summary),
                 self.page.as_ref().and_then(|page| page.ui.startup_mad),
+                self.startup_evidence_is_live(),
                 width,
                 self.language,
                 &colors,
@@ -224,19 +242,17 @@ impl ImportWorkspace {
             ));
         }
         main = main
-            .child(waterfall(selected, self.language, &colors))
+            .child(waterfall(
+                selected,
+                match (&self.session, selected) {
+                    (Some(Session::Startup(session)), Some(run)) => session.evidence(&run.id),
+                    _ => None,
+                },
+                self.language,
+                &colors,
+            ))
             .child(self.startup_table(page, width, &colors, cx))
-            .child(
-                studio::card(&colors)
-                    .child(studio::section_title(
-                        self.language.text(TextKey::StartupBaseline),
-                        &colors,
-                    ))
-                    .child(note(
-                        self.language.text(TextKey::StartupBaselineUnavailable),
-                        colors.secondary_text,
-                    )),
-            );
+            .child(self.startup_baseline(&colors));
         let rail = self.startup_rail(selected, page.map(|page| &page.summary), &colors, cx);
         let body = if wide {
             div()
@@ -352,7 +368,7 @@ impl ImportWorkspace {
                     true,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.pick(cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.pick_startup_report(cx))),
             )
             .child(
                 studio::compact_text_button(
@@ -362,7 +378,9 @@ impl ImportWorkspace {
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.save_page(export::Format::Json, cx))),
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.save_startup_page(export::Format::Json, cx)),
+                ),
             )
             .child(
                 studio::compact_text_button(
@@ -372,7 +390,9 @@ impl ImportWorkspace {
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.save_page(export::Format::Csv, cx))),
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.save_startup_page(export::Format::Csv, cx)),
+                ),
             )
             .child(
                 studio::compact_text_button(
@@ -702,7 +722,11 @@ impl ImportWorkspace {
             ));
         }
         profile = profile.child(note(
-            language.text(TextKey::StartupImportedNotice),
+            language.text(if self.startup_evidence_is_live() {
+                TextKey::StartupLiveNotice
+            } else {
+                TextKey::StartupImportedNotice
+            }),
             colors.secondary_text,
         ));
         let mut findings = studio::card(colors).child(studio::section_title(
@@ -775,7 +799,7 @@ impl ImportWorkspace {
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.pick(cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.pick_startup_report(cx))),
             )
             .child(
                 div()
@@ -790,9 +814,9 @@ impl ImportWorkspace {
                             false,
                             colors,
                         )
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.save_page(export::Format::Csv, cx)),
-                        ),
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.save_startup_page(export::Format::Csv, cx)
+                        })),
                     )
                     .child(
                         studio::compact_text_button(
@@ -802,9 +826,9 @@ impl ImportWorkspace {
                             false,
                             colors,
                         )
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.save_page(export::Format::Json, cx)),
-                        ),
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.save_startup_page(export::Format::Json, cx)
+                        })),
                     ),
             )
             .child(note(
@@ -864,71 +888,10 @@ fn agent_label(run: &StartupRun, language: Language) -> &'static str {
     }
 }
 
-fn scenario(language: Language, colors: &studio::StudioColors) -> AnyElement {
-    studio::card(colors)
-        .child(studio::section_title(
-            language.text(TextKey::StartupScenario),
-            colors,
-        ))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .id("startup-scenario-controls")
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .overflow_x_scrollbar()
-                        .children(
-                            [
-                                TextKey::StartupIterations,
-                                TextKey::StartupCompilation,
-                                TextKey::StartupProfile,
-                                TextKey::StartupWarmup,
-                                TextKey::StartupTimeout,
-                                TextKey::StartupThreshold,
-                                TextKey::StartupPerfetto,
-                            ]
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, key)| {
-                                studio::compact_text_button(
-                                    ("startup-config", index),
-                                    language.text(key),
-                                    false,
-                                    false,
-                                    colors,
-                                )
-                                .tooltip(language.text(TextKey::StartupCaptureUnavailable))
-                            }),
-                        ),
-                )
-                .child(
-                    studio::compact_text_button(
-                        "startup-start",
-                        language.text(TextKey::StartupStart),
-                        false,
-                        true,
-                        colors,
-                    )
-                    .tooltip(language.text(TextKey::StartupCaptureUnavailable)),
-                ),
-        )
-        .child(note(
-            language.text(TextKey::StartupConfigurationNotice),
-            colors.secondary_text,
-        ))
-        .into_any_element()
-}
-
 fn metrics(
     summary: Option<&StartupSummary>,
     mad: Option<f64>,
+    live: bool,
     width: f32,
     language: Language,
     colors: &studio::StudioColors,
@@ -1031,7 +994,11 @@ fn metrics(
     }
     panel
         .child(note(
-            language.text(TextKey::StartupImportedNotice),
+            language.text(if live {
+                TextKey::StartupLiveNotice
+            } else {
+                TextKey::StartupImportedNotice
+            }),
             colors.secondary_text,
         ))
         .into_any_element()
@@ -1039,6 +1006,7 @@ fn metrics(
 
 fn waterfall(
     run: Option<&StartupRun>,
+    evidence: Option<&aps_startup::RunEvidence>,
     language: Language,
     colors: &studio::StudioColors,
 ) -> AnyElement {
@@ -1051,6 +1019,21 @@ fn waterfall(
             language.text(TextKey::StartupEmpty),
             colors.secondary_text,
         ));
+    }
+    let phases = evidence.map(|e| e.phases()).unwrap_or_default();
+    if !phases.is_empty() {
+        for phase in phases {
+            panel = panel.child(note(
+                format!(
+                    "{}: {:.3} ms · {:?}",
+                    phase.name,
+                    phase.duration_ns as f64 / 1_000_000.,
+                    phase.confidence
+                ),
+                colors.text,
+            ));
+        }
+        return panel.into_any_element();
     }
     panel = panel.child(note(
         language.text(TextKey::StartupPhasesUnavailable),
@@ -1185,6 +1168,7 @@ fn run_detail(
         let source = match metric.source {
             Some(MetricSource::ImportedCsv) => TextKey::StartupImportedSource,
             Some(MetricSource::EventLog) => TextKey::StartupEventSource,
+            Some(MetricSource::ImportedJson) => TextKey::StartupJsonSource,
             None => TextKey::StartupEvidenceUnavailable,
         };
         panel = panel.child(note(language.text(source), colors.secondary_text));
@@ -1192,7 +1176,9 @@ fn run_detail(
             panel = panel.child(note(bounded(reason, language), colors.warning));
         }
     }
-    let fields = evidence_fields(run);
+    let mut fields = evidence_fields(run);
+    let provenance = capture::provenance_fields(run);
+    fields.extend(provenance.iter().cloned());
     panel = panel.child(studio::section_title(
         language.text(TextKey::StartupEnvironment),
         colors,
@@ -1220,6 +1206,12 @@ fn run_detail(
     for (key, value) in environment {
         panel = panel.child(field_row(evidence_label(key), value, language, colors));
     }
+    for (key, value) in provenance {
+        panel = panel.child(note(
+            format!("{key}: {}", bounded(&value, language)),
+            colors.secondary_text,
+        ));
+    }
     panel = panel.child(studio::section_title(
         language.text(TextKey::StartupTrace),
         colors,
@@ -1228,8 +1220,9 @@ fn run_detail(
         panel = panel.child(field_row(evidence_label(key), value, language, colors));
     }
     let copy = format!(
-        "runId={}\niteration={}\nrequested={:?}\nobserved={:?}\nTotalTime={}\nTTID={}\nTTFD={}\n{}",
+        "runId={}\nevidenceSource={}\niteration={}\nrequested={:?}\nobserved={:?}\nTotalTime={}\nTTID={}\nTTFD={}\n{}",
         bounded(&run.id, language),
+        evidence_origin(run),
         run.iteration,
         run.requested_mode,
         run.observed_mode,

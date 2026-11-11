@@ -314,7 +314,11 @@ impl MemoryState {
         };
     }
 
-    pub(super) fn reset_for_snapshot(&mut self, snapshot: Arc<MemorySnapshot>, label: String) {
+    pub(in crate::import) fn reset_for_snapshot(
+        &mut self,
+        snapshot: Arc<MemorySnapshot>,
+        label: String,
+    ) {
         let history = std::mem::take(&mut self.history);
         let _ = history;
         self.view_mode = MemoryViewMode::Classes;

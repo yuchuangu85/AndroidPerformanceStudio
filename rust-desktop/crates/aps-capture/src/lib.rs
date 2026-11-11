@@ -3,6 +3,7 @@
 //! Cancellation terminates owned host ADB, not an arbitrary remote process.
 mod config;
 mod duration;
+mod perf_data;
 mod remote;
 pub use config::{EventScope, SamplingConfiguration, SamplingRate, SamplingTemplate};
 pub use duration::{
@@ -423,9 +424,9 @@ impl ConfirmedCapture {
         if !result.status.success() || result.stdout.is_empty() {
             return Err("bounded remote artifact read failed".into());
         }
-        if !result.stdout.starts_with(b"PERFILE2") {
-            return Err("simpleperf did not produce a valid perf.data artifact".into());
-        }
+        perf_data::validate(&result.stdout).map_err(|error| {
+            format!("simpleperf produced an invalid perf.data artifact: {error}")
+        })?;
         Ok(result.stdout)
     }
     fn adb(&self, tail: &[&str], timeout: Duration) -> Result<(), String> {

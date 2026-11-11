@@ -6,8 +6,8 @@ pub struct ProfileSummary {
     pub format_version: u16,
     pub record_count: usize,
     pub sample_count: u64,
+    pub reported_sample_count: u64,
     pub lost_sample_count: u64,
-    pub lost_event_count: u64,
     pub total_event_count: u64,
     pub first_timestamp_nanos: Option<u64>,
     pub last_timestamp_nanos: Option<u64>,
@@ -15,6 +15,16 @@ pub struct ProfileSummary {
     pub thread_count: usize,
     pub event_types: Vec<String>,
     pub trace_offcpu: bool,
+}
+
+impl ProfileSummary {
+    pub fn lost_rate(&self) -> f64 {
+        if self.reported_sample_count == 0 {
+            0.0
+        } else {
+            self.lost_sample_count as f64 / self.reported_sample_count as f64
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,8 +74,8 @@ pub fn analyze(stream: &SimpleperfStream) -> AnalysisResult {
     }
 
     let mut sample_count = 0;
+    let mut reported_sample_count: u64 = 0;
     let mut lost_sample_count: u64 = 0;
-    let mut lost_event_count: u64 = 0;
     let mut total_event_count: u64 = 0;
     let mut first_timestamp_nanos = None;
     let mut last_timestamp_nanos = None;
@@ -87,8 +97,8 @@ pub fn analyze(stream: &SimpleperfStream) -> AnalysisResult {
                 sample_count,
                 lost_count,
             } => {
-                lost_sample_count = lost_sample_count.saturating_add(*sample_count);
-                lost_event_count = lost_event_count.saturating_add(*lost_count);
+                reported_sample_count = reported_sample_count.saturating_add(*sample_count);
+                lost_sample_count = lost_sample_count.saturating_add(*lost_count);
             }
             _ => {}
         }
@@ -99,8 +109,8 @@ pub fn analyze(stream: &SimpleperfStream) -> AnalysisResult {
             format_version: stream.version,
             record_count: stream.records.len(),
             sample_count,
+            reported_sample_count,
             lost_sample_count,
-            lost_event_count,
             total_event_count,
             first_timestamp_nanos,
             last_timestamp_nanos,

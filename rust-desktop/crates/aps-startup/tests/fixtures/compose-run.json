@@ -1,0 +1,46 @@
+{
+  "iteration": 1,
+  "runId": "contract",
+  "requestedType": "COLD",
+  "observedType": "COLD",
+  "displayedTimeMs": 100,
+  "fullyDrawnTimeMs": null,
+  "totalTimeMs": 900,
+  "thisTimeMs": 800,
+  "waitTimeMs": 950,
+  "agentAvailable": true,
+  "context": {
+    "deviceLocalId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "packageName": "dev.contract",
+    "componentName": "dev.contract/.MainActivity"
+  },
+  "metricEvidence": {
+    "ttid": {"source": "EVENT_LOG", "confidence": "EXACT", "unavailableReason": null},
+    "ttfd": {"source": null, "confidence": "UNAVAILABLE", "unavailableReason": "No reportFullyDrawn event"}
+  },
+  "compilationEvidence": {
+    "requestedMode": "CURRENT",
+    "compilerFilterAfter": "speed",
+    "profileStateAfter": "present",
+    "verified": true,
+    "profileSource": "UNVERIFIED",
+    "profileSourceDeclared": false
+  },
+  "environmentEvidence": {
+    "deviceModel": "Contract Device",
+    "apiLevel": 35,
+    "emulator": false,
+    "batteryPercent": 80,
+    "charging": false,
+    "thermalStatus": 0,
+    "capturedAt": "2026-11-11T00:00:00Z",
+    "failures": []
+  },
+  "milestones": [
+    {"kind": "ACTIVITY_PRE_CREATE", "elapsedRealtimeNs": 1000000, "source": "AGENT", "confidence": "EXACT"},
+    {"kind": "ACTIVITY_CREATED", "elapsedRealtimeNs": 11000000, "source": "AGENT", "confidence": "ESTIMATED"}
+  ],
+  "rawEvidence": {"amStartOutput": "fixture raw evidence", "eventLogOutput": null, "compilationOutput": null},
+  "warnings": [],
+  "diagnostics": []
+}

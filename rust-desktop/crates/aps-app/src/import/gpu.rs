@@ -1,11 +1,13 @@
 //! GPU Analysis Hub: artifact identities and explicit external-tool operations.
 //! File metadata is never promoted to captured graphics measurements.
+mod catalog;
 mod panels;
 use super::*;
 use aps_gpu::{
     AgiCapability, AgiLaunchMode, AgiToolchain, GpuArtifactIndex, GpuDeviceContext,
     GpuDeviceContextReader, LocationStatus,
 };
+use catalog::{Catalog, CatalogChange};
 use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenuItem},
@@ -53,6 +55,11 @@ pub(super) struct GpuUi {
     device_serial: Option<String>,
     device_cancel: CancellationToken,
     device_generation: u64,
+    import_durations: BTreeMap<String, Duration>,
+    catalog: Option<Catalog>,
+    catalog_started: bool,
+    catalog_failed: bool,
+    catalog_task: Option<u64>,
 }
 impl GpuUi {
     pub fn selected_record(&self) -> Option<&GpuRecord> {
@@ -146,6 +153,9 @@ impl ImportWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if !self.gpu.catalog_started && !self.busy {
+            self.gpu_restore_catalog(cx);
+        }
         let search = self.gpu_search(window, cx);
         let entity = cx.entity();
         container_query(move |size, _, cx| {
@@ -527,7 +537,7 @@ impl ImportWorkspace {
                 studio::compact_text_button(
                     "gpu-import",
                     language.text(TextKey::GpuImportGpuTrace),
-                    !self.busy,
+                    !self.busy && !self.gpu.catalog_failed && self.gpu.catalog_task.is_none(),
                     true,
                     colors,
                 )
@@ -753,10 +763,24 @@ impl ImportWorkspace {
                 colors,
             ));
         }
-        panel = panel.child(list).child(gpu_note(
-            language.text(TextKey::GpuIndexSessionOnly),
-            colors,
-        ));
+        panel = panel.child(list);
+        if self.gpu.catalog_failed {
+            panel = panel
+                .child(gpu_note(
+                    language.text(TextKey::GpuCatalogLoadFailed),
+                    colors,
+                ))
+                .child(
+                    studio::compact_text_button(
+                        "gpu-retry-catalog",
+                        language.text(TextKey::GpuReloadCatalog),
+                        !self.busy,
+                        false,
+                        colors,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.gpu_restore_catalog(cx))),
+                );
+        }
         if visible.len() > GPU_PAGE {
             panel = panel.child(
                 div()
@@ -818,14 +842,27 @@ impl ImportWorkspace {
         (self.generation, self.cancel.clone())
     }
     pub(super) fn gpu_pick(&mut self, relocate: bool, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.busy || self.gpu.catalog_task.is_some() {
             return;
         }
+        if !self.gpu.catalog_started {
+            self.gpu_restore_catalog(cx);
+            return;
+        }
+        if self.gpu.catalog_failed {
+            self.error = Some(TextKey::GpuCatalogLoadFailed.into());
+            cx.notify();
+            return;
+        }
+        let Some(catalog) = self.gpu.catalog.clone() else {
+            return;
+        };
         let record = self.gpu.selected_record().cloned();
         if relocate && record.is_none() {
             return;
         }
         let (generation, cancel) = self.gpu_begin(cx);
+        self.gpu.catalog_task = Some(generation);
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -840,14 +877,13 @@ impl ImportWorkspace {
                     .into(),
             ),
         });
-        let mut index = self.gpu.index.clone();
         cx.spawn(async move |this, cx| {
             let selected = picker.await;
             let path = match selected {
                 Ok(Ok(Some(paths))) if paths.len() == 1 => paths[0].clone(),
                 _ => {
                     this.update(cx, |this, cx| {
-                        if this.generation == generation {
+                        if this.gpu_catalog_finished(generation, cx) {
                             this.busy = false;
                             if matches!(selected, Ok(Err(_))) {
                                 this.error = Some(TextKey::GpuPickerFailed.into());
@@ -859,67 +895,49 @@ impl ImportWorkspace {
                     return;
                 }
             };
+            let started = Instant::now();
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    let digest = if relocate {
-                        let mut artifact =
-                            (*record.expect("relocation requires selection").artifact).clone();
-                        artifact
-                            .relocate(&path, &cancel)
-                            .map_err(|_| UiText::from(TextKey::GpuRelocateMismatch))?;
-                        index
-                            .import(&path, &cancel)
-                            .map_err(|_| UiText::from(TextKey::GpuImportFailed))?
+                    let change = if relocate {
+                        CatalogChange::Relocate(
+                            record
+                                .expect("relocation requires selection")
+                                .artifact
+                                .sha256,
+                            path,
+                        )
                     } else {
-                        index
-                            .import(&path, &cancel)
-                            .map_err(|_| UiText::from(TextKey::GpuImportFailed))?
+                        CatalogChange::Import(path)
                     };
-                    let artifact = index.get(digest).ok_or(TextKey::GpuImportFailed)?.clone();
-                    let resolved = artifact
-                        .resolve_location(&cancel)
-                        .map_err(|_| UiText::from(TextKey::GpuVerifyFailed))?;
-                    if cancel.is_cancelled() {
-                        return Err(TextKey::GpuOperationCancelled.into());
-                    }
-                    Ok::<_, UiText>((index, artifact, resolved.status))
+                    catalog.apply(change, &cancel)
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.generation != generation {
+                if !this.gpu_catalog_finished(generation, cx) {
                     return;
                 }
                 this.busy = false;
                 match outcome {
-                    Ok((index, artifact, status)) => {
-                        let digest = artifact.sha256.to_hex();
-                        this.gpu.index = index;
-                        let old: BTreeMap<_, _> = this
-                            .gpu
-                            .artifacts
-                            .iter()
-                            .map(|record| (record.id(), record.status))
-                            .collect();
-                        this.gpu.artifacts = this
-                            .gpu
-                            .index
-                            .artifacts()
-                            .iter()
-                            .map(|artifact| GpuRecord {
-                                artifact: Arc::new(artifact.clone()),
-                                status: if artifact.sha256.to_hex() == digest {
-                                    Some(status)
-                                } else {
-                                    old.get(&artifact.sha256.to_hex()).copied().flatten()
-                                },
-                            })
-                            .collect();
-                        this.gpu.rail_offset = 0;
-                        this.gpu_select(digest, cx);
-                        this.notice = Some(TextKey::GpuArtifactImported.into());
+                    Ok((snapshot, selected)) => {
+                        let digest = selected
+                            .expect("import and relocation retain selection")
+                            .to_hex();
+                        this.gpu_accept_catalog(snapshot);
+                        this.gpu_select(digest.clone(), cx);
+                        let elapsed = started.elapsed();
+                        this.gpu.import_durations.insert(digest, elapsed);
+                        this.import_duration = Some(elapsed);
+                        this.notice = Some(
+                            if relocate {
+                                TextKey::GpuArtifactRelocated
+                            } else {
+                                TextKey::GpuArtifactImported
+                            }
+                            .into(),
+                        );
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => this.gpu_catalog_error(error),
                 }
                 cx.notify();
             })
@@ -945,6 +963,9 @@ impl ImportWorkspace {
         cx.notify();
     }
     fn gpu_publish_record(&mut self, record: &GpuRecord) {
+        self.path = record.artifact.locations().first().cloned();
+        self.import_duration = self.gpu.import_durations.get(&record.id()).copied();
+        self.import_started = None;
         self.session = Some(Session::Gpu(record.artifact.clone()));
         self.session_id = Some(record.id());
         // AI/export receive only the minimized identity, never the paths or device dumps.
@@ -1280,6 +1301,54 @@ mod tests {
                 .iter()
                 .all(|record| !super::artifact_matches(record, &state.filter))
         );
+    }
+
+    #[test]
+    fn import_cost_follows_the_selected_digest_not_rail_order() {
+        let first = Fixture::new();
+        let second = Fixture::new();
+        let a = first.record("same.pftrace", b"first");
+        let b = second.record("same.pftrace", b"second");
+        let mut workspace =
+            super::ImportWorkspace::new(super::Destination::Gpu, super::Language::English);
+        workspace
+            .gpu
+            .import_durations
+            .insert(a.id(), std::time::Duration::from_millis(123));
+        workspace
+            .gpu
+            .import_durations
+            .insert(b.id(), std::time::Duration::from_secs(2));
+        workspace.gpu_publish_record(&a);
+        assert_eq!(
+            workspace.import_duration_text().as_deref(),
+            Some("Import time: 123 ms")
+        );
+        workspace.gpu_publish_record(&b);
+        assert_eq!(
+            workspace.import_duration_text().as_deref(),
+            Some("Import time: 2.00 s")
+        );
+        workspace.gpu.import_durations.remove(&a.id());
+        workspace.gpu_publish_record(&a);
+        assert_eq!(workspace.import_duration_text(), None);
+    }
+
+    #[test]
+    fn import_clock_finishes_after_the_selected_artifact_page_is_ready() {
+        let source = include_str!("gpu.rs");
+        let import = source
+            .split("fn gpu_pick(")
+            .nth(1)
+            .unwrap()
+            .split("fn gpu_select(")
+            .next()
+            .unwrap();
+        assert!(
+            import.find("this.gpu_select(digest.clone(), cx)").unwrap()
+                < import.find("let elapsed = started.elapsed()").unwrap()
+        );
+        assert!(import.contains("this.import_duration = Some(elapsed)"));
     }
 
     #[test]

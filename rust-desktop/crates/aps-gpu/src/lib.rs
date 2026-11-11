@@ -8,6 +8,7 @@ mod toolchain;
 
 use aps_contracts::SourceDigest;
 use aps_platform::CancellationToken;
+use std::collections::BTreeSet;
 use std::fmt;
 use std::fs::{File, Metadata};
 use std::io::{self, Read, Seek, SeekFrom};
@@ -63,6 +64,7 @@ pub enum GpuError {
     IndexLimit,
     LocationLimit,
     InvalidPage,
+    NotIndexed,
 }
 impl fmt::Display for GpuError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -77,6 +79,7 @@ impl fmt::Display for GpuError {
             Self::IndexLimit => "GPU index exceeds the 10,000-artifact limit",
             Self::LocationLimit => "GPU artifact exceeds the 64-location limit",
             Self::InvalidPage => "GPU page must contain 1 to 200 artifacts",
+            Self::NotIndexed => "GPU artifact is not in the catalog",
         })
     }
 }
@@ -105,6 +108,8 @@ impl GpuArtifact {
         if size_bytes > MAX_ARTIFACT_BYTES
             || locations.is_empty()
             || locations.len() > MAX_LOCATIONS
+            || locations.iter().any(|path| !path.is_absolute())
+            || locations.iter().collect::<BTreeSet<_>>().len() != locations.len()
         {
             return Err(GpuError::InvalidFile);
         }
@@ -287,7 +292,37 @@ impl GpuArtifactIndex {
         if artifacts.len() > MAX_ARTIFACTS {
             return Err(GpuError::IndexLimit);
         }
+        if artifacts
+            .iter()
+            .map(|artifact| artifact.sha256)
+            .collect::<BTreeSet<_>>()
+            .len()
+            != artifacts.len()
+        {
+            return Err(GpuError::InvalidFile);
+        }
         Ok(Self { artifacts })
+    }
+
+    /// Remove only the catalog entry. External evidence files are never deleted.
+    pub fn remove(&mut self, digest: SourceDigest) -> bool {
+        let old_len = self.artifacts.len();
+        self.artifacts.retain(|artifact| artifact.sha256 != digest);
+        self.artifacts.len() != old_len
+    }
+
+    /// Preserve catalog order and classification while rebinding verified content.
+    pub fn relocate(
+        &mut self,
+        digest: SourceDigest,
+        selected_copy: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<(), GpuError> {
+        self.artifacts
+            .iter_mut()
+            .find(|artifact| artifact.sha256 == digest)
+            .ok_or(GpuError::NotIndexed)?
+            .relocate(selected_copy, cancel)
     }
 
     /// Imports and merges duplicate content, preserving the original route/kind

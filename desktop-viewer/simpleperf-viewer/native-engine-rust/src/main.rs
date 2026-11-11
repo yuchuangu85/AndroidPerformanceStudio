@@ -20,9 +20,9 @@ fn run() -> Result<(), String> {
             let result = analyze_path(Path::new(path), input_limit_from_env()?)?;
             let s = result.summary;
             let summary = format!(
-                "formatVersion\t{}\nrecordCount\t{}\nsampleCount\t{}\nlostSampleCount\t{}\nlostEventCount\t{}\ntotalEventCount\t{}\nfileCount\t{}\nthreadCount\t{}\n",
-                s.format_version, s.record_count, s.sample_count, s.lost_sample_count,
-                s.lost_event_count, s.total_event_count, s.file_count, s.thread_count,
+                "formatVersion\t{}\nrecordCount\t{}\nsampleCount\t{}\nreportedSampleCount\t{}\nlostSampleCount\t{}\ntotalEventCount\t{}\nfileCount\t{}\nthreadCount\t{}\n",
+                s.format_version, s.record_count, s.sample_count, s.reported_sample_count,
+                s.lost_sample_count, s.total_event_count, s.file_count, s.thread_count,
             );
             io::stdout()
                 .lock()

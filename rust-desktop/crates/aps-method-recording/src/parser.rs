@@ -1,9 +1,14 @@
 use super::*;
 
+mod standard;
+
 const MAGIC: u32 = 0x574f4c53;
 const HEADER_SIZE: usize = 32;
 
 pub(crate) fn parse(bytes: &[u8], limits: ImportLimits) -> Result<ParsedTrace, ImportError> {
+    if bytes.starts_with(b"*version\n") || bytes.starts_with(b"*version\r\n") {
+        return standard::parse(bytes, limits);
+    }
     let mut reader = Reader::new(bytes, 0);
     if reader.u32()? != MAGIC {
         return Err(reader.error("Not a supported ART method trace (bad SLOW magic)"));
@@ -256,7 +261,17 @@ fn classic(
         }
         reader.position = offset;
     }
-    let count = reader.remaining() / expected;
+    classic_records(reader, trace, limits)
+}
+
+fn classic_records(
+    reader: &mut Reader<'_>,
+    trace: &mut ParsedTrace,
+    limits: ImportLimits,
+) -> Result<(), ImportError> {
+    let dual = trace.header.clock_source == ClockSource::WallAndThreadCpu;
+    let record_size = if dual { 14 } else { 10 };
+    let count = reader.remaining() / record_size;
     if count > limits.max_events {
         return Err(ImportError::new(
             ErrorKind::Limit,

@@ -2,6 +2,7 @@
 //!
 //! All heap analysis runs in the isolated `aps-memory` worker; this module owns
 //! the GPUI state machine, background queries and the Compose-shaped page.
+pub(super) mod advanced;
 pub(super) mod auxiliary;
 pub(super) mod capture;
 pub(super) mod classes;
@@ -721,7 +722,7 @@ impl ImportWorkspace {
     /// runs in release builds and never fabricates evidence: it only selects a
     /// published view/row that a user could select by clicking.
     #[cfg(debug_assertions)]
-    fn memory_debug_seed(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::import) fn memory_debug_seed(&mut self, cx: &mut Context<Self>) {
         let Ok(view) = std::env::var("APS_MEMORY_VIEW") else {
             return;
         };
@@ -794,6 +795,14 @@ impl ImportWorkspace {
     // ---- AI context ----------------------------------------------------
 
     pub(super) fn memory_analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
+        if matches!(
+            self.memory_state.view_mode,
+            MemoryViewMode::NativeHeap | MemoryViewMode::SampledArt | MemoryViewMode::BitmapDump
+        ) {
+            // A retained Java tab is not evidence for the selected sampled
+            // heap/image workspace. Never silently send that other dataset.
+            return Err(self.language.text(TextKey::MemoryLiveAiUnavailable).into());
+        }
         let Some(snapshot) = self.memory_state.snapshot.as_ref() else {
             return Err(self
                 .language

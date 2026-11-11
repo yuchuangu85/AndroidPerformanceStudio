@@ -4,6 +4,7 @@ package com.androidperformancestudio.network.agent
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import androidx.startup.Initializer
 import com.androidperformancestudio.network.model.NetworkUrlRedactor
 import com.androidperformancestudio.network.protocol.AgentCommand
@@ -28,7 +29,6 @@ import java.net.Proxy
 import java.net.ServerSocket
 import java.util.Collections
 import java.util.IdentityHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 public class NetworkProfilerInitializer : Initializer<Unit> {
@@ -36,8 +36,23 @@ public class NetworkProfilerInitializer : Initializer<Unit> {
     override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
 }
 
+/** Fixed, non-sensitive startup diagnostics; no tokens, paths or exception messages. */
+public enum class NetworkProfilerStatus {
+    NOT_STARTED,
+    RUNNING,
+    BIND_FAILED,
+    TOKEN_PUBLICATION_FAILED,
+    LISTENER_FAILED,
+    START_FAILED,
+}
+
 public object NetworkProfiler {
     private val nextInstrumentationId = AtomicLong()
+
+    /** Explicit retry after a startup failure, for example a fixed-port conflict. */
+    public fun start(context: Context): NetworkProfilerStatus = NetworkAgentServer.start(context.applicationContext)
+
+    public fun status(): NetworkProfilerStatus = NetworkAgentServer.status
 
     public fun eventListenerFactory(existingFactory: EventListener.Factory? = null): EventListener.Factory {
         val instrumentationId = "okhttp-factory-${nextInstrumentationId.incrementAndGet()}"
@@ -96,7 +111,11 @@ private object ConnectionIdentities {
 }
 
 private class ProfilerEventListener(private val call: Call, private val instrumentationId: String) : EventListener() {
-    private val callId = Integer.toHexString(System.identityHashCode(call)) + "-" + System.nanoTime().toString(16)
+    private companion object {
+        val nextCallId = AtomicLong()
+    }
+
+    private val callId = "c-${nextCallId.incrementAndGet().toString(16)}"
 
     private fun event(
         kind: String,
@@ -195,23 +214,99 @@ private class CompositeEventListener(private val delegate: EventListener?, priva
 }
 
 private object NetworkAgentServer {
-    private val started = AtomicBoolean()
+    private var ownedServer: ServerSocket? = null
+    @Volatile var status: NetworkProfilerStatus = NetworkProfilerStatus.NOT_STARTED
+        private set
 
-    fun start(context: Context) {
-        if (!started.compareAndSet(false, true)) return
-        val directory = File(context.filesDir, "aps-network").apply { mkdirs() }
-        val tokenFile = File(directory, "token")
-        val token = ByteArray(32).also(java.security.SecureRandom()::nextBytes).let { bytes -> Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
-        tokenFile.writeText(token)
-        Thread({ serve(token) }, "aps-network-agent").apply { isDaemon = true; start() }
+    @Synchronized fun start(context: Context): NetworkProfilerStatus {
+        if (ownedServer != null) return status
+        var server: ServerSocket? = null
+        var tokenFile: File? = null
+        var token: String? = null
+        var failure = NetworkProfilerStatus.START_FAILED
+        try {
+            failure = NetworkProfilerStatus.BIND_FAILED
+            val listener = ServerSocket().also { server = it }
+            listener.reuseAddress = true
+            listener.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), NETWORK_AGENT_PORT))
+
+            failure = NetworkProfilerStatus.TOKEN_PUBLICATION_FAILED
+            val directory = File(context.filesDir, "aps-network")
+            check(directory.isDirectory || directory.mkdirs())
+            val publishedFile = File(directory, "token").also { tokenFile = it }
+            val publishedToken = ByteArray(32).also(java.security.SecureRandom()::nextBytes).let { bytes ->
+                Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            }.also { token = it }
+            // Bind first: another process of the same App can share filesDir,
+            // so a failed bind must never replace/delete that process's token.
+            publishToken(publishedFile, publishedToken)
+            failure = NetworkProfilerStatus.START_FAILED
+            ownedServer = listener
+            status = NetworkProfilerStatus.RUNNING
+            Thread({ serve(listener, publishedFile, publishedToken) }, "aps-network-agent").apply {
+                isDaemon = true
+                start()
+            }
+        } catch (_: Exception) {
+            // Remove only our publication, while still holding our bound port.
+            // The next start can retry; no permanent started=true latch remains.
+            tokenFile?.let { file -> token?.let { ownToken -> removeOwnedToken(file, ownToken) } }
+            runCatching { server?.close() }
+            ownedServer = null
+            reportFailure(failure)
+        }
+        return status
     }
 
-    private fun serve(token: String) {
-        runCatching {
-            ServerSocket().use { server ->
-                server.reuseAddress = true
-                server.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), NETWORK_AGENT_PORT))
-                while (true) server.accept().use { socket -> handle(socket.getInputStream(), socket.getOutputStream(), token) }
+    private fun publishToken(tokenFile: File, token: String) {
+        val temporary = File.createTempFile("token-${android.os.Process.myPid()}-", ".tmp", tokenFile.parentFile)
+        try {
+            temporary.writeText(token, Charsets.US_ASCII)
+            check(temporary.renameTo(tokenFile))
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    private fun removeOwnedToken(tokenFile: File, token: String) {
+        val removedOrNotOwned = runCatching {
+            if (tokenFile.length() == token.length.toLong() && tokenFile.readText(Charsets.US_ASCII) == token) {
+                tokenFile.delete()
+            } else {
+                true
+            }
+        }.getOrDefault(false)
+        if (!removedOrNotOwned) {
+            Log.w("APSNetworkAgent", "Network Agent unavailable: TOKEN_CLEANUP_FAILED")
+        }
+    }
+
+    private fun reportFailure(failure: NetworkProfilerStatus) {
+        status = failure
+        Log.w("APSNetworkAgent", "Network Agent unavailable: ${failure.name}")
+    }
+
+    private fun serve(server: ServerSocket, tokenFile: File, token: String) {
+        try {
+            while (true) {
+                val client = server.accept()
+                // EOF, a truncated frame or a failed client write ends only
+                // that client, not the authenticated listener or its token.
+                runCatching {
+                    client.use { socket ->
+                        socket.soTimeout = 10_000
+                        handle(socket.getInputStream(), socket.getOutputStream(), token)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            synchronized(this) {
+                if (ownedServer === server) {
+                    removeOwnedToken(tokenFile, token)
+                    runCatching { server.close() }
+                    ownedServer = null
+                    reportFailure(NetworkProfilerStatus.LISTENER_FAILED)
+                }
             }
         }
     }

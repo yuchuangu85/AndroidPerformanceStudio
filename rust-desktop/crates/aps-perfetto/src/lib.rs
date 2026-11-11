@@ -24,6 +24,8 @@ mod csv;
 pub mod diagnostics;
 pub mod findings;
 pub mod frame_timeline;
+pub mod heap_profile;
+pub mod recording;
 pub mod search;
 
 pub use diagnostics::{

@@ -14,6 +14,7 @@ mod rail;
 mod table;
 mod trend;
 
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_ai::AnalysisRequest;
 use aps_benchmark::{
@@ -29,7 +30,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const STORE_FILE: &str = "benchmark.db";
@@ -41,6 +42,52 @@ const METRIC_OPTION_LIMIT: usize = 200;
 const MAX_ORCHESTRATION_OUTPUT: usize = 1_000_000;
 const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(400);
 
+/// The bounded initial trend projection is prepared with the imported run, so
+/// timing does not stop at parsing while selector/history work is still pending.
+struct MetricPublication {
+    metrics: Vec<model::MetricOption>,
+    selected: Option<String>,
+    trend: Option<model::Trend>,
+}
+
+impl MetricPublication {
+    fn read(store: &BenchmarkStore, wanted: Option<String>) -> Result<Self, String> {
+        let stored = store.list_metric_keys(METRIC_OPTION_LIMIT)?;
+        let metrics: Vec<model::MetricOption> = stored
+            .iter()
+            .map(model::MetricOption::from_stored)
+            .collect();
+        let selected = wanted
+            .filter(|key| metrics.iter().any(|option| &option.key == key))
+            .or_else(|| metrics.first().map(|option| option.key.clone()));
+        let trend = selected
+            .as_ref()
+            .and_then(|key| metrics.iter().find(|option| &option.key == key))
+            .map(|option| {
+                store
+                    .metric_history(
+                        &option.case_identity,
+                        &option.metric_name,
+                        model::TREND_WINDOW,
+                    )
+                    .map(|points| model::build_trend(option, &points))
+            })
+            .transpose()?
+            .flatten();
+        Ok(Self {
+            metrics,
+            selected,
+            trend,
+        })
+    }
+
+    fn publish(self, state: &mut model::BenchmarkReportsState) {
+        state.metrics = self.metrics;
+        state.selected_metric = self.selected;
+        state.trend = self.trend;
+    }
+}
+
 /// Emitted when the page asks the shell to show a benchmark trace artifact.
 #[derive(Clone, Debug)]
 pub struct OpenBenchmarkTrace(pub Option<PathBuf>);
@@ -48,6 +95,7 @@ pub struct OpenBenchmarkTrace(pub Option<PathBuf>);
 /// Live Macrobenchmark process state. The dialog renders it; this workspace owns it because the
 /// process and its cancellation/timeout live here.
 pub(in crate::benchmark) struct OrchestrationRun {
+    generation: u64,
     pub running: bool,
     pub output: Arc<Mutex<String>>,
     pub cancel: Arc<AtomicBool>,
@@ -57,6 +105,7 @@ pub(in crate::benchmark) struct OrchestrationRun {
 impl Default for OrchestrationRun {
     fn default() -> Self {
         Self {
+            generation: 0,
             running: false,
             output: Arc::new(Mutex::new(String::new())),
             cancel: Arc::new(AtomicBool::new(false)),
@@ -66,6 +115,7 @@ impl Default for OrchestrationRun {
 }
 
 pub struct BenchmarkWorkspace {
+    selected_device_serial: Option<String>,
     pub(in crate::benchmark) language: Language,
     /// `<settings parent>/benchmark`: run store, report index and exported reports live here.
     pub(in crate::benchmark) data_dir: Option<PathBuf>,
@@ -93,6 +143,7 @@ impl BenchmarkWorkspace {
             .and_then(Path::parent)
             .map(|root| root.join("benchmark"));
         let mut this = Self {
+            selected_device_serial: None,
             language,
             data_dir,
             state: model::BenchmarkReportsState::default(),
@@ -310,28 +361,7 @@ impl BenchmarkWorkspace {
         let wanted = self.state.selected_metric.clone();
         let task = cx.background_executor().spawn(async move {
             let store = BenchmarkStore::open(&store_path)?;
-            let stored = store.list_metric_keys(METRIC_OPTION_LIMIT)?;
-            let options: Vec<model::MetricOption> = stored
-                .iter()
-                .map(model::MetricOption::from_stored)
-                .collect();
-            let selected = wanted
-                .filter(|key| options.iter().any(|option| &option.key == key))
-                .or_else(|| options.first().map(|option| option.key.clone()));
-            let trend = selected
-                .as_ref()
-                .and_then(|key| options.iter().find(|option| &option.key == key))
-                .and_then(|option| {
-                    let points = store
-                        .metric_history(
-                            &option.case_identity,
-                            &option.metric_name,
-                            model::TREND_WINDOW,
-                        )
-                        .ok()?;
-                    model::build_trend(option, &points)
-                });
-            Ok::<_, String>((options, selected, trend))
+            MetricPublication::read(&store, wanted)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -340,11 +370,7 @@ impl BenchmarkWorkspace {
                     return;
                 }
                 match result {
-                    Ok((metrics, selected, trend)) => {
-                        this.state.metrics = metrics;
-                        this.state.selected_metric = selected;
-                        this.state.trend = trend;
-                    }
+                    Ok(metrics) => metrics.publish(&mut this.state),
                     Err(error) => this.state.error = Some(error),
                 }
                 cx.notify();
@@ -396,35 +422,53 @@ impl BenchmarkWorkspace {
             self.no_persistence(cx);
             return;
         };
+        let Some(report_path) = self.report_index_path() else {
+            return;
+        };
         self.state.busy = true;
+        let started = Instant::now();
         self.state.message = None;
         self.state.error = None;
         let generation = {
             self.options_generation += 1;
             self.options_generation
         };
+        self.trend_generation += 1;
+        let trend_generation = self.trend_generation;
+        let wanted = self.state.selected_metric.clone();
         let task = cx.background_executor().spawn(async move {
             let run = BenchmarkRun::open(&path, MAX_IMPORT_BYTES)?;
             let store = BenchmarkStore::open(&store_path)?;
             store.save(&run)?;
-            Ok::<_, String>(run)
+            let runs = store
+                .list_recent(RUN_OPTION_LIMIT)?
+                .iter()
+                .map(model::RunOption::from_stored)
+                .collect::<Vec<_>>();
+            let reports = BenchmarkReportIndex::new(report_path).load();
+            let metrics = MetricPublication::read(&store, wanted)?;
+            Ok::<_, String>((run, runs, reports, metrics))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                this.state.busy = false;
                 if this.options_generation != generation {
                     return;
                 }
+                this.state.busy = false;
                 match result {
-                    Ok(run) => {
+                    Ok((run, runs, reports, metrics)) => {
+                        this.state.run_options = runs;
+                        this.state.recent_reports = reports;
+                        if this.trend_generation == trend_generation {
+                            metrics.publish(&mut this.state);
+                        }
                         this.state.message = Some(this.format(
                             TextKey::BenchmarkImportedCurrent,
                             &[("label", &display_name(&run.source_path))],
                         ));
                         this.state.error = None;
-                        this.refresh_options(cx);
-                        this.refresh_metrics(cx);
+                        this.state.import_timing = ImportTiming::completed(started);
                     }
                     Err(error) => {
                         this.state.error =
@@ -473,9 +517,41 @@ impl BenchmarkWorkspace {
         self.load_generation += 1;
         let generation = self.load_generation;
         let path = PathBuf::from(&option.source_path);
-        let task = cx
-            .background_executor()
-            .spawn(async move { BenchmarkRun::open(&path, MAX_IMPORT_BYTES).map(Arc::new) });
+        let started = Instant::now();
+        let opposite = if as_baseline {
+            self.state.current.clone()
+        } else {
+            self.state.baseline.clone()
+        };
+        let policy = self.state.regression_policy.clone();
+        let gate_policy = self.state.gate_policy.clone();
+        let task_policy = policy.clone();
+        let task_gate_policy = gate_policy.clone();
+        let store_path = self.store_path();
+        let wanted = self.state.selected_metric.clone();
+        self.trend_generation += 1;
+        let trend_generation = self.trend_generation;
+        let task = cx.background_executor().spawn(async move {
+            let run = Arc::new(BenchmarkRun::open(&path, MAX_IMPORT_BYTES)?);
+            let comparison = opposite
+                .map(|opposite| {
+                    let report = if as_baseline {
+                        compare(&run, &opposite, &task_policy)?
+                    } else {
+                        compare(&opposite, &run, &task_policy)?
+                    };
+                    let gate = evaluate_gate(&report, &task_gate_policy);
+                    Ok::<_, String>((Arc::new(report), gate))
+                })
+                .transpose()?;
+            let metrics = store_path
+                .map(|path| {
+                    let store = BenchmarkStore::open(&path)?;
+                    MetricPublication::read(&store, wanted)
+                })
+                .transpose()?;
+            Ok::<_, String>((run, comparison, metrics))
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -484,23 +560,49 @@ impl BenchmarkWorkspace {
                 }
                 this.state.busy = false;
                 match result {
-                    Ok(run) => {
+                    Ok((run, comparison, metrics)) => {
                         if as_baseline {
                             this.state.baseline_id = Some(id);
                             this.state.baseline = Some(run);
-                            #[cfg(debug_assertions)]
-                            if let Some(current) = this.debug_demo_current.take() {
-                                this.select_current(current, cx);
-                                return;
-                            }
                         } else {
                             this.state.current_id = Some(id);
                             this.state.current = Some(run);
                         }
+                        if this.trend_generation == trend_generation {
+                            if let Some(metrics) = metrics {
+                                metrics.publish(&mut this.state);
+                            }
+                        }
+                        let policy_changed = this.state.regression_policy != policy
+                            || this.state.gate_policy != gate_policy;
+                        if let Some((report, gate)) = comparison {
+                            if !policy_changed {
+                                this.state.report = Some(report);
+                                this.state.gate = Some(gate);
+                                this.state.reconcile_selection();
+                            }
+                        }
                         this.state.error = None;
-                        if this.state.baseline.is_some() && this.state.current.is_some() {
+                        this.state.import_timing = ImportTiming::completed(started);
+                        #[cfg(debug_assertions)]
+                        if as_baseline {
+                            if let Some(current) = this.debug_demo_current.take() {
+                                this.select_current(current, cx);
+                                return;
+                            }
+                        }
+                        if policy_changed
+                            && this.state.baseline.is_some()
+                            && this.state.current.is_some()
+                        {
+                            // A later user policy edit is separate work, not part
+                            // of the initial import whose projection is now ready.
                             this.compare(cx);
                         } else {
+                            #[cfg(debug_assertions)]
+                            if this.state.report.is_some() {
+                                this.maybe_debug_after_report(cx);
+                            }
                             cx.notify();
                         }
                     }
@@ -754,6 +856,18 @@ impl BenchmarkWorkspace {
 
     // ---------------- orchestration ----------------
 
+    pub(crate) fn set_shared_device(&mut self, serial: Option<String>, cx: &mut Context<Self>) {
+        if self.selected_device_serial != serial {
+            self.orchestration.generation = self.orchestration.generation.wrapping_add(1);
+            // Stop only the owned Gradle process when the approved target changes.
+            if self.orchestration.running {
+                self.orchestration.cancel.store(true, Ordering::SeqCst);
+            }
+            self.selected_device_serial = serial;
+            cx.notify();
+        }
+    }
+
     pub(in crate::benchmark) fn orchestration_open(&mut self, cx: &mut Context<Self>) {
         if self.orchestration.running {
             return;
@@ -773,7 +887,7 @@ impl BenchmarkWorkspace {
     /// Run the same plan the APS CLI macro-run executes, streaming output into the dialog.
     pub(in crate::benchmark) fn start_orchestration(
         &mut self,
-        plan: MacrobenchmarkPlan,
+        mut plan: MacrobenchmarkPlan,
         result_json: Option<String>,
         timeout_secs: u64,
         cx: &mut Context<Self>,
@@ -781,6 +895,15 @@ impl BenchmarkWorkspace {
         if self.orchestration.running {
             return;
         }
+        let Some(serial) = self.selected_device_serial.clone() else {
+            self.orchestration.status = Some(
+                self.text(TextKey::BenchmarkSelectDeviceBeforeRun)
+                    .to_string(),
+            );
+            cx.notify();
+            return;
+        };
+        plan.device_serial = Some(serial);
         let command = match build_command(&plan) {
             Ok(command) => command,
             Err(error) => {
@@ -789,6 +912,8 @@ impl BenchmarkWorkspace {
                 return;
             }
         };
+        self.orchestration.generation = self.orchestration.generation.wrapping_add(1);
+        let generation = self.orchestration.generation;
         self.orchestration.running = true;
         self.orchestration.cancel.store(false, Ordering::SeqCst);
         if let Ok(mut buffer) = self.orchestration.output.lock() {
@@ -814,6 +939,12 @@ impl BenchmarkWorkspace {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.orchestration.running = false;
+                if this.orchestration.generation != generation {
+                    this.orchestration.status =
+                        Some(this.text(TextKey::BenchmarkOrchestrateCancelled).to_owned());
+                    cx.notify();
+                    return;
+                }
                 let status = if result.cancelled {
                     this.text(TextKey::BenchmarkOrchestrateCancelled)
                 } else if result.timed_out {
@@ -888,6 +1019,8 @@ impl BenchmarkWorkspace {
                 }
                 match result {
                     Ok((run, located)) => {
+                        // This is generated capture output, not a user import.
+                        this.state.import_timing.clear();
                         this.orchestration.status = Some(this.format(
                             TextKey::BenchmarkOrchestrateImported,
                             &[("path", &display_name(&located))],
@@ -1101,6 +1234,113 @@ impl NoticeSource for BenchmarkWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn import_clock_publishes_on_success_and_generated_results_clear_it() {
+        let source = include_str!("benchmark.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        for function in ["fn import_benchmark_path(", "fn load_run("] {
+            let body = source
+                .split(function)
+                .nth(1)
+                .unwrap()
+                .split(".detach();")
+                .next()
+                .unwrap();
+            assert!(body.contains("let started = Instant::now()"));
+            assert!(body.contains("MetricPublication::read(&store, wanted)"));
+            let publication = body.split("match result {").nth(1).unwrap();
+            assert!(
+                publication
+                    .find("metrics.publish(&mut this.state)")
+                    .unwrap()
+                    < publication
+                        .find("this.state.import_timing = ImportTiming::completed(started)")
+                        .unwrap()
+            );
+            assert!(
+                !body
+                    .split("Err(error) =>")
+                    .nth(1)
+                    .unwrap()
+                    .contains("import_timing")
+            );
+        }
+        let file_import = source
+            .split("fn import_benchmark_path(")
+            .nth(1)
+            .unwrap()
+            .split("pub(in crate::benchmark) fn select_baseline(")
+            .next()
+            .unwrap();
+        assert!(
+            file_import
+                .split_whitespace()
+                .collect::<String>()
+                .contains("store.list_recent(RUN_OPTION_LIMIT)")
+        );
+        assert!(file_import.contains("BenchmarkReportIndex::new(report_path).load()"));
+        assert!(
+            file_import.find("this.state.run_options = runs").unwrap()
+                < file_import
+                    .find("this.state.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        assert!(!file_import.contains("this.refresh_options(cx)"));
+        assert!(!file_import.contains("this.refresh_metrics(cx)"));
+        let selected = source
+            .split("fn load_run(")
+            .nth(1)
+            .unwrap()
+            .split("/// Compare the selected runs")
+            .next()
+            .unwrap();
+        assert!(selected.contains("compare(&run, &opposite, &task_policy)"));
+        assert!(selected.contains("compare(&opposite, &run, &task_policy)"));
+        assert!(
+            selected.find("this.state.report = Some(report)").unwrap()
+                < selected
+                    .find("this.state.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        let generated = source
+            .split("fn import_orchestration_result(")
+            .nth(1)
+            .unwrap();
+        assert!(generated.contains("this.state.import_timing.clear()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn trend_publication_does_not_overwrite_the_last_valid_import_clock() {
+        let timing = ImportTiming::from_duration(Duration::from_millis(1234));
+        let mut state = model::BenchmarkReportsState {
+            import_timing: timing,
+            selected_metric: Some("previous".into()),
+            ..Default::default()
+        };
+        MetricPublication {
+            metrics: Vec::new(),
+            selected: None,
+            trend: None,
+        }
+        .publish(&mut state);
+        assert_eq!(state.import_timing, timing);
+        assert!(state.selected_metric.is_none());
+        let source = include_str!("benchmark.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let refresh = source
+            .split("fn refresh_metrics(")
+            .nth(1)
+            .unwrap()
+            .split("// ---------------- import")
+            .next()
+            .unwrap();
+        assert!(!refresh.contains("import_timing"));
+    }
 
     #[::core::prelude::v1::test]
     fn report_title_prefers_build_version_then_file_name() {

@@ -1,6 +1,10 @@
-//! Offline ART method-event workspace. Import and page projection stay off the
+//! ART method-event workspace. Capture, import and page projection stay off the
 //! UI thread. Generation checks also cover the picker, so closing never allows
 //! an earlier selection/import completion to reopen a trace.
+mod capture;
+mod live;
+
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_method_recording::{
     ClockSource, DiagnosticKind, DurationTotals, ImportLimits, MethodId, MethodRecordingSession,
@@ -9,13 +13,13 @@ use aps_method_recording::{
 use aps_ui_foundation::{Language, TextKey, typography};
 use gpui_kit::{
     component::{
-        ActiveTheme, Disableable, Selectable,
+        ActiveTheme, Disableable, IconName, Selectable,
         button::{Button, ButtonVariants},
     },
     prelude::*,
     *,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 const ROW_PAGE: usize = 100;
 const THREAD_PAGE: usize = 32;
@@ -72,6 +76,7 @@ pub struct MethodWorkspace {
     language: Language,
     session: Option<Arc<MethodRecordingSession>>,
     path: Option<PathBuf>,
+    import_timing: ImportTiming,
     threads: Option<Page<Thread>>,
     selected_thread: Option<ThreadId>,
     view: MethodView,
@@ -80,6 +85,7 @@ pub struct MethodWorkspace {
     busy: bool,
     generation: u64,
     error: Option<String>,
+    capture: live::LiveCaptureUi,
 }
 
 impl MethodWorkspace {
@@ -88,6 +94,7 @@ impl MethodWorkspace {
             language,
             session: None,
             path: None,
+            import_timing: ImportTiming::default(),
             threads: None,
             selected_thread: None,
             view: MethodView::TopMethods,
@@ -96,6 +103,7 @@ impl MethodWorkspace {
             busy: false,
             generation: 0,
             error: None,
+            capture: live::LiveCaptureUi::default(),
         }
     }
     pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {
@@ -155,7 +163,7 @@ impl MethodWorkspace {
             .collect();
         request(
             "method-recording",
-            "Current bounded offline ART method projection; no source path or raw event payload.",
+            "Current bounded ART method projection; no source path or raw event payload. Capture completeness is not assumed.",
             &format!(
                 "{} rows of {} in {}",
                 page.rows.len(),
@@ -184,9 +192,12 @@ impl MethodWorkspace {
     }
 
     pub fn pick(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.busy || self.capture.control.is_some() {
             return;
         }
+        self.capture.status = None;
+        self.capture.saved = None;
+        self.capture.warning = None;
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
         self.busy = true;
@@ -229,7 +240,20 @@ impl MethodWorkspace {
         .detach();
         cx.notify();
     }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn open_debug_trace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.busy || self.capture.control.is_some() {
+            return;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        self.busy = true;
+        self.error = None;
+        self.open(path, self.generation, cx);
+    }
+
     fn open(&mut self, path: PathBuf, generation: u64, cx: &mut Context<Self>) {
+        let started = Instant::now();
         let language = self.language;
         let task = cx.background_executor().spawn(async move {
             let session = Arc::new(
@@ -258,8 +282,15 @@ impl MethodWorkspace {
                         this.selected_thread = None;
                         this.view = MethodView::TopMethods;
                         this.stack = None;
+                        this.import_timing = ImportTiming::completed(started);
+                        if this.capture.status == Some(TextKey::MethodCaptureImporting) {
+                            this.capture.status = Some(TextKey::MethodCaptureCompleted);
+                        }
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => {
+                        this.capture.status = None;
+                        this.error = Some(error);
+                    }
                 }
                 // A language change while work was pending cannot publish old
                 // column labels into the newly selected language.
@@ -441,6 +472,12 @@ impl MethodWorkspace {
         }
     }
     fn close(&mut self, cx: &mut Context<Self>) {
+        if let Some(control) = &self.capture.control {
+            control.cancel.cancel();
+        }
+        self.capture.status = None;
+        self.capture.saved = None;
+        self.capture.warning = None;
         // Reads/replay are input-bounded but not cooperatively interruptible.
         // Drop every UI reference and reject any pending picker/import/page
         // result. A bounded background task can finish without publishing.
@@ -448,6 +485,7 @@ impl MethodWorkspace {
         self.busy = false;
         self.session = None;
         self.path = None;
+        self.import_timing.clear();
         self.threads = None;
         self.selected_thread = None;
         self.view = MethodView::TopMethods;
@@ -483,14 +521,24 @@ impl Render for MethodWorkspace {
                         Button::new("method-close")
                             .label(lang.text(TextKey::CommonClose))
                             .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+                    )
+                    .child(
+                        Button::new("method-ai")
+                            .label(lang.text(TextKey::ShellPrepareAiAnalysis))
+                            .disabled(busy || self.session.is_none())
+                            .on_click(cx.listener(|_, _, window, cx| {
+                                window
+                                    .dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx);
+                            })),
                     ),
             )
+            .child(self.capture_toolbar(cx))
             .child(
                 div()
                     .text_size(px(typography::SUPPORTING))
                     .text_color(cx.theme().muted_foreground)
                     .child(crate::studio::selectable(
-                        lang.text(TextKey::MethodOfflineLocalInputBoundedMethodEventsNot),
+                        lang.text(TextKey::MethodCaptureBoundary),
                     )),
             )
             .child(
@@ -508,9 +556,30 @@ impl Render for MethodWorkspace {
                     .child(crate::studio::selectable(path.display().to_string())),
             );
         }
-        if busy {
+        if busy && self.capture.control.is_none() {
             body = body.child(crate::studio::selectable(
                 lang.text(TextKey::MethodReadingReplayingQuerying),
+            ));
+        }
+        body = body.child(crate::studio::selectable(self.capture_status()));
+        if let Some(error) = &self.error {
+            body = body.child(
+                div()
+                    .text_color(cx.theme().danger)
+                    .child(crate::studio::selectable(error.clone())),
+            );
+        }
+        if let Some(path) = &self.capture.saved {
+            body = body.child(crate::studio::selectable(lang.format(
+                TextKey::MethodCaptureArtifactSaved,
+                &[("path", &path.display())],
+            )));
+        }
+        if let Some(path) = &self.capture.warning {
+            body = body.child(div().text_color(cx.theme().warning).child(
+                crate::studio::selectable(
+                    lang.format(TextKey::MethodCaptureCleanupWarning, &[("path", path)]),
+                ),
             ));
         }
         if let Some(session) = &self.session {
@@ -805,10 +874,57 @@ impl Render for MethodWorkspace {
         }
         if self.session.is_none() && !busy {
             body = body.child(crate::studio::selectable(
-                lang.text(TextKey::MethodImportASupportedLocalArtArtifactTo),
+                lang.text(TextKey::MethodCaptureEmptyState),
             ));
         }
-        body
+        let mut status = div()
+            .id("method-status-bar")
+            .h(px(25.))
+            .w_full()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(8.))
+            .border_t_1()
+            .border_color(cx.theme().border)
+            .overflow_x_scroll()
+            .text_size(px(typography::SUPPORTING))
+            .text_color(cx.theme().muted_foreground)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(crate::studio::selectable(self.path.as_ref().map_or_else(
+                        || lang.text(TextKey::MethodImportFirst).to_owned(),
+                        |path| path.display().to_string(),
+                    ))),
+            );
+        if let Some(timing) = self.import_timing.text(lang) {
+            status = status.child(
+                div()
+                    .flex_shrink_0()
+                    .whitespace_nowrap()
+                    .child(crate::studio::selectable(timing)),
+            );
+        }
+        div()
+            .id("method-workspace")
+            .size_full()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("method-workspace-scroller")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(body),
+            )
+            .child(status)
     }
 }
 
@@ -1098,6 +1214,7 @@ fn clock_label(clock: ClockSource, lang: Language) -> &'static str {
             lang.text(TextKey::MethodPrimaryUnspecifiedSingleClockNotAssumedWall)
         }
         ClockSource::WallAndThreadCpu => lang.text(TextKey::MethodPrimaryWallSeparateThreadCpu),
+        ClockSource::Wall => lang.text(TextKey::MethodPrimaryWall),
     }
 }
 fn diagnostic_label(kind: DiagnosticKind, lang: Language) -> &'static str {
@@ -1215,5 +1332,77 @@ impl NoticeSource for MethodWorkspace {
         notices.retain(|notice| !notice.message.trim().is_empty());
         notices.truncate(8);
         notices
+    }
+}
+
+#[cfg(test)]
+mod import_timing_tests {
+    #[::core::prelude::v1::test]
+    fn method_import_time_is_not_a_picker_or_query_duration() {
+        let source = include_str!("method.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let picker = source
+            .split("pub fn pick(")
+            .nth(1)
+            .unwrap()
+            .split("fn open(")
+            .next()
+            .unwrap();
+        assert!(!picker.contains("Instant::now()"));
+        let import = source
+            .split("fn open(")
+            .nth(1)
+            .unwrap()
+            .split("fn load(")
+            .next()
+            .unwrap();
+        assert!(
+            import.find("let started = Instant::now()").unwrap()
+                < import.find("MethodRecordingSession::import_file").unwrap()
+        );
+        assert!(
+            import.find("if this.generation != generation").unwrap()
+                < import
+                    .find("this.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        assert!(
+            !import
+                .split("Err(error) =>")
+                .nth(1)
+                .unwrap()
+                .contains("import_timing")
+        );
+        let query = source
+            .split("fn load(")
+            .nth(1)
+            .unwrap()
+            .split("fn choose_thread(")
+            .next()
+            .unwrap();
+        assert!(!query.contains("import_timing"));
+        let close = source
+            .split("fn close(")
+            .nth(1)
+            .unwrap()
+            .split("impl Render")
+            .next()
+            .unwrap();
+        assert!(close.contains("self.import_timing.clear()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn method_import_status_is_a_fixed_copyable_footer() {
+        let source = include_str!("method.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert_eq!(source.matches(".id(\"method-status-bar\")").count(), 1);
+        assert!(source.contains("self.import_timing.text(lang)"));
+        assert!(source.contains("crate::studio::selectable(timing)"));
+        assert!(source.contains(".id(\"method-workspace-scroller\")"));
+        assert!(source.contains(".child(status)"));
     }
 }

@@ -1,6 +1,9 @@
-//! Offline startup evidence: am-start output, scoped events and existing CSV exports.
+//! Startup evidence: platform am-start output, scoped events and existing CSV exports.
+pub mod capture;
+mod comparison;
 mod csv;
 mod parser;
+pub use comparison::*;
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -35,6 +38,7 @@ impl StartupMode {
 pub enum MetricSource {
     EventLog,
     ImportedCsv,
+    ImportedJson,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +67,17 @@ impl DurationMetric {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartupEvidenceOrigin {
+    ImportedCsv,
+    ImportedJson,
+    PlatformAmStart,
+    LiveCapture,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartupRun {
+    /// Set by the parser/capture path, never by an imported CSV declaration.
+    pub origin: StartupEvidenceOrigin,
     pub iteration: u32,
     pub id: String,
     pub package: Option<String>,
@@ -140,9 +154,40 @@ pub struct StartupSession {
     runs: Vec<StartupRun>,
     summary: StartupSummary,
     warnings: Vec<String>,
+    evidence: BTreeMap<String, RunEvidence>,
 }
 
 impl StartupSession {
+    /// Publish independently captured launch runs without converting platform
+    /// measurements into imported-CSV declarations. Callers must scope each
+    /// event log to one launch; absent metrics remain absent.
+    pub fn from_captured_runs(runs: Vec<StartupRun>) -> Result<Self, String> {
+        let mut identities = std::collections::BTreeSet::new();
+        let package = runs.first().and_then(|run| run.package.as_deref());
+        for run in &runs {
+            if run.origin != StartupEvidenceOrigin::LiveCapture
+                || run.iteration == 0
+                || run.id.is_empty()
+                || run.id.len() > 4096
+                || !identities.insert(run.id.as_str())
+                || package.is_none()
+                || run.package.as_deref() != package
+            {
+                return Err(
+                    "Captured startup runs require unique identities and one target package".into(),
+                );
+            }
+            if let (Some(ttid), Some(ttfd)) = (run.ttid.milliseconds, run.ttfd.milliseconds)
+                && ttfd < ttid
+            {
+                return Err("Captured fully drawn duration precedes displayed duration".into());
+            }
+        }
+        let mut session = Self::from_runs(runs)?;
+        session.warnings[0] = "Live platform metrics are launch-relative durations. Missing events, Agent milestones and cross-clock phase correlation remain unavailable; no compilation/Profile comparability is inferred.".into();
+        Ok(session)
+    }
+
     pub fn open_am_start(
         path: &Path,
         package: &str,
@@ -212,7 +257,42 @@ impl StartupSession {
             runs,
             summary,
             warnings,
+            evidence: BTreeMap::new(),
         })
+    }
+
+    /// Structured report evidence is separate from untrusted CSV declarations.
+    /// The application boundary decodes JSON with its existing bounded parser.
+    pub fn from_report(
+        runs: Vec<StartupRun>,
+        evidence: BTreeMap<String, RunEvidence>,
+        warnings: Vec<String>,
+    ) -> Result<Self, String> {
+        let mut ids = std::collections::BTreeSet::new();
+        for run in &runs {
+            if run.origin != StartupEvidenceOrigin::ImportedJson
+                || run.id.trim().is_empty()
+                || run.id.len() > 4096
+                || run.iteration == 0
+                || !ids.insert(run.id.as_str())
+                || !evidence.contains_key(&run.id)
+            {
+                return Err(
+                    "Startup JSON requires unique run IDs and matching structured evidence".into(),
+                );
+            }
+        }
+        if evidence.len() != runs.len() {
+            return Err("Startup report evidence does not match its runs".into());
+        }
+        let mut session = Self::from_runs(runs)?;
+        session.evidence = evidence;
+        session.warnings = warnings;
+        Ok(session)
+    }
+
+    pub fn evidence(&self, id: &str) -> Option<&RunEvidence> {
+        self.evidence.get(id)
     }
 
     pub fn runs(&self) -> &[StartupRun] {

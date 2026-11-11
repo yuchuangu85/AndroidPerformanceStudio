@@ -131,6 +131,13 @@ pub fn encode_record(record: &Record) -> Vec<u8> {
                 .flat_map(|event| bytes(1, event.as_bytes()))
                 .collect::<Vec<_>>(),
         ),
+        Record::Lost {
+            sample_count,
+            lost_count,
+        } => bytes(
+            2,
+            &[number(1, *sample_count), number(2, *lost_count)].concat(),
+        ),
         _ => number(99, 1),
     }
 }

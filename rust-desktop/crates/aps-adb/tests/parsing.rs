@@ -61,6 +61,19 @@ fn properties_are_allowlisted_and_not_a_raw_property_dump() {
 }
 
 #[test]
+fn unrelated_multiline_properties_do_not_break_device_identity_or_inject_values() {
+    let properties = parse_properties("[persist.sys.boot.reason.history]: [history\n[ro.product.model]: [not a model\n]\n[ro.build.version.sdk]: [37]\n[ro.product.model]: [T853K]\n").unwrap();
+    assert_eq!(properties.sdk_level, Some(37));
+    assert_eq!(properties.model.as_deref(), Some("T853K"));
+    assert!(!format!("{properties:?}").contains("history"));
+    assert!(parse_properties("[ro.product.model]: [multi\nline]\n").is_err());
+    assert!(
+        parse_properties("[ro.build.version.sdk]: [36]\n[ro.build.version.sdk]: [37]\n").is_err()
+    );
+    assert!(parse_properties("[unrelated]: [unterminated\n").is_err());
+}
+
+#[test]
 fn process_columns_are_explicit_and_pid_is_not_process_identity() {
     let processes =
         parse_processes("PID PPID USER NAME\n80 1 u0_a1 com.example.app:worker\n20 0 root init\n")

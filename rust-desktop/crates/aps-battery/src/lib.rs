@@ -1,9 +1,25 @@
-//! Read-only Battery Snapshot import and conservative UID cumulative differences.
+//! Read-only Battery snapshots, explicitly requested capture and conservative UID differences.
+mod baseline;
+mod capture;
 mod parser;
 mod report;
+mod sessions;
 
+pub use baseline::{
+    BaselineIssue, BatteryReportComparison, BatterySnapshotEvidence, BatterySnapshotInterval,
+    baseline_issues, compare_reports,
+};
+pub use capture::{
+    BatteryCaptureArtifact, BatteryCaptureConfig, BatteryCaptureControl, BatteryCaptureMode,
+    BatteryCaptureOutcome, BatteryCaptureProgress, BatteryCaptureTarget, capture_live,
+    capture_live_with_workload,
+};
 pub use parser::{parse_device_state, parse_snapshot};
-pub use report::{BatteryReport, BatteryReportRun, ImportedEnergy, ImportedPerformanceWindow};
+pub use report::{
+    BatteryReport, BatteryReportRun, BatteryRunObservation, ImportedEnergy,
+    ImportedPerformanceWindow,
+};
+pub use sessions::{BatterySavedSession, BatterySessionStore, StoredBatterySession};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;

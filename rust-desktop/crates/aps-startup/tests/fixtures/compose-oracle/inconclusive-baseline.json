@@ -1,0 +1,521 @@
+{
+    "schemaVersion": 1,
+    "summary": {
+        "totalTime": {
+            "count": 5,
+            "missingCount": 0,
+            "minimumMs": 900.0,
+            "maximumMs": 900.0,
+            "medianMs": 900.0,
+            "meanMs": 900.0,
+            "p90Ms": 900.0,
+            "p95Ms": 900.0,
+            "standardDeviationMs": 0.0,
+            "medianAbsoluteDeviationMs": 0.0,
+            "p90LowResolution": true,
+            "p95LowResolution": true
+        },
+        "firstFrame": {
+            "count": 5,
+            "missingCount": 0,
+            "minimumMs": 80.0,
+            "maximumMs": 120.0,
+            "medianMs": 100.0,
+            "meanMs": 101.0,
+            "p90Ms": 120.0,
+            "p95Ms": 120.0,
+            "standardDeviationMs": 13.564659966250536,
+            "medianAbsoluteDeviationMs": 10.0,
+            "p90LowResolution": true,
+            "p95LowResolution": true
+        },
+        "fullyDrawn": {
+            "count": 5,
+            "missingCount": 5,
+            "minimumMs": null,
+            "maximumMs": null,
+            "medianMs": null,
+            "meanMs": null,
+            "p90Ms": null,
+            "p95Ms": null,
+            "standardDeviationMs": null,
+            "medianAbsoluteDeviationMs": null,
+            "p90LowResolution": false,
+            "p95LowResolution": false
+        },
+        "agentFirstFrame": {
+            "count": 5,
+            "missingCount": 5,
+            "minimumMs": null,
+            "maximumMs": null,
+            "medianMs": null,
+            "meanMs": null,
+            "p90Ms": null,
+            "p95Ms": null,
+            "standardDeviationMs": null,
+            "medianAbsoluteDeviationMs": null,
+            "p90LowResolution": false,
+            "p95LowResolution": false
+        }
+    },
+    "warnings": [
+        "fixture warning"
+    ],
+    "runs": [
+        {
+            "iteration": 1,
+            "runId": "contract-1",
+            "requestedType": "COLD",
+            "observedType": "COLD",
+            "totalTimeMs": 900,
+            "thisTimeMs": 800,
+            "waitTimeMs": 950,
+            "displayedTimeMs": 80,
+            "fullyDrawnTimeMs": null,
+            "agentAvailable": true,
+            "diagnostics": [],
+            "context": {
+                "deviceLocalId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "packageName": "dev.contract",
+                "componentName": "dev.contract/.MainActivity"
+            },
+            "metricEvidence": {
+                "ttid": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "ttfd": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": "No reportFullyDrawn event"
+                },
+                "agentFirstFrame": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": null
+                }
+            },
+            "compilationEvidence": {
+                "requestedMode": "CURRENT",
+                "compilerFilterBefore": null,
+                "compilerFilterAfter": "speed",
+                "profileStateBefore": null,
+                "profileStateAfter": "present",
+                "preparationOutput": null,
+                "verified": true,
+                "failureReason": null,
+                "profileSource": "UNVERIFIED",
+                "profileSourceDeclared": false,
+                "baselineProfileArtifact": null
+            },
+            "environmentEvidence": {
+                "deviceModel": "Contract Device",
+                "apiLevel": 35,
+                "emulator": false,
+                "batteryPercent": 80,
+                "charging": false,
+                "thermalStatus": 0,
+                "capturedAt": "2026-11-11T00:00:00Z",
+                "failures": []
+            },
+            "warnings": [],
+            "milestones": [
+                {
+                    "kind": "ACTIVITY_PRE_CREATE",
+                    "elapsedRealtimeNs": 1000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "activity": null
+                },
+                {
+                    "kind": "ACTIVITY_CREATED",
+                    "elapsedRealtimeNs": 9000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "ESTIMATED",
+                    "activity": null
+                }
+            ],
+            "phases": [
+                {
+                    "name": "Activity create",
+                    "start": "ACTIVITY_PRE_CREATE",
+                    "end": "ACTIVITY_CREATED",
+                    "durationNs": 8000000,
+                    "confidence": "ESTIMATED"
+                }
+            ],
+            "rawEvidence": {
+                "amStartOutput": "fixture raw evidence",
+                "eventLogOutput": null,
+                "compilationOutput": null
+            }
+        },
+        {
+            "iteration": 2,
+            "runId": "contract-2",
+            "requestedType": "COLD",
+            "observedType": "COLD",
+            "totalTimeMs": 900,
+            "thisTimeMs": 800,
+            "waitTimeMs": 950,
+            "displayedTimeMs": 95,
+            "fullyDrawnTimeMs": null,
+            "agentAvailable": true,
+            "diagnostics": [],
+            "context": {
+                "deviceLocalId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "packageName": "dev.contract",
+                "componentName": "dev.contract/.MainActivity"
+            },
+            "metricEvidence": {
+                "ttid": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "ttfd": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": "No reportFullyDrawn event"
+                },
+                "agentFirstFrame": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": null
+                }
+            },
+            "compilationEvidence": {
+                "requestedMode": "CURRENT",
+                "compilerFilterBefore": null,
+                "compilerFilterAfter": "speed",
+                "profileStateBefore": null,
+                "profileStateAfter": "present",
+                "preparationOutput": null,
+                "verified": true,
+                "failureReason": null,
+                "profileSource": "UNVERIFIED",
+                "profileSourceDeclared": false,
+                "baselineProfileArtifact": null
+            },
+            "environmentEvidence": {
+                "deviceModel": "Contract Device",
+                "apiLevel": 35,
+                "emulator": false,
+                "batteryPercent": 80,
+                "charging": false,
+                "thermalStatus": 0,
+                "capturedAt": "2026-11-11T00:00:00Z",
+                "failures": []
+            },
+            "warnings": [],
+            "milestones": [
+                {
+                    "kind": "ACTIVITY_PRE_CREATE",
+                    "elapsedRealtimeNs": 1000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "activity": null
+                },
+                {
+                    "kind": "ACTIVITY_CREATED",
+                    "elapsedRealtimeNs": 10500000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "ESTIMATED",
+                    "activity": null
+                }
+            ],
+            "phases": [
+                {
+                    "name": "Activity create",
+                    "start": "ACTIVITY_PRE_CREATE",
+                    "end": "ACTIVITY_CREATED",
+                    "durationNs": 9500000,
+                    "confidence": "ESTIMATED"
+                }
+            ],
+            "rawEvidence": {
+                "amStartOutput": "fixture raw evidence",
+                "eventLogOutput": null,
+                "compilationOutput": null
+            }
+        },
+        {
+            "iteration": 3,
+            "runId": "contract-3",
+            "requestedType": "COLD",
+            "observedType": "COLD",
+            "totalTimeMs": 900,
+            "thisTimeMs": 800,
+            "waitTimeMs": 950,
+            "displayedTimeMs": 100,
+            "fullyDrawnTimeMs": null,
+            "agentAvailable": true,
+            "diagnostics": [],
+            "context": {
+                "deviceLocalId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "packageName": "dev.contract",
+                "componentName": "dev.contract/.MainActivity"
+            },
+            "metricEvidence": {
+                "ttid": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "ttfd": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": "No reportFullyDrawn event"
+                },
+                "agentFirstFrame": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": null
+                }
+            },
+            "compilationEvidence": {
+                "requestedMode": "CURRENT",
+                "compilerFilterBefore": null,
+                "compilerFilterAfter": "speed",
+                "profileStateBefore": null,
+                "profileStateAfter": "present",
+                "preparationOutput": null,
+                "verified": true,
+                "failureReason": null,
+                "profileSource": "UNVERIFIED",
+                "profileSourceDeclared": false,
+                "baselineProfileArtifact": null
+            },
+            "environmentEvidence": {
+                "deviceModel": "Contract Device",
+                "apiLevel": 35,
+                "emulator": false,
+                "batteryPercent": 80,
+                "charging": false,
+                "thermalStatus": 0,
+                "capturedAt": "2026-11-11T00:00:00Z",
+                "failures": []
+            },
+            "warnings": [],
+            "milestones": [
+                {
+                    "kind": "ACTIVITY_PRE_CREATE",
+                    "elapsedRealtimeNs": 1000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "activity": null
+                },
+                {
+                    "kind": "ACTIVITY_CREATED",
+                    "elapsedRealtimeNs": 11000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "ESTIMATED",
+                    "activity": null
+                }
+            ],
+            "phases": [
+                {
+                    "name": "Activity create",
+                    "start": "ACTIVITY_PRE_CREATE",
+                    "end": "ACTIVITY_CREATED",
+                    "durationNs": 10000000,
+                    "confidence": "ESTIMATED"
+                }
+            ],
+            "rawEvidence": {
+                "amStartOutput": "fixture raw evidence",
+                "eventLogOutput": null,
+                "compilationOutput": null
+            }
+        },
+        {
+            "iteration": 4,
+            "runId": "contract-4",
+            "requestedType": "COLD",
+            "observedType": "COLD",
+            "totalTimeMs": 900,
+            "thisTimeMs": 800,
+            "waitTimeMs": 950,
+            "displayedTimeMs": 110,
+            "fullyDrawnTimeMs": null,
+            "agentAvailable": true,
+            "diagnostics": [],
+            "context": {
+                "deviceLocalId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "packageName": "dev.contract",
+                "componentName": "dev.contract/.MainActivity"
+            },
+            "metricEvidence": {
+                "ttid": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "ttfd": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": "No reportFullyDrawn event"
+                },
+                "agentFirstFrame": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": null
+                }
+            },
+            "compilationEvidence": {
+                "requestedMode": "CURRENT",
+                "compilerFilterBefore": null,
+                "compilerFilterAfter": "speed",
+                "profileStateBefore": null,
+                "profileStateAfter": "present",
+                "preparationOutput": null,
+                "verified": true,
+                "failureReason": null,
+                "profileSource": "UNVERIFIED",
+                "profileSourceDeclared": false,
+                "baselineProfileArtifact": null
+            },
+            "environmentEvidence": {
+                "deviceModel": "Contract Device",
+                "apiLevel": 35,
+                "emulator": false,
+                "batteryPercent": 80,
+                "charging": false,
+                "thermalStatus": 0,
+                "capturedAt": "2026-11-11T00:00:00Z",
+                "failures": []
+            },
+            "warnings": [],
+            "milestones": [
+                {
+                    "kind": "ACTIVITY_PRE_CREATE",
+                    "elapsedRealtimeNs": 1000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "activity": null
+                },
+                {
+                    "kind": "ACTIVITY_CREATED",
+                    "elapsedRealtimeNs": 12000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "ESTIMATED",
+                    "activity": null
+                }
+            ],
+            "phases": [
+                {
+                    "name": "Activity create",
+                    "start": "ACTIVITY_PRE_CREATE",
+                    "end": "ACTIVITY_CREATED",
+                    "durationNs": 11000000,
+                    "confidence": "ESTIMATED"
+                }
+            ],
+            "rawEvidence": {
+                "amStartOutput": "fixture raw evidence",
+                "eventLogOutput": null,
+                "compilationOutput": null
+            }
+        },
+        {
+            "iteration": 5,
+            "runId": "contract-5",
+            "requestedType": "COLD",
+            "observedType": "COLD",
+            "totalTimeMs": 900,
+            "thisTimeMs": 800,
+            "waitTimeMs": 950,
+            "displayedTimeMs": 120,
+            "fullyDrawnTimeMs": null,
+            "agentAvailable": true,
+            "diagnostics": [],
+            "context": {
+                "deviceLocalId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "packageName": "dev.contract",
+                "componentName": "dev.contract/.MainActivity"
+            },
+            "metricEvidence": {
+                "ttid": {
+                    "source": "EVENT_LOG",
+                    "confidence": "EXACT",
+                    "unavailableReason": null
+                },
+                "ttfd": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": "No reportFullyDrawn event"
+                },
+                "agentFirstFrame": {
+                    "source": null,
+                    "confidence": "UNAVAILABLE",
+                    "unavailableReason": null
+                }
+            },
+            "compilationEvidence": {
+                "requestedMode": "CURRENT",
+                "compilerFilterBefore": null,
+                "compilerFilterAfter": "speed",
+                "profileStateBefore": null,
+                "profileStateAfter": "present",
+                "preparationOutput": null,
+                "verified": true,
+                "failureReason": null,
+                "profileSource": "UNVERIFIED",
+                "profileSourceDeclared": false,
+                "baselineProfileArtifact": null
+            },
+            "environmentEvidence": {
+                "deviceModel": "Contract Device",
+                "apiLevel": 35,
+                "emulator": false,
+                "batteryPercent": 80,
+                "charging": false,
+                "thermalStatus": 0,
+                "capturedAt": "2026-11-11T00:00:00Z",
+                "failures": []
+            },
+            "warnings": [],
+            "milestones": [
+                {
+                    "kind": "ACTIVITY_PRE_CREATE",
+                    "elapsedRealtimeNs": 1000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "EXACT",
+                    "activity": null
+                },
+                {
+                    "kind": "ACTIVITY_CREATED",
+                    "elapsedRealtimeNs": 13000000,
+                    "durationMs": null,
+                    "source": "AGENT",
+                    "confidence": "ESTIMATED",
+                    "activity": null
+                }
+            ],
+            "phases": [
+                {
+                    "name": "Activity create",
+                    "start": "ACTIVITY_PRE_CREATE",
+                    "end": "ACTIVITY_CREATED",
+                    "durationNs": 12000000,
+                    "confidence": "ESTIMATED"
+                }
+            ],
+            "rawEvidence": {
+                "amStartOutput": "fixture raw evidence",
+                "eventLogOutput": null,
+                "compilationOutput": null
+            }
+        }
+    ]
+}

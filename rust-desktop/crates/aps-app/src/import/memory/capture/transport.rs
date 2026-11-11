@@ -22,6 +22,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+mod trace;
+pub(in crate::import::memory) use trace::{CapturedTrace, capture_trace};
+
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 const DUMP_TIMEOUT: Duration = Duration::from_secs(120);
 const PULL_TIMEOUT: Duration = Duration::from_secs(300);
@@ -45,6 +48,9 @@ pub(in crate::import::memory) struct HeapCaptureTarget {
 /// Dropping the last owner removes its private, capture-only scratch directory.
 pub(in crate::import::memory) struct CapturedHeap {
     pub path: PathBuf,
+    pub target: HeapCaptureTarget,
+    pub boot_id: String,
+    pub start_ticks: u64,
     _workspace: TempWorkspace,
 }
 
@@ -63,6 +69,40 @@ pub(in crate::import::memory) fn capture_heap(
         client: AdbClient::new(location).with_timeout(COMMAND_TIMEOUT),
     };
     capture_with(&executor, &executable, target, root, cancel)
+}
+
+/// API 35's bitmap extension is a different evidence source from ordinary
+/// HPROF bitmap instances. Its PNGs are extracted by the isolated worker.
+pub(in crate::import::memory) fn capture_bitmap_heap(
+    target: &HeapCaptureTarget,
+    root: &Path,
+    cancel: &CancellationToken,
+) -> Result<CapturedHeap, String> {
+    validate_target(target, root)?;
+    let location = AdbLocator::new().locate(None).map_err(|e| e.to_string())?;
+    let executable = location.executable.clone();
+    let executor = AndroidExecutor {
+        client: AdbClient::new(location).with_timeout(COMMAND_TIMEOUT),
+    };
+    let sdk = run_checked(
+        &executor,
+        &request(&executable, &target.serial, COMMAND_TIMEOUT).args([
+            "shell",
+            "getprop",
+            "ro.build.version.sdk",
+        ]),
+        cancel,
+        "Read bitmap capture API level",
+    )?;
+    if String::from_utf8_lossy(&sdk.stdout)
+        .trim()
+        .parse::<u32>()
+        .unwrap_or(0)
+        < 35
+    {
+        return Err("Bitmap image dump requires Android API 35 or newer; ordinary HPROF findings do not contain PNG images.".into());
+    }
+    capture_with_options(&executor, &executable, target, root, cancel, true)
 }
 
 // Discovery uses the shared client's package/process semantics; the command
@@ -120,6 +160,17 @@ fn capture_with(
     root: &Path,
     cancel: &CancellationToken,
 ) -> Result<CapturedHeap, String> {
+    capture_with_options(executor, executable, target, root, cancel, false)
+}
+
+fn capture_with_options(
+    executor: &impl HeapExecutor,
+    executable: &Path,
+    target: &HeapCaptureTarget,
+    root: &Path,
+    cancel: &CancellationToken,
+    bitmap: bool,
+) -> Result<CapturedHeap, String> {
     validate_target(target, root)?;
     check_cancelled(cancel)?;
     let devices = executor.devices(cancel)?;
@@ -169,7 +220,14 @@ fn capture_with(
         active: true,
     };
     let result = (|| {
-        let dump = dump_request(executable, target, &remote.path);
+        let dump = if bitmap {
+            request(executable, &target.serial, DUMP_TIMEOUT)
+                .args(["shell", "am", "dumpheap", "-b", "png"])
+                .arg(target.pid.to_string())
+                .arg(&remote.path)
+        } else {
+            dump_request(executable, target, &remote.path)
+        };
         run_checked(executor, &dump, cancel, "Dump the selected process heap")?;
         verify_identity(executor, executable, target, &frozen, cancel)?;
         let before = remote_metadata(executor, executable, target, &remote.path, cancel)?;
@@ -200,6 +258,9 @@ fn capture_with(
     check_cancelled(cancel)?;
     Ok(CapturedHeap {
         path,
+        target: target.clone(),
+        boot_id: frozen.boot_id,
+        start_ticks: frozen.start_ticks,
         _workspace: workspace,
     })
 }

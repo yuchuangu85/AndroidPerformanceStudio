@@ -14,6 +14,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+pub mod bitmap;
 pub mod model;
 pub mod presenter;
 mod regex_lite;

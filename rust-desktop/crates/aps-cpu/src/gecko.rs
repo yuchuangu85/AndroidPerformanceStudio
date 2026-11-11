@@ -12,10 +12,10 @@
 //! is returned. The encoded JSON is bounded by `MAX_GECKO_PROFILE_BYTES`, and the
 //! decoded stream by the engine's record and callchain budgets.
 
-use aps_json::{Limits, Value};
+use aps_json::{Limits, Map, Value};
 use aps_simpleperf_engine::simpleperf::{
-    FileRecord, Frame, MetaInfo, Record, Sample, SimpleperfStream, ThreadRecord,
-    MAX_CALLCHAIN_FRAMES, MAX_RECORDS,
+    FileRecord, Frame, MAX_CALLCHAIN_FRAMES, MAX_RECORDS, MetaInfo, Record, Sample,
+    SimpleperfStream, ThreadRecord,
 };
 use std::collections::HashMap;
 
@@ -87,20 +87,9 @@ pub fn parse_gecko_profile(bytes: &[u8]) -> Result<SimpleperfStream, String> {
             "unsupported Gecko profile version {version}; only v24 JSON profiles are supported"
         ));
     }
-    let threads = object
-        .get("threads")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Gecko profile does not contain a threads array".to_owned())?;
     let mut records = Vec::new();
     let mut files = FileCatalog::default();
-    for (index, thread) in threads.iter().enumerate() {
-        records.extend(thread_records(thread, index, &mut files)?);
-        if records.len() > MAX_RECORDS {
-            return Err(format!(
-                "Gecko profile exceeds the {MAX_RECORDS} record limit"
-            ));
-        }
-    }
+    process_records(object, "profile", &mut files, &mut records)?;
     if records
         .len()
         .checked_add(files.records.len())
@@ -126,12 +115,64 @@ pub fn parse_gecko_profile(bytes: &[u8]) -> Result<SimpleperfStream, String> {
     })
 }
 
+/// A Gecko profile stores the parent process in the current object and child
+/// processes recursively in `processes[]`. Flatten the tree into the native
+/// stream while retaining each thread's own PID/TID identity.
+fn process_records(
+    object: &Map<String, Value>,
+    path: &str,
+    files: &mut FileCatalog,
+    records: &mut Vec<Record>,
+) -> Result<(), String> {
+    let threads = object
+        .get("threads")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("Gecko {path} does not contain a threads array"))?;
+    for (index, thread) in threads.iter().enumerate() {
+        records.extend(thread_records(
+            thread,
+            &format!("{path}.threads[{index}]"),
+            files,
+        )?);
+        check_record_budget(records, files)?;
+    }
+    if let Some(processes) = object.get("processes") {
+        let processes = processes
+            .as_array()
+            .ok_or_else(|| format!("Gecko {path}.processes must be an array"))?;
+        for (index, process) in processes.iter().enumerate() {
+            let process = process
+                .as_object()
+                .ok_or_else(|| format!("Gecko {path}.processes[{index}] must be an object"))?;
+            process_records(
+                process,
+                &format!("{path}.processes[{index}]"),
+                files,
+                records,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn check_record_budget(records: &[Record], files: &FileCatalog) -> Result<(), String> {
+    if records
+        .len()
+        .checked_add(files.records.len())
+        .is_none_or(|count| count > MAX_RECORDS)
+    {
+        return Err(format!(
+            "Gecko profile exceeds the {MAX_RECORDS} record limit"
+        ));
+    }
+    Ok(())
+}
+
 fn thread_records(
     thread: &Value,
-    index: usize,
+    label: &str,
     files: &mut FileCatalog,
 ) -> Result<Vec<Record>, String> {
-    let label = format!("threads[{index}]");
     let object = thread
         .as_object()
         .ok_or_else(|| format!("Gecko {label} must be an object"))?;
@@ -455,7 +496,7 @@ fn parse_location(location: &str) -> (&str, &str) {
 #[cfg(test)]
 mod tests {
     use super::{is_gecko_profile_prefix, parse_gecko_profile};
-    use aps_simpleperf_engine::simpleperf::{Record, MAX_CALLCHAIN_FRAMES};
+    use aps_simpleperf_engine::simpleperf::{MAX_CALLCHAIN_FRAMES, Record};
 
     fn thread(
         name: &str,

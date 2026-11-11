@@ -8,6 +8,7 @@ mod menus;
 mod network;
 mod snapshots;
 mod startup;
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::studio;
 use aps_battery::BatteryReport;
@@ -42,6 +43,7 @@ use std::{
 
 const PAGE: usize = 100;
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(0);
+impl EventEmitter<crate::home_recent::RecentArtifactOpened> for ImportWorkspace {}
 
 #[derive(Clone)]
 enum Session {
@@ -271,6 +273,8 @@ pub struct ImportWorkspace {
     trace_view: TraceView,
     memory_state: MemoryState,
     memory_capture: memory::capture::MemoryCaptureUi,
+    memory_advanced: memory::advanced::AdvancedMemoryUi,
+    startup_capture: startup::StartupCaptureUi,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
     studio: Option<WeakEntity<crate::shell::Studio>>,
@@ -317,6 +321,8 @@ impl ImportWorkspace {
             trace_view: TraceView::Processes,
             memory_state: MemoryState::new(),
             memory_capture: memory::capture::MemoryCaptureUi::default(),
+            memory_advanced: memory::advanced::AdvancedMemoryUi::default(),
+            startup_capture: startup::StartupCaptureUi::default(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,
             studio: None,
@@ -347,8 +353,18 @@ impl ImportWorkspace {
         }
     }
     fn import_duration_text(&self) -> Option<String> {
+        if self.kind == Destination::Memory
+            && (matches!(
+                self.memory_state.view_mode,
+                memory::state::MemoryViewMode::NativeHeap
+                    | memory::state::MemoryViewMode::SampledArt
+            ) || (self.memory_state.view_mode == memory::state::MemoryViewMode::BitmapDump
+                && (self.has_bitmap_dump() || self.memory_state.snapshot.is_none())))
+        {
+            return self.advanced_memory_import_duration_text();
+        }
         self.import_duration
-            .map(|duration| format!("Import · {:.2}s", duration.as_secs_f64()))
+            .and_then(|duration| ImportTiming::from_duration(duration).text(self.language))
     }
 
     pub(super) fn import_status(&self, colors: &studio::StudioColors) -> Stateful<Div> {
@@ -359,6 +375,7 @@ impl ImportWorkspace {
             .id("import-operation-status")
             .flex()
             .items_center()
+            .overflow_x_scroll()
             .px(px(8.))
             .py(px(3.))
             .flex_shrink_0()
@@ -375,6 +392,12 @@ impl ImportWorkspace {
         self.studio = Some(studio);
     }
     pub fn pick(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.invalidate_network_live(cx);
+        self.startup_capture.cancel_pending();
+        self.invalidate_battery_capture();
         if self.kind == Destination::Gpu {
             self.gpu_pick(false, cx);
             return;
@@ -408,12 +431,10 @@ impl ImportWorkspace {
                     Ok(Ok(Some(paths))) if paths.len() == 1 => this.open(paths[0].clone(), cx),
                     Ok(Err(_)) => {
                         this.import_started = None;
-                        this.import_duration = None;
                         this.error = Some(TextKey::ImportUiFilePickerFailed.into());
                     }
                     _ => {
                         this.import_started = None;
-                        this.import_duration = None;
                     }
                 }
                 cx.notify();
@@ -439,6 +460,9 @@ impl ImportWorkspace {
     }
 
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.invalidate_network_live(cx);
+        self.startup_capture.cancel_pending();
+        self.invalidate_battery_capture();
         if self.kind == Destination::Memory
             && self.memory_snapshot_tabs().len() >= snapshots::MAX_OPEN_MEMORY_SNAPSHOTS
         {
@@ -449,9 +473,9 @@ impl ImportWorkspace {
         self.cancel.cancel();
         self.cancel = CancellationToken::new();
         self.generation += 1;
-        self.import_started = Some(Instant::now());
+        let started = Instant::now();
+        self.import_started = Some(started);
         self.memory_capture.in_progress = false;
-        self.import_duration = None;
         let generation = self.generation;
         self.busy = true;
         self.error = None;
@@ -479,14 +503,28 @@ impl ImportWorkspace {
                     publication.page.clone(),
                     Some(publication),
                     None,
+                    None,
                 ))
             } else {
-                open_selected(kind, &path, view, &cancel).map(|(session, page)| {
+                open_selected(kind, &path, view, &cancel).and_then(|(session, page)| {
                     let metrics = match &session {
                         Session::Battery(report) => Some(battery::report_metrics(report)),
                         _ => None,
                     };
-                    (path, session, page, None, metrics)
+                    // A Memory import is ready only after the typed snapshot's
+                    // first analysis has completed, not merely the worker open.
+                    let memory = if let Session::Memory(session) = &session {
+                        Some(Arc::new(
+                            session
+                                .lock()
+                                .map_err(|_| UiText::from("Memory session is unavailable"))?
+                                .snapshot(&cancel)
+                                .map_err(|error| UiText::from(error.to_string()))?,
+                        ))
+                    } else {
+                        None
+                    };
+                    Ok((path, session, page, None, metrics, memory))
                 })
             }
         });
@@ -498,7 +536,8 @@ impl ImportWorkspace {
                 }
                 this.busy = false;
                 match result {
-                    Ok((path, session, page, network, battery_metrics)) => {
+                    Ok((path, session, page, network, battery_metrics, memory)) => {
+                        this.startup_capture.clear_published();
                         let memory_snapshot_id = if this.kind == Destination::Memory {
                             match snapshots::new_memory_snapshot_id() {
                                 Some(id) => Some(id),
@@ -519,14 +558,23 @@ impl ImportWorkspace {
                             }
                         }
                         this.path = Some(path);
-                        this.import_duration =
-                            this.import_started.take().map(|started| started.elapsed());
+                        this.import_started = None;
                         this.session = Some(session);
                         this.page = Some(page);
                         this.session_id = Some(new_session_id());
                         this.memory_snapshot_id = memory_snapshot_id;
                         if this.kind == Destination::Memory {
                             this.memory_state = MemoryState::new();
+                            if let Some(snapshot) = memory {
+                                let label = this
+                                    .path
+                                    .as_deref()
+                                    .map(memory::snapshot_label)
+                                    .unwrap_or_default();
+                                this.memory_state.reset_for_snapshot(snapshot, label);
+                                #[cfg(debug_assertions)]
+                                this.memory_debug_seed(cx);
+                            }
                         }
                         this.selected_network = None;
                         this.network.reset();
@@ -550,13 +598,20 @@ impl ImportWorkspace {
                         this.startup_page_offset = 0;
                         this.selected_startup_run_id = None;
                         this.publish_startup_selection();
-                        if this.kind == Destination::Memory
-                            && matches!(this.session, Some(Session::Memory(_)))
-                        {
-                            this.memory_begin_load(cx);
+                        // Include initial presentation materialization, not
+                        // just background file decoding, in the wall time.
+                        this.import_duration = Some(started.elapsed());
+                        if this.kind == Destination::Memory {
+                            cx.emit(crate::home_recent::RecentArtifactOpened {
+                                feature: crate::home_recent::HomeFeature::Memory,
+                                path: this.path.clone().expect("published Memory path"),
+                            });
                         }
                     }
-                    Err(error) => this.error = Some(error),
+                    Err(error) => {
+                        this.import_started = None;
+                        this.error = Some(error);
+                    }
                 }
                 cx.notify();
             })
@@ -668,11 +723,21 @@ impl ImportWorkspace {
         self.trace_view = view;
         self.page(0, cx);
     }
+    pub(crate) fn close_primary(&mut self, cx: &mut Context<Self>) {
+        self.close(cx);
+    }
+
     fn close(&mut self, cx: &mut Context<Self>) {
+        self.invalidate_network_live(cx);
+        self.startup_capture.clear_published();
+        self.invalidate_battery_capture();
         if self.memory_capture.in_progress {
             self.cancel_work(cx);
         }
         if self.kind == Destination::Memory {
+            if self.close_advanced_memory(cx) {
+                return;
+            }
             if let Some(id) = self.memory_snapshot_id {
                 self.close_memory_snapshot(id, cx);
                 return;
@@ -683,10 +748,13 @@ impl ImportWorkspace {
         self.session = None;
         self.page = None;
         self.path = None;
+        self.import_started = None;
+        self.import_duration = None;
         self.busy = false;
         self.error = None;
         self.memory_state = MemoryState::new();
         self.memory_snapshots.clear();
+        self.memory_advanced = Default::default();
         self.memory_snapshot_id = None;
         self.selected_network = None;
         self.network.reset();
@@ -714,6 +782,10 @@ impl ImportWorkspace {
     }
 
     fn cancel_work(&mut self, cx: &mut Context<Self>) {
+        self.import_started = None;
+        self.invalidate_network_live(cx);
+        self.startup_capture.cancel_pending();
+        self.invalidate_battery_capture();
         self.cancel.cancel();
         self.generation += 1;
         self.busy = false;
@@ -778,6 +850,10 @@ impl ImportWorkspace {
         cx.notify();
     }
     fn save_page(&mut self, format: export::Format, cx: &mut Context<Self>) {
+        if self.kind == Destination::Startup {
+            self.save_startup_page(format, cx);
+            return;
+        }
         if self.export_busy || self.busy {
             return;
         }
@@ -1924,7 +2000,13 @@ impl ImportWorkspace {
                 .child(
                     page.as_ref()
                         .map_or_else(|| "No trace".to_owned(), |page| page.summary.clone()),
-                ),
+                )
+                .child(div().flex_1())
+                .children(self.import_duration_text().map(|text| {
+                    studio::supporting(text, &studio::StudioColors::from_theme(cx))
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                })),
         )
         .into_any_element()
     }
@@ -1955,7 +2037,9 @@ impl ImportWorkspace {
             ));
         }
         if self.kind == Destination::Frame {
-            root = root.child(self.render_frame_workspace(cx));
+            root = root
+                .child(self.render_frame_workspace(cx))
+                .child(self.import_status(&studio::StudioColors::from_theme(cx)));
         }
         root.into_any_element()
     }
@@ -2028,22 +2112,70 @@ mod tests {
     fn import_duration_is_absent_until_available_and_keeps_elapsed_seconds() {
         for kind in [
             Destination::Memory,
+            Destination::Network,
             Destination::Startup,
             Destination::Battery,
+            Destination::Gpu,
+            Destination::Frame,
+            Destination::Trace,
         ] {
             let mut workspace = ImportWorkspace::new(kind, Language::English);
             assert_eq!(workspace.import_duration_text(), None);
             workspace.import_duration = Some(Duration::ZERO);
             assert_eq!(
                 workspace.import_duration_text().as_deref(),
-                Some("Import · 0.00s")
+                Some("Import time: <1 ms")
             );
             workspace.import_duration = Some(Duration::from_millis(1234));
             assert_eq!(
                 workspace.import_duration_text().as_deref(),
-                Some("Import · 1.23s")
+                Some("Import time: 1.23 s")
             );
         }
+    }
+
+    #[::core::prelude::v1::test]
+    fn import_time_excludes_selection_and_requires_ready_current_data() {
+        let source = include_str!("import.rs");
+        let picker = source
+            .split("pub fn pick(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn can_open_home_artifact(")
+            .next()
+            .unwrap();
+        assert!(!picker.contains("Instant::now()"));
+        assert!(!picker.contains("this.import_duration = None"));
+        let import = source
+            .split("fn open(&mut self,")
+            .nth(1)
+            .unwrap()
+            .split("fn page(&mut self,")
+            .next()
+            .unwrap();
+        assert!(import.contains(".snapshot(&cancel)"));
+        assert!(
+            import.find("if this.generation != generation").unwrap()
+                < import
+                    .find("this.import_duration = Some(started.elapsed())")
+                    .unwrap()
+        );
+        assert!(
+            import.find("this.publish_startup_selection()").unwrap()
+                < import
+                    .find("this.import_duration = Some(started.elapsed())")
+                    .unwrap()
+        );
+        let error = import.rsplit("Err(error) =>").next().unwrap();
+        assert!(!error.contains("import_duration ="));
+        let cancel = source
+            .split("fn cancel_work(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn analysis_request(")
+            .next()
+            .unwrap();
+        assert!(!cancel.contains("import_duration ="));
     }
 
     #[::core::prelude::v1::test]

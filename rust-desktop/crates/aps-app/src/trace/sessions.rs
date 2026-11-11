@@ -771,6 +771,63 @@ mod tests {
         fs::read_dir(path).map(|reader| reader.count()).unwrap_or(0)
     }
 
+    #[test]
+    fn home_reader_uses_saved_captures_and_scans_past_missing_artifacts() {
+        let directory = TestDirectory::new("home-history");
+        let source = write_file(&directory.path().join("original.pftrace"), b"fixture trace");
+        let index = SessionIndex::new(directory.path().join("trace-analyzer/sessions"));
+        let older = index.save(record("older", source.clone(), 10)).unwrap();
+        let missing = index.save(record("missing", source, 20)).unwrap();
+        fs::remove_file(&missing.trace_path).unwrap();
+        let before = fs::read(index.index_path()).unwrap();
+        let entries = crate::trace::recent_home_entries(directory.path(), 1).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, older.trace_path);
+        assert_eq!(entries[0].captured_at_unix_ms, Some(10));
+        assert_eq!(fs::read(index.index_path()).unwrap(), before);
+        assert_eq!(fs::read(&entries[0].path).unwrap(), b"fixture trace");
+    }
+
+    #[test]
+    fn home_reader_keeps_corrupt_and_missing_capture_indexes_read_only() {
+        let directory = TestDirectory::new("home-corruption");
+        assert!(
+            crate::trace::recent_home_entries(directory.path(), 6)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(directory_entry_count(directory.path()), 0);
+        let root = directory.path().join("trace-analyzer/sessions");
+        fs::create_dir_all(&root).unwrap();
+        let index = root.join(SESSIONS_FILE);
+        fs::write(&index, b"corrupt-index").unwrap();
+        assert!(crate::trace::recent_home_entries(directory.path(), 6).is_err());
+        assert_eq!(fs::read(index).unwrap(), b"corrupt-index");
+    }
+
+    #[test]
+    fn home_reader_does_not_turn_unknown_capture_time_into_the_unix_epoch() {
+        let directory = TestDirectory::new("home-unknown-time");
+        let root = directory.path().join("trace-analyzer/sessions");
+        fs::create_dir_all(&root).unwrap();
+        let path = write_file(&directory.path().join("actual.pftrace"), b"trace");
+        for timestamp in [
+            Value::Null,
+            Value::from(-1),
+            Value::from("invalid"),
+            Value::from(0),
+        ] {
+            let mut record = raw_session("unknown", 0);
+            let object = record.as_object_mut().unwrap();
+            object.insert("traceFile".into(), path.display().to_string().into());
+            object.insert("capturedUnixMs".into(), timestamp);
+            write_raw_index(&root, vec![record]);
+            let entries = crate::trace::recent_home_entries(directory.path(), 6).unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].captured_at_unix_ms, None);
+        }
+    }
+
     fn write_raw_index(root: &Path, sessions: Vec<Value>) {
         let mut root_object = Map::new();
         root_object.insert("version".into(), Value::from(INDEX_VERSION));

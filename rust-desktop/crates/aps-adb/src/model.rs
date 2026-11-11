@@ -220,30 +220,49 @@ pub fn parse_devices(output: &str) -> Result<Vec<AdbDevice>, AdbError> {
 pub fn parse_properties(output: &str) -> Result<DeviceProperties, AdbError> {
     check_output(output)?;
     let mut values = BTreeMap::new();
+    let mut skipping_multiline = false;
     for line in output
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
+        if skipping_multiline {
+            skipping_multiline = !line.ends_with(']');
+            continue;
+        }
         let Some((key, value)) = line
             .strip_prefix('[')
             .and_then(|line| line.split_once("]: ["))
         else {
             return Err(AdbError::MalformedOutput("invalid getprop row"));
         };
-        let Some(value) = value.strip_suffix(']') else {
-            return Err(AdbError::MalformedOutput("unterminated getprop value"));
-        };
-        if matches!(
+        let retained = matches!(
             key,
             "ro.product.manufacturer"
                 | "ro.product.model"
                 | "ro.build.version.release"
                 | "ro.build.version.sdk"
                 | "ro.product.cpu.abi"
-        ) {
-            values.insert(key, value.trim());
+        );
+        let Some(value) = value.strip_suffix(']') else {
+            // Boot-history and other unrelated Android properties can contain
+            // newlines. Skip their complete value without retaining its text.
+            if retained {
+                return Err(AdbError::MalformedOutput(
+                    "multiline device identity property",
+                ));
+            }
+            skipping_multiline = true;
+            continue;
+        };
+        if retained && values.insert(key, value.trim()).is_some() {
+            return Err(AdbError::MalformedOutput(
+                "duplicate device identity property",
+            ));
         }
+    }
+    if skipping_multiline {
+        return Err(AdbError::MalformedOutput("unterminated getprop value"));
     }
     let value = |key: &str| {
         values
@@ -305,7 +324,9 @@ pub fn parse_processes(output: &str) -> Result<Vec<AndroidProcess>, AdbError> {
         let mut columns = Vec::with_capacity(4);
         for _ in 0..3 {
             remainder = remainder.trim_start();
-            let end = remainder.find(char::is_whitespace).unwrap_or(remainder.len());
+            let end = remainder
+                .find(char::is_whitespace)
+                .unwrap_or(remainder.len());
             columns.push(&remainder[..end]);
             remainder = &remainder[end..];
         }

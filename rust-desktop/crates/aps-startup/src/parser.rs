@@ -65,6 +65,7 @@ pub fn am_start(text: &str, package: &str, requested: StartupMode) -> Result<Sta
         return Err("Activity Manager result belongs to a different target package".into());
     }
     Ok(StartupRun {
+        origin: crate::StartupEvidenceOrigin::PlatformAmStart,
         iteration: 1,
         id: "am-start-1".into(),
         package: Some(package.into()),

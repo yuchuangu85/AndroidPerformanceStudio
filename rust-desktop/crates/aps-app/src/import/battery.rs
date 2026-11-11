@@ -1,12 +1,13 @@
-//! Reference-shaped Battery workspace over immutable, imported derived evidence.
-//! Capture, saved sessions and raw clocks are never invented from report totals.
+//! Battery workspace over immutable imports and explicitly approved UID capture.
+//! Saved sessions and raw clocks are never invented from report totals.
+mod baseline;
+mod capture;
+mod capture_export;
 mod model;
 pub(super) mod workspace;
 use super::*;
-use gpui_kit::component::Sizable;
 use gpui_kit::component::{
     WindowExt,
-    checkbox::Checkbox,
     input::{Input, InputEvent, InputState},
 };
 pub(super) use model::*;
@@ -18,6 +19,17 @@ pub(super) struct BatteryShellUi {
     language: Option<Language>,
     query: String,
     pub(super) warnings_offset: usize,
+    store: Option<aps_battery::BatterySessionStore>,
+    pub(super) sessions: Vec<aps_battery::StoredBatterySession>,
+    sessions_loaded: bool,
+    pub(super) sessions_loading: bool,
+    sessions_generation: u64,
+    persisted_report: Option<Arc<BatteryReport>>,
+    restored_artifact: Option<(Arc<BatteryReport>, Arc<aps_battery::BatteryCaptureArtifact>)>,
+    pub(super) current_saved_key: Option<String>,
+    pub(super) session_error: Option<String>,
+    capture: capture::BatteryCaptureUi,
+    baseline: baseline::BatteryBaselineState,
 }
 
 const SESSION_BREAKPOINT: f32 = 1000.;
@@ -104,6 +116,13 @@ fn session_matches(report: &BatteryReport, query: &str) -> bool {
         .any(|value| value.to_lowercase().contains(&needle))
 }
 
+fn battery_store_root() -> Result<std::path::PathBuf, String> {
+    crate::settings_path()?
+        .parent()
+        .map(|root| root.join("battery-sessions"))
+        .ok_or_else(|| "Battery session storage is unavailable".into())
+}
+
 impl BatteryUi {
     fn publish_run_page(&mut self, report: &BatteryReport, offset: usize) {
         self.run_offset = offset;
@@ -119,6 +138,221 @@ impl BatteryUi {
 }
 
 impl ImportWorkspace {
+    fn battery_session_store(&mut self) -> Result<aps_battery::BatterySessionStore, String> {
+        if self.battery_shell_ui.store.is_none() {
+            self.battery_shell_ui.store =
+                Some(aps_battery::BatterySessionStore::new(battery_store_root()?));
+        }
+        Ok(self
+            .battery_shell_ui
+            .store
+            .as_ref()
+            .expect("initialized store")
+            .clone())
+    }
+
+    fn refresh_battery_sessions(&mut self, cx: &mut Context<Self>) {
+        if self.battery_shell_ui.sessions_loading {
+            return;
+        }
+        self.battery_shell_ui.sessions_loaded = true;
+        let store = match self.battery_session_store() {
+            Ok(store) => store,
+            Err(error) => {
+                self.battery_shell_ui.session_error = Some(error);
+                return;
+            }
+        };
+        self.battery_shell_ui.sessions_loading = true;
+        self.battery_shell_ui.sessions_generation =
+            self.battery_shell_ui.sessions_generation.wrapping_add(1);
+        let revision = self.battery_shell_ui.sessions_generation;
+        let task = cx.background_executor().spawn(async move { store.list() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.battery_shell_ui.sessions_generation != revision {
+                    return;
+                }
+                this.battery_shell_ui.sessions_loading = false;
+                match result {
+                    Ok(sessions) => {
+                        this.battery_shell_ui.sessions = sessions;
+                        this.battery_shell_ui.session_error = None;
+                    }
+                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn ensure_battery_session_saved(&mut self, report: Arc<BatteryReport>, cx: &mut Context<Self>) {
+        if self.battery_shell_ui.sessions_loading
+            || self
+                .battery_shell_ui
+                .persisted_report
+                .as_ref()
+                .is_some_and(|previous| Arc::ptr_eq(previous, &report))
+        {
+            return;
+        }
+        self.battery_shell_ui.persisted_report = Some(report.clone());
+        self.battery_shell_ui.current_saved_key = None;
+        self.battery_shell_ui.restored_artifact = None;
+        let artifact = self
+            .battery_shell_ui
+            .capture
+            .artifact
+            .as_ref()
+            .filter(|artifact| report.live_capture && artifact.session_id() == report.session_id)
+            .cloned();
+        let store = match self.battery_session_store() {
+            Ok(store) => store,
+            Err(error) => {
+                self.battery_shell_ui.session_error = Some(error);
+                return;
+            }
+        };
+        self.battery_shell_ui.sessions_loading = true;
+        self.battery_shell_ui.sessions_generation =
+            self.battery_shell_ui.sessions_generation.wrapping_add(1);
+        let revision = self.battery_shell_ui.sessions_generation;
+        let published = report.clone();
+        let task = cx.background_executor().spawn(async move {
+            let saved = store.save(&report, artifact.as_deref())?;
+            Ok::<_, String>((saved, store.list()?))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.battery_shell_ui.sessions_generation != revision { return; }
+                this.battery_shell_ui.sessions_loading = false;
+                match result {
+                    Ok((saved, sessions)) => {
+                        this.battery_shell_ui.sessions = sessions;
+                        this.battery_shell_ui.sessions_loaded = true;
+                        if matches!(&this.session, Some(Session::Battery(current)) if Arc::ptr_eq(current, &published)) {
+                            this.battery_shell_ui.current_saved_key = Some(saved.key);
+                        }
+                        this.battery_shell_ui.session_error = None;
+                    }
+                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
+    pub(super) fn open_battery_saved_session(&mut self, key: String, cx: &mut Context<Self>) {
+        if self.busy || self.export_busy || self.battery_shell_ui.sessions_loading {
+            return;
+        }
+        let Ok(store) = self.battery_session_store() else {
+            self.battery_shell_ui.session_error =
+                Some("Battery session storage is unavailable".into());
+            cx.notify();
+            return;
+        };
+        self.invalidate_battery_capture();
+        self.cancel.cancel();
+        self.cancel = CancellationToken::new();
+        self.generation = self.generation.wrapping_add(1);
+        self.export_generation = self.export_generation.wrapping_add(1);
+        let generation = self.generation;
+        let cancel = self.cancel.clone();
+        self.busy = true;
+        self.error = None;
+        let task = cx.background_executor().spawn(async move {
+            let saved = store.load(&key)?;
+            let report = Arc::new(saved.report);
+            let session = Session::Battery(report.clone());
+            let page = page_for(&session, TraceView::Processes, 0, None, &cancel)
+                .map_err(|error| error.render(Language::English))?;
+            Ok::<_, String>((saved.metadata, report, saved.artifact.map(Arc::new), page))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                this.busy = false;
+                match result {
+                    Ok((metadata, report, artifact, page)) => {
+                        this.path = None;
+                        this.session_id = Some(report.session_id.clone());
+                        this.session = Some(Session::Battery(report.clone()));
+                        this.page = Some(page);
+                        this.battery_metrics = Some(report_metrics(&report));
+                        this.battery_ui.reset();
+                        this.battery_workspace_ui = Default::default();
+                        this.battery_shell_ui.capture.artifact = None;
+                        this.battery_shell_ui.current_saved_key = Some(metadata.key);
+                        this.battery_shell_ui.persisted_report = Some(report.clone());
+                        this.battery_shell_ui.restored_artifact =
+                            artifact.map(|artifact| (report.clone(), artifact));
+                        this.import_duration = None;
+                        this.battery_shell_ui.session_error = None;
+                        this.battery_shell_ui.warnings_offset = 0;
+                        this.publish_battery_run_page();
+                    }
+                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn remove_battery_saved_session(&mut self, key: String, cx: &mut Context<Self>) {
+        if self.busy || self.export_busy || self.battery_shell_ui.sessions_loading {
+            return;
+        }
+        let store = match self.battery_session_store() {
+            Ok(store) => store,
+            Err(error) => {
+                self.battery_shell_ui.session_error = Some(error);
+                return;
+            }
+        };
+        self.battery_shell_ui.sessions_loading = true;
+        self.battery_shell_ui.sessions_generation =
+            self.battery_shell_ui.sessions_generation.wrapping_add(1);
+        let revision = self.battery_shell_ui.sessions_generation;
+        let task_key = key.clone();
+        let task = cx.background_executor().spawn(async move {
+            store.remove(&task_key)?;
+            store.list()
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.battery_shell_ui.sessions_generation != revision {
+                    return;
+                }
+                this.battery_shell_ui.sessions_loading = false;
+                match result {
+                    Ok(sessions) => {
+                        this.battery_shell_ui.sessions = sessions;
+                        this.battery_shell_ui.session_error = None;
+                        if this.battery_shell_ui.current_saved_key.as_deref() == Some(key.as_str())
+                        {
+                            this.close(cx);
+                        }
+                    }
+                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn battery_session_search(
         &mut self,
         window: &mut Window,
@@ -189,7 +423,17 @@ impl ImportWorkspace {
             Some(Session::Battery(report)) => Some(report.clone()),
             _ => None,
         };
-        let sessions = self.battery_sessions(report.as_deref(), search, &colors, cx);
+        if !self.battery_shell_ui.sessions_loaded {
+            self.refresh_battery_sessions(cx);
+        }
+        if let Some(report) = report.as_ref() {
+            self.ensure_battery_session_saved(report.clone(), cx);
+        } else {
+            self.battery_shell_ui.current_saved_key = None;
+            self.battery_shell_ui.persisted_report = None;
+            self.battery_shell_ui.restored_artifact = None;
+        }
+        let sessions = self.battery_sessions(search, &colors, cx);
         let mut content = studio::page(&colors)
             .h_auto()
             .min_h(px(180.))
@@ -226,7 +470,11 @@ impl ImportWorkspace {
                         &colors,
                     ))
                     .child(note(
-                        self.language.text(TextKey::BatteryDerivedNotice),
+                        self.language.text(if report.live_capture {
+                            TextKey::BatteryCaptureLiveNotice
+                        } else {
+                            TextKey::BatteryDerivedNotice
+                        }),
                         &colors,
                     )),
             );
@@ -247,10 +495,7 @@ impl ImportWorkspace {
             }
             content = content
                 .child(provenance)
-                .child(note(
-                    self.language.text(TextKey::BatteryBaselineUnavailable),
-                    &colors,
-                ))
+                .child(self.battery_baseline_comparison(&colors))
                 .child(self.battery_run_table(&report, &colors, cx));
             if let Some(run) = self.battery_ui.selected(&report) {
                 content =
@@ -344,18 +589,31 @@ impl ImportWorkspace {
                 studio::compact_text_button(
                     "battery-run",
                     language.text(TextKey::BatteryRunExperiment),
-                    false,
+                    self.battery_capture_ready(),
                     true,
                     colors,
                 )
-                .tooltip(language.text(TextKey::BatteryCaptureUnavailable)),
+                .tooltip(self.battery_capture_tooltip())
+                .on_click(cx.listener(|this, _, window, cx| this.capture_battery(window, cx))),
             )
+            .when(self.battery_shell_ui.capture.in_progress, |toolbar| {
+                toolbar.child(
+                    studio::compact_text_button(
+                        "battery-stop-analyze",
+                        language.text(TextKey::BatteryStopAnalyze),
+                        !self.battery_shell_ui.capture.stopping(),
+                        false,
+                        colors,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.stop_battery_capture(cx))),
+                )
+            })
             .child(div().w(px(1.)).h(px(18.)).bg(colors.border))
             .child(
                 studio::compact_text_button(
                     "battery-configuration",
                     language.text(TextKey::BatteryConfiguration),
-                    true,
+                    !self.busy,
                     false,
                     colors,
                 )
@@ -407,13 +665,14 @@ impl ImportWorkspace {
             )
             .child(
                 studio::compact_text_button(
-                    "battery-raw",
-                    language.text(TextKey::BatteryRawEvidence),
-                    false,
+                    "battery-capture-bundle",
+                    language.text(TextKey::BatteryCaptureBundle),
+                    !self.busy && !self.export_busy && self.battery_capture_artifact().is_some(),
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::BatteryWorkspaceRawMissing)),
+                .tooltip(language.text(TextKey::BatteryCaptureBundleScope))
+                .on_click(cx.listener(|this, _, _, cx| this.save_battery_capture_bundle(cx))),
             )
             .child(
                 studio::compact_text_button(
@@ -434,7 +693,10 @@ impl ImportWorkspace {
                         false,
                         colors,
                     )
-                    .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.invalidate_battery_capture();
+                        this.cancel_work(cx);
+                    })),
                 )
             })
             .child(div().flex_1())
@@ -452,13 +714,13 @@ impl ImportWorkspace {
     }
 
     fn battery_sessions(
-        &self,
-        report: Option<&BatteryReport>,
+        &mut self,
         search: &Entity<InputState>,
         colors: &studio::StudioColors,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
+        let stored = &self.battery_shell_ui.sessions;
         let mut pane = studio::card(colors)
             .size_full()
             .min_h_0()
@@ -493,8 +755,8 @@ impl ImportWorkspace {
                     .justify_between()
                     .child(note(
                         language.format(
-                            TextKey::BatteryImportedCount,
-                            &[("count", &usize::from(report.is_some()))],
+                            TextKey::BatterySavedSessionCount,
+                            &[("count", &stored.len())],
                         ),
                         colors,
                     ))
@@ -502,11 +764,18 @@ impl ImportWorkspace {
                         studio::compact_text_button(
                             "battery-refresh-sessions",
                             language.text(TextKey::BatteryRefresh),
-                            false,
+                            !self.busy && !self.battery_shell_ui.sessions_loading,
                             false,
                             colors,
                         )
-                        .tooltip(language.text(TextKey::BatteryRefreshUnavailable)),
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if this.battery_shell_ui.session_error.is_some()
+                                && this.battery_shell_ui.restored_artifact.is_none()
+                            {
+                                this.battery_shell_ui.persisted_report = None;
+                            }
+                            this.refresh_battery_sessions(cx)
+                        })),
                     ),
             );
         let mut entries = div()
@@ -517,48 +786,83 @@ impl ImportWorkspace {
             .flex()
             .flex_col()
             .gap(px(4.));
-        if let Some(report) =
-            report.filter(|report| session_matches(report, &self.battery_shell_ui.query))
-        {
-            entries =
-                entries.child(
+        let mut rendered = 0usize;
+        let visible = stored
+            .iter()
+            .filter(|session| session.matches(&self.battery_shell_ui.query))
+            .collect::<Vec<_>>();
+        for (session_index, session) in visible.into_iter().enumerate() {
+            rendered += 1;
+            let selected =
+                self.battery_shell_ui.current_saved_key.as_deref() == Some(session.key.as_str());
+            let key = session.key.clone();
+            let remove_key = key.clone();
+            let package = session
+                .package_name
+                .clone()
+                .unwrap_or_else(|| language.text(TextKey::BatteryImported).into());
+            let open = div()
+                .id(("battery-saved-session", session_index))
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .p(px(8.))
+                .bg(if selected {
+                    colors.selected_row
+                } else {
+                    colors.panel
+                })
+                .child(
                     div()
-                        .id("battery-imported-session")
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.))
-                        .p(px(8.))
-                        .bg(colors.selected_row)
-                        .child(
-                            div()
-                                .text_size(px(studio::FONT_BODY))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(report.package_name.clone().unwrap_or_else(|| {
-                                    language.text(TextKey::BatteryImported).into()
-                                })),
+                        .text_size(px(studio::FONT_BODY))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(package),
+                )
+                .child(note(
+                    session.created_at.clone().unwrap_or_else(|| "—".into()),
+                    colors,
+                ))
+                .child(note(session.session_id.clone(), colors))
+                .cursor_pointer()
+                .child(note(
+                    language.format(
+                        if session.captured {
+                            TextKey::BatteryLiveSessionRuns
+                        } else {
+                            TextKey::BatterySessionRuns
+                        },
+                        &[("count", &session.run_count)],
+                    ),
+                    colors,
+                ))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.open_battery_saved_session(key.clone(), cx)
+                }));
+            entries = entries.child(
+                div().flex().items_stretch().gap(px(2.)).child(open).child(
+                    Button::new(("battery-remove-session", session_index))
+                        .ghost()
+                        .w(px(24.))
+                        .h(px(24.))
+                        .icon(gpui_kit::component::IconName::Close)
+                        .disabled(
+                            self.busy || self.export_busy || self.battery_shell_ui.sessions_loading,
                         )
-                        .child(note(
-                            report.created_at.clone().unwrap_or_else(|| "—".into()),
-                            colors,
-                        ))
-                        .child(note(report.session_id.clone(), colors))
-                        .child(note(
-                            language.format(
-                                TextKey::BatterySessionRuns,
-                                &[(
-                                    "count",
-                                    &self
-                                        .battery_metrics
-                                        .as_ref()
-                                        .map_or(report.runs().len(), |metrics| metrics.runs),
-                                )],
-                            ),
-                            colors,
-                        )),
-                );
-        } else {
+                        .accessibility_label(language.text(TextKey::BatteryRemoveSession))
+                        .tooltip(language.text(TextKey::BatteryRemoveSession))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.remove_battery_saved_session(remove_key.clone(), cx)
+                        })),
+                ),
+            );
+        }
+        if rendered == 0 {
             entries = entries.child(note(
-                language.text(if report.is_some() {
+                language.text(if self.battery_shell_ui.sessions_loading {
+                    TextKey::BatteryStatusLoading
+                } else if !stored.is_empty() {
                     TextKey::BatteryNoSessionMatches
                 } else {
                     TextKey::BatteryNoSessions
@@ -566,10 +870,10 @@ impl ImportWorkspace {
                 colors,
             ));
         }
-        pane = pane.child(entries).child(note(
-            language.text(TextKey::BatterySessionStoreUnavailable),
-            colors,
-        ));
+        if let Some(error) = &self.battery_shell_ui.session_error {
+            pane = pane.child(note(error.clone(), colors));
+        }
+        pane = pane.child(entries);
         pane.into_any_element()
     }
 
@@ -826,6 +1130,7 @@ impl ImportWorkspace {
 
     pub(super) fn publish_battery_run_page(&mut self) {
         if let Some(Session::Battery(report)) = &self.session {
+            self.battery_shell_ui.baseline.publish(report.clone());
             self.battery_ui
                 .publish_run_page(report, self.page.as_ref().map_or(0, |page| page.offset));
         }
@@ -851,7 +1156,14 @@ impl ImportWorkspace {
                 language.text(TextKey::BatteryDiagnostics),
                 colors,
             ))
-            .child(note(language.text(TextKey::BatteryWarningScope), colors));
+            .child(note(
+                language.text(if report.live_capture {
+                    TextKey::BatteryCaptureLiveNotice
+                } else {
+                    TextKey::BatteryWarningScope
+                }),
+                colors,
+            ));
         for warning in report.warnings.iter().skip(offset).take(PAGE) {
             panel = panel.child(note(warning.clone(), colors).text_color(colors.warning));
         }
@@ -906,88 +1218,23 @@ impl ImportWorkspace {
         panel.into_any_element()
     }
 
-    fn battery_configuration(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let language = self.language;
-        // The dialog presents the reference's controls, but makes no editable
-        // preferences that a missing capture adapter would silently ignore.
-        window.open_dialog(cx, move |dialog, _, cx| {
-            let colors = studio::StudioColors::from_theme(cx);
-            let mut controls = div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .text_size(px(studio::FONT_BODY))
-                .child(note(
-                    language.text(TextKey::BatteryConfigurationUnavailable),
-                    &colors,
-                ))
-                .child(note(language.text(TextKey::BatteryConfigReadOnly), &colors));
-            for (index, key) in [
-                TextKey::BatteryModes,
-                TextKey::BatteryDurationOptions,
-                TextKey::BatteryPollingOptions,
-                TextKey::BatteryRunsOptions,
-                TextKey::BatteryCooldownOptions,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                controls = controls.child(
-                    Button::new(("battery-config-option", index))
-                        .ghost()
-                        .disabled(true)
-                        .w_full()
-                        .h(px(28.))
-                        .px(px(8.))
-                        .border_1()
-                        .border_color(colors.border)
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .w_full()
-                                .child(crate::studio::selectable(language.text(key)))
-                                .child(crate::studio::selectable("⌄")),
-                        ),
-                );
-            }
-            controls = controls.child(
-                Checkbox::new("battery-config-launch")
-                    .with_size(gpui_kit::component::Size::Small)
-                    .label(language.text(TextKey::BatteryLaunchApp))
-                    .checked(false)
-                    .disabled(true),
-            );
-            dialog
-                .title(language.text(TextKey::BatteryConfiguration))
-                .w(px(480.))
-                .centered()
-                .footer(
-                    div().flex().justify_end().child(
-                        studio::compact_text_button(
-                            "battery-config-done",
-                            language.text(TextKey::BatteryDone),
-                            true,
-                            true,
-                            &colors,
-                        )
-                        .on_click(|_, window, cx| window.close_dialog(cx)),
-                    ),
-                )
-                .child(controls)
-        });
+    fn battery_configuration(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.battery_capture_configuration(window, cx);
     }
 
     fn battery_status(&self, colors: &studio::StudioColors, cx: &mut Context<Self>) -> AnyElement {
         let text = if let Some(error) = &self.error {
             error.render(self.language)
+        } else if let Some(status) = self.battery_capture_status() {
+            status
         } else if self.busy {
             self.language.text(TextKey::ImportLoadingQuerying).into()
         } else if let Some(notice) = &self.notice {
             notice.render(self.language)
         } else {
-            self.language.text(TextKey::BatteryReady).into()
+            self.language.text(if matches!(&self.session, Some(Session::Battery(report)) if report.live_capture) {
+                TextKey::BatteryLiveSession
+            } else { TextKey::BatteryReady }).into()
         };
         let copy = text.clone();
         div()

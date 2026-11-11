@@ -31,6 +31,13 @@ pub fn parse_snapshot(
         warnings: Vec::new(),
     };
     let mut rows = 0usize;
+    let mut battery_period = None;
+    // Preserve the explicitly tagged legacy snapshot format. Live Android
+    // checkin v9 uses milliseconds and typed timer records, not this old import
+    // projection's unmarked microsecond groups.
+    let legacy_timers = checkin
+        .lines()
+        .any(|line| line.split(',').nth(3) == Some("start"));
     for line in checkin
         .lines()
         .map(str::trim)
@@ -60,6 +67,25 @@ pub fn parse_snapshot(
                 snapshot.stats_period = Some(period);
             }
         }
+        // AOSP BatteryStats.dumpCheckinLocked: global `bt` data field 5 is
+        // getStartClockTime(). The other `bt` times are changing counters and
+        // must not be used as accumulator identity. A missing/changed period
+        // remains unavailable; host time is never substituted.
+        if fields[0] == "9"
+            && fields[1] == "0"
+            && fields[2] == "l"
+            && fields[3] == "bt"
+            && let Some(clock) = fields
+                .get(9)
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| *value > 0)
+        {
+            let period = format!("android-bt-clock:{clock}");
+            if battery_period.as_ref().is_some_and(|old| old != &period) {
+                return Err("Conflicting battery accumulator start clocks".into());
+            }
+            battery_period = Some(period);
+        }
         if fields[1].parse::<u32>().ok() != Some(snapshot.identity.uid) || fields[2] != "l" {
             continue;
         }
@@ -73,38 +99,18 @@ pub fn parse_snapshot(
         };
         let data = &fields[4..];
         if let Some(kind) = kind {
-            // Supported checkin timer layout: name, durationUs,count,marker slots
-            // in repeated sections of five. Unknown layouts are not guessed.
-            if data.len() < 3 {
-                snapshot
-                    .warnings
-                    .push("Timer row lacks required fields.".into());
-                continue;
-            }
-            let name = data[0].clone();
-            let values = &data[1..];
-            let mut duration_us = 0u64;
-            let mut count = 0u64;
-            let mut valid = true;
-            for section in values.chunks(5) {
-                let duration = section.first().and_then(|value| value.parse::<u64>().ok());
-                let occurrences = section.get(1).and_then(|value| value.parse::<u64>().ok());
-                if let Some((duration, occurrences)) = duration.zip(occurrences) {
-                    duration_us = duration_us
-                        .checked_add(duration)
-                        .ok_or("Battery timer overflow")?;
-                    count = count
-                        .checked_add(occurrences)
-                        .ok_or("Battery timer count overflow")?;
-                } else {
-                    valid = false;
-                }
-            }
-            if !valid {
+            let Some((name, duration_ms, count)) = parse_timer(&fields[3], data, legacy_timers)?
+            else {
                 snapshot
                     .warnings
                     .push("Unrecognized or invalid timer layout; counter omitted.".into());
                 continue;
+            };
+            if fields[3] == "wl" && !legacy_timers {
+                snapshot.warnings.push("Wakelock evidence includes partial locks only; background partial locks are a subset and are not double-counted with their parent. Full/window locks are not included in this metric.".into());
+            }
+            if fields[3] == "wua" {
+                snapshot.warnings.push("Wakeup-alarm evidence is count-only; its zero duration is not a measured alarm execution time. APK service start times are not treated as alarm durations.".into());
             }
             let key = (kind, name.clone());
             let entry = snapshot.timers.entry(key).or_insert(ResourceTimer {
@@ -115,7 +121,7 @@ pub fn parse_snapshot(
             });
             entry.duration_ms = entry
                 .duration_ms
-                .checked_add(duration_us / 1000)
+                .checked_add(duration_ms)
                 .ok_or("Battery timer overflow")?;
             entry.count = entry
                 .count
@@ -143,6 +149,9 @@ pub fn parse_snapshot(
             }
         }
     }
+    if snapshot.stats_period.is_none() {
+        snapshot.stats_period = battery_period;
+    }
     snapshot.modeled_energy_mah = parse_energy(report, snapshot.identity.uid)?;
     if !snapshot.uid_records_present {
         snapshot
@@ -157,7 +166,64 @@ pub fn parse_snapshot(
             .warnings
             .push("Shared UID: resource evidence cannot be attributed to one package.".into());
     }
+    snapshot.warnings.sort();
+    snapshot.warnings.dedup();
+    snapshot.warnings.truncate(200);
     Ok(snapshot)
+}
+
+fn parse_timer(
+    kind: &str,
+    data: &[String],
+    legacy: bool,
+) -> Result<Option<(String, u64, u64)>, String> {
+    let number = |index: usize| data.get(index).and_then(|value| value.parse::<u64>().ok());
+    if kind == "wl"
+        && data.len() == 25
+        && ["f", "p", "bp", "w"]
+            .into_iter()
+            .enumerate()
+            .all(|(index, marker)| data[index * 6 + 2] == marker)
+    {
+        // printWakeLockCheckin emits duration-ms, marker, count, current,
+        // maximum and unpooled duration. `bp` overlaps `p`; never sum them.
+        return Ok(number(7)
+            .zip(number(9))
+            .map(|(duration, count)| (data[0].clone(), duration, count)));
+    }
+    if matches!(kind, "jb" | "job") && data.len() == 5
+        || matches!(kind, "sr" | "sensor") && data.len() == 6
+    {
+        return Ok(number(1)
+            .zip(number(2))
+            .map(|(duration, count)| (data[0].clone(), duration, count)));
+    }
+    if kind == "wua" && data.len() == 2 {
+        return Ok(number(1).map(|count| (data[0].clone(), 0, count)));
+    }
+    // The APK record repeats package wakeup count for each service and its time
+    // is service start duration. Treating it as an alarm would overcount both.
+    if !legacy || data.len() < 3 || kind == "apk" {
+        return Ok(None);
+    }
+    let mut duration_us = 0u64;
+    let mut count = 0u64;
+    for section in data[1..].chunks(5) {
+        let values = section
+            .first()
+            .and_then(|value| value.parse::<u64>().ok())
+            .zip(section.get(1).and_then(|value| value.parse::<u64>().ok()));
+        let Some((duration, occurrences)) = values else {
+            return Ok(None);
+        };
+        duration_us = duration_us
+            .checked_add(duration)
+            .ok_or("Battery timer overflow")?;
+        count = count
+            .checked_add(occurrences)
+            .ok_or("Battery timer count overflow")?;
+    }
+    Ok(Some((data[0].clone(), duration_us / 1000, count)))
 }
 
 pub fn parse_device_state(text: &str) -> Result<DeviceState, String> {

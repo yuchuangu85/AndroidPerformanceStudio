@@ -15,6 +15,7 @@ mod page;
 mod sessions;
 pub(crate) mod viewer;
 
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_ai::AnalysisRequest;
 use aps_perfetto::{
@@ -29,12 +30,51 @@ use std::{
     collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 const RECENT_PAGE: usize = 25;
 const SEARCH_HIT_LIMIT: usize = 200;
 const MISSING_VALUE: &str = "—";
+impl EventEmitter<crate::home_recent::RecentArtifactOpened> for TraceWorkspace {}
+
+/// Passive Home adapter for existing captured sessions. No Trace Processor,
+/// viewer, directory creation, catalog repair or trace-content read occurs here.
+pub(crate) fn recent_home_entries(
+    application_root: &Path,
+    limit: usize,
+) -> Result<Vec<crate::home_recent::RecentPathEntry>, String> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    if !application_root.is_absolute() {
+        return Err("Trace Home root must be absolute".into());
+    }
+    let root = application_root.join("trace-analyzer/sessions");
+    match std::fs::symlink_metadata(root.join("sessions.json")) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Ok(metadata) if metadata.is_file() && !metadata.is_symlink() => {}
+        _ => return Err("Trace Home session index is not a regular file".into()),
+    }
+    Ok(sessions::SessionIndex::new(root)
+        .list(200)?
+        .into_iter()
+        .filter(|record| {
+            record.trace_path.is_absolute()
+                && std::fs::symlink_metadata(&record.trace_path)
+                    .is_ok_and(|metadata| metadata.is_file() && !metadata.is_symlink())
+        })
+        .take(limit.min(crate::home_recent::MAX_HOME_RECENT_ITEMS))
+        .map(|record| crate::home_recent::RecentPathEntry {
+            path: record.trace_path,
+            package_name: None,
+            // SessionIndex uses zero when the capture timestamp is absent or invalid.
+            captured_at_unix_ms: (record.captured_unix_ms > 0)
+                .then(|| i64::try_from(record.captured_unix_ms).ok())
+                .flatten(),
+        })
+        .collect())
+}
 
 pub struct TraceWorkspace {
     pub(in crate::trace) language: Language,
@@ -54,6 +94,7 @@ pub struct TraceWorkspace {
     pub(in crate::trace) tool: Option<TraceProcessor>,
     pub(in crate::trace) tool_error: Option<String>,
     pub(in crate::trace) importing: bool,
+    pub(in crate::trace) import_timing: ImportTiming,
     pub(in crate::trace) picking: bool,
     pub(in crate::trace) importing_cancel: CancellationToken,
     pub(in crate::trace) outcomes: HashMap<String, DiagnosticOutcome>,
@@ -123,6 +164,7 @@ impl TraceWorkspace {
             tool: None,
             tool_error: None,
             importing: false,
+            import_timing: ImportTiming::default(),
             picking: false,
             importing_cancel: CancellationToken::new(),
             outcomes: HashMap::new(),
@@ -494,9 +536,19 @@ impl TraceWorkspace {
     }
 
     fn import_trace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.import_trace_with_timing(path, true, cx);
+    }
+
+    fn import_trace_with_timing(
+        &mut self,
+        path: PathBuf,
+        measure_import: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.importing {
             return;
         }
+        let started = Instant::now();
         self.importing = true;
         self.error = None;
         self.status = Some(
@@ -537,6 +589,9 @@ impl TraceWorkspace {
                         this.tool = Some(tool);
                         this.tool_error = None;
                         this.publish_trace(path, session, duration_nanos, cx);
+                        if measure_import {
+                            this.import_timing = ImportTiming::completed(started);
+                        }
                     }
                     Err(error) => this.error = Some(this.failure(error)),
                 }
@@ -589,10 +644,15 @@ impl TraceWorkspace {
             model::format_trace_duration_nanos(Some(duration_nanos as i64))
         ));
         self.open_external_viewer(None, cx);
+        cx.emit(crate::home_recent::RecentArtifactOpened {
+            feature: crate::home_recent::HomeFeature::Trace,
+            path,
+        });
         cx.notify();
     }
 
     fn close_trace_state(&mut self) {
+        self.import_timing.clear();
         self.importing_cancel.cancel();
         self.trace_session = None;
         self.active_trace = None;
@@ -1222,7 +1282,7 @@ impl TraceWorkspace {
     }
 
     pub(in crate::trace) fn open_captured_trace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.import_trace(path, cx);
+        self.import_trace_with_timing(path, false, cx);
     }
 
     // ---------------- export / AI ----------------
@@ -1344,7 +1404,7 @@ fn new_id(prefix: &str) -> String {
     format!("{prefix}-{}-{}", std::process::id(), now_unix_ms())
 }
 
-fn format_unix_ms(unix_ms: u64) -> String {
+pub(crate) fn format_unix_ms(unix_ms: u64) -> String {
     let seconds = unix_ms / 1000;
     let days = (seconds / 86_400) as i64;
     let remainder = seconds % 86_400;
@@ -1858,5 +1918,63 @@ impl TraceWorkspace {
 
     pub(crate) fn toggle_capture_primary(&mut self, cx: &mut Context<Self>) {
         self.toggle_capture(cx);
+    }
+}
+
+#[cfg(test)]
+mod import_timing_tests {
+    #[::core::prelude::v1::test]
+    fn trace_cost_is_published_after_the_current_import_not_capture() {
+        let source = include_str!("trace.rs");
+        let import = source
+            .split("fn import_trace_with_timing(")
+            .nth(1)
+            .unwrap()
+            .split("fn publish_trace(")
+            .next()
+            .unwrap();
+        assert!(import.contains("let started = Instant::now()"));
+        assert!(
+            import
+                .find("if this.trace_generation != generation")
+                .unwrap()
+                < import
+                    .find("this.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        assert!(
+            import
+                .find("this.publish_trace(path, session, duration_nanos, cx)")
+                .unwrap()
+                < import
+                    .find("this.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        assert!(import.contains("if measure_import"));
+        let captured = source
+            .split("pub(in crate::trace) fn open_captured_trace(")
+            .nth(1)
+            .unwrap()
+            .split("// ---------------- export")
+            .next()
+            .unwrap();
+        assert!(captured.contains("self.import_trace_with_timing(path, false, cx)"));
+        let close = source
+            .split("fn close_trace_state(")
+            .nth(1)
+            .unwrap()
+            .split("pub(in crate::trace) fn close_trace(")
+            .next()
+            .unwrap();
+        assert!(close.contains("self.import_timing.clear()"));
+        let footer = include_str!("trace/page.rs")
+            .split("fn status_bar(")
+            .nth(1)
+            .unwrap()
+            .split("fn status_message(")
+            .next()
+            .unwrap();
+        assert!(footer.contains("this.import_timing.text(language)"));
+        assert!(footer.contains("crate::studio::selectable(timing)"));
     }
 }

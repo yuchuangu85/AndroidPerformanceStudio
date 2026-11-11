@@ -2,10 +2,20 @@ use crate::{ArtifactKind, GpuArtifact, GpuArtifactIndex, OpenRoute};
 use aps_contracts::SourceDigest;
 use aps_json::{Limits, Map, Value};
 use aps_platform::atomic_write;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const STORE_VERSION: i64 = 1;
+const MAX_STORE_BYTES: u64 = 16 * 1024 * 1024;
+
+fn limits() -> Limits {
+    Limits {
+        max_bytes: MAX_STORE_BYTES,
+        ..Limits::default()
+    }
+}
 
 #[derive(Debug)]
 pub enum GpuStoreError {
@@ -27,6 +37,7 @@ impl std::fmt::Display for GpuStoreError {
 }
 impl std::error::Error for GpuStoreError {}
 
+#[derive(Clone)]
 pub struct GpuArtifactStore {
     path: PathBuf,
 }
@@ -41,15 +52,25 @@ impl GpuArtifactStore {
     }
 
     pub fn load(&self) -> Result<GpuArtifactIndex, GpuStoreError> {
-        let bytes = match std::fs::read(&self.path) {
-            Ok(bytes) => bytes,
+        let file = match File::open(&self.path) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(GpuArtifactIndex::new());
             }
             Err(_) => return Err(GpuStoreError::Io),
         };
-        let value =
-            aps_json::parse_slice(&bytes, Limits::default()).map_err(|_| GpuStoreError::Json)?;
+        let metadata = file.metadata().map_err(|_| GpuStoreError::Io)?;
+        if !metadata.is_file() {
+            return Err(GpuStoreError::Io);
+        }
+        if metadata.len() > MAX_STORE_BYTES {
+            return Err(GpuStoreError::Json);
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_STORE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| GpuStoreError::Io)?;
+        let value = aps_json::parse_slice(&bytes, limits()).map_err(|_| GpuStoreError::Json)?;
         let map = value.as_object().ok_or(GpuStoreError::InvalidDocument)?;
         if map.get("version").and_then(|value| value.as_i64()) != Some(STORE_VERSION) {
             return Err(GpuStoreError::InvalidDocument);
@@ -58,6 +79,9 @@ impl GpuArtifactStore {
             .get("artifacts")
             .and_then(|value| value.as_array())
             .ok_or(GpuStoreError::InvalidDocument)?;
+        if list.len() > crate::MAX_ARTIFACTS {
+            return Err(GpuStoreError::InvalidArtifact);
+        }
         let mut artifacts = Vec::with_capacity(list.len());
         for item in list {
             artifacts.push(decode_artifact(item)?);
@@ -70,22 +94,21 @@ impl GpuArtifactStore {
         map.insert("version".into(), STORE_VERSION.into());
         map.insert(
             "artifacts".into(),
-            Value::Array(index.artifacts().iter().map(encode_artifact).collect()),
+            Value::Array(
+                index
+                    .artifacts()
+                    .iter()
+                    .map(encode_artifact)
+                    .collect::<Result<_, _>>()?,
+            ),
         );
         let value = Value::Object(map);
-        let bytes = aps_json::to_vec(
-            &value,
-            Limits {
-                max_bytes: 16 * 1024 * 1024,
-                ..Limits::default()
-            },
-        )
-        .map_err(|_| GpuStoreError::Json)?;
+        let bytes = aps_json::to_vec(&value, limits()).map_err(|_| GpuStoreError::Json)?;
         atomic_write(&self.path, &bytes).map_err(|_| GpuStoreError::Io)
     }
 }
 
-fn encode_artifact(artifact: &GpuArtifact) -> Value {
+fn encode_artifact(artifact: &GpuArtifact) -> Result<Value, GpuStoreError> {
     let mut map = Map::new();
     map.insert("kind".into(), kind_name(artifact.kind).into());
     map.insert("sha256".into(), artifact.sha256.to_hex().into());
@@ -101,11 +124,15 @@ fn encode_artifact(artifact: &GpuArtifact) -> Value {
             artifact
                 .locations()
                 .iter()
-                .map(|path| path.display().to_string().into())
-                .collect(),
+                .map(|path| {
+                    path.to_str()
+                        .map(Value::from)
+                        .ok_or(GpuStoreError::InvalidArtifact)
+                })
+                .collect::<Result<_, _>>()?,
         ),
     );
-    Value::Object(map)
+    Ok(Value::Object(map))
 }
 
 fn decode_artifact(value: &Value) -> Result<GpuArtifact, GpuStoreError> {

@@ -709,11 +709,27 @@ impl ImportWorkspace {
                         studio::compact_text_button(
                             "gpu-open-relocate",
                             language.text(TextKey::GpuRelocate),
-                            !self.busy && record.is_some(),
+                            !self.busy
+                                && !self.gpu.catalog_failed
+                                && self.gpu.catalog_task.is_none()
+                                && record.is_some(),
                             false,
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.gpu_relocate(cx))),
+                    )
+                    .child(
+                        studio::compact_text_button(
+                            "gpu-remove-artifact",
+                            language.text(TextKey::GpuRemoveFromCatalog),
+                            !self.busy
+                                && !self.gpu.catalog_failed
+                                && self.gpu.catalog_task.is_none()
+                                && record.is_some(),
+                            false,
+                            colors,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.gpu_remove(cx))),
                     ),
             );
         div()

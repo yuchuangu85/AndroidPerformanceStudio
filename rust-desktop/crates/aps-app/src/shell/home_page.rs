@@ -1,7 +1,7 @@
 //! Compose-shaped dashboard backed only by published Rust device/history facts.
 use super::*;
 use crate::{
-    home_recent::HomeRecentItem,
+    home_recent::{HomeRecentSnapshot, HomeRecentSource},
     studio::{self, StudioColors},
     targets::HomeDeviceOverview,
 };
@@ -18,7 +18,7 @@ const RECENT_WEIGHTS: [f32; 5] = [2.2, 1.6, 0.85, 1.3, 0.8];
 #[derive(Clone, Debug)]
 pub(super) enum HomeRecentState {
     Loading,
-    Available(Vec<HomeRecentItem>),
+    Available(HomeRecentSnapshot),
     Unavailable(String),
 }
 
@@ -219,7 +219,11 @@ fn main_column(
         _ => "—".into(),
     };
     let recent_value = match recent {
-        HomeRecentState::Available(items) => items.len().min(6).to_string(),
+        HomeRecentState::Available(snapshot)
+            if snapshot.unavailable_source_count < snapshot.source_count =>
+        {
+            snapshot.items.len().min(6).to_string()
+        }
         _ => "—".into(),
     };
     div()
@@ -556,8 +560,16 @@ fn recent_panel(
                 colors,
             ));
         }
-        HomeRecentState::Available(items) => {
-            if items.is_empty() {
+        HomeRecentState::Available(snapshot) => {
+            let items = &snapshot.items;
+            if snapshot.unavailable_source_count == snapshot.source_count {
+                table = table.child(state_message(
+                    language.text(TextKey::HomeRecentUnavailable),
+                    language.text(TextKey::HomeRecentPartial),
+                    true,
+                    colors,
+                ));
+            } else if items.is_empty() {
                 table = table.child(state_message(
                     language.text(TextKey::HomeRecentEmpty),
                     language.text(TextKey::HomeRecentEmptyHint),
@@ -568,9 +580,17 @@ fn recent_panel(
                 for (index, item) in items.iter().take(6).enumerate() {
                     let open_item = item.clone();
                     let entity = entity.clone();
-                    // CPU metadata currently has no verified capture timestamp.
-                    // The import/index time must never impersonate capture time.
-                    let captured = "—";
+                    let captured = item
+                        .captured_at_unix_ms
+                        .and_then(|value| u64::try_from(value).ok())
+                        .map(crate::trace::format_unix_ms)
+                        .unwrap_or_else(|| "—".to_owned());
+                    let type_key = match item.source {
+                        HomeRecentSource::Cpu => TextKey::HomeCpuType,
+                        HomeRecentSource::Layout => TextKey::HomeLayoutType,
+                        HomeRecentSource::Trace => TextKey::HomeTraceType,
+                        HomeRecentSource::Memory => TextKey::HomeMemoryType,
+                    };
                     table = table.child(
                         div()
                             .flex()
@@ -585,7 +605,7 @@ fn recent_panel(
                                 colors,
                             ))
                             .child(div().w(px(columns[2])).flex_shrink_0().child(status_chip(
-                                language.text(TextKey::HomeCpuType),
+                                language.text(type_key),
                                 colors.secondary_text,
                                 colors,
                             )))
@@ -640,10 +660,9 @@ fn recent_panel(
                     colors,
                 )),
         )
-        .child(studio::supporting(
-            language.text(TextKey::HomeRecentPartial),
-            colors,
-        ))
+        .children(matches!(recent, HomeRecentState::Available(snapshot)
+            if snapshot.unavailable_source_count > 0 && snapshot.unavailable_source_count < snapshot.source_count)
+            .then(|| studio::supporting(language.text(TextKey::HomeRecentPartial), colors)))
         .child(
             div()
                 .id("home-recent-table-scroll")

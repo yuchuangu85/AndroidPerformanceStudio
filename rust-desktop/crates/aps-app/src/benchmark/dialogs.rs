@@ -347,6 +347,7 @@ impl DialogsUi {
         let project_root = std::path::absolute(&project_path).unwrap_or(project_path);
         Ok((
             MacrobenchmarkPlan {
+                device_serial: None,
                 project_root,
                 gradle_task,
                 benchmark_filter,

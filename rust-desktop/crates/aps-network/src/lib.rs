@@ -1,8 +1,14 @@
-//! Read-only HAR import with bounded, minimized presentation contracts.
+//! Bounded, minimized HAR import and explicitly observed Agent snapshots.
 //!
 //! Raw entry frames exist only transiently inside the parser/adapter. They are
 //! never returned, logged or persisted. Whole-session queries lazily retain an
 //! index containing only minimized entries, bounded by the configured entry cap.
+
+mod observed;
+pub use observed::{
+    OBSERVED_MINIMIZATION_POLICY, ObservedCapture, ObservedOutcome, ObservedPhase,
+    ObservedPhaseKind, ObservedRequest,
+};
 
 use aps_contracts::SourceDigest;
 use aps_har_engine::json::Parser;
@@ -59,7 +65,9 @@ impl fmt::Display for NetworkError {
             Self::Cancelled => "HAR import was cancelled",
             Self::InvalidHar => "HAR data is invalid or exceeds parser limits",
             Self::InvalidPage => "HAR page must contain 1 to 200 entries",
-            Self::InvalidQuery => "HAR query exceeds its search or method limits",
+            Self::InvalidQuery => {
+                "Network query is invalid or unsupported by the selected evidence source"
+            }
         })
     }
 }
@@ -122,6 +130,30 @@ pub enum StatusFilter {
     Unknown,
 }
 
+/// Observed call terminal state, independent of HTTP status. Minimized HAR
+/// sources cannot establish this evidence and accept only `All`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutcomeFilter {
+    #[default]
+    All,
+    Completed,
+    Failed,
+    Cancelled,
+    InFlight,
+}
+impl OutcomeFilter {
+    fn matches(self, outcome: ObservedOutcome) -> bool {
+        matches!(
+            (self, outcome),
+            (Self::All, _)
+                | (Self::Completed, ObservedOutcome::Completed)
+                | (Self::Failed, ObservedOutcome::Failed)
+                | (Self::Cancelled, ObservedOutcome::Cancelled)
+                | (Self::InFlight, ObservedOutcome::InFlight)
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EntrySort {
     #[default]
@@ -130,11 +162,12 @@ pub enum EntrySort {
     ResponseBytesDescending,
 }
 
-/// Filters apply to the entire selected HAR before paging. Search inspects
+/// Filters apply to the entire selected session before paging. Search inspects
 /// minimized fields only; it never searches the raw URL, producer or traffic.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EntryQuery {
     pub status: StatusFilter,
+    pub outcome: OutcomeFilter,
     pub sort: EntrySort,
     pub method: Option<String>,
     pub search: String,
@@ -244,11 +277,13 @@ impl SourceStamp {
     }
 }
 
-/// A selected file, not a file-system browser. Retains only minimized evidence.
-/// The metadata stamp is mutation detection, not a cryptographic source digest.
+/// A selected HAR file or an explicit, immutable Agent observation. Retains only
+/// minimized evidence. File metadata detects mutation; an observed-source
+/// digest identifies its minimized snapshot, never the original wire stream.
 pub struct HarSession {
     path: PathBuf,
-    source: SourceStamp,
+    source: Option<SourceStamp>,
+    observed: Option<Arc<ObservedCapture>>,
     limits: ImportLimits,
     summary: HarSummary,
     cache: Mutex<Vec<CachedPage>>,
@@ -327,7 +362,8 @@ impl HarSession {
         };
         let session = Self {
             path,
-            source,
+            source: Some(source),
+            observed: None,
             limits,
             summary,
             cache: Mutex::new(Vec::new()),
@@ -344,6 +380,54 @@ impl HarSession {
         &self.summary
     }
 
+    /// An explicitly observed, immutable memory projection, not a HAR file.
+    /// The digest identifies the minimized snapshot, never the original wire
+    /// stream. No raw traffic or filesystem path is fabricated for this source.
+    pub fn from_observed(capture: ObservedCapture) -> Result<Self, NetworkError> {
+        let (summary, entries) = capture.project()?;
+        Ok(Self {
+            path: PathBuf::new(),
+            source: None,
+            observed: Some(Arc::new(capture)),
+            limits: ImportLimits::default(),
+            summary,
+            cache: Mutex::new(Vec::new()),
+            index: Mutex::new(Some(Arc::new(entries))),
+        })
+    }
+
+    pub fn observed(&self) -> Option<&ObservedCapture> {
+        self.observed.as_deref()
+    }
+
+    /// Explicit whole-session export boundary. Only minimized entries reach the
+    /// visitor; the source is checked before and after the complete traversal.
+    /// Callers must discard their output if this returns an error.
+    pub fn visit_entries(
+        &self,
+        cancel: &CancellationToken,
+        mut visitor: impl FnMut(&NetworkEntry) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let check = || -> Result<(), String> {
+            if cancel.is_cancelled() {
+                return Err(NetworkError::Cancelled.to_string());
+            }
+            self.check_source().map_err(|error| error.to_string())?;
+            self.check_digest(cancel).map_err(|error| error.to_string())
+        };
+        check()?;
+        let entries = self
+            .minimized_index(cancel)
+            .map_err(|error| error.to_string())?;
+        for entry in entries.iter() {
+            if cancel.is_cancelled() {
+                return Err(NetworkError::Cancelled.to_string());
+            }
+            visitor(entry)?;
+        }
+        check()
+    }
+
     /// Parses to EOF before returning a page: partial/invalid streams are discarded.
     pub fn entries(
         &self,
@@ -351,6 +435,9 @@ impl HarSession {
         limit: usize,
         cancel: &CancellationToken,
     ) -> Result<EntryPage, NetworkError> {
+        if self.observed.is_some() {
+            return self.query_entries(offset, limit, &EntryQuery::default(), cancel);
+        }
         if limit == 0 || limit > MAX_PAGE_SIZE || offset.checked_add(limit).is_none() {
             return Err(NetworkError::InvalidPage);
         }
@@ -384,7 +471,7 @@ impl HarSession {
             offset,
             total: self.summary.entry_count,
             rows: sink.rows,
-            minimization_policy: MINIMIZATION_POLICY,
+            minimization_policy: self.summary.minimization_policy,
             source_digest: self.summary.source_digest,
         };
         self.cache_page(page.clone(), limit);
@@ -407,6 +494,9 @@ impl HarSession {
             return Err(NetworkError::InvalidPage);
         }
         query.validate()?;
+        if query.outcome != OutcomeFilter::All && self.observed.is_none() {
+            return Err(NetworkError::InvalidQuery);
+        }
         if cancel.is_cancelled() {
             return Err(NetworkError::Cancelled);
         }
@@ -419,7 +509,15 @@ impl HarSession {
             if position % 256 == 0 && cancel.is_cancelled() {
                 return Err(NetworkError::Cancelled);
             }
-            if query.matches(entry, &search) {
+            // Observed entries and requests are validated and indexed in the
+            // same original order, so filtering needs no per-row map/search.
+            let outcome_matches = query.outcome == OutcomeFilter::All
+                || self.observed.as_ref().is_some_and(|capture| {
+                    capture.requests.get(position).is_some_and(|request| {
+                        request.entry.index == entry.index && query.outcome.matches(request.outcome)
+                    })
+                });
+            if outcome_matches && query.matches(entry, &search) {
                 matches.push(entry);
             }
         }
@@ -459,7 +557,7 @@ impl HarSession {
             offset,
             total,
             rows,
-            minimization_policy: MINIMIZATION_POLICY,
+            minimization_policy: self.summary.minimization_policy,
             source_digest: self.summary.source_digest,
         })
     }
@@ -603,10 +701,13 @@ impl HarSession {
     }
 
     fn check_source(&self) -> Result<(), NetworkError> {
+        let Some(source) = &self.source else {
+            return Ok(());
+        };
         let stamp = SourceStamp::from_metadata(
             std::fs::metadata(&self.path).map_err(|_| NetworkError::SourceChanged)?,
         )?;
-        if stamp != self.source {
+        if &stamp != source {
             if let Ok(mut cache) = self.cache.lock() {
                 cache.clear();
             }
@@ -620,7 +721,8 @@ impl HarSession {
 
     fn open_validated_source(&self) -> Result<File, NetworkError> {
         let file = File::open(&self.path).map_err(|_| NetworkError::SourceChanged)?;
-        validate_open_source(&self.path, &file, &self.source)?;
+        let source = self.source.as_ref().ok_or(NetworkError::SourceChanged)?;
+        validate_open_source(&self.path, &file, source)?;
         Ok(file)
     }
 
@@ -632,7 +734,7 @@ impl HarSession {
         let result = hash_open_source(
             &self.path,
             file,
-            &self.source,
+            self.source.as_ref().ok_or(NetworkError::SourceChanged)?,
             self.limits.max_file_bytes,
             cancel,
         );
@@ -652,6 +754,13 @@ impl HarSession {
     }
 
     fn check_digest(&self, cancel: &CancellationToken) -> Result<(), NetworkError> {
+        if self.observed.is_some() {
+            return if cancel.is_cancelled() {
+                Err(NetworkError::Cancelled)
+            } else {
+                Ok(())
+            };
+        }
         let mut file = self.open_validated_source()?;
         self.check_open_digest(&mut file, cancel)
     }

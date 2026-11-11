@@ -9,6 +9,19 @@ use std::{
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+fn valid_perf_data_fixture() -> Vec<u8> {
+    let mut bytes = vec![0u8; 272];
+    bytes[..8].copy_from_slice(b"PERFILE2");
+    bytes[8..16].copy_from_slice(&104u64.to_le_bytes());
+    bytes[16..24].copy_from_slice(&160u64.to_le_bytes());
+    bytes[24..32].copy_from_slice(&104u64.to_le_bytes());
+    bytes[32..40].copy_from_slice(&160u64.to_le_bytes());
+    bytes[40..48].copy_from_slice(&264u64.to_le_bytes());
+    bytes[48..56].copy_from_slice(&8u64.to_le_bytes());
+    bytes[270..272].copy_from_slice(&8u16.to_le_bytes());
+    bytes
+}
+
 struct FakeAdb {
     root: PathBuf,
 }
@@ -51,7 +64,7 @@ while [ "$#" -gt 0 ]; do
     if [ "$1" = -o ]; then shift; output=$1; fi
     shift
 done
-printf PERFILE2fake >"$output"
+cp {root}/perf.data.fixture "$output"
 printf started
 printf ready >{root}/recorder-ready
 case $(cat {root}/mode) in
@@ -113,6 +126,7 @@ exec /bin/sh -c "$*"
                 root = quoted_root
             ),
         );
+        fs::write(root.join("perf.data.fixture"), valid_perf_data_fixture()).unwrap();
         fs::create_dir(root.join("unrelated")).unwrap();
         fs::write(root.join("unrelated/perf.data"), b"retain").unwrap();
         Self { root }
@@ -334,7 +348,10 @@ fn graceful_stop_preserves_output_and_terminal_controls_cannot_change_completion
     let output = capture.run().unwrap();
     stopper.join().unwrap();
     assert_eq!(output.completion, CaptureCompletion::StopRequested);
-    assert_eq!(fs::read(output.raw.path).unwrap(), b"PERFILE2fake");
+    assert_eq!(
+        fs::read(output.raw.path).unwrap(),
+        valid_perf_data_fixture()
+    );
     assert_eq!(handle.state(), CaptureState::Complete);
     assert!(!handle.stop());
     assert!(!handle.cancel());
@@ -367,7 +384,10 @@ fn manual_recording_keeps_renewing_its_lease_until_explicit_stop_and_save() {
     stopper.join().unwrap();
     assert_eq!(output.completion, CaptureCompletion::StopRequested);
     assert_eq!(handle.state(), CaptureState::Complete);
-    assert_eq!(fs::read(output.raw.path).unwrap(), b"PERFILE2fake");
+    assert_eq!(
+        fs::read(output.raw.path).unwrap(),
+        valid_perf_data_fixture()
+    );
     fake.assert_duration_argv(&SamplingConfiguration::default(), CaptureDuration::Manual);
     fake.assert_cleaned();
 }
@@ -516,7 +536,10 @@ fn successful_fake_capture_pulls_artifact_and_cleans_exact_remote_directory() {
         let handle = capture.handle();
         let output = capture.run().unwrap();
         assert_eq!(handle.state(), CaptureState::Complete);
-        assert_eq!(fs::read(output.raw.path).unwrap(), b"PERFILE2fake");
+        assert_eq!(
+            fs::read(output.raw.path).unwrap(),
+            valid_perf_data_fixture()
+        );
         assert_eq!(output.retained_remote_path, None);
         fake.assert_recorder_argv(mode);
         fake.assert_cleaned();

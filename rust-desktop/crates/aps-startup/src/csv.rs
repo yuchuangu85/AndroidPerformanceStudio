@@ -81,6 +81,7 @@ pub fn parse(text: &str) -> Result<Vec<StartupRun>, String> {
             return Err("Imported fully drawn duration precedes displayed duration".into());
         }
         runs.push(StartupRun {
+            origin: crate::StartupEvidenceOrigin::ImportedCsv,
             iteration,
             id,
             package: None,

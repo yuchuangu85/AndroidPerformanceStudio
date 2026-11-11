@@ -215,6 +215,7 @@ fn point_label(point: &StoredMetricPoint) -> String {
 /// The page state: Compose `BenchmarkReportsState` with the same derived values.
 #[derive(Clone, Default)]
 pub struct BenchmarkReportsState {
+    pub(crate) import_timing: crate::import_timing::ImportTiming,
     pub run_options: Vec<RunOption>,
     pub baseline_id: Option<String>,
     pub current_id: Option<String>,

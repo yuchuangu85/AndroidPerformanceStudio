@@ -1,6 +1,6 @@
 use aps_network::{
     EntryQuery, EntrySort, HarSession, ImportLimits, MAX_PAGE_SIZE, MAX_QUERY_BYTES, MINIMIZED_URL,
-    NetworkError, StatusFilter,
+    NetworkError, OutcomeFilter, StatusFilter,
 };
 use aps_platform::CancellationToken;
 use std::fs::{self, File, OpenOptions};
@@ -39,6 +39,21 @@ fn har(entries: &[&str]) -> String {
         r#"{{"log":{{"version":"1.2","creator":{{"name":"secret creator","version":"1"}},"entries":[{}]}}}}"#,
         entries.join(",")
     )
+}
+
+#[test]
+fn har_cannot_invent_transport_outcomes_from_http_status() {
+    let file = Fixture::new(har(&[ENTRY]).as_bytes());
+    let cancel = CancellationToken::new();
+    let session = HarSession::open(&file.0, ImportLimits::default(), &cancel).unwrap();
+    let query = EntryQuery {
+        outcome: OutcomeFilter::Completed,
+        ..EntryQuery::default()
+    };
+    assert!(matches!(
+        session.query_entries(0, 10, &query, &cancel),
+        Err(NetworkError::InvalidQuery)
+    ));
 }
 
 #[test]
@@ -456,4 +471,66 @@ fn cached_duration_percentiles_revalidate_source_and_cancellation() {
         session.duration_percentiles(&cancel),
         Err(NetworkError::Cancelled)
     ));
+}
+
+#[test]
+fn export_visitor_is_whole_session_minimized_and_propagates_failure() {
+    let entries = vec![ENTRY; 235];
+    let file = Fixture::new(har(&entries).as_bytes());
+    let cancel = CancellationToken::new();
+    let session = HarSession::open(&file.0, ImportLimits::default(), &cancel).unwrap();
+    let mut count = 0;
+    session
+        .visit_entries(&cancel, |entry| {
+            assert_eq!(entry.index, count);
+            assert_eq!(entry.minimized_url, MINIMIZED_URL);
+            count += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(count, 235);
+    assert_eq!(
+        session
+            .visit_entries(&cancel, |_| Err("writer failed".into()))
+            .unwrap_err(),
+        "writer failed"
+    );
+    cancel.cancel();
+    let mut called = false;
+    assert!(
+        session
+            .visit_entries(&cancel, |_| {
+                called = true;
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(!called);
+}
+
+#[test]
+fn export_visitor_rejects_source_change_during_output_and_cancellation_midstream() {
+    let file = Fixture::new(har(&[ENTRY, ENTRY]).as_bytes());
+    let cancel = CancellationToken::new();
+    let session = HarSession::open(&file.0, ImportLimits::default(), &cancel).unwrap();
+    let result = session.visit_entries(&cancel, |entry| {
+        if entry.index == 0 {
+            fs::write(&file.0, b"changed").unwrap();
+        }
+        Ok(())
+    });
+    assert!(result.unwrap_err().contains("changed"));
+    let file = Fixture::new(har(&[ENTRY, ENTRY]).as_bytes());
+    let session = HarSession::open(&file.0, ImportLimits::default(), &cancel).unwrap();
+    let mut count = 0;
+    assert!(
+        session
+            .visit_entries(&cancel, |_| {
+                count += 1;
+                cancel.cancel();
+                Ok(())
+            })
+            .is_err()
+    );
+    assert_eq!(count, 1);
 }

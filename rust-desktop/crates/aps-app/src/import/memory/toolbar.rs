@@ -45,31 +45,40 @@ impl ImportWorkspace {
                 toolbar_button(
                     "memory-capture-native-heap",
                     language.text(TextKey::MemoryPageCaptureNativeHeap),
-                    false,
+                    self.advanced_memory_ready(),
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
+                .tooltip(self.memory_capture_tooltip())
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.capture_advanced_memory(super::advanced::AdvancedMemoryKind::Native, cx)
+                })),
             )
             .child(
                 toolbar_button(
                     "memory-record-art-samples",
                     language.text(TextKey::MemoryAppRecordSampledArt),
-                    false,
+                    self.advanced_memory_ready(),
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
+                .tooltip(self.memory_capture_tooltip())
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.capture_advanced_memory(super::advanced::AdvancedMemoryKind::Art, cx)
+                })),
             )
             .child(
                 toolbar_button(
                     "memory-dump-bitmaps",
                     language.text(TextKey::MemoryPageDumpBitmaps),
-                    false,
+                    self.advanced_memory_ready(),
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
+                .tooltip(self.memory_capture_tooltip())
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.capture_advanced_memory(super::advanced::AdvancedMemoryKind::Bitmap, cx)
+                })),
             )
             .child(
                 toolbar_button(
@@ -102,7 +111,7 @@ impl ImportWorkspace {
             MemoryViewMode::LeakAnalysis,
         ] {
             let enabled = match mode {
-                MemoryViewMode::BitmapDump | MemoryViewMode::NativeHeap => false,
+                MemoryViewMode::BitmapDump | MemoryViewMode::NativeHeap => true,
                 MemoryViewMode::SampledArt => true,
                 MemoryViewMode::LeakAnalysis => loaded,
                 _ => loaded,
@@ -238,6 +247,12 @@ impl ImportWorkspace {
         colors: &StudioColors,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if matches!(
+            self.memory_state.view_mode,
+            MemoryViewMode::NativeHeap | MemoryViewMode::SampledArt | MemoryViewMode::BitmapDump
+        ) {
+            return div().into_any_element();
+        }
         let language = self.language;
         let Some(snapshot) = self.memory_state.snapshot.clone() else {
             return div().into_any_element();

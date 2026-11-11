@@ -31,7 +31,7 @@ use std::{
     ffi::OsString,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -41,8 +41,7 @@ use std::{
 
 const MINIMUM_FRAME_TIMELINE_API_LEVEL: u32 = 31;
 const FRAME_TIMELINE_BUFFER_SIZE_KB: u32 = 32 * 1024;
-const TIMELINE_COMPLETION_GRACE: Duration = Duration::from_secs(30);
-const MAX_TIMELINE_DURATION_MS: u64 = 600_000;
+const MAX_TIMELINE_DURATION_MS: u64 = 10_000;
 const FRAME_TIMELINE_DATA_SOURCE: &str = "android.surfaceflinger.frametimeline";
 const GFXINFO_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const GFXINFO_OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
@@ -93,11 +92,12 @@ pub(in crate::frame) struct FramePollBatch {
     pub warnings: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(in crate::frame) struct BoundedFrameTimelineCapture {
     pub trace_file: PathBuf,
     pub started_at_unix_ms: u64,
     pub android_api_level: u32,
+    pub recording: aps_perfetto::recording::RecordingResult,
 }
 
 // ---------------------------------------------------------------------------
@@ -283,20 +283,7 @@ impl ShellOutput {
 trait FrameAdb: Send + Sync {
     fn shell(&self, serial: &str, arguments: &[String]) -> Result<ShellOutput, String>;
 
-    /// Same as shell but with an explicit bounded timeout for commands that
-    /// legitimately block for the capture duration (perfetto --txt capture).
-    fn shell_with_timeout(
-        &self,
-        serial: &str,
-        arguments: &[String],
-        _timeout: Duration,
-    ) -> Result<ShellOutput, String> {
-        self.shell(serial, arguments)
-    }
-
     fn sdk_level(&self, serial: &str) -> Result<u32, String>;
-    fn push(&self, serial: &str, local: &Path, remote: &str) -> Result<(), String>;
-    fn pull(&self, serial: &str, remote: &str, local: &Path) -> Result<(), String>;
     fn forward(&self, serial: &str, local: &str, remote: &str) -> Result<(), String>;
     fn remove_forward(&self, serial: &str, local: &str) -> Result<(), String>;
 }
@@ -368,15 +355,6 @@ impl FrameAdb for ProcessFrameAdb {
         )
     }
 
-    fn shell_with_timeout(
-        &self,
-        serial: &str,
-        arguments: &[String],
-        timeout: Duration,
-    ) -> Result<ShellOutput, String> {
-        self.run(serial, arguments, timeout, GFXINFO_OUTPUT_LIMIT)
-    }
-
     fn sdk_level(&self, serial: &str) -> Result<u32, String> {
         let output = self.run(
             serial,
@@ -388,52 +366,6 @@ impl FrameAdb for ProcessFrameAdb {
         text.trim()
             .parse::<u32>()
             .map_err(|_| "Unable to read the device Android API level.".to_owned())
-    }
-
-    fn push(&self, serial: &str, local: &Path, remote: &str) -> Result<(), String> {
-        validate_serial(serial).map_err(|error| error.to_string())?;
-        let mut request = ProcessRequest::new(&self.executable);
-        request.arguments = vec![
-            "-s".into(),
-            serial.into(),
-            "push".into(),
-            local.as_os_str().to_owned(),
-            remote.into(),
-        ];
-        request.timeout = Duration::from_secs(60);
-        request.stdout_limit = AGENT_COMMAND_OUTPUT_LIMIT;
-        request.stderr_limit = AGENT_COMMAND_OUTPUT_LIMIT;
-        let output = ProcessRunner
-            .run(&request, &self.cancel)
-            .map_err(sanitized_adb_error)?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err("Unable to push the FrameTimeline config to the device.".to_owned())
-        }
-    }
-
-    fn pull(&self, serial: &str, remote: &str, local: &Path) -> Result<(), String> {
-        validate_serial(serial).map_err(|error| error.to_string())?;
-        let mut request = ProcessRequest::new(&self.executable);
-        request.arguments = vec![
-            "-s".into(),
-            serial.into(),
-            "pull".into(),
-            remote.into(),
-            local.as_os_str().to_owned(),
-        ];
-        request.timeout = Duration::from_secs(120);
-        request.stdout_limit = AGENT_COMMAND_OUTPUT_LIMIT;
-        request.stderr_limit = AGENT_COMMAND_OUTPUT_LIMIT;
-        let output = ProcessRunner
-            .run(&request, &self.cancel)
-            .map_err(sanitized_adb_error)?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err("Unable to pull the captured FrameTimeline trace from the device.".to_owned())
-        }
     }
 
     fn forward(&self, serial: &str, local: &str, remote: &str) -> Result<(), String> {
@@ -1805,18 +1737,10 @@ pub(in crate::frame) fn open_online_capture(
 // Bounded Android 12+ FrameTimeline capture (BoundedFrameTimelineCapture.kt).
 // ---------------------------------------------------------------------------
 
-fn timeline_config_text(duration_ms: u64) -> String {
+fn timeline_config_body() -> String {
     format!(
-        "buffers: {{\n  size_kb: {FRAME_TIMELINE_BUFFER_SIZE_KB}\n  fill_policy: RING_BUFFER\n}}\nduration_ms: {duration_ms}\ndata_sources: {{\n  config {{\n    name: \"{FRAME_TIMELINE_DATA_SOURCE}\"\n  }}\n}}\n"
+        "buffers: {{\n  size_kb: {FRAME_TIMELINE_BUFFER_SIZE_KB}\n  fill_policy: RING_BUFFER\n}}\ndata_sources: {{\n  config {{\n    name: \"{FRAME_TIMELINE_DATA_SOURCE}\"\n  }}\n}}\n"
     )
-}
-
-fn timeline_completion_timeout(duration_ms: u64) -> Duration {
-    Duration::from_millis(duration_ms).saturating_add(TIMELINE_COMPLETION_GRACE)
-}
-
-fn timeline_start_command(remote_config: &str, remote_trace: &str) -> String {
-    format!("cat {remote_config} | perfetto --txt -c - -o {remote_trace}")
 }
 
 fn timeline_api_gate(android_api_level: u32) -> Result<(), String> {
@@ -1855,72 +1779,37 @@ pub(in crate::frame) async fn capture_frame_timeline(
     process: &FrameProcessOption,
     duration_ms: u64,
     data_dir: Option<PathBuf>,
-) -> Result<BoundedFrameTimelineCapture, String> {
-    let adb = ProcessFrameAdb::locate()?;
-    capture_frame_timeline_with(&adb, serial, process, duration_ms, data_dir)
-}
-
-fn capture_frame_timeline_with(
-    adb: &dyn FrameAdb,
-    serial: &str,
-    process: &FrameProcessOption,
-    duration_ms: u64,
-    data_dir: Option<PathBuf>,
+    cancel: &CancellationToken,
 ) -> Result<BoundedFrameTimelineCapture, String> {
     validate_timeline_request(serial, process, duration_ms)?;
-    let session_id = unique_id("timeline");
+    if cancel.is_cancelled() {
+        return Err("FrameTimeline capture cancelled before device discovery.".into());
+    }
+    let mut adb = ProcessFrameAdb::locate()?;
+    adb.cancel = cancel.clone();
+    let android_api_level = adb.sdk_level(serial)?;
+    timeline_api_gate(android_api_level)?;
     let capture_root = data_dir
         .unwrap_or_else(std::env::temp_dir)
         .join("frame-captures");
-    let session_directory = capture_root.join(&session_id);
-    let local_config = session_directory.join("frame-timeline.pbtxt");
-    let local_trace = session_directory.join("frame-timeline.pftrace");
-    let remote_config = format!("/data/local/tmp/aps-frame-{session_id}.pbtxt");
-    let remote_trace = format!("/data/misc/perfetto-traces/aps-frame-{session_id}.pftrace");
-    let cleanup = || {
-        let _ = adb.shell(
+    let config_body = timeline_config_body();
+    let recording = aps_perfetto::recording::record_bounded(
+        &aps_perfetto::recording::RecordingRequest {
+            adb_executable: &adb.executable,
             serial,
-            &shell_arguments(&["shell", "rm", "-f", &remote_config, &remote_trace]),
-        );
-    };
-    let result = (|| -> Result<BoundedFrameTimelineCapture, String> {
-        let android_api_level = adb.sdk_level(serial)?;
-        timeline_api_gate(android_api_level)?;
-        std::fs::create_dir_all(&session_directory)
-            .map_err(|_| "FrameTimeline evidence could not be stored.".to_owned())?;
-        std::fs::write(&local_config, timeline_config_text(duration_ms))
-            .map_err(|_| "FrameTimeline evidence could not be stored.".to_owned())?;
-        adb.push(serial, &local_config, &remote_config)?;
-        let started_at_unix_ms = unix_ms();
-        let start = adb.shell_with_timeout(
-            serial,
-            &shell_arguments(&[
-                "shell",
-                "sh",
-                "-c",
-                &timeline_start_command(&remote_config, &remote_trace),
-            ]),
-            timeline_completion_timeout(duration_ms),
-        )?;
-        if !start.success {
-            return Err("ADB could not capture FrameTimeline evidence.".to_owned());
-        }
-        adb.pull(serial, &remote_trace, &local_trace)?;
-        let size = std::fs::metadata(&local_trace)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if size == 0 {
-            return Err("Perfetto completed without producing FrameTimeline evidence.".to_owned());
-        }
-        Ok(BoundedFrameTimelineCapture {
-            trace_file: local_trace,
-            started_at_unix_ms,
-            android_api_level,
-        })
-    })();
-    cleanup();
-    let _ = std::fs::remove_file(&local_config);
-    result
+            output_root: &capture_root,
+            config_body: &config_body,
+            duration: Duration::from_millis(duration_ms),
+        },
+        cancel,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(BoundedFrameTimelineCapture {
+        trace_file: recording.paths.local_trace.clone(),
+        started_at_unix_ms: recording.started_at_unix_ms,
+        android_api_level,
+        recording,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1984,8 +1873,6 @@ mod tests {
     struct FakeAdb {
         responses: std::sync::Mutex<VecDeque<Result<ShellOutput, String>>>,
         shell_calls: std::sync::Mutex<Vec<Vec<String>>>,
-        pushed: std::sync::Mutex<Vec<String>>,
-        pulled: std::sync::Mutex<Vec<(String, PathBuf)>>,
         forwarded: std::sync::Mutex<Vec<(String, String)>>,
         removed: std::sync::Mutex<Vec<String>>,
         api_level: u32,
@@ -1996,8 +1883,6 @@ mod tests {
             Self {
                 responses: std::sync::Mutex::new(VecDeque::new()),
                 shell_calls: std::sync::Mutex::new(Vec::new()),
-                pushed: std::sync::Mutex::new(Vec::new()),
-                pulled: std::sync::Mutex::new(Vec::new()),
                 forwarded: std::sync::Mutex::new(Vec::new()),
                 removed: std::sync::Mutex::new(Vec::new()),
                 api_level,
@@ -2021,22 +1906,6 @@ mod tests {
 
         fn sdk_level(&self, _serial: &str) -> Result<u32, String> {
             Ok(self.api_level)
-        }
-
-        fn push(&self, _serial: &str, local: &Path, _remote: &str) -> Result<(), String> {
-            self.pushed
-                .lock()
-                .unwrap()
-                .push(std::fs::read_to_string(local).unwrap_or_default());
-            Ok(())
-        }
-
-        fn pull(&self, _serial: &str, remote: &str, local: &Path) -> Result<(), String> {
-            self.pulled
-                .lock()
-                .unwrap()
-                .push((remote.to_owned(), local.to_path_buf()));
-            std::fs::write(local, b"perfetto trace").map_err(|_| "write failed".to_owned())
         }
 
         fn forward(&self, _serial: &str, local: &str, remote: &str) -> Result<(), String> {
@@ -2497,28 +2366,43 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn timeline_config_contains_duration_buffer_and_data_source() {
-        let config = timeline_config_text(1_250);
-        assert!(config.contains("duration_ms: 1250"));
+    fn timeline_body_preserves_buffer_source_but_cannot_override_owned_limits() {
+        let config = timeline_config_body();
         assert!(config.contains("size_kb: 32768"));
         assert!(config.contains("fill_policy: RING_BUFFER"));
         assert!(config.contains("name: \"android.surfaceflinger.frametimeline\""));
-        assert!(!config.contains("flush_period_ms"));
+        assert!(!config.contains("duration_ms"));
+        assert!(!config.contains("max_file_size_bytes"));
+        assert!(!config.contains("write_into_file"));
+        assert_eq!(MAX_TIMELINE_DURATION_MS, 10_000);
     }
 
     #[::core::prelude::v1::test]
-    fn timeline_command_shape_matches_compose() {
-        let command = timeline_start_command(
-            "/data/local/tmp/aps-frame-x.pbtxt",
-            "/data/misc/perfetto-traces/aps-frame-x.pftrace",
+    fn timeline_uses_owned_helper_and_the_current_cancellation_token() {
+        let source = include_str!("capture.rs");
+        let adapter = source
+            .split("pub(in crate::frame) async fn capture_frame_timeline(")
+            .nth(1)
+            .unwrap()
+            .split("// Small shared helpers.")
+            .next()
+            .unwrap();
+        assert!(adapter.contains("aps_perfetto::recording::record_bounded("));
+        assert!(adapter.contains("cancel,"));
+        assert!(adapter.contains("recording.paths.local_trace.clone()"));
+        assert!(
+            adapter
+                .find("timeline_api_gate(android_api_level)?")
+                .unwrap()
+                < adapter.find("record_bounded(").unwrap()
         );
-        assert!(command.contains("perfetto --txt -c -"));
-        assert!(command.contains("-o /data/misc/perfetto-traces/"));
-        assert_eq!(timeline_completion_timeout(1_000), Duration::from_secs(31));
+        assert!(!adapter.contains("\"sh\""));
+        assert!(!adapter.contains("timeline_start_command"));
+        assert!(!adapter.contains("rm\", \"-f"));
     }
 
     #[::core::prelude::v1::test]
-    fn timeline_api_gate_requires_android_twelve() {
+    fn timeline_api_gate_requires_android_twelve_before_any_recording() {
         assert!(
             timeline_api_gate(30)
                 .unwrap_err()
@@ -2526,72 +2410,6 @@ mod tests {
         );
         assert!(timeline_api_gate(31).is_ok());
         assert!(timeline_api_gate(34).is_ok());
-    }
-
-    #[::core::prelude::v1::test]
-    fn timeline_capture_uses_fixed_commands_and_cleans_remote_files() {
-        let adb = FakeAdb::new(31);
-        let directory = std::env::temp_dir().join(unique_id("timeline-test"));
-        let process = FrameProcessOption {
-            pid: 123,
-            name: "dev.example.app".to_owned(),
-            package_name: "dev.example.app".to_owned(),
-        };
-        let capture =
-            capture_frame_timeline_with(&adb, "device-serial", &process, 1_250, Some(directory))
-                .unwrap();
-        assert_eq!(capture.android_api_level, 31);
-        assert!(std::fs::metadata(&capture.trace_file).unwrap().len() > 0);
-        assert!(adb.pushed.lock().unwrap()[0].contains("duration_ms: 1250"));
-        let calls = adb.shell_calls.lock().unwrap();
-        assert!(calls.iter().any(|arguments| {
-            arguments.first().map(String::as_str) == Some("shell")
-                && arguments
-                    .last()
-                    .is_some_and(|last| last.contains("perfetto --txt -c -"))
-        }));
-        assert!(
-            calls
-                .last()
-                .is_some_and(
-                    |arguments| arguments.first().map(String::as_str) == Some("shell")
-                        && arguments.get(1).map(String::as_str) == Some("rm")
-                )
-        );
-        assert_eq!(adb.pulled.lock().unwrap().len(), 1);
-    }
-
-    #[::core::prelude::v1::test]
-    fn timeline_capture_rejects_devices_below_android_twelve_before_push() {
-        let adb = FakeAdb::new(30);
-        let directory = std::env::temp_dir().join(unique_id("timeline-gate"));
-        let process = FrameProcessOption {
-            pid: 123,
-            name: "dev.example.app".to_owned(),
-            package_name: "dev.example.app".to_owned(),
-        };
-        let error =
-            capture_frame_timeline_with(&adb, "device-serial", &process, 1_000, Some(directory))
-                .unwrap_err();
-        assert!(error.contains("Android 12 (API 31)"));
-        assert!(adb.pushed.lock().unwrap().is_empty());
-        assert_eq!(
-            adb.shell_calls
-                .lock()
-                .unwrap()
-                .last()
-                .map(|arguments| arguments.first().map(String::as_str)),
-            Some(Some("shell"))
-        );
-        assert_eq!(
-            adb.shell_calls
-                .lock()
-                .unwrap()
-                .last()
-                .and_then(|arguments| arguments.get(1))
-                .map(String::as_str),
-            Some("rm")
-        );
     }
 
     #[::core::prelude::v1::test]

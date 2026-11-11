@@ -3,7 +3,7 @@
 //! Imported durations remain evidence, not a reconstructed phase timeline. In
 //! particular, Activity Manager `TotalTime` never fills a missing TTID/TTFD.
 
-use aps_startup::{StartupMode, StartupRun};
+use aps_startup::{StartupEvidenceOrigin, StartupMode, StartupRun};
 
 pub(super) const MAIN_RAIL_BREAKPOINT: f32 = 1100.;
 pub(super) const RAIL_WIDTH: f32 = 300.;
@@ -20,6 +20,28 @@ pub(super) fn selected_run<'a>(rows: &'a [StartupRun], id: Option<&str>) -> Opti
 
 pub(super) fn metric_ms(value: Option<u64>) -> String {
     value.map_or_else(|| "—".to_owned(), |value| format!("{value} ms"))
+}
+
+/// This provenance is selected by the parser/capture path, never CSV metadata.
+/// Keep it within the eighth minimized column so exports and AI retain it.
+pub(super) fn evidence_origin(run: &StartupRun) -> &'static str {
+    match run.origin {
+        StartupEvidenceOrigin::ImportedCsv => "imported-csv",
+        StartupEvidenceOrigin::ImportedJson => "imported-json",
+        StartupEvidenceOrigin::PlatformAmStart => "platform-am-start",
+        StartupEvidenceOrigin::LiveCapture => "live-platform",
+    }
+}
+
+pub(super) fn cohort_origin(runs: &[StartupRun]) -> &'static str {
+    let Some(first) = runs.first() else {
+        return "unavailable";
+    };
+    if runs.iter().all(|run| run.origin == first.origin) {
+        evidence_origin(first)
+    } else {
+        "mixed-evidence"
+    }
 }
 
 /// Unscaled median absolute deviation of independently available TTID samples.
@@ -97,6 +119,7 @@ mod tests {
 
     fn run(id: &str, ttid: Option<u64>) -> StartupRun {
         StartupRun {
+            origin: aps_startup::StartupEvidenceOrigin::ImportedCsv,
             iteration: 1,
             id: id.to_owned(),
             package: None,

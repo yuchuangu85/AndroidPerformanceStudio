@@ -1,0 +1,17 @@
+{
+  "memory_live_recording": "Recording selected process; trace duration is 10 seconds. Cancellation requests stopping only this recording session.",
+  "memory_live_bitmap_recording": "Dumping the selected process's bitmap heap and extracting images. This may pause the app. Cancellation stops the owned host transfer/extraction; the Android dump may finish independently.",
+  "memory_live_ai_unavailable": "AI evidence export is not connected for Native Heap, ART samples or Bitmap image dumps. A retained Java heap is not evidence for this workspace.",
+  "memory_live_published": "Measured artifact analyzed and published; missing samples remain unavailable.",
+  "memory_live_exported": "Verified artifact exported to the selected destination.",
+  "memory_live_capture": "Capture selected process",
+  "memory_live_import": "Import artifact…",
+  "memory_live_export": "Export artifact…",
+  "memory_live_native_boundary": "10 s · 4096-byte sampling · Android 10+. Native values are sampled recorded allocation accounting, not exact allocations or the full live heap. Net values may be negative.",
+  "memory_live_art_boundary": "10 s · 4096-byte sampling · Android 12+. com.android.art positive allocation samples only: no full coverage, object classes, deallocation, GC or retention claims.",
+  "memory_live_heap_columns": "PID / UPID · callsite · sample rows · weighted allocation count / bytes · sampled net count / bytes · leaf frame",
+  "memory_live_no_samples": "No allocation samples in this page. A nonempty trace does not prove profiling permission or observed allocations.",
+  "memory_live_bitmap_boundary": "Android 15+ Bitmap.dumpData PNG images, extracted in the isolated worker. Ordinary HPROF Bitmap instances are not image dumps. Extraction is bounded; omitted images are explicit.",
+  "memory_live_bitmap_summary": "Recorded {recorded} / discovered {discovered} · extracted {images} · omitted {omitted} · PNG storage {bytes} B",
+  "memory_live_target": "Captured target: {process} (PID {pid}) on {serial}"
+}

@@ -218,5 +218,6 @@
   "benchmark_close_workspace": "Close workspace",
   "benchmark_yes": "Yes",
   "benchmark_no": "No",
-  "benchmark_persistence_unavailable": "Benchmark history storage is unavailable; runs, trends and exported reports need the local benchmark data directory."
+  "benchmark_persistence_unavailable": "Benchmark history storage is unavailable; runs, trends and exported reports need the local benchmark data directory.",
+  "benchmark_select_device_before_run": "Select an online device in the title bar before running a benchmark."
 }

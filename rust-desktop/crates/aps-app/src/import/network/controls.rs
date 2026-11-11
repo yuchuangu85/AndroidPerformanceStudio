@@ -3,6 +3,16 @@
 use super::*;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 
+fn outcome_filter_label(filter: OutcomeFilter, language: Language) -> &'static str {
+    language.text(match filter {
+        OutcomeFilter::All => TextKey::NetworkControlsAllOutcomes,
+        OutcomeFilter::Completed => TextKey::NetworkOutcomeCompleted,
+        OutcomeFilter::Failed => TextKey::NetworkOutcomeFailed,
+        OutcomeFilter::Cancelled => TextKey::NetworkOutcomeCancelled,
+        OutcomeFilter::InFlight => TextKey::NetworkOutcomeInFlight,
+    })
+}
+
 fn active_advanced_filters(query: &EntryQuery) -> usize {
     usize::from(query.status != StatusFilter::All)
         + usize::from(query.method.is_some())
@@ -19,6 +29,8 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let language = self.language;
         let ready = matches!(self.session, Some(Session::Network(_))) && !self.busy;
+        let observed = matches!(&self.session, Some(Session::Network(session)) if session.observed().is_some());
+        let outcome_ready = ready && observed;
         let active_filters = active_advanced_filters(&self.network.query);
         let more_label = language.text(if self.network.filters_expanded {
             TextKey::NetworkControlsLessFilters
@@ -70,12 +82,53 @@ impl ImportWorkspace {
             .child(
                 studio::compact_text_button(
                     "network-outcome-filter",
-                    language.text(TextKey::NetworkControlsAllOutcomes),
-                    false,
-                    false,
+                    outcome_filter_label(self.network.query.outcome, language),
+                    outcome_ready,
+                    self.network.query.outcome != OutcomeFilter::All,
                     colors,
                 )
-                .tooltip(language.text(TextKey::NetworkControlsOutcomeUnavailable)),
+                .when(!observed, |button| {
+                    button.tooltip(language.text(TextKey::NetworkControlsOutcomeUnavailable))
+                })
+                .when(observed && !ready, |button| {
+                    button.tooltip(language.text(TextKey::NetworkControlsOutcomeBusy))
+                })
+                .dropdown_menu({
+                    let workspace = cx.entity().downgrade();
+                    let current = self.network.query.outcome;
+                    move |menu, _, _| {
+                        let mut menu = menu.min_w(px(180.));
+                        if !outcome_ready {
+                            return menu;
+                        }
+                        for outcome in [
+                            OutcomeFilter::All,
+                            OutcomeFilter::Completed,
+                            OutcomeFilter::Failed,
+                            OutcomeFilter::Cancelled,
+                            OutcomeFilter::InFlight,
+                        ] {
+                            let label = outcome_filter_label(outcome, language);
+                            let label = if current == outcome {
+                                format!("✓ {label}")
+                            } else {
+                                label.to_owned()
+                            };
+                            let workspace = workspace.clone();
+                            menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                                let _ = workspace.update(cx, |this, cx| {
+                                    if this.busy || !matches!(&this.session, Some(Session::Network(session)) if session.observed().is_some()) {
+                                        return;
+                                    }
+                                    let mut query = this.network.query.clone();
+                                    query.outcome = outcome;
+                                    this.query_network(0, query, cx);
+                                });
+                            }));
+                        }
+                        menu
+                    }
+                }),
             )
             .child(
                 studio::supporting(
@@ -296,13 +349,14 @@ impl ImportWorkspace {
 
 #[cfg(test)]
 mod tests {
-    use super::{EntryQuery, EntrySort, StatusFilter, active_advanced_filters};
+    use super::{EntryQuery, EntrySort, OutcomeFilter, StatusFilter, active_advanced_filters};
 
     #[::core::prelude::v1::test]
     fn collapsed_filters_report_only_hidden_active_choices() {
         let mut query = EntryQuery::default();
         assert_eq!(active_advanced_filters(&query), 0);
         query.search = "GET".into();
+        query.outcome = OutcomeFilter::Completed;
         assert_eq!(active_advanced_filters(&query), 0);
         query.status = StatusFilter::ClientError4xx;
         assert_eq!(active_advanced_filters(&query), 1);
@@ -334,13 +388,16 @@ mod tests {
             .split("let tabs =")
             .nth(1)
             .unwrap()
-            .split("let search_actions =")
+            .split("\"network-outcome-filter\"")
             .next()
             .unwrap();
         assert!(!tabs.contains("query_network("));
         assert!(!tabs.contains("set_value("));
-        assert!(tabs.contains("NetworkControlsOutcomeUnavailable"));
-        assert!(tabs.contains("NetworkControlsAllOutcomes"));
+        assert!(implementation.contains("NetworkControlsOutcomeUnavailable"));
+        assert!(implementation.contains("NetworkControlsOutcomeBusy"));
+        assert!(implementation.contains("NetworkControlsAllOutcomes"));
+        assert!(implementation.contains("let outcome_ready = ready && observed"));
+        assert!(implementation.contains("query.outcome = outcome"));
         assert!(implementation.contains("NetworkControlsHttpStatus"));
         for choice in [
             "StatusFilter::All",

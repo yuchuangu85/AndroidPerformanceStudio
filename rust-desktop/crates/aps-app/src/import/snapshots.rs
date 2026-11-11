@@ -35,6 +35,7 @@ pub(super) struct MemorySnapshot {
     pub session: Arc<Mutex<MemorySession>>,
     pub state: MemoryState,
     pub session_id: String,
+    pub import_duration: Option<Duration>,
 }
 
 fn label(path: &Path) -> String {
@@ -86,6 +87,7 @@ impl ImportWorkspace {
             session,
             state: std::mem::take(&mut self.memory_state),
             session_id: self.session_id.take()?,
+            import_duration: self.import_duration.take(),
         })
     }
 
@@ -95,6 +97,8 @@ impl ImportWorkspace {
         self.session = Some(Session::Memory(snapshot.session));
         self.session_id = Some(snapshot.session_id);
         self.memory_state = snapshot.state;
+        self.import_duration = snapshot.import_duration;
+        self.import_started = None;
     }
 
     pub(super) fn select_memory_snapshot(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -162,6 +166,8 @@ impl ImportWorkspace {
         self.path = None;
         self.page = None;
         self.session_id = None;
+        self.import_duration = None;
+        self.import_started = None;
         if let Some(previous) = self.memory_snapshots.pop() {
             self.restore_memory_snapshot(previous);
         }
@@ -210,5 +216,34 @@ mod tests {
         let workspace = ImportWorkspace::new(Destination::Memory, Language::English);
         assert!(workspace.memory_snapshot_tabs().is_empty());
         assert!(workspace.memory_comparison_pair().is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn import_duration_is_owned_by_each_snapshot_not_the_last_opened_tab() {
+        let source = include_str!("snapshots.rs");
+        let take = source
+            .split("fn take_active_memory_snapshot(")
+            .nth(1)
+            .unwrap()
+            .split("fn restore_memory_snapshot(")
+            .next()
+            .unwrap();
+        assert!(take.contains("import_duration: self.import_duration.take()"));
+        let restore = source
+            .split("fn restore_memory_snapshot(")
+            .nth(1)
+            .unwrap()
+            .split("fn select_memory_snapshot(")
+            .next()
+            .unwrap();
+        assert!(restore.contains("self.import_duration = snapshot.import_duration"));
+        let close = source
+            .split("fn close_memory_snapshot(")
+            .nth(1)
+            .unwrap()
+            .split("fn memory_comparison_pair(")
+            .next()
+            .unwrap();
+        assert!(close.contains("self.import_duration = None"));
     }
 }

@@ -101,8 +101,11 @@ fn summary_value(result: &AnalysisResult) -> Result<Value, String> {
         ("formatVersion", (s.format_version as u32).into()),
         ("recordCount", wire::number(s.record_count as u64)?),
         ("sampleCount", wire::number(s.sample_count)?),
+        (
+            "reportedSampleCount",
+            wire::number(s.reported_sample_count)?,
+        ),
         ("lostSampleCount", wire::number(s.lost_sample_count)?),
-        ("lostEventCount", wire::number(s.lost_event_count)?),
         ("totalEventCount", wire::number(s.total_event_count)?),
         ("fileCount", wire::number(s.file_count as u64)?),
         ("threadCount", wire::number(s.thread_count as u64)?),

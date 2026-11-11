@@ -118,7 +118,9 @@ impl StudioColors {
         colors.accent = accent;
         colors.workspace = titlebar_background(dark);
         colors.toolbar = titlebar_background(dark);
-        colors.selected_row = colors.panel.blend(accent.alpha(if dark { 0.32 } else { 0.20 }));
+        colors.selected_row = colors
+            .panel
+            .blend(accent.alpha(if dark { 0.32 } else { 0.20 }));
         colors
     }
 

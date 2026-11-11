@@ -285,11 +285,76 @@ fn gecko_multi_thread_firefox_roundtrip_preserves_local_symbols() {
 }
 
 #[test]
+fn gecko_nested_processes_are_flattened_with_their_thread_identity() {
+    let mut document = profile();
+    let grandchild = object([
+        (
+            "threads",
+            Value::Array(vec![thread(55, "grandchild", "/lib/grandchild.so", 1)]),
+        ),
+        ("processes", Value::Array(Vec::new())),
+    ]);
+    let child = object([
+        (
+            "threads",
+            Value::Array(vec![thread(44, "child", "/lib/child.so", 2)]),
+        ),
+        ("processes", Value::Array(vec![grandchild])),
+    ]);
+    document["processes"] = Value::Array(vec![child]);
+    let fixture = Fixture::profile(&document);
+    let mut session = CpuSession::open(&fixture.0).unwrap();
+
+    assert_eq!(session.summary().thread_count, 5);
+    assert_eq!(session.summary().sample_count, 9);
+    assert_eq!(
+        session
+            .threads()
+            .iter()
+            .map(|thread| thread.id)
+            .collect::<Vec<_>>(),
+        vec![11, 22, 33, 44, 55]
+    );
+    for (thread_id, expected_name, expected_resource, expected_samples) in [
+        (44, "child", "/lib/child.so", 2),
+        (55, "grandchild", "/lib/grandchild.so", 1),
+    ] {
+        let query = Query {
+            thread_ids: [thread_id].into(),
+            ..Query::default()
+        };
+        let tree = session.full_call_tree(&query, 100).unwrap();
+        assert_eq!(tree.rows.len(), 3);
+        assert!(tree.rows.iter().any(|row| {
+            row.name == format!("{expected_name}_root")
+                && row.resource == expected_resource
+                && row.sample_count == expected_samples
+        }));
+        assert_eq!(
+            session.top_functions(&query, 0, 100).unwrap().rows[0].thread_count,
+            1
+        );
+    }
+}
+
+#[test]
+fn gecko_nested_process_errors_identify_the_process_path() {
+    let mut document = profile();
+    document["processes"] = Value::Array(vec![object([
+        ("threads", Value::Array(vec![Value::Null])),
+        ("processes", Value::Array(Vec::new())),
+    ])]);
+    let fixture = Fixture::profile(&document);
+    let error = CpuSession::open(&fixture.0).unwrap_err();
+    assert!(error.contains("profile.processes[0].threads[0]"), "{error}");
+}
+
+#[test]
 fn gecko_malformed_later_thread_rejects_the_whole_import() {
     let mut invalid = profile();
     invalid["threads"][2]["frameTable"]["data"][0][1] = Value::from(999);
     let fixture = Fixture::profile(&invalid);
     let error = CpuSession::open(&fixture.0).unwrap_err();
-    assert!(error.contains("threads[2]"), "{error}");
+    assert!(error.contains("profile.threads[2]"), "{error}");
     assert!(error.contains("stringTable range"), "{error}");
 }

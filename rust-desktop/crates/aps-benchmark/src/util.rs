@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(format_general(0.0, 4), "0");
         assert_eq!(format_general(123_456.0, 4), "1.235e+05");
         assert_eq!(format_percent(20.0), "+20.00");
-        assert_eq!(format_percent(-3.14159), "-3.14");
+        assert_eq!(format_percent(-std::f64::consts::PI), "-3.14");
     }
 
     #[test]

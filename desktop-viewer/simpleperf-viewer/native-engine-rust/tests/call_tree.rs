@@ -146,12 +146,13 @@ fn empty_stacks_count_in_summary_but_not_tree_and_lost_counts_remain_separate() 
     assert_eq!(result.summary.total_event_count, 11);
     assert_eq!(
         (
-            result.summary.lost_sample_count,
-            result.summary.lost_event_count
+            result.summary.reported_sample_count,
+            result.summary.lost_sample_count
         ),
         (10, 18)
     );
     assert_eq!(result.summary.record_count, 5);
+    assert_eq!(result.summary.lost_rate(), 1.8);
     let empty = analyze(&SimpleperfStream {
         version: 1,
         records: vec![],

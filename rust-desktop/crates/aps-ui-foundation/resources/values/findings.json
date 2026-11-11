@@ -1,0 +1,16 @@
+{
+  "inspector_finding_invisible_node": "Invisible node",
+  "inspector_finding_excessive_children": "Too many children",
+  "inspector_finding_overlapping_siblings": "Overlapping sibling bounds",
+  "inspector_finding_deep_hierarchy": "Deep hierarchy",
+  "inspector_finding_invisible_node_message": "{class_name} exists but is currently invisible",
+  "inspector_finding_excessive_children_message": "{count} direct children, exceeding the threshold of {threshold}",
+  "inspector_finding_overlapping_siblings_message": "{count} siblings overlap by at least {ratio_percent}%; this is a structural rendering risk; confirm with GPU tools",
+  "inspector_finding_deep_hierarchy_message": "Hierarchy depth {depth} exceeds the threshold of {threshold}",
+  "inspector_finding_severity_info": "Info",
+  "inspector_finding_severity_warning": "Warning",
+  "inspector_finding_severity_error": "Error",
+  "inspector_findings_filtered": "No findings match the current filters.",
+  "inspector_findings_partial_empty": "No findings were retained; some structural checks were not evaluated.",
+  "inspector_findings_scope": "Four structural rules on captured nodes only; no GPU or recomposition assessment."
+}

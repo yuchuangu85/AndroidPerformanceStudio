@@ -110,6 +110,8 @@ impl Scenario {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MacrobenchmarkPlan {
     pub project_root: PathBuf,
+    /// Explicit single-device selection; never inherit an unrelated ANDROID_SERIAL.
+    pub device_serial: Option<String>,
     pub gradle_task: String,
     pub benchmark_filter: Option<String>,
     pub compilation_mode: CompilationMode,
@@ -124,6 +126,7 @@ impl Default for MacrobenchmarkPlan {
     fn default() -> Self {
         Self {
             project_root: PathBuf::new(),
+            device_serial: None,
             gradle_task: DEFAULT_MACROBENCHMARK_TASK.to_string(),
             benchmark_filter: None,
             compilation_mode: CompilationMode::None,
@@ -204,6 +207,17 @@ pub fn build_command(plan: &MacrobenchmarkPlan) -> Result<MacrobenchmarkCommand,
         .as_ref()
         .map(|path| absolute_normalize(path));
     let mut environment = BTreeMap::new();
+    if let Some(serial) = &plan.device_serial {
+        if serial.is_empty()
+            || serial.len() > 255
+            || !serial
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':' | b'%'))
+        {
+            return Err("Invalid macrobenchmark device serial".into());
+        }
+        environment.insert("ANDROID_SERIAL".to_owned(), serial.clone());
+    }
     environment.insert(
         "APS_MACROBENCHMARK_COMPILATION_MODE".to_string(),
         plan.compilation_mode.property().to_string(),
@@ -246,6 +260,10 @@ pub fn build_command(plan: &MacrobenchmarkPlan) -> Result<MacrobenchmarkCommand,
         format!("-Paps.macrobenchmark.warmups={}", plan.warmups),
         format!("-Paps.macrobenchmark.iterations={}", plan.iterations),
     ];
+    if let Some(serial) = &plan.device_serial {
+        // AGP's connected-task device restriction, in addition to ADB's serial.
+        arguments.push(format!("-Pandroid.injected.device.serial={serial}"));
+    }
     if let Some(filter) = &plan.benchmark_filter {
         arguments.push(format!(
             "-Pandroid.testInstrumentationRunnerArguments.class={filter}"

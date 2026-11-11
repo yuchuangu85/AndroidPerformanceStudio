@@ -16,6 +16,7 @@ use gpui_kit::{PathPromptOptions, prelude::*};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// A mapping.txt larger than this is rejected before it is parsed.
 pub(super) const MAX_MAPPING_FILE_BYTES: u64 = MAX_MAPPING_BYTES as u64;
@@ -155,6 +156,7 @@ impl ImportWorkspace {
         if !self.memory_mapping_enabled() {
             return;
         }
+        let started = Instant::now();
         let Some(Session::Memory(session)) = self.session.clone() else {
             return;
         };
@@ -244,6 +246,8 @@ impl ImportWorkspace {
                                 .to_owned(),
                         );
                         this.memory_state.refresh_export_availability();
+                        this.import_started = None;
+                        this.import_duration = Some(started.elapsed());
                         #[cfg(debug_assertions)]
                         this.memory_debug_seed(cx);
                         if view_mode == MemoryViewMode::Dominators {
@@ -264,6 +268,42 @@ impl ImportWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mapping_import_time_is_published_only_after_the_new_snapshot_is_ready() {
+        let source = include_str!("mapping.rs");
+        let import = source
+            .split("pub(crate) fn memory_import_mapping(")
+            .nth(1)
+            .unwrap()
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(
+            import.find("let started = Instant::now();").unwrap()
+                < import.find("background_executor()").unwrap()
+        );
+        let success = import
+            .split("Ok((session, snapshot, entries)) =>")
+            .nth(1)
+            .unwrap()
+            .split("Err(error)")
+            .next()
+            .unwrap();
+        assert!(
+            success.find("reset_for_snapshot(").unwrap()
+                < success
+                    .find("this.import_duration = Some(started.elapsed());")
+                    .unwrap()
+        );
+        assert!(
+            !import
+                .split("match result")
+                .next()
+                .unwrap()
+                .contains("this.import_duration =")
+        );
+    }
 
     #[test]
     fn parses_class_rows_and_ignores_member_rows() {

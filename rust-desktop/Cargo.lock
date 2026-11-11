@@ -251,7 +251,9 @@ dependencies = [
 name = "aps-battery"
 version = "0.1.0"
 dependencies = [
+ "aps-adb",
  "aps-json",
+ "aps-platform",
 ]
 
 [[package]]
@@ -390,6 +392,10 @@ dependencies = [
 [[package]]
 name = "aps-startup"
 version = "0.1.0"
+dependencies = [
+ "aps-adb",
+ "aps-platform",
+]
 
 [[package]]
 name = "aps-storage"

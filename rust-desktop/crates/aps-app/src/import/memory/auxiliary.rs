@@ -2,8 +2,8 @@
 //!
 //! The Compose pages are the behavior oracle. HPROF bitmap findings are real
 //! bounded evidence; bitmap dump capture sessions, native heap traces and ART
-//! sample traces are not wired in this build, so their pages show an explicit
-//! empty state and disabled capture/import actions instead of simulated data.
+//! sample traces use the explicit advanced capture adapters. Ordinary HPROF
+//! bitmap findings remain distinct from extracted image-dump sessions.
 use super::ImportWorkspace;
 use super::widgets::toolbar_button;
 use crate::studio::{self, StudioColors};
@@ -89,8 +89,11 @@ impl ImportWorkspace {
     pub(super) fn render_memory_bitmaps(
         &mut self,
         colors: &StudioColors,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
+        if self.has_bitmap_dump() || self.memory_state.snapshot.is_none() {
+            return self.render_bitmap_dump(colors, cx);
+        }
         let language = self.language;
         let page = self
             .memory_state
@@ -112,11 +115,14 @@ impl ImportWorkspace {
                 toolbar_button(
                     "memory-bitmap-dump",
                     language.text(TextKey::MemoryPageDumpBitmaps),
-                    false,
+                    self.advanced_memory_ready(),
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
+                .tooltip(self.memory_capture_tooltip())
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.capture_advanced_memory(super::advanced::AdvancedMemoryKind::Bitmap, cx)
+                })),
                 toolbar_button(
                     "memory-bitmap-export",
                     language.text(TextKey::MemoryAppExportBitmapDump),
@@ -291,137 +297,17 @@ impl ImportWorkspace {
     pub(super) fn render_memory_native_heap(
         &mut self,
         colors: &StudioColors,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
-        let language = self.language;
-        let title = page_title(
-            language.text(TextKey::MemoryAppNativeHeapView),
-            language.text(TextKey::MemoryPageNoNativeHeapTrace),
-            vec![
-                toolbar_button(
-                    "memory-native-capture",
-                    language.text(TextKey::MemoryPageCaptureNativeHeap),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-                toolbar_button(
-                    "memory-native-import",
-                    language.text(TextKey::MemoryAppImportNativeHeap),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-                toolbar_button(
-                    "memory-native-export",
-                    language.text(TextKey::MemoryAppExportNativeHeapTrace),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            ],
-            colors,
-        );
-        studio::page(colors)
-            .id("memory-native-heap-page")
-            .h_auto()
-            .flex_1()
-            .min_h_0()
-            .child(title)
-            .child(
-                studio::card(colors)
-                    .flex_1()
-                    .min_h_0()
-                    .gap(px(4.))
-                    .child(studio::section_title(
-                        language.text(TextKey::MemoryPageNativeHeap),
-                        colors,
-                    ))
-                    .child(text_cell(
-                        language.text(TextKey::MemoryPageNativeHeapEmpty),
-                        colors.secondary_text,
-                    ))
-                    .child(supporting_line(
-                        language.text(TextKey::MemoryPageNoNativeHeapTrace),
-                        colors,
-                    ))
-                    .child(supporting_line(
-                        language.text(TextKey::MemoryPageCaptureUnavailable),
-                        colors,
-                    )),
-            )
-            .into_any_element()
+        self.render_advanced_heap(super::advanced::AdvancedMemoryKind::Native, colors, cx)
     }
 
     pub(super) fn render_memory_art_samples(
         &mut self,
         colors: &StudioColors,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
-        let language = self.language;
-        let title = page_title(
-            language.text(TextKey::MemoryAppSampledArtView),
-            language.text(TextKey::MemoryPageArtSampledTraceSource),
-            vec![
-                toolbar_button(
-                    "memory-art-record",
-                    language.text(TextKey::MemoryAppRecordSampledArt),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-                toolbar_button(
-                    "memory-art-import",
-                    language.text(TextKey::MemoryAppMenuImportSampledArt),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-                toolbar_button(
-                    "memory-art-export",
-                    language.text(TextKey::MemoryAppExportSampledArtTrace),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            ],
-            colors,
-        );
-        studio::page(colors)
-            .id("memory-art-samples-page")
-            .h_auto()
-            .flex_1()
-            .min_h_0()
-            .child(title)
-            .child(supporting_line(
-                language.text(TextKey::MemoryPageArtSampledEvidenceBoundary),
-                colors,
-            ))
-            .child(
-                studio::card(colors)
-                    .flex_1()
-                    .min_h_0()
-                    .gap(px(4.))
-                    .child(text_cell(
-                        language.text(TextKey::MemoryPageArtSamplesEmpty),
-                        colors.secondary_text,
-                    ))
-                    .child(supporting_line(
-                        language.text(TextKey::MemoryPageArtSampledTraceUnavailable),
-                        colors,
-                    ))
-                    .child(supporting_line(
-                        language.text(TextKey::MemoryPageCaptureUnavailable),
-                        colors,
-                    )),
-            )
-            .into_any_element()
+        self.render_advanced_heap(super::advanced::AdvancedMemoryKind::Art, colors, cx)
     }
 }
 

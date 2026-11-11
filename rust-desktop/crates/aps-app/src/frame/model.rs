@@ -24,6 +24,8 @@ const AXIS_INTERVALS: usize = 4;
 /// UI-level operation status shown in the header and status bar.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::frame) enum FrameOperationStatus {
+    CaptureCancelling,
+    CaptureCancelled,
     Capturing {
         package_name: String,
         source: String,
@@ -43,6 +45,8 @@ pub(in crate::frame) enum FrameOperationStatus {
 impl FrameOperationStatus {
     pub(in crate::frame) fn localized(&self, language: Language) -> String {
         match self {
+            Self::CaptureCancelling => language.text(TextKey::FrameCancellingFrametimeline).into(),
+            Self::CaptureCancelled => language.text(TextKey::FrameCancelledFrametimeline).into(),
             Self::Capturing {
                 package_name,
                 source,

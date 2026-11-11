@@ -9,6 +9,7 @@
 
 use super::super::menus::ImportMenuCommand;
 use super::super::*;
+use super::advanced::AdvancedMemoryKind;
 use super::exports::MemoryExportKind;
 use super::state::MemoryViewMode;
 use crate::shell::menubar::MenuGroup;
@@ -34,7 +35,12 @@ pub(super) fn default_comparison_pair(
 pub(crate) fn memory_view_mode(index: u8) -> Option<MemoryViewMode> {
     MemoryViewMode::PRIMARY
         .into_iter()
-        .chain([MemoryViewMode::LeakAnalysis])
+        .chain([
+            MemoryViewMode::LeakAnalysis,
+            MemoryViewMode::BitmapDump,
+            MemoryViewMode::NativeHeap,
+            MemoryViewMode::SampledArt,
+        ])
         .nth(index as usize)
 }
 
@@ -48,8 +54,8 @@ impl ImportWorkspace {
         let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !self.busy);
         // Compose memory imports add a dataset to the loaded session. The Rust
         // HPROF import is the Java heap import (it opens another snapshot tab);
-        // mapping deobfuscates the loaded heap; the native heap and ART sample
-        // imports have no Rust adapter yet and stay disabled.
+        // mapping deobfuscates the loaded heap; Native/ART traces use their
+        // dedicated adapters and never replace the Java snapshot evidence.
         let file = file.submenu(TextKey::ShellMenuImport, true, |menu| {
             menu.item_when(
                 self.can_open_home_artifact(),
@@ -57,14 +63,14 @@ impl ImportWorkspace {
                 ImportMenuCommand::Pick,
             )
             .item_when(
-                false,
+                !self.busy && !self.export_busy,
                 TextKey::MemoryAppMenuImportNativeHeap,
-                ImportMenuCommand::Unavailable,
+                ImportMenuCommand::MemoryImportAdvanced(AdvancedMemoryKind::Native),
             )
             .item_when(
-                false,
+                !self.busy && !self.export_busy,
                 TextKey::MemoryAppMenuImportSampledArt,
-                ImportMenuCommand::Unavailable,
+                ImportMenuCommand::MemoryImportAdvanced(AdvancedMemoryKind::Art),
             )
             .item_when(
                 self.memory_mapping_enabled(),
@@ -99,14 +105,14 @@ impl ImportWorkspace {
                     ImportMenuCommand::Unavailable,
                 )
                 .item_when(
-                    false,
+                    self.advanced_memory_export_enabled(AdvancedMemoryKind::Native),
                     TextKey::MemoryAppExportNativeHeapTrace,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExportAdvanced(AdvancedMemoryKind::Native),
                 )
                 .item_when(
-                    false,
+                    self.advanced_memory_export_enabled(AdvancedMemoryKind::Art),
                     TextKey::MemoryAppExportSampledArtTrace,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExportAdvanced(AdvancedMemoryKind::Art),
                 )
                 .separator()
                 .item_when(
@@ -141,9 +147,9 @@ impl ImportWorkspace {
                 )
                 .separator()
                 .item_when(
-                    false,
+                    self.advanced_memory_export_enabled(AdvancedMemoryKind::Bitmap),
                     TextKey::MemoryAppExportBitmapDump,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExportAdvanced(AdvancedMemoryKind::Bitmap),
                 )
                 .item_when(
                     false,
@@ -176,7 +182,12 @@ impl ImportWorkspace {
         let mut view = MenuGroup::new(TextKey::ShellMenuView);
         for (index, mode) in MemoryViewMode::PRIMARY
             .into_iter()
-            .chain([MemoryViewMode::LeakAnalysis])
+            .chain([
+                MemoryViewMode::LeakAnalysis,
+                MemoryViewMode::BitmapDump,
+                MemoryViewMode::NativeHeap,
+                MemoryViewMode::SampledArt,
+            ])
             .enumerate()
         {
             view = view.check(

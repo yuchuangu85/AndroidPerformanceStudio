@@ -4,6 +4,17 @@ import org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
+buildscript {
+    if (providers.gradleProperty("includeNetworkAgent").orNull == "true") {
+        // Built-in Kotlin needs AGP types in the same parent classloader as KGP.
+        val androidPlugin = project.extensions.getByType<VersionCatalogsExtension>()
+            .named("libs").findPlugin("android-library").get().get()
+        dependencies {
+            classpath("${androidPlugin.pluginId}:${androidPlugin.pluginId}.gradle.plugin:${androidPlugin.version}")
+        }
+    }
+}
+
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.kotlin.serialization) apply false

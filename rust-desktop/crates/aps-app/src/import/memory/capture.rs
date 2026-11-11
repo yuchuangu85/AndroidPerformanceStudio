@@ -14,6 +14,9 @@ pub(in crate::import) struct MemoryCaptureUi {
 }
 
 impl MemoryCaptureUi {
+    pub(in crate::import::memory) fn target(&self) -> Option<&HeapCaptureTarget> {
+        self.target.as_ref()
+    }
     fn select(&mut self, serial: Option<String>, pid: Option<u32>) -> bool {
         if self.serial == serial && self.pid == pid {
             return false;
@@ -57,6 +60,82 @@ struct LoadedHeap {
     page: PageData,
     snapshot: Arc<aps_memory::MemorySnapshot>,
     import_duration: Duration,
+}
+
+static HISTORY_COMMIT: Mutex<()> = Mutex::new(());
+
+struct HistoryCopy {
+    path: PathBuf,
+    remove_on_drop: bool,
+}
+
+impl Drop for HistoryCopy {
+    fn drop(&mut self) {
+        if self.remove_on_drop {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn persist_history_copy(source: &Path, root: &Path, digest: &str) -> Result<HistoryCopy, String> {
+    let expected = SourceDigest::from_hex(digest)?;
+    if !root.is_absolute() {
+        return Err("Memory history requires an absolute Rust-owned directory".into());
+    }
+    aps_platform::create_private_directory(root).map_err(|error| error.to_string())?;
+    let destination = root.join(format!("{}.hprof", expected.to_hex()));
+    let verify_existing = || -> Result<(), String> {
+        let metadata =
+            std::fs::symlink_metadata(&destination).map_err(|error| error.to_string())?;
+        if !metadata.is_file()
+            || metadata.is_symlink()
+            || SourceDigest::hash_file(&destination, aps_memory::MAX_INPUT_BYTES)? != expected
+        {
+            return Err("Retained Memory history artifact does not match its digest".into());
+        }
+        Ok(())
+    };
+    if std::fs::symlink_metadata(&destination).is_ok() {
+        verify_existing()?;
+        return Ok(HistoryCopy {
+            path: destination,
+            remove_on_drop: false,
+        });
+    }
+    let staging = aps_platform::TempWorkspace::create(root).map_err(|error| error.to_string())?;
+    let copied = staging.path().join("complete.hprof");
+    super::exports::write_verified_copy(source, &copied, digest)?;
+    // Publish only the complete verified inode, without replacing an existing copy.
+    let created = match std::fs::hard_link(&copied, &destination) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            verify_existing()?;
+            false
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    Ok(HistoryCopy {
+        path: destination,
+        remove_on_drop: created,
+    })
+}
+
+fn commit_history(source: &Path, root: &Path, digest: &str) -> Result<PathBuf, String> {
+    let _guard = HISTORY_COMMIT
+        .lock()
+        .map_err(|_| "Memory history transaction is unavailable")?;
+    let mut retained =
+        persist_history_copy(source, &root.join("memory-history-artifacts"), digest)?;
+    crate::home_recent::RecentPathStore::new(root.join("recent-artifacts")).record(
+        crate::home_recent::RecordedFeature::Memory,
+        crate::home_recent::RecentPathEntry {
+            path: retained.path.clone(),
+            package_name: None,
+            captured_at_unix_ms: None,
+        },
+    )?;
+    retained.remove_on_drop = false;
+    Ok(retained.path.clone())
 }
 
 fn load_capture(
@@ -219,6 +298,8 @@ impl ImportWorkspace {
                             cx.notify();
                             return;
                         };
+                        let history_artifact = loaded.artifact.clone();
+                        let history_digest = loaded.snapshot.source_digest.clone();
                         if let Some(mut previous) = this.take_active_memory_snapshot() {
                             // Pending old-tab queries cannot publish into the new snapshot.
                             previous.state.instances_loading = false;
@@ -244,6 +325,7 @@ impl ImportWorkspace {
                         ));
                         this.import_started = None;
                         this.import_duration = Some(loaded.import_duration);
+                        this.retain_memory_capture_history(history_artifact, history_digest, cx);
                     }
                     Err(error) => {
                         this.error = Some(UiText::format(
@@ -259,11 +341,159 @@ impl ImportWorkspace {
         .detach();
         cx.notify();
     }
+
+    fn retain_memory_capture_history(
+        &mut self,
+        artifact: Arc<CapturedHeap>,
+        digest: String,
+        cx: &mut Context<Self>,
+    ) {
+        let snapshot_id = self.memory_snapshot_id;
+        let root = crate::settings_path()
+            .ok()
+            .and_then(|path| path.parent().map(PathBuf::from));
+        let task = cx.background_executor().spawn(async move {
+            let root = root.ok_or("Memory history storage is unavailable")?;
+            commit_history(&artifact.path, &root, &digest)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok(_) => {
+                        if let Some(studio) = &this.studio {
+                            studio
+                                .update(cx, |studio, cx| studio.refresh_home_recent(cx))
+                                .ok();
+                        }
+                    }
+                    Err(error) => this.publish_memory_history_error(snapshot_id, error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+    fn publish_memory_history_error(&mut self, snapshot_id: Option<u64>, error: String) {
+        if snapshot_id.is_some() && self.memory_snapshot_id == snapshot_id {
+            self.memory_state.notice = Some(error);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn captured_memory_history_survives_scratch_cleanup_and_is_deduplicated() {
+        let root = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let scratch = aps_platform::TempWorkspace::create(root.path()).unwrap();
+        let source = scratch.path().join("capture.raw.hprof");
+        std::fs::write(&source, b"verified captured heap fixture").unwrap();
+        let digest = SourceDigest::hash_file(&source, aps_memory::MAX_INPUT_BYTES)
+            .unwrap()
+            .to_hex();
+        let retained = root.path().join("memory-history-artifacts");
+        let path = commit_history(&source, root.path(), &digest).unwrap();
+        assert_eq!(commit_history(&source, root.path(), &digest).unwrap(), path);
+        assert_eq!(std::fs::read_dir(&retained).unwrap().count(), 1);
+        drop(scratch);
+        assert!(!source.exists());
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            b"verified captured heap fixture"
+        );
+        let history =
+            crate::home_recent::RecentPathStore::new(root.path().join("recent-artifacts"));
+        assert_eq!(
+            history
+                .load(crate::home_recent::RecordedFeature::Memory, 1)
+                .unwrap()[0]
+                .path,
+            path
+        );
+        history
+            .clear(crate::home_recent::RecordedFeature::Memory)
+            .unwrap();
+        assert!(path.is_file());
+    }
+
+    #[::core::prelude::v1::test]
+    fn memory_history_rejects_mutated_source_and_never_replaces_mismatched_copy() {
+        let root = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let source = root.path().join("capture.raw.hprof");
+        std::fs::write(&source, b"original heap").unwrap();
+        let digest = SourceDigest::hash_file(&source, aps_memory::MAX_INPUT_BYTES)
+            .unwrap()
+            .to_hex();
+        let retained = root.path().join("memory-history-artifacts");
+        std::fs::write(&source, b"mutated heap").unwrap();
+        assert!(commit_history(&source, root.path(), &digest).is_err());
+        assert_eq!(std::fs::read_dir(&retained).unwrap().count(), 0);
+        std::fs::write(&source, b"original heap").unwrap();
+        let path = commit_history(&source, root.path(), &digest).unwrap();
+        std::fs::write(&path, b"corrupt retained heap").unwrap();
+        assert!(commit_history(&source, root.path(), &digest).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"corrupt retained heap");
+        assert_eq!(std::fs::read_dir(&retained).unwrap().count(), 1);
+    }
+
+    #[::core::prelude::v1::test]
+    fn failed_history_registration_rolls_back_only_a_newly_retained_heap() {
+        let root = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let source = root.path().join("captured.hprof");
+        std::fs::write(&source, b"captured heap").unwrap();
+        let digest = SourceDigest::hash_file(&source, aps_memory::MAX_INPUT_BYTES)
+            .unwrap()
+            .to_hex();
+        let index_root = root.path().join("recent-artifacts");
+        std::fs::create_dir(&index_root).unwrap();
+        let index = index_root.join("home-recent-memory-v1.json");
+        std::fs::write(&index, b"corrupt history").unwrap();
+        let destination = root
+            .path()
+            .join("memory-history-artifacts")
+            .join(format!("{digest}.hprof"));
+        assert!(commit_history(&source, root.path(), &digest).is_err());
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read(&source).unwrap(), b"captured heap");
+        assert_eq!(std::fs::read(&index).unwrap(), b"corrupt history");
+        std::fs::remove_file(&index).unwrap();
+        assert_eq!(
+            commit_history(&source, root.path(), &digest).unwrap(),
+            destination
+        );
+        std::fs::write(&index, b"corrupt again").unwrap();
+        assert!(commit_history(&source, root.path(), &digest).is_err());
+        assert_eq!(std::fs::read(destination).unwrap(), b"captured heap");
+    }
+
+    #[::core::prelude::v1::test]
+    fn delayed_history_errors_cannot_replace_another_snapshots_notice() {
+        let mut workspace = ImportWorkspace::new(Destination::Memory, Language::English);
+        workspace.memory_snapshot_id = Some(7);
+        workspace.memory_state.notice = Some("current snapshot".into());
+        workspace.publish_memory_history_error(Some(6), "old failure".into());
+        assert_eq!(
+            workspace.memory_state.notice.as_deref(),
+            Some("current snapshot")
+        );
+        workspace.memory_snapshot_id = None;
+        workspace.publish_memory_history_error(Some(7), "closed failure".into());
+        workspace.publish_memory_history_error(None, "no origin".into());
+        assert_eq!(
+            workspace.memory_state.notice.as_deref(),
+            Some("current snapshot")
+        );
+        workspace.memory_snapshot_id = Some(7);
+        workspace.publish_memory_history_error(Some(7), "current failure".into());
+        assert_eq!(
+            workspace.memory_state.notice.as_deref(),
+            Some("current failure")
+        );
+    }
 
     fn devices() -> Vec<AdbDevice> {
         aps_adb::parse_devices("serial device model:Pixel_8\n").unwrap()

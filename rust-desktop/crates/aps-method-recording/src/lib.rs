@@ -118,11 +118,13 @@ impl std::error::Error for ImportError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockSource {
-    /// Classic v2: the primary timestamp is thread CPU time, not wall time.
+    /// Primary timestamps are thread CPU time, not wall time.
     ThreadCpu,
+    /// Standard text-first trace explicitly declares a single wall clock.
+    Wall,
     /// Streaming v4 does not identify which single clock its producer selected.
     UnspecifiedSingle,
-    /// Fixture-supported v3/v5 primary wall clock with separate thread CPU clock.
+    /// Primary wall clock with separate thread CPU clock.
     WallAndThreadCpu,
 }
 

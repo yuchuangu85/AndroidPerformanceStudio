@@ -406,7 +406,14 @@ fn metric_and_wire_string_overflow_fail_without_partial_output() {
 
 #[test]
 fn summarize_aliases_and_stdio_analyze_keep_the_existing_contract() {
-    let fixture = Fixture::new(&encoded(&profile()));
+    let mut source = profile();
+    source
+        .records
+        .push(aps_simpleperf_engine::simpleperf::Record::Lost {
+            sample_count: 100,
+            lost_count: 4,
+        });
+    let fixture = Fixture::new(&encoded(&source));
     let mut outputs = Vec::new();
     for command in ["summarize", "summarize-tsv"] {
         let output = Command::new(env!("CARGO_BIN_EXE_aps-simpleperf-engine"))
@@ -419,6 +426,9 @@ fn summarize_aliases_and_stdio_analyze_keep_the_existing_contract() {
         let text = String::from_utf8(output.stdout.clone()).unwrap();
         assert_eq!(text.lines().count(), 8);
         assert!(text.contains("sampleCount\t6\n"));
+        assert!(text.contains("reportedSampleCount\t100\n"));
+        assert!(text.contains("lostSampleCount\t4\n"));
+        assert!(!text.contains("lostEventCount"));
         assert!(text.contains("totalEventCount\t230\n"));
         outputs.push(output.stdout);
     }
@@ -448,6 +458,17 @@ fn summarize_aliases_and_stdio_analyze_keep_the_existing_contract() {
     assert_eq!(result.get("id").unwrap().as_int().unwrap(), 7);
     assert_eq!(result.get("status").unwrap().as_str().unwrap(), "ok");
     let payload = result.get("payload").unwrap();
+    let summary = payload.get("summary").unwrap();
+    assert_eq!(
+        summary
+            .get("reportedSampleCount")
+            .unwrap()
+            .as_int()
+            .unwrap(),
+        100
+    );
+    assert_eq!(summary.get("lostSampleCount").unwrap().as_int().unwrap(), 4);
+    assert!(summary.get("lostEventCount").is_err());
     assert_eq!(
         payload
             .get("summary")

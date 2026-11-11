@@ -7,3 +7,5 @@ publish = false
 
 [dependencies]
 aps-json = { path = "../aps-json" }
+aps-adb = { path = "../aps-adb" }
+aps-platform = { path = "../aps-platform" }

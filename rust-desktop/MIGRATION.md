@@ -9,9 +9,10 @@ Status: implementation in progress. This is not a reduced-scope MVP completion c
 - Keep Compose as a behavior oracle/fallback; do not remove it before every
   final switch-over gate is proven.
 - Android Agents remain Kotlin/Java. Third-party tools are reused, not rewritten.
-- The user's latest instruction defers **all test execution** until all rewrite
-  implementation is complete. Earlier agent checks, if any, predate that instruction
-  and are not final acceptance evidence. Compilation checks are not test runs.
+- The November 11 full-function test/parity request supersedes the earlier test
+  deferral. Historical deferred-test entries below retain their original evidence
+  boundaries. Fresh domain, native, device and package evidence is tracked
+  separately; a passing test suite is not full Compose parity.
 - No commit, push, release publication, credentials migration, source upload or
   device mutation is implied by this task.
 - A visible navigation destination is not proof of profiler implementation.
@@ -42,7 +43,7 @@ Status: implementation in progress. This is not a reduced-scope MVP completion c
 8. **Protocol/export boundaries** — pending: bounded version/digest/session/
    generation request and response envelope, child isolation, cancellation,
    JSON/CSV/PNG/Firefox exports.
-9. **Comprehensive validation** — deferred until implementation is complete:
+9. **Comprehensive validation** — in progress under the November 11 request:
    domain, same-input parity, GPUI headless, native GUI, packaged release;
    macOS/Windows/Linux, IME/CJK/accessibility, notices, bundled tools, signing,
    cancellation/failure recovery, representative/large-profile resource budgets.
@@ -2673,3 +2674,220 @@ non-agent sample app shows the hierarchy starting directly under the toolbar and
 the panel listing `警告 · 布局检查器 · ADB capture-mode explanation` together with
 the App-level settings error and a real Source Workspaces failure
 (`build/notifications/open-test-15s.png`).
+
+### Compose compiler report file/folder import and setup guide — 2026-11-11
+
+- Ported the Kotlin `ComposeCompilerReportParser`/import selector/guide contracts
+  into the Rust Layout Inspector. The bottom status dropdown matches the target
+  selector and offers Report File and Report Folder. A selected file loads only
+  same-module-prefix siblings; a folder loads supported direct children without
+  recursion. CSV flags and TXT parameter records merge by name/overload order.
+- Import owns a separate background lifecycle and cancellation token. Picker
+  cancellation or import failure preserves the old compiler report and captured
+  frame. Success/failure results retain counts, source paths and parser warnings;
+  results are copyable and successful reports can be reopened from the summary.
+  Existing node diagnostics and capture/injection authorization remain unchanged.
+- Unique runtime function-name/source-file matches show static compiler flags
+  and parameter stability in Overview/Compose properties; missing or ambiguous
+  matches attach no guessed flags. Large parameter views explicitly identify
+  display omissions/shortening; the imported evidence is not truncated.
+- Settings > Layout Inspector now includes bilingual configuration, generation,
+  output/import steps and evidence limitations, with copyable Kotlin 2.x
+  `composeCompiler` configuration and `./gradlew :app:compileReleaseKotlin`.
+  No dependencies, target-project build edits or device mutations were added.
+- Added 11 parser, 6 import/presentation-state and 2 settings-guide regression
+  cases. Per the migration test-deferral instruction, these were compiled only;
+  no test binary, generated-report smoke or native file-picker/GUI flow ran.
+- Validation: current parser/foundation all-target checks passed. Concurrent
+  unrelated capture/Startup/Perfetto edits and lockfile changes interrupted the
+  whole-app check, so final validation used a temporary archive of `4ea97b9e`
+  plus the report implementation/settings/catalog files, preserving the active
+  worktree. `cargo check --locked --offline -p aps-app -p aps-layout-inspector
+  -p aps-ui-foundation --all-targets` passed there; parser/foundation
+  `cargo clippy --locked --offline --all-targets --no-deps` passed without
+  warnings. Existing app warnings remain. Scoped rustfmt/diff checks passed.
+  The temporary verification copy was removed automatically. No commit/push.
+
+### System-Composable setting explanation and deferred visibility — 2026-11-11
+
+- The Layout Inspector view-settings card now displays the existing “Show system
+  Composables (including Box)” switch with its full explanatory text underneath:
+  system-created Box/Row/Column nodes, hiding them to reduce hierarchy noise,
+  and application on the next capture or refresh. Both locales are updated.
+- System-node visibility is latched only when a validated new frame is published;
+  changing the saved preference no longer immediately changes the current tree.
+  Filtering continues to use the inspector's system-created flag, never names.
+  The existing default/persistence contract and capture authorization are intact.
+- Added two regression cases for the displayed guide and publication boundary,
+  compiled only under the existing test-execution deferral. Foundation all-target
+  check, scoped formatting and diff checks passed. The active whole-app check
+  was blocked by unrelated concurrent Network capture fields, so a temporary
+  `4ea97b9e` archive plus the report/settings changes passed the app/foundation
+  all-target check. No tests, native GUI acceptance, device operations or commit.
+
+### Import elapsed time across data workspaces — 2026-11-11
+
+- Added one bilingual import-time formatter and bottom-status integration for
+  CPU, Trace, Method Recording, Frame, Memory, Startup, Battery, Network, GPU,
+  Benchmark, Layout Inspector archives and Compose compiler reports. Existing
+  profiler status bars are reused instead of adding duplicate footer rows.
+- The monotonic clock starts after file/folder selection and includes conversion,
+  parsing and the initial analysis/query projections. CPU includes its shared
+  overview/timeline query; Memory includes its typed snapshot; Benchmark includes
+  its catalog/metric/trend reads and, when loading both sides, initial comparison.
+  Picker wait, device recording, later queries/exports and Frame trace-path
+  association are not relabeled as import work.
+- Memory snapshot tabs retain their own durations; Native/ART/Bitmap datasets
+  have independent measurements. GPU times follow artifact digests, and Compose
+  compiler-report time stays separate from the inspected archive. Failed or
+  cancelled work does not overwrite a duration while its prior data remains;
+  closing/replacing data clears or restores the matching value.
+- Added formatter, publication-boundary, footer, snapshot/digest ownership and
+  query-preservation regression cases. Validation passed in the active worktree:
+  `cargo check --locked --offline --workspace --all-targets` and
+  `cargo clippy --locked --offline -p aps-app -p aps-ui-foundation --all-targets
+  --no-deps` (warnings remain), scoped rustfmt and `git diff --check`.
+  Regression cases were compiled only under the rewrite test-deferral policy;
+  no tests, native file-picker/GUI acceptance, device checks or commit/push ran.
+
+### Live-capture development follow-up — 2026-11-11
+
+- Supersedes earlier "no Rust adapter" implementation notes for Startup,
+  Battery, Network and Native/ART/Bitmap capture; historical acceptance records
+  are not rewritten. This follow-up implements adapters, not runtime acceptance.
+- CPU now frames remote launch identity/exit status, uses user-space app-scoped
+  Simpleperf sampling where available and cleans only owned recorder artifacts.
+  Inspector negative-double formatting and the obsolete settings choice-chip
+  assertion are corrected without redesigning those pages.
+- Startup/Battery/Network have explicit target review/consent, bounded transports,
+  stop/cancel and stale-publication guards. Battery emits a minimized UID-bound
+  evidence bundle; Network keeps raw traffic content out of its projection.
+- Native/ART and FrameTimeline share an owned detached-session Perfetto recorder.
+  Unknown stop/cleanup states preserve exact recovery paths. Native/ART keep
+  boot/process identity and sampled-evidence boundaries; Bitmap PNG extraction
+  runs in the isolated worker with image/byte limits and omission counts.
+- Advanced-memory import/export uses its own retained artifacts and does not
+  silently reuse Java snapshot AI evidence. Shared title-bar targets, menus,
+  cancellation, localization and artifact lifetime are connected.
+- Fresh workspace all-target compilation, desktop/worker builds and affected
+  module Clippy passed; tests, device probes and GUI acceptance were not run.
+  Full-workspace lint/format have unrelated unchanged findings. The Android
+  Agent Gradle build is blocked before Kotlin compilation by missing AGP
+  `BaseVariant`/`KotlinAndroidTarget` configuration support. No dependency-version
+  workaround, install, commit or push was performed.
+- Detailed scope and evidence: `LIVE_CAPTURE_DEVELOPMENT.md`; logs at repository
+  root `build/live-capture-development-20261111/`. This is not a full parity,
+  real-device, provider, package or release pass.
+
+## Functional test and parity continuation - 2026-11-11
+
+The current request explicitly enables testing and supersedes the historical
+test-deferral policy. `FUNCTIONAL_PARITY.md` now records the complete remaining
+workflow/platform scope rather than treating navigation or passing tests as parity.
+
+- Ported deterministic Inspector findings; connected Method capture and standard
+  text-first ART import; added persistent Battery sessions and GPU catalogs;
+  added whole-session minimized Network JSON/CSV/partial-HAR exports.
+- Repaired CPU remote descriptor/control-pipe lifetime, SELinux-compatible flat
+  Perfetto recording paths, Warm launch Intent flags, multiline ADB properties,
+  Startup metric localization and opt-in Network Agent plugin classloading.
+- Fresh `cargo test --locked --offline --workspace --no-fail-fast`: 1184 passed,
+  0 failed, 3 ignored. The real clangd smoke and manual Tree-sitter measurement
+  passed separately; the AOSP large-workspace smoke remains unexecuted.
+- Workspace all-target check, desktop/worker builds and affected-package Clippy
+  passed with existing warnings. Full formatting still reports the unchanged
+  `aps-app/src/studio.rs:118` difference. `git diff --check` passed. Rust crate
+  source/resource hashes matched before and after final integration validation.
+- Real sample Method capture/import produced 1613 events, 299 methods and 14
+  threads. Warm retest observed Warm with unchanged PID and TTID 178 ms; missing
+  Fully drawn evidence stayed unavailable. Battery live capture passed. Shared
+  Perfetto sched capture produced a queryable 110133-byte trace with 5022 sched
+  rows. CPU transport/cancellation now finish and clean up, but both live runs
+  had zero samples; populated CPU/conversion/import acceptance remains open.
+- Native development smoke covered 15 routes, seeded Battery/GPU/Inspector and
+  real Method data, plus four narrow-window checks. These are not exhaustive
+  keyboard, pixel, Agent/provider, package or cross-platform acceptance.
+- Network Agent forced offline Kotlin compilation and desktop opt-out checks
+  passed without changing dependency versions. No installation, root, device
+  permissions/settings changes, provider request, commit or push was performed.
+
+Evidence: `../build/rust-parity-audit-20261111/REPORT.md` and its raw logs,
+screenshots, source hashes and bounded device artifacts. The full goal stays
+active: richer CPU capture, Inspector continuous/archive flows, Startup/Battery
+comparisons, Memory advanced workflows, Network details/reimport, AI extensions,
+history, performance and delivery gates still require work.
+
+## Functional parity continuation: CPU and Home - 2026-11-11
+
+The full objective remains active. This checkpoint does not replace Compose or
+establish native/device/package parity for every exposed workflow.
+
+- Corrected CPU LostSituation semantics against Compose SQLiteProfileQueries:
+  sample_count is producer-reported, lost_count is lost samples. The native
+  engine, Rust catalog, KPI/detail rate and JSON/HTML/session exports now retain
+  reported samples separately and no longer invent a lost-events metric.
+- Reopened the retained populated device protobuf from the previous continuation:
+  249 parsed, 249 reported, 0 lost, 8 threads, 1532 call-tree rows and 1010 top
+  functions. CSV, JSON, gzip Firefox, HTML and session-package exports succeeded.
+  No new device recording or provider request was required for this same-input
+  check; raw device capture and native interaction remain separate evidence.
+- Connected DWARF / Frame Pointer / None from Settings to frozen CPU plans,
+  confirmation text and executed Simpleperf arguments. Actual fake recorder argv,
+  plan immutability, success, failure, cancellation and unverified cleanup paths
+  cover all three modes. Templates/events/rate/scope remain unfinished.
+- Connected four-source Home history and successful import publication. Trace
+  capture metadata survives MRU promotion; absent/invalid index timestamps stay
+  unknown rather than 1970. Reads are passive, bounded and source-isolated.
+- Java heap capture now retains a verified private copy with background history
+  registration. Newly created copies roll back on registration failure; existing
+  evidence is preserved. Only the originating snapshot receives delayed errors.
+  Scratch cleanup remains unchanged. Quotas and crash-orphan recovery are open.
+- Repaired Startup comparison fixtures to include the mandatory Compose empty
+  fullyDrawnTimeMs column, retaining missing-TTFD evidence and all comparison
+  assertions. Corrected a Clippy test constant and the prior studio.rs formatting
+  difference without altering product behavior.
+- Fresh full workspace tests: 1259 passed, 0 failed, 3 ignored. Independent native
+  Simpleperf engine tests: 45 passed. Full workspace formatting, Clippy, all-target
+  check and app/worker builds passed; existing Clippy warnings remain.
+- Current native processes successfully imported real CPU/HPROF/Trace and the
+  Inspector fixture into isolated history. Screenshots failed with both legacy
+  capture and ScreenCaptureKit; CGSession confirmed screenLocked=1. No screenshot,
+  click/reopen, new real-device capture or packaged acceptance is claimed.
+
+Evidence and remaining scope:
+`../build/rust-parity-continuation-20261111/REPORT.md`, its raw logs and source
+hashes, plus `FUNCTIONAL_PARITY.md`. No new dependencies, commit or push.
+
+## CPU sampling and Inspector recent-menu continuation - 2026-11-11
+
+- CPU sampling now owns a typed event/rate/scope/callgraph configuration. Five
+  Compose templates feed one shared Settings/capture draft, and prepared plans
+  retain immutable parameters. Frequency/Period, USER/KERNEL/BOTH and all
+  callgraph modes reach the actual recorder. Invalid inputs are retained but
+  cannot prepare a plan; period counts never become stored Hz preferences.
+- Executed the real Compose SamplingParameters/SamplingTemplate classes to
+  generate 46 comparison cases, committed the fixture/driver/source hashes, and
+  verified normalized sampling arguments against Rust. Six focused Compose tests
+  passed. This does not establish target-form, permission or native parity.
+- Fixed the missing CPU entry point: toolbar, Tools menu and capture shortcut
+  open the planner only. Explicit Inspect and Confirm still gate recording.
+- Inspector now loads ten recent archives asynchronously on launch/entry,
+  reopens using its existing importer and clears only its Layout path index.
+  Same-name archives use full paths like Compose. A FIFO mutation queue and
+  generation checks prevent older writes/reads from undoing clear. Other Home
+  sources, saved sessions and archive bytes are preserved.
+- Review found and fixed a mode-only Frequency preference persistence gap and
+  an outdated failure message that denied kernel sampling. Regressions cover
+  save/reload of the changed Hz default and all scope/callgraph failure cases.
+- Final workspace suite: 1292 passed, 0 failed, 3 ignored. Independent Simpleperf
+  engine: 45 passed. Full format, Clippy, all-target check and app/worker builds
+  passed with existing warnings, and final source hashes remained identical.
+- Native QA used an isolated data root and read-only simulated ADB. The Inspector
+  fixture imported and history persisted. Fresh capture attempts were again
+  blocked by a confirmed locked macOS session; no menu click, screenshot or
+  native sampling-control acceptance is claimed. The QA process was reaped.
+
+Current evidence: `../build/rust-parity-capture-recents-20261111/REPORT.md`.
+The goal remains active. CPU duration/manual stop, capability/target discovery,
+other profiler history, device/native acceptance and the remaining complete
+scope in `FUNCTIONAL_PARITY.md` still require work. No dependency, commit or push.

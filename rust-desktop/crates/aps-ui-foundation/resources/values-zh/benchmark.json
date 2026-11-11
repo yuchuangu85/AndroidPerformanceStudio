@@ -218,5 +218,6 @@
   "benchmark_close_workspace": "关闭工作区",
   "benchmark_yes": "是",
   "benchmark_no": "否",
-  "benchmark_persistence_unavailable": "Benchmark 历史存储不可用；运行、趋势与导出报告需要本地 Benchmark 数据目录。"
+  "benchmark_persistence_unavailable": "Benchmark 历史存储不可用；运行、趋势与导出报告需要本地 Benchmark 数据目录。",
+  "benchmark_select_device_before_run": "运行基准测试前，请先在标题栏选择在线设备。"
 }

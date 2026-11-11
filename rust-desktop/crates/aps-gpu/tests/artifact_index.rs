@@ -91,3 +91,33 @@ fn unknown_evidence_is_not_claimed_as_agi_and_pages_are_bounded() {
         Err(GpuError::Cancelled)
     ));
 }
+
+#[test]
+fn remove_is_catalog_only_and_relocate_is_digest_bound() {
+    let first = File::new("gfxtrace", b"same");
+    let replacement = File::new("renamed.pdf", b"same");
+    let wrong = File::new("wrong.gfxtrace", b"else");
+    let cancel = CancellationToken::new();
+    let mut index = GpuArtifactIndex::new();
+    let digest = index.import(&first.0, &cancel).unwrap();
+    assert_eq!(
+        index.relocate(digest, &wrong.0, &cancel),
+        Err(GpuError::DigestMismatch)
+    );
+    index.relocate(digest, &replacement.0, &cancel).unwrap();
+    assert_eq!(
+        index.get(digest).unwrap().locations(),
+        &[
+            replacement.0.canonicalize().unwrap(),
+            first.0.canonicalize().unwrap()
+        ]
+    );
+    assert!(index.remove(digest));
+    assert!(index.is_empty());
+    assert!(first.0.is_file() && replacement.0.is_file() && wrong.0.is_file());
+    assert!(!index.remove(digest));
+    assert_eq!(
+        index.relocate(digest, &replacement.0, &cancel),
+        Err(GpuError::NotIndexed)
+    );
+}

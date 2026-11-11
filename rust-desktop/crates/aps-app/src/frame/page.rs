@@ -370,6 +370,11 @@ fn header(
     } else {
         language.text(TextKey::FrameStartCapture)
     };
+    let timeline_pending = this.timeline_operation.is_some();
+    let timeline_cancelling = this
+        .timeline_operation
+        .as_ref()
+        .is_some_and(|operation| operation.cancel.is_cancelled());
     div()
         .id("frame-profiler-toolbar")
         .h(px(TOOLBAR_HEIGHT))
@@ -413,12 +418,24 @@ fn header(
         .child(
             header_button(
                 "frame-capture-frametimeline",
-                language.text(TextKey::FrameCaptureFrametimeline),
-                !busy && process_ready,
+                language.text(if timeline_cancelling {
+                    TextKey::FrameCancellingFrametimeline
+                } else if timeline_pending {
+                    TextKey::FrameCancelFrametimeline
+                } else {
+                    TextKey::FrameCaptureFrametimeline
+                }),
+                timeline_pending && !timeline_cancelling || !busy && process_ready && device_ready,
                 false,
                 colors,
             )
-            .on_click(cx.listener(|this, _, _, cx| this.capture_frame_timeline(cx))),
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.timeline_operation.is_some() {
+                    this.cancel_frame_timeline(cx);
+                } else {
+                    this.capture_frame_timeline(cx);
+                }
+            })),
         )
         .child(
             header_button(
@@ -534,6 +551,13 @@ fn status_bar(this: &FrameWorkspace, colors: &StudioColors) -> AnyElement {
                 }),
             );
     }
+    row = row.children(this.import_timing.text(language).map(|text| {
+        div()
+            .flex_shrink_0()
+            .text_size(px(FONT_SUPPORTING))
+            .text_color(colors.secondary_text)
+            .child(crate::studio::selectable(text))
+    }));
     div()
         .id("frame-status-bar")
         .w_full()

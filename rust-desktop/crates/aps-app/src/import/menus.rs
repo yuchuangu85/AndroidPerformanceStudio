@@ -39,10 +39,15 @@ pub(crate) enum ImportMenuCommand {
     Pick,
     SavePage(PageExport),
     CopyPage(PageExport),
+    NetworkExport(network::exports::NetworkExport),
+    BatteryOpenSaved(String),
+    BatteryCaptureBundle,
     MemoryView(u8),
     SelectMemorySnapshot(u64),
     CloseMemorySnapshot(u64),
     MemoryImportMapping,
+    MemoryImportAdvanced(self::memory::advanced::AdvancedMemoryKind),
+    MemoryExportAdvanced(self::memory::advanced::AdvancedMemoryKind),
     MemoryExport(self::memory::exports::MemoryExportKind),
     GpuOpen,
     GpuReveal,
@@ -128,11 +133,39 @@ impl ImportWorkspace {
         })
     }
 
-    /// File menu of a route that only owns the shared Open…/Export rows.
-    fn page_file_menu(&self) -> MenuGroup<ImportMenuCommand> {
+    fn network_file_menu(&self) -> MenuGroup<ImportMenuCommand> {
         let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !self.busy);
         let file = Self::open_recent(file, false);
-        Self::page_export_submenu(file.separator(), self.page_export_ready())
+        let ready = self.page_export_ready() && matches!(self.session, Some(Session::Network(_)));
+        file.separator()
+            .submenu(TextKey::ShellMenuExport, true, |menu| {
+                menu.item_when(
+                    ready,
+                    TextKey::NetworkSaveJson,
+                    ImportMenuCommand::NetworkExport(network::exports::NetworkExport::Json),
+                )
+                .item_when(
+                    ready,
+                    TextKey::NetworkSaveCsv,
+                    ImportMenuCommand::NetworkExport(network::exports::NetworkExport::Csv),
+                )
+                .item_when(
+                    ready,
+                    TextKey::NetworkPartialHar,
+                    ImportMenuCommand::NetworkExport(network::exports::NetworkExport::PartialHar),
+                )
+                .separator()
+                .item_when(
+                    ready,
+                    TextKey::ImportCopyPageJson,
+                    ImportMenuCommand::CopyPage(PageExport::Json),
+                )
+                .item_when(
+                    ready,
+                    TextKey::ImportCopyPageCsv,
+                    ImportMenuCommand::CopyPage(PageExport::Csv),
+                )
+            })
     }
 
     fn gpu_menu_groups(&self) -> Vec<MenuGroup<ImportMenuCommand>> {
@@ -151,13 +184,37 @@ impl ImportWorkspace {
     }
 
     /// Battery follows Compose's BatteryProfilerMenu: Open…, Open Recent ▸,
-    /// Export ▸ (JSON, CSV, Raw evidence) and Tools > Reset Statistics. The raw
-    /// evidence export and the global reset have no Rust adapter, so they stay
-    /// disabled rather than performing a different operation.
+    /// Export ▸ and Tools > Reset Statistics. The reset remains unavailable;
+    /// capture bundles require matching owned or restored capture evidence.
     fn battery_menu_groups(&self) -> Vec<MenuGroup<ImportMenuCommand>> {
         let ready = self.page_export_ready();
         let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !self.busy);
-        let file = Self::open_recent(file, true);
+        let file = file.submenu(TextKey::ShellMenuOpenRecent, true, |mut submenu| {
+            if self.battery_shell_ui.sessions.is_empty() {
+                submenu = submenu.item_when(
+                    false,
+                    TextKey::ShellMenuNoRecent,
+                    ImportMenuCommand::Unavailable,
+                );
+            }
+            for saved in self.battery_shell_ui.sessions.iter().take(20) {
+                let label = format!(
+                    "{} · {}",
+                    saved.package_name.as_deref().unwrap_or(&saved.session_id),
+                    saved.created_at.as_deref().unwrap_or(&saved.session_id)
+                );
+                submenu = submenu.item_when(
+                    !self.busy && !self.export_busy && !self.battery_shell_ui.sessions_loading,
+                    label,
+                    ImportMenuCommand::BatteryOpenSaved(saved.key.clone()),
+                );
+            }
+            submenu.separator().item_when(
+                false,
+                TextKey::ShellMenuClearRecent,
+                ImportMenuCommand::Unavailable,
+            )
+        });
         let file = file
             .separator()
             .submenu(TextKey::ShellMenuExport, true, |submenu| {
@@ -173,9 +230,9 @@ impl ImportWorkspace {
                         ImportMenuCommand::SavePage(PageExport::Csv),
                     )
                     .item_when(
-                        false,
-                        TextKey::BatteryRawEvidence,
-                        ImportMenuCommand::Unavailable,
+                        ready && self.battery_capture_artifact().is_some(),
+                        TextKey::BatteryCaptureBundle,
+                        ImportMenuCommand::BatteryCaptureBundle,
                     )
             });
         let tools = MenuGroup::new(TextKey::ShellMenuTools).item_when(
@@ -217,7 +274,7 @@ impl MenuHost for ImportWorkspace {
     fn menu_groups(&self, language: Language) -> Vec<MenuGroup<Self::Command>> {
         match self.kind {
             Destination::Memory => self.memory_menu_groups(language),
-            Destination::Network => vec![self.page_file_menu()],
+            Destination::Network => vec![self.network_file_menu()],
             Destination::Startup => self.startup_menu_groups(),
             Destination::Battery => self.battery_menu_groups(),
             Destination::Gpu => self.gpu_menu_groups(),
@@ -236,6 +293,9 @@ impl MenuHost for ImportWorkspace {
             ImportMenuCommand::Pick => self.pick(cx),
             ImportMenuCommand::SavePage(format) => self.save_page(format.format(), cx),
             ImportMenuCommand::CopyPage(format) => self.copy_page(format.format(), cx),
+            ImportMenuCommand::NetworkExport(format) => self.save_network_session(format, cx),
+            ImportMenuCommand::BatteryOpenSaved(key) => self.open_battery_saved_session(key, cx),
+            ImportMenuCommand::BatteryCaptureBundle => self.save_battery_capture_bundle(cx),
             ImportMenuCommand::MemoryView(index) => {
                 if let Some(mode) = self::memory::menus::memory_view_mode(index) {
                     self.memory_set_view_mode(mode, cx);
@@ -244,6 +304,8 @@ impl MenuHost for ImportWorkspace {
             ImportMenuCommand::SelectMemorySnapshot(id) => self.select_memory_snapshot(id, cx),
             ImportMenuCommand::CloseMemorySnapshot(id) => self.close_memory_snapshot(id, cx),
             ImportMenuCommand::MemoryImportMapping => self.memory_pick_mapping(cx),
+            ImportMenuCommand::MemoryImportAdvanced(kind) => self.import_advanced_memory(kind, cx),
+            ImportMenuCommand::MemoryExportAdvanced(kind) => self.export_advanced_memory(kind, cx),
             ImportMenuCommand::MemoryExport(kind) => self.memory_export(kind, cx),
             ImportMenuCommand::GpuOpen => self.gpu_open(cx),
             ImportMenuCommand::GpuReveal => self.gpu_reveal(cx),
@@ -254,6 +316,7 @@ impl MenuHost for ImportWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::import::memory::state::MemoryViewMode;
     use crate::shell::menubar::{RouteMenuBuild, StripRow};
 
     const ROUTES: [Destination; 5] = [
@@ -422,8 +485,24 @@ mod tests {
             .iter()
             .find(|group| group.title() == TextKey::ShellMenuView)
             .expect("Memory publishes View");
-        assert_eq!(view.len(), 5);
-        assert_eq!(view.enabled(), 5);
+        assert_eq!(view.len(), 8);
+        assert_eq!(view.enabled(), 8);
+        for (index, expected) in [
+            MemoryViewMode::Dashboard,
+            MemoryViewMode::Classes,
+            MemoryViewMode::Dominators,
+            MemoryViewMode::Diff,
+            MemoryViewMode::LeakAnalysis,
+            MemoryViewMode::BitmapDump,
+            MemoryViewMode::NativeHeap,
+            MemoryViewMode::SampledArt,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(memory::menus::memory_view_mode(index as u8), Some(expected));
+        }
+        assert_eq!(memory::menus::memory_view_mode(8), None);
     }
 
     #[::core::prelude::v1::test]
@@ -456,7 +535,7 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn memory_import_rows_keep_the_compose_order_and_only_hprof_is_wired() {
+    fn memory_import_rows_keep_order_and_enable_real_advanced_adapters() {
         let workspace = ImportWorkspace::new(Destination::Memory, Language::English);
         let rows = strip_rows(workspace.menu_groups(Language::English).remove(0));
         let labels = row_labels(&rows);
@@ -475,8 +554,8 @@ mod tests {
         }
         let enabled = enabled_states(&rows[import + 1..import + 5]);
         assert!(enabled[0].1, "HPROF import is wired");
-        assert!(!enabled[1].1, "native heap import is not wired");
-        assert!(!enabled[2].1, "ART sample import is not wired");
+        assert!(enabled[1].1, "native heap trace adapter is wired");
+        assert!(enabled[2].1, "ART trace adapter is wired");
         assert!(!enabled[3].1, "mapping import is not wired");
     }
 

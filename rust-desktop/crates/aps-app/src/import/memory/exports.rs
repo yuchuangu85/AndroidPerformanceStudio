@@ -717,17 +717,21 @@ pub(super) fn investigation_report_markdown(
 // Filesystem commits.
 // ---------------------------------------------------------------------------
 
-/// Streams the retained HPROF source to a new file after re-verifying size and
+/// Streams the retained artifact source to a new file after re-verifying size and
 /// digest, then verifies the copy. Never overwrites and never leaves a partial
 /// file behind.
-fn write_raw_hprof_copy(source: &Path, target: &Path, expected_digest: &str) -> Result<(), String> {
+pub(super) fn write_verified_copy(
+    source: &Path,
+    target: &Path,
+    expected_digest: &str,
+) -> Result<(), String> {
     let metadata = std::fs::metadata(source)
-        .map_err(|_| "Cannot inspect the retained HPROF source".to_owned())?;
+        .map_err(|_| "Cannot inspect the retained artifact source".to_owned())?;
     if !metadata.is_file() || metadata.len() > aps_memory::MAX_INPUT_BYTES {
-        return Err("The retained HPROF source is missing or exceeds the import budget".into());
+        return Err("The retained artifact source is missing or exceeds the import budget".into());
     }
     let digest = SourceDigest::hash_file(source, aps_memory::MAX_INPUT_BYTES)
-        .map_err(|_| "Cannot re-verify the retained HPROF source digest".to_owned())?;
+        .map_err(|_| "Cannot re-verify the retained artifact source digest".to_owned())?;
     if digest.to_hex() != expected_digest {
         return Err(
             "The retained HPROF bytes changed since the snapshot was opened; export aborted".into(),
@@ -747,7 +751,7 @@ fn write_raw_hprof_copy(source: &Path, target: &Path, expected_digest: &str) -> 
         "Export destination already exists or cannot be created; select a new filename".to_owned()
     })?;
     let mut input = std::fs::File::open(source)
-        .map_err(|_| "Cannot reopen the retained HPROF source".to_owned())?;
+        .map_err(|_| "Cannot reopen the retained artifact source".to_owned())?;
     let copied = std::io::copy(&mut input, &mut output).and_then(|_| output.sync_all());
     if copied.is_err() {
         drop(output);
@@ -756,10 +760,12 @@ fn write_raw_hprof_copy(source: &Path, target: &Path, expected_digest: &str) -> 
     }
     drop(output);
     let copied_digest = SourceDigest::hash_file(target, aps_memory::MAX_INPUT_BYTES)
-        .map_err(|_| "Cannot verify the exported HPROF copy".to_owned())?;
+        .map_err(|_| "Cannot verify the exported artifact copy".to_owned())?;
     if copied_digest.to_hex() != expected_digest {
         let _ = std::fs::remove_file(target);
-        return Err("The exported HPROF copy does not match the verified snapshot digest".into());
+        return Err(
+            "The exported artifact copy does not match the verified snapshot digest".into(),
+        );
     }
     Ok(())
 }
@@ -901,9 +907,10 @@ impl ImportWorkspace {
                                 session.source_digest().to_owned()
                             };
                             let source = source_path.ok_or_else(|| {
-                                "The active snapshot has no retained HPROF source path".to_owned()
+                                "The active snapshot has no retained artifact source path"
+                                    .to_owned()
                             })?;
-                            write_raw_hprof_copy(&source, &target, &digest)?;
+                            write_verified_copy(&source, &target, &digest)?;
                         }
                         _ => {
                             let snapshot = snapshot.ok_or_else(|| {

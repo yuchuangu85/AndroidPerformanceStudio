@@ -16,6 +16,7 @@ mod page;
 mod perfetto;
 mod sessions;
 
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_adb::{AdbDevice, AndroidApplicationProcess};
 use aps_ai::AnalysisRequest;
@@ -31,12 +32,34 @@ use gpui_kit::{prelude::*, *};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEFAULT_FRAME_TIMELINE_CAPTURE_MILLIS: u64 = 10_000;
 const MAX_IMPORT_BYTES: u64 = 512 * 1024 * 1024;
+
+struct FrameTimelineOperation {
+    generation: u64,
+    serial: String,
+    process: capture::FrameProcessOption,
+    cancel: CancellationToken,
+}
+
+impl FrameTimelineOperation {
+    fn matches_target(
+        &self,
+        serial: Option<&str>,
+        process: Option<&capture::FrameProcessOption>,
+        online: bool,
+    ) -> bool {
+        online && serial == Some(self.serial.as_str()) && process == Some(&self.process)
+    }
+
+    fn can_publish(&self, generation: u64) -> bool {
+        self.generation == generation && !self.cancel.is_cancelled()
+    }
+}
 
 pub struct FrameWorkspace {
     pub(in crate::frame) language: Language,
@@ -51,6 +74,7 @@ pub struct FrameWorkspace {
     pub(in crate::frame) analysis: Option<Arc<FrameAnalysisResult>>,
     pub(in crate::frame) filtered_analysis: Option<Arc<FrameAnalysisResult>>,
     pub(in crate::frame) imported_file_name: Option<String>,
+    pub(in crate::frame) import_timing: ImportTiming,
     pub(in crate::frame) observed_refresh_rates_hz: Vec<f64>,
     pub(in crate::frame) selected_frame_id: Option<u64>,
     pub(in crate::frame) perfetto_trace_file: Option<PathBuf>,
@@ -71,6 +95,7 @@ pub struct FrameWorkspace {
     pub(in crate::frame) language_generation: u64,
     pub(in crate::frame) import_generation: u64,
     pub(in crate::frame) capture_generation: u64,
+    timeline_operation: Option<FrameTimelineOperation>,
 }
 
 impl FrameWorkspace {
@@ -98,6 +123,7 @@ impl FrameWorkspace {
             analysis: None,
             filtered_analysis: None,
             imported_file_name: None,
+            import_timing: ImportTiming::default(),
             observed_refresh_rates_hz: Vec::new(),
             selected_frame_id: None,
             perfetto_trace_file: None,
@@ -118,6 +144,7 @@ impl FrameWorkspace {
             language_generation: 0,
             import_generation: 0,
             capture_generation: 0,
+            timeline_operation: None,
         };
         this
     }
@@ -178,6 +205,7 @@ impl FrameWorkspace {
         self.pending_process_pid = None;
         self.is_refreshing_devices = false;
         self.error = None;
+        self.reconcile_frame_timeline_target(cx);
         cx.notify();
     }
 
@@ -190,13 +218,14 @@ impl FrameWorkspace {
         self.selected_device_serial = serial;
         self.selected_process_pid = pid.map(|value| value as i32);
         self.pending_process_pid = None;
+        self.reconcile_frame_timeline_target(cx);
         cx.notify();
     }
 
     // ---------------- device / process discovery ----------------
 
     pub(crate) fn refresh_devices(&mut self, cx: &mut Context<Self>) {
-        if self.is_capturing || self.is_refreshing_devices {
+        if self.is_capturing || self.is_loading || self.is_refreshing_devices {
             return;
         }
         self.is_refreshing_devices = true;
@@ -244,6 +273,7 @@ impl FrameWorkspace {
         self.selected_device_serial = Some(serial.clone());
         self.processes.clear();
         self.selected_process_pid = None;
+        self.reconcile_frame_timeline_target(cx);
         self.is_refreshing_devices = true;
         self.error = None;
         let generation = self.capture_generation;
@@ -290,6 +320,7 @@ impl FrameWorkspace {
         if self.processes.iter().any(|process| process.pid == pid) {
             self.selected_process_pid = Some(pid);
             self.pending_process_pid = None;
+            self.reconcile_frame_timeline_target(cx);
             self.error = None;
             cx.notify();
         }
@@ -367,6 +398,7 @@ impl FrameWorkspace {
         if self.is_capturing || self.is_loading {
             return;
         }
+        let started = Instant::now();
         self.is_loading = true;
         self.import_generation += 1;
         let generation = self.import_generation;
@@ -391,6 +423,7 @@ impl FrameWorkspace {
                         this.artifact = None;
                         this.current_session = Some(loaded.session.clone());
                         this.apply_analysis(loaded.analysis, cx);
+                        this.import_timing = ImportTiming::completed(started);
                         this.operation_status = Some(model::FrameOperationStatus::ImportedFrames {
                             frame_count: this
                                 .analysis
@@ -414,6 +447,7 @@ impl FrameWorkspace {
         if self.is_capturing || self.is_loading {
             return;
         }
+        let started = Instant::now();
         self.is_loading = true;
         self.import_generation += 1;
         let generation = self.import_generation;
@@ -438,6 +472,7 @@ impl FrameWorkspace {
                         this.artifact = loaded.artifact.clone();
                         this.current_session = Some(loaded.session.clone());
                         this.apply_analysis(loaded.analysis, cx);
+                        this.import_timing = ImportTiming::completed(started);
                         this.operation_status = Some(model::FrameOperationStatus::ImportedFrames {
                             frame_count: this
                                 .analysis
@@ -479,6 +514,9 @@ impl FrameWorkspace {
     // ---------------- analysis/state ----------------
 
     fn apply_analysis(&mut self, analysis: FrameAnalysisResult, cx: &mut Context<Self>) {
+        // Captured/replaced analysis must never inherit an older file-import
+        // cost. Import callers record their own duration after publication.
+        self.import_timing.clear();
         self.selected_frame_id = analysis.frames.first().map(|frame| frame.sample.frame_id);
         self.observed_refresh_rates_hz = observed_refresh_rates(&analysis);
         self.analysis = Some(Arc::new(analysis));
@@ -618,6 +656,7 @@ impl FrameWorkspace {
                 match result {
                     Ok((capture, metadata, warnings)) => {
                         this.imported_file_name = None;
+                        this.import_timing.clear();
                         this.analysis = None;
                         this.filtered_analysis = None;
                         this.selected_frame_id = None;
@@ -797,9 +836,23 @@ impl FrameWorkspace {
         ) else {
             return;
         };
+        if !self
+            .devices
+            .iter()
+            .any(|device| device.serial == serial && device.online)
+        {
+            return;
+        }
         self.is_loading = true;
         self.import_generation += 1;
         let generation = self.import_generation;
+        let cancel = CancellationToken::new();
+        self.timeline_operation = Some(FrameTimelineOperation {
+            generation,
+            serial: serial.clone(),
+            process: process.clone(),
+            cancel: cancel.clone(),
+        });
         self.error = None;
         self.operation_status = Some(model::FrameOperationStatus::Capturing {
             package_name: process.package_name.clone(),
@@ -814,6 +867,7 @@ impl FrameWorkspace {
                 &process,
                 DEFAULT_FRAME_TIMELINE_CAPTURE_MILLIS,
                 data_dir.clone(),
+                &cancel,
             )
             .await?;
             let raw_artifact = artifact::FrameArtifact::captured(
@@ -822,20 +876,18 @@ impl FrameWorkspace {
                 process.pid,
                 &process.package_name,
             )?;
-            if let Some(dir) = data_dir.as_deref() {
-                raw_artifact.save(Some(dir))?;
-            }
-            let cancel = CancellationToken::new();
             let processed = perfetto::analyze_trace(&captured.trace_file, &cancel)?;
+            if cancel.is_cancelled() {
+                return Err(
+                    "FrameTimeline capture cancelled; the previous report is retained.".to_owned(),
+                );
+            }
             if processed.frames.is_empty() {
                 return Err("Captured trace contains no FrameTimeline rows.".to_owned());
             }
             let final_artifact = raw_artifact
                 .clone()
                 .analyzed(&processed.tool_version, processed.capabilities.clone());
-            if let Some(dir) = data_dir.as_deref() {
-                final_artifact.save(Some(dir))?;
-            }
             let session_id = format!(
                 "perfetto-{}",
                 final_artifact.id.trim_start_matches("frame-").to_owned()
@@ -872,17 +924,53 @@ impl FrameWorkspace {
                 perfetto_trace_file: Some(captured.trace_file.display().to_string()),
                 artifact: Some(final_artifact.id.clone()),
             };
-            Ok::<_, String>((frames, session, final_artifact, captured.trace_file))
+            Ok::<_, String>((
+                frames,
+                session,
+                final_artifact,
+                captured.trace_file,
+                captured.recording,
+            ))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                if this.import_generation != generation {
+                if this
+                    .timeline_operation
+                    .as_ref()
+                    .map(|operation| operation.generation)
+                    != Some(generation)
+                {
                     return;
                 }
+                let operation = this
+                    .timeline_operation
+                    .take()
+                    .expect("matched timeline operation");
                 this.is_loading = false;
+                if !operation.can_publish(this.import_generation) {
+                    this.operation_status = Some(model::FrameOperationStatus::CaptureCancelled);
+                    // Unconfirmed remote cleanup includes its exact recovery
+                    // paths, even when the UI target changed during capture.
+                    if let Err(error) = result {
+                        this.error = Some(error);
+                    }
+                    cx.notify();
+                    return;
+                }
                 match result {
-                    Ok((frames, session, final_artifact, trace_file)) => {
+                    Ok((frames, session, final_artifact, trace_file, mut recording)) => {
+                        if let Some(dir) = this.data_dir.as_deref() {
+                            if let Err(error) = final_artifact.save(Some(dir)) {
+                                this.operation_status =
+                                    Some(model::FrameOperationStatus::CaptureStopped {
+                                        frame_count: 0,
+                                    });
+                                this.error = Some(error);
+                                cx.notify();
+                                return;
+                            }
+                        }
                         this.imported_file_name = None;
                         this.perfetto_trace_file = Some(trace_file);
                         this.artifact = Some(final_artifact);
@@ -894,6 +982,9 @@ impl FrameWorkspace {
                         });
                         this.warnings.clear();
                         this.error = None;
+                        // Only a successful, current publication becomes a
+                        // persistent Frame session. Stale/error tasks stay RAII.
+                        recording.retain_local_artifacts();
                         this.persist_session(session, frames, cx);
                     }
                     Err(error) => {
@@ -907,6 +998,36 @@ impl FrameWorkspace {
             .ok();
         })
         .detach();
+    }
+
+    fn reconcile_frame_timeline_target(&mut self, cx: &mut Context<Self>) {
+        let changed = self.timeline_operation.as_ref().is_some_and(|operation| {
+            !operation.matches_target(
+                self.selected_device_serial.as_deref(),
+                self.selected_process(),
+                self.devices
+                    .iter()
+                    .any(|device| device.serial == operation.serial && device.online),
+            )
+        });
+        if changed {
+            self.cancel_frame_timeline(cx);
+        }
+    }
+
+    pub(in crate::frame) fn cancel_frame_timeline(&mut self, cx: &mut Context<Self>) {
+        let Some(operation) = &self.timeline_operation else {
+            return;
+        };
+        if operation.cancel.is_cancelled() {
+            return;
+        }
+        operation.cancel.cancel();
+        self.import_generation += 1;
+        self.operation_status = Some(model::FrameOperationStatus::CaptureCancelling);
+        // Keep is_loading until this exact task finishes owned remote cleanup.
+        // A second recording cannot replace the cleanup operation in flight.
+        cx.notify();
     }
 
     fn persist_session(
@@ -1317,6 +1438,7 @@ pub(crate) enum FrameMenuCommand {
     ExportJson,
     RefreshDevices,
     CaptureFrameTimeline,
+    CancelFrameTimeline,
     StartCapture,
     StopCapture,
     OpenTrace,
@@ -1405,6 +1527,13 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
                 TextKey::FrameCaptureFrametimeline,
                 FrameMenuCommand::CaptureFrameTimeline,
             );
+        if let Some(operation) = &self.timeline_operation {
+            frames = frames.item_when(
+                !operation.cancel.is_cancelled(),
+                TextKey::FrameCancelFrametimeline,
+                FrameMenuCommand::CancelFrameTimeline,
+            );
+        }
         frames = if self.is_capturing {
             frames.item(TextKey::FrameStopCapture, FrameMenuCommand::StopCapture)
         } else {
@@ -1471,6 +1600,7 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
             FrameMenuCommand::ExportJson => self.export_json(cx),
             FrameMenuCommand::RefreshDevices => self.refresh_devices(cx),
             FrameMenuCommand::CaptureFrameTimeline => self.capture_frame_timeline(cx),
+            FrameMenuCommand::CancelFrameTimeline => self.cancel_frame_timeline(cx),
             FrameMenuCommand::StartCapture => self.start_capture(cx),
             FrameMenuCommand::StopCapture => self.stop_capture(cx),
             FrameMenuCommand::OpenTrace => self.open_trace(cx),
@@ -1520,9 +1650,160 @@ impl NoticeSource for FrameWorkspace {
     }
 }
 
+impl Drop for FrameWorkspace {
+    fn drop(&mut self) {
+        if let Some(operation) = &self.timeline_operation {
+            operation.cancel.cancel();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn timeline_target_and_publication_require_the_same_live_operation() {
+        let operation = FrameTimelineOperation {
+            generation: 7,
+            serial: "device-one".into(),
+            process: capture::FrameProcessOption {
+                pid: 42,
+                name: "dev.sample".into(),
+                package_name: "dev.sample".into(),
+            },
+            cancel: CancellationToken::new(),
+        };
+        assert!(operation.matches_target(Some("device-one"), Some(&operation.process), true));
+        assert!(!operation.matches_target(Some("device-two"), Some(&operation.process), true));
+        assert!(!operation.matches_target(Some("device-one"), None, true));
+        assert!(!operation.matches_target(Some("device-one"), Some(&operation.process), false));
+        let mut changed = operation.process.clone();
+        changed.package_name = "other.app".into();
+        assert!(!operation.matches_target(Some("device-one"), Some(&changed), true));
+        changed = operation.process.clone();
+        changed.pid += 1;
+        assert!(!operation.matches_target(Some("device-one"), Some(&changed), true));
+        assert!(operation.can_publish(7));
+        assert!(!operation.can_publish(8));
+        operation.cancel.cancel();
+        assert!(!operation.can_publish(7));
+    }
+
+    #[::core::prelude::v1::test]
+    fn timeline_cancellation_preserves_old_report_and_retains_only_current_success() {
+        let source = include_str!("frame.rs");
+        let capture = source
+            .split("pub(in crate::frame) fn capture_frame_timeline(")
+            .nth(1)
+            .unwrap()
+            .split("fn reconcile_frame_timeline_target(")
+            .next()
+            .unwrap();
+        assert!(!capture.contains("self.analysis = None"));
+        assert!(!capture.contains("self.perfetto_trace_file = None"));
+        assert!(capture.contains("perfetto::analyze_trace(&captured.trace_file, &cancel)"));
+        assert!(capture.contains("operation.can_publish(this.import_generation)"));
+        assert!(
+            capture
+                .find("operation.can_publish(this.import_generation)")
+                .unwrap()
+                < capture.find("recording.retain_local_artifacts()").unwrap()
+        );
+        let failed = capture.rsplit("Err(error) =>").next().unwrap();
+        assert!(!failed.contains("retain_local_artifacts"));
+        assert!(!failed.contains("this.analysis ="));
+        let cancel = source
+            .split("pub(in crate::frame) fn cancel_frame_timeline(")
+            .nth(1)
+            .unwrap()
+            .split("fn persist_session(")
+            .next()
+            .unwrap();
+        assert!(cancel.contains("operation.cancel.cancel()"));
+        assert!(cancel.contains("self.import_generation += 1"));
+        assert!(!cancel.contains("self.is_loading = false"));
+        assert!(source.contains("impl Drop for FrameWorkspace"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn file_import_time_is_recorded_only_after_validated_analysis_publication() {
+        let source = include_str!("frame.rs");
+        for (start, end) in [
+            ("fn import_frame_stats(", "fn import_perfetto_trace("),
+            ("fn import_perfetto_trace(", "fn associate_perfetto_trace("),
+        ] {
+            let import = source
+                .split(start)
+                .nth(1)
+                .unwrap()
+                .split(end)
+                .next()
+                .unwrap();
+            assert!(import.contains("let started = Instant::now()"));
+            assert!(
+                import
+                    .find("if this.import_generation != generation")
+                    .unwrap()
+                    < import
+                        .find("this.import_timing = ImportTiming::completed(started)")
+                        .unwrap()
+            );
+            assert!(
+                import
+                    .find("this.apply_analysis(loaded.analysis, cx)")
+                    .unwrap()
+                    < import
+                        .find("this.import_timing = ImportTiming::completed(started)")
+                        .unwrap()
+            );
+            assert!(
+                !import
+                    .split("Err(error) =>")
+                    .nth(1)
+                    .unwrap()
+                    .contains("import_timing")
+            );
+        }
+        let picker = source
+            .split("fn pick_file(")
+            .nth(1)
+            .unwrap()
+            .split("fn import_frame_stats(")
+            .next()
+            .unwrap();
+        assert!(!picker.contains("Instant::now"));
+        let association = source
+            .split("fn associate_perfetto_trace(")
+            .nth(1)
+            .unwrap()
+            .split("fn apply_analysis(")
+            .next()
+            .unwrap();
+        // Linking an existing trace does not parse or publish new data and
+        // therefore must preserve the meaningful data-import measurement.
+        assert!(!association.contains("Instant::now"));
+        assert!(!association.contains("self.import_timing"));
+        let apply = source
+            .split("fn apply_analysis(")
+            .nth(1)
+            .unwrap()
+            .split("fn rebuild_filtered(")
+            .next()
+            .unwrap();
+        assert!(apply.contains("self.import_timing.clear()"));
+        let status = include_str!("frame/page.rs")
+            .split("fn status_bar(")
+            .nth(1)
+            .unwrap()
+            .split("fn body(")
+            .next()
+            .unwrap();
+        assert!(status.contains("this.import_timing.text(language)"));
+        assert!(status.contains("crate::studio::selectable(text)"));
+        assert_eq!(status.matches(".id(\"frame-status-bar\")").count(), 1);
+    }
+
     use aps_frame::ExpectedDurationSource;
     use aps_frame::model::FrameStages;
     use std::collections::{BTreeMap, BTreeSet};

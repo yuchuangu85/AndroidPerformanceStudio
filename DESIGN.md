@@ -1097,6 +1097,19 @@ client (GPUI's default is a null client), so any provider request failed with
   page's wrapping action rows. No label is truncated, so the AI upload state
   (allowed / blocked) stays readable at every rail width.
 
+### Rust Bitmap Thumbnail Grid (2026-11-11)
+
+- Bitmap image dumps display as a wrapping thumbnail grid in an independently
+  bounded vertical scroll viewport, replacing the text-only image selector.
+- Each 164 x 166 px tile contains a 112 px-high, aspect-preserving image and
+  compact original index, dimensions and PNG byte count. Tile dimensions remain
+  stable while images load; narrower windows reduce the number of columns.
+- Clicking a tile retains the existing selected-image state and updates the
+  metadata strip above the grid plus the adjacent original-image preview. The
+  preview stays fixed while the grid scrolls. Selection and keyboard focus use
+  existing controls and Studio tokens; extraction, capture, exports and evidence
+  semantics do not change.
+
 ### Rust Compose Hierarchy Indentation (2026-11-11)
 
 - When system Composables are hidden, their descendants are displayed beneath
@@ -1109,3 +1122,18 @@ client (GPUI's default is a null client), so any provider request failed with
   calculation, and only displayed rows contribute to the content width.
 - Search and collapse never renumber nodes or mutate the captured tree. Enabling
   all system nodes retains the full captured depth.
+
+### CPU Capture Planning In Settings (2026-11-11)
+
+- Settings adds Capture Planning after Simpleperf. This extends the earlier
+  six-section settings navigation; the CPU capture entry and legacy Capture
+  route both open this settings section, not a separate application workspace.
+- Embed the existing capture entity, reusing its draft inputs, selected target,
+  frozen plan, recording state and output. Simpleperf settings continue editing
+  the same sampling inputs; entering or switching settings never plans or records.
+- Keep one capture-owned scrolling viewport and expose its plan, confirm,
+  stop/save, cancel and clear menu commands only while this section is active.
+  Captured CPU output remains reachable through File > Open Captured CPU.
+- Auto-open completed protobuf output only while Capture Planning is visible
+  and the CPU workspace can accept it. Background completion, raw-only output
+  and occupied CPU workspaces preserve the existing manual-open behavior.

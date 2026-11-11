@@ -7,6 +7,7 @@ mod evidence;
 mod frame;
 mod home_recent;
 mod import;
+mod import_timing;
 mod inspector;
 mod method;
 mod net;

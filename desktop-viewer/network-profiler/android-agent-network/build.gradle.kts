@@ -1,4 +1,4 @@
-plugins { alias(libs.plugins.android.library) }
+plugins { id("com.android.library") }
 android {
     namespace = "com.androidperformancestudio.network.agent"
     compileSdk = 37
