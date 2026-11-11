@@ -1096,3 +1096,16 @@ client (GPUI's default is a null client), so any provider request failed with
 - The row is full-width and wraps with the shared 6 px gap, matching the Capture
   page's wrapping action rows. No label is truncated, so the AI upload state
   (allowed / blocked) stays readable at every rail width.
+
+### Rust Compose Hierarchy Indentation (2026-11-11)
+
+- When system Composables are hidden, their descendants are displayed beneath
+  the nearest retained ancestor. Omitted system wrappers consume no indentation;
+  native View ancestors, siblings and hosted Android Views retain their place
+  in the displayed tree. No class-name heuristic or blanket root-depth reset is
+  used when Compose metadata is absent.
+- Keep display depth per original node separately from captured `depth` and
+  `parent_index`. Rows and horizontal width measurement share the same indent
+  calculation, and only displayed rows contribute to the content width.
+- Search and collapse never renumber nodes or mutate the captured tree. Enabling
+  all system nodes retains the full captured depth.
