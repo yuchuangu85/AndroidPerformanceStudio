@@ -1,4 +1,4 @@
-//! Native Inspector capture: bounded archive import plus live capture projections.
+//! Native Inspector capture: bounded archive import/export and live projections.
 //! ZIP/manifest integrity is checked before publishing an archive frame; the
 //! live agent-first and ADB capture paths are documented in `agent_bridge` and
 //! `compatible`. The Android Agents remain Kotlin/Java.
@@ -14,13 +14,25 @@ use std::path::Path;
 use zip::{CompressionMethod, ZipArchive};
 
 mod agent_bridge;
+mod analysis;
 mod compatible;
+mod compiler_report;
 mod compose_bridge;
+mod export;
 mod protocol;
 mod visible_window;
 pub use agent_bridge::{AgentCapture, capture_agent};
+pub use analysis::{
+    FindingSeverity, LayoutAnalysis, LayoutFinding, LayoutRule, MAX_LAYOUT_FINDINGS,
+    MAX_SIBLING_PAIR_CHECKS,
+};
 pub use compatible::{CompatibleTarget, capture_compatible};
+pub use compiler_report::{
+    CompilerClass, CompilerFunction, CompilerFunctionMatch, CompilerParameter, CompilerReport,
+    CompilerReportError, CompilerStability,
+};
 pub use compose_bridge::ComposeBridge;
+pub use export::{ArchiveExport, ExportPayload};
 pub use protocol::{InspectorProtocolFrame, InspectorProtocolSession};
 
 const MANIFEST: &str = "manifest.json";
@@ -49,12 +61,14 @@ pub enum InspectorError {
     FrameMismatch,
     InvalidPage,
     WindowMissing,
+    Output,
+    MissingEvidence,
 }
 impl fmt::Display for InspectorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Input => "Cannot read selected Inspector archive",
-            Self::Cancelled => "Inspector import was cancelled",
+            Self::Cancelled => "Inspector operation was cancelled",
             Self::InvalidZip => "Inspector archive ZIP is invalid or unsafe",
             Self::Limit => "Inspector archive exceeds a bounded input limit",
             Self::InvalidManifest => "Inspector archive manifest is invalid or unsupported",
@@ -64,6 +78,12 @@ impl fmt::Display for InspectorError {
             Self::FrameMismatch => "Inspector archive components do not belong to the same frame",
             Self::InvalidPage => "Inspector page must contain 1 to 200 nodes",
             Self::WindowMissing => "Inspector window is unavailable",
+            Self::Output => {
+                "Cannot create Inspector export; select a new file in an existing directory"
+            }
+            Self::MissingEvidence => {
+                "Inspector export requires captured evidence unavailable in this projection"
+            }
         })
     }
 }
@@ -292,6 +312,9 @@ pub struct InspectorArchive {
     /// adapter). `None` when the archive has no screenshot entry.
     pub screenshot_png: Option<Vec<u8>>,
     pub compose: Option<ComposeEvidence>,
+    /// Original bounded payloads, independent of paths and UI retention limits.
+    /// Default is appropriate for typed captures with actual display evidence.
+    pub export_payload: ExportPayload,
 }
 
 #[derive(Clone)]
@@ -444,6 +467,7 @@ impl InspectorArchive {
         let mut screenshot = None;
         let mut screenshot_png = None;
         let mut validated_total = 0u64;
+        let mut retained = BTreeMap::new();
         for entry in declared.values() {
             check_cancel(cancel)?;
             let bytes = read_entry(&mut zip, &entry.name, entry_limit(&entry.name), cancel)?;
@@ -484,10 +508,11 @@ impl InspectorArchive {
                         sha256: entry.digest,
                         size_bytes: entry.size,
                     });
-                    screenshot_png = Some(bytes);
+                    screenshot_png = Some(bytes.clone());
                 }
                 _ => {}
             }
+            retained.insert(entry.name.clone(), bytes.into());
         }
         let frame = FrameIdentity {
             source_digest,
@@ -504,6 +529,7 @@ impl InspectorArchive {
         archive.compose = compose;
         archive.screenshot = screenshot;
         archive.screenshot_png = screenshot_png;
+        archive.export_payload = ExportPayload::imported(manifest, retained);
         drop(zip);
         check_cancel(cancel)?;
         Ok(archive)
@@ -874,6 +900,7 @@ fn parse_snapshot(
         screenshot: None,
         screenshot_png: None,
         compose: None,
+        export_payload: ExportPayload::snapshot(value)?,
     })
 }
 

@@ -103,7 +103,20 @@ pub fn parse_slice_with_extended_depth(bytes: &[u8], limits: Limits) -> Result<V
         max_depth: limits.max_depth.min(64),
         ..limits
     })?;
-    parse_validated_slice(bytes, limits, true)
+    // The extended path is used for deeply nested inspector hierarchies. The
+    // GPUI background executor has a small worker stack, so parsing directly
+    // there can hit the guard page before the explicit depth budget rejects an
+    // oversized document. Keep the parser bounded, but give its recursion a
+    // dedicated stack large enough for the accepted hierarchy envelope.
+    const EXTENDED_PARSE_STACK_SIZE: usize = 8 * 1024 * 1024;
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .name("aps-json-extended-parse".to_owned())
+            .stack_size(EXTENDED_PARSE_STACK_SIZE)
+            .spawn_scoped(scope, || parse_validated_slice(bytes, limits, true))
+            .map_err(|_| JsonError::Input)?;
+        handle.join().map_err(|_| JsonError::InvalidDocument)?
+    })
 }
 
 fn parse_validated_slice(bytes: &[u8], limits: Limits, extended: bool) -> Result<Value, JsonError> {

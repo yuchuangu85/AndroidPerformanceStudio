@@ -1,0 +1,9 @@
+{
+  "inspector_export_title": "导出已采集的 Inspector 证据",
+  "inspector_export_sensitive": "此本地归档保留已采集的运行时值、原始属性、截图及已有的 Compose 详情，不会额外脱敏，可能包含敏感数据。原采集的缺失项和限制保持不变，不会补造未采集字段。",
+  "inspector_export_confirm": "选择保存位置",
+  "inspector_export_cancel": "取消",
+  "inspector_export_working": "正在导出 Inspector 归档...",
+  "inspector_export_saved": "Inspector 归档已导出至 {path}（{bytes} 字节）。",
+  "inspector_export_failed": "无法导出 Inspector 归档：{detail}"
+}

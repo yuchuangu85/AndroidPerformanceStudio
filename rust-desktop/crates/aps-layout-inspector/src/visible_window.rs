@@ -1293,7 +1293,7 @@ pub(crate) fn java_double_string(value: f64) -> String {
             "-Infinity".into()
         };
     }
-    let (digits, exponent) = shortest_digits(&format!("{value:e}"));
+    let (digits, exponent) = shortest_digits(&format!("{:e}", value.abs()));
     format_java_decimal(&digits, exponent, value.is_sign_negative())
 }
 

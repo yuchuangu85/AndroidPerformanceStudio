@@ -203,6 +203,9 @@ fn parse_frame(
         screenshot: None,
         screenshot_png: None,
         compose: None,
+        // This IPC projection derives display size/density; those defaults are
+        // not captured display evidence and must not enter a durable archive.
+        export_payload: crate::ExportPayload::projection_only(),
     })
 }
 
@@ -415,6 +418,29 @@ mod tests {
         assert_eq!(response.status, ResponseStatus::Ok);
         assert_eq!(session.frame().unwrap().archive.windows.len(), 1);
         assert_eq!(session.frame().unwrap().archive.windows[0].nodes.len(), 1);
+    }
+
+    #[test]
+    fn ipc_projection_does_not_export_derived_display_defaults_as_captured_evidence() {
+        let digest = SourceDigest::from_bytes([7; 32]);
+        let session_id = ProfilerSessionId::new("inspector-session").unwrap();
+        let mut session = InspectorProtocolSession::new(session_id.clone(), digest);
+        let cancel = CancellationToken::new();
+        session
+            .handle(request(&session_id, digest, 1), &cancel)
+            .unwrap();
+        let temp = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let output = temp.path().join("projection.zip");
+        assert_eq!(
+            session
+                .frame()
+                .unwrap()
+                .archive
+                .export_archive(&output, &cancel)
+                .unwrap_err(),
+            crate::InspectorError::MissingEvidence
+        );
+        assert!(!output.exists());
     }
 
     #[test]

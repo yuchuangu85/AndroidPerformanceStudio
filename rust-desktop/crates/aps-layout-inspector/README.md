@@ -1,5 +1,36 @@
 # Native Inspector capture: archive import, in-app agent and ADB capture
 
+## Optional Compose compiler reports
+
+The Layout Inspector status bar accepts a **Report File** or **Report Folder**.
+Supported files are `*-composables.txt`, `*-composables.csv` and `*-classes.txt`.
+Selecting one file imports supported siblings with the same module prefix;
+selecting a folder imports its direct report files, without recursion. CSV flags
+and TXT parameter details are merged per module, preserving overload order.
+`*-module.json`, APKs and unrelated files are not compiler reports.
+
+Imports run in a bounded background task independently of capture. Cancelling
+the picker or failing an import preserves the previous report and layout frame.
+The result shows file/function/class counts, source paths and parser warnings,
+and can be reopened from the status-bar summary. Unique function-name/source-file
+matches add static compiler flags and parameter stability to node properties;
+ambiguous matches are explicitly left unattached. This does not create measured
+recomposition/timing/jank evidence or authorize runtime injection.
+
+Compiler input budgets are independent of archive budgets: at most 10,000
+directory entries, 256 reports, 8 MiB per file, 32 MiB in total, 64 KiB per line,
+8 KiB per field, 256 CSV columns, 512 parameters/members per function/class and
+250,000 parsed/scanned records. A limit violation rejects the import rather than
+publishing partial evidence. The node view shows at most 32 parameter rows and
+explicitly marks omitted rows or shortened values without modifying the report.
+
+**Settings > Layout Inspector > Compose compiler reports** includes copyable
+Kotlin 2.x `composeCompiler` configuration and the generation command. Use reports
+from the inspected app's source revision and build variant. The importer does not
+configure or execute the target project's build.
+
+## Capture and archive contracts
+
 Reads the existing **ZIP** `agentperf-inspector-capture` archive versions 1 and 2,
 not a replacement JSON format. The contracts are the retained Kotlin
 `CaptureArchiveCodec.kt`, `CaptureArchive.kt`, `ProtocolModels.kt` and

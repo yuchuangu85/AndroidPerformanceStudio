@@ -61,6 +61,25 @@ fn compatible_projection_preserves_evidence_without_compose_claims() {
 }
 
 #[test]
+fn live_accessibility_frame_exports_without_an_input_archive_path() {
+    let png = screenshot(2, 3);
+    let frame = parse(XML, &png).unwrap();
+    let temp = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+    let path = temp.path().join("live.zip");
+    let cancel = CancellationToken::new();
+    frame.archive.export_archive(&path, &cancel).unwrap();
+    let imported = crate::InspectorArchive::open(&path, &cancel).unwrap();
+    assert_eq!(imported.frame.captured_at_epoch_millis, 42);
+    assert_eq!(imported.display.density, 2.0);
+    assert_eq!(imported.default_window_id, frame.archive.default_window_id);
+    assert_eq!(imported.windows[0].nodes[1].text.as_deref(), Some("A & B"));
+    assert_eq!(imported.screenshot_png.as_deref(), Some(png.as_slice()));
+    assert!(!imported.capabilities.compose_semantics);
+    assert!(!imported.capabilities.timeline);
+    assert!(imported.compose.is_none());
+}
+
+#[test]
 fn rejects_bad_xml_dtd_rotation_packages_and_png() {
     let png = screenshot(2, 3);
     assert!(parse("not xml", &png).is_err());

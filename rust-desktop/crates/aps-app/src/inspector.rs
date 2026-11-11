@@ -1,18 +1,19 @@
 use aps_layout_inspector::{
     Bounds as LayoutBounds, ComposeDetailEvidence, ComposeEvidence, ComposeValueEvidence,
-    DisplayInfo, EdgeInsets, InspectorArchive, InspectorProtocolFrame, LayoutNode, LayoutWindow,
-    NodeKind,
+    DisplayInfo, EdgeInsets, InspectorArchive, InspectorProtocolFrame, LayoutAnalysis, LayoutNode,
+    LayoutWindow, NodeKind,
 };
 use aps_platform::CancellationToken;
 use aps_ui_foundation::{Language, LayoutPreferences, TextKey};
 use gpui_kit::{
     base::TextSelection,
     component::{
-        Disableable, IconName, Selectable,
+        Disableable, IconName, Selectable, Sizable,
         button::{Button, ButtonVariants},
+        checkbox::Checkbox,
         input::{Input, InputState},
         menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
-        scroll::{ScrollableElement, Scrollbar, ScrollbarAxis, ScrollbarMode},
+        scroll::ScrollableElement,
     },
     prelude::*,
     *,
@@ -23,8 +24,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::studio::{self, StudioColors};
+
+mod compiler_reports;
+mod export;
+mod findings;
+mod hierarchy;
+mod hierarchy_list;
 
 const MAX_CANVAS_NODES: usize = 4000;
 
@@ -121,8 +129,7 @@ enum FindingsTone {
 impl FindingsTone {
     const ALL: [Self; 4] = [Self::All, Self::Info, Self::Warning, Self::Error];
 
-    fn label(self, language: Language) -> String {
-        let count = 0_usize;
+    fn label(self, language: Language, count: usize) -> String {
         match self {
             Self::All => language.format(TextKey::InspectorFindingsAll, &[("count", &count)]),
             Self::Info => language.format(TextKey::InspectorFindingsInfo, &[("count", &count)]),
@@ -136,7 +143,7 @@ impl FindingsTone {
     fn color(self, colors: &StudioColors) -> Rgba {
         match self {
             Self::All => colors.accent,
-            Self::Info => colors.accent,
+            Self::Info => colors.info,
             Self::Warning => colors.warning,
             Self::Error => colors.error,
         }
@@ -151,6 +158,7 @@ impl EventEmitter<InspectorPreferencesChanged> for InspectorWorkspace {}
 /// Pane visibility changed; the shell mirrors it in the native View menu.
 pub struct InspectorPanelsChanged;
 impl EventEmitter<InspectorPanelsChanged> for InspectorWorkspace {}
+impl EventEmitter<crate::home_recent::RecentArtifactOpened> for InspectorWorkspace {}
 
 /// One pane splitter drag; deltas are applied against the start sizes so a
 /// clamped pane never accumulates rounding drift (Compose PaneLayout drags).
@@ -337,7 +345,13 @@ pub struct InspectorPanelVisibility {
 
 pub struct InspectorWorkspace {
     language: Language,
+    compiler_reports: compiler_reports::CompilerReportUi,
+    export: export::ExportUi,
     preferences: LayoutPreferences,
+    /// Visibility for the published frame. Preference changes affect the next
+    /// successful capture/import, not the hierarchy currently being inspected.
+    frame_show_system_composables: bool,
+    import_timing: ImportTiming,
     hovered: Option<String>,
     archive: Option<Arc<InspectorArchive>>,
     window: usize,
@@ -350,6 +364,9 @@ pub struct InspectorWorkspace {
     show_details: bool,
     details_tab: DetailsTab,
     findings_tone: FindingsTone,
+    findings: Arc<LayoutAnalysis>,
+    findings_ui: findings::UiState,
+    selected_finding: Option<usize>,
     zoom: f32,
     show_bounds: bool,
     compatible_capture: bool,
@@ -382,6 +399,8 @@ pub struct InspectorWorkspace {
     findings_height: f32,
     pane_drag: Option<PaneDrag>,
     hierarchy_scroll: UniformListScrollHandle,
+    hierarchy_cache: hierarchy::HierarchyCache,
+    preview_cache: hierarchy::PreviewCache,
     /// Preview pan offset from the centred content, in window pixels
     /// (Compose PreviewPanState).
     preview_pan: (f32, f32),
@@ -401,7 +420,11 @@ impl InspectorWorkspace {
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         Self {
             language,
+            compiler_reports: compiler_reports::CompilerReportUi::default(),
+            export: export::ExportUi::default(),
             preferences: LayoutPreferences::default(),
+            frame_show_system_composables: LayoutPreferences::default().show_system_composables,
+            import_timing: ImportTiming::default(),
             hovered: None,
             archive: None,
             window: 0,
@@ -414,6 +437,9 @@ impl InspectorWorkspace {
             show_details: true,
             details_tab: DetailsTab::Overview,
             findings_tone: FindingsTone::All,
+            findings: Arc::new(LayoutAnalysis::default()),
+            findings_ui: findings::UiState::default(),
+            selected_finding: None,
             zoom: 1.0,
             show_bounds: true,
             compatible_capture: false,
@@ -436,6 +462,8 @@ impl InspectorWorkspace {
             findings_height: FINDINGS_HEIGHT,
             pane_drag: None,
             hierarchy_scroll: UniformListScrollHandle::new(),
+            hierarchy_cache: hierarchy::HierarchyCache::default(),
+            preview_cache: hierarchy::PreviewCache::default(),
             preview_pan: (0.0, 0.0),
             preview_drag: None,
             preview_bar_drag: None,
@@ -444,7 +472,8 @@ impl InspectorWorkspace {
     }
 
     /// Applies presentation-only preferences without changing immutable archive
-    /// evidence, selection, or temporary hidden-layer state. Capture multipliers
+    /// evidence, selection, or temporary hidden-layer state. System-Composable
+    /// visibility is latched when the next frame is published. Capture multipliers
     /// do not relax the import adapter's independent ZIP safety limits.
     pub fn apply_preferences(&mut self, preferences: LayoutPreferences, cx: &mut Context<Self>) {
         if self.preferences == preferences && self.show_bounds == preferences.show_visible_bounds {
@@ -464,6 +493,7 @@ impl InspectorWorkspace {
             self.compose_agent = false;
             self.compose_inspection_confirmation_pending = false;
             self.cancel.cancel();
+            self.export.invalidate();
             self.generation += 1;
             if !self.capturing {
                 self.busy = false;
@@ -511,9 +541,20 @@ impl InspectorWorkspace {
             .iter()
             .position(|window| window.id == frame.archive.default_window_id)
             .unwrap_or(0);
+        let findings = frame
+            .archive
+            .analyze_window(&frame.archive.default_window_id)
+            .map_err(|error| error.to_string())?;
+        self.cancel.cancel();
+        self.export.invalidate();
         self.generation = frame.generation;
+        self.findings = Arc::new(findings);
+        self.findings_ui = findings::UiState::default();
+        self.selected_finding = None;
+        self.frame_show_system_composables = self.preferences.show_system_composables;
         let screenshot_png = frame.archive.screenshot_png.clone();
         self.archive = Some(Arc::new(frame.archive));
+        self.import_timing.clear();
         self.compatible_capture = false;
         self.agent_capture = false;
         self.compose_inspection_confirmation_pending = false;
@@ -525,6 +566,7 @@ impl InspectorWorkspace {
         self.hovered = None;
         self.hidden.clear();
         self.collapsed.clear();
+        self.hierarchy_cache.invalidate();
         self.zoom = 1.0;
         self.busy = false;
         self.error = None;
@@ -865,6 +907,7 @@ impl InspectorWorkspace {
 
     fn cancel_operation(&mut self, cx: &mut Context<Self>) {
         self.cancel.cancel();
+        self.export.invalidate();
         self.generation += 1;
         if !self.capturing {
             self.busy = false;
@@ -878,7 +921,10 @@ impl InspectorWorkspace {
     }
 
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let recent_path = path.clone();
+        let started = std::time::Instant::now();
         self.cancel.cancel();
+        self.export.invalidate();
         self.cancel = CancellationToken::new();
         let cancel = self.cancel.clone();
         self.generation += 1;
@@ -897,14 +943,23 @@ impl InspectorWorkspace {
                 this.busy = false;
                 match result {
                     Ok(archive) => {
-                        let _ = this.publish_protocol_frame(
-                            InspectorProtocolFrame {
-                                archive,
-                                generation,
-                                from_agent: false,
-                            },
-                            cx,
-                        );
+                        if this
+                            .publish_protocol_frame(
+                                InspectorProtocolFrame {
+                                    archive,
+                                    generation,
+                                    from_agent: false,
+                                },
+                                cx,
+                            )
+                            .is_ok()
+                        {
+                            this.import_timing = ImportTiming::completed(started);
+                            cx.emit(crate::home_recent::RecentArtifactOpened {
+                                feature: crate::home_recent::HomeFeature::Layout,
+                                path: recent_path,
+                            });
+                        }
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -916,15 +971,32 @@ impl InspectorWorkspace {
         cx.notify();
     }
 
+    pub(crate) fn open_recent_archive(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.open(path, cx);
+    }
+
     pub fn cycle_window(&mut self, cx: &mut Context<Self>) {
         if let Some(archive) = &self.archive
             && !archive.windows.is_empty()
         {
-            self.window = (self.window + 1) % archive.windows.len();
+            let next = (self.window + 1) % archive.windows.len();
+            let findings = match archive.analyze_window(&archive.windows[next].id) {
+                Ok(findings) => findings,
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    cx.notify();
+                    return;
+                }
+            };
+            self.window = next;
+            self.findings = Arc::new(findings);
+            self.findings_ui = findings::UiState::default();
+            self.selected_finding = None;
             self.selected = None;
             self.hovered = None;
             self.hidden.clear();
             self.collapsed.clear();
+            self.hierarchy_cache.invalidate();
             self.zoom = 1.0;
             cx.notify();
         }
@@ -1036,6 +1108,19 @@ impl InspectorWorkspace {
                             .to_owned()
                     }),
             )
+            .children(
+                (self.busy && self.capturing && !self.export.active).then(|| {
+                    div()
+                        .id("inspector-capture-progress")
+                        .flex_shrink_0()
+                        .text_size(px(studio::FONT_SUPPORTING))
+                        .text_color(colors.muted_text)
+                        .whitespace_nowrap()
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::InspectorCapturingCompatible),
+                        ))
+                }),
+            )
             .child(div().flex_1())
             .child(compose_agent_control(
                 language,
@@ -1115,6 +1200,7 @@ impl InspectorWorkspace {
         if !self.collapsed.remove(&id) {
             self.collapsed.insert(id);
         }
+        self.hierarchy_cache.invalidate();
         cx.notify();
     }
 
@@ -1127,56 +1213,58 @@ impl InspectorWorkspace {
             .ok();
     }
 
-    fn has_children(&self, index: usize) -> bool {
-        match (self.node(index), self.node(index + 1)) {
-            (Some(parent), Some(next)) => {
-                next.parent_index == Some(index) && parent.depth < next.depth
-            }
-            _ => false,
-        }
-    }
-
     /// Visible hierarchy row indices: collapsed subtrees and unmatched search
     /// results are pruned, mirroring Compose HierarchyTreeState.displayRows.
-    fn visible_rows(&self, cx: &Context<Self>) -> Vec<usize> {
-        let Some(archive) = self.archive.as_ref() else {
-            return Vec::new();
-        };
-        let Some(window) = archive.windows.get(self.window) else {
-            return Vec::new();
-        };
+    fn visible_rows(&mut self, cx: &Context<Self>) -> Arc<Vec<usize>> {
+        self.hierarchy_snapshot(cx)
+            .map(|snapshot| snapshot.rows.clone())
+            .unwrap_or_default()
+    }
+
+    fn hierarchy_snapshot(
+        &mut self,
+        cx: &Context<Self>,
+    ) -> Option<Arc<hierarchy::HierarchySnapshot>> {
+        let archive = self.archive.as_ref()?;
         let query = self.search.read(cx).value().to_lowercase();
-        let query = query.trim();
-        let mut rows = Vec::new();
-        let mut skip_depth: Option<usize> = None;
-        for (index, node) in window.nodes.iter().enumerate() {
-            if let Some(depth) = skip_depth {
-                if node.depth > depth {
-                    continue;
-                }
-                skip_depth = None;
-            }
-            if self.preferences.hide_invisible_hierarchy && !node.visible {
-                skip_depth = Some(node.depth);
-                continue;
-            }
-            if !self.preferences.show_system_composables
-                && node.kind == NodeKind::Compose
-                && compose_node_id(&node.id)
-                    .and_then(|id| archive.compose.as_ref()?.nodes.get(&id))
-                    .is_some_and(|compose_node| compose_node.system_created)
-            {
-                continue;
-            }
-            if self.collapsed.contains(&node.id) && self.has_children(index) {
-                skip_depth = Some(node.depth);
-            }
-            if !query.is_empty() && !row_matches(node, query) {
-                continue;
-            }
-            rows.push(index);
+        self.hierarchy_cache.get(
+            archive,
+            self.window,
+            self.preferences,
+            self.frame_show_system_composables,
+            &query,
+            &self.collapsed,
+        )
+    }
+
+    fn reveal_selected_node(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.selected_index() else {
+            return;
+        };
+        let Some(archive) = self.archive.clone() else {
+            return;
+        };
+        let Some(nodes) = archive.windows.get(self.window).map(|window| &window.nodes) else {
+            return;
+        };
+        if hierarchy::reveal_ancestors(nodes, index, &mut self.collapsed) {
+            self.hierarchy_cache.invalidate();
         }
-        rows
+        let query = self.search.read(cx).value().to_lowercase();
+        if !query.trim().is_empty() && !row_matches(&nodes[index], query.trim()) {
+            self.search
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        if let Some(position) = self
+            .visible_rows(cx)
+            .iter()
+            .position(|&node_index| node_index == index)
+        {
+            // Non-strict Nearest preserves the current viewport when the row
+            // is already fully visible, including repeated clicks on the canvas.
+            self.hierarchy_scroll
+                .scroll_to_item(position, ScrollStrategy::Nearest);
+        }
     }
 
     fn begin_pane_drag(
@@ -1496,11 +1584,18 @@ impl Render for InspectorWorkspace {
             .as_ref()
             .and_then(|archive| archive.windows.get(self.window));
         let node_count = window_data.map_or(0, |window| window.nodes.len());
-        let visible_nodes = window_data.map_or(0, |window| {
-            window.nodes.iter().filter(|node| node.visible).count()
-        });
-        let visible_rows = self.visible_rows(cx);
+        let hierarchy = self.hierarchy_snapshot(cx);
+        let visible_nodes = hierarchy
+            .as_ref()
+            .map_or(0, |snapshot| snapshot.visible_nodes);
         let entity = cx.entity();
+        let preview_nodes = archive
+            .as_ref()
+            .and_then(|archive| {
+                self.preview_cache
+                    .get(archive, self.window, &self.hidden, &self.selected)
+            })
+            .unwrap_or_default();
 
         let header_toolbar = self.header_toolbar(language, &colors, archive.as_ref(), cx);
         let status = status_bar(
@@ -1513,6 +1608,9 @@ impl Render for InspectorWorkspace {
             self.compatible_capture,
             self.agent_capture,
             self.compose_agent && self.compose_bridge.is_some(),
+            self.import_timing,
+            &self.compiler_reports,
+            cx,
         );
 
         let mut panes = div()
@@ -1528,10 +1626,8 @@ impl Render for InspectorWorkspace {
                 .child(hierarchy_pane(
                     language,
                     &colors,
-                    archive.clone(),
-                    self.window,
+                    hierarchy,
                     self.hierarchy_width,
-                    &visible_rows,
                     &self.hidden,
                     &self.selected,
                     &self.collapsed,
@@ -1552,8 +1648,8 @@ impl Render for InspectorWorkspace {
             language,
             &colors,
             archive.clone(),
+            preview_nodes,
             &self.hidden,
-            &self.selected,
             cx,
         ));
         if self.show_details {
@@ -1574,6 +1670,7 @@ impl Render for InspectorWorkspace {
                     self.details_tab,
                     &self.selected,
                     self.compose_agent,
+                    self.compiler_reports.report.as_deref(),
                     cx,
                 ));
         }
@@ -1594,6 +1691,13 @@ impl Render for InspectorWorkspace {
                     &colors,
                     self.findings_tone,
                     self.findings_height,
+                    &archive,
+                    self.window,
+                    window_data,
+                    &self.findings,
+                    self.preferences.hide_invisible_findings,
+                    self.selected_finding,
+                    &mut self.findings_ui,
                     cx,
                 ));
         }
@@ -1621,23 +1725,37 @@ impl Render for InspectorWorkspace {
             .text_color(colors.text)
             .text_size(px(studio::FONT_BODY))
             .child(header_toolbar)
-            .children(self.busy.then(|| {
-                div()
-                    .flex_shrink_0()
-                    .px(px(10.))
-                    .py(px(4.))
-                    .text_size(px(studio::FONT_SUPPORTING))
-                    .text_color(colors.muted_text)
-                    .child(crate::studio::selectable(language.text(
-                        if self.capturing {
-                            TextKey::InspectorCapturingCompatible
-                        } else {
-                            TextKey::InspectorValidatingArchive
-                        },
-                    )))
-            }))
+            .children(
+                (self.busy && (!self.capturing || self.export.active)).then(|| {
+                    div()
+                        .flex_shrink_0()
+                        .px(px(10.))
+                        .py(px(4.))
+                        .text_size(px(studio::FONT_SUPPORTING))
+                        .text_color(colors.muted_text)
+                        .child(crate::studio::selectable(language.text(
+                            if self.export.active {
+                                TextKey::InspectorExportWorking
+                            } else {
+                                TextKey::InspectorValidatingArchive
+                            },
+                        )))
+                }),
+            )
             .child(workspace)
             .child(status)
+            .children(compiler_reports::result_dialog(
+                language,
+                &colors,
+                &self.compiler_reports,
+                entity.clone(),
+            ))
+            .children(export::confirmation_dialog(
+                language,
+                &colors,
+                &self.export,
+                entity.clone(),
+            ))
             .children(self.compose_inspection_confirmation_pending.then(|| {
                 compose_inspection_confirmation(
                     language,
@@ -1955,11 +2073,47 @@ fn hierarchy_numbers(nodes: &[LayoutNode]) -> Vec<String> {
         .collect()
 }
 
-fn hierarchy_content_width(nodes: &[LayoutNode], preferences: LayoutPreferences) -> f32 {
-    let mut maximum = 0.0f32;
+fn hierarchy_display_depths(
+    nodes: &[LayoutNode],
+    compose: Option<&ComposeEvidence>,
+    show_system_composables: bool,
+) -> Vec<usize> {
+    let mut display_depths = Vec::with_capacity(nodes.len());
+    let mut hidden_ancestor_counts = Vec::with_capacity(nodes.len());
     for node in nodes {
+        let hidden_system = !show_system_composables
+            && node.kind == NodeKind::Compose
+            && compose_node_id(&node.id)
+                .and_then(|id| compose?.nodes.get(&id))
+                .is_some_and(|node| node.system_created);
+        // Omitted system wrappers promote their children in the display tree,
+        // without changing the captured depth or parent relationships.
+        let hidden_ancestors = node
+            .parent_index
+            .and_then(|parent| hidden_ancestor_counts.get(parent))
+            .copied()
+            .unwrap_or(0);
+        display_depths.push(node.depth.saturating_sub(hidden_ancestors));
+        hidden_ancestor_counts.push(hidden_ancestors + usize::from(hidden_system));
+    }
+    display_depths
+}
+
+fn hierarchy_indent(display_depth: usize) -> f32 {
+    8.0 + display_depth.min(40) as f32 * HIERARCHY_INDENT
+}
+
+fn hierarchy_content_width(
+    nodes: &[LayoutNode],
+    rows: &[usize],
+    display_depths: &[usize],
+    preferences: LayoutPreferences,
+) -> f32 {
+    let mut maximum = 0.0f32;
+    for &index in rows {
+        let node = &nodes[index];
         let label = hierarchy_label(node, "0-0", preferences);
-        let mut row = 8.0 + (node.depth.min(40) as f32) * HIERARCHY_INDENT + 12.0 + 4.0 + 8.0;
+        let mut row = hierarchy_indent(display_depths[index]) + 12.0 + 4.0 + 8.0;
         if preferences.show_layer_buttons {
             row += 20.0 + 4.0;
         }
@@ -2205,12 +2359,8 @@ fn capture_target_control(
         .into_any_element()
 }
 
-/// Compose `SegmentedSelector(SegmentedSelectorStyle.COMPACT_OUTLINED)` for
-/// Refresh / Auto scan. Live capture is not connected, so both segments stay
-/// disabled while keeping the Compose outline and selected fill.
-/// Compose `ComposeAgentToggle`: 22 dp checkbox + label. Offline archives
-/// cannot inject an agent, so it is enabled when the archive already contains a
-/// Compose inspection sidecar and reveals the Compose category/summary.
+/// One checkbox owns both its caption and indicator. Live enablement still
+/// requires preflight and confirmation; offline sidecars are presentation-only.
 fn compose_agent_control(
     language: Language,
     colors: &StudioColors,
@@ -2219,71 +2369,34 @@ fn compose_agent_control(
     enabled: bool,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
-    let border = if checked {
-        colors.accent
-    } else if enabled {
-        colors.secondary_text
-    } else {
-        colors.muted_text.alpha(0.45)
-    };
-    let mut control = div()
-        .id("inspector-compose-agent")
-        .flex()
+    Checkbox::new("inspector-compose-agent")
+        .with_size(px(14.))
         .flex_shrink_0()
-        .items_center()
-        .gap(px(4.))
-        .child(
-            div()
-                .size(px(14.))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(2.))
-                .border_1()
-                .border_color(border)
-                .bg(if checked {
-                    colors.accent
-                } else {
-                    rgba(0x00000000)
-                })
-                .text_size(px(12.))
-                .font_weight(FontWeight::BOLD)
-                .text_color(colors.accent_text)
-                .child(if checked { "✓" } else { "" }),
-        )
-        .child(
-            div()
-                .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(if enabled {
-                    colors.text
-                } else {
-                    colors.muted_text
-                })
-                .child(crate::studio::selectable(
-                    language.text(TextKey::InspectorComposeAgent),
-                )),
-        );
-    if enabled {
-        control = control
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, _, cx| {
-                if this.compose_agent {
-                    this.compose_agent = false;
-                    this.compose_bridge = None;
-                    this.compose_inspection_confirmation_pending = false;
-                } else if available && this.compose_bridge.is_none() {
-                    this.compose_agent = true;
-                    if this.selected_is_compose() {
-                        this.details_tab = DetailsTab::Compose;
-                    }
-                } else {
-                    this.prepare_compose(cx);
+        .checked(checked)
+        .disabled(!enabled)
+        .label(language.text(TextKey::InspectorComposeAgent))
+        .text_size(px(studio::FONT_SUPPORTING))
+        .text_color(if enabled {
+            colors.text
+        } else {
+            colors.muted_text
+        })
+        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+            if !*checked {
+                this.compose_agent = false;
+                this.compose_bridge = None;
+                this.compose_inspection_confirmation_pending = false;
+            } else if available && this.compose_bridge.is_none() {
+                this.compose_agent = true;
+                if this.selected_is_compose() {
+                    this.details_tab = DetailsTab::Compose;
                 }
-                cx.notify();
-            }));
-    }
-    control.into_any_element()
+            } else {
+                this.prepare_compose(cx);
+            }
+            cx.notify();
+        }))
+        .into_any_element()
 }
 
 /// Compose `SegmentedSelector(SegmentedSelectorStyle.COMPACT_OUTLINED)` track:
@@ -2465,6 +2578,9 @@ fn status_bar(
     compatible_capture: bool,
     agent_capture: bool,
     full_compose_capture: bool,
+    import_timing: ImportTiming,
+    compiler_reports: &compiler_reports::CompilerReportUi,
+    cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     let package = archive.map_or_else(
         || language.text(TextKey::InspectorNoArchive).to_owned(),
@@ -2519,6 +2635,46 @@ fn status_bar(
         ));
     }
     bar.child(div().flex_1())
+        .children(import_timing.text(language).map(|text| {
+            studio::supporting(text, colors)
+                .flex_shrink_0()
+                .whitespace_nowrap()
+        }))
+        .child(compiler_reports::import_control(
+            language,
+            colors,
+            compiler_reports,
+            cx,
+        ))
+        .children(compiler_reports.report.as_ref().map(|report| {
+            let summary = compiler_reports::summary(language, report);
+            Button::new("inspector-compiler-report-summary")
+                .ghost()
+                .h(px(TOOLBAR_BUTTON_HEIGHT))
+                .px(px(4.))
+                .flex_shrink_0()
+                .text_color(colors.secondary_text)
+                .accessibility_label(summary.clone())
+                .child(div().text_size(px(studio::FONT_SUPPORTING)).child(summary))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(report) = &this.compiler_reports.report {
+                        this.compiler_reports.result = Some(Ok(report.clone()));
+                        cx.notify();
+                    }
+                }))
+        }))
+        .children(compiler_reports.timing.text(language).map(|text| {
+            studio::supporting(
+                format!(
+                    "{} · {text}",
+                    language.text(TextKey::ComposeReportsCompiler)
+                ),
+                colors,
+            )
+            .flex_shrink_0()
+            .whitespace_nowrap()
+        }))
+        .child(header_divider(colors))
         .child(status_value(
             language.text(TextKey::InspectorStatusSource),
             language
@@ -2555,10 +2711,8 @@ fn inherited_hidden(nodes: &[LayoutNode], index: usize, hidden: &BTreeSet<String
 fn hierarchy_pane(
     language: Language,
     colors: &StudioColors,
-    archive: Option<Arc<InspectorArchive>>,
-    window_index: usize,
+    snapshot: Option<Arc<hierarchy::HierarchySnapshot>>,
     width: f32,
-    rows: &[usize],
     hidden: &BTreeSet<String>,
     selected: &Option<String>,
     collapsed: &BTreeSet<String>,
@@ -2568,19 +2722,7 @@ fn hierarchy_pane(
     scroll: UniformListScrollHandle,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
-    let count = rows.len();
-    let hidden_set = Arc::new(hidden.clone());
-    let collapsed_set = Arc::new(collapsed.clone());
-    let selected_id = Arc::new(selected.clone());
-    let row_indices = Arc::new(rows.to_vec());
-    let nodes: Arc<Vec<LayoutNode>> = Arc::new(
-        archive
-            .as_ref()
-            .and_then(|archive| archive.windows.get(window_index))
-            .map_or_else(Vec::new, |window| window.nodes.clone()),
-    );
-    // Preorder per-depth numbers, matching Compose's TreeRowModel.number.
-    let numbers: Arc<Vec<String>> = Arc::new(hierarchy_numbers(&nodes));
+    let count = snapshot.as_ref().map_or(0, |snapshot| snapshot.rows.len());
 
     let header = panel_header(
         language,
@@ -2612,7 +2754,7 @@ fn hierarchy_pane(
         .overflow_hidden()
         .flex()
         .flex_col();
-    if rows.is_empty() {
+    if count == 0 {
         body = body.child(
             div()
                 .flex_1()
@@ -2627,87 +2769,22 @@ fn hierarchy_pane(
                     language.text(TextKey::InspectorNoHierarchy),
                 )),
         );
-    } else {
-        // Compose puts the hierarchy list in one horizontal scroller and sizes
-        // rows to the longest label, so deep trees pan sideways.
-        let content_width = hierarchy_content_width(&nodes, preferences).max(width);
-        let list_entity = entity.clone();
-        let list_nodes = nodes.clone();
-        let list_numbers = numbers.clone();
-        let list_rows = row_indices.clone();
-        let list_hidden = hidden_set.clone();
-        let list_collapsed = collapsed_set.clone();
-        let list_selected = selected_id.clone();
-        let list_colors = *colors;
-        let list = uniform_list(
-            "inspector-hierarchy-rows",
-            rows.len(),
-            move |range, _, cx| {
-                let mut items = Vec::with_capacity(range.len());
-                for row_index in range {
-                    let Some(global_index) = list_rows.get(row_index).copied() else {
-                        continue;
-                    };
-                    let Some(node) = list_nodes.get(global_index) else {
-                        continue;
-                    };
-                    let number = list_numbers
-                        .get(global_index)
-                        .map(String::as_str)
-                        .unwrap_or("");
-                    items.push(hierarchy_row(
-                        row_index,
-                        global_index,
-                        number,
-                        content_width,
-                        node,
-                        &list_nodes,
-                        &list_colors,
-                        &list_hidden,
-                        &list_collapsed,
-                        &list_selected,
-                        preferences,
-                        &list_entity,
-                        language,
-                        cx,
-                    ));
-                }
-                items
-            },
-        )
-        .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
-        .h_full()
-        .w_full()
-        .track_scroll(&scroll);
-        body = body.child(
-            div()
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .w_full()
-                .child(list)
-                .child(
-                    div().absolute().inset_0().child(
-                        Scrollbar::new(&scroll)
-                            .id("inspector-hierarchy-scrollbar-vertical")
-                            .axis(ScrollbarAxis::Vertical)
-                            .mode(ScrollbarMode::Always)
-                            .viewport_from_layout(),
-                    ),
-                )
-                .child(
-                    div().absolute().inset_0().child(
-                        Scrollbar::new(&scroll)
-                            .id("inspector-hierarchy-scrollbar-horizontal")
-                            .axis(ScrollbarAxis::Horizontal)
-                            .mode(ScrollbarMode::Always)
-                            .viewport_from_layout(),
-                    ),
-                ),
-        );
+    } else if let Some(snapshot) = snapshot {
+        body = body.child(hierarchy_list::render(
+            snapshot,
+            width,
+            hidden,
+            collapsed,
+            selected,
+            preferences,
+            entity,
+            language,
+            *colors,
+            scroll,
+        ));
     }
 
-    let mut pane = div()
+    let pane = div()
         .id("inspector-hierarchy-pane")
         .w(px(width))
         .h_full()
@@ -2736,13 +2813,13 @@ fn hierarchy_row(
     collapsed: &BTreeSet<String>,
     selected: &Option<String>,
     preferences: LayoutPreferences,
+    display_depth: usize,
     entity: &Entity<InspectorWorkspace>,
     language: Language,
     cx: &mut App,
 ) -> AnyElement {
     let id = node.id.clone();
     let class_name = node.class_name.clone();
-    let depth = node.depth;
     let has_children = nodes
         .get(global_index + 1)
         .is_some_and(|next| next.parent_index == Some(global_index));
@@ -2762,7 +2839,7 @@ fn hierarchy_row(
         colors.panel
     };
 
-    let indent = 8.0 + depth.min(40) as f32 * HIERARCHY_INDENT;
+    let indent = hierarchy_indent(display_depth);
     let chevron = if !has_children {
         IconName::Minus
     } else if is_collapsed {
@@ -2882,8 +2959,8 @@ impl InspectorWorkspace {
         language: Language,
         colors: &StudioColors,
         archive: Option<Arc<InspectorArchive>>,
+        nodes: Arc<Vec<(usize, LayoutNode)>>,
         hidden: &BTreeSet<String>,
-        selected: &Option<String>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let dark = colors.dark;
@@ -2995,14 +3072,7 @@ impl InspectorWorkspace {
             .overflow_hidden()
             .flex()
             .flex_col();
-        if let (Some(display), Some(window), Some(source)) = (display, window, source) {
-            let (nodes, _eligible) = canvas_nodes(
-                &window.nodes,
-                hidden,
-                selected.as_deref(),
-                display.width_px,
-                display.height_px,
-            );
+        if let (Some(display), Some(_), Some(source)) = (display, window, source) {
             // Compose draws the zoom overlay at the bottom-right of the canvas
             // viewport instead of a fixed row below it.
             body = body.child(
@@ -3070,7 +3140,7 @@ impl InspectorWorkspace {
 
     fn geometry_canvas(
         &self,
-        nodes: Vec<(usize, LayoutNode)>,
+        nodes: Arc<Vec<(usize, LayoutNode)>>,
         source: PreviewSource,
         display_width: u32,
         display_height: u32,
@@ -3188,7 +3258,7 @@ impl InspectorWorkspace {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(move |this, event: &MouseUpEvent, _, cx| {
+                cx.listener(move |this, event: &MouseUpEvent, window, cx| {
                     if this.preview_bar_drag.take().is_some() {
                         cx.notify();
                         return;
@@ -3210,6 +3280,7 @@ impl InspectorWorkspace {
                     let y =
                         f32::from(event.position.y - metrics.origin.y) / metrics.scale + source_top;
                     this.selected = canvas_hit(&hit_nodes, x, y, hit_smallest);
+                    this.reveal_selected_node(window, cx);
                     cx.notify();
                 }),
             )
@@ -3307,7 +3378,7 @@ impl InspectorWorkspace {
                                 .ok();
                         }
                         if show_bounds {
-                            for (_, node) in &nodes {
+                            for (_, node) in nodes.iter() {
                                 let b = node.bounds;
                                 let active = selected.as_ref() == Some(&node.id);
                                 let color = if active {
@@ -4312,6 +4383,7 @@ fn details_pane(
     tab: DetailsTab,
     selected_id: &Option<String>,
     compose_agent: bool,
+    compiler_report: Option<&aps_layout_inspector::CompilerReport>,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     let nodes = archive
@@ -4323,9 +4395,15 @@ fn details_pane(
         && selected_index
             .and_then(|index| nodes.and_then(|nodes| nodes.get(index)))
             .is_some_and(|node| node.kind == NodeKind::Compose);
+    let compiler_enabled = compiler_report.is_some()
+        && selected_index
+            .and_then(|index| nodes.and_then(|nodes| nodes.get(index)))
+            .is_some_and(|node| node.kind == NodeKind::Compose);
     let visible_tabs: Vec<DetailsTab> = DetailsTab::ALL
         .into_iter()
-        .filter(|candidate| *candidate != DetailsTab::Compose || compose_enabled)
+        .filter(|candidate| {
+            *candidate != DetailsTab::Compose || compose_enabled || compiler_enabled
+        })
         .collect();
     let active_tab = if visible_tabs.contains(&tab) {
         tab
@@ -4405,6 +4483,14 @@ fn details_pane(
                                 content.child(detail_section(language, colors, &section, false));
                         }
                     }
+                    if let Some(section) = compiler_reports::compiler_section(
+                        language,
+                        compiler_report,
+                        compose_evidence,
+                        node,
+                    ) {
+                        content = content.child(detail_section(language, colors, &section, false));
+                    }
                 }
                 DetailsTab::Layout => {
                     content = content.child(detail_section(
@@ -4431,11 +4517,19 @@ fn details_pane(
                     ));
                 }
                 DetailsTab::Compose => {
-                    if let Some(evidence) = compose_evidence {
+                    if let Some(evidence) = compose_evidence.filter(|_| compose_enabled) {
                         for section in compose_sections(language, evidence, node) {
                             content =
                                 content.child(detail_section(language, colors, &section, false));
                         }
+                    }
+                    if let Some(section) = compiler_reports::compiler_section(
+                        language,
+                        compiler_report,
+                        compose_evidence,
+                        node,
+                    ) {
+                        content = content.child(detail_section(language, colors, &section, false));
                     }
                 }
                 DetailsTab::Evidence => {
@@ -4526,21 +4620,31 @@ fn findings_table_header(language: Language, colors: &StudioColors) -> Div {
         .text_color(colors.secondary_text)
         .child(
             div()
-                .w(px(100.))
+                .w(px(76.))
                 .flex_shrink_0()
                 .child(crate::studio::selectable(
                     language.text(TextKey::InspectorFindingsSeverity),
                 )),
         )
+        .child(
+            div()
+                .w(px(findings::PROBLEM_COLUMN_WIDTH))
+                .flex_shrink_0()
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorFindingsProblem),
+                )),
+        )
         .child(div().flex_1().min_w_0().child(crate::studio::selectable(
-            language.text(TextKey::InspectorFindingsProblem),
+            language.text(TextKey::InspectorFindingsDescription),
         )))
-        .child(div().flex_1().min_w_0().child(crate::studio::selectable(
-            language.text(TextKey::InspectorFindingsNode),
-        )))
-        .child(div().flex_1().min_w_0().child(crate::studio::selectable(
-            language.text(TextKey::InspectorFindingsSuggestion),
-        )))
+        .child(
+            div()
+                .w(px(96.))
+                .flex_shrink_0()
+                .child(crate::studio::selectable(
+                    language.text(TextKey::InspectorFindingsNode),
+                )),
+        )
 }
 
 fn findings_pane(
@@ -4548,8 +4652,23 @@ fn findings_pane(
     colors: &StudioColors,
     tone: FindingsTone,
     height: f32,
+    archive: &Option<Arc<InspectorArchive>>,
+    window_index: usize,
+    window: Option<&LayoutWindow>,
+    report: &Arc<LayoutAnalysis>,
+    hide_invisible: bool,
+    selected_finding: Option<usize>,
+    findings_ui: &mut findings::UiState,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
+    let snapshot = findings_ui.prepare(
+        archive.as_ref(),
+        window_index,
+        &report,
+        language,
+        hide_invisible,
+        tone,
+    );
     let mut header = div()
         .h(px(PANEL_HEADER_HEIGHT))
         .w_full()
@@ -4582,7 +4701,7 @@ fn findings_pane(
         header = header.child(
             findings_chip(
                 ("inspector-findings-chip", tone_index),
-                candidate.label(language),
+                candidate.label(language, snapshot.count(candidate)),
                 candidate.color(colors),
                 selected,
                 colors,
@@ -4626,22 +4745,15 @@ fn findings_pane(
         .bg(colors.panel)
         .child(header)
         .child(findings_table_header(language, colors))
-        .child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(px(6.))
-                .px(px(24.))
-                .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(colors.muted_text)
-                .child(crate::studio::selectable(
-                    language.text(TextKey::InspectorFindingsEmpty),
-                )),
-        )
+        .child(findings::body(
+            language,
+            colors,
+            snapshot,
+            findings_ui.scroll.clone(),
+            tone,
+            selected_finding,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -4716,6 +4828,12 @@ impl InspectorWorkspace {
 impl NoticeSource for InspectorWorkspace {
     fn notice_snapshot(&self) -> Vec<NoticeSnapshot> {
         let mut notices = Vec::new();
+        if let Some(notice) = &self.compiler_reports.notice {
+            notices.push(notice.clone());
+        }
+        if let Some(notice) = &self.export.notice {
+            notices.push(notice.clone());
+        }
         if let Some(error) = &self.error {
             notices.push(NoticeSnapshot::error(crate::evidence::clipped(error, 8192)));
         }
@@ -4736,9 +4854,116 @@ impl NoticeSource for InspectorWorkspace {
 }
 
 #[cfg(test)]
+#[path = "inspector/indentation_tests.rs"]
+mod hierarchy_indentation_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use aps_layout_inspector::{Bounds as NodeBounds, DisplayInfo, LayoutWindow, NodeKind};
+
+    #[::core::prelude::v1::test]
+    fn compose_toggle_label_preserves_clicks_for_preflight_and_archives() {
+        let source = include_str!("inspector.rs");
+        let control = source
+            .split_once("fn compose_agent_control(")
+            .unwrap()
+            .1
+            .split_once("fn segmented_track(")
+            .unwrap()
+            .0;
+        assert!(control.contains("Checkbox::new(\"inspector-compose-agent\")"));
+        assert!(control.contains(".label(language.text(TextKey::InspectorComposeAgent))"));
+        assert!(!control.contains("studio::selectable("));
+        assert!(control.contains(".disabled(!enabled)"));
+        assert!(control.contains("this.prepare_compose(cx)"));
+        assert!(control.contains("available && this.compose_bridge.is_none()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn system_composable_visibility_is_latched_only_when_a_frame_is_published() {
+        let source = include_str!("inspector.rs");
+        let apply = source
+            .split("pub fn apply_preferences(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn set_target(")
+            .next()
+            .unwrap();
+        assert!(!apply.contains("self.frame_show_system_composables ="));
+        let publish = source
+            .split("pub fn publish_protocol_frame(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn analysis_request(")
+            .next()
+            .unwrap();
+        assert!(publish.contains(
+            "self.frame_show_system_composables = self.preferences.show_system_composables"
+        ));
+        assert!(
+            publish.find("return Err").unwrap()
+                < publish
+                    .find("self.frame_show_system_composables =")
+                    .unwrap()
+        );
+        let rows = source
+            .split("fn hierarchy_snapshot(")
+            .nth(1)
+            .unwrap()
+            .split("fn begin_pane_drag(")
+            .next()
+            .unwrap();
+        assert!(rows.contains("self.frame_show_system_composables"));
+        assert!(!rows.contains("self.preferences.show_system_composables"));
+        let projection = include_str!("inspector/hierarchy.rs");
+        assert!(projection.contains("!show_system_composables"));
+        assert!(projection.contains("compose_node.system_created"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn imported_archive_time_is_not_picker_wait_or_live_capture_time() {
+        let source = include_str!("inspector.rs");
+        let picker = source
+            .split("pub fn pick(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn open_debug_archive(")
+            .next()
+            .unwrap();
+        assert!(!picker.contains("Instant::now()"));
+        let import = source
+            .split("fn open(&mut self,")
+            .nth(1)
+            .unwrap()
+            .split("pub fn cycle_window(")
+            .next()
+            .unwrap();
+        assert!(import.contains("Instant::now()"));
+        assert!(
+            import.find("if this.generation != generation").unwrap()
+                < import
+                    .find("this.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        let publish = source
+            .split("pub fn publish_protocol_frame(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn analysis_request(")
+            .next()
+            .unwrap();
+        assert!(publish.contains("self.import_timing.clear()"));
+        let footer = source
+            .split("fn status_bar(")
+            .nth(1)
+            .unwrap()
+            .split("fn inherited_hidden(")
+            .next()
+            .unwrap();
+        assert!(footer.contains("import_timing.text(language)"));
+        assert!(footer.contains("compiler_reports.timing.text(language)"));
+    }
 
     fn node(id: usize, parent: Option<usize>) -> LayoutNode {
         LayoutNode {
@@ -5056,6 +5281,14 @@ mod tests {
         assert!(header.contains("inspector-toggle-hierarchy"));
         assert!(header.contains("inspector-toggle-findings"));
         assert!(header.contains("inspector-toggle-details"));
+        let source_label = header.find("TextKey::InspectorCompatibleView").unwrap();
+        let capture_progress = header.find(".id(\"inspector-capture-progress\")").unwrap();
+        let trailing_controls = header.find(".child(compose_agent_control(").unwrap();
+        assert!(source_label < capture_progress && capture_progress < trailing_controls);
+        assert!(header.contains("self.busy && self.capturing && !self.export.active"));
+        assert!(header.contains("TextKey::InspectorCapturingCompatible"));
+        assert!(!render.contains("TextKey::InspectorCapturingCompatible"));
+        assert!(render.contains("self.busy && (!self.capturing || self.export.active)"));
         let shell = include_str!("shell.rs");
         assert!(shell.contains("selected != Destination::LayoutInspector"));
         // The menu strip is drawn inside the window and the shell publishes the

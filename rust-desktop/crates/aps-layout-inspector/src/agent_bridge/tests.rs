@@ -250,6 +250,57 @@ fn single_window_snapshot() -> Value {
     )
 }
 
+#[test]
+fn live_agent_projection_exports_without_device_or_input_archive() {
+    let cancel = CancellationToken::new();
+    let snapshot = single_window_snapshot();
+    let width = snapshot["display"]["widthPx"].as_u64().unwrap() as u32;
+    let height = snapshot["display"]["heightPx"].as_u64().unwrap() as u32;
+    let png = screenshot(width, height);
+    // One-window projection is pure: this sentinel adb path must never run.
+    let frame = project_capture(
+        CapturePayload {
+            snapshot: encoded(&snapshot),
+            screenshot: png.clone(),
+        },
+        Path::new("/must-not-execute-adb"),
+        SERIAL,
+        PACKAGE,
+        17,
+        &cancel,
+    )
+    .unwrap();
+    let temp = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+    let path = temp.path().join("agent.zip");
+    frame.archive.export_archive(&path, &cancel).unwrap();
+    let imported = crate::InspectorArchive::open(&path, &cancel).unwrap();
+    assert_eq!(
+        imported.frame.package_name,
+        frame.archive.frame.package_name
+    );
+    assert_eq!(
+        imported.frame.captured_at_epoch_millis,
+        frame.archive.frame.captured_at_epoch_millis
+    );
+    assert_eq!(
+        imported.frame.protocol_minor,
+        frame.archive.frame.protocol_minor
+    );
+    assert_eq!(
+        imported.windows[0].nodes.len(),
+        frame.archive.windows[0].nodes.len()
+    );
+    assert_eq!(imported.screenshot_png.as_deref(), Some(png.as_slice()));
+    assert_eq!(
+        imported.capabilities.compose_semantics,
+        frame.archive.capabilities.compose_semantics
+    );
+    assert_eq!(
+        imported.capabilities.timeline,
+        frame.archive.capabilities.timeline
+    );
+}
+
 fn multi_window_snapshot() -> Value {
     let main = view_node("root:main", "android.view.FrameLayout", 2, 3);
     let dialog = view_node("root:dialog", "android.widget.FrameLayout", 2, 2);
