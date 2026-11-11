@@ -174,7 +174,10 @@ fn capture_with(
         verify_identity(executor, executable, target, &frozen, cancel)?;
         let before = remote_metadata(executor, executable, target, &remote.path, cancel)?;
         verify_identity(executor, executable, target, &frozen, cancel)?;
-        let mut local = create_local_file(&path)?;
+        // `adb pull` may replace the destination inode instead of writing
+        // through the placeholder. Reserve the path for the transfer, but do
+        // not retain a handle to the placeholder across the pull.
+        drop(create_local_file(&path)?);
         let pull = request(executable, &target.serial, PULL_TIMEOUT)
             .args(["pull", &remote.path])
             .arg(&path);
@@ -184,7 +187,7 @@ fn capture_with(
         if before != after {
             return Err("Device heap file changed during transfer. Refresh the process target and capture again.".into());
         }
-        validate_local_heap(&path, &mut local, before.size, cancel)?;
+        validate_local_heap(&path, before.size, cancel)?;
         verify_identity(executor, executable, target, &frozen, cancel)?;
         check_cancelled(cancel)
     })();
@@ -522,7 +525,6 @@ fn pull_with_watchdog(
 
 fn validate_local_heap(
     path: &Path,
-    file: &mut File,
     expected: u64,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
@@ -531,6 +533,10 @@ fn validate_local_heap(
         return Err("Heap capture file size is outside the memory input limit.".into());
     }
     let named = inspect_local_file(path, expected)?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|_| "Cannot open the captured HPROF file.")?;
     let opened = file
         .metadata()
         .map_err(|_| "Cannot inspect the captured HPROF file.")?;
@@ -798,6 +804,7 @@ mod tests {
         InvalidHeader,
         CleanupFailure,
         ExistingRemote,
+        ReplacedPull,
     }
 
     struct SeenRequest {
@@ -953,7 +960,14 @@ mod tests {
                         Scenario::InvalidHeader => bytes[0] = b'X',
                         _ => {}
                     }
-                    fs::write(Path::new(&request.arguments[4]), bytes).unwrap();
+                    let destination = Path::new(&request.arguments[4]);
+                    if self.scenario == Scenario::ReplacedPull {
+                        let replacement = destination.with_extension("replacement.hprof");
+                        fs::write(&replacement, bytes).unwrap();
+                        fs::rename(replacement, destination).unwrap();
+                    } else {
+                        fs::write(destination, bytes).unwrap();
+                    }
                     Ok(output([], [], 0))
                 }
                 ("shell", script) if script.starts_with("[ ! -e /data/local/tmp/aps-heap-") => Ok(
@@ -1182,6 +1196,16 @@ mod tests {
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn capture_accepts_adb_replacing_the_local_destination_inode() {
+        let root = TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let fake = FakeExecutor::new(Scenario::ReplacedPull);
+        let heap = fake.capture(root.path()).unwrap();
+        assert_eq!(fs::read(&heap.path).unwrap(), hprof());
+        assert_eq!(fake.cleanup_count(), 1);
+    }
+
     #[test]
     fn failure_and_cancellation_clean_only_the_owned_remote_with_fresh_token() {
         for scenario in [
@@ -1265,15 +1289,16 @@ mod tests {
     fn local_validation_rejects_truncated_file_and_honors_cancellation() {
         let root = TempWorkspace::create(&std::env::temp_dir()).unwrap();
         let path = root.path().join("capture.raw.hprof");
-        let mut file = create_local_file(&path).unwrap();
+        drop(create_local_file(&path).unwrap());
         fs::write(&path, hprof()).unwrap();
         let cancel = CancellationToken::new();
-        validate_local_heap(&path, &mut file, hprof().len() as u64, &cancel).unwrap();
+        validate_local_heap(&path, hprof().len() as u64, &cancel).unwrap();
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
         file.set_len(HPROF_HEADER_BYTES as u64 - 1).unwrap();
-        assert!(validate_local_heap(&path, &mut file, hprof().len() as u64, &cancel).is_err());
+        assert!(validate_local_heap(&path, hprof().len() as u64, &cancel).is_err());
         cancel.cancel();
         assert!(
-            validate_local_heap(&path, &mut file, hprof().len() as u64, &cancel)
+            validate_local_heap(&path, hprof().len() as u64, &cancel)
                 .unwrap_err()
                 .contains("cancelled")
         );
@@ -1281,23 +1306,17 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn local_validation_rejects_symlink_and_same_sized_path_replacement() {
+    fn local_validation_accepts_adb_style_path_replacement_and_rejects_symlink() {
         use std::os::unix::fs::symlink;
         let root = TempWorkspace::create(&std::env::temp_dir()).unwrap();
         let path = root.path().join("capture.raw.hprof");
         let replacement = root.path().join("replacement.hprof");
-        let mut original = create_local_file(&path).unwrap();
+        drop(create_local_file(&path).unwrap());
         fs::write(&path, hprof()).unwrap();
         fs::write(&replacement, hprof()).unwrap();
         fs::rename(&replacement, &path).unwrap();
         assert!(
-            validate_local_heap(
-                &path,
-                &mut original,
-                hprof().len() as u64,
-                &CancellationToken::new()
-            )
-            .is_err()
+            validate_local_heap(&path, hprof().len() as u64, &CancellationToken::new()).is_ok()
         );
         symlink(&path, &replacement).unwrap();
         assert!(inspect_local_file(&replacement, aps_memory::MAX_INPUT_BYTES).is_err());
