@@ -35,6 +35,88 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn producer_reported_count_is_not_the_lost_sample_count() {
+    let mut source = profile();
+    source.records.push(Record::Lost {
+        sample_count: 100,
+        lost_count: 4,
+    });
+    let fixture = Fixture::bytes(&encoded(&source));
+    let mut session = CpuSession::open(&fixture.0).unwrap();
+    assert_eq!(session.summary().sample_count, 6);
+    assert_eq!(session.summary().reported_sample_count, 100);
+    assert_eq!(session.summary().lost_sample_count, 4);
+    assert_eq!(session.summary().lost_rate(), 0.04);
+    let exported = session.export_report_json(&Query::default()).unwrap();
+    assert!(exported.contains("\"lostSamples\":4"));
+    assert!(exported.contains("\"reportedSamples\":100"));
+    assert!(!exported.contains("lostEvents"));
+    let html = session.export_html_report(&Query::default()).unwrap();
+    assert!(html.contains("Reported samples"));
+    assert!(!html.contains("Lost events"));
+}
+
+#[test]
+fn actual_recording_style_loss_receipt_does_not_report_false_loss() {
+    let mut source = profile();
+    source.records.push(Record::Lost {
+        sample_count: 6,
+        lost_count: 0,
+    });
+    let fixture = Fixture::bytes(&encoded(&source));
+    let session = CpuSession::open(&fixture.0).unwrap();
+    assert_eq!(session.summary().lost_sample_count, 0);
+    assert_eq!(session.summary().reported_sample_count, 6);
+    assert_eq!(session.summary().lost_rate(), 0.0);
+}
+
+#[test]
+fn multiple_loss_receipts_sum_and_missing_receipts_stay_unreported() {
+    let fixture = Fixture::profile();
+    let session = CpuSession::open(&fixture.0).unwrap();
+    assert_eq!(session.summary().reported_sample_count, 0);
+    assert_eq!(session.summary().lost_rate(), 0.0);
+
+    let mut source = profile();
+    source.records.extend([
+        Record::Lost {
+            sample_count: 100,
+            lost_count: 4,
+        },
+        Record::Lost {
+            sample_count: 200,
+            lost_count: 5,
+        },
+    ]);
+    let fixture = Fixture::bytes(&encoded(&source));
+    let session = CpuSession::open(&fixture.0).unwrap();
+    assert_eq!(session.summary().reported_sample_count, 300);
+    assert_eq!(session.summary().lost_sample_count, 9);
+    assert_eq!(session.summary().lost_rate(), 0.03);
+}
+
+#[test]
+fn loss_receipt_overflow_is_rejected() {
+    for (sample_count, lost_count) in [(u64::MAX, 0), (0, u64::MAX)] {
+        let mut source = profile();
+        source.records.extend([
+            Record::Lost {
+                sample_count,
+                lost_count,
+            },
+            Record::Lost {
+                sample_count: 1,
+                lost_count: 1,
+            },
+        ]);
+        let fixture = Fixture::bytes(&encoded(&source));
+        assert!(CpuSession::open(&fixture.0)
+            .unwrap_err()
+            .contains("exceeds u64"));
+    }
+}
+
+#[test]
 fn session_reads_once_and_returns_complete_catalog_without_declared_sample_threads() {
     let fixture = Fixture::profile();
     let mut session = CpuSession::open(&fixture.0).unwrap();

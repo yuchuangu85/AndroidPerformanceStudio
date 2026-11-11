@@ -92,14 +92,25 @@ pub fn parse_gecko_profile(bytes: &[u8]) -> Result<SimpleperfStream, String> {
         .and_then(Value::as_array)
         .ok_or_else(|| "Gecko profile does not contain a threads array".to_owned())?;
     let mut records = Vec::new();
+    let mut files = FileCatalog::default();
     for (index, thread) in threads.iter().enumerate() {
-        records.extend(thread_records(thread, index)?);
+        records.extend(thread_records(thread, index, &mut files)?);
         if records.len() > MAX_RECORDS {
             return Err(format!(
                 "Gecko profile exceeds the {MAX_RECORDS} record limit"
             ));
         }
     }
+    if records
+        .len()
+        .checked_add(files.records.len())
+        .is_none_or(|count| count > MAX_RECORDS)
+    {
+        return Err(format!(
+            "Gecko profile exceeds the {MAX_RECORDS} record limit"
+        ));
+    }
+    records.extend(files.records.into_iter().map(Record::File));
     // The final metadata record is the catalog, like the native stream.
     records.push(Record::MetaInfo(MetaInfo {
         event_types: vec![GECKO_SAMPLE_EVENT.to_owned()],
@@ -115,7 +126,11 @@ pub fn parse_gecko_profile(bytes: &[u8]) -> Result<SimpleperfStream, String> {
     })
 }
 
-fn thread_records(thread: &Value, index: usize) -> Result<Vec<Record>, String> {
+fn thread_records(
+    thread: &Value,
+    index: usize,
+    files: &mut FileCatalog,
+) -> Result<Vec<Record>, String> {
     let label = format!("threads[{index}]");
     let object = thread
         .as_object()
@@ -134,33 +149,82 @@ fn thread_records(thread: &Value, index: usize) -> Result<Vec<Record>, String> {
     let stack_table = GeckoTable::read(object.get("stackTable"), &format!("{label}.stackTable"))?;
     let sample_table = GeckoTable::read(object.get("samples"), &format!("{label}.samples"))?;
 
-    let (frames, files) = frame_rows(&frame_table, &strings, &label)?;
+    let frames = frame_rows(&frame_table, &strings, &label, files)?;
     let stacks = stack_rows(&stack_table, frames.len(), &label)?;
     let samples = sample_rows(&sample_table, &stacks, &frames, thread_id, &label)?;
 
-    let mut records = Vec::with_capacity(1 + files.len() + samples.len());
+    let mut records = Vec::with_capacity(1 + samples.len());
     records.push(Record::Thread(ThreadRecord {
         thread_id: tid as u32,
         process_id: pid,
         name,
     }));
-    records.extend(files.into_iter().map(Record::File));
     records.extend(samples.into_iter().map(Record::Sample));
     Ok(records)
 }
 
-/// Frame id -> interned file/symbol identity. Each file records its symbols in
-/// first-encounter order, and frame rows keep exactly one identity.
+/// The parsed Gecko tables are local to one thread. This catalog gives the
+/// combined stream one file/symbol namespace so selection and projections do
+/// not resolve a thread's local file id through another thread's record.
+#[derive(Default)]
+struct FileCatalog {
+    records: Vec<FileRecord>,
+    file_ids: HashMap<String, u32>,
+    file_symbols: Vec<HashMap<String, i32>>,
+}
+
+impl FileCatalog {
+    fn intern(&mut self, symbol: &str, resource: &str, label: &str) -> Result<Frame, String> {
+        let file_id = match self.file_ids.get(resource).copied() {
+            Some(id) => id,
+            None => {
+                if self.records.len() >= MAX_RECORDS {
+                    return Err(format!("Gecko {label} has too many files"));
+                }
+                let id = u32::try_from(self.records.len() + 1)
+                    .map_err(|_| format!("Gecko {label} has too many files"))?;
+                self.records.push(FileRecord {
+                    id,
+                    path: resource.to_owned(),
+                    symbols: Vec::new(),
+                });
+                self.file_symbols.push(HashMap::new());
+                self.file_ids.insert(resource.to_owned(), id);
+                id
+            }
+        };
+        let slot = usize::try_from(file_id - 1)
+            .map_err(|_| format!("Gecko {label} file id does not fit a usize"))?;
+        let symbols = &mut self.file_symbols[slot];
+        let symbol_id = match symbols.get(symbol).copied() {
+            Some(id) => id,
+            None => {
+                let id = i32::try_from(symbols.len())
+                    .map_err(|_| format!("Gecko {label} has too many symbols"))?;
+                symbols.insert(symbol.to_owned(), id);
+                self.records[slot].symbols.push(symbol.to_owned());
+                id
+            }
+        };
+        Ok(Frame {
+            virtual_address: 0,
+            file_id,
+            symbol_id,
+            execution_type: 0,
+        })
+    }
+}
+
+/// Frame id -> interned file/symbol identity. Frame rows keep one global
+/// identity even though each Gecko thread has its own local tables.
 fn frame_rows(
     table: &GeckoTable<'_>,
     strings: &[&str],
     label: &str,
-) -> Result<(Vec<Frame>, Vec<FileRecord>), String> {
+    files: &mut FileCatalog,
+) -> Result<Vec<Frame>, String> {
     let location = table.required("location")?;
     let mut frames = Vec::with_capacity(table.rows.len());
-    let mut files = Vec::<FileRecord>::new();
-    let mut file_ids = HashMap::<String, u32>::new();
-    let mut file_symbols = Vec::<HashMap<String, i32>>::new();
     for (index, row) in table.rows.iter().enumerate() {
         let cells = cells(row, label, index)?;
         let string_id = cell_index(cells, location, label, index)?;
@@ -168,43 +232,9 @@ fn frame_rows(
             format!("Gecko {label} frameTable[{index}].location is out of the stringTable range")
         })?;
         let (symbol, resource) = parse_location(location);
-        let file_id = match file_ids.get(resource).copied() {
-            Some(id) => id,
-            None => {
-                let id = u32::try_from(files.len() + 1)
-                    .map_err(|_| format!("Gecko {label} has too many files"))?;
-                files.push(FileRecord {
-                    id,
-                    path: resource.to_owned(),
-                    symbols: Vec::new(),
-                });
-                file_symbols.push(HashMap::new());
-                file_ids.insert(resource.to_owned(), id);
-                id
-            }
-        };
-        // Files are appended in id order, so the id maps to the same slot.
-        let slot = usize::try_from(file_id - 1)
-            .map_err(|_| format!("Gecko {label} file id does not fit a usize"))?;
-        let symbols = &mut file_symbols[slot];
-        let symbol_id = match symbols.get(symbol).copied() {
-            Some(id) => id,
-            None => {
-                let id = i32::try_from(symbols.len())
-                    .map_err(|_| format!("Gecko {label} has too many symbols"))?;
-                symbols.insert(symbol.to_owned(), id);
-                files[slot].symbols.push(symbol.to_owned());
-                id
-            }
-        };
-        frames.push(Frame {
-            virtual_address: 0,
-            file_id,
-            symbol_id,
-            execution_type: 0,
-        });
+        frames.push(files.intern(symbol, resource, label)?);
     }
-    Ok((frames, files))
+    Ok(frames)
 }
 
 /// Stack rows are (prefix, frame); a prefix must point at an earlier row so the

@@ -8,13 +8,12 @@
 //! projections.
 //!
 //! Every selected sample's natural root-to-leaf stack is transformed in this
-//! order (the Simpleperf callchain is leaf-first, so the stack is the reversed
-//! callchain):
+//! order; query direction is applied to the retained stack afterward:
 //!
 //! 1. `drop` discards the whole sample when any frame's symbol name is in the
 //!    set.
-//! 2. `collapse_recursion` removes a frame when its `(symbol name, resource)`
-//!    pair equals the immediately previous kept frame's pair, so a directly
+//! 2. `collapse_recursion` removes a frame when its function identity
+//!    equals the immediately previous kept frame's identity, so a directly
 //!    recursive function collapses to a single node.
 //! 3. `collapse` removes every frame whose symbol name is in the set; its
 //!    children splice onto its parent.
@@ -29,8 +28,10 @@
 //! Weights follow the query weight type: one per sample, or the sample's event
 //! count. Every kept node carries an inclusive weight and sample count; the
 //! leaf of the transformed stack carries the self weight and self sample count.
-//! The query direction is not applied: transforms always operate on the natural
-//! root-to-leaf stack and rows are emitted in that order.
+//! The query direction is applied after transforms, so an empty transform set
+//! has the same rows, IDs and metrics as the normal query projection. Self
+//! weight remains attached to the original sampled leaf when that frame is
+//! retained; if a transform removes it, the transformed leaf receives it.
 //!
 //! Rows form a deterministic preorder list whose sibling order is the
 //! aggregation-key order. Row ids are `aps-transform-v1/<index>`; parent ids
@@ -40,7 +41,7 @@
 use crate::{
     charts::flame_frame_from_rows,
     selection::{add, labels, select, weight, Selection},
-    ChartFrame, ChartViewport, CpuSession, FullCallTree, Query, QueryRow, WeightType,
+    ChartFrame, ChartViewport, CpuSession, Direction, FullCallTree, Query, QueryRow, WeightType,
     MAX_FULL_TREE_ROWS,
 };
 use aps_simpleperf_engine::simpleperf::{Frame, MAX_CALLCHAIN_FRAMES};
@@ -64,8 +65,8 @@ pub struct TransformSet {
     pub collapse: BTreeSet<String>,
     /// Symbol names that discard the whole containing sample.
     pub drop: BTreeSet<String>,
-    /// Remove a frame that repeats the immediately previous kept frame's
-    /// `(symbol name, resource)` pair.
+    /// Remove a frame that repeats the immediately previous kept function.
+    /// Unknown symbols retain their address identity.
     pub collapse_recursion: bool,
 }
 
@@ -170,8 +171,8 @@ impl CpuSession {
     /// Applies `transforms` to the samples selected by `query` and returns the
     /// complete transformed preorder tree, or its first `max_rows` rows when
     /// the tree is larger. `max_rows` must be within
-    /// `1..=MAX_FULL_TREE_ROWS`. Pagination, direction and the cached
-    /// untransformed projection are not used or modified.
+    /// `1..=MAX_FULL_TREE_ROWS`. Pagination is ignored; query direction is
+    /// applied after the transforms. Cached normal rows are not modified.
     pub fn transformed_call_tree(
         &mut self,
         query: &Query,
@@ -184,8 +185,11 @@ impl CpuSession {
                 "transformed call tree row limit must be between 1 and {MAX_FULL_TREE_ROWS}"
             ));
         }
+        if transforms.is_empty() {
+            return self.full_call_tree(query, max_rows);
+        }
         let selected = select(&self.stream, query)?;
-        let (nodes, roots) = aggregate(&selected, transforms, query.weight_type)?;
+        let (nodes, roots) = aggregate(&selected, transforms, query.direction, query.weight_type)?;
         let (rows, truncated) = materialize(&nodes, &roots, max_rows);
         Ok(FullCallTree { rows, truncated })
     }
@@ -215,6 +219,7 @@ impl CpuSession {
 fn aggregate(
     selected: &Selection<'_>,
     transforms: &TransformSet,
+    direction: Direction,
     weight_type: WeightType,
 ) -> Result<(Vec<Node>, BTreeMap<NodeKey, usize>), String> {
     let mut roots = BTreeMap::new();
@@ -223,27 +228,31 @@ fn aggregate(
         if sample.callchain.len() > MAX_CALLCHAIN_FRAMES {
             return Err("callchain exceeds 512 frames".into());
         }
-        // Leaf-first profile order reversed into the natural root-to-leaf stack.
-        let mut chain: Vec<(&Frame, String, String)> = sample
+        // Keep the source index so self weight remains attached to the original
+        // sampled leaf after direction and transforms are applied.
+        let mut chain: Vec<(&Frame, String, String, usize)> = sample
             .callchain
             .iter()
+            .enumerate()
             .rev()
-            .map(|frame| {
+            .map(|(source, frame)| {
                 let (name, resource) = labels(&selected.files, frame);
-                (frame, name, resource)
+                (frame, name, resource, source)
             })
             .collect();
         if chain
             .iter()
-            .any(|(_, name, _)| transforms.drop.contains(name))
+            .any(|(_, name, _, _)| transforms.drop.contains(name))
         {
             continue;
         }
         if transforms.collapse_recursion {
-            let mut kept: Vec<(&Frame, String, String)> = Vec::with_capacity(chain.len());
+            let mut kept: Vec<(&Frame, String, String, usize)> = Vec::with_capacity(chain.len());
             for frame in chain {
                 let repeated = match kept.last() {
-                    Some((_, name, resource)) => *name == frame.1 && *resource == frame.2,
+                    Some((previous, _, _, _)) => {
+                        FrameKey::from(*previous) == FrameKey::from(frame.0)
+                    }
                     None => false,
                 };
                 if !repeated {
@@ -253,10 +262,10 @@ fn aggregate(
             chain = kept;
         }
         if !transforms.collapse.is_empty() {
-            chain.retain(|(_, name, _)| !transforms.collapse.contains(name));
+            chain.retain(|(_, name, _, _)| !transforms.collapse.contains(name));
         }
         if let Some(focus) = &transforms.focus {
-            let Some(index) = chain.iter().rposition(|(_, name, _)| name == focus) else {
+            let Some(index) = chain.iter().rposition(|(_, name, _, _)| name == focus) else {
                 continue;
             };
             // Keep the focused function at the root of the transformed stack.
@@ -265,10 +274,21 @@ fn aggregate(
         if chain.is_empty() {
             continue;
         }
+        let self_source = chain
+            .iter()
+            .find(|(_, _, _, source)| *source == 0)
+            .unwrap_or_else(|| chain.last().expect("nonempty retained stack"))
+            .3;
+        if direction == Direction::Inverted {
+            chain.reverse();
+        }
+        let self_index = chain
+            .iter()
+            .position(|(_, _, _, source)| *source == self_source)
+            .expect("retained self frame");
         let value = weight(sample, weight_type);
-        let leaf = chain.len() - 1;
         let mut parent: Option<usize> = None;
-        for (depth, (frame, name, resource)) in chain.iter().enumerate() {
+        for (depth, (frame, name, resource, _)) in chain.iter().enumerate() {
             let key = if transforms.merge.contains(name) {
                 NodeKey::Merged(name.clone())
             } else {
@@ -296,7 +316,7 @@ fn aggregate(
             let node = &mut nodes[index];
             add(&mut node.inclusive_weight, value)?;
             add(&mut node.sample_count, 1)?;
-            if depth == leaf {
+            if depth == self_index {
                 add(&mut node.self_weight, value)?;
                 add(&mut node.self_sample_count, 1)?;
             }

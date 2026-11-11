@@ -1,13 +1,24 @@
 //! Explicit, bounded CPU capture. Nothing runs on constructing a plan. A plan
 //! is single-use and must be confirmed against device, PID and /proc start ticks.
 //! Cancellation terminates owned host ADB, not an arbitrary remote process.
+mod config;
+mod duration;
+mod remote;
+pub use config::{EventScope, SamplingConfiguration, SamplingRate, SamplingTemplate};
+pub use duration::{
+    CaptureDuration, MANUAL_CAPTURE_TIMEOUT, MANUAL_LEASE_SECONDS, MAX_TIMED_CAPTURE,
+};
+
 use aps_adb::{AdbClient, DeviceState, validate_serial};
 use aps_contracts::SourceDigest;
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner, atomic_write};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -31,28 +42,77 @@ pub enum CaptureState {
     Complete,
     Cancelled,
     CancellationUnverified,
+    StopUnverified,
     Failed,
 }
 #[derive(Clone)]
 pub struct CaptureHandle {
     state: Arc<Mutex<CaptureState>>,
     cancel: CancellationToken,
+    stop: Arc<AtomicBool>,
 }
 impl CaptureHandle {
     pub fn state(&self) -> CaptureState {
         self.state.lock().expect("capture state lock").clone()
     }
-    pub fn cancel(&self) {
+    pub fn cancel(&self) -> bool {
+        let state = self.state.lock().expect("capture state lock");
+        if matches!(
+            *state,
+            CaptureState::Complete
+                | CaptureState::Cancelled
+                | CaptureState::Failed
+                | CaptureState::CancellationUnverified
+                | CaptureState::StopUnverified
+        ) {
+            return false;
+        }
         self.cancel.cancel();
+        true
+    }
+
+    pub fn can_stop(&self) -> bool {
+        self.state() == CaptureState::Recording && !self.cancel.is_cancelled()
+    }
+
+    /// Request graceful completion, not cancellation. The worker verifies exit
+    /// before pulling; cancellation accepted before final publication still wins.
+    pub fn stop(&self) -> bool {
+        let mut state = self.state.lock().expect("capture state lock");
+        if *state != CaptureState::Recording || self.cancel.is_cancelled() {
+            return false;
+        }
+        self.stop.store(true, Ordering::Release);
+        *state = CaptureState::Stopping;
+        true
     }
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CallGraphMode {
+    #[default]
+    Dwarf,
+    FramePointer,
+    None,
+}
+impl CallGraphMode {
+    pub const ALL: [Self; 3] = [Self::Dwarf, Self::FramePointer, Self::None];
+
+    pub fn arguments(self) -> &'static [&'static str] {
+        match self {
+            Self::Dwarf => &["-g"],
+            Self::FramePointer => &["--call-graph", "fp"],
+            Self::None => &[],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CpuCaptureRequest {
     pub run_id: String,
     pub serial: String,
     pub pid: u32,
-    pub duration_seconds: u32,
-    pub frequency_hz: u32,
+    pub duration: CaptureDuration,
+    pub sampling: SamplingConfiguration,
     /// Optional explicit host simpleperf binary; exact Kotlin converter argv.
     pub converter: Option<PathBuf>,
 }
@@ -77,8 +137,15 @@ pub struct CaptureOutput {
     pub raw: CapturedArtifact,
     pub protobuf: Option<CapturedArtifact>,
     pub target: TargetObservation,
-    /// Remote path remains after completion/failure; no broad cleanup occurs.
-    pub retained_remote_path: String,
+    /// Present only when explicitly retained; successful capture cleans owned remote files.
+    pub retained_remote_path: Option<String>,
+    pub completion: CaptureCompletion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureCompletion {
+    RecorderExited,
+    StopRequested,
 }
 pub struct CaptureController {
     adb: AdbClient,
@@ -91,6 +158,7 @@ pub struct PlannedCapture {
     remote_directory: String,
     created: Instant,
     converter_digest: Option<SourceDigest>,
+    app_package: Option<String>,
 }
 pub struct ConfirmedCapture {
     plan: PlannedCapture,
@@ -112,6 +180,26 @@ impl CaptureController {
     ) -> Result<PlannedCapture, String> {
         validate_request(&request)?;
         let observed = observe(&self.adb, &request.serial, request.pid, cancel)?;
+        // Match the frozen PID to the installed-package discovery projection;
+        // never infer an --app argument from arbitrary process text.
+        let app_package = self
+            .adb
+            .target_snapshot(&request.serial, cancel)
+            .map_err(|error| error.to_string())?
+            .application_processes()
+            .into_iter()
+            .find(|process| process.pid == request.pid && process.name == observed.process_name)
+            .map(|process| process.package_name)
+            .filter(|package| {
+                !package.is_empty()
+                    && package.len() <= 255
+                    && package.split('.').all(|part| {
+                        !part.is_empty()
+                            && part
+                                .bytes()
+                                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                    })
+            });
         let converter_digest = request
             .converter
             .as_ref()
@@ -130,6 +218,7 @@ impl CaptureController {
             observed,
             created: Instant::now(),
             converter_digest,
+            app_package,
         })
     }
 }
@@ -171,6 +260,7 @@ impl PlannedCapture {
             handle: CaptureHandle {
                 state: Arc::new(Mutex::new(CaptureState::Confirmed)),
                 cancel: CancellationToken::new(),
+                stop: Arc::new(AtomicBool::new(false)),
             },
         })
     }
@@ -181,14 +271,20 @@ impl ConfirmedCapture {
     }
     pub fn run(self) -> Result<CaptureOutput, String> {
         let result = self.run_inner();
-        if result.is_err() && !matches!(self.handle.state(), CaptureState::CancellationUnverified) {
+        let failed_phase = self.handle.state();
+        if result.is_err()
+            && !matches!(
+                self.handle.state(),
+                CaptureState::CancellationUnverified | CaptureState::StopUnverified
+            )
+        {
             self.set(if self.handle.cancel.is_cancelled() {
                 CaptureState::Cancelled
             } else {
                 CaptureState::Failed
             });
         }
-        result
+        result.map_err(|error| format!("CPU capture {failed_phase:?}: {error}"))
     }
     fn run_inner(&self) -> Result<CaptureOutput, String> {
         self.set(CaptureState::Rechecking);
@@ -211,60 +307,100 @@ impl ConfirmedCapture {
         let remote_data = format!("{}/perf.data", self.plan.remote_directory);
         self.set(CaptureState::Preparing);
         self.adb(
-            &["shell", "mkdir", &self.plan.remote_directory],
+            &["shell", "mkdir", "-m", "700", &self.plan.remote_directory],
             Duration::from_secs(30),
         )?;
-        self.set(CaptureState::Recording);
-        let pid = request.pid.to_string();
-        let frequency = request.frequency_hz.to_string();
-        let duration = request.duration_seconds.to_string();
-        let remote_pid = self.start_remote_recording(&pid, &frequency, &duration, &remote_data)?;
-        self.await_remote_recording(remote_pid, &remote_data, request.duration_seconds)?;
-        self.set(CaptureState::Pulling);
-        let raw_path = local.join("perf.data");
-        let bytes = self.read_remote_artifact(&remote_data)?;
-        if self.handle.cancel.is_cancelled() {
-            return Err("capture cancelled".into());
-        }
-        atomic_write(&raw_path, &bytes).map_err(|_| "cannot write bounded capture artifact")?;
-        let raw = artifact(
-            raw_path,
-            "device simpleperf record; bounded adb exec-out cat",
-            None,
-        )?;
-        let protobuf = if let Some(converter) = &request.converter {
-            self.set(CaptureState::Converting);
-            let output = local.join("report-sample.pb");
-            // No converter-created regular output exists while it runs. On
-            // Unix the explicit -o target is the inherited stdout pipe; the
-            // existing process runner enforces its 64 MiB hard read budget.
-            // A converter which cannot write this stream fails closed.
-            if Some(SourceDigest::hash_file(converter, 256 * 1024 * 1024)?)
-                != self.plan.converter_digest
-            {
-                return Err("selected converter changed since capture planning".into());
+        let mut remote = remote::RemoteRecording::new(self);
+        let result = (|| {
+            let pid = request.pid.to_string();
+            self.recheck_target()?;
+            if request.duration == CaptureDuration::Manual {
+                self.refresh_manual_lease(0)?;
             }
-            let bytes = convert_bounded(converter, &raw.path, &self.handle.cancel)?;
-            atomic_write(&output, &bytes).map_err(|_| "cannot write bounded protobuf artifact")?;
-            Some(artifact(
-                output,
-                "host simpleperf report-sample --protobuf --show-callchain; bounded stdout",
-                Some(raw.digest),
-            )?)
-        } else {
-            None
-        };
-        if self.handle.cancel.is_cancelled() {
-            return Err("capture cancelled".into());
+            remote.launched = true;
+            let remote_pid = self.start_remote_recording(&pid, &remote_data)?;
+            self.recheck_target()?;
+            self.set(CaptureState::Recording);
+            self.await_remote_recording(remote_pid, &remote_data)?;
+            remote.stopped = true;
+            self.recheck_target()?;
+            self.set(CaptureState::Pulling);
+            let raw_path = local.join("perf.data");
+            let bytes = self.read_remote_artifact(&remote_data)?;
+            if self.handle.cancel.is_cancelled() {
+                return Err("capture cancelled".into());
+            }
+            atomic_write(&raw_path, &bytes).map_err(|_| "cannot write bounded capture artifact")?;
+            let raw = artifact(
+                raw_path,
+                "device simpleperf record; bounded adb exec-out cat",
+                None,
+            )?;
+            let protobuf = if let Some(converter) = &request.converter {
+                self.set(CaptureState::Converting);
+                let output = local.join("report-sample.pb");
+                // No converter-created regular output exists while it runs. On
+                // Unix the explicit -o target is the inherited stdout pipe; the
+                // existing process runner enforces its 64 MiB hard read budget.
+                // A converter which cannot write this stream fails closed.
+                if Some(SourceDigest::hash_file(converter, 256 * 1024 * 1024)?)
+                    != self.plan.converter_digest
+                {
+                    return Err("selected converter changed since capture planning".into());
+                }
+                let bytes = convert_bounded(converter, &raw.path, &self.handle.cancel)?;
+                atomic_write(&output, &bytes)
+                    .map_err(|_| "cannot write bounded protobuf artifact")?;
+                Some(artifact(
+                    output,
+                    "host simpleperf report-sample --protobuf --show-callchain; bounded stdout",
+                    Some(raw.digest),
+                )?)
+            } else {
+                None
+            };
+            if self.handle.cancel.is_cancelled() {
+                return Err("capture cancelled".into());
+            }
+            self.recheck_target()?;
+            Ok(CaptureOutput {
+                raw,
+                protobuf,
+                target: current,
+                retained_remote_path: None,
+                completion: if self.handle.stop.load(Ordering::Acquire) {
+                    CaptureCompletion::StopRequested
+                } else {
+                    CaptureCompletion::RecorderExited
+                },
+            })
+        })();
+        let remote_cleanup = remote.cleanup();
+        match (result, remote_cleanup) {
+            (Ok(output), Ok(())) => {
+                let mut state = self.handle.state.lock().expect("capture state lock");
+                if self.handle.cancel.is_cancelled() {
+                    return Err("capture cancelled before artifact publication".into());
+                }
+                cleanup.disarm();
+                *state = CaptureState::Complete;
+                Ok(output)
+            }
+            (Err(error), Err(cleanup)) => Err(format!("{error}; {cleanup}")),
+            (Err(error), _) | (_, Err(error)) => Err(error),
         }
-        cleanup.disarm();
-        self.set(CaptureState::Complete);
-        Ok(CaptureOutput {
-            raw,
-            protobuf,
-            target: current,
-            retained_remote_path: remote_data,
-        })
+    }
+    fn recheck_target(&self) -> Result<(), String> {
+        let current = observe(
+            &self.plan.controller.adb,
+            &self.plan.request.serial,
+            self.plan.request.pid,
+            &self.handle.cancel,
+        )?;
+        if current != self.plan.observed {
+            return Err("capture target process instance changed".into());
+        }
+        Ok(())
     }
     fn read_remote_artifact(&self, remote_path: &str) -> Result<Vec<u8>, String> {
         // `exec-out` preserves binary bytes; the path is generated from a
@@ -287,6 +423,9 @@ impl ConfirmedCapture {
         if !result.status.success() || result.stdout.is_empty() {
             return Err("bounded remote artifact read failed".into());
         }
+        if !result.stdout.starts_with(b"PERFILE2") {
+            return Err("simpleperf did not produce a valid perf.data artifact".into());
+        }
         Ok(result.stdout)
     }
     fn adb(&self, tail: &[&str], timeout: Duration) -> Result<(), String> {
@@ -304,111 +443,6 @@ impl ConfirmedCapture {
             return Err("ADB capture command failed".into());
         }
         Ok(())
-    }
-
-    fn start_remote_recording(
-        &self,
-        pid: &str,
-        frequency: &str,
-        duration: &str,
-        remote_data: &str,
-    ) -> Result<u32, String> {
-        // All interpolated values are generated from validated decimal fields or
-        // the restricted run ID. The shell is only used to background the fixed
-        // command and return its exact remote PID; no user shell text is accepted.
-        let script = format!(
-            "simpleperf record -e cpu-clock -f {frequency} -g -p {pid} --duration {duration} -o {remote_data} & echo $!"
-        );
-        let output = self.adb_output(
-            &["shell", "sh", "-c", &script],
-            Duration::from_secs(30),
-            &CancellationToken::new(),
-        )?;
-        output
-            .split_whitespace()
-            .last()
-            .ok_or("remote capture did not return a PID".to_owned())?
-            .parse::<u32>()
-            .ok()
-            .filter(|pid| *pid > 0)
-            .ok_or("remote capture returned an invalid PID".to_owned())
-    }
-
-    fn await_remote_recording(
-        &self,
-        remote_pid: u32,
-        remote_data: &str,
-        duration_seconds: u32,
-    ) -> Result<(), String> {
-        let deadline = Instant::now()
-            .checked_add(Duration::from_secs(duration_seconds as u64 + 30))
-            .ok_or("remote capture deadline overflow")?;
-        loop {
-            if self.handle.cancel.is_cancelled() {
-                self.set(CaptureState::Stopping);
-                if let Err(error) = self.stop_remote_recording(remote_pid) {
-                    self.set(CaptureState::CancellationUnverified);
-                    return Err(error);
-                }
-                return Err("capture cancelled after remote recording stopped".into());
-            }
-            match self.remote_cmdline(remote_pid)? {
-                Some(cmdline) => {
-                    if !cmdline.contains("simpleperf") || !cmdline.contains(remote_data) {
-                        self.set(CaptureState::CancellationUnverified);
-                        return Err(
-                            "remote capture PID identity changed; stop is unverified".into()
-                        );
-                    }
-                }
-                None => return Ok(()),
-            }
-            if Instant::now() >= deadline {
-                self.set(CaptureState::Failed);
-                return Err("remote capture did not finish before its bounded deadline".into());
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-    }
-
-    fn stop_remote_recording(&self, remote_pid: u32) -> Result<(), String> {
-        let pid = remote_pid.to_string();
-        self.adb_with_token(
-            &["shell", "kill", "-INT", &pid],
-            Duration::from_secs(10),
-            &CancellationToken::new(),
-        )?;
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            match self.remote_cmdline(remote_pid)? {
-                None => return Ok(()),
-                Some(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(100)),
-                Some(_) => {
-                    self.set(CaptureState::CancellationUnverified);
-                    return Err("remote capture stop was not verified before timeout".into());
-                }
-            }
-        }
-    }
-
-    fn remote_cmdline(&self, remote_pid: u32) -> Result<Option<String>, String> {
-        let pid = remote_pid.to_string();
-        let mut request = ProcessRequest::new(&self.plan.controller.adb.location().executable)
-            .args(["-s", self.plan.request.serial.as_str(), "shell", "cat"])
-            .arg(format!("/proc/{pid}/cmdline"));
-        request.timeout = Duration::from_secs(5);
-        request.stdout_limit = 16 * 1024;
-        request.stderr_limit = 16 * 1024;
-        let result = ProcessRunner
-            .run(&request, &CancellationToken::new())
-            .map_err(|error| error.to_string())?;
-        if !result.status.success() {
-            return Ok(None);
-        }
-        let cmdline = String::from_utf8(result.stdout)
-            .map_err(|_| "remote capture command line is not UTF-8")?
-            .replace('\0', " ");
-        Ok(Some(cmdline))
     }
 
     fn adb_output(
@@ -508,9 +542,9 @@ fn validate_protobuf_prefix(bytes: &[u8]) -> Result<(), String> {
 }
 fn validate_request(request: &CpuCaptureRequest) -> Result<(), String> {
     validate_serial(&request.serial).map_err(|e| e.to_string())?;
+    request.sampling.validate()?;
+    request.duration.validate()?;
     if request.pid == 0
-        || !(1..=300).contains(&request.duration_seconds)
-        || !(1..=4000).contains(&request.frequency_hz)
         || request.run_id.is_empty()
         || request.run_id.len() > 64
         || !request
@@ -651,6 +685,17 @@ fn artifact(
 mod tests {
     use super::*;
     #[test]
+    fn call_graph_modes_match_compose_and_default_to_dwarf() {
+        assert_eq!(CallGraphMode::default(), CallGraphMode::Dwarf);
+        assert_eq!(CallGraphMode::Dwarf.arguments(), &["-g"]);
+        assert_eq!(
+            CallGraphMode::FramePointer.arguments(),
+            &["--call-graph", "fp"]
+        );
+        assert!(CallGraphMode::None.arguments().is_empty());
+    }
+
+    #[test]
     fn protobuf_prefix_rejects_logs_wrong_versions_and_empty_output() {
         assert!(validate_protobuf_prefix(b"SIMPLEPERF\x01\0").is_ok());
         for bytes in [
@@ -678,8 +723,8 @@ mod tests {
                 run_id: "safe".into(),
                 serial: "device".into(),
                 pid: 42,
-                duration_seconds: 1,
-                frequency_hz: 99,
+                duration: CaptureDuration::Timed(Duration::from_secs(1)),
+                sampling: SamplingConfiguration::default(),
                 converter: None,
             },
             observed: TargetObservation {
@@ -692,6 +737,7 @@ mod tests {
             remote_directory: "/data/local/tmp/aps-rust-safe".into(),
             created: Instant::now(),
             converter_digest: None,
+            app_package: None,
         };
         assert!(make().confirm("device", 42, "boot", 7).is_ok());
         assert!(make().confirm("other", 42, "boot", 7).is_err());
@@ -751,18 +797,57 @@ mod tests {
             run_id: "run-1".into(),
             serial: "emulator-5554".into(),
             pid: 12,
-            duration_seconds: 10,
-            frequency_hz: 1000,
+            duration: CaptureDuration::Timed(Duration::from_secs(10)),
+            sampling: SamplingConfiguration::default(),
             converter: None,
         };
         assert!(validate_request(&request).is_ok());
         request.run_id = "a;rm".into();
         assert!(validate_request(&request).is_err());
         request.run_id = "safe".into();
-        request.duration_seconds = 0;
+        request.duration = CaptureDuration::Timed(Duration::ZERO);
         assert!(validate_request(&request).is_err());
-        request.duration_seconds = 10;
-        request.frequency_hz = 4001;
+        request.duration = CaptureDuration::Timed(Duration::from_secs(10));
+        request.sampling.rate = SamplingRate::Frequency(4001);
         assert!(validate_request(&request).is_err());
+    }
+
+    #[test]
+    fn invalid_sampling_is_rejected_before_device_discovery() {
+        let adb = AdbClient::new(aps_adb::AdbLocation {
+            executable: std::env::temp_dir().join("aps-never-execute-invalid-sampling-adb"),
+            source: aps_adb::AdbLocationSource::Path,
+        });
+        let controller = CaptureController::new(adb, std::env::temp_dir()).unwrap();
+        for sampling in [
+            SamplingConfiguration {
+                event: "cpu-clock;id".into(),
+                ..SamplingConfiguration::default()
+            },
+            SamplingConfiguration {
+                rate: SamplingRate::Period(0),
+                ..SamplingConfiguration::default()
+            },
+        ] {
+            let result = controller.plan_cpu(
+                CpuCaptureRequest {
+                    run_id: "safe".into(),
+                    serial: "fixture".into(),
+                    pid: 42,
+                    duration: CaptureDuration::Timed(Duration::from_secs(1)),
+                    sampling,
+                    converter: None,
+                },
+                &CancellationToken::new(),
+            );
+            let error = match result {
+                Ok(_) => panic!("invalid sampling must never prepare a plan"),
+                Err(error) => error,
+            };
+            assert!(
+                error.starts_with("CPU event") || error.starts_with("CPU frequency"),
+                "{error}"
+            );
+        }
     }
 }

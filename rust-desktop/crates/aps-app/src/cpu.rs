@@ -1,3 +1,4 @@
+use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::shell::menubar::MenuGroup;
 use crate::studio::{self, StudioColors};
@@ -36,7 +37,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const PAGE_SIZE: usize = 128;
@@ -162,6 +163,26 @@ impl ExportKind {
             Self::SessionPackage => language.text(TextKey::CpuWorkspaceExportSessionSaved),
         }
     }
+
+    fn file_stem(self) -> &'static str {
+        match self {
+            Self::ReportJson => "cpu-report",
+            Self::Folded => "cpu-folded-stacks",
+            Self::Html => "cpu-report",
+            Self::Pprof => "cpu-profile",
+            Self::SessionPackage => "cpu-session",
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::ReportJson => "json",
+            Self::Folded => "folded",
+            Self::Html => "html",
+            Self::Pprof => "pprof",
+            Self::SessionPackage => "zip",
+        }
+    }
 }
 
 /// Report tabs in the commercial CPU layout order. Marker projections are not
@@ -234,6 +255,8 @@ pub struct CpuWorkspace {
     recent_busy: bool,
     recent_generation: u64,
     import_cancel: Arc<AtomicBool>,
+    import_timing: ImportTiming,
+    pending_import_started: Option<Instant>,
     session: Option<Arc<Mutex<CpuSession>>>,
     catalog: Option<Catalog>,
     tab: CpuTab,
@@ -303,10 +326,23 @@ pub struct CpuWorkspace {
     search: Entity<InputState>,
     start: Entity<InputState>,
     end: Entity<InputState>,
+    pending_time_input_sync: bool,
     studio: Option<WeakEntity<crate::shell::Studio>>,
 }
 
+fn capture_import_available(busy: bool, shared_busy: bool) -> bool {
+    !busy && !shared_busy
+}
+
 impl CpuWorkspace {
+    pub(crate) fn selected_converter(&self) -> Option<PathBuf> {
+        self.converter.clone()
+    }
+
+    pub(crate) fn can_accept_captured_profile(&self) -> bool {
+        capture_import_available(self.busy, self.shared_busy)
+    }
+
     pub fn set_follow_tooltip(&mut self, follow: bool, cx: &mut Context<Self>) {
         if self.follow_tooltip != follow {
             self.follow_tooltip = follow;
@@ -332,6 +368,8 @@ impl CpuWorkspace {
             recent_busy: false,
             recent_generation: 0,
             import_cancel: Arc::new(AtomicBool::new(false)),
+            import_timing: ImportTiming::default(),
+            pending_import_started: None,
             session: None,
             catalog: None,
             tab: CpuTab::Overview,
@@ -380,6 +418,7 @@ impl CpuWorkspace {
             },
             busy: false,
             shared_busy: false,
+            pending_time_input_sync: false,
             generation: 0,
             shared_generation: 0,
             error: None,
@@ -613,6 +652,10 @@ impl CpuWorkspace {
         if self.busy {
             return;
         }
+        // File selection time is excluded; source classification/conversion,
+        // parsing and the initial shared page query are included. Captured
+        // artifacts are loaded here too, but are not local file imports.
+        let started = expected.is_none().then(Instant::now);
         self.import_cancel.store(true, Ordering::Release);
         self.import_cancel = Arc::new(AtomicBool::new(false));
         let cancel = self.import_cancel.clone();
@@ -690,7 +733,7 @@ impl CpuWorkspace {
                     return;
                 }
                 this.busy = false;
-                this.publish_open_result(result, cx);
+                this.publish_open_result(result, started, cx);
                 cx.notify();
             })
             .ok();
@@ -702,13 +745,24 @@ impl CpuWorkspace {
     fn publish_open_result(
         &mut self,
         result: Result<CpuOpenResult, CpuError>,
+        started: Option<Instant>,
         cx: &mut Context<Self>,
     ) {
         match result {
             Ok((session, catalog, query, _page, association, metadata_error)) => {
+                self.import_timing.clear();
+                self.pending_import_started = started;
                 self.session = Some(session);
                 self.catalog = Some(catalog);
                 self.query = query;
+                self.pending_time_input_sync = true;
+                self.chart_hover = None;
+                self.chart_hover_position = None;
+                self.chart_menu = None;
+                self.chart_drag = None;
+                self.pending_focus = None;
+                self.disassembly_generation = self.disassembly_generation.wrapping_add(1);
+                self.close_disassembly(cx);
                 self.tab = CpuTab::Overview;
                 self.zoom_start = 0.0;
                 self.zoom_end = 1.0;
@@ -771,6 +825,7 @@ impl CpuWorkspace {
             cx.notify();
             return;
         };
+        let started = Instant::now();
         self.import_cancel.store(true, Ordering::Release);
         self.import_cancel = Arc::new(AtomicBool::new(false));
         let cancel = self.import_cancel.clone();
@@ -794,7 +849,7 @@ impl CpuWorkspace {
                     return;
                 }
                 this.busy = false;
-                this.publish_open_result(result, cx);
+                this.publish_open_result(result, Some(started), cx);
                 cx.notify();
             })
             .ok();
@@ -867,6 +922,7 @@ impl CpuWorkspace {
         self.row_selected = None;
         self.pending_focus = None;
         self.collapsed.clear();
+        self.chart_drag = None;
         self.error = None;
         self.export_message = None;
     }
@@ -906,6 +962,7 @@ impl CpuWorkspace {
         self.shared_busy = true;
         self.shared_generation += 1;
         let generation = self.shared_generation;
+        let import_started = self.pending_import_started;
         self.overview_top = None;
         let query = self.query.clone();
         let timeline_query = timeline_query(&query);
@@ -953,8 +1010,21 @@ impl CpuWorkspace {
                         this.apply_binding_check(binding);
                         this.timeline = Some(timeline);
                         this.overview_top = Some(top);
+                        if let Some(started) = import_started
+                            && this.pending_import_started == Some(started)
+                        {
+                            this.import_timing = ImportTiming::completed(started);
+                            this.pending_import_started = None;
+                        }
                     }
-                    Err(error) => this.error = Some(error.into()),
+                    Err(error) => {
+                        // Do not turn a later retry/user query into the cost of
+                        // an import whose initial projection did not complete.
+                        if this.pending_import_started == import_started {
+                            this.pending_import_started = None;
+                        }
+                        this.error = Some(error.into());
+                    }
                 }
                 cx.notify();
             })
@@ -1138,6 +1208,7 @@ impl CpuWorkspace {
             return;
         }
         self.tab = tab;
+        self.chart_drag = None;
         self.query.offset = 0;
         self.row_selected = None;
         self.chart_selected = None;
@@ -1167,6 +1238,8 @@ impl CpuWorkspace {
 
     fn close(&mut self, cx: &mut Context<Self>) {
         self.import_cancel.store(true, Ordering::Release);
+        self.disassembly_generation = self.disassembly_generation.wrapping_add(1);
+        self.close_disassembly(cx);
         self.recent_generation += 1;
         self.shared_generation += 1;
         self.recent_busy = false;
@@ -1177,6 +1250,8 @@ impl CpuWorkspace {
         self.busy = false;
         self.session = None;
         self.catalog = None;
+        self.import_timing.clear();
+        self.pending_import_started = None;
         self.tree = None;
         self.tree_generation = self.tree_generation.wrapping_add(1);
         self.tree_visible = Rc::new(Vec::new());
@@ -1194,6 +1269,18 @@ impl CpuWorkspace {
         self.export_message = None;
         self.tab = CpuTab::Overview;
         self.transforms.clear();
+        self.chart_hover = None;
+        self.chart_hover_position = None;
+        self.chart_menu = None;
+        self.chart_drag = None;
+        self.timeline_drag = None;
+        self.query = Query {
+            limit: PAGE_SIZE,
+            ..Default::default()
+        };
+        self.pending_time_input_sync = true;
+        self.zoom_start = 0.0;
+        self.zoom_end = 1.0;
         self.error = None;
         cx.notify();
     }
@@ -1266,16 +1353,16 @@ impl CpuWorkspace {
         let generation = self.generation;
         let query = self.query.clone();
         let language = self.language;
-        let prompt = kind.label(language).to_owned();
-        let picker = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(prompt.into()),
-        });
+        let directory = self
+            .metadata_path
+            .as_deref()
+            .and_then(Path::parent)
+            .unwrap_or(Path::new("."));
+        let filename = format!("{}.{}", kind.file_stem(), kind.extension());
+        let picker = cx.prompt_for_new_path(directory, Some(&filename));
         cx.spawn(async move |this, cx| {
             let selected = match picker.await {
-                Ok(Ok(Some(paths))) if paths.len() == 1 => Some(paths[0].clone()),
+                Ok(Ok(Some(path))) => Some(path),
                 Ok(Err(error)) => {
                     this.update(cx, |this, cx| {
                         if this.generation == generation {
@@ -1299,6 +1386,12 @@ impl CpuWorkspace {
                 .ok();
                 return;
             };
+            if !this
+                .update(cx, |this, _| this.generation == generation)
+                .unwrap_or(false)
+            {
+                return;
+            }
             let task = cx.background_executor().spawn(async move {
                 let mut session = session
                     .lock()
@@ -1322,10 +1415,10 @@ impl CpuWorkspace {
                         aps_cpu::MAX_SESSION_PACKAGE_BYTES,
                     ),
                 };
-                write_new_blob(&destination, &bytes)?;
                 if bytes.len() > max_bytes {
                     return Err(CpuError::Local(TextKey::ProfilerCpuExportBudgetExceeded));
                 }
+                write_new_blob(&destination, &bytes)?;
                 Ok::<_, CpuError>(kind.saved_message(language).to_owned())
             });
             let result = task.await;
@@ -1358,19 +1451,15 @@ impl CpuWorkspace {
         self.export_message = None;
         self.generation += 1;
         let generation = self.generation;
-        let picker = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(
-                self.language
-                    .text(TextKey::CpuSaveFirefoxProfilerProfileJsonGz)
-                    .into(),
-            ),
-        });
+        let directory = self
+            .metadata_path
+            .as_deref()
+            .and_then(Path::parent)
+            .unwrap_or(Path::new("."));
+        let picker = cx.prompt_for_new_path(directory, Some("cpu-profile.json.gz"));
         cx.spawn(async move |this, cx| {
             let selected = match picker.await {
-                Ok(Ok(Some(paths))) if paths.len() == 1 => Some(paths[0].clone()),
+                Ok(Ok(Some(path))) => Some(path),
                 Ok(Err(error)) => {
                     this.update(cx, |this, cx| {
                         if this.generation == generation {
@@ -1394,6 +1483,12 @@ impl CpuWorkspace {
                 .ok();
                 return;
             };
+            if !this
+                .update(cx, |this, _| this.generation == generation)
+                .unwrap_or(false)
+            {
+                return;
+            }
             let task = cx.background_executor().spawn(async move {
                 let session = session
                     .lock()
@@ -1725,19 +1820,12 @@ impl CpuWorkspace {
         range: (f32, f32),
         cx: &mut Context<Self>,
     ) {
-        let (start, end) = domain;
-        let span = end.saturating_sub(start) as f64;
-        if span <= 0.0 {
+        let Some((from, to)) = time_fraction_bounds(domain, range) else {
             return;
-        }
-        let low = f64::from(range.0.clamp(0.0, 1.0));
-        let high = f64::from(range.1.clamp(0.0, 1.0));
-        let from = start.saturating_add((span * low) as u64);
-        let to = start
-            .saturating_add((span * high) as u64)
-            .max(from.saturating_add(1));
+        };
         self.query.start = Some(from);
         self.query.end = Some(to);
+        self.pending_time_input_sync = true;
         self.query.offset = 0;
         self.reset_results();
         self.refresh_shared(cx);
@@ -1750,6 +1838,7 @@ impl CpuWorkspace {
         }
         self.query.start = None;
         self.query.end = None;
+        self.pending_time_input_sync = true;
         self.query.offset = 0;
         self.reset_results();
         self.refresh_shared(cx);
@@ -2352,6 +2441,15 @@ impl CpuWorkspace {
 }
 impl Render for CpuWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.pending_time_input_sync {
+            self.pending_time_input_sync = false;
+            for (input, value) in [(&self.start, self.query.start), (&self.end, self.query.end)] {
+                let value = value.map_or_else(String::new, |value| value.to_string());
+                if input.read(cx).value().as_str() != value {
+                    input.update(cx, |input, cx| input.set_value(value, window, cx));
+                }
+            }
+        }
         let colors = studio::StudioColors::from_theme(cx);
         let width = f32::from(window.viewport_size().width);
         let available = (width - NAVIGATION_WIDTH_ESTIMATE - 8.0).max(320.0);
@@ -2566,6 +2664,19 @@ fn workspace_toolbar(
                 colors,
             )
             .on_click(cx.listener(|this, _, _, cx| this.pick_file(cx))),
+        )
+        .child(
+            studio::text_button(
+                "cpu-capture",
+                lang.text(TextKey::CaptureCpuCapture),
+                !busy,
+                false,
+                colors,
+            )
+            .icon(gpui_kit::component::IconName::Play)
+            .on_click(cx.listener(|_, _, window, cx| {
+                window.dispatch_action(Box::new(crate::shell::StartCaptureActiveRoute), cx)
+            })),
         )
         .child(
             studio::text_button(
@@ -2842,7 +2953,7 @@ fn pending_kpi_strip(
 struct CpuKpis {
     sample_count: u64,
     lost_samples: u64,
-    lost_events: u64,
+    reported_samples: u64,
     lost_rate: f64,
     thread_count: u64,
     duration_nanos: Option<u64>,
@@ -2857,7 +2968,7 @@ impl CpuKpis {
             return Self {
                 sample_count: 0,
                 lost_samples: 0,
-                lost_events: 0,
+                reported_samples: 0,
                 lost_rate: 0.0,
                 thread_count: 0,
                 duration_nanos: None,
@@ -2875,12 +2986,7 @@ impl CpuKpis {
             .filter(|duration| *duration > 0 && summary.sample_count > 0)
             .map(|duration| summary.sample_count as f64 * 1_000_000_000.0 / duration as f64);
         let lost = summary.lost_sample_count;
-        let total = summary.sample_count.saturating_add(lost);
-        let lost_rate = if total > 0 {
-            lost as f64 / total as f64
-        } else {
-            0.0
-        };
+        let lost_rate = summary.lost_rate();
         let total_weight = match ws.query.weight_type {
             WeightType::Samples => summary.sample_count,
             WeightType::EventCount => summary.total_event_count,
@@ -2898,7 +3004,7 @@ impl CpuKpis {
         Self {
             sample_count: summary.sample_count,
             lost_samples: lost,
-            lost_events: summary.lost_event_count,
+            reported_samples: summary.reported_sample_count,
             lost_rate,
             thread_count: summary.thread_count as u64,
             duration_nanos: duration,
@@ -3035,13 +3141,13 @@ fn kpi_values(
             lang.text(TextKey::CpuKpiEffectiveSampleRateSupport).into(),
         ),
         KpiKind::InvalidSamples => {
-            let events = format_count(kpis.lost_events);
+            let samples = format_count(kpis.reported_samples);
             (
                 lang.text(TextKey::CpuKpiInvalidSamples).into(),
                 format_count(kpis.invalid_samples),
                 lang.format(
                     TextKey::CpuKpiInvalidSamplesSupportFormat,
-                    &[("events", &events)],
+                    &[("samples", &samples)],
                 ),
             )
         }
@@ -3071,6 +3177,8 @@ struct TimelineModel {
     start: u64,
     end: u64,
     tracks: Vec<TimelineTrack>,
+    truncated: bool,
+    omitted_blocks: usize,
 }
 
 fn timeline_query(query: &Query) -> Query {
@@ -3134,7 +3242,13 @@ fn build_timeline(ws: &CpuWorkspace) -> Option<TimelineModel> {
         })
         .collect();
     tracks.sort_by(|a, b| b.total.cmp(&a.total).then_with(|| a.name.cmp(&b.name)));
-    Some(TimelineModel { start, end, tracks })
+    Some(TimelineModel {
+        start,
+        end,
+        tracks,
+        truncated: frame.truncated,
+        omitted_blocks: frame.omitted_blocks,
+    })
 }
 
 fn timeline_panel(
@@ -3157,7 +3271,12 @@ fn timeline_panel(
     let model = build_timeline(ws);
     let (visible_tracks, total_tracks) = model
         .as_ref()
-        .map(|model| (model.tracks.len(), model.tracks.len()))
+        .map(|model| {
+            (
+                model.tracks.len().min(TIMELINE_MAX_TRACKS),
+                model.tracks.len(),
+            )
+        })
         .unwrap_or((0, 0));
     let visible = visible_tracks.to_string();
     let total = total_tracks.to_string();
@@ -3165,6 +3284,20 @@ fn timeline_panel(
         TextKey::CpuTimelineVisibleTracksFormat,
         &[("visible", &visible), ("total", &total)],
     );
+    let tracks_label = if let Some(model) = &model {
+        if model.truncated {
+            format!(
+                "{} · {} {}",
+                tracks_label,
+                lang.text(TextKey::CpuChartOutputOmittedBlocks),
+                model.omitted_blocks,
+            )
+        } else {
+            tracks_label
+        }
+    } else {
+        tracks_label
+    };
     let mut ruler = div().flex_1().h_full().flex().items_center();
     if let Some(model) = &model {
         for index in 0..6 {
@@ -3460,6 +3593,27 @@ fn timeline_panel(
 }
 
 /// Absolute sample-time range as normalized fractions of a timeline domain.
+fn time_fraction_bounds(domain: (u64, u64), range: (f32, f32)) -> Option<(u64, u64)> {
+    let (start, end) = domain;
+    if start >= end || !range.0.is_finite() || !range.1.is_finite() {
+        return None;
+    }
+    let low = f64::from(range.0.min(range.1).clamp(0.0, 1.0));
+    let high = f64::from(range.0.max(range.1).clamp(0.0, 1.0));
+    if low >= high {
+        return None;
+    }
+    let span = end - start;
+    let from = start
+        .saturating_add((span as f64 * low) as u64)
+        .min(end - 1);
+    let to = start
+        .saturating_add((span as f64 * high) as u64)
+        .min(end)
+        .max(from + 1);
+    Some((from, to))
+}
+
 fn time_range_fractions(
     domain: (u64, u64),
     start: Option<u64>,
@@ -4072,8 +4226,8 @@ fn data_quality_card(ws: &CpuWorkspace, colors: &StudioColors) -> AnyElement {
         .child(studio::dense_label(
             format!(
                 "{}: {}",
-                lang.text(TextKey::CpuDetailsLostEvents),
-                format_count(summary.lost_event_count)
+                lang.text(TextKey::CpuDetailsReportedSamples),
+                format_count(summary.reported_sample_count)
             ),
             colors.text,
         ))
@@ -4081,12 +4235,7 @@ fn data_quality_card(ws: &CpuWorkspace, colors: &StudioColors) -> AnyElement {
             format!(
                 "{}: {}",
                 lang.text(TextKey::CpuDetailsLostRate),
-                format_percent(if summary.sample_count + summary.lost_sample_count > 0 {
-                    summary.lost_sample_count as f64
-                        / (summary.sample_count + summary.lost_sample_count) as f64
-                } else {
-                    0.0
-                })
+                format_percent(summary.lost_rate())
             ),
             colors.text,
         ))
@@ -5694,14 +5843,7 @@ fn details_overview(ws: &CpuWorkspace, colors: &StudioColors) -> AnyElement {
         return div().into_any_element();
     };
     let summary = &catalog.summary;
-    let total = summary
-        .sample_count
-        .saturating_add(summary.lost_sample_count);
-    let lost_rate = if total > 0 {
-        summary.lost_sample_count as f64 / total as f64
-    } else {
-        0.0
-    };
+    let lost_rate = summary.lost_rate();
     let mut column = div()
         .flex()
         .flex_col()
@@ -5717,8 +5859,8 @@ fn details_overview(ws: &CpuWorkspace, colors: &StudioColors) -> AnyElement {
                     format_count(summary.lost_sample_count),
                 ),
                 (
-                    lang.text(TextKey::CpuDetailsLostEvents).to_owned(),
-                    format_count(summary.lost_event_count),
+                    lang.text(TextKey::CpuDetailsReportedSamples).to_owned(),
+                    format_count(summary.reported_sample_count),
                 ),
                 (
                     lang.text(TextKey::CpuDetailsLostRate).to_owned(),
@@ -6363,13 +6505,27 @@ fn metric_grid(pairs: Vec<(String, String)>, colors: &StudioColors) -> AnyElemen
 
 fn disclaimer(ws: &CpuWorkspace, colors: &StudioColors) -> AnyElement {
     div()
+        .id("cpu-status-bar")
+        .w_full()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .overflow_x_scroll()
         .text_size(px(studio::FONT_SUPPORTING))
         .text_color(colors.secondary_text)
         .whitespace_nowrap()
-        .text_ellipsis()
         .child(
-            ws.language
-                .text(TextKey::CpuSamplesAreStatisticalEvidenceNotMethodDurations),
+            div()
+                .flex_shrink_0()
+                .child(studio::selectable(ws.language.text(
+                    TextKey::CpuSamplesAreStatisticalEvidenceNotMethodDurations,
+                ))),
+        )
+        .children(
+            ws.import_timing
+                .text(ws.language)
+                .map(|text| div().flex_shrink_0().child(studio::selectable(text))),
         )
         .into_any_element()
 }
@@ -6739,7 +6895,7 @@ fn discover_simpleperf() -> Option<PathBuf> {
     None
 }
 
-fn resolve_simpleperf(explicit: Option<&Path>) -> Result<PathBuf, CpuError> {
+pub(crate) fn resolve_simpleperf(explicit: Option<&Path>) -> Result<PathBuf, CpuError> {
     if let Some(path) = explicit {
         if !path.is_absolute() || !executable_file(path) {
             return Err(CpuError::Diagnostic(
@@ -7163,6 +7319,11 @@ fn write_new_export(path: &Path, bytes: &[u8]) -> Result<(), CpuError> {
 }
 
 fn write_new_blob(path: &Path, bytes: &[u8]) -> Result<(), CpuError> {
+    if !path.is_absolute() {
+        return Err(CpuError::Local(
+            TextKey::ProfilerCpuExportDestinationInvalid,
+        ));
+    }
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -7461,10 +7622,11 @@ impl NoticeSource for CpuWorkspace {
 mod metadata_tests {
     use super::{
         CPU_MEDIA_TYPE, CpuError, CpuSourceClass, CpuSourceKind, Language, RecentCpu,
-        associate_cpu, chart_tooltip_placement, check_cpu_binding, classify_cpu_source,
-        cpu_artifact, cpu_snapshot_path, decompress_cpu_source, load_cpu_import, load_cpu_snapshot,
-        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu, timeline_bar_width,
-        timeline_query, validate_recent,
+        associate_cpu, capture_import_available, chart_tooltip_placement, check_cpu_binding,
+        classify_cpu_source, cpu_artifact, cpu_snapshot_path, decompress_cpu_source,
+        load_cpu_import, load_cpu_snapshot, load_cpu_source, load_cpu_source_with,
+        persist_cpu_snapshot, recent_cpu, resolve_simpleperf, timeline_bar_width, timeline_query,
+        validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
     use aps_cpu::{ChartViewport, CpuSession, Direction, Query, TimelineViewport, WeightType};
@@ -7476,6 +7638,185 @@ mod metadata_tests {
         sync::atomic::{AtomicU64, Ordering},
     };
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[::core::prelude::v1::test]
+    fn captured_profile_requires_idle_import_and_shared_query() {
+        for (busy, shared_busy, expected) in [
+            (false, false, true),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+        ] {
+            assert_eq!(capture_import_available(busy, shared_busy), expected);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn captured_profile_keeps_expected_digest_gate_before_association_and_old_report_on_failure() {
+        let source = include_str!("cpu.rs");
+        let artifact_open = source
+            .split("pub fn open_artifact(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn open_debug_source(")
+            .next()
+            .unwrap();
+        assert!(artifact_open.contains("self.open_path(path, None, Some(digest), cx)"));
+        let open = source
+            .split("fn open_path(")
+            .nth(1)
+            .unwrap()
+            .split("fn publish_open_result(")
+            .next()
+            .unwrap();
+        assert!(open.contains("loaded.digest != expected"));
+        assert!(open.contains("ProfilerCpuCapturedDigestChanged"));
+        assert!(
+            open.find("loaded.digest != expected").unwrap()
+                < open.find("finish_cpu_open(").unwrap()
+        );
+        let publish = source
+            .split("fn publish_open_result(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn open_home_recent(")
+            .next()
+            .unwrap();
+        let failure = publish.split("Err(error) =>").nth(1).unwrap();
+        assert!(failure.contains("self.error = Some(error.into())"));
+        for report_field in [
+            "self.session",
+            "self.catalog",
+            "self.association",
+            "self.query",
+        ] {
+            assert!(!failure.contains(report_field));
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn simpleperf_resolution_rejects_invalid_explicit_paths_without_discovery_fallback() {
+        let fixture = Fixture::new();
+        for path in [
+            PathBuf::from("relative/simpleperf"),
+            fixture.root.join("missing-simpleperf"),
+            fixture.root.clone(),
+        ] {
+            assert!(matches!(
+                resolve_simpleperf(Some(&path)),
+                Err(CpuError::Diagnostic(message))
+                    if message == "Selected simpleperf must be an executable file picked by absolute path"
+            ));
+        }
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn simpleperf_resolution_only_checks_the_selected_executable_without_running_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = Fixture::new();
+        let path = fixture.root.join("selected simpleperf");
+        std::fs::write(&path, b"not an executable image").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(resolve_simpleperf(Some(&path)).is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(resolve_simpleperf(Some(&path)).unwrap(), path);
+    }
+
+    #[::core::prelude::v1::test]
+    fn import_timing_excludes_picker_and_includes_the_initial_shared_query() {
+        let source = include_str!("cpu.rs");
+        let picker = source
+            .split("fn pick_source(")
+            .nth(1)
+            .unwrap()
+            .split("fn open_path(")
+            .next()
+            .unwrap();
+        assert!(!picker.contains("Instant::now"));
+        let open = source
+            .split("fn open_path(")
+            .nth(1)
+            .unwrap()
+            .split("fn publish_open_result(")
+            .next()
+            .unwrap();
+        assert!(
+            open.find("expected.is_none().then(Instant::now)").unwrap()
+                < open.find("classify_cpu_source(&path)").unwrap()
+        );
+        assert!(open.contains("this.publish_open_result(result, started, cx)"));
+        let recent = source
+            .split("fn open_recent(")
+            .nth(1)
+            .unwrap()
+            .split("fn refresh_recent(")
+            .next()
+            .unwrap();
+        assert!(recent.contains("let started = Instant::now()"));
+        assert!(recent.contains("this.publish_open_result(result, Some(started), cx)"));
+        let shared = source
+            .split("fn refresh_shared(")
+            .nth(1)
+            .unwrap()
+            .split("fn reload(")
+            .next()
+            .unwrap();
+        assert!(
+            shared
+                .find("if this.shared_generation != generation")
+                .unwrap()
+                < shared
+                    .find("this.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        assert!(
+            shared.find("this.overview_top = Some(top)").unwrap()
+                < shared
+                    .find("this.import_timing = ImportTiming::completed(started)")
+                    .unwrap()
+        );
+        assert!(shared.contains("this.pending_import_started == Some(started)"));
+        let status = source
+            .split("fn disclaimer(")
+            .nth(1)
+            .unwrap()
+            .split("fn source_start(")
+            .next()
+            .unwrap();
+        assert!(status.contains("ws.import_timing"));
+        assert!(status.contains(".text(ws.language)"));
+        assert!(status.contains(".overflow_x_scroll()"));
+        assert!(status.contains("studio::selectable(text)"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn import_failures_keep_previous_timing_but_close_and_successful_replacement_clear_it() {
+        let source = include_str!("cpu.rs");
+        let publish = source
+            .split("fn publish_open_result(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn open_home_recent(")
+            .next()
+            .unwrap();
+        let success = publish.split("Ok((session").nth(1).unwrap();
+        assert!(success.contains("self.import_timing.clear()"));
+        assert!(success.contains("self.pending_import_started = started"));
+        let failure = publish.split("Err(error) =>").nth(1).unwrap();
+        assert!(!failure.contains("import_timing"));
+        let close = source
+            .split("fn close(")
+            .nth(1)
+            .unwrap()
+            .split("fn copy_csv(")
+            .next()
+            .unwrap();
+        assert!(close.contains("self.import_timing.clear()"));
+        assert!(close.contains("self.pending_import_started = None"));
+    }
+
     struct Fixture {
         root: PathBuf,
     }
@@ -8158,6 +8499,40 @@ mod metadata_tests {
         assert!(source.contains("const CHART_WIDTH_PX: f32 = 1024.0;"));
     }
     #[test]
+    fn cpu_exports_use_new_file_dialogs_and_check_budget_before_writing() {
+        let source = include_str!("cpu.rs");
+        let export = source
+            .split("fn save_export(")
+            .nth(1)
+            .unwrap()
+            .split("fn save_firefox(")
+            .next()
+            .unwrap();
+        assert!(export.contains("prompt_for_new_path"));
+        assert!(!export.contains("prompt_for_paths"));
+        assert!(
+            export.find("bytes.len() > max_bytes").unwrap()
+                < export.find("write_new_blob").unwrap()
+        );
+        let firefox = source
+            .split("fn save_firefox(")
+            .nth(1)
+            .unwrap()
+            .split("fn apply_time(")
+            .next()
+            .unwrap();
+        assert!(firefox.contains("prompt_for_new_path"));
+        assert!(!firefox.contains("prompt_for_paths"));
+    }
+    #[test]
+    fn timeline_reports_truncated_backend_output_and_visible_track_limit() {
+        let source = include_str!("cpu.rs");
+        assert!(source.contains("truncated: frame.truncated"));
+        assert!(source.contains("omitted_blocks: frame.omitted_blocks"));
+        assert!(source.contains("model.tracks.len().min(TIMELINE_MAX_TRACKS)"));
+        assert!(source.contains("CpuChartOutputOmittedBlocks"));
+    }
+    #[test]
     fn timeline_bars_are_half_a_bucket_wide_and_capped_at_three_pixels() {
         for (bucket_width, expected) in [
             (0.0, 0.0),
@@ -8330,6 +8705,8 @@ pub(crate) enum CpuMenuCommand {
     /// Open the CPU page's folder picker (Compose File > Open Folder…,
     /// Cmd+Shift+O).
     OpenFolder,
+    /// Open the explicit CPU planner; never starts recording by navigation.
+    CaptureCpu,
     /// Reopen the saved session an Open Recent row names.
     OpenRecent(RecentCpu),
     /// Save one export format of the open session.
@@ -8433,6 +8810,9 @@ impl crate::shell::menubar::MenuHost for CpuWorkspace {
             }
             CpuMenuCommand::OpenFolder => {
                 window.dispatch_action(Box::new(crate::shell::OpenFolderActiveRoute), cx)
+            }
+            CpuMenuCommand::CaptureCpu => {
+                window.dispatch_action(Box::new(crate::shell::StartCaptureActiveRoute), cx)
             }
             CpuMenuCommand::OpenRecent(recent) => self.open_recent(recent, cx),
             CpuMenuCommand::Export(kind) => self.save_export(kind, cx),
@@ -8669,6 +9049,13 @@ fn cpu_tools_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
         .as_ref()
         .is_some_and(|panel| !panel.lines.is_empty());
     MenuGroup::new(TextKey::ShellMenuTools)
+        .item_action_when(
+            !busy,
+            TextKey::CaptureCpuCapture,
+            CpuMenuCommand::CaptureCpu,
+            crate::shell::StartCaptureActiveRoute,
+        )
+        .separator()
         .submenu(TextKey::CommonConfiguration, true, |menu| {
             menu.item(
                 TextKey::SettingsUiTemplates,

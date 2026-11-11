@@ -1,0 +1,16 @@
+{
+  "generatedOn": "2026-11-11",
+  "kotlinVersion": "2.4.20",
+  "cases": 7,
+  "scope": "omitted or decimal-normalized duration command argument",
+  "sources": [
+    {
+      "path": "desktop-viewer/simpleperf-viewer/capture-simpleperf/src/main/kotlin/com/androidperformancestudio/capture/SamplingParameters.kt",
+      "sha256": "148188e31e2fdc0d673c971b9bc36c70d4f05acfbe609504a36db2e452205e95"
+    },
+    {
+      "path": "rust-desktop/crates/aps-capture/tests/fixtures/DurationOracle.java",
+      "sha256": "ec1404a456c306af13a5f14c225e0eba25accd87c322c5b36ae6d61472e53217"
+    }
+  ]
+}

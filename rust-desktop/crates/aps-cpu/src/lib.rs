@@ -455,8 +455,8 @@ fn catalog(
         format_version: stream.version,
         record_count: stream.records.len(),
         sample_count: 0,
+        reported_sample_count: 0,
         lost_sample_count: 0,
-        lost_event_count: 0,
         total_event_count: 0,
         first_timestamp_nanos: None,
         last_timestamp_nanos: None,
@@ -514,8 +514,8 @@ fn catalog(
                 sample_count,
                 lost_count,
             } => {
-                checked_add(&mut summary.lost_sample_count, *sample_count)?;
-                checked_add(&mut summary.lost_event_count, *lost_count)?;
+                checked_add(&mut summary.reported_sample_count, *sample_count)?;
+                checked_add(&mut summary.lost_sample_count, *lost_count)?;
             }
             _ => {}
         }

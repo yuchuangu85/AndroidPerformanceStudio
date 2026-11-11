@@ -127,8 +127,8 @@ pub(crate) fn report_json(
     json.push(&summary.sample_count.to_string())?;
     json.push(",\"lostSamples\":")?;
     json.push(&summary.lost_sample_count.to_string())?;
-    json.push(",\"lostEvents\":")?;
-    json.push(&summary.lost_event_count.to_string())?;
+    json.push(",\"reportedSamples\":")?;
+    json.push(&summary.reported_sample_count.to_string())?;
     json.push(",\"totalEvents\":")?;
     json.push(&summary.total_event_count.to_string())?;
     json.push(",\"threads\":")?;
@@ -206,7 +206,23 @@ pub(crate) fn report_json(
         json.push(&row.sample_count.to_string())?;
         json.push("}")?;
     }
-    json.push("]}")?;
+    json.push("],\"topFunctionsTotal\":")?;
+    json.push(&top.len().to_string())?;
+    json.push(",\"topFunctionsTruncated\":")?;
+    json.push(if top.len() > MAX_REPORT_TOP_FUNCTIONS {
+        "true"
+    } else {
+        "false"
+    })?;
+    json.push(",\"callTreeTotal\":")?;
+    json.push(&tree.len().to_string())?;
+    json.push(",\"callTreeTruncated\":")?;
+    json.push(if tree.len() > MAX_REPORT_CALL_TREE_ROWS {
+        "true"
+    } else {
+        "false"
+    })?;
+    json.push("}")?;
     Ok(json.into_string())
 }
 
@@ -237,8 +253,8 @@ pub(crate) fn html_report(
     )?;
     summary_row(
         &mut html,
-        "Lost events",
-        &summary.lost_event_count.to_string(),
+        "Reported samples",
+        &summary.reported_sample_count.to_string(),
     )?;
     summary_row(
         &mut html,
@@ -271,7 +287,14 @@ pub(crate) fn html_report(
         html_number_cell(&mut html, row.thread_count as u64)?;
         html.push("</tr>\n")?;
     }
-    html.push("</tbody></table>\n<h2>Call tree</h2>\n")?;
+    html.push("</tbody></table>\n")?;
+    truncation_notice(
+        &mut html,
+        "Top functions",
+        top.len(),
+        MAX_HTML_TOP_FUNCTIONS,
+    )?;
+    html.push("<h2>Call tree</h2>\n")?;
     html.push("<table><thead><tr><th>Symbol</th><th>Library</th><th>Inclusive</th><th>Self</th><th>Samples</th></tr></thead><tbody>\n")?;
     for row in tree.iter().take(MAX_HTML_CALL_TREE_ROWS) {
         let indent = row.depth.saturating_mul(12);
@@ -286,8 +309,28 @@ pub(crate) fn html_report(
         html_number_cell(&mut html, row.sample_count)?;
         html.push("</tr>\n")?;
     }
-    html.push("</tbody></table>\n</body>\n</html>\n")?;
+    html.push("</tbody></table>\n")?;
+    truncation_notice(&mut html, "Call tree", tree.len(), MAX_HTML_CALL_TREE_ROWS)?;
+    html.push("</body>\n</html>\n")?;
     Ok(html.into_string())
+}
+
+fn truncation_notice(
+    html: &mut BoundedText,
+    label: &str,
+    total: usize,
+    limit: usize,
+) -> Result<(), String> {
+    if total > limit {
+        html.push("<p>")?;
+        html.push(label)?;
+        html.push(" truncated: showing ")?;
+        html.push(&limit.to_string())?;
+        html.push(" of ")?;
+        html.push(&total.to_string())?;
+        html.push(" rows.</p>\n")?;
+    }
+    Ok(())
 }
 
 fn summary_row(html: &mut BoundedText, label: &str, value: &str) -> Result<(), String> {
@@ -414,15 +457,16 @@ pub(crate) fn firefox_profile(stream: &SimpleperfStream) -> Result<Vec<u8>, Stri
     let mut json = BoundedJson::new(MAX_FIREFOX_BYTES);
     json.push(PROFILE_PREFIX)?;
     let mut wrote_thread = false;
-    for (thread_id, thread_samples) in samples {
+    for (thread_id, meta) in threads {
         if wrote_thread {
             json.push(",")?;
         }
         wrote_thread = true;
-        let meta = threads
-            .get(&thread_id)
-            .ok_or("Firefox export thread metadata disappeared")?;
-        write_thread(&mut json, thread_id, meta, &thread_samples, &files)?;
+        let mut thread_samples = samples.remove(&thread_id).unwrap_or_default();
+        // Record streams need not be chronological. Preserve input order for
+        // ties while publishing the ordered sample table Firefox expects.
+        thread_samples.sort_by_key(|sample| sample.time);
+        write_thread(&mut json, thread_id, &meta, &thread_samples, &files)?;
     }
     json.push(PROFILE_SUFFIX)?;
     gzip_stored(json.as_bytes())
@@ -1019,8 +1063,8 @@ fn session_manifest(
     json.push(&summary.thread_count.to_string())?;
     json.push(",\"lostSampleCount\":")?;
     json.push(&summary.lost_sample_count.to_string())?;
-    json.push(",\"lostEventCount\":")?;
-    json.push(&summary.lost_event_count.to_string())?;
+    json.push(",\"reportedSampleCount\":")?;
+    json.push(&summary.reported_sample_count.to_string())?;
     json.push(",\"query\":{\"direction\":")?;
     json.string(query.direction.as_str())?;
     json.push(",\"weightType\":")?;
