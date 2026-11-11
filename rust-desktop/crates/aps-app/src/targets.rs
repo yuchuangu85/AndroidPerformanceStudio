@@ -12,8 +12,8 @@ use aps_platform::CancellationToken;
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     component::{
-        ActiveTheme, IconName, IndexPath,
-        combobox::{Combobox, ComboboxState},
+        ActiveTheme, IconName,
+        combobox::{Combobox, ComboboxEvent, ComboboxState},
         searchable_list::{SearchableListItem, SearchableVec},
     },
     prelude::*,
@@ -225,18 +225,26 @@ impl TargetsWorkspace {
             cancel: CancellationToken::new(),
             _subscriptions: Vec::new(),
         };
-        this._subscriptions
-            .push(cx.observe(&device_select, |this, state, cx| {
-                if let Some(serial) = state.read(cx).selected_value() {
-                    this.user_selected_device(serial, cx);
+        this._subscriptions.push(cx.subscribe(
+            &device_select,
+            |this, _, event: &ComboboxEvent<SearchableVec<DeviceOption>>, cx| {
+                if let ComboboxEvent::Change(values) = event
+                    && let Some(serial) = values.first()
+                {
+                    this.user_selected_device(serial.clone(), cx);
                 }
-            }));
-        this._subscriptions
-            .push(cx.observe(&process_select, |this, state, cx| {
-                if let Some(pid) = state.read(cx).selected_value() {
-                    this.user_selected_process(pid, cx);
+            },
+        ));
+        this._subscriptions.push(cx.subscribe(
+            &process_select,
+            |this, _, event: &ComboboxEvent<SearchableVec<ProcessOption>>, cx| {
+                if let ComboboxEvent::Change(values) = event
+                    && let Some(pid) = values.first()
+                {
+                    this.user_selected_process(*pid, cx);
                 }
-            }));
+            },
+        ));
         this.start_refresh(cx);
         this
     }
@@ -449,10 +457,8 @@ impl TargetsWorkspace {
     }
 
     fn sync_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // A combobox keeps the selected values when its items change, but the
-        // selection indices point at the previous list. Re-publishing the
-        // selection after replacing the items keeps both title-bar targets
-        // truthful without clearing a search the user is still typing.
+        // Row indices belong to the filtered menu, not the discovery list.
+        // Project stable values after replacing items, preserving a live query.
         if self.device_items_revision != self.synced_device_items {
             self.synced_device_items = self.device_items_revision;
             let items = SearchableVec::new(self.device_options());
@@ -469,26 +475,18 @@ impl TargetsWorkspace {
         }
         if self.selection_revision != self.synced_selection {
             self.synced_selection = self.selection_revision;
-            let device_index = self.selected_device.as_deref().and_then(|serial| {
-                self.device_options()
-                    .iter()
-                    .position(|option| option.serial == serial)
+            let devices: Vec<_> = self.selected_device.iter().cloned().collect();
+            self.device_select.update(cx, |state, cx| {
+                state.set_selected_values(&devices, window, cx);
             });
-            self.device_select
-                .update(cx, |state, cx| match device_index {
-                    Some(row) => state.set_selected_indices([IndexPath::new(row)], window, cx),
-                    None => state.set_selected_indices(Vec::new(), window, cx),
-                });
-            let process_index = self.selected_process.and_then(|pid| {
-                self.process_options()
-                    .iter()
-                    .position(|option| option.pid == pid)
+            let processes: Vec<_> = self.selected_process.into_iter().collect();
+            self.process_select.update(cx, |state, cx| {
+                let query = state.query(cx);
+                state.set_selected_values(&processes, window, cx);
+                if !query.is_empty() {
+                    state.set_query(query, window, cx);
+                }
             });
-            self.process_select
-                .update(cx, |state, cx| match process_index {
-                    Some(row) => state.set_selected_indices([IndexPath::new(row)], window, cx),
-                    None => state.set_selected_indices(Vec::new(), window, cx),
-                });
         }
     }
 
@@ -994,5 +992,57 @@ mod tests {
         assert!(SearchableListItem::matches(&options[0], "u0_a10"));
         assert!(SearchableListItem::matches(&options[1], "remote"));
         assert!(!SearchableListItem::matches(&options[0], "surfaceflinger"));
+    }
+
+    #[test]
+    fn duplicate_process_names_keep_distinct_pid_selection_values() {
+        let options = process_options(&[
+            process(42, "com.example.app", "u0_a1"),
+            process(84, "com.example.app", "u10_a1"),
+        ]);
+        assert_eq!(options[0].title(), options[1].title());
+        assert_ne!(options[0].value(), options[1].value());
+        assert!(options[1].matches("84"));
+        assert!(!options[0].matches("84"));
+    }
+
+    #[test]
+    fn target_changes_follow_committed_combobox_events_not_render_notifications() {
+        let source = include_str!("targets.rs");
+        let subscriptions = source
+            .split("pub fn new(")
+            .nth(1)
+            .unwrap()
+            .split("this.start_refresh(cx);")
+            .next()
+            .unwrap();
+        assert!(subscriptions.contains("ComboboxEvent::Change(values)"));
+        assert!(subscriptions.contains("event: &ComboboxEvent<SearchableVec<ProcessOption>>"));
+        assert!(!subscriptions.contains("cx.observe(&process_select"));
+        assert!(!subscriptions.contains("cx.observe(&device_select"));
+    }
+
+    #[test]
+    fn target_projection_uses_stable_values_and_preserves_the_process_search_query() {
+        let source = include_str!("targets.rs");
+        let sync = source
+            .split("fn sync_selects(")
+            .nth(1)
+            .unwrap()
+            .split("fn device_placeholder(")
+            .next()
+            .unwrap();
+        assert!(sync.contains("state.set_selected_values(&devices, window, cx)"));
+        assert!(sync.contains("state.set_selected_values(&processes, window, cx)"));
+        assert!(!sync.contains("set_selected_indices"));
+        assert!(!sync.contains(".position("));
+        assert!(
+            sync.find("let query = state.query(cx)").unwrap()
+                < sync.find("state.set_selected_values(&processes").unwrap()
+        );
+        assert!(
+            sync.find("state.set_selected_values(&processes").unwrap()
+                < sync.find("state.set_query(query, window, cx)").unwrap()
+        );
     }
 }
