@@ -1955,7 +1955,13 @@ fn compose_inspection_confirmation(
         .on_click(move |_, _, cx| {
             confirm_entity.update(cx, |this, cx| {
                 this.compose_inspection_confirmation_pending = false;
-                this.capture_compose(cx);
+                // Confirmation only authorizes the live Compose session. The
+                // first frame is intentionally deferred to the explicit Refresh action.
+                this.compose_agent = true;
+                if this.selected_is_compose() {
+                    this.details_tab = DetailsTab::Compose;
+                }
+                cx.notify();
             });
         });
     div()
@@ -5024,6 +5030,31 @@ mod tests {
         assert!(control.contains(".disabled(!enabled)"));
         assert!(control.contains("this.prepare_compose(cx)"));
         assert!(control.contains("available && this.compose_bridge.is_none()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn compose_confirmation_defers_capture_until_refresh() {
+        let source = include_str!("inspector.rs");
+        let confirmation = source
+            .split_once(
+                "let confirm_button = Button::new(\"inspector-compose-inspection-confirm\")",
+            )
+            .unwrap()
+            .1
+            .split_once("div()")
+            .unwrap()
+            .0;
+        assert!(confirmation.contains("this.compose_agent = true"));
+        assert!(!confirmation.contains("this.capture_compose(cx)"));
+        let refresh = source
+            .split_once("pub fn refresh(")
+            .unwrap()
+            .1
+            .split_once("fn prepare_compose(")
+            .unwrap()
+            .0;
+        assert!(refresh.contains("if self.compose_agent"));
+        assert!(refresh.contains("self.capture_compose(cx)"));
     }
 
     #[::core::prelude::v1::test]
