@@ -1,6 +1,10 @@
 //! Timestamp samples for thread tracks. Decimation retains original ordinals;
 //! selecting a function always queries the original stream, not a display bin.
-use crate::{selection::select, CpuSession, Direction, Query, TimelineViewport};
+use crate::{
+    export::firefox_category,
+    selection::{labels, select},
+    CpuSession, Direction, Query, TimelineViewport,
+};
 use aps_simpleperf_engine::sample_leaf_node_id;
 use aps_simpleperf_engine::simpleperf::Record;
 use std::collections::BTreeMap;
@@ -10,6 +14,10 @@ pub struct TimelineSample {
     pub ordinal: usize,
     pub time_nanos: u64,
     pub stack_depth: usize,
+    /// Firefox Profiler category index for the sampled leaf frame. The bundled
+    /// exporter writes the same index to its frame table, so the native track
+    /// and the official viewer color a sample identically.
+    pub category: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,7 +70,8 @@ impl CpuSession {
     }
 
     /// At most four representatives per logical pixel per thread, bounded by
-    /// the chart output limit. Maximum stack depth wins within one pixel bin.
+    /// the chart output limit. The first sample in a quarter-pixel bin wins,
+    /// matching the official viewer's minimum sample spacing.
     pub fn sample_timeline(
         &self,
         query: &Query,
@@ -75,6 +84,10 @@ impl CpuSession {
         let selected = select(&self.stream, query)?;
         let mut threads = BTreeMap::<i32, Vec<TimelineSample>>::new();
         for (ordinal, sample) in selected.samples {
+            let category = sample.callchain.first().map_or(6, |frame| {
+                let (symbol, resource) = labels(&selected.files, frame);
+                firefox_category(&symbol, &resource)
+            });
             if sample.time < viewport.start_nanos || sample.time >= viewport.end_nanos {
                 continue;
             }
@@ -91,6 +104,7 @@ impl CpuSession {
                     ordinal,
                     time_nanos: sample.time,
                     stack_depth: sample.callchain.len(),
+                    category,
                 });
         }
         let span = (viewport.end_nanos - viewport.start_nanos) as f64;
@@ -117,13 +131,9 @@ impl CpuSession {
                 let pixel = (((sample.time_nanos - viewport.start_nanos) as f64 / span)
                     * f64::from(viewport.chart.width_px)
                     * 4.) as u32;
-                bins.entry(pixel)
-                    .and_modify(|current| {
-                        if sample.stack_depth > current.stack_depth {
-                            *current = sample.clone();
-                        }
-                    })
-                    .or_insert(sample);
+                // Firefox keeps the first sample inside a 0.25 px window for the
+                // sample strip; the deepest stack is no longer a display concern.
+                bins.entry(pixel).or_insert(sample);
             }
             let samples: Vec<_> = bins.into_values().take(remaining).collect();
             remaining -= samples.len();

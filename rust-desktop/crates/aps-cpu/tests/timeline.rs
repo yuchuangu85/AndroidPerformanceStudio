@@ -66,6 +66,10 @@ fn timestamp_tracks_keep_real_stack_depth_and_exact_function_identity() {
         [(0, 10, 2), (2, 30, 2)]
     );
     assert_eq!(thread.interval_nanos, Some(20));
+    assert!(
+        thread.samples.iter().all(|point| point.category == 2),
+        "fixture.so frames map to the Firefox Native category"
+    );
     for direction in [Direction::Forward, Direction::Inverted] {
         let query = Query {
             direction,
@@ -90,7 +94,7 @@ fn timestamp_tracks_keep_real_stack_depth_and_exact_function_identity() {
     );
 }
 #[test]
-fn decimation_preserves_deepest_stack_but_click_uses_original_samples() {
+fn decimation_preserves_first_sample_but_click_uses_original_samples() {
     let mut stream = profile();
     stream
         .records
@@ -114,8 +118,8 @@ fn decimation_preserves_deepest_stack_but_click_uses_original_samples() {
         .unwrap();
     assert!(timeline.truncated);
     assert_eq!(timeline.omitted_samples, 2);
-    assert_eq!(timeline.threads[0].samples[0].ordinal, first + 1);
-    assert_eq!(timeline.threads[0].samples[0].stack_depth, 3);
+    assert_eq!(timeline.threads[0].samples[0].ordinal, first);
+    assert_eq!(timeline.threads[0].samples[0].stack_depth, 2);
     assert_eq!(
         session.sample_at_time(&Query::default(), 11, 10).unwrap(),
         Some(first)

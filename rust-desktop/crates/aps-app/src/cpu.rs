@@ -57,8 +57,16 @@ const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 const CHART_WIDTH_PX: f32 = 1024.0;
 const CHART_ROW_HEIGHT_PX: f32 = 18.0;
 const TIMELINE_BUCKETS: usize = 160;
-const TIMELINE_STACK_HEIGHT: f32 = 25.;
+/// The official Firefox Profiler expanded thread track draws an empty 6 px
+/// marker lane, a 25 px activity graph, a 1 px gap and a 5 px sample strip.
+const TIMELINE_MARKER_HEIGHT: f32 = 6.;
+const TIMELINE_ACTIVITY_HEIGHT: f32 = 25.;
+const TIMELINE_ACTIVITY_GAP: f32 = 1.;
 const TIMELINE_SAMPLE_HEIGHT: f32 = 5.;
+const TIMELINE_TRACK_HEIGHT: f32 = TIMELINE_MARKER_HEIGHT
+    + TIMELINE_ACTIVITY_HEIGHT
+    + TIMELINE_ACTIVITY_GAP
+    + TIMELINE_SAMPLE_HEIGHT;
 const TIMELINE_MAX_TRACKS: usize = 24;
 const KPI_MAX_COLUMNS: usize = 6;
 const KPI_MEDIUM_COLUMNS: usize = 3;
@@ -3365,7 +3373,6 @@ struct TimelineTrack {
     thread_id: Option<i32>,
     name: String,
     samples: Vec<TimelineSample>,
-    max_stack_depth: usize,
     interval_nanos: Option<u64>,
     total: usize,
 }
@@ -3387,6 +3394,346 @@ fn timeline_query(query: &Query) -> Query {
 
 fn timeline_bar_width(interval_pixels: f32) -> f32 {
     (interval_pixels * if interval_pixels < 2. { 1.2 } else { 1. }).max(0.8)
+}
+
+/// Official Photon category styles copied from the bundled profiler's
+/// `utils/colors.ts`: (light selected fill, dark selected fill, light
+/// unselected alpha, dark unselected alpha, gravity).
+const FIREFOX_CATEGORY_STYLES: [(u32, u32, f32, f32, u8); 8] = [
+    (
+        0xffe129,
+        0xbe9b00,
+        0x70 as f32 / 255.,
+        0x85 as f32 / 255.,
+        6,
+    ),
+    (
+        0xff9400,
+        0xd76e00,
+        0x60 as f32 / 255.,
+        0x60 as f32 / 255.,
+        2,
+    ),
+    (
+        0xffe129,
+        0xbe9b00,
+        0x70 as f32 / 255.,
+        0x85 as f32 / 255.,
+        6,
+    ),
+    (
+        0x12bc00,
+        0x058b00,
+        0x60 as f32 / 255.,
+        0x60 as f32 / 255.,
+        4,
+    ),
+    (
+        0x12bc00,
+        0x058b00,
+        0x60 as f32 / 255.,
+        0x60 as f32 / 255.,
+        4,
+    ),
+    (
+        0x0060df,
+        0x0060df,
+        0x60 as f32 / 255.,
+        0x60 as f32 / 255.,
+        3,
+    ),
+    (
+        0xb1b1b3,
+        0x737373,
+        0x60 as f32 / 255.,
+        0x60 as f32 / 255.,
+        10,
+    ),
+    (
+        0x12bc00,
+        0x058b00,
+        0x60 as f32 / 255.,
+        0x60 as f32 / 255.,
+        4,
+    ),
+];
+
+fn firefox_activity_style(category: u8, dark: bool) -> (u32, f32, u8) {
+    let index = usize::from(category).min(FIREFOX_CATEGORY_STYLES.len() - 1);
+    let (light, dark_fill, light_alpha, dark_alpha, gravity) = FIREFOX_CATEGORY_STYLES[index];
+    (
+        if dark { dark_fill } else { light },
+        if dark { dark_alpha } else { light_alpha },
+        gravity,
+    )
+}
+
+/// Official sample strip width: the interval rule, then Firefox's 10 device
+/// pixel cap.
+fn timeline_sample_bar_width(interval_pixels: f32) -> f32 {
+    timeline_bar_width(interval_pixels).min(10.)
+}
+
+const ACTIVITY_FIXED_POINT_BITS: i32 = 16;
+const ACTIVITY_FIXED_POINT_MASK: i64 = (1 << ACTIVITY_FIXED_POINT_BITS) - 1;
+
+#[derive(Clone)]
+struct ActivityFill {
+    category: u8,
+    selected: bool,
+    lower: Vec<f32>,
+    upper: Vec<f32>,
+}
+
+fn activity_position(time: u64, domain: (u64, u64), width: usize) -> i64 {
+    let span = domain.1.saturating_sub(domain.0).max(1) as f64;
+    let fraction = time.saturating_sub(domain.0) as f64 / span;
+    let position = (fraction * width as f64 * f64::from(1 << ACTIVITY_FIXED_POINT_BITS)) as i64;
+    position.clamp(0, (width as i64) * (1 << ACTIVITY_FIXED_POINT_BITS) - 1)
+}
+
+fn activity_midpoint(before: u64, after: u64) -> u64 {
+    before / 2 + after / 2 + (before % 2 + after % 2) / 2
+}
+
+fn activity_add_interval(row: &mut [f32], start: i64, end: i64) {
+    let width = row.len() as i64;
+    if width <= 0 || end <= start {
+        return;
+    }
+    let start = start.clamp(0, width * (1 << ACTIVITY_FIXED_POINT_BITS) - 1);
+    let end = end.clamp(0, width * (1 << ACTIVITY_FIXED_POINT_BITS) - 1);
+    if end <= start {
+        return;
+    }
+    let start_pixel = (start >> ACTIVITY_FIXED_POINT_BITS) as usize;
+    let end_pixel = (end >> ACTIVITY_FIXED_POINT_BITS) as usize;
+    if start_pixel == end_pixel {
+        row[start_pixel] += (end - start) as f32 / (1 << ACTIVITY_FIXED_POINT_BITS) as f32;
+        return;
+    }
+    let start_fraction =
+        (start & ACTIVITY_FIXED_POINT_MASK) as f32 / (1 << ACTIVITY_FIXED_POINT_BITS) as f32;
+    row[start_pixel] += 1. - start_fraction;
+    for value in row.iter_mut().take(end_pixel).skip(start_pixel + 1) {
+        *value += 1.;
+    }
+    let end_fraction =
+        (end & ACTIVITY_FIXED_POINT_MASK) as f32 / (1 << ACTIVITY_FIXED_POINT_BITS) as f32;
+    if end_pixel < row.len() {
+        row[end_pixel] += end_fraction;
+    }
+}
+
+fn activity_box_blur(row: &mut [f32], radius: usize) {
+    let radius = radius.min(row.len().saturating_sub(1) / 2);
+    if radius == 0 || row.len() < radius * 2 + 1 {
+        return;
+    }
+    let source = row.to_vec();
+    let divisor = (radius * 2 + 1) as f32;
+    let mut total: f32 = source.iter().take(radius + 1).sum();
+    row[0] = total / divisor;
+    for x in 1..=radius {
+        total += source[x + radius];
+        row[x] = total / divisor;
+    }
+    for x in radius + 1..row.len() - radius {
+        total -= source[x - radius - 1];
+        total += source[x + radius];
+        row[x] = total / divisor;
+    }
+    for x in row.len() - radius..row.len() {
+        total -= source[x - radius - 1];
+        row[x] = total / divisor;
+    }
+}
+
+fn activity_blur(row: &mut [f32]) {
+    for radius in [3, 2, 2] {
+        activity_box_blur(row, radius);
+    }
+}
+
+/// Port of the bundled profiler's activity graph for profiles that carry no
+/// per-sample CPU deltas: every sample covers its full interval at 100%. The
+/// returned fills are already stacked by the official category gravity, with
+/// selected samples below unselected samples of the same category.
+fn activity_fill_edges(
+    samples: &[TimelineSample],
+    domain: (u64, u64),
+    width: usize,
+    interval_nanos: Option<u64>,
+    highlights: Option<&BTreeSet<usize>>,
+) -> Vec<ActivityFill> {
+    if samples.is_empty() || width == 0 || domain.0 >= domain.1 {
+        return Vec::new();
+    }
+    const ROWS: usize = 8 * 2;
+    let mut rows = vec![vec![0f32; width]; ROWS];
+    let fallback_interval = interval_nanos
+        .unwrap_or_else(|| ((domain.1 - domain.0) as f64 / samples.len() as f64).max(1.) as u64);
+    for (index, sample) in samples.iter().enumerate() {
+        let category = usize::from(sample.category).min(7);
+        let selected = highlights.is_none_or(|values| values.contains(&sample.ordinal));
+        let row = &mut rows[category * 2 + usize::from(!selected)];
+        let position = activity_position(sample.time_nanos, domain, width);
+        let before = if index == 0 {
+            sample.time_nanos.saturating_sub(fallback_interval)
+        } else {
+            activity_midpoint(samples[index - 1].time_nanos, sample.time_nanos)
+        };
+        let after = if index + 1 == samples.len() {
+            sample.time_nanos.saturating_add(fallback_interval)
+        } else {
+            activity_midpoint(sample.time_nanos, samples[index + 1].time_nanos)
+        };
+        activity_add_interval(row, activity_position(before, domain, width), position);
+        activity_add_interval(row, position, activity_position(after, domain, width));
+    }
+    for row in &mut rows {
+        activity_blur(row);
+    }
+    let mut order: Vec<(usize, bool)> = (0..8)
+        .flat_map(|category| [(category, true), (category, false)])
+        .collect();
+    order.sort_by(|left, right| {
+        let left_gravity = FIREFOX_CATEGORY_STYLES[left.0].4;
+        let right_gravity = FIREFOX_CATEGORY_STYLES[right.0].4;
+        right_gravity
+            .cmp(&left_gravity)
+            .then_with(|| right.1.cmp(&left.1))
+    });
+    let mut accumulated = vec![0f32; width];
+    let mut fills = Vec::new();
+    for (category, selected) in order {
+        let row = &rows[category * 2 + usize::from(!selected)];
+        if row.iter().all(|value| *value <= f32::EPSILON) {
+            continue;
+        }
+        let lower = accumulated.clone();
+        for (edge, contribution) in accumulated.iter_mut().zip(row.iter()) {
+            *edge = (*edge + *contribution).min(1.);
+        }
+        fills.push(ActivityFill {
+            category: category as u8,
+            selected,
+            lower,
+            upper: accumulated.clone(),
+        });
+    }
+    fills
+}
+
+fn paint_activity_graph(
+    window: &mut Window,
+    bounds: Bounds<Pixels>,
+    scale: f32,
+    samples: &[TimelineSample],
+    domain: (u64, u64),
+    interval_nanos: Option<u64>,
+    highlights: Option<&BTreeSet<usize>>,
+    dark: bool,
+) {
+    let width_css = f32::from(bounds.size.width).max(1.);
+    let width = (width_css * scale).round().max(1.) as usize;
+    let x_at = |x: f32| bounds.origin.x + px((x / scale).min(width_css));
+    let y_at = |edge: f32| {
+        bounds.origin.y
+            + px(TIMELINE_MARKER_HEIGHT + (1. - edge.clamp(0., 1.)) * TIMELINE_ACTIVITY_HEIGHT)
+    };
+    for fill in activity_fill_edges(samples, domain, width, interval_nanos, highlights) {
+        let (hex, alpha, _) = firefox_activity_style(fill.category, dark);
+        let color = if fill.selected {
+            rgb(hex)
+        } else {
+            rgb(hex).alpha(alpha)
+        };
+        let mut path = PathBuilder::fill();
+        let mut drew = false;
+        let push_run = |path: &mut PathBuilder, start: usize, end: usize| {
+            let end = end.min(width);
+            if end <= start {
+                return;
+            }
+            let last = width - 1;
+            path.move_to(point(x_at(start as f32), y_at(fill.lower[start])));
+            for x in start..end {
+                let next = (x + 1).min(last);
+                path.line_to(point(x_at((x + 1) as f32), y_at(fill.lower[next])));
+            }
+            for x in (start..end).rev() {
+                let next = (x + 1).min(last);
+                path.line_to(point(x_at((x + 1) as f32), y_at(fill.upper[next])));
+            }
+            path.line_to(point(x_at(start as f32), y_at(fill.upper[start])));
+            path.close();
+        };
+        let mut start = None;
+        for x in 0..width {
+            let present = fill.upper[x] - fill.lower[x] > 1e-5;
+            match (start, present) {
+                (None, true) => start = Some(x),
+                (Some(first), false) => {
+                    push_run(&mut path, first, x);
+                    drew = true;
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(first) = start {
+            push_run(&mut path, first, width);
+            drew = true;
+        }
+        if drew && let Ok(path) = path.build() {
+            window.paint_path(path, color);
+        }
+    }
+}
+
+fn paint_timeline_samples(
+    window: &mut Window,
+    bounds: Bounds<Pixels>,
+    scale: f32,
+    samples: &[TimelineSample],
+    domain: (u64, u64),
+    interval_nanos: Option<u64>,
+    highlights: Option<&BTreeSet<usize>>,
+    dark: bool,
+) {
+    let width_css = f32::from(bounds.size.width).max(1.);
+    let width = (width_css * scale).round().max(1.);
+    let span = domain.1.saturating_sub(domain.0).max(1) as f64;
+    let interval_pixels = interval_nanos.map_or(0., |interval| {
+        (interval as f64 / span * f64::from(width)) as f32
+    });
+    let bar = timeline_sample_bar_width(interval_pixels).min(width);
+    let bar_css = bar / scale;
+    let y = bounds.origin.y
+        + px(TIMELINE_MARKER_HEIGHT + TIMELINE_ACTIVITY_HEIGHT + TIMELINE_ACTIVITY_GAP);
+    for sample in samples {
+        let x = (sample.time_nanos.saturating_sub(domain.0)) as f64 / span * f64::from(width);
+        let left = (x as f32 - bar * 0.5).clamp(0., (width - bar).max(0.));
+        let highlighted = highlights.is_none_or(|values| values.contains(&sample.ordinal));
+        let fill = match (dark, highlighted) {
+            (true, true) => rgb(0x004fc4),
+            (true, false) => rgb(0x0a84ff),
+            (false, true) => rgb(0x003eaa),
+            (false, false) => rgb(0x45a1ff),
+        };
+        window.paint_quad(quad(
+            Bounds {
+                origin: point(bounds.origin.x + px(left / scale), y),
+                size: size(px(bar_css), px(TIMELINE_SAMPLE_HEIGHT)),
+            },
+            px(0.),
+            fill,
+            px(0.),
+            transparent_black(),
+            Default::default(),
+        ));
+    }
 }
 
 fn timeline_sample_time(domain: (u64, u64), fraction: f32) -> Option<u64> {
@@ -3422,7 +3769,6 @@ fn build_timeline(ws: &CpuWorkspace) -> Option<TimelineModel> {
                 thread_id,
                 name,
                 samples: thread.samples.clone(),
-                max_stack_depth: thread.max_stack_depth,
                 interval_nanos: thread.interval_nanos,
                 total: thread.total_samples,
             }
@@ -3560,7 +3906,6 @@ fn timeline_panel(
             let selected_range = time_range_fractions(domain, ws.query.start, ws.query.end);
             for (index, track) in model.tracks.iter().take(TIMELINE_MAX_TRACKS).enumerate() {
                 let samples = track.samples.clone();
-                let max_depth = track.max_stack_depth.max(1);
                 let interval = track.interval_nanos;
                 let selected_ordinal = ws.timeline_selection.map(|(_, _, ordinal)| ordinal);
                 let highlights = ws.timeline_highlights.clone();
@@ -3585,7 +3930,7 @@ fn timeline_panel(
                 body = body.child(
                     div()
                         .id(("cpu-timeline-track", index))
-                        .h(px(TIMELINE_STACK_HEIGHT + 1. + TIMELINE_SAMPLE_HEIGHT + 1.))
+                        .h(px(TIMELINE_TRACK_HEIGHT + 1.))
                         .flex_shrink_0()
                         .w_full()
                         .flex()
@@ -3707,80 +4052,29 @@ fn timeline_panel(
                                             }
                                         },
                                         move |bounds, _, window, _| {
-                                            let width = f32::from(bounds.size.width);
-                                            let height = f32::from(bounds.size.height);
                                             let scale = f32::from(window.scale_factor());
-                                            let span = (paint_domain.1 - paint_domain.0) as f64;
-                                            let interval_px = interval.map_or(0., |interval| {
-                                                (interval as f64 / span * f64::from(width)) as f32
-                                            });
-                                            let bar_width =
-                                                timeline_bar_width(interval_px * scale) / scale;
-                                            let stack_height = height.min(TIMELINE_STACK_HEIGHT);
-                                            for sample in &samples {
-                                                let fraction = (sample
-                                                    .time_nanos
-                                                    .saturating_sub(paint_domain.0))
-                                                    as f64
-                                                    / span;
-                                                let bar = stack_height * sample.stack_depth as f32
-                                                    / max_depth as f32;
-                                                let x_offset = (fraction * f64::from(width)) as f32;
-                                                let x = bounds.origin.x + px(x_offset);
-                                                let y = bounds.origin.y + px(stack_height - bar);
-                                                let highlighted = selected_ordinal.is_none()
-                                                    || highlights.contains(&sample.ordinal);
-                                                let fill = if highlighted {
-                                                    paint_activity
-                                                } else {
-                                                    rgb(0x45a1ff)
-                                                };
-                                                window.paint_quad(quad(
-                                                    Bounds {
-                                                        origin: point(x, y),
-                                                        size: size(
-                                                            px(bar_width
-                                                                .min((width - x_offset).max(0.))),
-                                                            px(bar),
-                                                        ),
-                                                    },
-                                                    px(0.),
-                                                    fill,
-                                                    px(0.),
-                                                    transparent_black(),
-                                                    Default::default(),
-                                                ));
-                                                let marker_width = bar_width.min(10. / scale);
-                                                let marker_x =
-                                                    (x_offset - marker_width * 0.5).max(0.);
-                                                window.paint_quad(quad(
-                                                    Bounds {
-                                                        origin: point(
-                                                            bounds.origin.x + px(marker_x),
-                                                            bounds.origin.y
-                                                                + px(TIMELINE_STACK_HEIGHT + 1.),
-                                                        ),
-                                                        size: size(
-                                                            px(marker_width
-                                                                .min((width - marker_x).max(0.))),
-                                                            px(TIMELINE_SAMPLE_HEIGHT),
-                                                        ),
-                                                    },
-                                                    px(0.),
-                                                    if dark {
-                                                        if highlighted {
-                                                            rgb(0x004fc4)
-                                                        } else {
-                                                            rgb(0x0a84ff)
-                                                        }
-                                                    } else {
-                                                        fill
-                                                    },
-                                                    px(0.),
-                                                    transparent_black(),
-                                                    Default::default(),
-                                                ));
-                                            }
+                                            let highlight_filter =
+                                                selected_ordinal.map(|_| highlights.as_ref());
+                                            paint_activity_graph(
+                                                window,
+                                                bounds,
+                                                scale,
+                                                &samples,
+                                                paint_domain,
+                                                interval,
+                                                highlight_filter,
+                                                dark,
+                                            );
+                                            paint_timeline_samples(
+                                                window,
+                                                bounds,
+                                                scale,
+                                                &samples,
+                                                paint_domain,
+                                                interval,
+                                                highlight_filter,
+                                                dark,
+                                            );
                                             let mut band = |from: f32, to: f32, fill: Rgba| {
                                                 let (lo, hi) = if from <= to {
                                                     (from, to)
@@ -3796,8 +4090,15 @@ fn timeline_panel(
                                                     px((hi - lo) * f32::from(bounds.size.width));
                                                 window.paint_quad(quad(
                                                     Bounds {
-                                                        origin: point(x, bounds.origin.y),
-                                                        size: size(width_band, px(height)),
+                                                        origin: point(
+                                                            x,
+                                                            bounds.origin.y
+                                                                + px(TIMELINE_MARKER_HEIGHT),
+                                                        ),
+                                                        size: size(
+                                                            width_band,
+                                                            px(TIMELINE_ACTIVITY_HEIGHT),
+                                                        ),
                                                     },
                                                     px(0.),
                                                     fill,
@@ -7991,18 +8292,19 @@ impl NoticeSource for CpuWorkspace {
 mod metadata_tests {
     use super::{
         CALL_TREE_CATEGORY_SWATCH_MARGIN, CALL_TREE_CATEGORY_SWATCH_SIZE, CPU_MEDIA_TYPE, CpuError,
-        CpuSourceClass, CpuSourceKind, FirefoxChartCategory, Language, RecentCpu, associate_cpu,
-        call_tree_category_swatch, capture_import_available, chart_tooltip_placement,
-        check_cpu_binding, classify_cpu_source, cpu_artifact, cpu_snapshot_path,
-        decompress_cpu_source, firefox_chart_category, firefox_chart_color_values,
-        flame_selection_summary, load_cpu_import, load_cpu_snapshot, load_cpu_source,
-        load_cpu_source_with, persist_cpu_snapshot, recent_cpu, resolve_simpleperf,
-        timeline_bar_width, timeline_query, validate_recent,
+        CpuSourceClass, CpuSourceKind, FirefoxChartCategory, Language, RecentCpu,
+        activity_fill_edges, associate_cpu, call_tree_category_swatch, capture_import_available,
+        chart_tooltip_placement, check_cpu_binding, classify_cpu_source, cpu_artifact,
+        cpu_snapshot_path, decompress_cpu_source, firefox_activity_style, firefox_chart_category,
+        firefox_chart_color_values, flame_selection_summary, load_cpu_import, load_cpu_snapshot,
+        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
+        resolve_simpleperf, timeline_bar_width, timeline_query, timeline_sample_bar_width,
+        validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
     use aps_cpu::{
-        ChartBlock, ChartBlockKind, ChartViewport, CpuSession, Direction, Query, TimelineViewport,
-        WeightType,
+        ChartBlock, ChartBlockKind, ChartViewport, CpuSession, Direction, Query, TimelineSample,
+        TimelineViewport, WeightType,
     };
     use aps_storage::{PageRequest, Storage};
     use aps_ui_foundation::TextKey;
@@ -9226,19 +9528,91 @@ mod metadata_tests {
         assert!(source.contains("CpuChartOutputOmittedBlocks"));
     }
     #[test]
-    fn timeline_stack_bars_use_firefox_interval_width_and_device_pixel_minimum() {
+    fn timeline_track_reserves_the_official_expanded_thread_height() {
+        assert_eq!(super::TIMELINE_MARKER_HEIGHT, 6.);
+        assert_eq!(super::TIMELINE_ACTIVITY_HEIGHT, 25.);
+        assert_eq!(super::TIMELINE_ACTIVITY_GAP, 1.);
+        assert_eq!(super::TIMELINE_SAMPLE_HEIGHT, 5.);
+        assert_eq!(super::TIMELINE_TRACK_HEIGHT, 37.);
+    }
+    #[test]
+    fn timeline_sample_strip_uses_firefox_interval_width_and_device_pixel_cap() {
         for (interval, expected) in [
             (0.0, 0.8),
             (0.5, 0.8),
             (1.0, 1.2),
             (2.0, 2.0),
             (4.0, 4.0),
-            (16.0, 16.0),
+            (9.0, 9.0),
+            (16.0, 10.0),
         ] {
-            let width = timeline_bar_width(interval);
+            let width = timeline_sample_bar_width(interval);
             assert_eq!(width, expected);
-            assert!(width >= 0.8);
+            assert!((0.8..=10.0).contains(&width));
         }
+    }
+    fn activity_sample(ordinal: usize, time: u64, category: u8) -> TimelineSample {
+        TimelineSample {
+            ordinal,
+            time_nanos: time,
+            stack_depth: 1,
+            category,
+        }
+    }
+    #[test]
+    fn activity_graph_stacks_firefox_categories_by_gravity() {
+        let samples = [
+            activity_sample(0, 0, 6),
+            activity_sample(1, 100, 1),
+            activity_sample(2, 200, 6),
+            activity_sample(3, 300, 1),
+        ];
+        let fills = activity_fill_edges(&samples, (0, 400), 100, Some(100), None);
+        assert_eq!(
+            fills.iter().map(|fill| fill.category).collect::<Vec<_>>(),
+            [6, 1]
+        );
+        assert!(fills.iter().all(|fill| fill.selected));
+        assert!(fills[0].lower.iter().all(|edge| *edge == 0.));
+        assert_eq!(fills[0].upper, fills[1].lower);
+        assert!(fills[0].upper.iter().any(|edge| *edge > 0.9));
+    }
+    #[test]
+    fn activity_graph_draws_selected_samples_below_unselected_samples() {
+        let samples = [
+            activity_sample(0, 0, 2),
+            activity_sample(1, 100, 2),
+            activity_sample(2, 200, 2),
+            activity_sample(3, 300, 2),
+        ];
+        let highlights = [1usize].into_iter().collect();
+        let fills = activity_fill_edges(&samples, (0, 400), 100, Some(100), Some(&highlights));
+        assert_eq!(fills.len(), 2);
+        assert!(fills[0].selected && !fills[1].selected);
+        assert_eq!(fills[0].category, 2);
+        assert_eq!(fills[1].category, 2);
+        assert_eq!(fills[0].upper, fills[1].lower);
+        assert!(fills[0].upper.iter().any(|edge| *edge > 0.9));
+        assert!(fills[1].upper.iter().any(|edge| *edge > 0.9));
+    }
+    #[test]
+    fn activity_styles_match_the_bundled_photon_category_fills() {
+        assert_eq!(
+            firefox_activity_style(2, false),
+            (0xffe129, 0x70 as f32 / 255., 6)
+        );
+        assert_eq!(
+            firefox_activity_style(2, true),
+            (0xbe9b00, 0x85 as f32 / 255., 6)
+        );
+        assert_eq!(
+            firefox_activity_style(1, false),
+            (0xff9400, 0x60 as f32 / 255., 2)
+        );
+        assert_eq!(
+            firefox_activity_style(6, true),
+            (0x737373, 0x60 as f32 / 255., 10)
+        );
     }
     #[test]
     fn timeline_click_reveals_exact_sample_leaf_without_removing_other_tracks() {
@@ -9252,8 +9626,10 @@ mod metadata_tests {
             .unwrap();
         assert!(panel.contains("focus_timeline_sample(thread, time, cx)"));
         assert!(panel.contains("apply_time_fraction(paint_domain, (a, b), cx)"));
-        assert!(panel.contains("TIMELINE_STACK_HEIGHT"));
-        assert!(panel.contains("TIMELINE_SAMPLE_HEIGHT"));
+        assert!(panel.contains("paint_activity_graph("));
+        assert!(panel.contains("paint_timeline_samples("));
+        assert!(panel.contains("TIMELINE_TRACK_HEIGHT"));
+        assert!(source.contains("px(TIMELINE_SAMPLE_HEIGHT)"));
         let selection = source
             .split("fn focus_timeline_sample(")
             .nth(1)

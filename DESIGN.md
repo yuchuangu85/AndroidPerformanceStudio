@@ -1169,15 +1169,24 @@ client (GPUI's default is a null client), so any provider request failed with
   remain the same color on selection. Include their width in horizontal scroll
   measurement without changing row height or arrow/row click behavior.
 
-### Rust CPU Thread Sample Tracks (2026-11-12)
+### Rust CPU Thread Activity Tracks (2026-11-12)
 
-- Thread tracks use the Firefox Profiler Stack Graph convention: timestamp-
-  aligned bars show relative sampled stack depth in a 25 px plot, followed by
-  a 1 px gap and a 5 px sample strip. Bar width follows the interval/pixel rule
-  (0.8 device-pixel minimum); strip markers are capped at 10 device pixels.
-  Timestamp-delta estimates affect display width only, never execution time.
+- Thread tracks follow the bundled Firefox Profiler's default `cpu-category`
+  timeline, not its stack-height graph. Each expanded track reserves the
+  official 6 px marker lane, a 25 px activity graph, a 1 px gap and a 5 px
+  sample strip. The activity graph stacks per-pixel category contributions with
+  Firefox's Photon selected/unselected fills, category gravity and its 3/2/2
+  box-blur smoothing.
+- Exported simpleperf profiles carry no per-sample CPU delta, so every sample
+  covers its full sampling interval at 100%, matching Firefox's own fallback
+  when `threadCPUDelta` is absent. Do not invent CPU utilization, thread states
+  or idle time that simpleperf did not observe.
+- A sample's category is the Firefox category of its leaf frame, derived with
+  the same symbol/resource rule the bundled Gecko exporter writes. Native
+  tracks and the official viewer therefore classify and color the same exported
+  sample identically.
 - Preserve sampled timestamps, thread identity and record ordinals in the
-  bounded display packet. Decimation keeps the deepest representative per
+  bounded display packet. Decimation keeps the first representative per
   quarter pixel and discloses omitted samples. Clicks resolve the original
   nearest sample, including points omitted from the drawing packet.
 - A click opens the call tree, selects the sample's exact self/leaf call node,
@@ -1187,9 +1196,11 @@ client (GPUI's default is a null client), so any provider request failed with
 - Selecting a sample may change the analysis thread but never removes the
   available thread tracks. Keep thread-label filtering and time-range drag
   separate. New imports and explicit filter changes clear stale selection.
-- Initial stack bars use Photon blue-70; other stacks use blue-40 after sample
-  selection. The sample strip follows Firefox light/dark blue values. Native
-  category-area smoothing and CPU utilization are not implied by stack depth.
+- Highlighted samples use Firefox's selected fills; other samples use the
+  category's unselected alpha. The sample strip follows the official Photon
+  blue values (light blue-40/blue-70, dark blue-50/blue-65) and the 10 device
+  pixel cap. Samples may paint a taller selected band inside an unselected
+  category band, matching the official sawtooth selection overlay.
 
 ### Rust CPU Viewer Selection (2026-11-12)
 

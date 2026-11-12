@@ -661,7 +661,7 @@ fn firefox_symbol(symbol: &str, resource: &str, address: u64) -> String {
     }
 }
 
-fn firefox_category(symbol: &str, resource: &str) -> u8 {
+pub(crate) fn firefox_category(symbol: &str, resource: &str) -> u8 {
     if resource.contains("kallsyms") || resource.ends_with(".ko") {
         if symbol == "__schedule" || symbol.starts_with("__schedule ") {
             5
