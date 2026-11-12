@@ -598,8 +598,10 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
   preview bounds changes also update the shared preference.
 - Simpleperf preserves six card groups. Supported duration/frequency defaults
   update untouched capture fields; frozen plans and user drafts remain stable.
+  Its draft controls remain editable before a device or process is selected;
+  target validation happens when a capture plan is prepared.
   Native fixed/following chart information boxes are real preferences. Event
-  probing, templates, scope/Period/CallGraph selection and Firefox adapters are
+  probing, templates and scope/Period/CallGraph selection are
   disabled until supported, not written as ineffective preferences.
 - AI retains a fixed page title and centered Provider / Agent / Skill / Policy
   controls with independently scrolling contents. The currently trusted catalog
@@ -1138,6 +1140,20 @@ client (GPUI's default is a null client), so any provider request failed with
   and the CPU workspace can accept it. Background completion, raw-only output
   and occupied CPU workspaces preserve the existing manual-open behavior.
 
+### Rust CPU Function Details Placement (2026-11-12)
+
+- In the wide CPU workspace, function details begin directly below the timeline
+  resize handle. Analysis tabs, filters and call-stack breadcrumbs belong to
+  the left analysis column rather than pushing the details pane downward.
+- A selected flame-graph block's function, resource, inclusive weight and sample
+  count appear after the function-details content in the same scrollable pane,
+  not in a footer beneath the flame graph. Keep the summary selectable and
+  wrapping, preserving imported symbols/resources and localized metric labels.
+- Preserve the details visibility toggle and the existing stacked details pane
+  below 1000 px window width. Details and selection summary scroll together
+  without compressing their content. Chart selection, hover, zoom and analysis
+  queries retain their current behavior.
+
 ### Rust CPU Flame Graph Colors (2026-11-12)
 
 - Flame-graph function blocks use the bundled Firefox Profiler category colors,
@@ -1152,3 +1168,69 @@ client (GPUI's default is a null client), so any provider request failed with
   reuse the chart's opaque category fill for the active light/dark theme and
   remain the same color on selection. Include their width in horizontal scroll
   measurement without changing row height or arrow/row click behavior.
+
+### Rust CPU Thread Sample Tracks (2026-11-12)
+
+- Thread tracks use the Firefox Profiler Stack Graph convention: timestamp-
+  aligned bars show relative sampled stack depth in a 25 px plot, followed by
+  a 1 px gap and a 5 px sample strip. Bar width follows the interval/pixel rule
+  (0.8 device-pixel minimum); strip markers are capped at 10 device pixels.
+  Timestamp-delta estimates affect display width only, never execution time.
+- Preserve sampled timestamps, thread identity and record ordinals in the
+  bounded display packet. Decimation keeps the deepest representative per
+  quarter pixel and discloses omitted samples. Clicks resolve the original
+  nearest sample, including points omitted from the drawing packet.
+- A click opens the call tree, selects the sample's exact self/leaf call node,
+  expands its ancestors, scrolls it into view and displays function details.
+  Numeric ancestry is shared with the query engine; transformed and inverted
+  projections resolve their actual retained self node, not a name match.
+- Selecting a sample may change the analysis thread but never removes the
+  available thread tracks. Keep thread-label filtering and time-range drag
+  separate. New imports and explicit filter changes clear stale selection.
+- Initial stack bars use Photon blue-70; other stacks use blue-40 after sample
+  selection. The sample strip follows Firefox light/dark blue values. Native
+  category-area smoothing and CPU utilization are not implied by stack depth.
+
+### Rust CPU Viewer Selection (2026-11-12)
+
+- Simpleperf settings expose Native Rust, bundled Firefox Profiler and online
+  Firefox Profiler as a persisted single-choice preference. Changing it never
+  opens a browser, exports a report, records a device or uploads profile data.
+- CPU toolbar and File > Export expose an explicit open-selected-viewer action.
+  Successful file, saved-snapshot and captured-profile imports also automatically
+  open the local Firefox viewer when that engine is selected. Native and online
+  engines retain their existing behavior; choosing a preference alone never
+  launches a viewer. An engine change during local export cancels the handoff.
+  Native opens the existing in-app analysis. Bundled mode exports the loaded
+  session as Gecko gzip and serves the pinned `third_party/firefox-profiler/dist`
+  build from a loopback-only server in the system browser; no embedded webview
+  or second parser replaces APS ownership of the imported session.
+- Local assets and the private profile endpoint reject traversal and foreign
+  origins. Closing/replacing the CPU session shuts down the owned server.
+  Missing build assets or storage produce an error, never silent online fallback.
+- Online mode asks for a destination and opens the official site only after a
+  successful non-overwriting export. The user imports that file manually; no
+  automatic profile upload, localhost profile URL or postMessage crosses into
+  the official site. Cancelling the save dialog leaves the browser unopened.
+
+### Rust Firefox AI Query Extension (2026-11-12)
+
+- The local viewer exposes a versioned, read-only pull interface for context,
+  threads, selection, function detail and bounded call-tree evidence. APS issues
+  commands; the browser never owns prompts, providers, credentials or AI execution.
+- APS owns the adapter under `integrations/firefox-profiler/`. The loopback host
+  injects an external script in the served response only. Upstream source,
+  production assets and the pinned submodule remain unchanged and independently
+  updateable. Upstream selector compatibility is checked, not assumed permanent.
+- Each host page and browser document has a separate identity. Node IDs bind to
+  the document, view revision and call-node index, never display-name matching.
+  Thread/range/filter/selection changes invalidate old view IDs. Foreign profile
+  sources, unsupported views and missing upstream interfaces fail explicitly.
+- Token, Host and Origin checks, strict JSON budgets and the bounded mailbox
+  constrain transport. Reload, profile replacement, timeout and shutdown cancel
+  pending work. The API is local-only; the official online site is not extended.
+- The CPU AI entry asynchronously pulls one snapshot and validates allowlisted
+  evidence against the source digest, query generation, viewer epoch and current
+  request/navigation epoch before using the existing AI conversation/preflight.
+  Browser errors never substitute native CPU selection. Numeric weights retain
+  their reported units and are not reinterpreted as exact method durations.

@@ -111,8 +111,19 @@ evidence before closing each item.
   event capability discovery, remaining target forms, fractional/manual duration
   and Stop-and-save. Current duration is 1..300 integer seconds, frequency is
   1..4000 Hz, and cancellation still discards output rather than stopping to save.
-- [ ] Correct session-folder opening and remaining raw protobuf, screenshot,
-  Simpleperf report and external-open export actions.
+- [ ] Correct session-folder opening and remaining raw protobuf, screenshot
+  and Simpleperf report export actions.
+- [x] Implement persisted Native Rust / bundled Firefox / online Firefox viewer
+  selection and explicit open. Bundled mode serves private loopback data;
+  online mode saves before opening the official site for manual import, without
+  uploading. HTTP/security tests and a local browser fixture cover loading,
+  function selection, Flame Graph and Stack Chart; native settings/dialog and
+  cross-platform handoff acceptance remain part of the open gates below.
+- [x] Add an APS-owned, read-only local Firefox query extension and asynchronously
+  prepare AI evidence from the live browser view. The extension leaves upstream
+  source/assets unchanged and rejects foreign profiles and stale document/node
+  identities. Unit/HTTP tests and a real-browser host round trip cover querying
+  and AI evidence validation, not provider execution or packaged/native acceptance.
 - [ ] Same-input data and interaction comparisons for Overview, Top Functions,
   Call Tree, Flame Graph and Stack Chart, including large real profiles.
 - [ ] Complete native populated capture/conversion/import, interaction and recovery

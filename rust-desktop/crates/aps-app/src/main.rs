@@ -4,6 +4,7 @@ mod capture;
 mod cpu;
 mod disassembly;
 mod evidence;
+mod firefox_viewer;
 mod frame;
 mod home_recent;
 mod import;

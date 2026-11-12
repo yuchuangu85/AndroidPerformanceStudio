@@ -11,6 +11,7 @@ mod export;
 mod gecko;
 mod selection;
 mod top;
+mod timeline;
 mod transforms;
 
 pub use charts::{
@@ -24,6 +25,7 @@ pub use export::{
 };
 pub use gecko::{is_gecko_profile_prefix, MAX_GECKO_PROFILE_BYTES};
 pub use top::{TopFunction, TopFunctionsPage, TopSort};
+pub use timeline::{SampleTimeline, TimelineSample, TimelineThread};
 pub use transforms::{TransformSet, MAX_TRANSFORM_NAMES, MAX_TRANSFORM_NAME_BYTES};
 
 use aps_simpleperf_engine::{

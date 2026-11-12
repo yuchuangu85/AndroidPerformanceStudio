@@ -1,5 +1,7 @@
 //! Independent native query projection, not Kotlin function/node ID parity.
-use crate::simpleperf::{FileRecord, Frame, Record, SimpleperfStream, MAX_CALLCHAIN_FRAMES};
+use crate::simpleperf::{
+    FileRecord, Frame, Record, Sample, SimpleperfStream, MAX_CALLCHAIN_FRAMES,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
@@ -468,12 +470,34 @@ fn node_id(nodes: &[Node], mut index: usize, direction: Direction) -> String {
     // Display labels, weights, filters and pagination do not affect identity.
     let mut id = format!("aps-cpu-v1:{}", direction.as_str());
     for key in path.into_iter().rev() {
-        write!(
-            id,
-            "/{:x}:{:x}:{:x}:{:x}",
-            key.file_id, key.symbol_id as u32, key.address, key.execution_type
-        )
-        .unwrap();
+        append_frame_key(&mut id, key);
     }
     id
+}
+
+/// Exact call-tree identity of the original sampled leaf. In an inverted tree
+/// the leaf is a root; display names and pagination never determine identity.
+pub fn sample_leaf_node_id(sample: &Sample, direction: Direction) -> Option<String> {
+    if sample.callchain.is_empty() || sample.callchain.len() > MAX_CALLCHAIN_FRAMES {
+        return None;
+    }
+    let mut id = format!("aps-cpu-v1:{}", direction.as_str());
+    match direction {
+        Direction::Forward => {
+            for frame in sample.callchain.iter().rev() {
+                append_frame_key(&mut id, FrameKey::from(frame));
+            }
+        }
+        Direction::Inverted => append_frame_key(&mut id, FrameKey::from(&sample.callchain[0])),
+    }
+    Some(id)
+}
+
+fn append_frame_key(id: &mut String, key: FrameKey) {
+    write!(
+        id,
+        "/{:x}:{:x}:{:x}:{:x}",
+        key.file_id, key.symbol_id as u32, key.address, key.execution_type
+    )
+    .unwrap();
 }

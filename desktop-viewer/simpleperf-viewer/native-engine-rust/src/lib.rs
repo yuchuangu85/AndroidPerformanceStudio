@@ -13,6 +13,6 @@ pub use protocol::{
     analyze_path, input_limit_from_env, query_path, serve_binary, write_query_page,
 };
 pub use query::{
-    prepare, project, Direction, PreparedQuery, Query, QueryPage, QueryRow, WeightType,
-    MAX_PAGE_SIZE,
+    prepare, project, sample_leaf_node_id, Direction, PreparedQuery, Query, QueryPage, QueryRow,
+    WeightType, MAX_PAGE_SIZE,
 };

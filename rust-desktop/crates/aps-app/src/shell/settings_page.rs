@@ -1278,42 +1278,32 @@ impl Studio {
                     &colors,
                 ))
                 .child(
-                    div()
-                        .flex()
-                        .gap(px(6.))
-                        .child(
-                            choice_chip(
-                                ("engine", 0usize),
-                                lang.text(TextKey::SettingsUiNewEngine),
-                                true,
-                                true,
-                                &colors,
-                            )
-                            .on_click(cx.listener(
-                                |this, _, window, cx| {
-                                    if this.settings.simpleperf_viewer_engine != 0 {
-                                        this.settings.simpleperf_viewer_engine = 0;
+                    div().flex().flex_wrap().gap(px(6.)).children(
+                        [
+                            (0u8, TextKey::SettingsUiNewEngine),
+                            (1u8, TextKey::SettingsUiFirefoxLocalEngine),
+                            (2u8, TextKey::SettingsUiFirefoxEngine),
+                        ]
+                        .into_iter()
+                        .map(|(engine, label)| {
+                            Radio::new(("engine", engine as usize))
+                                .label(lang.text(label))
+                                .checked(self.settings.simpleperf_viewer_engine == engine)
+                                .on_click(cx.listener(move |this, checked: &bool, window, cx| {
+                                    if *checked && this.settings.simpleperf_viewer_engine != engine
+                                    {
+                                        this.settings.simpleperf_viewer_engine = engine;
                                         this.persist_settings(window, cx);
                                         cx.notify();
                                     }
-                                },
-                            )),
-                        )
-                        .child(choice_chip(
-                            ("engine", 1usize),
-                            lang.text(TextKey::SettingsUiFirefoxLocalEngine),
-                            false,
-                            false,
-                            &colors,
-                        ))
-                        .child(choice_chip(
-                            ("engine", 2usize),
-                            lang.text(TextKey::SettingsUiFirefoxEngine),
-                            false,
-                            false,
-                            &colors,
-                        )),
-                ),
+                                }))
+                        }),
+                    ),
+                )
+                .child(studio::supporting(
+                    lang.text(TextKey::SettingsUiViewerHint),
+                    &colors,
+                )),
         )
         .child(
             studio::card(&colors)
@@ -1727,39 +1717,6 @@ fn dropdown(id: impl Into<ElementId>, label: impl Into<SharedString>, cx: &App) 
         .border_color(cx.theme().border)
         .label(label)
 }
-/// Compose-style choice chip: a compact rounded option whose accent border and
-/// selected-row fill mark the active value; disabled options keep muted text.
-fn choice_chip(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    selected: bool,
-    enabled: bool,
-    colors: &StudioColors,
-) -> Button {
-    Button::new(id)
-        .h(px(24.))
-        .px(px(8.))
-        .rounded(px(5.))
-        .border_1()
-        .border_color(if selected {
-            colors.accent
-        } else {
-            colors.strong_border
-        })
-        .bg(if selected {
-            colors.selected_row
-        } else {
-            colors.field
-        })
-        .text_color(if enabled {
-            colors.text
-        } else {
-            colors.muted_text
-        })
-        .label(label)
-        .disabled(!enabled)
-}
-
 /// Small muted label above a Compose-style text field.
 fn field_label(label: impl Into<SharedString>, colors: &StudioColors) -> Div {
     div()
@@ -2368,6 +2325,43 @@ mod tests {
         assert!(page.contains("let can_edit = capture.can_edit_configuration();"));
         assert!(!page.contains("let can_edit = !no_target && capture.can_edit_configuration();"));
         assert!(page.contains(".when(no_target, |card|"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn simpleperf_viewer_choices_persist_without_opening_a_browser() {
+        let source = include_str!("settings_page.rs");
+        let choices = source
+            .split("TextKey::SettingsUiSimpleperfEngine")
+            .nth(1)
+            .unwrap()
+            .split("TextKey::SettingsUiGuide")
+            .next()
+            .unwrap();
+        for key in [
+            "SettingsUiNewEngine",
+            "SettingsUiFirefoxLocalEngine",
+            "SettingsUiFirefoxEngine",
+        ] {
+            assert!(choices.contains(key));
+        }
+        assert!(choices.contains("Radio::new((\"engine\", engine as usize))"));
+        assert!(choices.contains(".checked(self.settings.simpleperf_viewer_engine == engine)"));
+        assert!(!choices.contains(".disabled("));
+        assert!(!choices.contains("open_url"));
+        assert!(!choices.contains("open_selected_viewer"));
+        let directory = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let path = directory.path().join("settings.conf");
+        for engine in 0..=2 {
+            let settings = Settings {
+                simpleperf_viewer_engine: engine,
+                ..Settings::default()
+            };
+            settings.save(&path).unwrap();
+            assert_eq!(
+                Settings::load(&path).unwrap().simpleperf_viewer_engine,
+                engine
+            );
+        }
     }
 
     /// The Configuration page has no engine selectors: Rust is the only engine,

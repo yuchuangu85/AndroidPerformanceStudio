@@ -1,3 +1,6 @@
+mod firefox_ai;
+
+use crate::firefox_viewer::FirefoxViewer;
 use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::shell::menubar::MenuGroup;
@@ -9,8 +12,9 @@ use aps_contracts::{
 };
 use aps_cpu::{
     ChartBlock, ChartBlockKind, ChartDomain, ChartFrame, ChartViewport, CpuSession, Direction,
-    FullCallTree, MAX_FULL_TREE_ROWS, ProfileSummary, Query, QueryPage, QueryRow, ThreadInfo,
-    TimelineViewport, TopFunctionsPage, TopSort, TransformSet, WeightType,
+    FullCallTree, MAX_FULL_TREE_ROWS, ProfileSummary, Query, QueryPage, QueryRow, SampleTimeline,
+    ThreadInfo, TimelineSample, TimelineViewport, TopFunctionsPage, TopSort, TransformSet,
+    WeightType,
 };
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner, TempWorkspace};
 use aps_storage::{PageRequest, QueryBinding, Storage, StoredSession};
@@ -53,7 +57,8 @@ const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 const CHART_WIDTH_PX: f32 = 1024.0;
 const CHART_ROW_HEIGHT_PX: f32 = 18.0;
 const TIMELINE_BUCKETS: usize = 160;
-const TIMELINE_BAR_MAX_WIDTH_PX: f32 = 3.0;
+const TIMELINE_STACK_HEIGHT: f32 = 25.;
+const TIMELINE_SAMPLE_HEIGHT: f32 = 5.;
 const TIMELINE_MAX_TRACKS: usize = 24;
 const KPI_MAX_COLUMNS: usize = 6;
 const KPI_MEDIUM_COLUMNS: usize = 3;
@@ -246,6 +251,9 @@ struct Catalog {
 
 pub struct CpuWorkspace {
     follow_tooltip: bool,
+    viewer_engine: u8,
+    viewer_epoch: u64,
+    firefox_viewer: Option<FirefoxViewer>,
     language: Language,
     metadata_path: Option<PathBuf>,
     snapshot_root: Option<PathBuf>,
@@ -265,7 +273,10 @@ pub struct CpuWorkspace {
     /// shared timeline instead of once per page.
     overview_top: Option<TopFunctionsPage>,
     chart: Option<ChartFrame>,
-    timeline: Option<ChartFrame>,
+    timeline: Option<SampleTimeline>,
+    timeline_selection: Option<(i32, u64, usize)>,
+    timeline_focus: Option<(i32, u64)>,
+    timeline_highlights: Rc<BTreeSet<usize>>,
     chart_selected: Option<String>,
     row_selected: Option<String>,
     /// Symbol requested by a cross-tab focus action; resolved after the next
@@ -335,6 +346,83 @@ fn capture_import_available(busy: bool, shared_busy: bool) -> bool {
 }
 
 impl CpuWorkspace {
+    pub(crate) fn set_viewer_engine(&mut self, engine: u8, cx: &mut Context<Self>) {
+        if engine <= 2 && self.viewer_engine != engine {
+            self.viewer_engine = engine;
+            self.viewer_epoch = self.viewer_epoch.saturating_add(1);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn open_selected_viewer(&mut self, cx: &mut Context<Self>) {
+        if self.busy || self.shared_busy || self.session.is_none() {
+            return;
+        }
+        match self.viewer_engine {
+            1 => self.open_local_firefox(cx),
+            2 => self.save_firefox_for_site(true, cx),
+            _ => {
+                self.tab = CpuTab::CallTree;
+                self.reload(cx);
+            }
+        }
+    }
+
+    fn open_local_firefox(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.session.clone() else {
+            return;
+        };
+        let Some(root) = self.snapshot_root.clone() else {
+            self.error = Some(CpuError::Local(TextKey::CpuViewerStorageUnavailable));
+            cx.notify();
+            return;
+        };
+        let mut viewer = self
+            .firefox_viewer
+            .take()
+            .unwrap_or_else(FirefoxViewer::new);
+        self.busy = true;
+        self.error = None;
+        self.export_message = None;
+        self.generation += 1;
+        let generation = self.generation;
+        let viewer_epoch = self.viewer_epoch;
+        let task = cx.background_executor().spawn(async move {
+            let bytes = session
+                .lock()
+                .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSessionUnavailable))?
+                .export_firefox_profile()?;
+            let url = viewer.open(&bytes, &root)?;
+            Ok::<_, CpuError>((viewer, url))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                this.busy = false;
+                if this.viewer_epoch != viewer_epoch {
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok((viewer, url)) => {
+                        this.firefox_viewer = Some(viewer);
+                        cx.open_url(&url);
+                        this.export_message =
+                            Some(this.language.text(TextKey::CpuViewerLocalOpened).into());
+                    }
+                    Err(error) => this.error = Some(error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(crate) fn selected_converter(&self) -> Option<PathBuf> {
         self.converter.clone()
     }
@@ -359,6 +447,9 @@ impl CpuWorkspace {
     ) -> Self {
         Self {
             follow_tooltip: false,
+            viewer_engine: 0,
+            viewer_epoch: 0,
+            firefox_viewer: None,
             language,
             metadata_path,
             snapshot_root,
@@ -377,6 +468,9 @@ impl CpuWorkspace {
             overview_top: None,
             chart: None,
             timeline: None,
+            timeline_selection: None,
+            timeline_focus: None,
+            timeline_highlights: Rc::new(BTreeSet::new()),
             chart_selected: None,
             row_selected: None,
             pending_focus: None,
@@ -484,6 +578,9 @@ impl CpuWorkspace {
     }
     pub fn analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
         use crate::evidence::{clipped, object, request};
+        if firefox_ai::uses_live_browser(self.viewer_engine) {
+            return Err("Local Firefox Profiler analysis requires a live browser query; native CPU evidence is not a fallback.".into());
+        }
         if self.busy {
             return Err(self.language.text(TextKey::ProfilerCpuWaitQuery).into());
         }
@@ -753,6 +850,7 @@ impl CpuWorkspace {
                 self.import_timing.clear();
                 self.pending_import_started = started;
                 self.session = Some(session);
+                self.firefox_viewer = None;
                 self.catalog = Some(catalog);
                 self.query = query;
                 self.pending_time_input_sync = true;
@@ -776,6 +874,9 @@ impl CpuWorkspace {
                 self.overview_top = None;
                 self.chart = None;
                 self.timeline = None;
+                self.timeline_selection = None;
+                self.timeline_focus = None;
+                self.timeline_highlights = Rc::new(BTreeSet::new());
                 self.row_selected = None;
                 self.chart_selected = None;
                 self.collapsed.clear();
@@ -787,6 +888,9 @@ impl CpuWorkspace {
                 }
                 self.refresh_shared(cx);
                 self.reload(cx);
+                if self.viewer_engine == 1 {
+                    self.open_local_firefox(cx);
+                }
             }
             Err(error) => self.error = Some(error.into()),
         }
@@ -905,6 +1009,9 @@ impl CpuWorkspace {
     }
     /// Drops every published projection while keeping the parsed session open.
     fn reset_results(&mut self) {
+        self.timeline_selection = None;
+        self.timeline_focus = None;
+        self.timeline_highlights = Rc::new(BTreeSet::new());
         self.chart_hover = None;
         self.chart_hover_position = None;
         self.chart_menu = None;
@@ -974,16 +1081,13 @@ impl CpuWorkspace {
                 .lock()
                 .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSessionLockPoisoned))?;
             let viewport = ChartViewport {
-                // The timeline is rendered as a fixed 160-bucket histogram;
-                // matching the engine width prevents per-thread pixel packets
-                // from consuming the chart budget before UI bucketing.
-                width_px: TIMELINE_BUCKETS as f32,
+                width_px: CHART_WIDTH_PX,
                 row_height_px: 6.0,
                 first_depth: 0,
                 depth_count: 1,
                 max_blocks: 20_000,
             };
-            let timeline = session.thread_timeline(
+            let timeline = session.sample_timeline(
                 &timeline_query,
                 TimelineViewport {
                     chart: viewport,
@@ -1068,6 +1172,8 @@ impl CpuWorkspace {
         let top_sort = self.top_sort;
         let top_descending = self.top_descending;
         let transforms = self.engine_transforms();
+        let timeline_focus = self.timeline_focus.take();
+        let timeline = self.timeline.clone();
         let metadata_path = self.metadata_path.clone();
         let association = self.association.clone();
         let task = cx.background_executor().spawn(async move {
@@ -1081,13 +1187,23 @@ impl CpuWorkspace {
                 depth_count: 64,
                 max_blocks: 8_000,
             };
+            let mut selected_sample = None;
+            let mut selected_node = None;
             let result = match tab {
-                CpuTab::CallTree => if transforms.is_empty() {
-                    session.full_call_tree(&query, MAX_FULL_TREE_ROWS)
-                } else {
-                    session.transformed_call_tree(&query, &transforms, MAX_FULL_TREE_ROWS)
+                CpuTab::CallTree => {
+                    if let Some((thread, time)) = timeline_focus {
+                        let source_query = timeline_query(&query);
+                        selected_sample = session.sample_at_time(&source_query, thread, time)?;
+                    }
+                    let (tree, node) = session.transformed_call_tree_selecting_sample(
+                        &query,
+                        &transforms,
+                        MAX_FULL_TREE_ROWS,
+                        selected_sample,
+                    )?;
+                    selected_node = node;
+                    Ok(CpuResult::Tree(tree))
                 }
-                .map(CpuResult::Tree),
                 CpuTab::TopFunctions => session
                     .top_functions_sorted(
                         &query,
@@ -1117,9 +1233,22 @@ impl CpuWorkspace {
                     Ok(CpuResult::Empty)
                 }
             }?;
+            let highlights = selected_sample
+                .zip(timeline.as_ref())
+                .map(|(ordinal, timeline)| {
+                    session
+                        .timeline_sample_highlights(timeline, ordinal, query.direction)
+                        .into_iter()
+                        .collect::<BTreeSet<_>>()
+                });
             Ok::<_, CpuError>((
                 result,
                 check_cpu_binding(metadata_path.as_deref(), association),
+                timeline_focus
+                    .zip(selected_sample)
+                    .map(|((thread, time), ordinal)| (thread, time, ordinal)),
+                selected_node,
+                highlights,
             ))
         });
         cx.spawn(async move |this, cx| {
@@ -1130,7 +1259,7 @@ impl CpuWorkspace {
                 }
                 this.busy = false;
                 match result {
-                    Ok((result, binding)) => {
+                    Ok((result, binding, sample, selected_node, highlights)) => {
                         this.apply_binding_check(binding);
                         match result {
                             CpuResult::Tree(tree) => {
@@ -1138,6 +1267,12 @@ impl CpuWorkspace {
                                 this.tree_generation = this.tree_generation.wrapping_add(1);
                                 this.tree_cache_key = None;
                                 this.resolve_pending_focus();
+                                if let Some(node) = selected_node {
+                                    this.timeline_selection = sample;
+                                    this.timeline_highlights =
+                                        Rc::new(highlights.unwrap_or_default());
+                                    this.reveal_timeline_function(node, cx);
+                                }
                             }
                             CpuResult::Top(page) => this.top = Some(page),
                             CpuResult::Chart(frame) => {
@@ -1237,6 +1372,7 @@ impl CpuWorkspace {
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
+        self.firefox_viewer = None;
         self.import_cancel.store(true, Ordering::Release);
         self.disassembly_generation = self.disassembly_generation.wrapping_add(1);
         self.close_disassembly(cx);
@@ -1262,6 +1398,9 @@ impl CpuWorkspace {
         self.overview_top = None;
         self.chart = None;
         self.timeline = None;
+        self.timeline_selection = None;
+        self.timeline_focus = None;
+        self.timeline_highlights = Rc::new(BTreeSet::new());
         self.chart_selected = None;
         self.row_selected = None;
         self.pending_focus = None;
@@ -1440,6 +1579,10 @@ impl CpuWorkspace {
     }
 
     fn save_firefox(&mut self, cx: &mut Context<Self>) {
+        self.save_firefox_for_site(false, cx);
+    }
+
+    fn save_firefox_for_site(&mut self, open_website: bool, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
@@ -1504,9 +1647,16 @@ impl CpuWorkspace {
                 this.busy = false;
                 match result {
                     Ok(()) => {
+                        if open_website {
+                            cx.open_url(crate::firefox_viewer::OFFICIAL_URL);
+                        }
                         this.export_message = Some(
                             this.language
-                                .text(TextKey::CpuFirefoxProfileExportedExistingFilesAreNever)
+                                .text(if open_website {
+                                    TextKey::CpuViewerOnlineExported
+                                } else {
+                                    TextKey::CpuFirefoxProfileExportedExistingFilesAreNever
+                                })
                                 .into(),
                         );
                     }
@@ -1638,6 +1788,42 @@ impl CpuWorkspace {
     fn select_row(&mut self, id: String, cx: &mut Context<Self>) {
         self.row_selected = Some(id);
         cx.notify();
+    }
+
+    fn focus_timeline_sample(&mut self, thread: i32, time: u64, cx: &mut Context<Self>) {
+        self.query.thread_ids = [thread].into();
+        self.query.offset = 0;
+        self.tab = CpuTab::CallTree;
+        self.details_visible = true;
+        self.pending_focus = None;
+        self.row_selected = None;
+        self.timeline_selection = None;
+        self.timeline_highlights = Rc::new(BTreeSet::new());
+        self.timeline_focus = Some((thread, time));
+        self.reload(cx);
+    }
+
+    fn reveal_timeline_function(&mut self, node: String, cx: &mut Context<Self>) {
+        let Some(tree) = &self.tree else { return };
+        let Some(index) = tree.rows.iter().position(|row| row.id == node) else {
+            return;
+        };
+        let mut parent = tree.rows[index].parent_id.as_deref();
+        while let Some(id) = parent {
+            self.collapsed.remove(id);
+            parent = tree
+                .rows
+                .iter()
+                .find(|row| row.id == id)
+                .and_then(|row| row.parent_id.as_deref());
+        }
+        self.row_selected = Some(node);
+        self.build_tree_cache(cx);
+        if let Some(position) = self.tree_visible.iter().position(|row| *row == index) {
+            self.tree_scroll
+                .scroll_to_item(position, ScrollStrategy::Center);
+        }
+        self.tree_h_scroll.set_offset(point(px(0.), px(0.)));
     }
 
     fn toggle_collapsed(&mut self, id: String, cx: &mut Context<Self>) {
@@ -1855,6 +2041,9 @@ impl CpuWorkspace {
     }
 
     fn select_thread_filter(&mut self, thread_id: Option<i32>, cx: &mut Context<Self>) {
+        self.timeline_selection = None;
+        self.timeline_focus = None;
+        self.timeline_highlights = Rc::new(BTreeSet::new());
         self.query.thread_ids = thread_id.into_iter().collect();
         self.query.offset = 0;
         self.row_selected = None;
@@ -2483,13 +2672,7 @@ impl Render for CpuWorkspace {
         root = root
             .child(kpi_strip(self, &colors, available))
             .child(timeline_panel(self, &colors, cx))
-            .child(timeline_handle(self, &colors, cx))
-            .child(tab_row(self, &colors, cx))
-            .child(filter_toolbar(self, &colors, cx))
-            .child(studio::divider(&colors));
-        if self.tab.is_call_stack() {
-            root = root.child(breadcrumb(self, &colors, cx));
-        }
+            .child(timeline_handle(self, &colors, cx));
         root = root.child(content_and_details(self, &colors, width, cx));
         if self.disassembly.is_some() || self.disassembly_busy {
             root = root.child(disassembly_panel(self, &colors, cx));
@@ -2688,6 +2871,17 @@ fn workspace_toolbar(
                 colors,
             )
             .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+        )
+        .child(
+            studio::text_button(
+                "cpu-open-viewer",
+                lang.text(TextKey::CpuViewerOpen),
+                has_session && !busy,
+                false,
+                colors,
+            )
+            .icon(gpui_kit::component::IconName::ExternalLink)
+            .on_click(cx.listener(|this, _, _, cx| this.open_selected_viewer(cx))),
         )
         .child(
             div()
@@ -3170,8 +3364,10 @@ fn kpi_values(
 struct TimelineTrack {
     thread_id: Option<i32>,
     name: String,
-    buckets: Vec<u32>,
-    total: u32,
+    samples: Vec<TimelineSample>,
+    max_stack_depth: usize,
+    interval_nanos: Option<u64>,
+    total: usize,
 }
 
 struct TimelineModel {
@@ -3189,56 +3385,46 @@ fn timeline_query(query: &Query) -> Query {
     query
 }
 
-fn timeline_bar_width(bucket_width: f32) -> f32 {
-    (bucket_width * 0.5).min(TIMELINE_BAR_MAX_WIDTH_PX)
+fn timeline_bar_width(interval_pixels: f32) -> f32 {
+    (interval_pixels * if interval_pixels < 2. { 1.2 } else { 1. }).max(0.8)
+}
+
+fn timeline_sample_time(domain: (u64, u64), fraction: f32) -> Option<u64> {
+    if domain.0 >= domain.1 || !fraction.is_finite() {
+        return None;
+    }
+    Some(
+        domain
+            .0
+            .saturating_add(
+                ((domain.1 - domain.0) as f64 * f64::from(fraction.clamp(0., 1.))) as u64,
+            )
+            .min(domain.1 - 1),
+    )
 }
 
 fn build_timeline(ws: &CpuWorkspace) -> Option<TimelineModel> {
     let frame = ws.timeline.as_ref()?;
     let catalog = ws.catalog.as_ref()?;
-    let (start, end) = match frame.domain {
-        ChartDomain::SamplePoints {
-            start_nanos,
-            end_nanos,
-        } => (start_nanos, end_nanos),
-        _ => return None,
-    };
-    let mut map: std::collections::BTreeMap<Option<i32>, Vec<u32>> =
-        std::collections::BTreeMap::new();
-    let width = frame.width_px.max(1.0);
-    for block in &frame.blocks {
-        if !matches!(
-            block.kind,
-            ChartBlockKind::SamplePoint | ChartBlockKind::PixelAggregate
-        ) {
-            continue;
-        }
-        let bucket = ((block.x / width) * TIMELINE_BUCKETS as f32).floor();
-        let bucket = bucket.clamp(0.0, (TIMELINE_BUCKETS - 1) as f32) as usize;
-        let counts = map
-            .entry(block.thread_id)
-            .or_insert_with(|| vec![0u32; TIMELINE_BUCKETS]);
-        let samples = block.sample_count.max(1).min(u64::from(u32::MAX)) as u32;
-        counts[bucket] = counts[bucket].saturating_add(samples);
-    }
-    let mut tracks: Vec<TimelineTrack> = map
-        .into_iter()
-        .map(|(thread_id, buckets)| {
-            let total = buckets.iter().copied().fold(0u32, u32::saturating_add);
-            let name = match thread_id {
-                Some(id) => catalog
-                    .threads
-                    .iter()
-                    .find(|thread| thread.id == id)
-                    .map(|thread| thread.name.clone())
-                    .unwrap_or_else(|| format!("TID {id}")),
-                None => ws.language.text(TextKey::CpuTimelineAllThreads).to_owned(),
-            };
+    let (start, end) = (frame.start_nanos, frame.end_nanos);
+    let mut tracks: Vec<TimelineTrack> = frame
+        .threads
+        .iter()
+        .map(|thread| {
+            let thread_id = Some(thread.thread_id);
+            let name = catalog
+                .threads
+                .iter()
+                .find(|item| item.id == thread.thread_id)
+                .map(|item| item.name.clone())
+                .unwrap_or_else(|| format!("TID {}", thread.thread_id));
             TimelineTrack {
                 thread_id,
                 name,
-                buckets,
-                total,
+                samples: thread.samples.clone(),
+                max_stack_depth: thread.max_stack_depth,
+                interval_nanos: thread.interval_nanos,
+                total: thread.total_samples,
             }
         })
         .collect();
@@ -3248,7 +3434,7 @@ fn build_timeline(ws: &CpuWorkspace) -> Option<TimelineModel> {
         end,
         tracks,
         truncated: frame.truncated,
-        omitted_blocks: frame.omitted_blocks,
+        omitted_blocks: frame.omitted_samples,
     })
 }
 
@@ -3258,6 +3444,7 @@ fn timeline_panel(
     cx: &Context<CpuWorkspace>,
 ) -> AnyElement {
     let lang = ws.language;
+    let dark = colors.dark;
     let mut panel = div()
         .id("cpu-timeline")
         .w_full()
@@ -3367,19 +3554,16 @@ fn timeline_panel(
         .bg(colors.field);
     match model {
         Some(model) if !model.tracks.is_empty() => {
-            let max = model
-                .tracks
-                .iter()
-                .flat_map(|track| track.buckets.iter().copied())
-                .max()
-                .unwrap_or(1)
-                .max(1);
-            let activity = colors.firefox_activity;
+            let activity = rgb(0x003eaa);
             let domain = (model.start, model.end);
             let paint_drag = ws.chart_drag;
             let selected_range = time_range_fractions(domain, ws.query.start, ws.query.end);
             for (index, track) in model.tracks.iter().take(TIMELINE_MAX_TRACKS).enumerate() {
-                let buckets = track.buckets.clone();
+                let samples = track.samples.clone();
+                let max_depth = track.max_stack_depth.max(1);
+                let interval = track.interval_nanos;
+                let selected_ordinal = ws.timeline_selection.map(|(_, _, ordinal)| ordinal);
+                let highlights = ws.timeline_highlights.clone();
                 let name = track.name.clone();
                 let active = match track.thread_id {
                     Some(id) => ws.query.thread_ids.contains(&id),
@@ -3393,6 +3577,7 @@ fn timeline_panel(
                 let paint_origin = origin.clone();
                 let down_origin = origin.clone();
                 let move_origin = origin.clone();
+                let up_origin = origin.clone();
                 let paint_activity = activity;
                 let paint_domain = domain;
                 let paint_selected = selected_range;
@@ -3400,7 +3585,8 @@ fn timeline_panel(
                 body = body.child(
                     div()
                         .id(("cpu-timeline-track", index))
-                        .h(px(31.))
+                        .h(px(TIMELINE_STACK_HEIGHT + 1. + TIMELINE_SAMPLE_HEIGHT + 1.))
+                        .flex_shrink_0()
                         .w_full()
                         .flex()
                         .items_center()
@@ -3486,7 +3672,7 @@ fn timeline_panel(
                                 ))
                                 .on_mouse_up(
                                     MouseButton::Left,
-                                    cx.listener(move |this, _, _, cx| {
+                                    cx.listener(move |this, event: &MouseUpEvent, _, cx| {
                                         let dragged = this
                                             .chart_drag
                                             .is_some_and(|(a, b)| (a - b).abs() >= 0.005);
@@ -3497,7 +3683,19 @@ fn timeline_panel(
                                             }
                                         } else {
                                             this.chart_drag = None;
-                                            cx.notify();
+                                            if let Some(thread) = thread_id
+                                                && let Ok(guard) = up_origin.lock()
+                                                && let Some(bounds) = *guard
+                                            {
+                                                let x =
+                                                    f32::from(event.position.x - bounds.origin.x);
+                                                let width = f32::from(bounds.size.width).max(1.);
+                                                if let Some(time) =
+                                                    timeline_sample_time(paint_domain, x / width)
+                                                {
+                                                    this.focus_timeline_sample(thread, time, cx);
+                                                }
+                                            }
                                         }
                                     }),
                                 )
@@ -3509,29 +3707,75 @@ fn timeline_panel(
                                             }
                                         },
                                         move |bounds, _, window, _| {
-                                            let width = f32::from(bounds.size.width)
-                                                / TIMELINE_BUCKETS as f32;
-                                            let bar_width = timeline_bar_width(width);
+                                            let width = f32::from(bounds.size.width);
                                             let height = f32::from(bounds.size.height);
-                                            for (bucket, count) in buckets.iter().enumerate() {
-                                                if *count == 0 {
-                                                    continue;
-                                                }
-                                                let fraction = *count as f32 / max as f32;
-                                                let bar = (height * fraction)
-                                                    .max(1.0)
-                                                    .min(height.max(1.0));
-                                                let x = bounds.origin.x
-                                                    + px(bucket as f32 * width
-                                                        + (width - bar_width) * 0.5);
-                                                let y = bounds.origin.y + px(height - bar);
+                                            let scale = f32::from(window.scale_factor());
+                                            let span = (paint_domain.1 - paint_domain.0) as f64;
+                                            let interval_px = interval.map_or(0., |interval| {
+                                                (interval as f64 / span * f64::from(width)) as f32
+                                            });
+                                            let bar_width =
+                                                timeline_bar_width(interval_px * scale) / scale;
+                                            let stack_height = height.min(TIMELINE_STACK_HEIGHT);
+                                            for sample in &samples {
+                                                let fraction = (sample
+                                                    .time_nanos
+                                                    .saturating_sub(paint_domain.0))
+                                                    as f64
+                                                    / span;
+                                                let bar = stack_height * sample.stack_depth as f32
+                                                    / max_depth as f32;
+                                                let x_offset = (fraction * f64::from(width)) as f32;
+                                                let x = bounds.origin.x + px(x_offset);
+                                                let y = bounds.origin.y + px(stack_height - bar);
+                                                let highlighted = selected_ordinal.is_none()
+                                                    || highlights.contains(&sample.ordinal);
+                                                let fill = if highlighted {
+                                                    paint_activity
+                                                } else {
+                                                    rgb(0x45a1ff)
+                                                };
                                                 window.paint_quad(quad(
                                                     Bounds {
                                                         origin: point(x, y),
-                                                        size: size(px(bar_width), px(bar)),
+                                                        size: size(
+                                                            px(bar_width
+                                                                .min((width - x_offset).max(0.))),
+                                                            px(bar),
+                                                        ),
                                                     },
                                                     px(0.),
-                                                    paint_activity,
+                                                    fill,
+                                                    px(0.),
+                                                    transparent_black(),
+                                                    Default::default(),
+                                                ));
+                                                let marker_width = bar_width.min(10. / scale);
+                                                let marker_x =
+                                                    (x_offset - marker_width * 0.5).max(0.);
+                                                window.paint_quad(quad(
+                                                    Bounds {
+                                                        origin: point(
+                                                            bounds.origin.x + px(marker_x),
+                                                            bounds.origin.y
+                                                                + px(TIMELINE_STACK_HEIGHT + 1.),
+                                                        ),
+                                                        size: size(
+                                                            px(marker_width
+                                                                .min((width - marker_x).max(0.))),
+                                                            px(TIMELINE_SAMPLE_HEIGHT),
+                                                        ),
+                                                    },
+                                                    px(0.),
+                                                    if dark {
+                                                        if highlighted {
+                                                            rgb(0x004fc4)
+                                                        } else {
+                                                            rgb(0x0a84ff)
+                                                        }
+                                                    } else {
+                                                        fill
+                                                    },
                                                     px(0.),
                                                     transparent_black(),
                                                     Default::default(),
@@ -4026,7 +4270,7 @@ fn content_and_details(
     width: f32,
     cx: &Context<CpuWorkspace>,
 ) -> AnyElement {
-    let content = tab_content(ws, colors, cx);
+    let content = analysis_content(ws, colors, cx);
     if !ws.details_visible {
         return div()
             .flex_1()
@@ -4057,7 +4301,15 @@ fn content_and_details(
             .min_h_0()
             .flex()
             .gap(px(6.))
-            .child(div().flex_1().min_w_0().flex().flex_col().child(content))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(content),
+            )
             .child(
                 div()
                     .w(px(studio::metrics::DETAILS_WIDTH))
@@ -4066,6 +4318,38 @@ fn content_and_details(
             )
             .into_any_element()
     }
+}
+
+fn analysis_content(
+    ws: &CpuWorkspace,
+    colors: &StudioColors,
+    cx: &Context<CpuWorkspace>,
+) -> AnyElement {
+    let mut column = div()
+        .id("cpu-analysis-content")
+        .flex_1()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(studio::metrics::CARD_GAP))
+        .child(tab_row(ws, colors, cx))
+        .child(filter_toolbar(ws, colors, cx))
+        .child(studio::divider(colors));
+    if ws.tab.is_call_stack() {
+        column = column.child(breadcrumb(ws, colors, cx));
+    }
+    column
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(tab_content(ws, colors, cx)),
+        )
+        .into_any_element()
 }
 
 fn tab_content(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>) -> AnyElement {
@@ -4933,26 +5217,6 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
         colors,
         cx,
     ));
-    if let Some(block) = selected_chart_block(ws) {
-        column = column.child(
-            div()
-                .px(px(8.))
-                .py(px(4.))
-                .bg(colors.section_background)
-                .rounded(px(studio::metrics::SMALL_RADIUS))
-                .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(colors.text)
-                .child(crate::studio::selectable(format!(
-                    "{} · {} · {} {} · {} {}",
-                    block.label,
-                    block.resource,
-                    lang.text(TextKey::CpuDetailsInclusive),
-                    block.inclusive_weight,
-                    lang.text(TextKey::CpuKpiSamples),
-                    block.sample_count
-                ))),
-        );
-    }
     column.into_any_element()
 }
 
@@ -5880,7 +6144,7 @@ fn details_pane(
         .border_1()
         .border_color(colors.border)
         .rounded(px(studio::metrics::PANEL_RADIUS))
-        .child(match ws.tab {
+        .child(div().min_w_0().flex_shrink_0().child(match ws.tab {
             CpuTab::Overview => details_overview(ws, colors),
             CpuTab::TopFunctions => details_function(ws, colors, cx),
             CpuTab::CallTree | CpuTab::FlameGraph => details_frame(ws, colors, cx),
@@ -5891,8 +6155,40 @@ fn details_pane(
                 TextKey::CpuDetailsDetails,
                 TextKey::CpuDetailsSelectMarkerHint,
             ),
+        }))
+        .when(ws.tab == CpuTab::FlameGraph, |pane| {
+            pane.children(selected_chart_block(ws).map(|block| {
+                div()
+                    .id("cpu-flame-selection-summary")
+                    .w_full()
+                    .min_w_0()
+                    .flex_shrink_0()
+                    .px(px(8.))
+                    .py(px(4.))
+                    .bg(colors.section_background)
+                    .rounded(px(studio::metrics::SMALL_RADIUS))
+                    .text_size(px(studio::FONT_SUPPORTING))
+                    .text_color(colors.text)
+                    .whitespace_normal()
+                    .child(crate::studio::selectable(flame_selection_summary(
+                        block,
+                        ws.language,
+                    )))
+            }))
         })
         .into_any_element()
+}
+
+fn flame_selection_summary(block: &ChartBlock, language: Language) -> String {
+    format!(
+        "{} · {} · {} {} · {} {}",
+        block.label,
+        block.resource,
+        language.text(TextKey::CpuDetailsInclusive),
+        block.inclusive_weight,
+        language.text(TextKey::CpuKpiSamples),
+        block.sample_count
+    )
 }
 
 fn details_prompt(
@@ -7698,12 +7994,16 @@ mod metadata_tests {
         CpuSourceClass, CpuSourceKind, FirefoxChartCategory, Language, RecentCpu, associate_cpu,
         call_tree_category_swatch, capture_import_available, chart_tooltip_placement,
         check_cpu_binding, classify_cpu_source, cpu_artifact, cpu_snapshot_path,
-        decompress_cpu_source, firefox_chart_category, firefox_chart_color_values, load_cpu_import,
-        load_cpu_snapshot, load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
-        resolve_simpleperf, timeline_bar_width, timeline_query, validate_recent,
+        decompress_cpu_source, firefox_chart_category, firefox_chart_color_values,
+        flame_selection_summary, load_cpu_import, load_cpu_snapshot, load_cpu_source,
+        load_cpu_source_with, persist_cpu_snapshot, recent_cpu, resolve_simpleperf,
+        timeline_bar_width, timeline_query, validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
-    use aps_cpu::{ChartViewport, CpuSession, Direction, Query, TimelineViewport, WeightType};
+    use aps_cpu::{
+        ChartBlock, ChartBlockKind, ChartViewport, CpuSession, Direction, Query, TimelineViewport,
+        WeightType,
+    };
     use aps_storage::{PageRequest, Storage};
     use aps_ui_foundation::TextKey;
     use gpui_kit::{Styled, px, rgb};
@@ -7713,6 +8013,128 @@ mod metadata_tests {
         sync::atomic::{AtomicU64, Ordering},
     };
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[::core::prelude::v1::test]
+    fn function_details_start_below_timeline_with_controls_in_analysis_column() {
+        let source = include_str!("cpu.rs");
+        let render = source
+            .split("impl Render for CpuWorkspace {")
+            .nth(1)
+            .unwrap()
+            .split("fn disassembly_panel(")
+            .next()
+            .unwrap();
+        assert!(
+            render.find("timeline_handle(self, &colors, cx)").unwrap()
+                < render
+                    .find("content_and_details(self, &colors, width, cx)")
+                    .unwrap()
+        );
+        for control in ["tab_row(", "filter_toolbar(", "breadcrumb("] {
+            assert!(!render.contains(control));
+        }
+        let analysis = source
+            .split("fn analysis_content(")
+            .nth(1)
+            .unwrap()
+            .split("fn tab_content(")
+            .next()
+            .unwrap();
+        let content = analysis.find("tab_content(ws, colors, cx)").unwrap();
+        for control in [
+            "tab_row(ws, colors, cx)",
+            "filter_toolbar(ws, colors, cx)",
+            "breadcrumb(ws, colors, cx)",
+        ] {
+            assert!(analysis.find(control).unwrap() < content);
+        }
+        assert!(analysis.contains("if ws.tab.is_call_stack()"));
+        let split = source
+            .split("fn content_and_details(")
+            .nth(1)
+            .unwrap()
+            .split("fn analysis_content(")
+            .next()
+            .unwrap();
+        assert!(split.contains("analysis_content(ws, colors, cx)"));
+        assert!(split.contains("if !ws.details_visible"));
+        assert!(split.contains("if width < 1000.0"));
+        assert!(split.contains("studio::metrics::NARROW_DETAILS_HEIGHT"));
+        assert!(split.contains("studio::metrics::DETAILS_WIDTH"));
+        assert_eq!(split.matches("details_pane(ws, colors, cx)").count(), 2);
+    }
+
+    #[::core::prelude::v1::test]
+    fn flame_selection_summary_follows_scrollable_function_details_not_chart() {
+        let source = include_str!("cpu.rs");
+        let chart = source
+            .split("fn chart_panel(")
+            .nth(1)
+            .unwrap()
+            .split("fn stack_panel(")
+            .next()
+            .unwrap();
+        assert!(chart.contains("chart_scroll("));
+        assert!(!chart.contains("selected_chart_block(ws)"));
+        assert!(!chart.contains("flame_selection_summary"));
+        let details = source
+            .split("fn details_pane(")
+            .nth(1)
+            .unwrap()
+            .split("fn flame_selection_summary(")
+            .next()
+            .unwrap();
+        assert!(details.contains(".overflow_y_scroll()"));
+        let frame = details.find("details_frame(ws, colors, cx)").unwrap();
+        let flame_only = details.find(".when(ws.tab == CpuTab::FlameGraph").unwrap();
+        let selection = details.find("selected_chart_block(ws)").unwrap();
+        assert!(frame < flame_only && flame_only < selection);
+        let summary = details
+            .split(".id(\"cpu-flame-selection-summary\")")
+            .nth(1)
+            .unwrap();
+        assert!(summary.contains(".min_w_0()"));
+        assert!(summary.contains(".flex_shrink_0()"));
+        assert!(summary.contains(".whitespace_normal()"));
+        assert!(summary.contains("studio::selectable(flame_selection_summary("));
+    }
+
+    #[::core::prelude::v1::test]
+    fn flame_selection_summary_preserves_symbol_resource_and_localized_counts() {
+        let mut block = ChartBlock {
+            id: "selected-frame".into(),
+            label: "android.view.ViewGroup.drawChild".into(),
+            resource: "[JIT app cache]".into(),
+            depth: 1,
+            x: 0.,
+            y: 18.,
+            width: 100.,
+            height: 18.,
+            inclusive_weight: 9,
+            self_weight: 2,
+            sample_count: 9,
+            kind: ChartBlockKind::Function,
+            source_count: 1,
+            first_timestamp_nanos: None,
+            last_timestamp_nanos: None,
+            thread_id: Some(42),
+            event_type: Some("cpu-cycles".into()),
+        };
+        assert_eq!(
+            flame_selection_summary(&block, Language::SimplifiedChinese),
+            "android.view.ViewGroup.drawChild · [JIT app cache] · 包含 9 · 样本 9"
+        );
+        assert_eq!(
+            flame_selection_summary(&block, Language::English),
+            "android.view.ViewGroup.drawChild · [JIT app cache] · Inclusive 9 · Samples 9"
+        );
+        block.inclusive_weight = 1234;
+        block.sample_count = 7;
+        assert_eq!(
+            flame_selection_summary(&block, Language::English),
+            "android.view.ViewGroup.drawChild · [JIT app cache] · Inclusive 1234 · Samples 7"
+        );
+    }
 
     #[::core::prelude::v1::test]
     fn captured_profile_requires_idle_import_and_shared_query() {
@@ -8700,28 +9122,159 @@ mod metadata_tests {
         assert!(firefox.contains("prompt_for_new_path"));
         assert!(!firefox.contains("prompt_for_paths"));
     }
+
+    #[test]
+    fn local_firefox_opens_after_successful_import_but_not_for_other_engines_or_failures() {
+        let source = include_str!("cpu.rs");
+        let publish = source
+            .split("fn publish_open_result(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn open_home_recent(")
+            .next()
+            .unwrap();
+        let (success, failure) = publish.split_once("Err(error) =>").unwrap();
+        let automatic = "if self.viewer_engine == 1 {\n                    self.open_local_firefox(cx);\n                }";
+        assert!(success.contains(automatic));
+        assert!(success.find("self.reload(cx)").unwrap() < success.find(automatic).unwrap());
+        assert_eq!(success.matches("self.open_local_firefox(cx)").count(), 1);
+        assert!(!success.contains("save_firefox_for_site"));
+        assert!(!failure.contains("open_local_firefox"));
+        let settings = source
+            .split("pub(crate) fn set_viewer_engine(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn open_selected_viewer(")
+            .next()
+            .unwrap();
+        assert!(!settings.contains("open_local_firefox"));
+    }
+
+    #[test]
+    fn local_firefox_open_rejects_engine_changes_before_browser_handoff() {
+        let source = include_str!("cpu.rs");
+        let open = source
+            .split("fn open_local_firefox(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn selected_converter(")
+            .next()
+            .unwrap();
+        assert!(open.contains("let viewer_epoch = self.viewer_epoch"));
+        let completion = open.split("let result = task.await").nth(1).unwrap();
+        assert!(completion.contains("this.viewer_epoch != viewer_epoch"));
+        assert!(
+            completion.find("this.busy = false").unwrap()
+                < completion
+                    .find("this.viewer_epoch != viewer_epoch")
+                    .unwrap()
+        );
+        assert!(
+            completion
+                .find("this.viewer_epoch != viewer_epoch")
+                .unwrap()
+                < completion.find("cx.open_url(&url)").unwrap()
+        );
+    }
+
+    #[test]
+    fn manual_viewer_open_and_online_export_precede_official_site() {
+        let source = include_str!("cpu.rs");
+        let open = source
+            .split("pub(crate) fn open_selected_viewer(")
+            .nth(1)
+            .unwrap()
+            .split("fn open_local_firefox(")
+            .next()
+            .unwrap();
+        assert!(open.contains("self.session.is_none()"));
+        assert!(open.contains("1 => self.open_local_firefox(cx)"));
+        assert!(open.contains("2 => self.save_firefox_for_site(true, cx)"));
+        let site = source
+            .split("fn save_firefox_for_site(")
+            .nth(1)
+            .unwrap()
+            .split("fn apply_time(")
+            .next()
+            .unwrap();
+        assert!(
+            site.find("write_new_export(&destination, &bytes)").unwrap()
+                < site.find("cx.open_url(").unwrap()
+        );
+        let success = site.split("Ok(()) => {").nth(1).unwrap();
+        assert!(success.contains("if open_website"));
+        assert!(success.contains("crate::firefox_viewer::OFFICIAL_URL"));
+        assert!(!site.contains("from-url"));
+        assert!(!site.contains("postMessage"));
+        assert!(source.contains(".id(\"cpu-workspace-toolbar\")"));
+        assert!(source.contains("\"cpu-open-viewer\""));
+        let close = source
+            .split("fn close(")
+            .nth(1)
+            .unwrap()
+            .split("fn copy_csv(")
+            .next()
+            .unwrap();
+        assert!(close.contains("self.firefox_viewer = None"));
+    }
     #[test]
     fn timeline_reports_truncated_backend_output_and_visible_track_limit() {
         let source = include_str!("cpu.rs");
         assert!(source.contains("truncated: frame.truncated"));
-        assert!(source.contains("omitted_blocks: frame.omitted_blocks"));
+        assert!(source.contains("omitted_blocks: frame.omitted_samples"));
         assert!(source.contains("model.tracks.len().min(TIMELINE_MAX_TRACKS)"));
         assert!(source.contains("CpuChartOutputOmittedBlocks"));
     }
     #[test]
-    fn timeline_bars_are_half_a_bucket_wide_and_capped_at_three_pixels() {
-        for (bucket_width, expected) in [
-            (0.0, 0.0),
-            (0.5, 0.25),
-            (1.0, 0.5),
-            (4.0, 2.0),
-            (6.4, 3.0),
-            (16.0, 3.0),
+    fn timeline_stack_bars_use_firefox_interval_width_and_device_pixel_minimum() {
+        for (interval, expected) in [
+            (0.0, 0.8),
+            (0.5, 0.8),
+            (1.0, 1.2),
+            (2.0, 2.0),
+            (4.0, 4.0),
+            (16.0, 16.0),
         ] {
-            let width = timeline_bar_width(bucket_width);
+            let width = timeline_bar_width(interval);
             assert_eq!(width, expected);
-            assert!(width <= bucket_width * 0.5);
+            assert!(width >= 0.8);
         }
+    }
+    #[test]
+    fn timeline_click_reveals_exact_sample_leaf_without_removing_other_tracks() {
+        let source = include_str!("cpu.rs");
+        let panel = source
+            .split("fn timeline_panel(")
+            .nth(1)
+            .unwrap()
+            .split("fn time_fraction_bounds(")
+            .next()
+            .unwrap();
+        assert!(panel.contains("focus_timeline_sample(thread, time, cx)"));
+        assert!(panel.contains("apply_time_fraction(paint_domain, (a, b), cx)"));
+        assert!(panel.contains("TIMELINE_STACK_HEIGHT"));
+        assert!(panel.contains("TIMELINE_SAMPLE_HEIGHT"));
+        let selection = source
+            .split("fn focus_timeline_sample(")
+            .nth(1)
+            .unwrap()
+            .split("fn toggle_collapsed(")
+            .next()
+            .unwrap();
+        assert!(!selection.contains("self.timeline = None"));
+        assert!(!selection.contains("reset_results("));
+        assert!(selection.contains("CpuTab::CallTree"));
+        assert!(selection.contains("self.collapsed.remove(id)"));
+        assert!(selection.contains("ScrollStrategy::Center"));
+        assert!(source.contains("transformed_call_tree_selecting_sample("));
+    }
+    #[test]
+    fn timeline_click_time_is_clamped_to_half_open_domain() {
+        assert_eq!(super::timeline_sample_time((10, 110), 0.5), Some(60));
+        assert_eq!(super::timeline_sample_time((10, 110), 1.), Some(109));
+        assert_eq!(super::timeline_sample_time((10, 110), -1.), Some(10));
+        assert_eq!(super::timeline_sample_time((10, 10), 0.5), None);
+        assert_eq!(super::timeline_sample_time((10, 110), f32::NAN), None);
     }
     #[test]
     fn timeline_query_preserves_every_filter_except_thread_selection() {
@@ -8889,6 +9442,7 @@ pub(crate) enum CpuMenuCommand {
     Export(ExportKind),
     /// Save the Firefox profiler JSON of the open session.
     ExportFirefox,
+    OpenSelectedViewer,
     /// Open one capture-configuration section (Compose Tools > Configuration).
     Configuration(u8),
     /// Shell Settings page. macOS reaches Settings through the application menu,
@@ -8993,6 +9547,7 @@ impl crate::shell::menubar::MenuHost for CpuWorkspace {
             CpuMenuCommand::OpenRecent(recent) => self.open_recent(recent, cx),
             CpuMenuCommand::Export(kind) => self.save_export(kind, cx),
             CpuMenuCommand::ExportFirefox => self.save_firefox(cx),
+            CpuMenuCommand::OpenSelectedViewer => self.open_selected_viewer(cx),
             CpuMenuCommand::Configuration(section) => {
                 window.dispatch_action(Box::new(crate::shell::OpenCaptureSettings { section }), cx)
             }
@@ -9143,9 +9698,9 @@ fn cpu_file_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
                 CpuMenuCommand::Export(ExportKind::Html),
             )
             .item_when(
-                false,
-                TextKey::CpuWorkspaceExportOpenExternally,
-                CpuMenuCommand::Unavailable,
+                can_export,
+                TextKey::CpuViewerOpen,
+                CpuMenuCommand::OpenSelectedViewer,
             )
         })
         .separator()

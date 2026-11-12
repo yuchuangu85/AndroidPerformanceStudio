@@ -1,5 +1,9 @@
 {
   "cpu_all": "全部",
+  "cpu_viewer_open": "在选定查看器中打开",
+  "cpu_viewer_local_opened": "已打开本地 Firefox Profiler，报告仅在本机提供。",
+  "cpu_viewer_online_exported": "报告已导出并打开 Firefox Profiler 官网，请在那里导入已保存的文件；APS 未上传报告。",
+  "cpu_viewer_storage_unavailable": "本地 Firefox Profiler 需要可用的 Rust 应用数据目录。",
   "cpu_apply_time_range": "应用时间范围",
   "cpu_call_tree": "调用树",
   "cpu_call_tree_flame": "火焰图",

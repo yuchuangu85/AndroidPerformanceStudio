@@ -179,6 +179,22 @@ impl CpuSession {
         transforms: &TransformSet,
         max_rows: usize,
     ) -> Result<FullCallTree, String> {
+        self.transformed_call_tree_selecting_sample(query, transforms, max_rows, None)
+            .map(|(tree, _)| tree)
+    }
+
+    /// Returns the transformed tree and the materialized row receiving the
+    /// selected sample's self metrics. `sample_ordinal` is the original stream
+    /// record ordinal, not an index into the filtered samples. If transforms
+    /// remove the original leaf, selection follows the retained self frame.
+    /// Filtered, dropped, missing and row-capped selections return `None`.
+    pub fn transformed_call_tree_selecting_sample(
+        &mut self,
+        query: &Query,
+        transforms: &TransformSet,
+        max_rows: usize,
+        sample_ordinal: Option<usize>,
+    ) -> Result<(FullCallTree, Option<String>), String> {
         transforms.validate()?;
         if max_rows == 0 || max_rows > MAX_FULL_TREE_ROWS {
             return Err(format!(
@@ -186,12 +202,24 @@ impl CpuSession {
             ));
         }
         if transforms.is_empty() {
-            return self.full_call_tree(query, max_rows);
+            let tree = self.full_call_tree(query, max_rows)?;
+            let selected_id = match sample_ordinal {
+                Some(ordinal) => self.sample_call_node_id(query, ordinal)?,
+                None => None,
+            }
+            .filter(|id| tree.rows.iter().any(|row| row.id == *id));
+            return Ok((tree, selected_id));
         }
         let selected = select(&self.stream, query)?;
-        let (nodes, roots) = aggregate(&selected, transforms, query.direction, query.weight_type)?;
-        let (rows, truncated) = materialize(&nodes, &roots, max_rows);
-        Ok(FullCallTree { rows, truncated })
+        let (nodes, roots, selected_node) = aggregate(
+            &selected,
+            transforms,
+            query.direction,
+            query.weight_type,
+            sample_ordinal,
+        )?;
+        let (rows, truncated, selected_id) = materialize(&nodes, &roots, max_rows, selected_node);
+        Ok((FullCallTree { rows, truncated }, selected_id))
     }
 
     /// Builds the transformed rows capped at [`MAX_FULL_TREE_ROWS`] and lays
@@ -221,10 +249,12 @@ fn aggregate(
     transforms: &TransformSet,
     direction: Direction,
     weight_type: WeightType,
-) -> Result<(Vec<Node>, BTreeMap<NodeKey, usize>), String> {
+    sample_ordinal: Option<usize>,
+) -> Result<(Vec<Node>, BTreeMap<NodeKey, usize>, Option<usize>), String> {
     let mut roots = BTreeMap::new();
     let mut nodes: Vec<Node> = Vec::new();
-    for (_, sample) in &selected.samples {
+    let mut selected_node = None;
+    for (ordinal, sample) in &selected.samples {
         if sample.callchain.len() > MAX_CALLCHAIN_FRAMES {
             return Err("callchain exceeds 512 frames".into());
         }
@@ -319,22 +349,27 @@ fn aggregate(
             if depth == self_index {
                 add(&mut node.self_weight, value)?;
                 add(&mut node.self_sample_count, 1)?;
+                if sample_ordinal == Some(*ordinal) {
+                    selected_node = Some(index);
+                }
             }
             parent = Some(index);
         }
     }
-    Ok((nodes, roots))
+    Ok((nodes, roots, selected_node))
 }
 
 fn materialize(
     nodes: &[Node],
     roots: &BTreeMap<NodeKey, usize>,
     max_rows: usize,
-) -> (Vec<QueryRow>, bool) {
+    selected_node: Option<usize>,
+) -> (Vec<QueryRow>, bool, Option<String>) {
     let truncated = nodes.len() > max_rows;
     let mut rows = Vec::with_capacity(nodes.len().min(max_rows));
     let mut preorder = vec![usize::MAX; nodes.len()];
     let mut pending: Vec<usize> = roots.values().rev().copied().collect();
+    let mut selected_id = None;
     while let Some(node_index) = pending.pop() {
         if rows.len() == max_rows {
             break;
@@ -342,8 +377,12 @@ fn materialize(
         let node = &nodes[node_index];
         let index = rows.len();
         preorder[node_index] = index;
+        let id = format!("aps-transform-v1/{index}");
+        if selected_node == Some(node_index) {
+            selected_id = Some(id.clone());
+        }
         rows.push(QueryRow {
-            id: format!("aps-transform-v1/{index}"),
+            id,
             parent_id: node
                 .parent
                 .map(|parent| format!("aps-transform-v1/{}", preorder[parent])),
@@ -357,5 +396,5 @@ fn materialize(
         });
         pending.extend(node.children.values().rev().copied());
     }
-    (rows, truncated)
+    (rows, truncated, selected_id)
 }

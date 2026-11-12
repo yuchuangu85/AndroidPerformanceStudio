@@ -243,7 +243,7 @@ CPU toolbar/Tools actions and its capture shortcut now open this explicit planne
 without starting device recording. Current bounds remain 1..300 integer seconds
 and 1..4000 Hz; manual duration/Stop-and-save and event discovery are unfinished.
 
-This is not full settings parity: Legacy/Firefox engines, device-dependent
+This is not full settings parity: Legacy engines, device-dependent
 capture configuration, live capture archive limits, extension/agent/skill
 package management and sandboxed script execution still need Rust adapters and
 remain visibly disabled. AI provider connections, local Codex/Claude config
@@ -252,6 +252,33 @@ retention controls are wired to the Rust AI runtime. General scaling covers base
 fonts and rem-based controls, not every explicit-pixel profiler element. Current
 automated evidence is recorded in the continuation report; native visual matching
 and device/provider/package acceptance remain separate open gates.
+
+### CPU Viewer Selection
+
+Settings > Simpleperf selects Native Rust (default), Firefox Profiler (bundled)
+or Firefox Profiler (online). The choice persists across launches. Successful
+imports automatically open the bundled local viewer when it is selected,
+including reopened snapshots and captured profiles. The CPU toolbar's **Open in
+selected viewer** command remains available for reopening the viewer or using
+online mode. Changing the preference alone does not launch a browser or send data.
+
+- Native Rust keeps analysis inside APS.
+- Bundled Firefox opens the repository's `third_party/firefox-profiler/dist`
+  production build in the system browser, loading the session through a private
+  loopback profile URL. Keep/build that directory before using this mode;
+  missing assets produce an explicit error. A packaged application must include
+  the same asset directory under its resources. Closing/replacing the CPU
+  session shuts down its local server.
+  Its read-only query adapter is owned by APS and injected into HTTP responses,
+  leaving upstream source and build files unchanged. The local-viewer AI entry
+  pulls current browser evidence asynchronously; stale or unavailable browser
+  data is an explicit error, not a native-selection fallback. See the
+  [versioned API and compatibility checks](../integrations/firefox-profiler/README.md).
+- Online Firefox first saves a `.json.gz` file to the chosen destination, then
+  opens the official website for manual import. APS never uploads the profile
+  or sends it through a localhost URL to the official website. Cancelling the
+  save dialog does not open the browser. Sharing from Firefox remains a separate
+  action controlled by that viewer.
 
 ## AI Analysis workspace
 

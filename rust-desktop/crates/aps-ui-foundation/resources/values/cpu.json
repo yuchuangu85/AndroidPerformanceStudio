@@ -1,5 +1,9 @@
 {
   "cpu_all": "All",
+  "cpu_viewer_open": "Open in selected viewer",
+  "cpu_viewer_local_opened": "Local Firefox Profiler opened. Profile data is served on this computer only.",
+  "cpu_viewer_online_exported": "Profile exported and official Firefox Profiler opened. Import the saved file there; APS has not uploaded it.",
+  "cpu_viewer_storage_unavailable": "Local Firefox Profiler requires an available Rust application data directory.",
   "cpu_apply_time_range": "Apply time range",
   "cpu_call_tree": "Call Tree",
   "cpu_call_tree_flame": "Flame",

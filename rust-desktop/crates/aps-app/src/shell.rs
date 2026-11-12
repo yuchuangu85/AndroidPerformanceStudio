@@ -662,6 +662,32 @@ pub(crate) struct FrameLayoutInspectionRequest {
     pub frame_id: u64,
 }
 
+#[derive(Default)]
+struct AiRequestEpoch {
+    next: u64,
+    pending: Option<u64>,
+}
+
+impl AiRequestEpoch {
+    fn begin(&mut self) -> Result<u64, String> {
+        self.cancel();
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or("AI request epochs are exhausted")?;
+        self.pending = Some(self.next);
+        Ok(self.next)
+    }
+
+    fn cancel(&mut self) {
+        self.pending = None;
+    }
+
+    fn accepts(&self, epoch: u64, origin: Destination, destination: Destination) -> bool {
+        self.pending == Some(epoch) && origin == destination
+    }
+}
+
 pub struct Studio {
     settings: Settings,
     settings_path: Option<PathBuf>,
@@ -686,6 +712,7 @@ pub struct Studio {
     targets: Entity<TargetsWorkspace>,
     ai_origin: Option<Destination>,
     ai_generation: u64,
+    ai_request_epoch: AiRequestEpoch,
     captured: Option<aps_capture::CapturedArtifact>,
     settings_page: SettingsPage,
     settings_scroll: ScrollHandle,
@@ -1230,7 +1257,8 @@ impl Studio {
             inspector.apply_preferences(settings.layout, cx)
         });
         cpu.update(cx, |cpu, cx| {
-            cpu.set_follow_tooltip(settings.simpleperf_follow_tooltip, cx)
+            cpu.set_follow_tooltip(settings.simpleperf_follow_tooltip, cx);
+            cpu.set_viewer_engine(settings.simpleperf_viewer_engine, cx);
         });
         window.set_rem_size(px(16. * settings.display_scale.multiplier()));
         let focus = cx.focus_handle();
@@ -1259,6 +1287,7 @@ impl Studio {
             targets,
             ai_origin: None,
             ai_generation: 0,
+            ai_request_epoch: AiRequestEpoch::default(),
             captured: None,
             settings_page: SettingsPage::General,
             settings_scroll: ScrollHandle::new(),
@@ -1304,7 +1333,7 @@ impl Studio {
                     memory.open_home_artifact(std::path::PathBuf::from(path), cx)
                 });
                 if opened {
-                    studio.destination = Destination::Memory;
+                    studio.set_destination(Destination::Memory);
                 }
             }
         }
@@ -1320,7 +1349,7 @@ impl Studio {
         }
         #[cfg(debug_assertions)]
         if let Some(path) = std::env::var_os("APS_RUST_OPEN_METHOD") {
-            studio.destination = Destination::MethodRecording;
+            studio.set_destination(Destination::MethodRecording);
             studio.method.update(cx, |method, cx| {
                 method.open_debug_trace(std::path::PathBuf::from(path), cx);
             });
@@ -1330,7 +1359,7 @@ impl Studio {
         // explicit CPU source always lands on the CPU workspace.
         #[cfg(debug_assertions)]
         if let Some(path) = std::env::var_os("APS_RUST_OPEN_CPU") {
-            studio.destination = Destination::Cpu;
+            studio.set_destination(Destination::Cpu);
             let cpu = studio.cpu.clone();
             cpu.update(cx, |cpu, cx| {
                 cpu.open_debug_source(std::path::PathBuf::from(path), cx)
@@ -1340,14 +1369,14 @@ impl Studio {
         // driving the native navigation.
         #[cfg(debug_assertions)]
         if std::env::var_os("APS_RUST_OPEN_SETTINGS_AI").is_some() {
-            studio.destination = Destination::Settings;
+            studio.set_destination(Destination::Settings);
             studio.settings_page = SettingsPage::Ai;
         }
         // Debug-only verification seam: opens an exported frame-analysis.json
         // on launch without driving the native file picker.
         #[cfg(debug_assertions)]
         if let Some(path) = std::env::var_os("APS_RUST_OPEN_FRAME_JSON") {
-            studio.destination = Destination::Frame;
+            studio.set_destination(Destination::Frame);
             studio.frame.update(cx, |frame, cx| {
                 frame.import_debug_analysis_json(std::path::PathBuf::from(path), cx)
             });
@@ -1356,7 +1385,7 @@ impl Studio {
         // driving the platform file picker.
         #[cfg(debug_assertions)]
         if let Some(path) = std::env::var_os("APS_RUST_OPEN_INSPECTOR") {
-            studio.destination = Destination::LayoutInspector;
+            studio.set_destination(Destination::LayoutInspector);
             studio.inspector.update(cx, |inspector, cx| {
                 inspector.open_debug_archive(std::path::PathBuf::from(path), cx)
             });
@@ -1403,7 +1432,7 @@ impl Studio {
         }
         #[cfg(debug_assertions)]
         if let Some(serial) = std::env::var_os("APS_RUST_INSPECTOR_CAPTURE") {
-            studio.destination = Destination::LayoutInspector;
+            studio.set_destination(Destination::LayoutInspector);
             let serial = serial.to_string_lossy().into_owned();
             cx.spawn(async move |this, cx| {
                 cx.background_executor()
@@ -1453,7 +1482,7 @@ impl Studio {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.destination = Destination::SourceWorkspaces;
+        self.set_destination(Destination::SourceWorkspaces);
         self.source.update(cx, |source, cx| {
             source.navigate_to_symbol(symbol, resource, cx)
         });
@@ -1461,7 +1490,48 @@ impl Studio {
     }
 
     pub(crate) fn prepare_ai(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ai_request_epoch.cancel();
         let origin = self.destination;
+        if origin == Destination::Cpu
+            && let Some(query) = self.cpu.read(cx).firefox_ai_query()
+        {
+            let query = match query {
+                Ok(query) => query,
+                Err(error) => {
+                    self.present_ai_request(origin, Err(error), window, cx);
+                    return;
+                }
+            };
+            let epoch = match self.ai_request_epoch.begin() {
+                Ok(epoch) => epoch,
+                Err(error) => {
+                    self.present_ai_request(origin, Err(error), window, cx);
+                    return;
+                }
+            };
+            let binding = query.binding;
+            cx.spawn_in(window, async move |this, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { query.wait() })
+                    .await;
+                let _ = this.update_in(cx, |studio, window, cx| {
+                    if !studio
+                        .ai_request_epoch
+                        .accepts(epoch, origin, studio.destination)
+                    {
+                        return;
+                    }
+                    studio.ai_request_epoch.cancel();
+                    if !studio.cpu.read(cx).firefox_ai_binding_is_current(binding) {
+                        return;
+                    }
+                    studio.present_ai_request(origin, result, window, cx);
+                });
+            })
+            .detach();
+            return;
+        }
         let result = match origin {
             Destination::Cpu => self.cpu.read(cx).analysis_request(),
             Destination::MethodRecording => self.method.read(cx).analysis_request(),
@@ -1494,6 +1564,7 @@ impl Studio {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.ai_request_epoch.cancel();
         match result {
             Ok(mut request) => {
                 let Some(generation) = self.ai_generation.checked_add(1) else {
@@ -1512,7 +1583,7 @@ impl Studio {
                 self.ai
                     .update(cx, |ai, cx| ai.bind_context(request, window, cx));
                 self.ai_origin = Some(origin);
-                self.destination = Destination::Ai;
+                self.set_destination(Destination::Ai);
                 self.notice = None;
             }
             Err(error) => self.notice = Some(error),
@@ -1690,7 +1761,7 @@ impl Studio {
     fn open_capture_settings(&mut self, section: u8, cx: &mut Context<Self>) {
         let _ = section;
         self.settings_page = SettingsPage::Simpleperf;
-        self.destination = Destination::Settings;
+        self.set_destination(Destination::Settings);
         self.refresh_route_menus(cx);
         cx.notify();
     }
@@ -1750,7 +1821,7 @@ impl Studio {
         }
     }
     fn open_cpu(&mut self, _: &OpenProfile, _: &mut Window, cx: &mut Context<Self>) {
-        self.destination = Destination::Cpu;
+        self.set_destination(Destination::Cpu);
         self.cpu.update(cx, |cpu, cx| cpu.pick_file(cx));
         cx.notify();
     }
@@ -1761,7 +1832,7 @@ impl Studio {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.destination = Destination::LayoutInspector;
+        self.set_destination(Destination::LayoutInspector);
         self.refresh_inspector_recent(cx);
         self.inspector
             .update(cx, |inspector, cx| inspector.pick(cx));
@@ -1770,21 +1841,21 @@ impl Studio {
 
     fn enter_inspector_for_action(&mut self, cx: &mut Context<Self>) {
         let entering = self.destination != Destination::LayoutInspector;
-        self.destination = Destination::LayoutInspector;
+        self.set_destination(Destination::LayoutInspector);
         if entering {
             self.refresh_inspector_recent(cx);
         }
     }
 
     fn open_settings(&mut self, _: &OpenSettings, _: &mut Window, cx: &mut Context<Self>) {
-        self.destination = Destination::Settings;
+        self.set_destination(Destination::Settings);
         cx.notify();
     }
 
     /// Opens the AI settings page from a profiler page action button.
     pub(crate) fn open_ai_settings(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.settings_page = SettingsPage::Ai;
-        self.destination = Destination::Settings;
+        self.set_destination(Destination::Settings);
         cx.notify();
     }
 
@@ -1795,7 +1866,7 @@ impl Studio {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.destination = Destination::SourceWorkspaces;
+        self.set_destination(Destination::SourceWorkspaces);
         self.source.update(cx, |source, cx| {
             source.open_candidate_hex(&candidate_id, cx)
         });
@@ -1833,7 +1904,7 @@ impl Studio {
     }
 
     fn open_ai_workspace(&mut self, _: &OpenAiWorkspace, _: &mut Window, cx: &mut Context<Self>) {
-        self.destination = Destination::Ai;
+        self.set_destination(Destination::Ai);
         cx.notify();
     }
 
@@ -2060,7 +2131,7 @@ impl Studio {
             ShellMenu::OpenSettings => self.open_settings(&OpenSettings, window, cx),
             ShellMenu::SettingsTab(page) => {
                 self.select_settings_page(page);
-                self.destination = Destination::Settings;
+                self.set_destination(Destination::Settings);
             }
         }
         self.refresh_route_menus(cx);
@@ -2074,7 +2145,8 @@ impl Studio {
             inspector.apply_preferences(self.settings.layout, cx)
         });
         self.cpu.update(cx, |cpu, cx| {
-            cpu.set_follow_tooltip(self.settings.simpleperf_follow_tooltip, cx)
+            cpu.set_follow_tooltip(self.settings.simpleperf_follow_tooltip, cx);
+            cpu.set_viewer_engine(self.settings.simpleperf_viewer_engine, cx);
         });
         self.capture.update(cx, |capture, cx| {
             capture.set_defaults(
@@ -2231,6 +2303,11 @@ impl Studio {
         });
     }
 
+    fn set_destination(&mut self, destination: Destination) {
+        self.ai_request_epoch.cancel();
+        self.destination = destination;
+    }
+
     fn navigate(&mut self, destination: Destination, cx: &mut Context<Self>) {
         let (destination, settings_page) = resolve_capture_route(destination, self.settings_page);
         if destination != Destination::LayoutInspector {
@@ -2240,7 +2317,7 @@ impl Studio {
         self.select_settings_page(settings_page);
         let entering_home = destination == Destination::Home && self.destination != destination;
         let route = destination;
-        self.destination = destination;
+        self.set_destination(destination);
         self.refresh_route_menus(cx);
         if destination == Destination::LayoutInspector {
             self.refresh_inspector_recent(cx);
@@ -3152,7 +3229,7 @@ impl Render for Studio {
                                     )
                                     .on_click(cx.listener(
                                         |this, _, _, cx| {
-                                            this.destination = Destination::Ai;
+                                            this.set_destination(Destination::Ai);
                                             cx.notify();
                                         },
                                     )),
@@ -3196,7 +3273,7 @@ impl Render for Studio {
                                         )
                                         .on_click(
                                             cx.listener(|this, _, _, cx| {
-                                                this.destination = Destination::Settings;
+                                                this.set_destination(Destination::Settings);
                                                 cx.notify();
                                             }),
                                         ),
@@ -3315,6 +3392,56 @@ impl Render for Studio {
 #[cfg(test)]
 mod menubar_tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn firefox_ai_request_epoch_rejects_older_requests_and_navigation_round_trips() {
+        let mut state = AiRequestEpoch::default();
+        let first = state.begin().unwrap();
+        assert!(state.accepts(first, Destination::Cpu, Destination::Cpu));
+        assert!(!state.accepts(first, Destination::Cpu, Destination::Ai));
+        let newer = state.begin().unwrap();
+        assert!(!state.accepts(first, Destination::Cpu, Destination::Cpu));
+        assert!(state.accepts(newer, Destination::Cpu, Destination::Cpu));
+        state.cancel();
+        assert!(!state.accepts(newer, Destination::Cpu, Destination::Cpu));
+        let after_navigation = state.begin().unwrap();
+        assert!(after_navigation > newer);
+        assert!(!state.accepts(newer, Destination::Cpu, Destination::Cpu));
+        assert!(state.accepts(after_navigation, Destination::Cpu, Destination::Cpu));
+    }
+
+    #[::core::prelude::v1::test]
+    fn firefox_ai_request_epoch_exhaustion_cancels_pending_work() {
+        let mut state = AiRequestEpoch {
+            next: u64::MAX,
+            pending: Some(1),
+        };
+        assert!(state.begin().is_err());
+        assert!(!state.accepts(1, Destination::Cpu, Destination::Cpu));
+    }
+
+    #[::core::prelude::v1::test]
+    fn firefox_ai_all_shell_navigation_and_presented_requests_cancel_pending_queries() {
+        let source = include_str!("shell.rs");
+        let implementation = source.split("mod menubar_tests {").next().unwrap();
+        assert_eq!(implementation.matches(".destination = ").count(), 1);
+        let navigation = implementation
+            .split("fn set_destination(")
+            .nth(1)
+            .unwrap()
+            .split("fn navigate(")
+            .next()
+            .unwrap();
+        assert!(navigation.contains("self.ai_request_epoch.cancel()"));
+        let presentation = implementation
+            .split("pub(crate) fn present_ai_request(")
+            .nth(1)
+            .unwrap()
+            .split("/// Opens the bundled user")
+            .next()
+            .unwrap();
+        assert!(presentation.contains("self.ai_request_epoch.cancel()"));
+    }
 
     #[cfg(debug_assertions)]
     #[::core::prelude::v1::test]
