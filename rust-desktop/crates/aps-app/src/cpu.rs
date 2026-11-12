@@ -1208,7 +1208,7 @@ impl CpuWorkspace {
             let mut session = session
                 .lock()
                 .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSessionLockPoisoned))?;
-            let row_height_px = if tab == CpuTab::FlameGraph {
+            let row_height_px = if matches!(tab, CpuTab::FlameGraph | CpuTab::StackChart) {
                 FLAME_ROW_HEIGHT_PX
             } else {
                 CHART_ROW_HEIGHT_PX
@@ -5560,14 +5560,6 @@ fn stack_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
         .flex()
         .items_center()
         .gap(px(6.))
-        .child(
-            div()
-                .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(colors.secondary_text)
-                .child(crate::studio::selectable(
-                    lang.text(TextKey::CpuOnePixelSamplePointsIntervalsAreNot),
-                )),
-        )
         .child(div().flex_1());
     if ws.query.start.is_some() || ws.query.end.is_some() {
         note = note.child(
@@ -5775,11 +5767,7 @@ fn chart_scroll(
     cx: &Context<CpuWorkspace>,
 ) -> AnyElement {
     let viewport = chart_viewport_size(ws);
-    let background = if mode == ChartMode::Flame {
-        firefox_chart_background(colors.dark)
-    } else {
-        colors.field
-    };
+    let background = firefox_chart_background(colors.dark);
     let tooltip = ws
         .chart_hover
         .as_deref()
@@ -5790,18 +5778,12 @@ fn chart_scroll(
             .selected(id)
             .map(|block| chart_context_menu(ws, block, (*x, *y), colors, cx))
     });
-    let mut scroller = div()
+    let scroller = div()
         .id("cpu-chart-scroll")
         .size_full()
         .overflow_scroll()
         .track_scroll(&ws.chart_scroll)
         .bg(background);
-    if mode != ChartMode::Flame {
-        scroller = scroller
-            .rounded(px(studio::metrics::PANEL_RADIUS))
-            .border_1()
-            .border_color(colors.border);
-    }
     let mut root = div()
         .relative()
         .flex_1()
@@ -5867,7 +5849,30 @@ fn flame_box_rect(
     )
 }
 
-fn flame_frame_point(
+/// Official Stack Chart boxes floor the left edge, ceil the width, add a 0.4
+/// device-pixel translucent border column and leave one CSS pixel between rows.
+fn stack_box_rect(
+    block: &ChartBlock,
+    frame_width: f32,
+    display_width: f32,
+    scale: f32,
+) -> (f32, f32, f32, f32) {
+    let left = block.x / frame_width * display_width;
+    let scale = scale.max(1.);
+    let left = (left * scale).floor();
+    let width = (block.width / frame_width * display_width * scale)
+        .ceil()
+        .max(1.);
+    let top = (block.y * scale).round();
+    (
+        left / scale,
+        top / scale,
+        (width + 0.4) / scale,
+        (block.height - 1.).max(1.),
+    )
+}
+
+fn chart_frame_point(
     x: f32,
     y: f32,
     display_width: f32,
@@ -5876,13 +5881,11 @@ fn flame_frame_point(
     top_offset: f32,
     flame: bool,
 ) -> (f32, f32) {
+    let frame_x = x * frame_width / display_width.max(1.);
     if flame {
-        (
-            x * frame_width / display_width.max(1.),
-            (graph_height - (y - top_offset) - 1.).max(0.),
-        )
+        (frame_x, (graph_height - (y - top_offset) - 1.).max(0.))
     } else {
-        (x, y)
+        (frame_x, y)
     }
 }
 
@@ -5929,20 +5932,16 @@ fn chart_canvas(
     let up_origin = origin.clone();
     let menu_origin = origin.clone();
     let (pane_width, pane_height) = chart_viewport_size(ws);
-    let display_width = if mode == ChartMode::Flame {
-        pane_width.max(1.0)
-    } else {
-        frame.width_px
-    };
-    let display_height = if mode == ChartMode::Flame {
-        pane_height.max(frame.height_px).max(48.0).min(4000.0)
-    } else {
-        frame.height_px.clamp(48.0, 4000.0)
-    };
+    let display_width = pane_width.max(1.0);
+    let display_height = pane_height.max(frame.height_px).max(48.0).min(4000.0);
     let frame_width = frame.width_px.max(1.0);
     let graph_height = frame.height_px;
-    let top_offset = (display_height - graph_height).max(0.0);
     let flame = mode == ChartMode::Flame;
+    let top_offset = if flame {
+        (display_height - graph_height).max(0.0)
+    } else {
+        0.0
+    };
     let width = display_width;
     let height = display_height;
     let selected = ws.chart_selected.clone();
@@ -5963,11 +5962,6 @@ fn chart_canvas(
     let paint_search = search.clone();
     let paint_drag = drag;
     let paint_range = selected_range;
-    let label_color = if colors.dark {
-        rgb(0xf2f7ff)
-    } else {
-        rgb(0x1d1d1f)
-    };
     let mut container = div()
         .id("cpu-chart")
         .relative()
@@ -5996,7 +5990,7 @@ fn chart_canvas(
                 this.update_chart_drag((x / width).clamp(0.0, 1.0), cx);
             } else {
                 let (fx, fy) =
-                    flame_frame_point(x, y, width, frame_width, graph_height, top_offset, flame);
+                    chart_frame_point(x, y, width, frame_width, graph_height, top_offset, flame);
                 let hit = hit_frame_move
                     .hit_test(fx, fy)
                     .map(|block| block.id.clone());
@@ -6016,7 +6010,7 @@ fn chart_canvas(
                     this.commit_chart_drag(cx);
                 } else {
                     this.chart_drag = None;
-                    let (fx, fy) = flame_frame_point(
+                    let (fx, fy) = chart_frame_point(
                         x,
                         y,
                         width,
@@ -6040,7 +6034,7 @@ fn chart_canvas(
                 let x = f32::from(event.position.x - origin.x);
                 let y = f32::from(event.position.y - origin.y);
                 let (fx, fy) =
-                    flame_frame_point(x, y, width, frame_width, graph_height, top_offset, flame);
+                    chart_frame_point(x, y, width, frame_width, graph_height, top_offset, flame);
                 if let Some(block) = hit_frame_menu.hit_test(fx, fy) {
                     this.open_chart_menu((x, y), block.id.clone(), cx);
                 }
@@ -6060,12 +6054,7 @@ fn chart_canvas(
                         let (x, y, box_width, box_height) = if flame {
                             flame_box_rect(block, frame_width, width, height, graph_height, scale)
                         } else {
-                            (
-                                block.x,
-                                block.y,
-                                block.width.max(1.0),
-                                block.height.max(1.0),
-                            )
+                            stack_box_rect(block, frame_width, width, scale)
                         };
                         if box_width <= 0.0 || box_height <= 0.0 || y >= height {
                             continue;
@@ -6090,6 +6079,26 @@ fn chart_canvas(
                             transparent_black(),
                             Default::default(),
                         ));
+                    }
+                    if !flame {
+                        let border = if colors.dark {
+                            rgb(0x38383d)
+                        } else {
+                            rgb(0xd7d7db)
+                        };
+                        for x in [0.0, (width - 1.0).max(0.0)] {
+                            window.paint_quad(quad(
+                                Bounds {
+                                    origin: point(bounds.origin.x + px(x), bounds.origin.y),
+                                    size: size(px(1.), px(height)),
+                                },
+                                px(0.),
+                                border,
+                                px(0.),
+                                transparent_black(),
+                                Default::default(),
+                            ));
+                        }
                     }
                     let mut paint_band = |from: f32, to: f32, fill: Rgba| {
                         let (lo, hi) = if from <= to { (from, to) } else { (to, from) };
@@ -6134,9 +6143,14 @@ fn chart_canvas(
                 block.height,
             )
         } else {
-            (block.x, block.y, block.width, block.height)
+            (
+                block.x / frame_width * width,
+                block.y,
+                block.width / frame_width * width,
+                block.height,
+            )
         };
-        let minimum_width = if flame { 32.0 } else { 44.0 };
+        let minimum_width = if flame { 32.0 } else { 24.0 };
         if top >= height || label_width < minimum_width || label_height < 11.0 {
             continue;
         }
@@ -6151,18 +6165,12 @@ fn chart_canvas(
         } else {
             block.label.clone()
         };
-        let text_color = if flame {
-            firefox_chart_text_color(
-                colors.dark,
-                &block.label,
-                &block.resource,
-                selected_block || hovered_block || search_match,
-            )
-        } else if selected_block || hovered_block || search_match {
-            colors.accent_text
-        } else {
-            label_color
-        };
+        let text_color = firefox_chart_text_color(
+            colors.dark,
+            &block.label,
+            &block.resource,
+            selected_block || hovered_block || search_match,
+        );
         container = container.child(
             div()
                 .absolute()
@@ -6171,11 +6179,7 @@ fn chart_canvas(
                 .w(px((label_width - 6.0).max(1.0)))
                 .h(px((label_height - 2.0).max(1.0)))
                 .overflow_hidden()
-                .text_size(px(if flame {
-                    FLAME_FONT_SIZE
-                } else {
-                    studio::FONT_SUPPORTING
-                }))
+                .text_size(px(FLAME_FONT_SIZE))
                 .text_color(text_color)
                 .whitespace_nowrap()
                 .text_ellipsis()

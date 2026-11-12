@@ -3,8 +3,11 @@ use crate::{
     selection::{add, labels, select, weight},
     Direction, Query, QueryRow, WeightType,
 };
-use aps_simpleperf_engine::simpleperf::SimpleperfStream;
-use std::collections::BTreeMap;
+use aps_simpleperf_engine::simpleperf::{Sample, SimpleperfStream};
+use std::{
+    collections::BTreeMap,
+    hash::{Hash, Hasher},
+};
 
 pub const MAX_CHART_BLOCKS: usize = 20_000;
 pub const MAX_CHART_WIDTH_PX: f32 = 16_384.0;
@@ -205,6 +208,15 @@ impl Builder {
         self.text_bytes += needed;
         true
     }
+    fn add_timing(&mut self, block: ChartBlock) -> Result<(), String> {
+        if self.full() || !self.reserve_text(&block.id, &block.label, &block.resource, None) {
+            self.omitted += 1;
+            return Ok(());
+        }
+        self.blocks.push(block);
+        Ok(())
+    }
+
     fn add_function(&mut self, row: &QueryRow, x: f32, width: f32) -> Result<(), String> {
         if width <= 0.0 {
             return Ok(());
@@ -398,6 +410,210 @@ pub fn flame_frame_from_rows(
         ..Query::default()
     };
     flame(rows, &query, viewport, start_fraction, end_fraction)
+}
+
+/// Stack-chart timing rows for one thread. Unlike the timeline pixel packet,
+/// these blocks span real sample intervals so adjacent samples of the same call
+/// node become one time-based box, matching Firefox Profiler's Stack Chart.
+pub(crate) fn stack_chart(
+    stream: &SimpleperfStream,
+    query: &Query,
+    viewport: TimelineViewport,
+) -> Result<ChartFrame, String> {
+    viewport.chart.validate()?;
+    if viewport.start_nanos >= viewport.end_nanos {
+        return Err("timeline requires start_nanos < end_nanos".into());
+    }
+    let selected = select(stream, query)?;
+    let mut counts = BTreeMap::<i32, usize>::new();
+    for (_, sample) in &selected.samples {
+        *counts.entry(sample.thread_id).or_default() += 1;
+    }
+    let thread_id = query.thread_ids.iter().next().copied().or_else(|| {
+        counts
+            .iter()
+            .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
+            .map(|(id, _)| *id)
+    });
+    let Some(thread_id) = thread_id else {
+        return Ok(Builder::new(viewport.chart).finish(
+            0,
+            ChartDomain::SamplePoints {
+                start_nanos: viewport.start_nanos,
+                end_nanos: viewport.end_nanos,
+            },
+        ));
+    };
+    let mut samples: Vec<(usize, &Sample)> = selected
+        .samples
+        .iter()
+        .filter(|(_, sample)| sample.thread_id == thread_id && !sample.callchain.is_empty())
+        .map(|(ordinal, sample)| (*ordinal, *sample))
+        .collect();
+    samples.sort_by_key(|(ordinal, sample)| (sample.time, *ordinal));
+    if samples.is_empty() {
+        return Ok(Builder::new(viewport.chart).finish(
+            0,
+            ChartDomain::SamplePoints {
+                start_nanos: viewport.start_nanos,
+                end_nanos: viewport.end_nanos,
+            },
+        ));
+    }
+    let total_depth = samples
+        .iter()
+        .map(|(_, sample)| sample.callchain.len())
+        .max()
+        .unwrap_or(0)
+        .min(viewport.chart.depth_count)
+        .min(512);
+    let mut deltas: Vec<u64> = samples
+        .windows(2)
+        .map(|pair| pair[1].1.time.saturating_sub(pair[0].1.time))
+        .filter(|delta| *delta > 0)
+        .collect();
+    deltas.sort_unstable();
+    let interval = deltas.get(deltas.len() / 2).copied().unwrap_or_else(|| {
+        (viewport.end_nanos - viewport.start_nanos).max(1) / samples.len() as u64
+    });
+    let span = (viewport.end_nanos - viewport.start_nanos) as f64;
+    let width_px = viewport.chart.width_px;
+    let mut hashes: Vec<Vec<u64>> = Vec::with_capacity(samples.len());
+    for (_, sample) in &samples {
+        let mut path_hashes = Vec::with_capacity(sample.callchain.len().min(total_depth));
+        let mut hash = 0u64;
+        let mut push_hash = |frame: &aps_simpleperf_engine::simpleperf::Frame| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            frame.file_id.hash(&mut hasher);
+            frame.symbol_id.hash(&mut hasher);
+            frame.virtual_address.hash(&mut hasher);
+            frame.execution_type.hash(&mut hasher);
+            hash = hash.rotate_left(7) ^ hasher.finish();
+            path_hashes.push(hash);
+        };
+        match query.direction {
+            Direction::Forward => sample
+                .callchain
+                .iter()
+                .rev()
+                .take(total_depth)
+                .for_each(&mut push_hash),
+            Direction::Inverted => sample
+                .callchain
+                .iter()
+                .take(total_depth)
+                .for_each(&mut push_hash),
+        }
+        hashes.push(path_hashes);
+    }
+    let mut builder = Builder::new(viewport.chart);
+    for depth in 0..total_depth {
+        let mut open: Option<OpenTiming> = None;
+        for (index, (_, sample)) in samples.iter().enumerate() {
+            let end = samples
+                .get(index + 1)
+                .map_or_else(|| sample.time.saturating_add(interval), |next| next.1.time);
+            let source = match query.direction {
+                Direction::Forward => sample.callchain.len().checked_sub(depth + 1),
+                Direction::Inverted => (depth < sample.callchain.len()).then_some(depth),
+            };
+            let Some(source) = source else {
+                if let Some(current) = open.take() {
+                    current.commit(&mut builder, depth, thread_id, viewport, width_px, span)?;
+                }
+                continue;
+            };
+            let key = hashes[index][depth];
+            let frame = &sample.callchain[source];
+            let (label, resource) = labels(&selected.files, frame);
+            match &mut open {
+                Some(current) if current.key == key => {
+                    current.end = end;
+                    add(&mut current.weight, weight(sample, query.weight_type))?;
+                    current.samples += 1;
+                }
+                _ => {
+                    if let Some(current) = open.take() {
+                        current.commit(&mut builder, depth, thread_id, viewport, width_px, span)?;
+                    }
+                    open = Some(OpenTiming {
+                        key,
+                        start: sample.time,
+                        end,
+                        label,
+                        resource,
+                        weight: weight(sample, query.weight_type),
+                        samples: 1,
+                        leaf: source == 0,
+                    });
+                }
+            }
+        }
+        if let Some(current) = open.take() {
+            current.commit(&mut builder, depth, thread_id, viewport, width_px, span)?;
+        }
+    }
+    Ok(builder.finish(
+        total_depth,
+        ChartDomain::SamplePoints {
+            start_nanos: viewport.start_nanos,
+            end_nanos: viewport.end_nanos,
+        },
+    ))
+}
+
+struct OpenTiming {
+    key: u64,
+    start: u64,
+    end: u64,
+    label: String,
+    resource: String,
+    weight: u64,
+    samples: u64,
+    leaf: bool,
+}
+
+impl OpenTiming {
+    fn commit(
+        self,
+        builder: &mut Builder,
+        depth: usize,
+        thread_id: i32,
+        viewport: TimelineViewport,
+        width_px: f32,
+        span: f64,
+    ) -> Result<(), String> {
+        let start = self.start.max(viewport.start_nanos);
+        let end = self.end.min(viewport.end_nanos);
+        if start >= end {
+            return Ok(());
+        }
+        let x = ((start - viewport.start_nanos) as f64 / span) as f32 * width_px;
+        let width = (((end - start) as f64 / span) as f32 * width_px).max(1.0);
+        let y = builder.y(depth);
+        builder.add_timing(ChartBlock {
+            id: format!(
+                "stack-v2:{}:{depth}:{}:{:x}",
+                viewport.start_nanos, start, self.key
+            ),
+            label: self.label,
+            resource: self.resource,
+            depth,
+            x,
+            y,
+            width,
+            height: viewport.chart.row_height_px,
+            inclusive_weight: self.weight,
+            self_weight: if self.leaf { self.weight } else { 0 },
+            sample_count: self.samples,
+            kind: ChartBlockKind::Function,
+            source_count: 1,
+            first_timestamp_nanos: Some(start),
+            last_timestamp_nanos: Some(end),
+            thread_id: Some(thread_id),
+            event_type: None,
+        })
+    }
 }
 
 pub(crate) fn stack(

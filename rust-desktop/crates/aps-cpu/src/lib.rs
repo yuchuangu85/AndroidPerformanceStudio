@@ -327,12 +327,16 @@ impl CpuSession {
 
     /// Paints sampled timestamp points only. Marker width is a display pixel;
     /// no sample interval, scheduling span, or execution duration is invented.
+    /// Time-spanning call-node boxes for the Firefox-style Stack Chart. The
+    /// selected thread is used (or the highest-sample thread when the query
+    /// leaves the thread filter open); boxes are sampled intervals, not method
+    /// execution durations.
     pub fn stack_chart(
         &self,
         query: &Query,
         viewport: TimelineViewport,
     ) -> Result<ChartFrame, String> {
-        charts::stack(&self.stream, query, viewport, false)
+        charts::stack_chart(&self.stream, query, viewport)
     }
 
     /// Preserves thread identity when sample points share a pixel. Callers

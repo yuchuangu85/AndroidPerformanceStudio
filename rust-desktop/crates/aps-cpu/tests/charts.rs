@@ -246,15 +246,28 @@ fn thread_timeline_keeps_cross_thread_pixel_collisions_separate_and_bounded() {
     assert_eq!(limited.blocks.len(), 1);
     assert!(limited.truncated);
     assert_eq!(limited.omitted_blocks, 2);
-    // The standalone Stack Chart retains its cross-thread aggregation.
-    let stack = session.stack_chart(&query, viewport).unwrap();
-    assert_eq!(stack.blocks.len(), 1);
-    assert_eq!(stack.blocks[0].thread_id, None);
-    assert_eq!(stack.blocks[0].sample_count, 4);
+    // The standalone Stack Chart switches to time-spanning boxes for one
+    // thread instead of cross-thread pixel aggregation.
+    let stack = session
+        .stack_chart(
+            &query,
+            TimelineViewport {
+                chart: ChartViewport {
+                    depth_count: 2,
+                    ..viewport.chart
+                },
+                ..viewport
+            },
+        )
+        .unwrap();
+    assert_eq!(stack.blocks.len(), 2);
+    assert!(stack.blocks.iter().all(|block| block.thread_id == Some(11)
+        && block.kind == ChartBlockKind::Function
+        && block.sample_count == 2));
 }
 
 #[test]
-fn timeline_marks_points_not_fake_execution_durations_and_aggregates_pixel_collisions() {
+fn stack_chart_merges_adjacent_samples_into_time_spanning_call_node_boxes() {
     let fixture = Fixture::stream(&profile());
     let session = fixture.session();
     let frame = session
@@ -277,16 +290,42 @@ fn timeline_marks_points_not_fake_execution_durations_and_aggregates_pixel_colli
             end_nanos: 60
         }
     ));
+    assert_eq!(frame.total_depth, 2);
+    assert_eq!(frame.blocks.len(), 4);
     assert!(frame
         .blocks
         .iter()
-        .all(|block| block.width <= 1.0 && block.kind == ChartBlockKind::SamplePoint));
+        .all(|block| block.kind == ChartBlockKind::Function
+            && block.thread_id == Some(11)
+            && block.inclusive_weight > 0));
+    let root = frame
+        .blocks
+        .iter()
+        .find(|block| block.depth == 0 && block.label == "root")
+        .unwrap();
+    assert_eq!((root.x, root.width, root.sample_count), (0.0, 40.0, 1));
     assert_eq!(
-        frame.hit_test(0.0, 1.0).unwrap().first_timestamp_nanos,
-        Some(10)
+        (root.first_timestamp_nanos, root.last_timestamp_nanos),
+        (Some(10), Some(30))
     );
-    assert!(frame.hit_test(10.0, 1.0).is_none());
-    let collision = session
+    let other = frame
+        .blocks
+        .iter()
+        .find(|block| block.depth == 0 && block.label == "other")
+        .unwrap();
+    assert_eq!((other.x, other.width), (40.0, 40.0));
+    let leaves: Vec<_> = frame
+        .blocks
+        .iter()
+        .filter(|block| block.depth == 1 && block.label == "leaf")
+        .collect();
+    assert_eq!(leaves.len(), 2);
+    assert_eq!((leaves[0].x, leaves[0].width), (0.0, 40.0));
+    assert_eq!((leaves[1].x, leaves[1].width), (40.0, 40.0));
+    assert_eq!(frame.hit_test(0.0, 1.0).unwrap().id, root.id);
+    assert_eq!(frame.hit_test(50.0, 1.0).unwrap().id, other.id);
+    assert_eq!(frame.hit_test(0.0, 25.0).unwrap().id, leaves[0].id);
+    let narrow = session
         .stack_chart(
             &Query::default(),
             TimelineViewport {
@@ -299,18 +338,11 @@ fn timeline_marks_points_not_fake_execution_durations_and_aggregates_pixel_colli
             },
         )
         .unwrap();
-    assert_eq!(collision.blocks.len(), 2);
-    let root = collision.hit_test(0.1, 0.1).unwrap();
-    assert_eq!(root.kind, ChartBlockKind::PixelAggregate);
-    assert_eq!(
-        (
-            root.source_count,
-            root.first_timestamp_nanos,
-            root.last_timestamp_nanos,
-            root.thread_id
-        ),
-        (5, Some(10), Some(50), None)
-    );
+    assert!(narrow
+        .blocks
+        .iter()
+        .all(|block| block.kind == ChartBlockKind::Function));
+    assert_eq!(narrow.blocks.len(), 4);
 }
 
 #[test]

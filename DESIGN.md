@@ -1185,6 +1185,23 @@ client (GPUI's default is a null client), so any provider request failed with
   statistical-weight semantics. Snapping and bottom alignment affect painting
   only; hit testing keeps the unsnapped packet geometry.
 
+### Rust CPU Stack Chart (2026-11-13)
+
+- Stack Chart uses time-spanning call-node boxes, not the one-pixel sample
+  histogram. Adjacent samples of the same call node merge into one box; a
+  different ancestry splits the box even when the function name matches. Rows
+  are top-down at the official 16 px height, fill the available pane width, and
+  draw one thread (the selected thread, or the highest-sample thread when the
+  filter says All).
+- Boxes floor their left edge, ceil their width, add the official 0.4 device
+  pixel border column and leave one CSS pixel between rows. Labels use the
+  official 10 px category text, and the canvas uses the official light/dark
+  background with 1 px side borders. The previous "one-pixel sample points"
+  notice is removed because boxes now have real sampled intervals.
+- Drag zoom, time filters, selection, tooltip and call-node details retain
+  their existing semantics. Box time ranges are sampled intervals, never
+  method execution durations.
+
 ### Rust CPU Thread Activity Tracks (2026-11-12)
 
 - Thread tracks follow the bundled Firefox Profiler's default `cpu-category`
