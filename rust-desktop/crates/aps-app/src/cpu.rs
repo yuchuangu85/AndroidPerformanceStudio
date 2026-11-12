@@ -56,6 +56,9 @@ const SIMPLEPERF_MAGIC: &[u8; 10] = b"SIMPLEPERF";
 /// the workspace; the engine viewport is independent of the window width.
 const CHART_WIDTH_PX: f32 = 1024.0;
 const CHART_ROW_HEIGHT_PX: f32 = 18.0;
+/// Official Firefox Profiler flame-graph row height and text metrics.
+const FLAME_ROW_HEIGHT_PX: f32 = 16.0;
+const FLAME_FONT_SIZE: f32 = 10.0;
 const TIMELINE_BUCKETS: usize = 160;
 /// The official Firefox Profiler expanded thread track draws an empty 6 px
 /// marker lane, a 25 px activity graph, a 1 px gap and a 5 px sample strip.
@@ -427,7 +430,8 @@ impl CpuWorkspace {
                         }
                         this.export_message =
                             Some(this.language.text(TextKey::CpuViewerLocalOpened).into());
-                        if handoff_to_viewer && !already_open
+                        if handoff_to_viewer
+                            && !already_open
                             && let Some(studio) = this.studio.clone()
                         {
                             let _ = studio.update(cx, |studio, cx| {
@@ -1204,9 +1208,14 @@ impl CpuWorkspace {
             let mut session = session
                 .lock()
                 .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSessionLockPoisoned))?;
+            let row_height_px = if tab == CpuTab::FlameGraph {
+                FLAME_ROW_HEIGHT_PX
+            } else {
+                CHART_ROW_HEIGHT_PX
+            };
             let viewport = ChartViewport {
                 width_px: CHART_WIDTH_PX,
-                row_height_px: CHART_ROW_HEIGHT_PX,
+                row_height_px,
                 first_depth: 0,
                 depth_count: 64,
                 max_blocks: 8_000,
@@ -1301,6 +1310,11 @@ impl CpuWorkspace {
                             CpuResult::Top(page) => this.top = Some(page),
                             CpuResult::Chart(frame) => {
                                 this.chart = Some(frame);
+                                if this.tab == CpuTab::FlameGraph {
+                                    // Official flame graphs start with the root row (the
+                                    // bottom) visible; shorter graphs are bottom-aligned.
+                                    this.chart_scroll.scroll_to_bottom();
+                                }
                                 this.resolve_pending_focus();
                             }
                             CpuResult::Empty => {}
@@ -5760,8 +5774,12 @@ fn chart_scroll(
     colors: &StudioColors,
     cx: &Context<CpuWorkspace>,
 ) -> AnyElement {
-    let height = frame.height_px.clamp(48.0, 4000.0);
     let viewport = chart_viewport_size(ws);
+    let background = if mode == ChartMode::Flame {
+        firefox_chart_background(colors.dark)
+    } else {
+        colors.field
+    };
     let tooltip = ws
         .chart_hover
         .as_deref()
@@ -5772,18 +5790,24 @@ fn chart_scroll(
             .selected(id)
             .map(|block| chart_context_menu(ws, block, (*x, *y), colors, cx))
     });
-    let mut root = div().relative().flex_1().min_h_0().w_full().child(
-        div()
-            .id("cpu-chart-scroll")
-            .size_full()
-            .overflow_scroll()
-            .track_scroll(&ws.chart_scroll)
-            .bg(colors.field)
+    let mut scroller = div()
+        .id("cpu-chart-scroll")
+        .size_full()
+        .overflow_scroll()
+        .track_scroll(&ws.chart_scroll)
+        .bg(background);
+    if mode != ChartMode::Flame {
+        scroller = scroller
             .rounded(px(studio::metrics::PANEL_RADIUS))
             .border_1()
-            .border_color(colors.border)
-            .child(chart_canvas(ws, frame, height, mode, colors, cx)),
-    );
+            .border_color(colors.border);
+    }
+    let mut root = div()
+        .relative()
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .child(scroller.child(chart_canvas(ws, frame, mode, colors, cx)));
     if let Some(tooltip) = tooltip {
         root = root.child(tooltip);
     }
@@ -5791,6 +5815,75 @@ fn chart_scroll(
         root = root.child(menu);
     }
     root.into_any_element()
+}
+
+/// Official Firefox Profiler foreground and background values.
+fn firefox_chart_background(dark: bool) -> Rgba {
+    if dark { rgb(0x18181a) } else { rgb(0xffffff) }
+}
+
+fn firefox_chart_foreground(dark: bool) -> Rgba {
+    if dark { rgb(0xededf0) } else { rgb(0x000000) }
+}
+
+/// Selected stack-chart text follows the category style, not the app accent:
+/// yellow keeps dark text, the opaque orange/green/blue fills use white.
+fn firefox_chart_text_color(dark: bool, label: &str, resource: &str, highlighted: bool) -> Rgba {
+    if !highlighted {
+        return firefox_chart_foreground(dark);
+    }
+    match firefox_chart_category(label, resource) {
+        FirefoxChartCategory::UserOrNative => firefox_chart_foreground(dark),
+        _ => rgb(0xffffff),
+    }
+}
+
+/// Official flame boxes snap to even device pixels, inset the right edge by
+/// 0.8 device pixels and leave one device pixel between rows. The frame stores
+/// top-down depth; the official default lays the root out at the bottom.
+fn flame_box_rect(
+    block: &ChartBlock,
+    frame_width: f32,
+    display_width: f32,
+    display_height: f32,
+    graph_height: f32,
+    scale: f32,
+) -> (f32, f32, f32, f32) {
+    let left = block.x / frame_width * display_width;
+    let right = (block.x + block.width) / frame_width * display_width;
+    let top_offset = (display_height - graph_height).max(0.);
+    let top = top_offset + graph_height - block.y - block.height;
+    let bottom = top + block.height;
+    let scale = scale.max(1.);
+    let left = (left * scale / 2.).round() * 2.;
+    let right = (((right * scale / 2.).round()) * 2. - 0.8).max(left);
+    let top = (top * scale).round();
+    let bottom = ((bottom * scale).round() - 1.).max(top);
+    (
+        left / scale,
+        top / scale,
+        (right - left).max(0.) / scale,
+        (bottom - top).max(1.) / scale,
+    )
+}
+
+fn flame_frame_point(
+    x: f32,
+    y: f32,
+    display_width: f32,
+    frame_width: f32,
+    graph_height: f32,
+    top_offset: f32,
+    flame: bool,
+) -> (f32, f32) {
+    if flame {
+        (
+            x * frame_width / display_width.max(1.),
+            (graph_height - (y - top_offset) - 1.).max(0.),
+        )
+    } else {
+        (x, y)
+    }
 }
 
 fn block_color(
@@ -5824,7 +5917,6 @@ fn block_color(
 fn chart_canvas(
     ws: &CpuWorkspace,
     frame: ChartFrame,
-    height: f32,
     mode: ChartMode,
     colors: &StudioColors,
     cx: &Context<CpuWorkspace>,
@@ -5836,7 +5928,23 @@ fn chart_canvas(
     let move_origin = origin.clone();
     let up_origin = origin.clone();
     let menu_origin = origin.clone();
-    let width = frame.width_px;
+    let (pane_width, pane_height) = chart_viewport_size(ws);
+    let display_width = if mode == ChartMode::Flame {
+        pane_width.max(1.0)
+    } else {
+        frame.width_px
+    };
+    let display_height = if mode == ChartMode::Flame {
+        pane_height.max(frame.height_px).max(48.0).min(4000.0)
+    } else {
+        frame.height_px.clamp(48.0, 4000.0)
+    };
+    let frame_width = frame.width_px.max(1.0);
+    let graph_height = frame.height_px;
+    let top_offset = (display_height - graph_height).max(0.0);
+    let flame = mode == ChartMode::Flame;
+    let width = display_width;
+    let height = display_height;
     let selected = ws.chart_selected.clone();
     let hovered = ws.chart_hover.clone();
     let search = ws.search.read(cx).value().to_lowercase().to_string();
@@ -5887,7 +5995,11 @@ fn chart_canvas(
             if this.chart_drag.is_some() {
                 this.update_chart_drag((x / width).clamp(0.0, 1.0), cx);
             } else {
-                let hit = hit_frame_move.hit_test(x, y).map(|block| block.id.clone());
+                let (fx, fy) =
+                    flame_frame_point(x, y, width, frame_width, graph_height, top_offset, flame);
+                let hit = hit_frame_move
+                    .hit_test(fx, fy)
+                    .map(|block| block.id.clone());
                 this.update_chart_hover(hit, Some((x, y)), cx);
             }
         }))
@@ -5904,7 +6016,17 @@ fn chart_canvas(
                     this.commit_chart_drag(cx);
                 } else {
                     this.chart_drag = None;
-                    this.chart_selected = hit_frame_up.hit_test(x, y).map(|block| block.id.clone());
+                    let (fx, fy) = flame_frame_point(
+                        x,
+                        y,
+                        width,
+                        frame_width,
+                        graph_height,
+                        top_offset,
+                        flame,
+                    );
+                    this.chart_selected =
+                        hit_frame_up.hit_test(fx, fy).map(|block| block.id.clone());
                     cx.notify();
                 }
             }),
@@ -5917,7 +6039,9 @@ fn chart_canvas(
                 };
                 let x = f32::from(event.position.x - origin.x);
                 let y = f32::from(event.position.y - origin.y);
-                if let Some(block) = hit_frame_menu.hit_test(x, y) {
+                let (fx, fy) =
+                    flame_frame_point(x, y, width, frame_width, graph_height, top_offset, flame);
+                if let Some(block) = hit_frame_menu.hit_test(fx, fy) {
                     this.open_chart_menu((x, y), block.id.clone(), cx);
                 }
             }),
@@ -5931,8 +6055,19 @@ fn chart_canvas(
                     }
                 },
                 move |bounds, _, window, _| {
+                    let scale = f32::from(window.scale_factor());
                     for block in &paint_frame.blocks {
-                        if block.y >= height {
+                        let (x, y, box_width, box_height) = if flame {
+                            flame_box_rect(block, frame_width, width, height, graph_height, scale)
+                        } else {
+                            (
+                                block.x,
+                                block.y,
+                                block.width.max(1.0),
+                                block.height.max(1.0),
+                            )
+                        };
+                        if box_width <= 0.0 || box_height <= 0.0 || y >= height {
                             continue;
                         }
                         let search_match = !paint_search.is_empty()
@@ -5940,11 +6075,8 @@ fn chart_canvas(
                             && block.label.to_lowercase().contains(&paint_search);
                         window.paint_quad(quad(
                             Bounds {
-                                origin: point(
-                                    bounds.origin.x + px(block.x),
-                                    bounds.origin.y + px(block.y),
-                                ),
-                                size: size(px(block.width.max(1.0)), px(block.height.max(1.0))),
+                                origin: point(bounds.origin.x + px(x), bounds.origin.y + px(y)),
+                                size: size(px(box_width), px(box_height)),
                             },
                             px(0.),
                             block_color(
@@ -5994,7 +6126,18 @@ fn chart_canvas(
         if labels >= MAX_CHART_LABELS {
             break;
         }
-        if block.y >= height || block.width < 44.0 || block.height < 11.0 {
+        let (left, top, label_width, label_height) = if flame {
+            (
+                block.x / frame_width * width,
+                top_offset + graph_height - block.y - block.height,
+                block.width / frame_width * width,
+                block.height,
+            )
+        } else {
+            (block.x, block.y, block.width, block.height)
+        };
+        let minimum_width = if flame { 32.0 } else { 44.0 };
+        if top >= height || label_width < minimum_width || label_height < 11.0 {
             continue;
         }
         labels += 1;
@@ -6008,21 +6151,34 @@ fn chart_canvas(
         } else {
             block.label.clone()
         };
+        let text_color = if flame {
+            firefox_chart_text_color(
+                colors.dark,
+                &block.label,
+                &block.resource,
+                selected_block || hovered_block || search_match,
+            )
+        } else if selected_block || hovered_block || search_match {
+            colors.accent_text
+        } else {
+            label_color
+        };
         container = container.child(
             div()
                 .absolute()
-                .left(px(block.x + 3.0))
-                .top(px(block.y + 1.0))
-                .w(px((block.width - 6.0).max(1.0)))
-                .h(px(block.height - 2.0))
+                .left(px(left + 3.0))
+                .top(px(top + 1.0))
+                .w(px((label_width - 6.0).max(1.0)))
+                .h(px((label_height - 2.0).max(1.0)))
                 .overflow_hidden()
-                .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(if selected_block || hovered_block || search_match {
-                    colors.accent_text
+                .text_size(px(if flame {
+                    FLAME_FONT_SIZE
                 } else {
-                    label_color
-                })
+                    studio::FONT_SUPPORTING
+                }))
+                .text_color(text_color)
                 .whitespace_nowrap()
+                .text_ellipsis()
                 .child(crate::studio::selectable(label)),
         );
     }
@@ -8307,12 +8463,13 @@ impl NoticeSource for CpuWorkspace {
 mod metadata_tests {
     use super::{
         CALL_TREE_CATEGORY_SWATCH_MARGIN, CALL_TREE_CATEGORY_SWATCH_SIZE, CPU_MEDIA_TYPE, CpuError,
-        CpuSourceClass, CpuSourceKind, FirefoxChartCategory, Language, RecentCpu,
-        activity_fill_edges, associate_cpu, call_tree_category_swatch, capture_import_available,
-        chart_tooltip_placement, check_cpu_binding, classify_cpu_source, cpu_artifact,
-        cpu_snapshot_path, decompress_cpu_source, firefox_activity_style, firefox_chart_category,
-        firefox_chart_color_values, flame_selection_summary, load_cpu_import, load_cpu_snapshot,
-        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
+        CpuSourceClass, CpuSourceKind, FLAME_ROW_HEIGHT_PX, FirefoxChartCategory, Language,
+        RecentCpu, activity_fill_edges, associate_cpu, call_tree_category_swatch,
+        capture_import_available, chart_tooltip_placement, check_cpu_binding, classify_cpu_source,
+        cpu_artifact, cpu_snapshot_path, decompress_cpu_source, firefox_activity_style,
+        firefox_chart_background, firefox_chart_category, firefox_chart_color_values,
+        firefox_chart_text_color, flame_box_rect, flame_selection_summary, load_cpu_import,
+        load_cpu_snapshot, load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
         resolve_simpleperf, timeline_bar_width, timeline_query, timeline_sample_bar_width,
         validate_recent,
     };
@@ -9361,6 +9518,59 @@ mod metadata_tests {
     }
 
     #[test]
+    fn flame_text_uses_the_official_category_foreground() {
+        assert_eq!(
+            firefox_chart_text_color(false, "leaf", "/lib/a.so", true),
+            rgb(0x000000)
+        );
+        assert_eq!(
+            firefox_chart_text_color(true, "leaf", "/lib/a.so", true),
+            rgb(0xededf0)
+        );
+        assert_eq!(
+            firefox_chart_text_color(false, "draw", "[JIT app cache]", true),
+            rgb(0xffffff)
+        );
+        assert_eq!(
+            firefox_chart_text_color(true, "schedule", "[kernel.kallsyms]", false),
+            rgb(0xededf0)
+        );
+        assert_eq!(super::firefox_chart_background(false), rgb(0xffffff));
+        assert_eq!(super::firefox_chart_background(true), rgb(0x18181a));
+    }
+
+    #[test]
+    fn flame_boxes_are_bottom_aligned_with_official_gaps_and_row_height() {
+        let block = ChartBlock {
+            id: "leaf".into(),
+            label: "leaf".into(),
+            resource: "/lib/a.so".into(),
+            depth: 0,
+            x: 0.,
+            y: 0.,
+            width: 1024.,
+            height: FLAME_ROW_HEIGHT_PX,
+            inclusive_weight: 1,
+            self_weight: 0,
+            sample_count: 1,
+            kind: ChartBlockKind::Function,
+            source_count: 1,
+            first_timestamp_nanos: None,
+            last_timestamp_nanos: None,
+            thread_id: None,
+            event_type: None,
+        };
+        let (left, top, width, height) = flame_box_rect(&block, 1024., 1000., 500., 48., 2.);
+        assert_eq!(left, 0.);
+        assert!((width - 999.6).abs() < 0.01);
+        assert!((top - 484.).abs() < 0.01);
+        assert!((height - 15.5).abs() < 0.01);
+        assert!(top + height <= 500.);
+        assert_eq!(FLAME_ROW_HEIGHT_PX, 16.);
+        assert!(include_str!("cpu.rs").contains("this.chart_scroll.scroll_to_bottom()"));
+    }
+
+    #[test]
     fn flame_graph_uses_firefox_profiler_category_colors() {
         assert_eq!(
             firefox_chart_category("android.view.View.draw", "[JIT app cache]"),
@@ -9514,8 +9724,7 @@ mod metadata_tests {
             .next()
             .unwrap();
         let (success, failure) = publish.split_once("Err(error) =>").unwrap();
-        let automatic =
-            "if self.viewer_engine == 1 {\n                    self.open_local_firefox(true, cx);\n                }";
+        let automatic = "if self.viewer_engine == 1 {\n                    self.open_local_firefox(true, cx);\n                }";
         assert!(success.contains(automatic));
         assert!(success.find("self.reload(cx)").unwrap() < success.find(automatic).unwrap());
         assert_eq!(

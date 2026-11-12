@@ -1169,6 +1169,22 @@ client (GPUI's default is a null client), so any provider request failed with
   remain the same color on selection. Include their width in horizontal scroll
   measurement without changing row height or arrow/row click behavior.
 
+### Rust CPU Flame Graph Geometry (2026-11-12)
+
+- Match the bundled Firefox Profiler flame graph, not a generic chart: 16 px
+  rows, the root row at the bottom, and the whole graph bottom-aligned inside
+  the available pane with blank space above it. The graph fills the pane width
+  even though the bounded drawing packet stays at its fixed logical width; box
+  x/width and hit testing scale between packet and display coordinates.
+- Reuse the official box treatment: snap left and right edges to even device
+  pixels, inset the right edge by 0.8 device pixels, and leave one device pixel
+  between rows. Labels use the official 10 px style, the category-specific
+  selected text color (dark text on yellow, white on orange/green/blue) and
+  the official light/dark foreground and canvas background.
+- Keep the existing drag zoom, selection, hover tooltip, context menu and
+  statistical-weight semantics. Snapping and bottom alignment affect painting
+  only; hit testing keeps the unsnapped packet geometry.
+
 ### Rust CPU Thread Activity Tracks (2026-11-12)
 
 - Thread tracks follow the bundled Firefox Profiler's default `cpu-category`
