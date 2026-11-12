@@ -7,7 +7,7 @@ use gpui_kit::{
 };
 use std::{collections::BTreeSet, sync::Arc};
 
-const SCROLLBAR_INSET: f32 = 12.0;
+pub(super) const SCROLLBAR_INSET: f32 = 12.0;
 
 pub(super) fn render(
     snapshot: Arc<HierarchySnapshot>,

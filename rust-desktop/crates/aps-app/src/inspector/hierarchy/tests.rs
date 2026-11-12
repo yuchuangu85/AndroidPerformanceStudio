@@ -806,6 +806,39 @@ fn preview_hidden_parent_prunes_descendants_without_pruning_siblings() {
 }
 
 #[test]
+fn preview_hides_system_composable_itself_but_keeps_user_descendant_hit() {
+    let mut nodes = vec![
+        node("root", 0, None),
+        node("compose-inspection:1", 1, Some(0)),
+        node("compose-inspection:2", 2, Some(1)),
+    ];
+    nodes[1].kind = NodeKind::Compose;
+    nodes[2].kind = NodeKind::Compose;
+    nodes[1].class_name = "Box".into();
+    nodes[2].class_name = "ScreenContent".into();
+    let archive = with_compose_evidence(archive(vec![nodes]), [(1, true), (2, false)]);
+    let window = &archive.windows[0];
+    let (visible, total) = super::super::canvas_nodes(
+        &window.nodes,
+        &BTreeSet::new(),
+        None,
+        archive.display.width_px,
+        archive.display.height_px,
+        archive.compose.as_ref(),
+        false,
+    );
+    assert_eq!(total, 2);
+    assert_eq!(
+        visible.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [0, 2]
+    );
+    assert_eq!(
+        super::super::canvas_hit(&visible, 10.0, 10.0, true).as_deref(),
+        Some("compose-inspection:2")
+    );
+}
+
+#[test]
 fn preview_selection_beyond_canvas_budget_is_retained_in_preorder() {
     let archive = archive(vec![rich_nodes(MAX_CANVAS_NODES + 2)]);
     let mut cache = PreviewCache::default();
@@ -947,10 +980,13 @@ fn production_render_uses_preview_cache_and_passes_arc_nodes_to_geometry() {
     let root: String = root.split_whitespace().collect();
     assert!(root.contains("lethierarchy=self.hierarchy_snapshot(cx);"));
     assert!(root.contains("hierarchy_pane(language,&colors,hierarchy,"));
-    assert_eq!(root.matches("self.preview_cache.get(").count(), 1);
-    assert!(
-        root.contains("self.preview_cache.get(archive,self.window,&self.hidden,&self.selected)")
+    assert_eq!(
+        root.matches("self.preview_cache.get_with_system_composables(")
+            .count(),
+        1
     );
+    assert!(root.contains("self.preview_cache.get_with_system_composables("));
+    assert!(root.contains("self.frame_show_system_composables"));
     assert!(root.contains("self.preview_pane(language,&colors,archive.clone(),preview_nodes,"));
     assert!(!root.contains("canvas_nodes("));
     assert!(!root.contains(".nodes.clone()"));
@@ -980,8 +1016,7 @@ fn production_render_uses_preview_cache_and_passes_arc_nodes_to_geometry() {
     assert!(!geometry.contains("canvas_nodes("));
 
     let cache = include_str!("../hierarchy.rs");
-    let cache = cache.split("#[cfg(test)]").next().unwrap();
-    assert_eq!(cache.matches("super::canvas_nodes(").count(), 1);
+    assert_eq!(cache.matches("super::canvas_nodes").count(), 1);
 }
 
 #[test]

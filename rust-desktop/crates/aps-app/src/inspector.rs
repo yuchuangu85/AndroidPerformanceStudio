@@ -33,6 +33,8 @@ mod export;
 mod findings;
 mod hierarchy;
 mod hierarchy_list;
+mod timeline;
+mod timeline_ui;
 
 const MAX_CANVAS_NODES: usize = 4000;
 
@@ -354,6 +356,9 @@ pub struct InspectorWorkspace {
     import_timing: ImportTiming,
     hovered: Option<String>,
     archive: Option<Arc<InspectorArchive>>,
+    timeline: timeline::History,
+    timeline_scroll: ScrollHandle,
+    timeline_reveal_selected: bool,
     window: usize,
     selected: Option<String>,
     hidden: BTreeSet<String>,
@@ -427,6 +432,9 @@ impl InspectorWorkspace {
             import_timing: ImportTiming::default(),
             hovered: None,
             archive: None,
+            timeline: timeline::History::default(),
+            timeline_scroll: ScrollHandle::new(),
+            timeline_reveal_selected: false,
             window: 0,
             selected: None,
             hidden: BTreeSet::new(),
@@ -529,49 +537,107 @@ impl InspectorWorkspace {
         frame: InspectorProtocolFrame,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let source = if frame.from_agent {
+            timeline::Source::Agent
+        } else {
+            timeline::Source::Adb
+        };
+        self.publish_frame(frame, source, false, cx)
+    }
+
+    fn publish_frame(
+        &mut self,
+        frame: InspectorProtocolFrame,
+        source: timeline::Source,
+        replace_history: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         if frame.generation < self.generation {
             return Err(self
                 .language
                 .text(TextKey::ProfilerInspectorStaleFrame)
                 .into());
         }
-        let window = frame
-            .archive
-            .windows
-            .iter()
-            .position(|window| window.id == frame.archive.default_window_id)
-            .unwrap_or(0);
         let findings = frame
             .archive
             .analyze_window(&frame.archive.default_window_id)
             .map_err(|error| error.to_string())?;
+        self.generation = frame.generation;
+        let archive = Arc::new(frame.archive);
+        let show_system_composables = self.preferences.show_system_composables;
+        if replace_history {
+            self.timeline.replace(
+                archive,
+                source,
+                show_system_composables,
+                ImportTiming::default(),
+            );
+        } else {
+            self.timeline.append(
+                archive,
+                source,
+                show_system_composables,
+                ImportTiming::default(),
+            );
+        }
+        self.display_timeline_frame(self.timeline.selected().cloned(), findings, cx);
+        Ok(())
+    }
+
+    fn display_timeline_frame(
+        &mut self,
+        frame: Option<timeline::Frame>,
+        findings: LayoutAnalysis,
+        cx: &mut Context<Self>,
+    ) {
         self.cancel.cancel();
         self.export.invalidate();
-        self.generation = frame.generation;
+        let source = frame.as_ref().map(|frame| frame.source);
+        self.frame_show_system_composables = frame
+            .as_ref()
+            .is_some_and(|frame| frame.show_system_composables);
+        self.import_timing.clear();
+        if let Some(frame) = &frame {
+            self.import_timing = frame.import_timing;
+        }
+        self.archive = frame.map(|frame| frame.archive);
+        self.window = self
+            .archive
+            .as_ref()
+            .and_then(|archive| {
+                archive
+                    .windows
+                    .iter()
+                    .position(|window| window.id == archive.default_window_id)
+            })
+            .unwrap_or(0);
+        self.screenshot_image = self
+            .archive
+            .as_ref()
+            .and_then(|archive| archive.screenshot_png.as_deref())
+            .and_then(|bytes| decode_screenshot(bytes, cx));
         self.findings = Arc::new(findings);
         self.findings_ui = findings::UiState::default();
         self.selected_finding = None;
-        self.frame_show_system_composables = self.preferences.show_system_composables;
-        let screenshot_png = frame.archive.screenshot_png.clone();
-        self.archive = Some(Arc::new(frame.archive));
-        self.import_timing.clear();
-        self.compatible_capture = false;
-        self.agent_capture = false;
+        self.compatible_capture = source == Some(timeline::Source::Adb);
+        self.agent_capture = source == Some(timeline::Source::Agent);
+        self.compose_agent = source == Some(timeline::Source::Compose);
         self.compose_inspection_confirmation_pending = false;
-        self.screenshot_image = screenshot_png
-            .as_deref()
-            .and_then(|bytes| decode_screenshot(bytes, cx));
-        self.window = window;
         self.selected = None;
         self.hovered = None;
         self.hidden.clear();
         self.collapsed.clear();
         self.hierarchy_cache.invalidate();
+        self.preview_cache = hierarchy::PreviewCache::default();
+        self.hierarchy_scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.zoom = 1.0;
+        self.preview_pan = (0.0, 0.0);
+        self.preview_drag = None;
+        self.preview_bar_drag = None;
+        self.timeline_reveal_selected = true;
         self.busy = false;
         self.error = None;
         cx.notify();
-        Ok(())
     }
 
     pub fn analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
@@ -883,13 +949,15 @@ impl InspectorWorkspace {
                 this.capturing = false;
                 if this.generation == generation {
                     match result {
-                        Ok(frame) => match this.publish_protocol_frame(frame, cx) {
-                            Ok(()) => {
-                                this.compose_agent = true;
-                                this.app_only = false;
+                        Ok(frame) => {
+                            match this.publish_frame(frame, timeline::Source::Compose, false, cx) {
+                                Ok(()) => {
+                                    this.compose_agent = true;
+                                    this.app_only = false;
+                                }
+                                Err(error) => this.error = Some(error),
                             }
-                            Err(error) => this.error = Some(error),
-                        },
+                        }
                         Err(error) => {
                             this.error = Some(error);
                             this.compose_agent = false;
@@ -944,17 +1012,22 @@ impl InspectorWorkspace {
                 match result {
                     Ok(archive) => {
                         if this
-                            .publish_protocol_frame(
+                            .publish_frame(
                                 InspectorProtocolFrame {
                                     archive,
                                     generation,
                                     from_agent: false,
                                 },
+                                timeline::Source::Offline,
+                                true,
                                 cx,
                             )
                             .is_ok()
                         {
                             this.import_timing = ImportTiming::completed(started);
+                            if let Some(frame) = this.timeline.selected_mut() {
+                                frame.import_timing = this.import_timing;
+                            }
                             cx.emit(crate::home_recent::RecentArtifactOpened {
                                 feature: crate::home_recent::HomeFeature::Layout,
                                 path: recent_path,
@@ -1096,7 +1169,11 @@ impl InspectorWorkspace {
                         language.text(TextKey::InspectorCompatibleView).to_owned()
                     } else if self.agent_capture {
                         language.text(TextKey::InspectorAgentView).to_owned()
-                    } else if self.compose_agent && self.compose_bridge.is_some() {
+                    } else if self
+                        .timeline
+                        .selected()
+                        .is_some_and(|frame| frame.source == timeline::Source::Compose)
+                    {
                         language.text(TextKey::InspectorComposeAgent).to_owned()
                     } else if archive.is_some() {
                         language.text(TextKey::InspectorOfflineArchive).to_owned()
@@ -1255,8 +1332,11 @@ impl InspectorWorkspace {
             self.search
                 .update(cx, |state, cx| state.set_value("", window, cx));
         }
-        if let Some(position) = self
-            .visible_rows(cx)
+        let Some(snapshot) = self.hierarchy_snapshot(cx) else {
+            return;
+        };
+        if let Some(position) = snapshot
+            .rows
             .iter()
             .position(|&node_index| node_index == index)
         {
@@ -1264,6 +1344,29 @@ impl InspectorWorkspace {
             // is already fully visible, including repeated clicks on the canvas.
             self.hierarchy_scroll
                 .scroll_to_item(position, ScrollStrategy::Nearest);
+            let (left, right) = hierarchy_label_bounds(
+                &nodes[index],
+                &snapshot.numbers[index],
+                snapshot.display_depths[index],
+                self.preferences,
+            );
+            let scroll = self.hierarchy_scroll.0.borrow().base_handle.clone();
+            let bounds_width = f32::from(scroll.bounds().size.width);
+            let viewport_width = (if bounds_width > 0.0 {
+                bounds_width
+            } else {
+                self.hierarchy_width
+            } - hierarchy_list::SCROLLBAR_INSET)
+                .max(0.0);
+            let offset = scroll.offset();
+            let next_x = hierarchy::reveal_horizontal_offset(
+                left,
+                right,
+                viewport_width,
+                snapshot.content_width.max(self.hierarchy_width),
+                f32::from(offset.x),
+            );
+            scroll.set_offset(point(px(next_x), offset.y));
         }
     }
 
@@ -1592,8 +1695,13 @@ impl Render for InspectorWorkspace {
         let preview_nodes = archive
             .as_ref()
             .and_then(|archive| {
-                self.preview_cache
-                    .get(archive, self.window, &self.hidden, &self.selected)
+                self.preview_cache.get_with_system_composables(
+                    archive,
+                    self.window,
+                    &self.hidden,
+                    &self.selected,
+                    self.frame_show_system_composables,
+                )
             })
             .unwrap_or_default();
 
@@ -1607,7 +1715,9 @@ impl Render for InspectorWorkspace {
             &self.hidden,
             self.compatible_capture,
             self.agent_capture,
-            self.compose_agent && self.compose_bridge.is_some(),
+            self.timeline
+                .selected()
+                .is_some_and(|frame| frame.source == timeline::Source::Compose),
             self.import_timing,
             &self.compiler_reports,
             cx,
@@ -1702,6 +1812,7 @@ impl Render for InspectorWorkspace {
                 ));
         }
 
+        let timeline = self.timeline_strip(&colors, cx);
         div()
             .id("inspector-workspace")
             .size_full()
@@ -1743,6 +1854,7 @@ impl Render for InspectorWorkspace {
                 }),
             )
             .child(workspace)
+            .child(timeline)
             .child(status)
             .children(compiler_reports::result_dialog(
                 language,
@@ -1955,6 +2067,8 @@ fn canvas_nodes(
     selected: Option<&str>,
     display_width: u32,
     display_height: u32,
+    compose: Option<&ComposeEvidence>,
+    show_system_composables: bool,
 ) -> (Vec<(usize, LayoutNode)>, usize) {
     let mut alpha = vec![0.0; nodes.len()];
     let mut eligible = Vec::new();
@@ -1973,6 +2087,7 @@ fn canvas_nodes(
         };
         let b = node.bounds;
         if alpha[index] > 0.0
+            && !hidden_system_composable(node, compose, show_system_composables)
             && b.right > b.left
             && b.bottom > b.top
             && b.right > 0
@@ -2081,11 +2196,7 @@ fn hierarchy_display_depths(
     let mut display_depths = Vec::with_capacity(nodes.len());
     let mut hidden_ancestor_counts = Vec::with_capacity(nodes.len());
     for node in nodes {
-        let hidden_system = !show_system_composables
-            && node.kind == NodeKind::Compose
-            && compose_node_id(&node.id)
-                .and_then(|id| compose?.nodes.get(&id))
-                .is_some_and(|node| node.system_created);
+        let hidden_system = hidden_system_composable(node, compose, show_system_composables);
         // Omitted system wrappers promote their children in the display tree,
         // without changing the captured depth or parent relationships.
         let hidden_ancestors = node
@@ -2101,6 +2212,41 @@ fn hierarchy_display_depths(
 
 fn hierarchy_indent(display_depth: usize) -> f32 {
     8.0 + display_depth.min(40) as f32 * HIERARCHY_INDENT
+}
+
+fn hidden_system_composable(
+    node: &LayoutNode,
+    compose: Option<&ComposeEvidence>,
+    show_system_composables: bool,
+) -> bool {
+    !show_system_composables
+        && node.kind == NodeKind::Compose
+        && compose_node_id(&node.id)
+            .and_then(|id| compose?.nodes.get(&id))
+            .is_some_and(|compose_node| compose_node.system_created)
+}
+
+fn hierarchy_label_bounds(
+    node: &LayoutNode,
+    number: &str,
+    display_depth: usize,
+    preferences: LayoutPreferences,
+) -> (f32, f32) {
+    let label = hierarchy_label(node, number, preferences);
+    let name = node
+        .class_name
+        .rsplit('.')
+        .next()
+        .unwrap_or(&node.class_name);
+    let prefix = label.strip_suffix(name).unwrap_or("");
+    let controls = 16.0
+        + if preferences.show_layer_buttons {
+            24.0
+        } else {
+            0.0
+        };
+    let left = hierarchy_indent(display_depth) + controls + prefix.chars().count() as f32 * 7.2;
+    (left, left + name.chars().count() as f32 * 7.2)
 }
 
 fn hierarchy_content_width(
@@ -4892,21 +5038,23 @@ mod tests {
             .unwrap();
         assert!(!apply.contains("self.frame_show_system_composables ="));
         let publish = source
-            .split("pub fn publish_protocol_frame(")
+            .split("fn publish_frame(")
+            .nth(1)
+            .unwrap()
+            .split("fn display_timeline_frame(")
+            .next()
+            .unwrap();
+        assert!(
+            publish.contains("show_system_composables = self.preferences.show_system_composables")
+        );
+        let display = source
+            .split("fn display_timeline_frame(")
             .nth(1)
             .unwrap()
             .split("pub fn analysis_request(")
             .next()
             .unwrap();
-        assert!(publish.contains(
-            "self.frame_show_system_composables = self.preferences.show_system_composables"
-        ));
-        assert!(
-            publish.find("return Err").unwrap()
-                < publish
-                    .find("self.frame_show_system_composables =")
-                    .unwrap()
-        );
+        assert!(display.contains("self.frame_show_system_composables"));
         let rows = source
             .split("fn hierarchy_snapshot(")
             .nth(1)
@@ -4917,8 +5065,8 @@ mod tests {
         assert!(rows.contains("self.frame_show_system_composables"));
         assert!(!rows.contains("self.preferences.show_system_composables"));
         let projection = include_str!("inspector/hierarchy.rs");
-        assert!(projection.contains("!show_system_composables"));
-        assert!(projection.contains("compose_node.system_created"));
+        assert!(projection.contains("super::hidden_system_composable("));
+        assert!(source.contains("compose_node.system_created"));
     }
 
     #[::core::prelude::v1::test]
@@ -4997,7 +5145,7 @@ mod tests {
             } else {
                 BTreeSet::new()
             };
-            let (visible, total) = canvas_nodes(&nodes, &hidden, None, 100, 100);
+            let (visible, total) = canvas_nodes(&nodes, &hidden, None, 100, 100, None, true);
             assert_eq!(total, 1);
             assert_eq!(visible[0].0, 2);
         }
@@ -5006,11 +5154,19 @@ mod tests {
     fn invalid_bounds_do_not_prune_children_and_selected_survives_budget() {
         let mut nodes = vec![node(0, None), node(1, Some(0))];
         nodes[0].bounds.right = 0;
-        let (visible, _) = canvas_nodes(&nodes, &BTreeSet::new(), None, 100, 100);
+        let (visible, _) = canvas_nodes(&nodes, &BTreeSet::new(), None, 100, 100, None, true);
         assert_eq!(visible[0].0, 1);
         let nodes: Vec<_> = (0..=MAX_CANVAS_NODES).map(|i| node(i, None)).collect();
         let selected = MAX_CANVAS_NODES.to_string();
-        let (visible, total) = canvas_nodes(&nodes, &BTreeSet::new(), Some(&selected), 100, 100);
+        let (visible, total) = canvas_nodes(
+            &nodes,
+            &BTreeSet::new(),
+            Some(&selected),
+            100,
+            100,
+            None,
+            true,
+        );
         assert_eq!(total, MAX_CANVAS_NODES + 1);
         assert_eq!(visible.len(), MAX_CANVAS_NODES);
         assert_eq!(visible.last().unwrap().0, MAX_CANVAS_NODES);

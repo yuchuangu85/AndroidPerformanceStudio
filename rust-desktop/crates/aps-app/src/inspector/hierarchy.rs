@@ -1,5 +1,5 @@
 use super::{hierarchy_content_width, hierarchy_display_depths, hierarchy_numbers, row_matches};
-use aps_layout_inspector::{InspectorArchive, LayoutNode, NodeKind};
+use aps_layout_inspector::{InspectorArchive, LayoutNode};
 use aps_ui_foundation::LayoutPreferences;
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -76,11 +76,11 @@ impl HierarchyCache {
         );
         let mut skip_depth = None;
         for (index, node) in window.nodes.iter().enumerate() {
-            let hidden_system = !show_system_composables
-                && node.kind == NodeKind::Compose
-                && super::compose_node_id(&node.id)
-                    .and_then(|id| archive.compose.as_ref()?.nodes.get(&id))
-                    .is_some_and(|compose_node| compose_node.system_created);
+            let hidden_system = super::hidden_system_composable(
+                node,
+                archive.compose.as_ref(),
+                show_system_composables,
+            );
             if let Some(depth) = skip_depth {
                 if node.depth > depth {
                     continue;
@@ -138,10 +138,12 @@ struct PreviewSnapshot {
     window_index: usize,
     hidden: BTreeSet<String>,
     selected: Option<String>,
+    show_system_composables: bool,
     nodes: Arc<Vec<(usize, LayoutNode)>>,
 }
 
 impl PreviewCache {
+    #[cfg(test)]
     pub(super) fn get(
         &mut self,
         archive: &Arc<InspectorArchive>,
@@ -149,11 +151,23 @@ impl PreviewCache {
         hidden: &BTreeSet<String>,
         selected: &Option<String>,
     ) -> Option<Arc<Vec<(usize, LayoutNode)>>> {
+        self.get_with_system_composables(archive, window_index, hidden, selected, true)
+    }
+
+    pub(super) fn get_with_system_composables(
+        &mut self,
+        archive: &Arc<InspectorArchive>,
+        window_index: usize,
+        hidden: &BTreeSet<String>,
+        selected: &Option<String>,
+        show_system_composables: bool,
+    ) -> Option<Arc<Vec<(usize, LayoutNode)>>> {
         if let Some(snapshot) = &self.snapshot
             && Arc::ptr_eq(&snapshot.archive, archive)
             && snapshot.window_index == window_index
             && snapshot.hidden == *hidden
             && snapshot.selected == *selected
+            && snapshot.show_system_composables == show_system_composables
         {
             return Some(snapshot.nodes.clone());
         }
@@ -164,6 +178,8 @@ impl PreviewCache {
             selected.as_deref(),
             archive.display.width_px,
             archive.display.height_px,
+            archive.compose.as_ref(),
+            show_system_composables,
         );
         let nodes = Arc::new(nodes);
         self.snapshot = Some(PreviewSnapshot {
@@ -171,10 +187,41 @@ impl PreviewCache {
             window_index,
             hidden: hidden.clone(),
             selected: selected.clone(),
+            show_system_composables,
             nodes: nodes.clone(),
         });
         Some(nodes)
     }
+}
+
+pub(super) fn reveal_horizontal_offset(
+    left: f32,
+    right: f32,
+    viewport_width: f32,
+    content_width: f32,
+    current_x: f32,
+) -> f32 {
+    if viewport_width <= 0.0 || !left.is_finite() || !right.is_finite() {
+        return current_x;
+    }
+    let max_x = -(content_width - viewport_width).max(0.0);
+    let label_width = (right - left).max(0.0);
+    let current_left = left + current_x;
+    let current_right = right + current_x;
+    let next = if label_width > viewport_width {
+        if current_left < 0.0 || current_left >= viewport_width {
+            -left
+        } else {
+            current_x
+        }
+    } else if current_left < 0.0 {
+        -left
+    } else if current_right > viewport_width {
+        viewport_width - right
+    } else {
+        current_x
+    };
+    next.clamp(max_x, 0.0)
 }
 
 #[cfg(test)]

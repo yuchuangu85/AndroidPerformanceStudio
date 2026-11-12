@@ -225,3 +225,44 @@ fn hierarchy_list_reserves_both_scrollbar_gutters_for_the_last_row() {
     assert!(source.contains(".pb(px(SCROLLBAR_INSET))"));
     assert!(source.contains("ScrollbarAxis::Both"));
 }
+
+#[test]
+fn horizontal_reveal_keeps_deep_compose_layout_names_in_view() {
+    let width = 308.0;
+    let (left, right) = super::super::hierarchy_label_bounds(
+        &node(79, Some(78), 79),
+        "79-0",
+        79,
+        LayoutPreferences::default(),
+    );
+    assert!(left > width);
+    let offset = super::reveal_horizontal_offset(left, right, width, right + 32.0, 0.0);
+    assert!(offset < 0.0);
+    assert!(left + offset >= 0.0);
+    assert!(right + offset <= width);
+    assert_eq!(
+        super::reveal_horizontal_offset(left, right, width, right + 32.0, offset),
+        offset,
+        "repeated preview clicks must not move an already visible label",
+    );
+}
+
+#[test]
+fn horizontal_reveal_returns_to_shallow_names_and_bounds_long_names() {
+    assert_eq!(
+        super::reveal_horizontal_offset(24.0, 180.0, 308.0, 900.0, -500.0),
+        -24.0
+    );
+    assert_eq!(
+        super::reveal_horizontal_offset(24.0, 180.0, 308.0, 900.0, 0.0),
+        0.0
+    );
+    assert_eq!(
+        super::reveal_horizontal_offset(500.0, 1100.0, 180.0, 1200.0, 0.0),
+        -500.0
+    );
+    assert_eq!(
+        super::reveal_horizontal_offset(500.0, 600.0, 0.0, 900.0, 0.0),
+        0.0
+    );
+}
