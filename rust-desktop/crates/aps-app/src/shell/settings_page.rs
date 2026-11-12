@@ -998,7 +998,9 @@ impl Studio {
         let colors = StudioColors::from_theme(cx);
         let capture = self.capture.read(cx);
         let no_target = !capture.has_target(cx);
-        let can_edit = !no_target && capture.can_edit_configuration();
+        // Configuration is useful before a device/process is selected. The
+        // capture action still validates the target when the user starts it.
+        let can_edit = capture.can_edit_configuration();
         let draft = capture.draft(cx);
         let [event, rate, duration] = capture.sampling_inputs();
         let follow_mouse = self.settings.simpleperf_follow_tooltip;
@@ -2325,6 +2327,21 @@ mod tests {
         assert!(!page.contains("SettingsUiAdaptersNotConnected"));
         assert!(page.contains("open-user-guide"));
         assert!(!page.contains("stepper("));
+    }
+
+    #[::core::prelude::v1::test]
+    fn simpleperf_settings_remains_editable_before_target_selection() {
+        let implementation = include_str!("settings_page.rs");
+        let page = implementation
+            .split("fn settings_simpleperf(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_about(")
+            .next()
+            .unwrap();
+        assert!(page.contains("let can_edit = capture.can_edit_configuration();"));
+        assert!(!page.contains("let can_edit = !no_target && capture.can_edit_configuration();"));
+        assert!(page.contains(".when(no_target, |card|"));
     }
 
     /// The Configuration page has no engine selectors: Rust is the only engine,
