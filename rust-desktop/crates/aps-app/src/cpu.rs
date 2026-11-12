@@ -262,6 +262,9 @@ pub struct CpuWorkspace {
     viewer_engine: u8,
     viewer_epoch: u64,
     firefox_viewer: Option<FirefoxViewer>,
+    /// URL of the local Firefox page already handed to the browser for the
+    /// current profile. Reopening the same page must not create a second tab.
+    local_viewer_url: Option<String>,
     language: Language,
     metadata_path: Option<PathBuf>,
     snapshot_root: Option<PathBuf>,
@@ -416,8 +419,12 @@ impl CpuWorkspace {
                 }
                 match result {
                     Ok((viewer, url)) => {
+                        let already_open = this.local_viewer_url.as_deref() == Some(url.as_str());
                         this.firefox_viewer = Some(viewer);
-                        cx.open_url(&url);
+                        if !already_open {
+                            cx.open_url(&url);
+                            this.local_viewer_url = Some(url);
+                        }
                         this.export_message =
                             Some(this.language.text(TextKey::CpuViewerLocalOpened).into());
                     }
@@ -458,6 +465,7 @@ impl CpuWorkspace {
             viewer_engine: 0,
             viewer_epoch: 0,
             firefox_viewer: None,
+            local_viewer_url: None,
             language,
             metadata_path,
             snapshot_root,
@@ -859,6 +867,7 @@ impl CpuWorkspace {
                 self.pending_import_started = started;
                 self.session = Some(session);
                 self.firefox_viewer = None;
+                self.local_viewer_url = None;
                 self.catalog = Some(catalog);
                 self.query = query;
                 self.pending_time_input_sync = true;
@@ -1381,6 +1390,7 @@ impl CpuWorkspace {
 
     fn close(&mut self, cx: &mut Context<Self>) {
         self.firefox_viewer = None;
+        self.local_viewer_url = None;
         self.import_cancel.store(true, Ordering::Release);
         self.disassembly_generation = self.disassembly_generation.wrapping_add(1);
         self.close_disassembly(cx);
@@ -8313,6 +8323,25 @@ mod metadata_tests {
         sync::atomic::{AtomicU64, Ordering},
     };
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn reopened_local_viewer_does_not_open_a_second_browser_tab() {
+        let source = include_str!("cpu.rs");
+        let open = source
+            .split("fn open_local_firefox(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn selected_converter(")
+            .next()
+            .unwrap();
+        let compare = open
+            .find("this.local_viewer_url.as_deref() == Some(url.as_str())")
+            .unwrap();
+        let assign = open.find("this.local_viewer_url = Some(url);").unwrap();
+        let open_url = open.find("cx.open_url(&url)").unwrap();
+        assert!(compare < open_url && open_url < assign);
+        assert!(open.contains("if !already_open"));
+    }
 
     #[::core::prelude::v1::test]
     fn top_function_rows_use_dividers_instead_of_cards() {

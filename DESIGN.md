@@ -1219,6 +1219,10 @@ client (GPUI's default is a null client), so any provider request failed with
 - Local assets and the private profile endpoint reject traversal and foreign
   origins. Closing/replacing the CPU session shuts down the owned server.
   Missing build assets or storage produce an error, never silent online fallback.
+- Reopening the selected local viewer for the current profile reuses the live
+  viewer URL and does not hand a second tab or window to the browser. A new
+  import or closing the session clears that identity so the next profile opens
+  normally.
 - Online mode asks for a destination and opens the official site only after a
   successful non-overwriting export. The user imports that file manually; no
   automatic profile upload, localhost profile URL or postMessage crosses into
