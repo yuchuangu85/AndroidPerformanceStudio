@@ -370,7 +370,7 @@ impl CpuWorkspace {
             return;
         }
         match self.viewer_engine {
-            1 => self.open_local_firefox(cx),
+            1 => self.open_local_firefox(false, cx),
             2 => self.save_firefox_for_site(true, cx),
             _ => {
                 self.tab = CpuTab::CallTree;
@@ -379,7 +379,7 @@ impl CpuWorkspace {
         }
     }
 
-    fn open_local_firefox(&mut self, cx: &mut Context<Self>) {
+    fn open_local_firefox(&mut self, handoff_to_viewer: bool, cx: &mut Context<Self>) {
         let Some(session) = self.session.clone() else {
             return;
         };
@@ -427,6 +427,13 @@ impl CpuWorkspace {
                         }
                         this.export_message =
                             Some(this.language.text(TextKey::CpuViewerLocalOpened).into());
+                        if handoff_to_viewer && !already_open
+                            && let Some(studio) = this.studio.clone()
+                        {
+                            let _ = studio.update(cx, |studio, cx| {
+                                studio.show_home_after_external_viewer(cx)
+                            });
+                        }
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -906,7 +913,7 @@ impl CpuWorkspace {
                 self.refresh_shared(cx);
                 self.reload(cx);
                 if self.viewer_engine == 1 {
-                    self.open_local_firefox(cx);
+                    self.open_local_firefox(true, cx);
                 }
             }
             Err(error) => self.error = Some(error.into()),
@@ -9507,10 +9514,14 @@ mod metadata_tests {
             .next()
             .unwrap();
         let (success, failure) = publish.split_once("Err(error) =>").unwrap();
-        let automatic = "if self.viewer_engine == 1 {\n                    self.open_local_firefox(cx);\n                }";
+        let automatic =
+            "if self.viewer_engine == 1 {\n                    self.open_local_firefox(true, cx);\n                }";
         assert!(success.contains(automatic));
         assert!(success.find("self.reload(cx)").unwrap() < success.find(automatic).unwrap());
-        assert_eq!(success.matches("self.open_local_firefox(cx)").count(), 1);
+        assert_eq!(
+            success.matches("self.open_local_firefox(true, cx)").count(),
+            1
+        );
         assert!(!success.contains("save_firefox_for_site"));
         assert!(!failure.contains("open_local_firefox"));
         let settings = source
@@ -9521,6 +9532,10 @@ mod metadata_tests {
             .next()
             .unwrap();
         assert!(!settings.contains("open_local_firefox"));
+        assert!(
+            source.contains("studio.show_home_after_external_viewer(cx)"),
+            "automatic local handoff must leave no native analysis view behind"
+        );
     }
 
     #[test]
@@ -9561,7 +9576,7 @@ mod metadata_tests {
             .next()
             .unwrap();
         assert!(open.contains("self.session.is_none()"));
-        assert!(open.contains("1 => self.open_local_firefox(cx)"));
+        assert!(open.contains("1 => self.open_local_firefox(false, cx)"));
         assert!(open.contains("2 => self.save_firefox_for_site(true, cx)"));
         let site = source
             .split("fn save_firefox_for_site(")

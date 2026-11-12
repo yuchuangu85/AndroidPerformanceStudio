@@ -2308,6 +2308,13 @@ impl Studio {
         self.destination = destination;
     }
 
+    /// Automatic handoff to an external viewer leaves no second profile view
+    /// behind in the application: the profile is owned by the external viewer,
+    /// so the shell returns to Home instead of presenting native analysis.
+    pub(crate) fn show_home_after_external_viewer(&mut self, cx: &mut Context<Self>) {
+        self.navigate(Destination::Home, cx);
+    }
+
     fn navigate(&mut self, destination: Destination, cx: &mut Context<Self>) {
         let (destination, settings_page) = resolve_capture_route(destination, self.settings_page);
         if destination != Destination::LayoutInspector {

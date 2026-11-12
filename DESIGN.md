@@ -1208,14 +1208,17 @@ client (GPUI's default is a null client), so any provider request failed with
   Firefox Profiler as a persisted single-choice preference. Changing it never
   opens a browser, exports a report, records a device or uploads profile data.
 - CPU toolbar and File > Export expose an explicit open-selected-viewer action.
-  Successful file, saved-snapshot and captured-profile imports also automatically
-  open the local Firefox viewer when that engine is selected. Native and online
+  Successful file, saved-snapshot and captured-profile imports also hand the
+  profile to the selected engine. With the bundled local Firefox engine that
+  handoff opens the system browser and returns the shell to Home; the app does
+  not also present the native analysis for the same import, so only one profile
+  view opens. The explicit open action keeps the current page. Native and online
   engines retain their existing behavior; choosing a preference alone never
   launches a viewer. An engine change during local export cancels the handoff.
-  Native opens the existing in-app analysis. Bundled mode exports the loaded
-  session as Gecko gzip and serves the pinned `third_party/firefox-profiler/dist`
-  build from a loopback-only server in the system browser; no embedded webview
-  or second parser replaces APS ownership of the imported session.
+  Bundled mode exports the loaded session as Gecko gzip and serves the pinned
+  `third_party/firefox-profiler/dist` build from a loopback-only server in the
+  system browser; no embedded webview or second parser replaces APS ownership of
+  the imported session.
 - Local assets and the private profile endpoint reject traversal and foreign
   origins. Closing/replacing the CPU session shuts down the owned server.
   Missing build assets or storage produce an error, never silent online fallback.
