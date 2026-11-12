@@ -5292,7 +5292,6 @@ fn top_functions_panel(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .gap(px(1.))
         .track_focus(&ws.tree_focus)
         .track_scroll(&ws.top_scroll)
         .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
@@ -5319,15 +5318,10 @@ fn top_functions_panel(
                 .bg(if selected {
                     colors.accent.alpha(0.16)
                 } else {
-                    colors.panel
+                    rgba(0x00000000)
                 })
-                .border_1()
-                .border_color(if selected {
-                    colors.accent
-                } else {
-                    colors.border
-                })
-                .rounded(px(9.))
+                .border_b_1()
+                .border_color(colors.border)
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, window, cx| {
                     window.focus(&this.tree_focus, cx);
@@ -8319,6 +8313,29 @@ mod metadata_tests {
         sync::atomic::{AtomicU64, Ordering},
     };
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[::core::prelude::v1::test]
+    fn top_function_rows_use_dividers_instead_of_cards() {
+        let source = include_str!("cpu.rs");
+        let panel = source
+            .split("fn top_functions_panel(")
+            .nth(1)
+            .unwrap()
+            .split("fn table_value(")
+            .next()
+            .unwrap();
+        let row = panel
+            .split("(\"cpu-top-row\", index)")
+            .nth(1)
+            .unwrap()
+            .split(".on_click(")
+            .next()
+            .unwrap();
+        assert!(row.contains(".border_b_1()"));
+        assert!(row.contains(".border_color(colors.border)"));
+        assert!(!row.contains(".border_1()"));
+        assert!(!row.contains(".rounded("));
+    }
 
     #[::core::prelude::v1::test]
     fn call_path_rows_use_one_compact_list_inside_function_details() {
