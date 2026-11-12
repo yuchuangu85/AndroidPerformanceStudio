@@ -6933,9 +6933,12 @@ fn details_frame(
                     lang.text(TextKey::CpuDetailsCallPath),
                     colors,
                 ));
+                // Keep path rows in one tight list; the surrounding details column
+                // spaces sections by 8 px, which must not apply between rows.
+                let mut path_rows = div().flex().flex_col();
                 for (index, (id, name)) in path.iter().enumerate() {
                     let target = id.clone();
-                    column = column.child(
+                    path_rows = path_rows.child(
                         div()
                             .id(("cpu-details-path", index))
                             .pl(px((index.saturating_mul(6)) as f32))
@@ -6955,6 +6958,7 @@ fn details_frame(
                             })),
                     );
                 }
+                column = column.child(path_rows);
             }
             if !children.is_empty() {
                 column = column.child(studio::details_heading(
@@ -8315,6 +8319,27 @@ mod metadata_tests {
         sync::atomic::{AtomicU64, Ordering},
     };
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[::core::prelude::v1::test]
+    fn call_path_rows_use_one_compact_list_inside_function_details() {
+        let source = include_str!("cpu.rs");
+        let frame = source
+            .split("fn details_frame(")
+            .nth(1)
+            .unwrap()
+            .split("fn selected_path(")
+            .next()
+            .unwrap();
+        let heading = frame
+            .find("lang.text(TextKey::CpuDetailsCallPath)")
+            .unwrap();
+        let list = frame
+            .find("let mut path_rows = div().flex().flex_col();")
+            .unwrap();
+        let row = frame.find("(\"cpu-details-path\", index)").unwrap();
+        let append = frame.find("column = column.child(path_rows);").unwrap();
+        assert!(heading < list && list < row && row < append);
+    }
 
     #[::core::prelude::v1::test]
     fn function_details_start_below_timeline_with_controls_in_analysis_column() {
