@@ -2189,6 +2189,7 @@ impl CpuWorkspace {
             } else {
                 function = function.child(div().w(px(18.)).flex_shrink_0());
             }
+            function = function.child(call_tree_category_swatch(colors.dark, &name, &resource));
             function = function.child(
                 div()
                     .text_size(px(studio::FONT_SUPPORTING))
@@ -4497,9 +4498,11 @@ const CALL_TREE_FIXED_COLUMNS: f32 = 95. + 70. + 70. + 64.;
 const CALL_TREE_HEADER_HEIGHT: f32 = 28.;
 /// Dense supporting font width estimate for the horizontally scrolled labels.
 const CALL_TREE_TEXT_WIDTH_ESTIMATE: f32 = 8.;
+const CALL_TREE_CATEGORY_SWATCH_SIZE: f32 = 10.;
+const CALL_TREE_CATEGORY_SWATCH_MARGIN: f32 = 2.;
 
 /// Longest call-tree row: metric columns plus depth indent, disclosure toggle and
-/// both the symbol and the path label. Over-estimating only adds empty scroll
+/// category swatch, symbol and path label. Over-estimating only adds empty scroll
 /// range; under-estimating would clip the longest name.
 fn call_tree_content_width(rows: &[QueryRow]) -> f32 {
     rows.iter()
@@ -4509,12 +4512,25 @@ fn call_tree_content_width(rows: &[QueryRow]) -> f32 {
             CALL_TREE_FIXED_COLUMNS
                 + row.depth.saturating_mul(10).min(400) as f32
                 + 18.
+                + CALL_TREE_CATEGORY_SWATCH_SIZE
+                + 2. * CALL_TREE_CATEGORY_SWATCH_MARGIN
+                + 2.
                 + 10.
                 + 8.
                 + 40.
                 + label_width
         })
         .fold(0.0, f32::max)
+}
+
+fn call_tree_category_swatch(dark: bool, name: &str, resource: &str) -> Div {
+    let (_, _, hex) = firefox_chart_color_values(dark, name, resource, true);
+    div()
+        .size(px(CALL_TREE_CATEGORY_SWATCH_SIZE))
+        .flex_shrink_0()
+        .mx(px(CALL_TREE_CATEGORY_SWATCH_MARGIN))
+        .rounded(px(1.))
+        .bg(rgb(hex))
 }
 
 fn top_functions_panel(
@@ -5024,6 +5040,68 @@ enum ChartMode {
     Stack,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FirefoxChartCategory {
+    UserOrNative,
+    Kernel,
+    Runtime,
+    OffCpu,
+}
+
+/// Match the category identity used by the bundled Firefox Profiler exporter:
+/// User/Native is yellow, Kernel is orange, DEX/OAT/JIT is green, and the
+/// scheduler pseudo-frame is Off-CPU blue.
+fn firefox_chart_category(label: &str, resource: &str) -> FirefoxChartCategory {
+    if (resource.contains("kallsyms") || resource.ends_with(".ko"))
+        && (label == "__schedule" || label.starts_with("__schedule "))
+    {
+        FirefoxChartCategory::OffCpu
+    } else if resource.contains("kallsyms") || resource.ends_with(".ko") {
+        FirefoxChartCategory::Kernel
+    } else if resource.ends_with(".vdex")
+        || resource.ends_with(".oat")
+        || resource == "[JIT app cache]"
+    {
+        FirefoxChartCategory::Runtime
+    } else {
+        FirefoxChartCategory::UserOrNative
+    }
+}
+
+/// Return Firefox Profiler's Photon fill values as (normal RGB, normal alpha,
+/// highlighted RGB). These values mirror `utils/colors.ts` and
+/// `res/css/categories.css` in the bundled profiler.
+fn firefox_chart_color_values(
+    dark: bool,
+    label: &str,
+    resource: &str,
+    highlighted: bool,
+) -> (u32, f32, u32) {
+    let category = firefox_chart_category(label, resource);
+    let (light, dark_hex, normal_alpha, highlighted_light, highlighted_dark) = match category {
+        FirefoxChartCategory::UserOrNative => {
+            (0xffe900, 0xbe9b00, (0x70u8, 0x85u8), 0xffe129, 0xbe9b00)
+        }
+        FirefoxChartCategory::Kernel => (0xff9400, 0xd76e00, (0x60, 0x60), 0xff9400, 0xd76e00),
+        FirefoxChartCategory::Runtime => (0x12bc00, 0x058b00, (0x60, 0x60), 0x12bc00, 0x058b00),
+        FirefoxChartCategory::OffCpu => (0x0060df, 0x0060df, (0x60, 0x60), 0x0060df, 0x0060df),
+    };
+    let alpha = if highlighted {
+        1.0
+    } else {
+        f32::from(if dark { normal_alpha.1 } else { normal_alpha.0 }) / 255.0
+    };
+    (
+        if dark { dark_hex } else { light },
+        alpha,
+        if dark {
+            highlighted_dark
+        } else {
+            highlighted_light
+        },
+    )
+}
+
 fn transform_label(lang: Language, op: &TransformOp) -> String {
     match op {
         TransformOp::Focus(name) => lang.format(TextKey::CpuTransformFocusChip, &[("name", name)]),
@@ -5146,9 +5224,6 @@ fn block_color(
     hovered: bool,
     search_match: bool,
 ) -> Rgba {
-    if selected {
-        return colors.accent;
-    }
     if block.kind != ChartBlockKind::Function {
         return colors.accent.alpha(if colors.dark { 0.45 } else { 0.35 });
     }
@@ -5157,18 +5232,16 @@ fn block_color(
             .accent
             .blend(rgb(0xffffff).alpha(if colors.dark { 0.30 } else { 0.10 }));
     }
-    let color = {
-        let palette: [u32; 6] = if colors.dark {
-            [0x2b5d8c, 0x356f83, 0x5b4f8c, 0x7a5230, 0x3f6f45, 0x7a3f5f]
-        } else {
-            [0x9ecbff, 0x9ed9d4, 0xc7b3f0, 0xf0c99e, 0xbfe3a8, 0xf0b3d2]
-        };
-        rgb(palette[block.depth % palette.len()])
-    };
-    if hovered {
-        color.blend(rgb(0xffffff).alpha(if colors.dark { 0.22 } else { 0.28 }))
+    let (hex, alpha, highlighted_hex) = firefox_chart_color_values(
+        colors.dark,
+        &block.label,
+        &block.resource,
+        selected || hovered,
+    );
+    if selected || hovered {
+        rgb(highlighted_hex)
     } else {
-        color
+        rgb(hex).alpha(alpha)
     }
 }
 
@@ -7621,17 +7694,19 @@ impl NoticeSource for CpuWorkspace {
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        CPU_MEDIA_TYPE, CpuError, CpuSourceClass, CpuSourceKind, Language, RecentCpu,
-        associate_cpu, capture_import_available, chart_tooltip_placement, check_cpu_binding,
-        classify_cpu_source, cpu_artifact, cpu_snapshot_path, decompress_cpu_source,
-        load_cpu_import, load_cpu_snapshot, load_cpu_source, load_cpu_source_with,
-        persist_cpu_snapshot, recent_cpu, resolve_simpleperf, timeline_bar_width, timeline_query,
-        validate_recent,
+        CALL_TREE_CATEGORY_SWATCH_MARGIN, CALL_TREE_CATEGORY_SWATCH_SIZE, CPU_MEDIA_TYPE, CpuError,
+        CpuSourceClass, CpuSourceKind, FirefoxChartCategory, Language, RecentCpu, associate_cpu,
+        call_tree_category_swatch, capture_import_available, chart_tooltip_placement,
+        check_cpu_binding, classify_cpu_source, cpu_artifact, cpu_snapshot_path,
+        decompress_cpu_source, firefox_chart_category, firefox_chart_color_values, load_cpu_import,
+        load_cpu_snapshot, load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
+        resolve_simpleperf, timeline_bar_width, timeline_query, validate_recent,
     };
     use aps_contracts::{ArtifactCompleteness, ProfilerSession, ProfilerSessionId, SourceDigest};
     use aps_cpu::{ChartViewport, CpuSession, Direction, Query, TimelineViewport, WeightType};
     use aps_storage::{PageRequest, Storage};
     use aps_ui_foundation::TextKey;
+    use gpui_kit::{Styled, px, rgb};
     use std::{
         io::{Cursor, Write as _},
         path::{Path, PathBuf},
@@ -8482,6 +8557,107 @@ mod metadata_tests {
             source.contains("chart_tooltip(ws, block, colors, ws.chart_hover_position, viewport)")
         );
     }
+
+    #[test]
+    fn flame_graph_uses_firefox_profiler_category_colors() {
+        assert_eq!(
+            firefox_chart_category("android.view.View.draw", "[JIT app cache]"),
+            FirefoxChartCategory::Runtime
+        );
+        assert_eq!(
+            firefox_chart_category("memcpy", "/system/lib64/libc.so"),
+            FirefoxChartCategory::UserOrNative
+        );
+        assert_eq!(
+            firefox_chart_category("schedule", "[kernel.kallsyms]"),
+            FirefoxChartCategory::Kernel
+        );
+        assert_eq!(
+            firefox_chart_category("__schedule", "[kernel.kallsyms]"),
+            FirefoxChartCategory::OffCpu
+        );
+        assert_eq!(
+            firefox_chart_color_values(false, "java", "[JIT app cache]", false),
+            (0x12bc00, 0x60 as f32 / 255.0, 0x12bc00)
+        );
+        assert_eq!(
+            firefox_chart_color_values(true, "java", "[JIT app cache]", false),
+            (0x058b00, 0x60 as f32 / 255.0, 0x058b00)
+        );
+        assert_eq!(
+            firefox_chart_color_values(false, "__schedule", "[kernel.kallsyms]", true),
+            (0x0060df, 1.0, 0x0060df)
+        );
+    }
+
+    #[test]
+    fn call_tree_swatch_uses_the_chart_category_with_fixed_dimensions() {
+        for (name, resource, light, dark) in [
+            ("memcpy", "/system/lib64/libc.so", 0xffe129, 0xbe9b00),
+            ("schedule", "[kernel.kallsyms]", 0xff9400, 0xd76e00),
+            ("__schedule", "[kernel.kallsyms]", 0x0060df, 0x0060df),
+            (
+                "android.view.View.draw",
+                "[JIT app cache]",
+                0x12bc00,
+                0x058b00,
+            ),
+            ("draw", "/system/framework/boot.vdex", 0x12bc00, 0x058b00),
+            ("draw", "/system/framework/boot.oat", 0x12bc00, 0x058b00),
+        ] {
+            for (dark_mode, expected) in [(false, light), (true, dark)] {
+                let mut swatch = call_tree_category_swatch(dark_mode, name, resource);
+                let style = swatch.style();
+                assert_eq!(
+                    style.size.width,
+                    Some(px(CALL_TREE_CATEGORY_SWATCH_SIZE).into())
+                );
+                assert_eq!(
+                    style.size.height,
+                    Some(px(CALL_TREE_CATEGORY_SWATCH_SIZE).into())
+                );
+                assert_eq!(style.flex_shrink, Some(0.));
+                assert_eq!(
+                    style.margin.left,
+                    Some(px(CALL_TREE_CATEGORY_SWATCH_MARGIN).into())
+                );
+                assert_eq!(
+                    style.margin.right,
+                    Some(px(CALL_TREE_CATEGORY_SWATCH_MARGIN).into())
+                );
+                assert_eq!(style.background, Some(rgb(expected).into()));
+            }
+        }
+    }
+
+    #[test]
+    fn call_tree_swatch_follows_disclosure_and_precedes_function_name() {
+        let rows = include_str!("cpu.rs")
+            .split("fn call_tree_rows(")
+            .nth(1)
+            .unwrap()
+            .split("fn handle_top_functions_key(")
+            .next()
+            .unwrap();
+        let toggle = rows.find("cpu-call-toggle").unwrap();
+        let leaf_placeholder = rows.find("function.child(div().w(px(18.))").unwrap();
+        let swatch = rows
+            .find("call_tree_category_swatch(colors.dark, &name, &resource)")
+            .unwrap();
+        let name = rows.find("studio::selectable(name)").unwrap();
+        assert!(toggle < leaf_placeholder && leaf_placeholder < swatch && swatch < name);
+        assert_eq!(rows.matches("call_tree_category_swatch(").count(), 1);
+        let measurement = include_str!("cpu.rs")
+            .split("fn call_tree_content_width(")
+            .nth(1)
+            .unwrap()
+            .split("fn call_tree_category_swatch(")
+            .next()
+            .unwrap();
+        assert!(measurement.contains("CALL_TREE_CATEGORY_SWATCH_SIZE"));
+        assert!(measurement.contains("CALL_TREE_CATEGORY_SWATCH_MARGIN"));
+    }
+
     #[test]
     fn timeline_plot_click_does_not_filter_threads() {
         let source = include_str!("cpu.rs");

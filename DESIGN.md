@@ -1137,3 +1137,18 @@ client (GPUI's default is a null client), so any provider request failed with
 - Auto-open completed protobuf output only while Capture Planning is visible
   and the CPU workspace can accept it. Background completion, raw-only output
   and occupied CPU workspaces preserve the existing manual-open behavior.
+
+### Rust CPU Flame Graph Colors (2026-11-12)
+
+- Flame-graph function blocks use the bundled Firefox Profiler category colors,
+  not a depth-based palette: User/Native is yellow, Kernel is orange,
+  DEX/OAT/JIT is green, and the scheduler Off-CPU pseudo-frame is blue.
+- Light and dark values preserve Firefox's Photon-derived fills and normal
+  opacity. Hover and selection use the category's highlighted fill, while
+  search matches and non-function aggregate markers retain their existing
+  semantic states.
+- Call-tree function cells place a fixed 10 px category swatch between the
+  disclosure arrow (or its leaf-row spacer) and the function name. Swatches
+  reuse the chart's opaque category fill for the active light/dark theme and
+  remain the same color on selection. Include their width in horizontal scroll
+  measurement without changing row height or arrow/row click behavior.
