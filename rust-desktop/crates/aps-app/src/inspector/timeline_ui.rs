@@ -17,6 +17,7 @@ impl InspectorWorkspace {
         else {
             return;
         };
+        self.pause_auto_scan();
         match frame
             .archive
             .analyze_window(&frame.archive.default_window_id)
@@ -37,6 +38,7 @@ impl InspectorWorkspace {
         if self.busy || self.capturing {
             return;
         }
+        self.pause_auto_scan();
         if self.timeline.selected().is_none_or(|frame| frame.id != id) {
             if self.timeline.remove(id) {
                 self.timeline_reveal_selected = true;

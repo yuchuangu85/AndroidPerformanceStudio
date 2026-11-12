@@ -21,6 +21,8 @@ mod compose_bridge;
 mod export;
 mod protocol;
 mod visible_window;
+#[cfg(test)]
+mod window_titles_tests;
 pub use agent_bridge::{AgentCapture, capture_agent};
 pub use analysis::{
     FindingSeverity, LayoutAnalysis, LayoutFinding, LayoutRule, MAX_LAYOUT_FINDINGS,
@@ -203,6 +205,9 @@ pub struct LayoutNode {
 #[derive(Clone, Debug)]
 pub struct LayoutWindow {
     pub id: String,
+    /// Producer-supplied window name, such as Taskbar or StatusBar. Older
+    /// snapshots and the minimal IPC projection may omit this display metadata.
+    pub title: Option<String>,
     pub kind: String,
     pub bounds: Bounds,
     pub nodes: Vec<LayoutNode>,
@@ -859,6 +864,7 @@ fn parse_snapshot(
             )?;
             windows.push(LayoutWindow {
                 id,
+                title: optional_text(window, "title", 4096).unwrap_or_default(),
                 kind,
                 bounds: window_bounds,
                 nodes,
@@ -879,6 +885,7 @@ fn parse_snapshot(
         )?;
         windows.push(LayoutWindow {
             id: "window:legacy".into(),
+            title: None,
             kind: "OTHER".into(),
             bounds: nodes[0].bounds,
             nodes,

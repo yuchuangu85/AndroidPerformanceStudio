@@ -295,7 +295,7 @@ impl Studio {
                             ),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.settings_page = page;
+                        this.select_settings_page(page);
                         this.refresh_route_menus(cx);
                         cx.notify();
                     }))
@@ -329,6 +329,7 @@ impl Studio {
                         ),
                         |element| element.overflow_y_scroll(),
                     )
+                    .track_scroll(&self.settings_scroll)
                     .child(content),
             )
             .into_any_element()
@@ -2134,6 +2135,31 @@ mod tests {
         let english = Language::English.text(TextKey::SettingsUiShowSystemComposablesHint);
         assert!(english.contains("next capture or refresh"));
         assert!(english.contains("reduce hierarchy noise"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn layout_inspector_settings_enter_at_the_top_of_the_scrollable_content() {
+        let source = include_str!("settings_page.rs");
+        let page = source
+            .split("pub(super) fn settings_page(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_general(")
+            .next()
+            .unwrap();
+        assert!(page.contains("this.select_settings_page(page)"));
+        assert!(page.contains(".track_scroll(&self.settings_scroll)"));
+
+        let shell = include_str!("../shell.rs");
+        let selection = shell
+            .split("fn select_settings_page(")
+            .nth(1)
+            .unwrap()
+            .split("fn entered_route(")
+            .next()
+            .unwrap();
+        assert!(selection.contains("SettingsPage::LayoutInspector"));
+        assert!(selection.contains("self.settings_scroll.set_offset(point(px(0.), px(0.)))"));
     }
 
     #[::core::prelude::v1::test]

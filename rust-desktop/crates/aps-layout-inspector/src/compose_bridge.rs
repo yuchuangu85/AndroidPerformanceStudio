@@ -142,7 +142,7 @@ impl ComposeBridge {
         foreground::Target::resolve(&self.adb, serial, cancel)?.validate(package, pid)
     }
 
-    /// Called only by the confirmation action, or refresh under that same target grant.
+    /// Called by explicit Refresh/Auto scan under the confirmed target grant.
     pub fn capture(
         &self,
         generation: u64,

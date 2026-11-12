@@ -212,6 +212,7 @@ fn tone_switch_reuses_snapshot_but_resets_count_and_scroll_top() {
 fn invisible_parent_and_missing_node_are_excluded_without_changing_report_indices() {
     let archive = archive(vec![LayoutWindow {
         id: "window".into(),
+        title: None,
         kind: "ACTIVITY".into(),
         bounds: BOUNDS,
         nodes: vec![

@@ -42,6 +42,7 @@ pub(super) fn fixture() -> (LayoutWindow, LayoutAnalysis) {
     (
         LayoutWindow {
             id: "window".into(),
+            title: None,
             kind: "ACTIVITY".into(),
             bounds: Bounds {
                 left: 0,

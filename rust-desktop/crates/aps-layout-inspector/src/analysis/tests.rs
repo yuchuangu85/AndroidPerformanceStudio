@@ -48,6 +48,7 @@ fn archive(nodes: Vec<LayoutNode>) -> InspectorArchive {
         },
         windows: vec![LayoutWindow {
             id: "window:legacy".into(),
+            title: None,
             kind: "OTHER".into(),
             bounds: Bounds {
                 left: 0,

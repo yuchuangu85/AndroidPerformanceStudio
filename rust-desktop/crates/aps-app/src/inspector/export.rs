@@ -40,6 +40,7 @@ impl InspectorWorkspace {
         let Some(archive) = self.archive.clone() else {
             return;
         };
+        self.pause_auto_scan();
         self.cancel.cancel();
         self.cancel = CancellationToken::new();
         self.generation += 1;

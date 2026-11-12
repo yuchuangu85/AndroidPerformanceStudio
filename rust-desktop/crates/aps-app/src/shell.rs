@@ -227,6 +227,7 @@ enum ShellMenu {
     ToggleInspectorHierarchy,
     ToggleInspectorFindings,
     ToggleInspectorDetails,
+    ToggleInspectorAutoScan,
     NextInspectorWindow,
     ToggleLayout(LayoutMenuToggle),
     PrepareAi,
@@ -536,7 +537,11 @@ fn inspector_menu_groups(
                 ToggleLayoutShowBounds,
             ),
         MenuGroup::new(TextKey::ShellMenuTools)
-            .item_when(false, TextKey::InspectorAutoScan, ShellMenu::Unavailable)
+            .check(
+                TextKey::InspectorAutoScan,
+                state.auto_scan,
+                ShellMenu::ToggleInspectorAutoScan,
+            )
             .separator()
             .item_action_when(
                 state.has_selection,
@@ -683,6 +688,7 @@ pub struct Studio {
     ai_generation: u64,
     captured: Option<aps_capture::CapturedArtifact>,
     settings_page: SettingsPage,
+    settings_scroll: ScrollHandle,
     settings_ui: settings_page::SettingsUi,
     home_recent: home_page::HomeRecentState,
     home_recent_generation: u64,
@@ -1255,6 +1261,7 @@ impl Studio {
             ai_generation: 0,
             captured: None,
             settings_page: SettingsPage::General,
+            settings_scroll: ScrollHandle::new(),
             settings_ui,
             home_recent: home_page::HomeRecentState::Loading,
             home_recent_generation: 0,
@@ -2039,6 +2046,10 @@ impl Studio {
                 self.inspector
                     .update(cx, |inspector, cx| inspector.toggle_details(cx));
             }
+            ShellMenu::ToggleInspectorAutoScan => {
+                self.inspector
+                    .update(cx, |inspector, cx| inspector.toggle_auto_scan(cx));
+            }
             ShellMenu::NextInspectorWindow => {
                 self.inspector
                     .update(cx, |inspector, cx| inspector.cycle_window(cx));
@@ -2048,7 +2059,7 @@ impl Studio {
             ShellMenu::OpenAiWorkspace => self.open_ai_workspace(&OpenAiWorkspace, window, cx),
             ShellMenu::OpenSettings => self.open_settings(&OpenSettings, window, cx),
             ShellMenu::SettingsTab(page) => {
-                self.settings_page = page;
+                self.select_settings_page(page);
                 self.destination = Destination::Settings;
             }
         }
@@ -2222,7 +2233,11 @@ impl Studio {
 
     fn navigate(&mut self, destination: Destination, cx: &mut Context<Self>) {
         let (destination, settings_page) = resolve_capture_route(destination, self.settings_page);
-        self.settings_page = settings_page;
+        if destination != Destination::LayoutInspector {
+            self.inspector
+                .update(cx, |inspector, cx| inspector.stop_live_capture(cx));
+        }
+        self.select_settings_page(settings_page);
         let entering_home = destination == Destination::Home && self.destination != destination;
         let route = destination;
         self.destination = destination;
@@ -2243,6 +2258,13 @@ impl Studio {
             self.refresh_home_recent(cx);
         }
         cx.notify();
+    }
+
+    fn select_settings_page(&mut self, page: SettingsPage) {
+        if page == SettingsPage::LayoutInspector {
+            self.settings_scroll.set_offset(point(px(0.), px(0.)));
+        }
+        self.settings_page = page;
     }
 
     fn entered_route(&mut self, destination: Destination, cx: &mut Context<Self>) -> bool {
@@ -3486,6 +3508,7 @@ mod menubar_tests {
                 busy,
                 has_selection: false,
                 has_archive: false,
+                auto_scan: false,
             },
             history,
             pending,
@@ -3819,6 +3842,7 @@ mod menubar_tests {
             busy: false,
             has_selection: false,
             has_archive: true,
+            auto_scan: false,
         };
         let groups = inspector_menu_groups(
             panels,

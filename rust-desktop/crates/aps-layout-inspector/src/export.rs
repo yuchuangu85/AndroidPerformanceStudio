@@ -551,7 +551,11 @@ fn typed_snapshot(
     }
     let mut windows = Vec::new();
     for window in &archive.windows {
-        windows.push(serde_json::json!({"id": window.id, "type": window.kind, "bounds": rect(window.bounds), "root": typed_root(window, cancel)?}));
+        let mut value = serde_json::json!({"id": window.id, "type": window.kind, "bounds": rect(window.bounds), "root": typed_root(window, cancel)?});
+        if let Some(title) = &window.title {
+            value["title"] = title.clone().into();
+        }
+        windows.push(value);
     }
     Ok(
         serde_json::json!({"protocolVersion": {"major": archive.frame.protocol_major, "minor": archive.frame.protocol_minor},

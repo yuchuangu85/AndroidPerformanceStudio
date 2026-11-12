@@ -841,12 +841,55 @@ fn snapshot_windows_ingest_into_the_layout_archive() {
     let archive = parse_snapshot(&snapshot, frame, 1).expect("archive ingests windows");
     assert_eq!(archive.windows.len(), 2);
     assert_eq!(archive.windows[0].id, "window:42177c9");
+    assert_eq!(
+        archive.windows[0].title.as_deref(),
+        Some(windows[0].title.as_str())
+    );
+    assert_eq!(
+        archive.windows[1].title.as_deref(),
+        Some(windows[1].title.as_str())
+    );
     let nodes = archive
         .hierarchy(&archive.windows[0].id, 0, 10)
         .expect("window hierarchy");
     assert_eq!(nodes.len(), 2);
     assert_eq!(nodes[0].class_name, "com.codemx.ui.RealRootLayout");
     assert_eq!(nodes[1].class_name, "com.codemx.ui.RealTitleView");
+}
+
+#[test]
+fn system_ui_snapshot_keeps_taskbar_and_statusbar_names_through_archive_projection() {
+    let windows = parse(
+        &system_ui_bare_taskbar_zip(),
+        "com.android.systemui",
+        WindowTarget::SystemUi,
+    );
+    let projected = snapshot_windows(&windows);
+    let snapshot = json!({
+        "protocolVersion": {"major": 1, "minor": 0},
+        "packageName": "com.android.systemui",
+        "capturedAtEpochMillis": 42,
+        "display": {"widthPx": 1080, "heightPx": 2400, "density": 3.0},
+        "capabilities": {"viewHierarchy": true},
+        "root": projected[0]["root"].clone(),
+        "windows": projected,
+    });
+    let frame = FrameIdentity {
+        source_digest: SourceDigest::from_bytes([0; 32]),
+        package_name: "com.android.systemui".into(),
+        captured_at_epoch_millis: 42,
+        protocol_major: 1,
+        protocol_minor: 0,
+    };
+    let archive = parse_snapshot(&snapshot, frame, 1).unwrap();
+    assert_eq!(
+        archive
+            .windows
+            .iter()
+            .map(|window| window.title.as_deref())
+            .collect::<Vec<_>>(),
+        [Some("StatusBar"), Some("Taskbar")]
+    );
 }
 
 #[test]

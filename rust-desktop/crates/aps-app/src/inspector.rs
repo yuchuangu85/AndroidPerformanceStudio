@@ -33,8 +33,10 @@ mod export;
 mod findings;
 mod hierarchy;
 mod hierarchy_list;
+mod live;
 mod timeline;
 mod timeline_ui;
+mod windows;
 
 const MAX_CANVAS_NODES: usize = 4000;
 
@@ -378,6 +380,9 @@ pub struct InspectorWorkspace {
     /// True when the current live frame came from the in-app agent transport
     /// instead of the ADB View/UIAutomator projection.
     agent_capture: bool,
+    auto_scan: live::ScanLoop,
+    auto_scan_task: Option<Task<()>>,
+    resume_auto_scan_after_confirmation_pending: bool,
     capturing: bool,
     busy: bool,
     error: Option<String>,
@@ -452,6 +457,9 @@ impl InspectorWorkspace {
             show_bounds: true,
             compatible_capture: false,
             agent_capture: false,
+            auto_scan: live::ScanLoop::default(),
+            auto_scan_task: None,
+            resume_auto_scan_after_confirmation_pending: false,
             capturing: false,
             busy: false,
             error: None,
@@ -497,6 +505,7 @@ impl InspectorWorkspace {
     /// process selected for other profilers.
     pub fn set_target(&mut self, serial: Option<String>, cx: &mut Context<Self>) {
         if self.target_serial != serial {
+            self.stop_live_capture(cx);
             self.compose_bridge = None;
             self.compose_agent = false;
             self.compose_inspection_confirmation_pending = false;
@@ -629,9 +638,11 @@ impl InspectorWorkspace {
         self.collapsed.clear();
         self.hierarchy_cache.invalidate();
         self.preview_cache = hierarchy::PreviewCache::default();
-        self.hierarchy_scroll.scroll_to_item(0, ScrollStrategy::Top);
-        self.zoom = 1.0;
-        self.preview_pan = (0.0, 0.0);
+        if !self.auto_scan.enabled {
+            self.hierarchy_scroll.scroll_to_item(0, ScrollStrategy::Top);
+            self.zoom = 1.0;
+            self.preview_pan = (0.0, 0.0);
+        }
         self.preview_drag = None;
         self.preview_bar_drag = None;
         self.timeline_reveal_selected = true;
@@ -723,6 +734,7 @@ impl InspectorWorkspace {
         if self.busy {
             return;
         }
+        self.pause_auto_scan();
         self.busy = true;
         self.generation += 1;
         let generation = self.generation;
@@ -791,6 +803,14 @@ impl InspectorWorkspace {
 
     /// One background capture at a time; cancellation keeps it busy until reaped.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.pause_auto_scan();
+        self.capture_once(cx);
+    }
+
+    fn capture_once(&mut self, cx: &mut Context<Self>) {
+        if self.compose_inspection_confirmation_pending {
+            return;
+        }
         if self.compose_agent {
             self.capture_compose(cx);
             return;
@@ -850,6 +870,7 @@ impl InspectorWorkspace {
                         }
                         Err(error) => this.error = Some(error),
                     }
+                    this.continue_auto_scan(cx);
                 }
                 cx.notify();
             })
@@ -860,6 +881,7 @@ impl InspectorWorkspace {
     }
 
     fn prepare_compose(&mut self, cx: &mut Context<Self>) {
+        self.pause_auto_scan();
         if self.busy || self.capturing {
             return;
         }
@@ -964,6 +986,7 @@ impl InspectorWorkspace {
                             this.compose_bridge = None;
                         }
                     }
+                    this.continue_auto_scan(cx);
                 }
                 cx.notify();
             })
@@ -974,6 +997,8 @@ impl InspectorWorkspace {
     }
 
     fn cancel_operation(&mut self, cx: &mut Context<Self>) {
+        self.pause_auto_scan();
+        self.resume_auto_scan_after_confirmation_pending = false;
         self.cancel.cancel();
         self.export.invalidate();
         self.generation += 1;
@@ -989,6 +1014,7 @@ impl InspectorWorkspace {
     }
 
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.pause_auto_scan();
         let recent_path = path.clone();
         let started = std::time::Instant::now();
         self.cancel.cancel();
@@ -1053,7 +1079,18 @@ impl InspectorWorkspace {
             && !archive.windows.is_empty()
         {
             let next = (self.window + 1) % archive.windows.len();
-            let findings = match archive.analyze_window(&archive.windows[next].id) {
+            self.select_window(next, cx);
+        }
+    }
+
+    fn select_window(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.busy || self.capturing || self.window == index {
+            return;
+        }
+        if let Some(archive) = &self.archive
+            && let Some(window) = archive.windows.get(index)
+        {
+            let findings = match archive.analyze_window(&window.id) {
                 Ok(findings) => findings,
                 Err(error) => {
                     self.error = Some(error.to_string());
@@ -1061,7 +1098,8 @@ impl InspectorWorkspace {
                     return;
                 }
             };
-            self.window = next;
+            self.pause_auto_scan();
+            self.window = index;
             self.findings = Arc::new(findings);
             self.findings_ui = findings::UiState::default();
             self.selected_finding = None;
@@ -1070,7 +1108,9 @@ impl InspectorWorkspace {
             self.hidden.clear();
             self.collapsed.clear();
             self.hierarchy_cache.invalidate();
+            self.hierarchy_scroll.scroll_to_item(0, ScrollStrategy::Top);
             self.zoom = 1.0;
+            self.preview_pan = (0.0, 0.0);
             cx.notify();
         }
     }
@@ -1104,6 +1144,7 @@ impl InspectorWorkspace {
 
     fn set_capture_target(&mut self, mode: CaptureTargetMode, cx: &mut Context<Self>) {
         if self.capture_target != mode {
+            self.stop_live_capture(cx);
             if self.capturing {
                 self.cancel_operation(cx);
             }
@@ -1122,10 +1163,6 @@ impl InspectorWorkspace {
         archive: Option<&Arc<InspectorArchive>>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let window_count = archive.map_or(0, |archive| archive.windows.len());
-        let window_label = archive
-            .and_then(|archive| archive.windows.get(self.window))
-            .map(|window| format!("{}: {}", language.text(TextKey::InspectorWindow), window.id));
         // Compose order: capture target, optional window selector, status, then the
         // right-aligned scan control immediately before the trailing divider.
         let mut controls = div()
@@ -1142,12 +1179,15 @@ impl InspectorWorkspace {
                 self.capture_target,
                 cx,
             ));
-        if let Some(window_label) = window_label.filter(|_| window_count > 1) {
-            controls = controls.child(
-                toolbar_button("inspector-window", window_label, !self.busy, false, colors)
-                    .flex_shrink_0()
-                    .on_click(cx.listener(|this, _, _, cx| this.cycle_window(cx))),
-            );
+        if let Some(archive) = archive.filter(|archive| !archive.windows.is_empty()) {
+            controls = controls.child(windows::selector(
+                language,
+                colors,
+                archive,
+                self.window,
+                !self.busy && !self.capturing,
+                cx,
+            ));
         }
         controls = controls
             .child(header_divider(colors))
@@ -1213,6 +1253,7 @@ impl InspectorWorkspace {
                 language,
                 colors,
                 !self.busy && self.target_serial.is_some(),
+                self.auto_scan.enabled,
                 cx,
             ));
 
@@ -1674,6 +1715,7 @@ impl InspectorWorkspace {
 
 impl Drop for InspectorWorkspace {
     fn drop(&mut self) {
+        self.auto_scan_task = None;
         self.cancel.cancel();
     }
 }
@@ -1710,6 +1752,7 @@ impl Render for InspectorWorkspace {
             language,
             &colors,
             archive.as_ref(),
+            self.window,
             node_count,
             visible_nodes,
             &self.hidden,
@@ -1944,6 +1987,7 @@ fn compose_inspection_confirmation(
             close_entity.update(cx, |this, cx| {
                 this.compose_inspection_confirmation_pending = false;
                 this.compose_bridge = None;
+                this.resume_auto_scan_after_confirmation_pending = false;
                 cx.notify();
             });
         });
@@ -1961,6 +2005,7 @@ fn compose_inspection_confirmation(
                 if this.selected_is_compose() {
                     this.details_tab = DetailsTab::Compose;
                 }
+                this.resume_auto_scan_after_confirmation(cx);
                 cx.notify();
             });
         });
@@ -1976,6 +2021,7 @@ fn compose_inspection_confirmation(
             backdrop_entity.update(cx, |this, cx| {
                 this.compose_inspection_confirmation_pending = false;
                 this.compose_bridge = None;
+                this.resume_auto_scan_after_confirmation_pending = false;
                 cx.notify();
             });
         })
@@ -2534,7 +2580,9 @@ fn compose_agent_control(
             colors.muted_text
         })
         .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+            this.pause_auto_scan();
             if !*checked {
+                this.resume_auto_scan_after_confirmation_pending = false;
                 this.compose_agent = false;
                 this.compose_bridge = None;
                 this.compose_inspection_confirmation_pending = false;
@@ -2612,6 +2660,7 @@ fn scan_mode_control(
     language: Language,
     colors: &StudioColors,
     enabled: bool,
+    auto_scan: bool,
     cx: &mut Context<InspectorWorkspace>,
 ) -> AnyElement {
     segmented_track("inspector-scan-mode", colors)
@@ -2619,7 +2668,7 @@ fn scan_mode_control(
             segmented_item(
                 "inspector-refresh",
                 language.text(TextKey::InspectorRefresh),
-                true,
+                !auto_scan,
                 enabled,
                 colors,
             )
@@ -2630,11 +2679,11 @@ fn scan_mode_control(
             segmented_item(
                 "inspector-auto-scan",
                 language.text(TextKey::InspectorAutoScan),
-                false,
-                false,
+                auto_scan,
+                enabled || auto_scan,
                 colors,
             )
-            .tooltip(language.text(TextKey::InspectorLiveCaptureUnavailable)),
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_auto_scan(cx))),
         )
         .into_any_element()
 }
@@ -2724,6 +2773,7 @@ fn status_bar(
     language: Language,
     colors: &StudioColors,
     archive: Option<&Arc<InspectorArchive>>,
+    window_index: usize,
     node_count: usize,
     visible_count: usize,
     hidden: &BTreeSet<String>,
@@ -2738,9 +2788,7 @@ fn status_bar(
         || language.text(TextKey::InspectorNoArchive).to_owned(),
         |archive| archive.frame.package_name.clone(),
     );
-    let window = archive
-        .and_then(|archive| archive.windows.get(0))
-        .map_or_else(|| "-".to_owned(), |window| window.id.clone());
+    let window = windows::selected_label(archive, window_index, language);
     let metrics = language.format(
         TextKey::InspectorStatusNodes,
         &[("count", &node_count), ("visible", &visible_count)],
@@ -4917,6 +4965,7 @@ pub struct InspectorMenuState {
     pub busy: bool,
     pub has_selection: bool,
     pub has_archive: bool,
+    pub auto_scan: bool,
 }
 
 impl InspectorWorkspace {
@@ -4925,6 +4974,7 @@ impl InspectorWorkspace {
             busy: self.busy,
             has_selection: self.selected.is_some(),
             has_archive: self.archive.is_some(),
+            auto_scan: self.auto_scan.enabled,
         }
     }
 
@@ -5222,6 +5272,7 @@ mod tests {
     fn window_with_bounds(bounds: NodeBounds) -> LayoutWindow {
         LayoutWindow {
             id: "window-0".into(),
+            title: None,
             kind: "app".into(),
             bounds,
             nodes: Vec::new(),

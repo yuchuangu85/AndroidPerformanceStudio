@@ -60,6 +60,7 @@ fn archive(windows: Vec<Vec<LayoutNode>>) -> Arc<InspectorArchive> {
             .enumerate()
             .map(|(index, nodes)| LayoutWindow {
                 id: format!("window-{index}"),
+                title: None,
                 kind: "ACTIVITY".into(),
                 bounds: BOUNDS,
                 nodes,

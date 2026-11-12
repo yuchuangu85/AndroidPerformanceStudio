@@ -65,6 +65,7 @@ fn archive(nodes: Vec<LayoutNode>) -> Arc<InspectorArchive> {
         },
         windows: vec![LayoutWindow {
             id: "window".into(),
+            title: None,
             kind: "ACTIVITY".into(),
             bounds: BOUNDS,
             nodes,

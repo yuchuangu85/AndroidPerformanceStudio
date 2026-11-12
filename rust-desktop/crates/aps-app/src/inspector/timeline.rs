@@ -143,6 +143,7 @@ mod tests {
             },
             windows: vec![LayoutWindow {
                 id: "main".into(),
+                title: None,
                 kind: "ACTIVITY".into(),
                 bounds,
                 nodes: vec![LayoutNode {

@@ -226,6 +226,7 @@ fn parse_window(value: &Value, node_count: &mut usize) -> Result<LayoutWindow, S
     validate_ancestry(&nodes)?;
     Ok(LayoutWindow {
         id,
+        title: None,
         kind,
         bounds,
         nodes,
