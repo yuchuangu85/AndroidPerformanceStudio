@@ -143,8 +143,16 @@ pub(crate) struct MemoryState {
     pub detail_loading: bool,
     pub inspector_tab: InspectorTab,
     pub nearest_root_only: bool,
+    pub inspector_nearest_auto_expand: bool,
     /// Inspector-local expansion (drill-in rows keep their chevron state).
     pub inspector_expanded: BTreeSet<u64>,
+    /// References-tree expansion is path-local so repeated object ids do not
+    /// collapse or expand every occurrence at once.
+    pub inspector_reference_expanded: BTreeSet<String>,
+    /// Loaded child details used to render expanded References rows in place.
+    pub inspector_reference_details: BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+    pub inspector_reference_loading: BTreeSet<(u64, u64)>,
+    pub inspector_reference_generation: u64,
     /// 0 = name, 1 = depth, 2 = shallow, 3 = retained; ascending flag follows.
     pub inspector_sort_column: u8,
     pub inspector_sort_ascending: bool,
@@ -229,7 +237,12 @@ impl MemoryState {
             detail_loading: false,
             inspector_tab: InspectorTab::Fields,
             nearest_root_only: false,
+            inspector_nearest_auto_expand: false,
             inspector_expanded: BTreeSet::new(),
+            inspector_reference_expanded: BTreeSet::new(),
+            inspector_reference_details: BTreeMap::new(),
+            inspector_reference_loading: BTreeSet::new(),
+            inspector_reference_generation: 0,
             inspector_sort_column: 0,
             inspector_sort_ascending: true,
             history: Vec::new(),
@@ -345,7 +358,12 @@ impl MemoryState {
         self.detail_loading = false;
         self.inspector_tab = InspectorTab::Fields;
         self.nearest_root_only = false;
+        self.inspector_nearest_auto_expand = false;
         self.inspector_expanded.clear();
+        self.inspector_reference_expanded.clear();
+        self.inspector_reference_details.clear();
+        self.inspector_reference_loading.clear();
+        self.inspector_reference_generation = self.inspector_reference_generation.wrapping_add(1);
         self.inspector_sort_column = 0;
         self.inspector_sort_ascending = true;
         self.history.clear();

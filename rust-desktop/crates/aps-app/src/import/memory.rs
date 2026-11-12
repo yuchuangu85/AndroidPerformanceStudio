@@ -251,6 +251,7 @@ impl ImportWorkspace {
         self.memory_state.instance_offset = 0;
         self.memory_state.selected_object = None;
         self.memory_state.detail = None;
+        self.memory_reset_reference_tree();
         self.memory_state.history.clear();
         self.memory_state.history_index = None;
         self.memory_query_instances(class_names, 0, cx);
@@ -321,7 +322,20 @@ impl ImportWorkspace {
     pub(super) fn memory_select_instance(&mut self, object_id: u64, cx: &mut Context<Self>) {
         self.memory_state.selected_object = Some(object_id);
         self.memory_state.push_history(object_id);
+        self.memory_reset_reference_tree();
         self.memory_load_inspector_object(object_id, 0, cx);
+    }
+
+    fn memory_reset_reference_tree(&mut self) {
+        self.memory_state.inspector_reference_generation = self
+            .memory_state
+            .inspector_reference_generation
+            .wrapping_add(1);
+        self.memory_state.inspector_reference_expanded.clear();
+        inspector::open_reference_root(&mut self.memory_state.inspector_reference_expanded);
+        self.memory_state.inspector_nearest_auto_expand = self.memory_state.nearest_root_only;
+        self.memory_state.inspector_reference_details.clear();
+        self.memory_state.inspector_reference_loading.clear();
     }
 
     pub(super) fn memory_load_inspector_object(
@@ -361,6 +375,7 @@ impl ImportWorkspace {
                     Ok(detail) => this.memory_state.detail = detail,
                     Err(error) => this.memory_state.error = Some(error),
                 }
+                this.memory_expand_nearest_reference_path(cx);
                 cx.notify();
             })
             .ok();
@@ -373,6 +388,7 @@ impl ImportWorkspace {
         self.memory_state.selected_object = None;
         self.memory_state.detail = None;
         self.memory_state.detail_loading = false;
+        self.memory_reset_reference_tree();
         cx.notify();
     }
 
@@ -382,12 +398,141 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) {
         self.memory_state.inspector_tab = tab;
+        if tab == state::InspectorTab::References {
+            inspector::open_reference_root(&mut self.memory_state.inspector_reference_expanded);
+            if self.memory_state.nearest_root_only {
+                self.memory_state.inspector_nearest_auto_expand = true;
+                self.memory_expand_nearest_reference_path(cx);
+            }
+        }
         cx.notify();
+    }
+
+    pub(super) fn memory_toggle_reference(
+        &mut self,
+        path: String,
+        target_object_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        let opened = if !self.memory_state.inspector_reference_expanded.remove(&path) {
+            self.memory_state.inspector_reference_expanded.insert(path);
+            true
+        } else {
+            false
+        };
+        if opened {
+            if let Some(target_object_id) = target_object_id {
+                self.memory_load_reference_object(target_object_id, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn memory_load_reference_object(&mut self, object_id: u64, cx: &mut Context<Self>) {
+        let key = (object_id, 0);
+        if self
+            .memory_state
+            .inspector_reference_details
+            .contains_key(&key)
+        {
+            self.memory_expand_nearest_reference_path(cx);
+            return;
+        }
+        if !self.memory_state.inspector_reference_loading.insert(key) {
+            return;
+        }
+        let Some(Session::Memory(session)) = self.session.clone() else {
+            self.memory_state.inspector_reference_loading.remove(&key);
+            return;
+        };
+        let generation = self.memory_state.inspector_reference_generation;
+        let snapshot_id = self.memory_snapshot_id;
+        let cancel = CancellationToken::new();
+        let task = cx.background_executor().spawn(async move {
+            let mut session = session
+                .lock()
+                .map_err(|_| "Memory session is unavailable".to_owned())?;
+            session
+                .detail_page(object_id, 0, MEMORY_ARRAY_PAGE, &cancel)
+                .map(|detail| detail.map(Arc::new))
+                .map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if this.memory_snapshot_id != snapshot_id
+                    || this.memory_state.inspector_reference_generation != generation
+                {
+                    return;
+                }
+                this.memory_state.inspector_reference_loading.remove(&key);
+                match result {
+                    Ok(Some(detail)) => {
+                        this.memory_state
+                            .inspector_reference_details
+                            .insert(key, detail);
+                    }
+                    Ok(None) => {}
+                    Err(error) => this.memory_state.error = Some(error),
+                }
+                this.memory_expand_nearest_reference_path(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(super) fn memory_set_nearest_root_only(&mut self, value: bool, cx: &mut Context<Self>) {
         self.memory_state.nearest_root_only = value;
+        self.memory_state.inspector_nearest_auto_expand = value;
+        if value {
+            self.memory_state.inspector_reference_expanded.clear();
+            inspector::open_reference_root(&mut self.memory_state.inspector_reference_expanded);
+            self.memory_expand_nearest_reference_path(cx);
+        }
         cx.notify();
+    }
+
+    fn memory_expand_nearest_reference_path(&mut self, cx: &mut Context<Self>) {
+        if !self.memory_state.nearest_root_only || !self.memory_state.inspector_nearest_auto_expand
+        {
+            return;
+        }
+        let Some(detail) = self.memory_state.detail.clone() else {
+            return;
+        };
+        let Some(path) = inspector::nearest_reference_path(
+            &detail,
+            &self.memory_state.inspector_reference_details,
+            &self.memory_state.inspector_reference_expanded,
+        ) else {
+            self.memory_state.inspector_nearest_auto_expand = false;
+            return;
+        };
+        let inserted = self
+            .memory_state
+            .inspector_reference_expanded
+            .insert(path.clone());
+        let target = inspector::reference_target_for_path(
+            &detail,
+            &self.memory_state.inspector_reference_details,
+            &path,
+        );
+        if inserted
+            || target.is_some_and(|target| {
+                !self
+                    .memory_state
+                    .inspector_reference_details
+                    .contains_key(&(target, 0))
+            })
+        {
+            if let Some(target) = target {
+                self.memory_load_reference_object(target, cx);
+            }
+        } else {
+            self.memory_state.inspector_nearest_auto_expand = false;
+        }
     }
 
     // ---- dominators ----------------------------------------------------

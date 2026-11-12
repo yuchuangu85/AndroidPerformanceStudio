@@ -21,8 +21,110 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+use std::sync::Arc;
+
+const REFERENCE_ROOT_PATH: &str = "reference-root";
+
+pub(super) fn open_reference_root(expanded: &mut BTreeSet<String>) {
+    expanded.insert(REFERENCE_ROOT_PATH.to_owned());
+}
+
+/// Finds the next path in the nearest-GC-root traversal that must be expanded
+/// or loaded. Paths use original reference indices so sorting never changes
+/// the identity of an already expanded branch.
+pub(super) fn nearest_reference_path(
+    root: &InstanceDetail,
+    details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+    expanded: &BTreeSet<String>,
+) -> Option<String> {
+    fn visit(
+        detail: &InstanceDetail,
+        parent_path: &str,
+        ancestors: &BTreeSet<u64>,
+        details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+        expanded: &BTreeSet<String>,
+        depth: u32,
+    ) -> Option<String> {
+        let chain: BTreeSet<u64> = detail
+            .reference_chain
+            .iter()
+            .map(|reference| reference.object_id)
+            .collect();
+        let mut fields: Vec<(usize, &InstanceField)> = detail
+            .references
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| reference_visible(detail.depth, field, true, &chain))
+            .collect();
+        sort_reference_fields(&mut fields);
+        for (index, field) in fields {
+            let path = format!("{parent_path}/{index}");
+            let Some(target) = field.target_object_id.filter(|id| *id != 0) else {
+                continue;
+            };
+            let terminal_root = field.depth == Some(0);
+            if terminal_root || ancestors.contains(&target) || depth >= 32 {
+                continue;
+            }
+            if !expanded.contains(&path) {
+                return Some(path);
+            }
+            let key = (target, 0);
+            let Some(child) = details.get(&key) else {
+                return Some(path);
+            };
+            let mut next_ancestors = ancestors.clone();
+            next_ancestors.insert(target);
+            if let Some(next) = visit(child, &path, &next_ancestors, details, expanded, depth + 1) {
+                return Some(next);
+            }
+        }
+        None
+    }
+
+    if !expanded.contains(REFERENCE_ROOT_PATH) {
+        return Some(REFERENCE_ROOT_PATH.to_owned());
+    }
+    visit(
+        root,
+        REFERENCE_ROOT_PATH,
+        &BTreeSet::from([root.object_id]),
+        details,
+        expanded,
+        1,
+    )
+}
+
+/// Resolves a path-local reference expansion to its target object id.
+pub(super) fn reference_target_for_path(
+    root: &InstanceDetail,
+    details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+    path: &str,
+) -> Option<u64> {
+    let mut segments = path.strip_prefix("reference-root/")?.split('/');
+    let mut detail = root;
+    let mut target = None;
+    while let Some(segment) = segments.next() {
+        let index = segment.parse::<usize>().ok()?;
+        let field = detail.references.get(index)?;
+        target = field.target_object_id.filter(|id| *id != 0);
+        if segments.clone().next().is_some() {
+            detail = details.get(&(target?, 0))?;
+        }
+    }
+    target
+}
+
+fn sort_reference_fields(fields: &mut [(usize, &InstanceField)]) {
+    fields.sort_by(|(_, a), (_, b)| {
+        a.depth
+            .map(u64::from)
+            .cmp(&b.depth.map(u64::from))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+}
 
 /// Compose inspector title/row strip height.
 const TITLE_HEIGHT: f32 = 28.;
@@ -186,10 +288,16 @@ struct InspectorRow {
     /// Compose's nearest-root pass selects the first chain row.
     in_reference_chain: bool,
     selected: bool,
+    /// Path-local expansion key for the References tree.
+    reference_path: Option<String>,
 }
 
 impl InspectorRow {
     fn message(label: String, tree_depth: u32) -> Self {
+        Self::message_with_path(label, tree_depth, String::new())
+    }
+
+    fn message_with_path(label: String, tree_depth: u32, path: String) -> Self {
         Self {
             label,
             string_preview: None,
@@ -210,6 +318,7 @@ impl InspectorRow {
             expanded: false,
             in_reference_chain: false,
             selected: false,
+            reference_path: (!path.is_empty()).then_some(path),
         }
     }
 
@@ -261,6 +370,9 @@ impl ImportWorkspace {
         let references_tab = self.memory_state.inspector_tab == InspectorTab::References;
         let nearest_only = self.memory_state.nearest_root_only;
         let expanded = self.memory_state.inspector_expanded.clone();
+        let reference_expanded = self.memory_state.inspector_reference_expanded.clone();
+        let reference_details = self.memory_state.inspector_reference_details.clone();
+        let reference_loading = self.memory_state.inspector_reference_loading.clone();
         let (sort_column, sort_ascending) = stored_sort(
             self.memory_state.inspector_sort_column,
             self.memory_state.inspector_sort_ascending,
@@ -272,11 +384,15 @@ impl ImportWorkspace {
             snapshot_native_capability(self.memory_state.snapshot.as_deref()),
             detail.retained_native_size.is_some(),
         ));
-        let mut rows = build_rows(
+        let mut rows = build_rows_with_references(
             &detail,
             references_tab,
             nearest_only,
             &expanded,
+            &reference_expanded,
+            &reference_details,
+            &reference_loading,
+            language,
             sort_column,
             sort_ascending,
         );
@@ -751,9 +867,16 @@ fn inspector_row(
     let copy_text = row.copy_text.clone();
     let is_root = row.is_root;
     let expand_key = row.expand_key;
+    let reference_path = row.reference_path.clone();
     let row_entity = entity.clone();
     element
         .on_click(move |_, _, cx| {
+            if let Some(path) = reference_path.clone() {
+                let _ = row_entity.update(cx, |this, cx| {
+                    this.memory_toggle_reference(path, navigate, cx);
+                });
+                return;
+            }
             if is_root {
                 let _ = row_entity.update(cx, |this, cx| {
                     if let Some(key) = expand_key {
@@ -800,6 +923,7 @@ fn inspector_label_cell(
         let glyph = if row.expanded { "▾" } else { "▸" };
         let toggle_key = row.expand_key;
         let navigate = row.navigate;
+        let reference_path = row.reference_path.clone();
         let disclosure_entity = entity.clone();
         cell = cell.child(
             div()
@@ -818,6 +942,10 @@ fn inspector_label_cell(
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
                     let _ = disclosure_entity.update(cx, |this, cx| {
+                        if let Some(path) = reference_path.clone() {
+                            this.memory_toggle_reference(path, navigate, cx);
+                            return;
+                        }
                         if let Some(key) = toggle_key {
                             if !this.memory_state.inspector_expanded.remove(&key) {
                                 this.memory_state.inspector_expanded.insert(key);
@@ -958,9 +1086,39 @@ fn build_rows(
     sort_column: InspectorColumn,
     sort_ascending: bool,
 ) -> Vec<InspectorRow> {
+    let mut reference_expanded = BTreeSet::new();
+    if !expanded.contains(&detail.object_id) {
+        reference_expanded.insert(REFERENCE_ROOT_PATH.to_owned());
+    }
+    build_rows_with_references(
+        detail,
+        references_tab,
+        nearest_only,
+        expanded,
+        &reference_expanded,
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+        Language::English,
+        sort_column,
+        sort_ascending,
+    )
+}
+
+fn build_rows_with_references(
+    detail: &InstanceDetail,
+    references_tab: bool,
+    nearest_only: bool,
+    expanded: &BTreeSet<u64>,
+    reference_expanded: &BTreeSet<String>,
+    reference_details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+    reference_loading: &BTreeSet<(u64, u64)>,
+    language: Language,
+    sort_column: InspectorColumn,
+    sort_ascending: bool,
+) -> Vec<InspectorRow> {
     let mut rows = Vec::new();
     if references_tab {
-        let root_expanded = !expanded.contains(&detail.object_id);
+        let root_expanded = reference_expanded.contains(REFERENCE_ROOT_PATH);
         rows.push(InspectorRow {
             label: object_label(
                 detail.object_id,
@@ -978,47 +1136,167 @@ fn build_rows(
             retained_native_size: detail.retained_native_size,
             value_kind: detail.value_kind,
             navigate: None,
-            expand_key: Some(detail.object_id),
+            expand_key: None,
             is_root: true,
             is_message: false,
             expandable: !detail.references.is_empty(),
             expanded: root_expanded,
             in_reference_chain: false,
             selected: false,
+            reference_path: Some(REFERENCE_ROOT_PATH.to_owned()),
         });
         if root_expanded {
-            let chain: BTreeSet<u64> = detail
-                .reference_chain
-                .iter()
-                .map(|reference| reference.object_id)
-                .collect();
-            let mut children: Vec<InspectorRow> = detail
-                .references
-                .iter()
-                .filter(|field| reference_visible(detail.depth, field, nearest_only, &chain))
-                .map(|field| field_row(field, true, 1, expanded, Some(&chain)))
-                .collect();
-            sort_rows(&mut children, sort_column, sort_ascending);
+            append_reference_rows(
+                detail,
+                REFERENCE_ROOT_PATH,
+                1,
+                &BTreeSet::from([detail.object_id]),
+                nearest_only,
+                reference_expanded,
+                reference_details,
+                reference_loading,
+                language,
+                sort_column,
+                sort_ascending,
+                &mut rows,
+            );
             if nearest_only {
-                // Compose's nearest-root pass selects the first decreasing-depth
-                // chain row; the root row is the fallback when no path is known.
-                match children.iter_mut().find(|row| row.in_reference_chain) {
-                    Some(selected) => selected.selected = true,
-                    None => rows[0].selected = true,
+                let has_chain = rows[1..].iter().any(|row| row.in_reference_chain);
+                if has_chain {
+                    if let Some(selected) = rows[1..].iter_mut().find(|row| row.in_reference_chain)
+                    {
+                        selected.selected = true;
+                    }
+                } else if rows.len() == 1 {
+                    rows[0].selected = true;
                 }
             }
-            rows.extend(children);
         }
     } else {
         rows.extend(
             detail
                 .fields
                 .iter()
-                .map(|field| field_row(field, false, 0, expanded, None)),
+                .map(|field| field_row(field, false, 0, expanded, None, None)),
         );
         sort_rows(&mut rows, sort_column, sort_ascending);
     }
     rows
+}
+
+fn append_reference_rows(
+    detail: &InstanceDetail,
+    parent_path: &str,
+    tree_depth: u32,
+    ancestors: &BTreeSet<u64>,
+    nearest_only: bool,
+    reference_expanded: &BTreeSet<String>,
+    reference_details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+    reference_loading: &BTreeSet<(u64, u64)>,
+    language: Language,
+    sort_column: InspectorColumn,
+    sort_ascending: bool,
+    rows: &mut Vec<InspectorRow>,
+) {
+    let chain: BTreeSet<u64> = detail
+        .reference_chain
+        .iter()
+        .map(|reference| reference.object_id)
+        .collect();
+    let mut children: Vec<InspectorRow> = detail
+        .references
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| reference_visible(detail.depth, field, nearest_only, &chain))
+        .map(|(index, field)| {
+            let path = format!("{parent_path}/{index}");
+            field_row(
+                field,
+                true,
+                tree_depth,
+                &BTreeSet::new(),
+                Some(&chain),
+                Some(path),
+            )
+        })
+        .collect();
+    sort_rows(&mut children, sort_column, sort_ascending);
+
+    for child in children {
+        let child_path = child.reference_path.clone();
+        let target = child.navigate;
+        let should_expand = child
+            .reference_path
+            .as_ref()
+            .is_some_and(|path| reference_expanded.contains(path));
+        let mut child = child;
+        child.expanded = should_expand;
+        rows.push(child);
+        if !should_expand {
+            continue;
+        }
+        let Some(child_path) = child_path else {
+            continue;
+        };
+        let Some(target) = target else {
+            continue;
+        };
+        if ancestors.contains(&target) {
+            rows.push(InspectorRow::message_with_path(
+                language
+                    .text(TextKey::MemoryPageMemoryInspectorCycle)
+                    .to_owned(),
+                tree_depth + 1,
+                child_path,
+            ));
+            continue;
+        }
+        if tree_depth >= 32 {
+            rows.push(InspectorRow::message_with_path(
+                language
+                    .text(TextKey::MemoryPageMemoryInspectorDepthLimit)
+                    .to_owned(),
+                tree_depth + 1,
+                child_path,
+            ));
+            continue;
+        }
+        let key = (target, 0);
+        if reference_loading.contains(&key) {
+            rows.push(InspectorRow::message_with_path(
+                language
+                    .text(TextKey::MemoryPageMemoryInspectorLoading)
+                    .to_owned(),
+                tree_depth + 1,
+                child_path,
+            ));
+        } else if let Some(detail) = reference_details.get(&key) {
+            let mut next_ancestors = ancestors.clone();
+            next_ancestors.insert(target);
+            append_reference_rows(
+                detail,
+                &child_path,
+                tree_depth + 1,
+                &next_ancestors,
+                nearest_only,
+                reference_expanded,
+                reference_details,
+                reference_loading,
+                language,
+                sort_column,
+                sort_ascending,
+                rows,
+            );
+        } else {
+            rows.push(InspectorRow::message_with_path(
+                language
+                    .text(TextKey::MemoryPageMemoryInspectorLoading)
+                    .to_owned(),
+                tree_depth + 1,
+                child_path,
+            ));
+        }
+    }
 }
 
 fn reference_visible(
@@ -1046,6 +1324,7 @@ fn field_row(
     tree_depth: u32,
     expanded: &BTreeSet<u64>,
     chain: Option<&BTreeSet<u64>>,
+    reference_path: Option<String>,
 ) -> InspectorRow {
     let target = field.target_object_id.filter(|id| *id != 0);
     let (label, string_preview) = if references {
@@ -1079,6 +1358,7 @@ fn field_row(
         in_reference_chain: references
             && target.is_some_and(|target| chain.is_some_and(|chain| chain.contains(&target))),
         selected: false,
+        reference_path,
     }
 }
 
@@ -1408,6 +1688,150 @@ mod tests {
         );
         assert_eq!(rows.len(), 1);
         assert!(!rows[0].expanded);
+    }
+
+    #[::core::prelude::v1::test]
+    fn references_expand_in_place_and_keep_repeated_paths_independent() {
+        let root = InstanceDetail {
+            object_id: 42,
+            class_name: "sample.Root".into(),
+            references: vec![InstanceField {
+                name: "owner".into(),
+                target_object_id: Some(7),
+                target_class_name: Some("sample.Owner".into()),
+                ..InstanceField::default()
+            }],
+            ..InstanceDetail::default()
+        };
+        let child = Arc::new(InstanceDetail {
+            object_id: 7,
+            class_name: "sample.Owner".into(),
+            references: vec![InstanceField {
+                name: "root".into(),
+                target_object_id: Some(42),
+                target_class_name: Some("sample.Root".into()),
+                ..InstanceField::default()
+            }],
+            ..InstanceDetail::default()
+        });
+        let mut expanded = BTreeSet::from([
+            REFERENCE_ROOT_PATH.to_owned(),
+            "reference-root/0".to_owned(),
+        ]);
+        let details = BTreeMap::from([((7, 0), child)]);
+        let rows = build_rows_with_references(
+            &root,
+            true,
+            false,
+            &BTreeSet::new(),
+            &expanded,
+            &details,
+            &BTreeSet::new(),
+            Language::English,
+            InspectorColumn::Depth,
+            true,
+        );
+        assert_eq!(rows[0].label, "Root@42 (0x2a)");
+        assert_eq!(rows[1].tree_depth, 1);
+        assert!(rows[1].expanded);
+        assert_eq!(rows[2].tree_depth, 2);
+        assert!(
+            rows[2]
+                .reference_path
+                .as_deref()
+                .is_some_and(|path| path.starts_with("reference-root/0/"))
+        );
+
+        expanded.remove("reference-root/0");
+        let rows = build_rows_with_references(
+            &root,
+            true,
+            false,
+            &BTreeSet::new(),
+            &expanded,
+            &details,
+            &BTreeSet::new(),
+            Language::English,
+            InspectorColumn::Depth,
+            true,
+        );
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[::core::prelude::v1::test]
+    fn nearest_reference_path_expands_each_decreasing_depth_edge_until_gc_root() {
+        let root = InstanceDetail {
+            object_id: 42,
+            depth: Some(3),
+            references: vec![
+                InstanceField {
+                    name: "nearer".into(),
+                    target_object_id: Some(142),
+                    depth: Some(2),
+                    ..InstanceField::default()
+                },
+                InstanceField {
+                    name: "equal".into(),
+                    target_object_id: Some(143),
+                    depth: Some(3),
+                    ..InstanceField::default()
+                },
+                InstanceField {
+                    name: "gcRoot".into(),
+                    target_object_id: Some(4),
+                    depth: Some(0),
+                    ..InstanceField::default()
+                },
+            ],
+            ..InstanceDetail::default()
+        };
+        let child = Arc::new(InstanceDetail {
+            object_id: 142,
+            depth: Some(2),
+            references: vec![
+                InstanceField {
+                    name: "nearerChild".into(),
+                    target_object_id: Some(242),
+                    depth: Some(1),
+                    ..InstanceField::default()
+                },
+                InstanceField {
+                    name: "gcRoot".into(),
+                    target_object_id: Some(4),
+                    depth: Some(0),
+                    ..InstanceField::default()
+                },
+            ],
+            ..InstanceDetail::default()
+        });
+        let grandchild = Arc::new(InstanceDetail {
+            object_id: 242,
+            depth: Some(1),
+            references: vec![InstanceField {
+                name: "gcRoot".into(),
+                target_object_id: Some(4),
+                depth: Some(0),
+                ..InstanceField::default()
+            }],
+            ..InstanceDetail::default()
+        });
+        let details = BTreeMap::from([((142, 0), child), ((242, 0), grandchild)]);
+        let mut expanded = BTreeSet::from([REFERENCE_ROOT_PATH.to_owned()]);
+        assert_eq!(
+            nearest_reference_path(&root, &details, &expanded).as_deref(),
+            Some("reference-root/0")
+        );
+        expanded.insert("reference-root/0".into());
+        assert_eq!(
+            nearest_reference_path(&root, &details, &expanded).as_deref(),
+            Some("reference-root/0/0")
+        );
+        expanded.insert("reference-root/0/0".into());
+        assert_eq!(nearest_reference_path(&root, &details, &expanded), None);
+        assert_eq!(
+            reference_target_for_path(&root, &details, "reference-root/0/0"),
+            Some(242)
+        );
     }
 
     #[::core::prelude::v1::test]
