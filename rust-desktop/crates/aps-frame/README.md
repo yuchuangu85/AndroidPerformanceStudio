@@ -1,28 +1,23 @@
 # aps-frame
 
-Offline Rust frame analysis for the existing `dumpsys gfxinfo ... framestats`
-text input, including repeated `Window:` / `---PROFILEDATA---` sections, modern
-named columns and independent trailing separators on headers and rows. Unknown
-columns remain in the source row. Malformed rows are counted in explicit warnings;
-an unrecognized file is rejected. Inputs are capped at 256 MiB / one million frames.
+针对现有 `dumpsys gfxinfo ... framestats` 文本输入的离线 Rust 帧分析，支持重复的
+`Window:` / `---PROFILEDATA---` 区段、现代命名列，以及表头和行各自独立的尾部
+分隔符。未知列会保留在源行中。格式错误的行会计入明确的警告；无法识别的文件
+会被拒绝。输入上限为 256 MiB / 100 万帧。
 
-`FrameSession::open` / `parse_gfxinfo` parse once. `page(&FrameQuery)` filters by
-window, half-open device-monotonic timestamp range and deadline verdict, with at
-most 512 returned rows. Both whole-session and filtered summaries provide
-classified/missing denominators, duration percentiles and deadline-miss rate.
+`FrameSession::open` / `parse_gfxinfo` 只解析一次。`page(&FrameQuery)` 按窗口、
+半开设备单调时间范围和截止期限判定进行过滤，最多返回 512 行。完整会话和过滤
+后的摘要都会提供已分类/缺失的分母、时长百分位数和截止期限未达标率。
 
-Budget provenance is explicit: platform deadline, frame interval, inferred nearby
-vsync interval (only 4–50 ms within the same window), or unknown. Nonzero gfxinfo
-flags are ineligible for deadline classification. Missing/invalid timestamps do
-not become zero-duration evidence. A frame deadline miss is not a platform jank
-signal: gfxinfo imports leave `platform_jank` unknown and never fabricate its rate.
+预算来源是明确的：平台截止期限、帧间隔、推断出的邻近 vsync 间隔（仅限同一窗口
+内的 4–50 ms），或未知。非零 gfxinfo 标志不具备截止期限分类资格。缺失/无效的
+时间戳不会变成零时长证据。帧未达到截止期限并不等同于平台卡顿信号：gfxinfo
+导入会将 `platform_jank` 保持为未知，绝不会伪造其比率。
 
-Scope remains offline gfxinfo, not FrameMetrics/JankStats Agent transport,
-Perfetto FrameTimeline attribution, SurfaceFlinger causality, a cross-artifact
-clock mapping, live capture or a complete Compose frame-workspace replacement.
-Raw timestamp values belong to the imported device monotonic domain, never host
-wall-clock time. No default 60 Hz assumption fills unknown budgets.
+范围仍是离线 gfxinfo，而不是 FrameMetrics/JankStats Agent 传输、Perfetto
+FrameTimeline 归因、SurfaceFlinger 因果关系、跨工件时钟映射、实时捕获或完整的
+Compose 帧工作区替代实现。原始时间戳值属于导入设备的单调时钟域，而不是主机的
+墙上时钟时间。不会用默认 60 Hz 假设填充未知预算。
 
-Tests have been written but not executed, following the request to defer testing
-until the complete rewrite is implemented. Compilation, parity, real-device,
-cross-platform and packaged-release validation are separate pending gates.
+测试已经编写但尚未执行，这是遵循推迟测试直到完整重写实现完成的要求。编译、
+一致性、真实设备、跨平台和打包发布验证仍是独立的待完成门禁。

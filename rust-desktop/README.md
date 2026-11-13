@@ -1,52 +1,44 @@
-# Android Performance Studio — Rust desktop
+# Android Performance Studio — Rust 桌面端
 
-Independent Rust + GPUI Kit rewrite, alongside the existing Compose application.
-The full scope and switch-over gates remain in
-[`rust-gpui-kit-migration-plan.md`](../desktop-viewer/docs/design/rust-gpui-kit-migration-plan.md).
-This directory is implementation in progress, **not** a replacement release.
+这是与现有 Compose 应用并行的独立 Rust + GPUI Kit 重写版本。
+完整范围和切换门槛仍记录在
+[`rust-gpui-kit-migration-plan.md`](../desktop-viewer/docs/design/rust-gpui-kit-migration-plan.md) 中。
+本目录仍处于实现过程中，**不是**替代版发布版本。
 
-## Development
+## 开发
 
-- Rust **1.99.1**; `rust-toolchain.toml` pins rustup installations.
-- GPUI Kit **0.9.0**, upstream backend, default assets. Do not add a second GPUI source.
-- Upstream desktop requirements: macOS **15+**, Windows 10+ with MSVC/CMake,
-  Linux Ubuntu 24.04 with a graphical session and Vulkan. These are dependencies'
-  requirements, not a claim of application acceptance on all platforms.
-- macOS needs Xcode command-line tools / SDK and a working Metal toolchain.
+- Rust **1.99.1**；`rust-toolchain.toml` 固定 rustup 安装版本。
+- GPUI Kit **0.9.0**、上游后端和默认资源。不要添加第二个 GPUI 源。
+- 上游桌面端要求：macOS **15+**，带有 MSVC/CMake 的 Windows 10+，以及带图形会话和 Vulkan 的 Linux Ubuntu 24.04。这些是依赖项的要求，并不表示应用已在所有平台上通过验收。
+- macOS 需要 Xcode 命令行工具 / SDK 以及可用的 Metal 工具链。
 
 ```sh
 cd rust-desktop
 cargo run --locked -p aps-app
 ```
 
-The legacy application is unchanged: `cd desktop-viewer && ./gradlew :desktop-app:run`.
-Rust settings and storage use their own application-data root and never migrate
-or overwrite Compose settings automatically.
+旧版应用未作修改：`cd desktop-viewer && ./gradlew :desktop-app:run`。
+Rust 设置和存储使用各自的应用数据根目录，不会自动迁移或覆盖 Compose 设置。
 
-## Validation policy
+## 验证策略
 
-The November 11 request to test all functionality supersedes the earlier
-development-only test deferral. Run targeted regressions for each changed path
-and the locked offline workspace suite after integration. Track remaining
-Compose parity work in [FUNCTIONAL_PARITY.md](FUNCTIONAL_PARITY.md).
-Compilation, domain tests, same-input parity, native interaction, device/provider
-execution and packaging remain separate evidence classes.
+11 月 11 日提出的测试全部功能的要求取代了此前仅进行开发检查、暂缓测试的安排。
+集成后，为每条变更路径运行针对性的回归验证，并运行锁定依赖的离线工作区测试套件。
+在 [FUNCTIONAL_PARITY.md](FUNCTIONAL_PARITY.md) 中跟踪剩余的 Compose 对等工作。
+编译、领域测试、相同输入对等性、原生交互、设备/Provider 执行和打包仍属于相互独立的证据类别。
 
-See [migration progress](MIGRATION.md) for current implementation and remaining gates.
+当前实现和剩余门槛见[迁移进度](MIGRATION.md)。
 
-## Localization
+## 本地化
 
-Rust UI copy is independent of Compose and lives in
-`crates/aps-ui-foundation/resources/values/*.json` (English) and
-`crates/aps-ui-foundation/resources/values-zh/*.json` (Simplified Chinese).
-The files are split by workspace. Add the same `snake_case` key to both locales;
-resource values must be nonempty strings. No runtime resource path is required.
+Rust UI 文案独立于 Compose，位于
+`crates/aps-ui-foundation/resources/values/*.json`（英文）和
+`crates/aps-ui-foundation/resources/values-zh/*.json`（简体中文）中。
+这些文件按工作区拆分。两种语言环境都必须添加相同的 `snake_case` 键；资源值必须是非空字符串。不需要运行时资源路径。
 
-`aps-ui-foundation/build.rs` uses the existing strict `aps-json` parser, validates
-the catalogs, and generates `TextKey` plus embedded static text into Cargo's
-`OUT_DIR`. Missing/extra keys, duplicate keys (within or across files), invalid
-JSON, identifier collisions, and mismatched named parameters fail the build.
-Resource changes trigger regeneration. Generated code is not checked in.
+`aps-ui-foundation/build.rs` 使用现有的严格 `aps-json` 解析器，验证资源目录，并将 `TextKey` 与嵌入式静态文本生成到 Cargo 的
+`OUT_DIR` 中。缺少/多余的键、重复键（文件内或文件之间）、无效 JSON、标识符冲突以及命名参数不匹配都会导致构建失败。
+资源变更会触发重新生成。生成的代码不会提交到版本库。
 
 ```rust
 use aps_ui_foundation::{Language, TextKey};
@@ -58,383 +50,185 @@ let version = Language::English.format(
 );
 ```
 
-Templates use `{name}` placeholders and may reorder parameters between locales.
-Arguments are inserted once and are never interpreted as templates. Translate
-application-owned labels, summaries, and prompts only. Preserve source symbols,
-SQL, paths, protocol identifiers, exports, imported diagnostics, and AI response
-text. Language switches update input placeholders without replacing their values.
-GPUI Kit built-in control strings and native application menus follow the same
-language preference.
+模板使用 `{name}` 占位符，不同语言环境可以调整参数顺序。
+参数只插入一次，绝不会被当作模板再次解析。只翻译应用自有的标签、摘要和提示语。
+保留源代码符号、SQL、路径、协议标识符、导出内容、导入的诊断信息以及 AI 响应文本。
+切换语言时会更新输入占位符，但不会替换其值。GPUI Kit 内置控件字符串和原生应用菜单遵循相同的语言偏好。
 
-Resource contract tests live in
-`crates/aps-ui-foundation/tests/localization.rs`. Per the validation policy above,
-they can be compiled with `cargo check --locked --workspace --all-targets --offline`
-without executing tests. Catalog validation itself also runs on normal builds.
+资源契约测试位于
+`crates/aps-ui-foundation/tests/localization.rs`。按照上述验证策略，可以使用
+`cargo check --locked --workspace --all-targets --offline` 编译这些测试而不执行测试。
+在正常构建中也会执行资源目录验证。
 
-## Profiler UI Scope
+## 性能分析器 UI 范围
 
-Data-import workspaces show **Import time** in their bottom status bar. The
-monotonic wall-clock interval begins after file/folder selection and includes
-conversion, parsing and initial page preparation, not time spent in the picker,
-recording duration or the artifact's timestamps. Durations belong to the active
-artifact/snapshot (including independent Native/ART/Bitmap datasets and Compose
-compiler reports); queries and exports do not replace them. Failed/cancelled
-imports retain the previous value while its data remains, and closing or
-replacing it with unmeasured captured data clears the value. These are observed
-import costs, not benchmark or capture performance claims.
+数据导入工作区会在底部状态栏显示 **Import time**。单调时钟的墙上时间间隔从文件/文件夹选择完成后开始，包含转换、解析和初始页面准备时间，但不包含选择器耗时、录制时长或产物时间戳。
+时长归属于当前产物/快照（包括独立的 Native/ART/Bitmap 数据集和 Compose 编译器报告）；查询和导出不会替换这些时长。
+导入失败/取消时，只要数据仍然存在，就保留上一个值；关闭数据或将其替换为没有测量值的捕获数据时，会清除该值。
+这些是观测到的导入成本，不是基准测试或捕获性能声明。
 
-Memory and Frame now use dedicated GPUI workspaces instead of the generic import
-table. Memory follows the Compose Memory Profiler page: a command toolbar
-(import, capture actions, Overview/Classes/Dominators/Diff, auxiliary views,
-Mapping, AI analysis), snapshot tabs, evidence/warnings strip and status bar.
-Classes has the primary filter bar, eight KPI cards, heap distribution,
-resizable classifier tree (heap/package grouping, sorting, expansion, leak and
-duplicate tints), instance list paging and the inline object inspector
-(Fields/References, nearest GC root, drill-in navigation and array paging). Dominators has KPIs, distribution, filters, a lazy dominator tree and
-the inspector; Diff compares class counts/shallow/retained between two dumps
-without cross-dump identity; Leak Analysis renders HPROF heuristic findings.
-Native Heap and ART Samples use bounded heapprofd trace projections in dedicated
-pages; Bitmap image dumps use isolated extraction and image preview/export.
-These artifacts remain separate from ordinary Java HPROF findings, and missing
-samples/unsupported image dumps remain explicit. The typed `aps-memory` domain ports the Compose presenter
-(including a bounded dependency-free regex subset) and runs one bounded
-snapshot read plus typed instance/detail/dominator pages through the isolated
-HPROF worker. Mapping import (ProGuard/R8) and seven HPROF export formats are
-wired through the File menu with bounded, digest-checked writes. Frame
-provides offline gfxinfo FrameStats summary cards, deadline filtering, paging,
-window filtering, frame selection, a Canvas-rendered duration timeline with
-bounded paging/zoom/hover, problem-frame navigation, trustworthy budget
-provenance, stage breakdown details, warnings, evidence copy, and the same
-bounded export lifecycle.
+Memory 和 Frame 现在使用专用的 GPUI 工作区，而不是通用导入表。Memory 遵循 Compose Memory Profiler 页面：包含命令工具栏（导入、捕获操作、Overview/Classes/Dominators/Diff、辅助视图、Mapping、AI 分析）、快照标签页、证据/警告条和状态栏。
+Classes 具有主筛选栏、八张 KPI 卡片、堆分布、可调整大小的分类器树（堆/包分组、排序、展开、泄漏和重复项着色）、实例列表分页，以及内嵌对象检查器（Fields/References、最近 GC 根、深入导航和数组分页）。
+Dominators 具有 KPI、分布、筛选器、延迟加载的支配树和检查器；Diff 比较两个 dump 之间的类数量、浅层大小和保留大小，不建立跨 dump 的身份关系；Leak Analysis 展示 HPROF 启发式发现。
+Native Heap 和 ART Samples 在专用页面中使用有边界的 heapprofd 跟踪投影；Bitmap image dump 使用隔离的提取流程和图像预览/导出。
+这些产物仍与普通 Java HPROF 发现保持独立，缺少样本/不支持的图像 dump 仍会明确显示。类型化的 `aps-memory` 领域层移植了 Compose presenter（包括有边界的无依赖 regex 子集），并通过隔离的 HPROF worker 执行一次有边界的快照读取以及类型化的实例/详情/支配树页面。
+Mapping 导入（ProGuard/R8）和七种 HPROF 导出格式已通过 File 菜单接入，并使用有边界、经过摘要校验的写入。Frame 提供离线 gfxinfo FrameStats 摘要卡片、截止时间筛选、分页、窗口筛选、帧选择、使用 Canvas 渲染的有边界分页/缩放/悬停时长时间线、问题帧导航、可信的预算来源、阶段分解详情、警告、证据复制以及相同的有边界导出生命周期。
 
-These pages are deliberately bounded by the Rust engines currently available:
-Memory supports offline HPROF analysis and explicit Java heap capture from the
-title-bar device/process target. Dump Heap runs bounded ADB commands, retains
-the captured file for its snapshot tab, and loads it through the isolated
-worker. The device must permit `am dumpheap` for that process; the application
-does not root the device, restart a process or bypass Android permissions.
-Cancellation or a changed target discards the pending result and preserves the
-previous snapshot. Closing its tab removes the owned local capture files.
-Native/ART and FrameTimeline recording use a shared, duration/size-bounded
-Perfetto adapter with owned detached-session keys. Cancellation stops only the
-owned session; an unconfirmed stop retains exact recovery paths. Native/ART
-also recheck boot/process identity and retain their local recording while its
-dataset is open. Bitmap capture requests Android's supported bitmap heap-dump
-extension, then extracts PNGs in the bounded memory worker; host cancellation
-does not claim to terminate Android's heap-dump operation. This development
-follow-up does not establish FrameMetrics/JankStats, LeakCanary/Shark or complete
-multi-source runtime acceptance. Unsupported actions stay visibly unavailable.
-Snapshot comparison
-uses only class aggregates from two independent dumps; equal object IDs never
-imply shared identity. Live timeline/GC markers and native/bitmap metrics are
-not inferred from an offline HPROF.
+这些页面有意受当前可用 Rust 引擎的能力边界约束：Memory 支持离线 HPROF 分析，以及从标题栏设备/进程目标进行显式 Java heap 捕获。
+Dump Heap 运行有边界的 ADB 命令，为其快照标签页保留捕获文件，并通过隔离 worker 加载该文件。设备必须允许对该进程执行 `am dumpheap`；应用不会获取设备 root 权限、重启进程或绕过 Android 权限。
+取消操作或目标变更会丢弃待处理结果并保留上一个快照。关闭标签页会删除由该标签页拥有的本地捕获文件。
+Native/ART 和 FrameTimeline 录制使用共享的、有时长/大小边界的 Perfetto 适配器，并使用自有的分离会话键。取消操作只会停止自有会话；无法确认停止时会保留精确的恢复路径。
+Native/ART 还会重新检查启动 ID/进程身份，并在数据集打开期间保留其本地录制文件。Bitmap 捕获请求 Android 支持的 bitmap heap-dump 扩展，然后在有边界的 memory worker 中提取 PNG；主机端取消不会声称已经终止 Android 的 heap-dump 操作。
+本次开发跟进不构成 FrameMetrics/JankStats、LeakCanary/Shark 或多数据源完整运行时验收。不支持的操作会保持为明确不可用。
+快照比较只使用两个独立 dump 的类聚合数据；相同的对象 ID 绝不表示共享身份。不会从离线 HPROF 推断实时时间线/GC 标记以及 native/bitmap 指标。
 
-## Network workspace
+## 网络工作区
 
-Network now has a dedicated workspace following the Compose screen's command
-bar, five summary metrics, coverage/activity regions, Requests/Domains tabs,
-request table and scrollable request details. It uses English/Chinese resources,
-theme tokens and width-aware stacked or side-by-side panes.
+Network 现在拥有专用工作区，遵循 Compose 页面结构，包括命令栏、五项摘要指标、覆盖率/活动区域、Requests/Domains 标签页、请求表格和可滚动的请求详情。
+它使用英文/中文资源、主题 token，以及会根据宽度采用堆叠或并排布局的面板。
 
-The primary controls now mirror Requests/Domains, outcome/count and elastic
-search; HTTP status/method/sort extensions live in More filters with a visible
-active-filter count. Table columns use the reference weights and details follow
-its method/bytes summary, confidence legend, ten phase rows and four content
-blocks. Only the detail title remains fixed; all evidence and copy controls scroll
-together. The page retains usable list/detail space in short windows and uses
-one natural-height page scroller beneath its fixed toolbar.
+主控件现在对应 Requests/Domains、结果/数量和弹性搜索；HTTP 状态/方法/排序扩展位于 More filters 中，并显示活动筛选数量。
+表格列使用参考权重，详情遵循其方法/字节摘要、置信度图例、十个阶段行和四个内容块。只有详情标题保持固定；所有证据和复制控件一起滚动。
+在较矮的窗口中，页面仍保留可用的列表/详情空间，并在固定工具栏下方使用一个自然高度的页面滚动器。
 
-HAR status/method/search filters and duration/response-size sorting apply to the
-whole imported session before 100-row pagination. Median/P95 come from valid
-source-provided durations; missing values and unknown outcomes stay explicit.
-Copy/save JSON and CSV export only the published minimized page. Selecting a
-request does not authorize AI transport; the AI action opens existing preflight. Unknown
-transfer sizes stay unknown; partial known bytes are labeled a subtotal, not the
-session total. Copy-details reconstructs only the safe minimized field whitelist.
-HAR hashing and parsing use the same validated file descriptor with cancellation
-and before/after identity checks, including ordinary pathname replacement.
+HAR 状态/方法/搜索筛选以及时长/响应大小排序，会在 100 行分页之前应用于整个导入会话。Median/P95 来自有效的源提供时长；缺失值和未知结果保持明确显示。
+复制/保存 JSON 和 CSV 只导出已发布的最小化页面。选择请求不会授权 AI 传输；AI 操作会打开现有的 preflight。
+未知传输大小仍保持未知；部分已知字节会标记为小计，而不是会话总量。Copy-details 只会重建安全的最小化字段白名单。
+HAR 哈希计算和解析使用相同的已验证文件描述符，并执行取消以及前后身份检查，包括普通路径替换。
 
-This is **not full Network feature parity**. The existing minimization policy
-removes URLs/hosts, timestamps, headers and bodies. Domain aggregation, a real
-activity timeline, per-phase timing and content sections therefore show explicit
-unavailable states for HAR evidence. Live Android capture now connects the
-existing APS Agent v2 after explicit consent, using owned ADB forwarding,
-bounded polling, observed outcomes and nullable phase timing. It does not
-recover raw URLs, headers or content to populate missing regions; domain
-aggregation and HAR export remain unavailable. The Android Agent's normal
-Gradle build is currently blocked before Kotlin compilation by an AGP
-`KotlinAndroidTarget` / missing `BaseVariant` configuration failure. Native
-visual, device, provider and packaged acceptance are separate deferred gates.
+这**不是完整的 Network 功能对等**。现有最小化策略会删除 URL/主机、时间戳、标头和正文。因此，对于 HAR 证据，域聚合、真实活动时间线、每阶段计时和内容区段会明确显示为不可用状态。
+实时 Android 捕获现在会在明确同意后连接现有 APS Agent v2，使用自有 ADB 转发、有边界的轮询、观测结果和可为空的阶段计时。
+它不会恢复原始 URL、标头或内容来填充缺失区域；域聚合和 HAR 导出仍不可用。Android Agent 的常规 Gradle 构建目前在 Kotlin 编译前被 AGP `KotlinAndroidTarget` / 缺少 `BaseVariant` 的配置失败阻断。
+原生视觉、设备、Provider 和打包验收属于分别延期的门槛。
 
-## Startup workspace
+## 启动工作区
 
-Startup now has its own reference-shaped workspace instead of the generic import
-placeholder: a fixed command bar, Cold/Warm/Hot cards, scenario controls, four
-metric cards, waterfall region, seven-column runs table, baseline boundary and
-300dp evidence rail. It uses the current Compose implementation as the reference,
-shared Studio typography/colors and actual-container responsive layout. Empty
-states retain the complete page structure. Narrow views stack evidence below the
-main content; the table scrolls horizontally without separating its header.
+Startup 现在拥有自己的参考形状工作区，而不是通用导入占位页：包括固定命令栏、Cold/Warm/Hot 卡片、场景控件、四张指标卡片、瀑布图区域、七列运行表、基线边界和 300dp 证据栏。
+它以当前 Compose 实现为参考，使用共享的 Studio 字体/颜色和基于实际容器的响应式布局。空状态仍保留完整页面结构。
+窄视图会将证据堆叠在主要内容下方；表格会水平滚动，同时不将表头分离。
 
-The adapters support Startup CSV and explicitly reviewed, bounded live
-Cold/Warm/Hot experiments. The review identifies the target and any required
-force-stop/launch preparation; the application does not change global compiler
-or permission state. Mode cards filter requested
-mode, while observed mode remains distinct and can be Unknown. Whole-cohort
-statistics run off-thread; rows, summary, pagination, export and AI share one
-published projection. Stable run-ID selection no longer reads/writes Frame state.
-Failed/cancelled operations retain the previous publication. Missing TTID/TTFD
-never use TotalTime or an Agent declaration as a fallback. MAD follows the same
-nearest-rank median convention as the reference overview.
+适配器支持 Startup CSV 和经过明确审查、有边界的 Cold/Warm/Hot 实时实验。审查会识别目标以及所需的 force-stop/launch 准备；应用不会更改全局编译器或权限状态。
+模式卡片筛选请求模式，而观测模式保持独立，并且可以是 Unknown。整个样本组的统计在后台线程运行；行、摘要、分页、导出和 AI 共享一个已发布投影。
+稳定的 run-ID 选择不再读取/写入 Frame 状态。失败/取消的操作会保留上一次发布结果。缺失的 TTID/TTFD 绝不会使用 TotalTime 或 Agent 声明作为回退。
+MAD 遵循参考概览相同的最近秩中位数约定。
 
-This is **not full Startup feature or pixel parity**. Extended experiment
-configuration, Agent first-frame/phase intervals, comparable baseline statistics
-and trace navigation/correlation need additional adapters. Their regions remain
-visible with explicit unavailable explanations; no synthetic phase bars, device
-identity, verification, root-cause or regression delta is inferred. Compiler,
-Profile, device and trace fields in imported CSV are declarations, not
-independently verified facts. Live runs retain their own bounded target and
-platform-event evidence; missing/ambiguous launch events stay unassigned.
-JSON/CSV exports contain the current published page only, not a
-lossless report, and cannot be reimported as Startup CSV. Regression sources are
-authored/compiled only. Native empty-state previews were inspected in wide and
-stacked layouts; populated-report interaction, pixel matching, keyboard,
-real-device, provider and package acceptance remain deferred separately.
+这**不是完整的 Startup 功能或像素对等**。扩展实验配置、Agent 首帧/阶段间隔、可比较的基线统计以及跟踪导航/关联仍需要额外适配器。
+这些区域会保持可见，并明确解释为不可用；不会推断合成的阶段条、设备身份、验证结果、根因或回归差值。
+导入 CSV 中的 Compiler、Profile、设备和 trace 字段是声明，不是独立验证的事实。实时运行会保留各自有边界的目标和平台事件证据；缺失/含糊的启动事件保持未分配。
+JSON/CSV 导出只包含当前已发布页面，不是无损报告，也无法重新作为 Startup CSV 导入。回归源仅完成编写/编译。
+已在宽布局和堆叠布局中检查原生空状态预览；已填充报告的交互、像素匹配、键盘、真实设备、Provider 和包验收仍分别延期。
 
-## Battery live capture
+## 电池实时捕获
 
-Battery supports explicitly reviewed, read-only snapshots bound to the selected
-UID, boot and package-installation/process identity. Stop publishes conservative
-cumulative differences; cancel or stale results retain the previous report.
-The optional minimized evidence ZIP contains the complete analysis JSON,
-manifest and bounded parsed snapshots, not whole-device raw history. No global
-BatteryStats reset is performed. Historian, qualified baseline comparison,
-saved sessions and whole-bundle import remain separate unavailable capabilities.
+Battery 支持经过明确审查、只读的快照，并绑定到选定的 UID、启动 ID 以及包安装/进程身份。Stop 会发布保守的累计差异；取消或过期结果会保留上一个报告。
+可选的最小化证据 ZIP 包含完整分析 JSON、清单和有边界的已解析快照，而不是整台设备的原始历史记录。不执行全局 BatteryStats 重置。
+Historian、合格的基线比较、已保存会话和整包导入仍是分别不可用的能力。
 
-See `LIVE_CAPTURE_DEVELOPMENT.md` for this development follow-up's implementation,
-compile/static evidence and deliberate no-test/no-device/no-GUI boundaries.
+本次开发跟进的实现、编译/静态证据以及有意设置的无测试/无设备/无 GUI 边界见 `LIVE_CAPTURE_DEVELOPMENT.md`。
 
-## Dependency provenance
+## 依赖来源
 
 - <https://github.com/longbridge/gpui-kit/tree/v0.9.0>
 - <https://gpui-kit.com/docs/installation>
 - <https://gpui-kit.com/docs/getting-started>
 
-`gpui-kit = "=0.9.0"` fixes its GPUI core/platform at `gpui-pre = 0.3.11`.
-Its Apache-2.0 license does not replace third-party notices for transitive
-dependencies or for bundled Android/Perfetto tooling; notices are a release gate.
+`gpui-kit = "=0.9.0"` 将其 GPUI 核心/平台固定为 `gpui-pre = 0.3.11`。
+其 Apache-2.0 许可证不能替代传递依赖或捆绑 Android/Perfetto 工具的第三方声明；声明文件是发布门槛。
 
-## Settings workspace
+## 设置工作区
 
-Settings now follows the Compose six-section layout: General, Configuration,
-Layout Inspector, Simpleperf, AI and About. System theme/language, eight accent
-presets/custom HSV and hex colors, SDK path management, offline Inspector view
-and border preferences, capture defaults and native chart tooltip mode are wired
-to Rust behavior. Preferences use version 5 with older-version read compatibility; the
-separate SDK file and all writes remain Rust-owned and atomic.
+设置现在遵循 Compose 的六分区布局：常规、配置、布局检查器、Simpleperf、AI 和关于。
+系统主题/语言、八种强调色预设/自定义 HSV 与十六进制颜色、SDK 路径管理、离线检查器视图和边框偏好、捕获默认值以及原生图表提示模式，均已连接到 Rust 行为。
+偏好设置使用版本 5，并兼容读取旧版本；独立的 SDK 文件和所有写入仍由 Rust 拥有并保持原子性。
 
-CPU Settings and the capture planner now share one live draft: five Compose
-sampling templates, event, Frequency/Period, USER/KERNEL/BOTH and DWARF/Frame
-Pointer/None feed the actual recorder. Prepared requests and confirmation values
-are immutable; later edits require Inspect again. Valid Hz/duration defaults are
-persisted, including a mode-only switch to Frequency; period counts never become
-Hz preferences. Invalid inputs remain visible rather than silently clamping.
-CPU toolbar/Tools actions and its capture shortcut now open this explicit planner
-without starting device recording. Current bounds remain 1..300 integer seconds
-and 1..4000 Hz; manual duration/Stop-and-save and event discovery are unfinished.
+CPU 设置和捕获规划器现在共享一个实时草稿：五个 Compose 采样模板、事件、频率/周期、USER/KERNEL/BOTH 以及 DWARF/Frame Pointer/None 会传递给实际录制器。
+已准备的请求和确认值不可变；后续编辑需要再次执行检查。有效的 Hz/时长默认值会持久化，包括仅将模式切换到频率；周期计数绝不会变成 Hz 偏好设置。
+无效输入会保持可见，而不是静默限制到边界。CPU 工具栏/工具菜单操作及其捕获快捷操作现在会打开这个显式规划器，但不会启动设备录制。
+当前边界仍为 1..300 个整数秒和 1..4000 Hz；手动时长/停止并保存以及事件发现尚未完成。
 
-This is not full settings parity: Legacy engines, device-dependent
-capture configuration, live capture archive limits, extension/agent/skill
-package management and sandboxed script execution still need Rust adapters and
-remain visibly disabled. AI provider connections, local Codex/Claude config
-import, model discovery, built-in agent selection, report format/language and
-retention controls are wired to the Rust AI runtime. General scaling covers base
-fonts and rem-based controls, not every explicit-pixel profiler element. Current
-automated evidence is recorded in the continuation report; native visual matching
-and device/provider/package acceptance remain separate open gates.
+这不是完整的设置对等：旧版引擎、依赖设备的捕获配置、实时捕获归档限制、扩展/Agent/Skill 包管理和沙箱脚本执行仍需要 Rust 适配器，并保持明确禁用。
+AI 提供方连接、本地 Codex/Claude 配置导入、模型发现、内置 Agent 选择、报告格式/语言和保留策略控件已连接到 Rust AI 运行时。
+通用缩放覆盖基础字体和基于 rem 的控件，但不覆盖每个使用显式像素的性能分析器元素。当前自动化证据记录在后续报告中；原生视觉匹配以及设备/提供方/包验收仍是分别开放的门槛。
 
-### CPU Viewer Selection
+### CPU 查看器选择
 
-Settings > Simpleperf selects Native Rust (default), Firefox Profiler (bundled)
-or Firefox Profiler (online). The choice persists across launches. Successful
-imports automatically open the bundled local viewer when it is selected,
-including reopened snapshots and captured profiles. The CPU toolbar's **Open in
-selected viewer** command remains available for reopening the viewer or using
-online mode. Changing the preference alone does not launch a browser or send data.
+设置 > Simpleperf 可选择原生 Rust（默认）、Firefox Profiler（内置）或 Firefox Profiler（在线）。该选择会跨启动持久化。
+选择内置本地查看器后，成功导入会自动打开它，包括重新打开的快照和捕获的性能剖析数据。CPU 工具栏的**在所选查看器中打开**命令仍可用于重新打开查看器或使用在线模式。
+仅更改偏好不会启动浏览器或发送数据。
 
-- Native Rust keeps analysis inside APS.
-- Bundled Firefox opens the repository's `third_party/firefox-profiler/dist`
-  production build in the system browser, loading the session through a private
-  loopback profile URL. Keep/build that directory before using this mode;
-  missing assets produce an explicit error. A packaged application must include
-  the same asset directory under its resources. Closing/replacing the CPU
-  session shuts down its local server.
-  Its read-only query adapter is owned by APS and injected into HTTP responses,
-  leaving upstream source and build files unchanged. The local-viewer AI entry
-  pulls current browser evidence asynchronously; stale or unavailable browser
-  data is an explicit error, not a native-selection fallback. See the
-  [versioned API and compatibility checks](../integrations/firefox-profiler/README.md).
-- Online Firefox first saves a `.json.gz` file to the chosen destination, then
-  opens the official website for manual import. APS never uploads the profile
-  or sends it through a localhost URL to the official website. Cancelling the
-  save dialog does not open the browser. Sharing from Firefox remains a separate
-  action controlled by that viewer.
+- 原生 Rust 将分析保留在 APS 内部。
+- 内置 Firefox 会在系统浏览器中打开仓库的 `third_party/firefox-profiler/dist` 生产构建，并通过私有回环性能剖析 URL 加载会话。
+  使用此模式前请保留/构建该目录；资源缺失会产生明确错误。打包应用必须在其资源中包含相同的资源目录。关闭/替换 CPU 会话会关闭其本地服务器。
+  其只读查询适配器由 APS 拥有，并注入 HTTP 响应，同时保持上游源代码和构建文件不变。本地查看器的 AI 入口会异步拉取当前浏览器证据；过期或不可用的浏览器数据会产生明确错误，不会回退到原生选择。参见[版本化 API 和兼容性检查](../integrations/firefox-profiler/README.md)。
+- 在线 Firefox 会先将 `.json.gz` 文件保存到选定目标，然后打开官方网站供手动导入。APS 绝不会上传性能剖析数据，也不会通过 localhost URL 将其发送到官方网站。
+  取消保存对话框不会打开浏览器。Firefox 中的分享仍是由该查看器控制的独立操作。
 
-## AI Analysis workspace
+## AI 分析工作区
 
-The AI route is now the Compose-shaped conversation workspace. It has the
-260 dp conversations sidebar (search, Recent/Archived, pin/rename/branch/
-archive/copy-id/delete with confirmations), the centered chat column with empty
-state, user bubbles, safe Markdown answers (headings, lists, quotes, tables,
-code fences with language/wrap/copy), findings with evidence/source chips,
-verified-report and model rows, retry states, the preflight approval card
-(provider/model, evidence and source counts and bytes, planned calls, report
-format/language, prior dialogue, SHA-256 and permission list, Approve/Cancel),
-an activity toggle, and the composer with queued questions, bound-context row,
-include-source consent, a model picker with loading/empty/error/refresh states
-and a send/stop button. Enter sends, Shift+Enter adds a newline, Up recalls the
-last question, two Escapes within 500 ms stop the run, Cmd/Ctrl+N/Ctrl+K are
-wired. The DSH chat colors and type scale are scoped to this page only.
+AI 路由现在是遵循 Compose 布局的对话工作区。它包含 260 dp 的对话侧栏（搜索、最近/已归档、置顶/重命名/分支/归档/复制 ID/删除及确认）、带空状态和用户气泡的居中聊天栏、安全的 Markdown 答案（标题、列表、引用、表格、带语言/换行/复制功能的代码围栏）、带证据/来源标签的发现项、已验证报告和模型行、重试状态、预检审批卡片（提供方/模型、证据和来源数量及字节数、计划调用、报告格式/语言、历史对话、SHA-256 和权限列表、批准/取消）、活动开关，以及带排队问题、绑定上下文行、包含源码同意、带加载/空/错误/刷新状态的模型选择器和发送/停止按钮的输入区。
+Enter 发送，Shift+Enter 添加换行，Up 调出上一个问题；在 500 ms 内按两次 Escape 会停止运行，Cmd/Ctrl+N/Ctrl+K 已接入。DSH 聊天颜色和字号比例只作用于此页面。
 
-The Rust AI engine under `crates/aps-ai` owns saved preferences, a Keychain-
-backed connection credential store, a bounded SQLite conversation store
-(pin/rename/archive/delete/fork, restore without replay, retention), the
-non-streaming Responses API client for Codex/Custom connections, the no-tools
-Claude CLI provider, local Codex/Claude config import, model discovery with
-cache, SHA-256-addressed HTML/Markdown report artifacts, and the freeze ->
-explicit approve -> execute -> validate -> persist pipeline. Profiler AI entries
-still publish their existing bounded `AnalysisRequest` and open this workspace
-bound to that context.
+`crates/aps-ai` 下的 Rust AI 引擎负责已保存偏好、由 Keychain 支持的连接凭据存储、有边界的 SQLite 对话存储（置顶/重命名/归档/删除/派生、不重放的恢复、保留策略）、面向 Codex/Custom 连接的非流式 Responses API 客户端、无工具的 Claude CLI 提供方、本地 Codex/Claude 配置导入、带缓存的模型发现、以 SHA-256 寻址的 HTML/Markdown 报告产物，以及冻结 -> 显式批准 -> 执行 -> 验证 -> 持久化流程。
+性能分析器 AI 入口仍会发布现有的有边界 `AnalysisRequest`，并打开绑定到该上下文的工作区。
 
-Explicit boundaries: this is a route in the single application window, not a
-second native AI window; the Compose Agent graph, sub-agents, Skills and
-sandboxed scripts are not ported (built-in agent descriptors are static and
-script execution is never granted); Claude runs through the CLI; Keychain access
-uses the bounded `security` helper; the activity panel is session-local; answers
-are not rendered token-by-token; and no live provider, interactive approval,
-IME, cross-platform or packaged acceptance was exercised here. See the
-2026-11-08 AI entry in MIGRATION.md for the evidence and fixtures.
+明确边界：这是单个应用窗口中的一个路由，不是第二个原生 AI 窗口；Compose Agent 图、子 Agent、Skills 和沙箱脚本未移植（内置 Agent 描述符是静态的，永远不会授予脚本执行权限）；Claude 通过 CLI 运行；Keychain 访问使用有边界的 `security` 辅助程序；活动面板仅限当前会话；答案不会逐 token 渲染；此处也未执行实时提供方、交互式审批、IME、跨平台或打包验收。
+证据和测试夹具见 MIGRATION.md 中 2026-11-08 的 AI 条目。
 
-## Home dashboard
+## 首页仪表盘
 
-Home now follows the current Compose dashboard: two real metrics, four shortcut
-cards, eleven ordered module entries, a five-column recent table and a local
-date/device rail. It uses the shared theme/typography and actual-container
-responsive breakpoints. Trace/HPROF picker cancellation keeps the current page;
-Start Capture and Run Startup Test navigate without automatically running work.
-The native File menu exposes Home import actions only while Home handles them.
+首页现在遵循当前 Compose 仪表盘：两个真实指标、四张快捷卡片、十一个有序模块条目、五列最近记录表以及本地日期/设备栏。
+它使用共享主题/字体和基于实际容器的响应式断点。取消 Trace/HPROF 选择器会保留当前页面；开始捕获和运行启动测试只进行导航，不会自动运行操作。
+只有在首页处理导入操作时，原生文件菜单才会展示首页导入操作。
 
-Device facts come from the existing shared ADB discovery and distinguish loading,
-zero devices and errors. Recent history now interleaves Layout, CPU, Trace and
-Memory sources in Compose source order, with at most six usable entries and
-bounded per-source scans. Successful imports record paths in separate Rust-owned
-indexes; captured Trace sessions also use the existing read-only session catalog.
-Corrupt sources are isolated and missing/nonregular artifacts are skipped without
-repairing the index. Unknown package/capture time remain unavailable; import time
-and file mtime never impersonate capture time. Reopening a captured Trace keeps
-its known timestamp even after its path enters the MRU list.
+设备信息来自现有共享 ADB 发现，并区分加载中、零设备和错误状态。最近历史记录现在按照 Compose 源顺序交错显示布局、CPU、跟踪和内存来源，最多保留六条可用记录，并对每个来源执行有边界的扫描。
+成功导入会将路径记录在独立的 Rust 自有索引中；捕获的跟踪会话也使用现有的只读会话目录。损坏的来源彼此隔离，缺失/非普通文件产物会被跳过，不会修复索引。
+未知的包/捕获时间仍不可用；导入时间和文件 mtime 绝不会冒充捕获时间。重新打开已捕获的跟踪时，即使其路径已经进入 MRU 列表，也会保留已知时间戳。
 
-Successful Java heap captures retain a digest-verified private history copy only
-after current-generation publication. Copy and index registration form one
-background transaction; registration failure removes only a newly created copy,
-not existing deduplicated evidence. Scratch ownership and cleanup are unchanged.
-Clearing history does not delete retained evidence. Inspector now has an async
-ten-file recent menu with full-path labels for same-name archives and nondestructive
-Clear Menu. Shell mutations run in UI event order, so earlier delayed records
-cannot restore cleared history. CPU/Trace/Battery recent-menu separation, Memory
-saved-session menus, retention quotas and crash-orphan recovery remain open work.
+成功的 Java 堆捕获只有在当前代发布后，才会保留经过摘要验证的私有历史副本。副本和索引注册组成一个后台事务；注册失败只会删除新创建的副本，不会删除已有的去重证据。
+临时文件所有权和清理行为不变。清除历史不会删除保留的证据。检查器现在拥有异步的十文件最近菜单：同名归档使用完整路径标签，并提供非破坏性的清空菜单操作。
+应用外壳变更按 UI 事件顺序执行，因此较早的延迟记录不能恢复已清除的历史。CPU/跟踪/电池最近菜单分离、内存已保存会话菜单、保留配额以及崩溃孤儿文件恢复仍属于未完成工作。
 
-Passive Home discovery does not parse profiles, initialize storage or migrate
-Compose indexes. Opening delegates to each feature importer; CPU retains its
-saved-session/digest checks. This is not pixel or complete native interaction
-acceptance. On November 11, current native imports published real CPU/HPROF/Trace
-and a Layout fixture into isolated history, but the locked macOS session blocked
-screenshots and click/reopen acceptance. See the current continuation report.
+被动的首页发现不会解析性能剖析数据、初始化存储或迁移 Compose 索引。打开操作会交给各功能的导入器；CPU 会保留其已保存会话/摘要检查。
+这不是像素或完整原生交互验收。11 月 11 日，当前原生导入将真实 CPU/HPROF/跟踪数据和一个布局测试夹具发布到了隔离历史记录中，但锁定的 macOS 会话阻止了截图以及点击/重新打开验收。
+详见当前后续报告。
 
-## Source Workspaces
+## 源码工作区
 
-Source Workspaces now follows the Compose page: a fixed command bar with
-"+ Local", "AI Settings" and a selection-gated AI analysis action; a three-pane
-browser (workspace cards / file tree / source) with draggable 7 px splitters and
-protected 220/220/360 minimum pane widths; a live phase/progress card with
-Sync, AI source-upload consent and Remove; a 28 px file search and a virtualized,
-directory-first tree that starts fully collapsed, expands a selected file's
-ancestors and exports Compose's 20 px row / 14 px indent metrics with
-language-colored icons; and the read-only One Dark viewer with line-number
-gutter, current-line band, token colors, in-view search (n/m, wrap-around),
-horizontal/vertical scrolling, drag selection and copy.
+源码工作区现在遵循 Compose 页面：固定命令栏包含“+ 本地”、“AI 设置”和受选择状态控制的 AI 分析操作；三栏浏览器（工作区卡片 / 文件树 / 源码）使用可拖动的 7 px 分隔条，并保证 220/220/360 的最小面板宽度；实时阶段/进度卡片提供同步、AI 源码上传同意和移除；提供 28 px 文件搜索和虚拟化的目录优先树，初始完全折叠，会展开所选文件的祖先节点，并采用 Compose 的 20 px 行高 / 14 px 缩进指标和按语言着色的图标；只读 One Dark 查看器提供行号槽、当前行色带、token 颜色、视图内搜索（n/m、循环搜索）、水平/垂直滚动、拖动选择和复制。
 
-The data layer mirrors the Compose source-workspace module: explicit local
-roots, Git revision plus dirty-content digest, a content-addressed local cache,
-structural Kotlin/Java/XML/C/C++ declaration index, evidence resolution with
-Compose confidence/reason strings, and a Rust-owned SQLite schema for
-workspaces, snapshots, files, symbols and candidates. Reads are verified against
-the immutable content hash and marked stale when the working tree changed.
-Source text is cached only under the Rust application-data directory; nothing is
-uploaded.
+数据层对应 Compose 源码工作区模块：显式本地根目录、Git 修订版本加脏内容摘要、内容寻址的本地缓存、结构化 Kotlin/Java/XML/C/C++ 声明索引、带 Compose 置信度/原因字符串的证据解析，以及由 Rust 拥有的、用于工作区/快照/文件/符号/候选项的 SQLite 模式。
+读取会针对不可变内容哈希进行验证，并在工作树发生变化时标记为过期。源文本只会缓存在 Rust 应用数据目录下；不会上传任何内容。
 
-The AI preflight receives metadata-only selection evidence (snapshot identity,
-content hash, language, content state, size and line bounds). A candidate is
-included only while that workspace's upload grant is enabled, and the existing
-AI page still requires its separate explicit source consent.
+AI 预检接收仅包含元数据的选择证据（快照身份、内容哈希、语言、内容状态、大小和行边界）。只有在该工作区启用上传授权期间，候选项才会被包含；现有 AI 页面仍要求单独明确的源码同意。
 
-Only the Local provider is visible, exactly like the Compose page (GitHub/AOSP
-controls are hidden there). Remote retrieval, Layout Inspector Compose-source
-candidate dialogs and archived-source rebinding are not connected yet; a
-persisted remote workspace fails refresh with an explicit unavailable error.
-CPU symbol navigation and AI-result candidate opening are wired for non-Weak
-candidates. The full Rust test suite now passes (392 tests, 0 failures) and a
-native interaction pass with a seeded fixture exercised selection, Sync, AI
-upload consent, Copy location, tree/search interactions, code search, drag
-selection/copy, stale detection, remove, AI settings, AI preflight,
-symbol-candidate navigation and add-local (screenshots under
-`build/source-workspace/`). Pixel comparison, packaging and provider requests
-were not executed, so this remains functional/smoke evidence.
+只有本地提供方可见，与 Compose 页面完全一致（那里也隐藏了 GitHub/AOSP 控件）。远程获取、布局检查器 Compose 源码候选对话框以及归档源码重新绑定尚未接通；持久化的远程工作区刷新失败时会显示明确的不可用错误。
+CPU 符号导航和 AI 结果候选项打开已为非 Weak 候选项接通。完整 Rust 测试套件现在通过（392 个测试，0 个失败），一次使用预置测试夹具的原生交互检查覆盖了选择、同步、AI 上传同意、复制位置、树/搜索交互、代码搜索、拖动选择/复制、过期检测、移除、AI 设置、AI 预检、符号候选项导航和添加本地工作区（截图位于 `build/source-workspace/`）。
+未执行像素比较、打包和提供方请求，因此这仍然只是功能/冒烟证据。
 
-## Battery workspace
+## 电池工作区
 
-Battery now uses its own reference-shaped UI: a compact toolbar, searchable
-session rail, adaptive metrics, six-column run table, snapshot/history panels,
-eight resource tabs, searchable paged evidence with inspector/copy, thermal
-windows and diagnostics. It reuses the Studio theme and typography. Runs,
-resources, windows and diagnostics are bounded/paged, not silently truncated.
-Native File import and toolbar import use the existing generation-bound adapter.
-JSON/CSV export is explicitly the published runs page, not a session archive.
+电池现在使用自己的参考布局 UI：紧凑工具栏、可搜索会话栏、自适应指标、六列运行表、快照/历史面板、八个资源标签、带检查器/复制功能的可搜索分页证据、温度窗口和诊断信息。
+它复用 Studio 主题和字体。运行、资源、窗口和诊断均有边界并支持分页，不会静默截断。原生文件导入和工具栏导入使用现有的代际绑定适配器。
+JSON/CSV 导出明确表示已发布的运行页面，而不是会话归档。
 
-Imported schema-v1 reports preserve available source identity/clock metadata,
-timer confidence and thermal windows. Missing fields remain unknown; no charge
-curve, history samples, request events or compatible baseline is inferred from
-totals. Energy identities are kept separate and temperatures can be negative.
+导入的 schema-v1 报告会保留可用的来源身份/时钟元数据、计时器置信度和温度窗口。缺失字段保持未知；不会从总量推断电量曲线、历史样本、请求事件或兼容基线。
+能量身份保持分离，温度可以为负数。
 
-Only the current imported report appears in the session rail. Persistent saved
-Battery sessions, live experiments, app launch, global BatteryStats reset,
-Historian/bugreports and raw bundles still need Rust adapters; their controls are
-visibly disabled. Configuration is a read-only reference dialog, not a set of
-ineffective saved preferences. Format, compilation and static checks do not prove
-pixel parity or real capture behavior. Tests, native visual/keyboard interaction,
-provider/device and packaged acceptance remain deferred separately.
+会话栏中只显示当前导入的报告。持久化的已保存电池会话、实时实验、应用启动、全局 BatteryStats 重置、Historian/错误报告和原始包仍需要 Rust 适配器；这些控件会明确禁用。
+配置是只读参考对话框，不是一组无效的已保存偏好。格式化、编译和静态检查不能证明像素对等或真实捕获行为。
+测试、原生视觉/键盘交互、提供方/设备以及打包验收仍分别延期。
 
 
-## GPU Analysis Hub
+## GPU 分析中心
 
-GPU Inspector now follows the Compose Analysis Hub: a compact action strip,
-four summary cards, a searchable artifact rail, device graphics context,
-Overview/Artifacts/Related Evidence/Tool Capability tabs, and capability/open-with
-rails. It uses the actual content width: 1100dp selects three columns, 900dp
-selects four summary cards rather than two rows; narrower layouts stack regions.
-Shared typography, surfaces, borders and bilingual resources are retained.
+GPU 检查器现在遵循 Compose 分析中心：紧凑操作条、四张摘要卡片、可搜索产物栏、设备图形上下文、概览/产物/相关证据/工具能力标签以及能力/打开方式栏。
+它使用实际内容宽度：1100dp 选择三列，900dp 选择四张摘要卡片而不是两行；更窄的布局会堆叠各区域。
+共享字体、表面、边框和双语资源均得到保留。
 
-Explicit actions import content-identified artifacts, verify SHA-256 and size,
-relocate matching copies, reveal verified files, route Perfetto artifacts to
-Trace Analyzer, and probe/launch a selected local AGI executable. AGI launch is
-GUI-only and does not claim to open a selected artifact or infer CLI arguments.
-Shared device selection can be explicitly refreshed for graphics properties.
-AI preflight receives minimized artifact identity rather than local paths.
+显式操作会导入按内容识别的产物、验证 SHA-256 和大小、重新定位匹配副本、显示已验证文件、将 Perfetto 产物路由到跟踪分析器，以及探测/启动选定的本地 AGI 可执行文件。
+AGI 启动仅限 GUI，不会声称打开选定产物，也不会推断 CLI 参数。共享设备选择可显式刷新图形属性。
+AI 预检接收最小化的产物身份，而不是本地路径。
 
-This is not complete backend or pixel parity. The in-memory catalog is session
-local; device/package/capture/API metadata and related-artifact matching are not
-connected. File modification time is never presented as capture time. AGI frame
-metrics, shaders, draw calls and overdraw remain explicitly unavailable. Tests
-were authored/compiled but not executed under the rewrite policy. Compilation,
-a native dark Chinese empty-state screenshot and process startup are separate
-from comprehensive GUI, device, real AGI, persistence and packaged acceptance.
+这不是完整的后端或像素对等。内存中的目录仅限当前会话；设备/包/捕获/API 元数据以及相关产物匹配尚未接通。
+文件修改时间绝不会被呈现为捕获时间。AGI 帧指标、着色器、绘制调用和过度绘制仍明确不可用。
+测试已编写/编译，但按照重写策略未执行。编译、原生深色中文空状态截图和进程启动，与全面的 GUI、设备、真实 AGI、持久化及打包验收相互独立。

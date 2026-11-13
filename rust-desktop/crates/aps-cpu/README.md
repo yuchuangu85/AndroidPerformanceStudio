@@ -1,73 +1,71 @@
 # aps-cpu
 
-UI-independent, read-only session adapter around the existing `aps-simpleperf-engine`.
+围绕现有 `aps-simpleperf-engine` 的与 UI 无关的只读会话适配器。
 
-- Input: `SIMPLEPERF` protobuf export (`report_sample.py --protobuf`), not `perf.data`.
-- Opens a regular file read-only, checks metadata and enforces a streaming input byte budget (128 MiB by default, at most the engine's 256 MiB cap).
-- Retains parsed records for the session and caches one call-tree and one top-functions filter projection. Changing offset/limit only copies the requested page (at most 512 rows); changing filters rebuilds the projection once.
-- Filters: thread IDs, event names, half-open nanosecond time range, forward/inverted tree, sample/event-count weight. Event-count weight requires a single underlying event type.
-- Catalogs include sampled thread/event IDs missing declarations; raw names are never localized.
-- `ProfileSummary::thread_count` counts the usable union of declared and sampled thread IDs, unlike the legacy `analyze()` summary which counts declarations only. Summary event names include fallback names. `total_event_count` is raw accounting, not a comparable metric across different event units; use a single-event query for analysis.
+- 输入：`SIMPLEPERF` protobuf 导出（`report_sample.py --protobuf`），而不是 `perf.data`。
+- 以只读方式打开常规文件，检查元数据并强制执行流式输入字节预算（默认 128 MiB，
+  但不超过引擎的 256 MiB 上限）。
+- 为会话保留已解析记录，并缓存一个调用树和一个顶层函数过滤投影。更改 offset/limit
+  时只复制请求的页面（最多 512 行）；更改过滤器时只重建一次投影。
+- 过滤器：线程 ID、事件名称、半开纳秒时间范围、正向/反向树、采样/事件计数权重。
+  事件计数权重要求底层只有一种事件类型。
+- 目录包含缺少声明的已采样线程/事件 ID；原始名称绝不本地化。
+- `ProfileSummary::thread_count` 统计声明线程 ID 与采样线程 ID 的可用并集，不同于
+  只统计声明的旧版 `analyze()` 摘要。摘要事件名称包含回退名称。`total_event_count`
+  是原始计数，不是不同事件单位之间可比较的指标；分析时请使用单事件查询。
 
-## Limits and incomplete migration
+## 限制和未完成的迁移
 
-The byte budget is **not** a RAM bound: decoded records and an aggregate tree can expand significantly. The host application owns the separate content-addressed snapshot and session-metadata boundary; this crate does not persist profile bytes. There is no subprocess sandbox, persistent index, digest binding, capture, viewport rendering, cancellation, or Compose/Kotlin parity acceptance here. Close/drop releases the session; `clear_projection()` releases only the current cached projection. Native GUI, real large-profile performance, and packaged release acceptance remain separate gates.
+字节预算**不是** RAM 上限：已解码记录和聚合树可能显著扩展。主机应用负责独立的
+按内容寻址的快照和会话元数据边界；此 crate 不会持久化 profile 字节。这里没有子进程
+沙箱、持久化索引、摘要绑定、捕获、视口渲染、取消或 Compose/Kotlin 一致性验收。
+关闭/drop 会释放会话；`clear_projection()` 只释放当前缓存的投影。原生 GUI、真实的
+大 profile 性能和打包发布验收仍是独立门禁。
 
-Test sources exist under `tests/`, but executing tests is deferred by the user's full-rewrite-first instruction.
+测试源文件位于 `tests/` 下，但根据用户先完成完整重写的指示，测试执行会被推迟。
 
-## CPU view models
+## CPU 视图模型
 
-`top_functions(query, offset, limit)` returns up to 512 rows sorted by self weight,
-then inclusive weight and stable identity. A known function identity uses file ID,
-symbol ID and execution type; unknown symbols retain address identity. Recursion
-counts a function once per sample for inclusive weight/sample count; self weight
-always belongs to the original sampled leaf. This is deliberately not a sum of
-recursive call-tree row weights. Thread counts are actual distinct sampled IDs.
+`top_functions(query, offset, limit)` 最多返回 512 行，按自身权重、包含权重和稳定身份
+排序。已知函数身份使用文件 ID、符号 ID 和执行类型；未知符号保留地址身份。递归时，
+包含权重/采样数中每个样本只计算一次函数；自身权重始终属于最初采样的叶节点。这
+有意不是递归调用树行权重的总和。线程数是实际不同的采样 ID 数量。
 
-`flame_graph(query, viewport)` and
-`flame_graph_in_range(query, viewport, start_fraction, end_fraction)` produce
-weight-domain geometry. Children consume their actual inclusive weight and leave
-parent self-weight gaps. Horizontal zoom is a normalized weight range, not time.
-Subpixel blocks at a depth share a pixel aggregate; aggregate selection does not
-pretend to identify a single function. Weights in a pixel aggregate describe its
-source rows, not an exact visible/clipped weight.
+`flame_graph(query, viewport)` 和
+`flame_graph_in_range(query, viewport, start_fraction, end_fraction)` 生成权重域几何图形。
+子节点会消耗其实际包含权重，并留下父节点的自身权重间隙。水平缩放是归一化的权重
+范围，而不是时间范围。同一深度的亚像素块共享像素聚合；选择聚合项不会假装识别
+单个函数。像素聚合中的权重描述其源行，而不是精确的可见/裁剪权重。
 
-`stack_chart(query, TimelineViewport)` shows one-pixel **sampled timestamp points**
-in the original Simpleperf clock domain. It never joins samples into asserted
-execution spans or invents a sample interval/duration. Distinct threads share
-rows unless filtered explicitly; pixel collisions report aggregate source count,
-time extrema and an optional thread/event only if all sources agree. This is not
-yet parity with the legacy duration-oriented Stack Chart.
+`stack_chart(query, TimelineViewport)` 在原始 Simpleperf 时钟域中显示一个像素宽的
+**采样时间戳点**。它绝不会将样本连接为声称存在的执行区间，也不会编造采样间隔/
+时长。不同线程会共享行，除非明确过滤；像素碰撞会报告聚合源数量、时间极值，以及
+仅在所有来源一致时才提供的可选线程/事件。这还没有与旧版面向时长的 Stack Chart
+保持一致。
 
-`ChartFrame::hit_test(x, y)` indexes rows by depth and binary-searches x; selection
-returns the packet actually painted. It uses half-open bounds and rejects NaN.
-`ChartFrame::selected(id)` resolves exact block/aggregate facts. One custom canvas
-can paint the full packet with a single shared hit-test surface.
+`ChartFrame::hit_test(x, y)` 按深度索引行，并对 x 进行二分查找；选择结果返回实际
+绘制的 packet。它使用半开边界并拒绝 NaN。`ChartFrame::selected(id)` 解析精确的
+块/聚合事实。一个自定义画布可以使用单一共享命中测试表面绘制完整 packet。
 
-Chart output caps are 20,000 blocks, 16,384 pixels wide, 512 depths and 16 MiB of
-reserved string payload. `truncated` and `omitted_blocks` expose cap omissions;
-offscreen rows are not counted as omissions. Parsed records and full projection
-caches remain in-memory, so output caps still do not bound process RAM. Event
-filters and single-event event-count semantics are preserved.
+图表输出上限为 20,000 个块、16,384 像素宽、512 个深度，以及 16 MiB 的预留字符串
+负载。`truncated` 和 `omitted_blocks` 会暴露因上限而省略的内容；屏幕外行不计为省略。
+已解析记录和完整投影缓存仍保留在内存中，因此输出上限仍不能限制进程 RAM。事件
+过滤器和单事件的事件计数语义会保留。
 
-## CSV and Firefox boundaries
+## CSV 和 Firefox 边界
 
-`export_call_tree_csv(query)` and `export_top_functions_csv(query)` return UTF-8
-text, at most 16 MiB, without filesystem writes. Pagination does not truncate an
-export; active filters/weight/direction still apply. Quoting follows the existing
-`ReportExportService` comma/quote/CR/LF escaping contract. Metric columns retain
-`inclusive_weight`/`exclusive_weight` terminology. Native tree CSV exposes native
-ancestry IDs, `self_sample_count`, `weight_type` and `direction`; it does not
-fabricate missing per-node `thread_count` or claim legacy numeric-ID CSV parity.
-Top-functions CSV retains the legacy leading six columns and appends explicit
-self-sample/weight metadata. Raw symbol/path text is retained, not localized or
-silently rewritten; treat CSV contents as untrusted data when opening spreadsheets.
+`export_call_tree_csv(query)` 和 `export_top_functions_csv(query)` 返回 UTF-8 文本，最多
+16 MiB，不写入文件系统。分页不会截断导出；活动过滤器/权重/方向仍然适用。引号
+遵循现有 `ReportExportService` 的逗号/引号/CR/LF 转义契约。指标列保留
+`inclusive_weight`/`exclusive_weight` 术语。原生树 CSV 暴露原生祖先 ID、
+`self_sample_count`、`weight_type` 和 `direction`；不会伪造缺失的逐节点 `thread_count`，
+也不会声称与旧版数字 ID CSV 一致。顶层函数 CSV 保留旧版开头的六列，并追加明确的
+自身采样/权重元数据。原始符号/路径文本会保留，不会本地化或默默重写；在打开电子
+表格时应将 CSV 内容视为不可信数据。
 
-`CpuSession::export_firefox_profile()` now emits a bounded AOSP Gecko v24
-`application/json+gzip` payload with per-thread sample tables, frame/stack/string
-tables, timestamp conversion, category inference and unknown-symbol address
-normalization matching the existing `GeckoProfileExportService` contract. The
-native writer uses stored DEFLATE blocks from the standard library and caps the
-compressed output at 64 MiB; the GPUI host owns destination selection and
-create-new publication. Browser import, same-input round-trip parity and large
-profile resource acceptance remain separate gates.
+`CpuSession::export_firefox_profile()` 现在会生成有界的 AOSP Gecko v24
+`application/json+gzip` 负载，包含逐线程采样表、帧/栈/字符串表、时间戳转换、类别
+推断和未知符号地址规范化，并匹配现有 `GeckoProfileExportService` 契约。原生写入器
+使用标准库中的已存储 DEFLATE 块，并将压缩输出限制为 64 MiB；GPUI 主机负责选择目标
+以及 create-new 发布。浏览器导入、相同输入往返一致性和大型 profile 资源验收仍是
+独立门禁。

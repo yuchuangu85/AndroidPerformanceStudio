@@ -1,80 +1,67 @@
 # aps-startup
 
-Rust startup analysis supports bounded, explicit platform experiments and
-actual existing input formats:
+Rust 启动分析支持有界、明确的平台实验以及实际存在的输入格式：
 
-- `am start -W` text (`parse_am_start` / `open_am_start`), with explicit target
-  package and requested mode supplied by the caller.
-- A log scoped to a **single launch** (`with_event_log`) containing
-  `wm_activity_launch_time`, `wm_fully_drawn_time`, `Displayed` or `Fully drawn`.
-  Target component package matching is exact, not a substring match. Multiple
-  matching observations are rejected rather than silently taking the latest.
-- Existing `StartupCsvExporter` reports (`parse_csv` / `open_csv`), parsed by
-  named columns, supporting doubled quotes and quoted commas/newlines. Additional
-  compilation/environment/export fields remain in `imported_fields`.
+- `am start -W` 文本（`parse_am_start` / `open_am_start`），由调用方提供明确的
+  目标包和请求模式。
+- 限定于**单次启动**的日志（`with_event_log`），其中包含
+  `wm_activity_launch_time`、`wm_fully_drawn_time`、`Displayed` 或 `Fully drawn`。
+  目标组件包匹配是精确匹配，而不是子字符串匹配。多个匹配观测会被拒绝，而不
+  是默默采用最新的一项。
+- 现有的 `StartupCsvExporter` 报告（`parse_csv` / `open_csv`），按命名列解析，
+  支持成对引号以及带引号的逗号/换行。其他编译/环境/导出字段保留在
+  `imported_fields` 中。
 
-Sessions retain run-level missing metrics, requested vs observed launch mode and
-sources. `TotalTime`, `ThisTime` and `WaitTime` remain Activity Manager fields:
-none substitutes for TTID. TTID requires Displayed evidence; TTFD requires Fully
-drawn evidence, never fallback to TTID or an Agent-first-frame event. Missing
-`LaunchState` stays observed-unknown even if requested mode is Cold/Warm/Hot.
+会话保留运行级别的缺失指标、请求模式与观测模式，以及来源。`TotalTime`、
+`ThisTime` 和 `WaitTime` 仍是 Activity Manager 字段：它们都不能替代 TTID。
+TTID 需要 Displayed 证据；TTFD 需要 Fully drawn 证据，绝不回退到 TTID 或
+Agent-first-frame 事件。即使请求模式为 Cold/Warm/Hot，缺失的 `LaunchState` 仍
+保持为观测未知。
 
-Summaries report independent metric availability, mean and nearest-rank
-percentiles; pages filter requested/observed mode or TTID availability and return
-at most 512 runs. Input budgets are 64 MiB and 100,000 runs.
+摘要报告独立的指标可用性、均值和最近秩百分位数；页面可按请求/观测模式或 TTID
+可用性过滤，最多返回 512 次运行。输入预算为 64 MiB 和 100,000 次运行。
 
-All supported values are launch-relative millisecond durations, not absolute
-timestamps; they cannot reconstruct a cross-clock phase waterfall. CSV exports
-lack complete target/session identity and do not prove comparable cohorts.
-Compilation fields are preserved, not independently verified. Agent transport,
-Perfetto phase correlation, Baseline Profile preparation, JSON report import and
-statistical regression qualification remain separate work.
+所有受支持的值都是相对于启动的毫秒时长，而不是绝对时间戳；它们无法重建跨时钟
+的阶段瀑布图。CSV 导出缺少完整的目标/会话身份，不能证明队列可比。
+编译字段会被保留，但不会独立验证。Agent 传输、Perfetto 阶段关联、Baseline
+Profile 准备、JSON 报告导入和统计回归资格判定仍是独立工作。
 
-## Explicit platform experiments
+## 明确的平台实验
 
-`capture::capture_startup` is a blocking operation for a background executor,
-called only after a target-specific Review / Confirm flow. It freezes the
-approved device, package and configuration, verifies the initial selected app
-process, and revalidates boot ID, current Android user, package UID, version,
-installation timestamps and code path throughout the experiment.
+`capture::capture_startup` 是供后台执行器运行的阻塞操作，只能在针对目标的 Review /
+Confirm 流程之后调用。它会冻结已批准的设备、包和配置，验证最初选定的应用进程，
+并在整个实验期间重新验证启动 ID、当前 Android 用户、包 UID、版本、安装时间戳
+和代码路径。
 
-- Cold force-stops only the approved package for its Android user, then launches
-  its resolved MAIN / LAUNCHER Activity.
-- Warm preserves the process, sends HOME, and starts a new cleared Activity task.
-- Hot sends HOME and resumes the Activity. If the package has no process,
-  Warm/Hot preparation launches it first; that launch is not a measured run.
-- There are 1–20 runs, bounded launch/delay/event windows and a 15-minute total
-  deadline. Cancellation stops subsequent commands and owned host processes,
-  but does not undo already completed app lifecycle changes.
-- No data/log reset, root, permission modification or compilation/Profile
-  preparation is performed. Current compilation state is not verified.
-- Preparation and measured commands must return `Status: ok`, `Complete`, and an
-  explicit Activity in the approved package. Failed/incomplete launches abort
-  publication instead of replacing an existing report with partial evidence.
+- Cold 只会为其 Android 用户强制停止已批准的包，然后启动其解析出的 MAIN /
+  LAUNCHER Activity。
+- Warm 保留进程，发送 HOME，并启动一个新的已清除 Activity 任务。
+- Hot 发送 HOME 并恢复 Activity。如果包没有进程，Warm/Hot 准备阶段会先启动它；
+  该启动不计入测量运行。
+- 运行次数为 1–20 次，启动/延迟/事件窗口有界，总截止期限为 15 分钟。取消会
+  停止后续命令和所拥有的主机进程，但不会撤销已经完成的应用生命周期变更。
+- 不会执行数据/日志重置、root、权限修改或编译/Profile 准备。当前编译状态不会
+  被验证。
+- 准备命令和测量命令必须返回 `Status: ok`、`Complete`，以及已批准包中的明确
+  Activity。启动失败/不完整时会中止发布，而不是用部分证据替换已有报告。
 
-Observed mode comes only from a recognized platform `LaunchState`, never from
-the request or a PID heuristic. TTID/TTFD require new events for the exact
-Android user and launched Activity, correlated by Activity token. Missing,
-unmatched, malformed or ambiguous events stay unavailable; `TotalTime` is not a
-substitute. This intentionally means Hot resumes often have no launch metrics.
-No correlated phase waterfall is reconstructed.
+观测模式只能来自已识别的平台 `LaunchState`，绝不会来自请求或 PID 启发式判断。
+TTID/TTFD 需要精确 Android 用户和已启动 Activity 的新事件，并通过 Activity
+token 关联。缺失、不匹配、格式错误或有歧义的事件保持不可用；`TotalTime` 不能
+替代它们。这意味着 Hot 恢复通常没有启动指标，这是有意设计的。不会重建关联的
+阶段瀑布图。
 
-Artifacts contain per-run Activity Manager output, only target-package event
-lines, and a bounded experiment manifest in a private, exclusively owned
-temporary directory. Keep `StartupCaptureArtifact` alive while using its paths;
-Drop removes only that directory. Failed/cancelled runs do not replace the
-previously published report. CSV metadata cannot declare the typed live origin.
+工件包含每次运行的 Activity Manager 输出、仅限目标包的事件行，以及私有且独占
+拥有的临时目录中的有界实验清单。使用其中的路径时必须保持
+`StartupCaptureArtifact` 存活；Drop 只会删除该目录。失败/取消的运行不会替换先前
+发布的报告。CSV 元数据不能声明类型化的实时来源。
 
-The desktop current-page projection preserves its seven business columns and
-adds an eighth typed `Evidence source` column. CSV/JSON exports and the bounded AI
-projection therefore distinguish live platform, am-start text and imported CSV
-without trusting imported source declarations. Filtering to an empty page does
-not change the published session's source. These projections are not complete
-artifact exports and do not add phase, compilation or cohort qualification.
-Desktop exports select a persistent destination outside the entire owned
-`startup-captures` tree; generation/cancellation checks reject stale pickers and
-the evidence owner stays retained through the background write.
+桌面当前页面投影保留七个业务列，并增加第八个类型化的 `Evidence source` 列。
+因此，CSV/JSON 导出和有界 AI 投影可以区分实时平台、am-start 文本和导入的 CSV，
+而不会信任导入来源声明。将页面过滤为空不会改变已发布会话的来源。这些投影
+不是完整的工件导出，也不会增加阶段、编译或队列资格判定。
+桌面导出会选择整个自有 `startup-captures` 树之外的持久目标；生成/取消检查会拒绝
+过期选择器，并在后台写入期间保持证据所有者存活。
 
-Test sources are provided but deliberately unexecuted until the complete rewrite
-is implemented. Current development evidence is formatting and compilation
-only; no startup capture, device mutation or real-device probe was run.
+测试源文件已经提供，但在完整重写实现之前会按计划不执行。当前开发证据仅包括
+格式化和编译；未运行启动捕获、设备修改或真实设备探测。

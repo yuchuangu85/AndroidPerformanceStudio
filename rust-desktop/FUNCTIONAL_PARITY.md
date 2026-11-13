@@ -1,214 +1,115 @@
-# Compose Functional Parity Audit
+# Compose 功能对等审计
 
-Date: 2026-11-11. Status: **in progress, not full parity or replacement acceptance**.
+日期：2026-11-11。状态：**进行中，不是完整对等或替代版验收**。
 
-The active objective is to test all functionality and implement missing Rust
-workflows from Compose. All exposed Compose workflows remain in scope. A disabled
-button, a navigation route, a source-string test, a successful import, or a green
-workspace suite does not prove that its complete workflow is implemented.
+当前目标是测试全部功能，并实现 Compose 中缺失的 Rust 工作流。所有已暴露的 Compose 工作流仍在范围内。
+一个被禁用的按钮、一条导航路由、一个源码字符串测试、一次成功的导入或一套通过的工作区测试，都不能证明完整工作流已经实现。
 
-## Evidence Rules
+## 证据规则
 
-- Keep Compose and its data/interaction contracts as the behavior oracle.
-- Use the same authorized artifact for cross-engine comparisons. Keep missing,
-  ambiguous, sampled, bounded and partial evidence explicit.
-- Separate domain regressions, same-input data parity, native interaction,
-  device/Agent/tool execution, performance and packaged/platform acceptance.
-- Preserve the dirty worktree and independent Rust data/configuration roots.
-  No commit, push, install, root, permission changes, provider requests or source
-  upload are implied by this audit.
-- Current run artifacts and raw logs: `../build/rust-parity-audit-20261111/`.
-  Earlier audit reports describe earlier source revisions, not current acceptance.
-- Continued current evidence: `../build/rust-parity-continuation-20261111/REPORT.md`.
-  Historical test-deferral instructions are superseded by the active test request.
-- Latest capture/menu continuation:
-  `../build/rust-parity-capture-recents-20261111/REPORT.md`.
+- 将 Compose 及其数据/交互契约作为行为基准。
+- 使用同一个经授权的产物进行跨引擎比较。明确保留缺失、含糊、采样、有边界和部分证据。
+- 将领域回归、相同输入数据对等性、原生交互、设备/Agent/工具执行、性能以及打包/平台验收分开。
+- 保留脏工作树和独立的 Rust 数据/配置根目录。本审计不意味着提交、推送、安装、root、权限变更、提供方请求或源码上传。
+- 当前运行产物和原始日志：`../build/rust-parity-audit-20261111/`。较早的审计报告描述的是较早的源码修订版本，不是当前验收结果。
+- 当前延续证据：`../build/rust-parity-continuation-20261111/REPORT.md`。历史测试延期指令已被当前测试要求取代。
+- 最新捕获/菜单延续：`../build/rust-parity-capture-recents-20261111/REPORT.md`。
 
-## Connected In This Audit
+## 本次审计已接入
 
-- **Inspector findings:** ported the four deterministic Compose structural rules:
-  invisible node, more than 10 direct children, at least three substantially
-  overlapping siblings, and hierarchy depth above 10. Severity filtering, counts,
-  node selection and ancestor reveal are connected. Retention and overlap work
-  budgets are visible; these rules do not establish GPU cost or recomposition.
-- **Method Recording:** shared targets, real `am profile` capture, bounded duration,
-  stop/cancel, process-instance checks, owned artifact cleanup and existing page
-  publication. Standard text-first ART v2/v3 now imports alongside the previous
-  binary-first fixture formats. CPU-only shell actions were removed from this
-  page. API discovery handles unrelated multiline Android properties.
-- **Battery sessions:** private atomic, digest-bound saved evidence and catalog;
-  background list/save/open/remove, search, restart restore and menu handoff.
-  Imported/captured identities stay distinct. Restored reports are not live;
-  the exact matching historical capture bundle can still be exported.
-- **GPU catalog:** restore and revalidate locations after restart; persist import,
-  digest-bound relocation and catalog-only removal without deleting source files.
-  Corrupt catalogs are not silently replaced with empty catalogs.
-- **Network exports:** whole-session minimized JSON/CSV and explicitly partial
-  HAR exports, independent of the visible page/filter. Source mutation,
-  cancellation, limits and create-new destination rules apply. Missing wall time,
-  traffic content and unknown transport outcomes are not synthesized.
-- **Capture corrections:** Warm launches use supported Intent flags preserving
-  NEW_TASK/CLEAR_TASK semantics. CPU and shared Perfetto recorder repairs are
-  tracked with their focused and device evidence in the run directory.
-- **Network Agent build:** repaired the opt-in parent/child AGP/KGP classloader
-  boundary without changing pinned dependency versions. Forced offline Kotlin
-  compilation and desktop opt-out configuration have separate evidence.
-- **CPU loss accounting:** ported the Compose distinction between parsed samples,
-  producer-reported samples and lost samples through the native engine, UI and
-  JSON/HTML/session exports. The existing populated device artifact now reports
-  249 parsed / 249 reported / 0 lost, rather than false 249-sample loss.
-- **CPU callgraph configuration:** DWARF, Frame Pointer and None now control the
-  frozen request and actual recorder argv. Mode changes do not mutate a prepared
-  plan; fake-execution lifecycle coverage exercises all three modes.
-- **CPU sampling configuration:** five Compose templates, editable event,
-  Frequency/Period and USER/KERNEL/BOTH now share one draft between Settings and
-  capture planning and reach actual execution. An executed Compose oracle supplies
-  46 committed comparison cases with source hashes. Period values are never saved
-  as Hz; mode-only switches to Frequency now persist valid Hz defaults. Invalid
-  inputs stay visible and cannot create a new plan. The CPU toolbar, Tools menu
-  and capture shortcut now open the planner without starting recording.
-- **Inspector recent archives:** async initial/entry reads, ten-file menus,
-  duplicate-name disambiguation, reopen via the existing importer, and Clear Menu
-  are connected. A UI-ordered write queue prevents delayed older records/loads
-  from undoing a clear. Clear removes only Layout history, not archive bytes or
-  other sources. These model/store/menu regressions do not prove native clicks.
-- **Home history:** connected successful Layout/Trace/Memory import publication,
-  existing captured Trace indexes, and the existing CPU adapter. Independent
-  source failures, round-robin ordering, path deduplication, stale-file filtering
-  and truthful capture timestamps have domain regression coverage. Native
-  import/persistence succeeded; screenshot and click/reopen acceptance is blocked
-  by the current locked macOS session, not counted as passed.
-- **Captured Memory history:** retained verified copies and history registration
-  commit together off the UI thread after successful publication. Registration
-  failures roll back only newly created evidence, and delayed failures cannot
-  replace the notice for another snapshot. History clearing does not delete evidence.
+- **布局检查结果：**移植了四条确定性的 Compose 结构规则：不可见节点、直接子节点超过 10 个、至少三个大幅重叠的同级节点，以及层级深度超过 10。已接入严重性筛选、计数、节点选择和祖先节点显示。保留和重叠工作预算可见；这些规则不能证明 GPU 成本或重组。
+- **方法录制：**共享目标、真实 `am profile` 捕获、有边界的时长、停止/取消、进程实例检查、自有产物清理以及现有页面发布。标准的文本优先 ART v2/v3 现在可以与此前的二进制优先测试样本格式一同导入。本页面已移除仅 CPU 的 shell 操作。API 发现可以处理无关的多行 Android 属性。
+- **电池会话：**私有原子、绑定摘要的已保存证据和目录；后台列出/保存/打开/移除、搜索、重启恢复和菜单交接。导入/捕获的身份保持独立。恢复的报告不是实时报告；仍可导出完全匹配的历史捕获包。
+- **GPU 目录：**重启后恢复并重新验证位置；持久化导入、绑定摘要的重新定位和仅目录移除，不删除源文件。损坏的目录不会被静默替换为空目录。
+- **网络导出：**整个会话的最小化 JSON/CSV 以及明确为部分内容的 HAR 导出，独立于可见页面/筛选器。适用源码变更、取消、限制和创建新目标的规则。不会合成缺失的墙上时间、流量内容或未知传输结果。
+- **采集修正：**Warm 启动使用受支持的 Intent 标志，并保留 NEW_TASK/CLEAR_TASK 语义。CPU 和共享 Perfetto 录制器修复均在运行目录中以针对性证据和设备证据跟踪。
+- **网络 Agent 构建：**修复了选择性启用的父/子 AGP/KGP 类加载器边界，没有更改固定的依赖版本。强制离线 Kotlin 编译和桌面端退出配置各自拥有独立证据。
+- **CPU 丢失样本计数：**通过原生引擎、UI 以及 JSON/HTML/会话导出，移植了 Compose 对已解析样本、生产者报告样本和丢失样本的区分。现有已填充设备产物现在报告 249 parsed / 249 reported / 0 lost，而不是错误的 249 样本丢失。
+- **CPU 调用图配置：**DWARF、Frame Pointer 和 None 现在控制冻结请求和实际录制器 argv。模式变更不会修改已准备的计划；伪执行生命周期覆盖了全部三种模式。
+- **CPU 采样配置：**五个 Compose 模板、可编辑事件、Frequency/Period 和 USER/KERNEL/BOTH 现在在设置与捕获规划之间共享一个草稿，并到达实际执行。一次已执行的 Compose 基准提供了 46 个带源码哈希的已提交比较用例。周期值绝不保存为 Hz；仅切换到 Frequency 的模式切换现在会持久化有效 Hz 默认值。无效输入保持可见，不能创建新计划。CPU 工具栏、Tools 菜单和捕获快捷方式现在会打开规划器，但不会开始录制。
+- **检查器最近归档：**异步初始/条目读取、十文件菜单、同名消歧、通过现有导入器重新打开以及 Clear Menu 已接入。按 UI 顺序写入的队列会阻止延迟的旧记录/加载撤销清除操作。Clear 只移除 Layout 历史，不移除归档字节或其他来源。这些模型/存储/菜单回归不能证明原生点击。
+- **首页历史：**已接入 Layout/Trace/Memory 的成功导入发布、现有的已捕获 Trace 索引以及现有 CPU 适配器。独立来源失败、轮询排序、路径去重、过期文件筛选和真实捕获时间戳具有领域回归覆盖。原生导入/持久化成功；截图和点击/重新打开验收受当前锁定的 macOS 会话阻塞，不计为通过。
+- **内存采集历史：**成功发布后，经过验证的保留副本和历史注册会在 UI 线程之外一起提交。注册失败只回滚新创建的证据，延迟失败不能替换另一快照的提示。清除历史不会删除证据。
 
-## Remaining Workflow Work
+## 剩余工作流
 
-This inventory records concrete gaps found in source, not a claim that every
-other action has already been accepted. Recheck implementation and runtime
-evidence before closing each item.
+此清单记录源码中发现的具体缺口，并不表示其他所有操作都已验收。关闭每个项目之前，都要重新检查实现和运行时证据。
 
-### Shell, Home And Settings
+### 应用外壳、首页与设置
 
-- [x] Implement Home history beyond CPU for Layout/Trace/Memory, with bounded
-  reads, missing/corrupt-source isolation and existing importer activation.
-- [ ] Accept the four-source native Home reopen workflow, including locked/unlocked
-  session recovery, selection, file-picker failures and narrow-window rendering.
-- [x] Implement Inspector Open Recent and nondestructive Clear Menu using the
-  shared Layout history, including async ordering and same-name labels.
-- [ ] Complete CPU/Trace/Battery menu history and nondestructive clear, plus
-  Memory saved-session menu behavior. Compose does not expose a clear workflow
-  for Memory/Startup/Network; do not invent one as a missing requirement.
-- [x] Connect Simpleperf templates, event, frequency/period and event scope through
-  the shared draft, frozen confirmation and actual recorder arguments.
-- [ ] Native persistence/reopen, menu, keyboard, high-DPI, IME/CJK, accessibility
-  and narrow-window acceptance across the supported platforms.
+- [x] 完成 CPU 之外的 Layout/Trace/Memory Home 历史记录，并支持有边界的读取、缺失/损坏来源隔离和现有导入器激活。
+- [ ] 验收四来源原生 Home 重新打开工作流，包括锁定/解锁会话恢复、选择、文件选择器失败和窄窗口渲染。
+- [x] 使用共享 Layout 历史实现 Inspector Open Recent 和非破坏性 Clear Menu，包括异步排序和同名标签。
+- [ ] 完成 CPU/Trace/Battery 菜单历史和非破坏性清除，以及 Memory 已保存会话菜单行为。Compose 没有为 Memory/Startup/Network 暴露清除工作流；不要将其臆造为缺失需求。
+- [x] 通过共享草稿、冻结确认和实际录制器参数接入 Simpleperf 模板、event、frequency/period 和事件范围。
+- [ ] 在支持的平台上完成原生持久化/重新打开、菜单、键盘、高 DPI、IME/CJK、无障碍和窄窗口验收。
 
 ### CPU
 
-- [ ] Finish CPU capture parity beyond the connected sampling parameters:
-  event capability discovery, remaining target forms, fractional/manual duration
-  and Stop-and-save. Current duration is 1..300 integer seconds, frequency is
-  1..4000 Hz, and cancellation still discards output rather than stopping to save.
-- [ ] Correct session-folder opening and remaining raw protobuf, screenshot
-  and Simpleperf report export actions.
-- [x] Implement persisted Native Rust / bundled Firefox / online Firefox viewer
-  selection and explicit open. Bundled mode serves private loopback data;
-  online mode saves before opening the official site for manual import, without
-  uploading. HTTP/security tests and a local browser fixture cover loading,
-  function selection, Flame Graph and Stack Chart; native settings/dialog and
-  cross-platform handoff acceptance remain part of the open gates below.
-- [x] Add an APS-owned, read-only local Firefox query extension and asynchronously
-  prepare AI evidence from the live browser view. The extension leaves upstream
-  source/assets unchanged and rejects foreign profiles and stale document/node
-  identities. Unit/HTTP tests and a real-browser host round trip cover querying
-  and AI evidence validation, not provider execution or packaged/native acceptance.
-- [ ] Same-input data and interaction comparisons for Overview, Top Functions,
-  Call Tree, Flame Graph and Stack Chart, including large real profiles.
-- [ ] Complete native populated capture/conversion/import, interaction and recovery
-  acceptance. Backend populated evidence now has 249 real samples and verified
-  exports; earlier zero-sample transport tests remain distinct evidence.
+- [ ] 完成已接入采样参数之外的 CPU 捕获对等：事件能力发现、其余目标形式、分数/手动时长以及 Stop-and-save。当前时长为 1..300 个整数秒，频率为 1..4000 Hz，取消仍会丢弃输出，而不是停止并保存。
+- [ ] 修正会话文件夹打开以及剩余 raw protobuf、截图和 Simpleperf 报告导出操作。
+- [x] 实现持久化的 Native Rust / bundled Firefox / online Firefox 查看器选择和显式打开。bundled 模式提供私有回环数据；online 模式会在打开官方网站手动导入前先保存，不上传数据。HTTP/安全测试和本地浏览器 fixture 覆盖加载、函数选择、Flame Graph 和 Stack Chart；原生设置/对话框以及跨平台交接验收仍属于下方开放门槛的一部分。
+- [x] 添加由 APS 拥有的只读本地 Firefox 查询扩展，并异步准备来自实时浏览器视图的 AI 证据。该扩展不修改上游源代码/资源，并拒绝外部 profile 和过期的文档/节点身份。单元/HTTP 测试和真实浏览器主机往返覆盖查询和 AI 证据验证，不覆盖提供方执行或打包/原生验收。
+- [ ] 对 Overview、Top Functions、Call Tree、Flame Graph 和 Stack Chart 进行相同输入下的数据和交互比较，包括大型真实 profile。
+- [ ] 完成原生已填充捕获/转换/导入、交互和恢复验收。后端已填充证据现在有 249 个真实样本和经过验证的导出；此前的零样本传输测试仍属于独立证据。
 
-### Trace And Shared Perfetto Consumers
+### Trace 与共享 Perfetto 使用方
 
-- [ ] Complete recent-list clearing and imported-artifact session package paths.
-- [ ] Real Native Heap, ART and FrameTimeline data-source acceptance in addition
-  to the shared recorder's sched-trace verification.
-- [ ] Native browser handoff, bookmarks, timeline navigation, cancellation,
-  disconnect and failure recovery on the supported device/platform matrix.
+- [ ] 完成最近列表清除和导入产物会话包路径。
+- [ ] 除共享录制器的 sched-trace 验证外，完成真实 Native Heap、ART 和 FrameTimeline 数据源验收。
+- [ ] 在支持的设备/平台矩阵上完成原生浏览器交接、书签、时间线导航、取消、断开连接和失败恢复。
 
-### Method Recording
+### 方法录制
 
-- [ ] Graphical/zoomable timeline and flame-chart interaction parity; bounded
-  interval tables alone are not that workflow.
-- [ ] Producer/device format matrix beyond the verified standard v2/v3 paths.
-- [ ] Native capture-button, target switching, stop/cancel and export workflows;
-  backend capture/import and fake-transport checks do not replace these.
+- [ ] 图形化/可缩放时间线和火焰图交互对等；仅有边界的区间表不等于该工作流。
+- [ ] 超出已验证标准 v2/v3 路径的生产者/设备格式矩阵。
+- [ ] 原生捕获按钮、目标切换、停止/取消和导出工作流；后端捕获/导入和伪传输检查不能替代这些验收。
 
-### Memory
+### 内存
 
-- [ ] LeakCanary injection and its Agent/evidence lifecycle.
-- [ ] Standard HPROF conversion/export and bitmap comparison workflows.
-- [ ] End-to-end Native Heap, ART and Bitmap capture, analysis, export and
-  reimport, not inferred from Java HPROF success.
-- [ ] Large real-heap memory/cancellation/resource budgets and native details
-  navigation across snapshots, references, dominators, diff and leak views.
+- [ ] LeakCanary 注入及其 Agent/证据生命周期。
+- [ ] 标准 HPROF 转换/导出和 bitmap 比较工作流。
+- [ ] 端到端 Native Heap、ART 和 Bitmap 捕获、分析、导出和重新导入，不能从 Java HPROF 成功推断。
+- [ ] 大型真实堆的内存/取消/资源预算，以及跨快照、引用、支配树、差异和泄漏视图的原生详情导航。
 
-### Frame And Startup
+### 帧与启动
 
-- [ ] Frame Agent/JankStats and FrameTimeline device workflows beyond offline
-  parsers and compatible gfxinfo fallback; preserve source-specific semantics.
-- [ ] Startup baseline comparison, compiler/profile preparation, phase evidence
-  and validated Open Trace handoff matching Compose.
-- [ ] Cold/Warm/Hot repeated experiments, stop/cancel, target changes, export and
-  native page interactions. Missing Displayed/Fully drawn evidence stays missing.
+- [ ] 超出离线解析器和兼容 gfxinfo 回退的 Frame Agent/JankStats 与 FrameTimeline 设备工作流；保留特定来源的语义。
+- [ ] 与 Compose 匹配的 Startup 基线比较、编译器/profile 准备、阶段证据和经过验证的 Open Trace 交接。
+- [ ] Cold/Warm/Hot 重复实验、停止/取消、目标变更、导出和原生页面交互。缺失的 Displayed/Fully drawn 证据保持缺失。
 
-### Battery And Network
+### 电池与网络
 
-- [ ] Battery baseline comparison, Historian/history/raw import workflows and
-  the separately authorized global-reset workflow exposed by Compose.
-- [ ] Battery session/catalog UI restart and capture-bundle roundtrip acceptance.
-- [ ] Network authorized bounded traffic-detail/redaction parity and minimized
-  session reimport/persistence; current exports are not lossless source archives.
-- [ ] Real instrumented-client Agent capture/handshake/stop/drain tests. An Agent
-  compile, HAR import, or uninstrumented sample cannot establish capture coverage.
+- [ ] Battery 基线比较、Historian/历史/原始导入工作流，以及 Compose 暴露的、需要单独授权的全局重置工作流。
+- [ ] Battery 会话/目录 UI 重启和捕获包往返验收。
+- [ ] Network 经授权的有边界流量详情/脱敏对等和最小化会话重新导入/持久化；当前导出不是无损源归档。
+- [ ] 真实插桩客户端 Agent 捕获/握手/停止/排空测试。Agent 编译、HAR 导入或未插桩样本不能建立捕获覆盖证明。
 
-### GPU And Benchmark
+### GPU 与基准测试
 
-- [ ] Reliable GPU device/package/API/capture-time/AGI metadata and related
-  artifact relationships; never substitute filesystem mtime for capture time.
-- [ ] Verified AGI artifact-open/capture capability and actual tool execution.
-  GUI-only/manual launch remains distinct from artifact-open automation.
-- [ ] Benchmark real comparable report interaction and Gradle/device orchestration
-  with deterministic report association, policies, exports and failure recovery.
+- [ ] 可靠的 GPU 设备/包/API/捕获时间/AGI 元数据和相关产物关系；绝不以文件系统 mtime 替代捕获时间。
+- [ ] 经过验证的 AGI 产物打开/捕获能力和实际工具执行。仅 GUI/手动启动与产物打开自动化保持独立。
+- [ ] Benchmark 真实可比较的报告交互和 Gradle/设备编排，并具备确定性的报告关联、策略、导出和失败恢复。
 
-### Inspector
+### 布局检查器
 
-- [ ] Continuous inspection/timeline/Auto Scan and its immutable cross-frame
-  correspondence semantics.
-- [ ] Archive export/roundtrip, screenshot import and recent-list workflows.
-- [ ] Full Compose/JVMTI, recomposition and parameter paging native/device
-  acceptance; structural findings and compiler reports do not prove them.
-- [ ] Source-candidate and archived-source rebind interactions.
+- [ ] 连续检查/时间线/Auto Scan 及其不可变的跨帧对应语义。
+- [ ] 归档导出/往返、截图导入和最近列表工作流。
+- [ ] 完整 Compose/JVMTI、重组和参数分页的原生/设备验收；结构化发现和编译器报告不能证明这些能力。
+- [ ] 源码候选项和归档源码重新绑定交互。
 
-### AI And Source
+### AI 与源码
 
-- [ ] Agent/Skill package import, registry, trust/version/removal and execution
-  workflows. Keep script execution unavailable until its real sandbox contract
-  is implemented and qualified.
-- [ ] Actual provider execution only with separate authorization; fake transport
-  tests do not establish real-provider acceptance or permission to send data.
-- [ ] Large source-workspace and native candidate/rebind acceptance. GitHub/AOSP
-  buttons are currently hidden in Compose too; do not invent them as an exposed
-  UI requirement or claim remote retrieval is implemented.
+- [ ] Agent/Skill 包导入、注册表、信任/版本/移除和执行工作流。在真实沙箱契约实现并通过验证前，保持脚本执行不可用。
+- [ ] 只有在获得单独授权后才执行真实提供方；伪传输测试不能建立真实提供方验收或发送数据的权限。
+- [ ] 大型源码工作区和原生候选项/重新绑定验收。GitHub/AOSP 按钮当前在 Compose 中也处于隐藏状态；不要将其臆造为已暴露的 UI 需求，也不要声称已实现远程获取。
 
-## Delivery Gates Still Open
+## 仍开放的交付门槛
 
-- [ ] Representative immutable Compose/Rust data and performance baselines.
-- [ ] GPUI focus/keyboard/selection/accessibility and native interaction matrix.
-- [ ] macOS/Windows/Linux package/tool bundling, signing and notices.
-- [ ] Large-profile RSS/latency and failure/cancellation budgets.
-- [ ] Requirement-by-requirement final switch audit from the migration plan.
+- [ ] 具有代表性的不可变 Compose/Rust 数据和性能基线。
+- [ ] GPUI 焦点/键盘/选择/无障碍以及原生交互矩阵。
+- [ ] macOS/Windows/Linux 包/工具捆绑、签名和声明。
+- [ ] 大型 profile 的 RSS/延迟以及失败/取消预算。
+- [ ] 根据迁移计划逐项执行的最终切换审计。
 
-Compose must remain available until the complete scope has current evidence.
+在完整范围拥有最新证据之前，Compose 必须保持可用。

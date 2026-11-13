@@ -1,56 +1,48 @@
-# Minimized network evidence adapter
+# 最小化网络证据适配器
 
-`HarSession` reuses `aps-har-engine` for bounded streaming summary and raw-entry
-transport. Its public rows contain only numeric metrics, an allowlisted method,
-and `redacted://minimized-url`. No URL component (including path, query names,
-userinfo or fragment), timestamp, header, body, cookie, producer string, arbitrary
-method or raw parser error is returned or persisted. There is intentionally no
-full-fidelity mode. This is stricter than the Kotlin URL redactor, consistent with
-the deny-by-default boundary in ADR 0029; endpoint display parity is not claimed.
+`HarSession` 复用 `aps-har-engine` 进行有界流式摘要和原始条目传输。其公共行只
+包含数值指标、允许列表中的 method 以及 `redacted://minimized-url`。不会返回或
+持久化任何 URL 组件（包括 path、query names、userinfo 或 fragment）、timestamp、
+header、body、cookie、producer string、任意 method 或原始解析器错误。这里有意不
+提供全保真模式。这比 Kotlin URL redactor 更严格，与 ADR 0029 中默认拒绝
+的边界一致；不声称 endpoint 显示一致性。
 
-The selected file is opened read-only. Defaults: 512 MiB input, 100,000 entries,
-200 rows/page; configurable input limits cannot exceed 2 GiB / 1,000,000 entries.
-The engine additionally bounds each JSON value to 2 MiB and nesting to 64.
-Pages consume the complete valid stream before publication; partial results are
-discarded. Cancellation is checked during reads. Call all parsing off the UI thread.
+选定文件以只读方式打开。默认值为：输入 512 MiB、100,000 个条目、每页 200 行；
+可配置的输入限制不得超过 2 GiB / 1,000,000 个条目。engine 还会将每个 JSON 值
+限制为 2 MiB，将嵌套深度限制为 64。页面在发布前会消费完整的有效流；部分结果会
+被丢弃。读取期间会检查取消状态。所有解析都应在 UI 线程之外调用。
 
-`HarSession::open` now binds the selected source to a SHA-256 digest. Entry pages
-retain only bounded minimized rows in a session-owned cache (up to eight pages
-and 512 KiB); cache keys are offset/limit and every returned page carries the
-source digest. Cache hits still recheck source metadata and digest. Length/mtime
-remain a fast mutation check, while the digest closes same-stamp replacement for
-publication; this is not yet a persisted content-addressed HAR index.
+`HarSession::open` 现在将选定来源绑定到 SHA-256 摘要。条目页面只在 session 所有的
+缓存中保留有界的最小化行（最多八页、512 KiB）；缓存键是 offset/limit，并且每个
+返回页面都携带 source digest。缓存命中时仍会重新检查源元数据和摘要。Length/mtime
+仍是快速变更检查，而摘要可以在发布时识别时间戳不变的替换；这里还不是持久化的
+content-addressed HAR 索引。
 
-## Explicit Agent observations
+## 显式 Agent 观测
 
-`HarSession::from_observed(ObservedCapture)` accepts a separate immutable,
-memory-backed Agent source. It never synthesizes a HAR file or reuses HAR timing
-as a claimed device observation. Its SHA-256 identifies canonical minimized
-evidence, not the original event stream. No raw URL, headers, cookies, bodies,
-TLS/cipher, arbitrary diagnostics, package name or device serial enters the
-public request rows. Validated process-start/boot identity binds capture to one
-process instance; kernel identity is excluded from presentation exports.
+`HarSession::from_observed(ObservedCapture)` 接受独立的、不可变且以内存为后端的
+Agent 来源。它绝不会合成 HAR 文件，也不会复用 HAR timing 作为声称的设备观测。
+其 SHA-256 标识规范化的最小化证据，而不是原始事件流。原始 URL、headers、cookies、
+bodies、TLS/cipher、任意 diagnostics、package name 或 device serial 都不会进入公共
+request rows。经过校验的 process-start/boot identity 将采集绑定到一个进程实例；
+kernel identity 会从 presentation exports 中排除。
 
-Observed sources retain at most 20,000 calls and 64 phase records per call.
-Outcomes are real `Completed`, `Failed`, `Cancelled` or `InFlight` observations,
-independent of HTTP status. `EntryQuery::outcome` is applied over the entire
-observed session before sorting and paging. Minimized HAR accepts only `All`:
-it rejects other outcome filters rather than inferring transport failures from
-4xx/5xx responses. Search remains restricted to minimized fields.
+观测来源最多保留 20,000 次调用，每次调用最多保留 64 条阶段记录。
+Outcomes 是真实的 `Completed`、`Failed`、`Cancelled` 或 `InFlight` 观测，独立于
+HTTP status。排序和分页前，会在整个 observed session 上应用 `EntryQuery::outcome`。
+Minimized HAR 只接受 `All`：它会拒绝其他 outcome filters，而不是根据 4xx/5xx 响应
+推断 transport failures。搜索仍仅限于 minimized fields。
 
-The desktop Agent v2 capture requires explicit consent, a running debuggable
-App with the Network Agent and instrumented OkHttp clients. It validates the
-READY PID, process start ticks and device boot UUID, then periodically and
-finally rechecks identity. It owns only its dynamically allocated ADB forward.
-STOP freezes a sequence/time/loss boundary and drains within a deadline;
-cancellation rejects racing publications and restores the prior publication.
-Forward removal is identity-checked and read back; an ambiguous removal is not
-retried against a potentially reused port.
+桌面 Agent v2 采集需要明确同意、正在运行的 debuggable App、Network Agent 和
+经过插桩的 OkHttp clients。它会校验 READY PID、process start ticks 和 device boot
+UUID，然后定期并在结束时重新检查 identity。它只拥有自己动态分配的 ADB forward。
+STOP 会冻结 sequence/time/loss boundary，并在截止时间内排空；取消会拒绝竞争中的
+发布并恢复之前的 publication。移除 forward 时会校验 identity 并回读；如果移除
+结果不明确，不会针对可能已复用的端口重试。
 
-The page/export includes allowlisted protocol, call outcome, device-relative
-request/phase endpoints, nullable durations, cancellation evidence, phase
-truncation and capture-loss counters. Missing/ambiguous endpoints remain unknown.
-Body-end byte subtotals are not full wire traffic. Dropped-event and sequence-gap
-counters may overlap and must not be added. WebView, Cronet, URLConnection,
-native sockets and uninstrumented clients remain outside coverage. This is not
-a full raw-traffic export or evidence of complete device network activity.
+页面/导出包含允许列表中的 protocol、call outcome、相对于设备的 request/phase
+endpoints、可为空的 durations、取消证据、phase truncation 和 capture-loss counters。
+缺失/不明确的 endpoints 保持未知。Body-end byte 小计不是完整的 wire traffic。
+Dropped-event 和 sequence-gap 计数器可能重叠，不得相加。WebView、Cronet、
+URLConnection、native socket 以及未插桩的客户端不在覆盖范围内。这不是完整的
+原始流量导出，也不是完整设备网络活动的证据。

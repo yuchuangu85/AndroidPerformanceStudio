@@ -1,195 +1,147 @@
-# Native Inspector capture: archive import, in-app agent and ADB capture
+# 原生布局检查器捕获：归档导入、应用内 Agent 和 ADB 捕获
 
-## Optional Compose compiler reports
+## 可选的 Compose 编译器报告
 
-The Layout Inspector status bar accepts a **Report File** or **Report Folder**.
-Supported files are `*-composables.txt`, `*-composables.csv` and `*-classes.txt`.
-Selecting one file imports supported siblings with the same module prefix;
-selecting a folder imports its direct report files, without recursion. CSV flags
-and TXT parameter details are merged per module, preserving overload order.
-`*-module.json`, APKs and unrelated files are not compiler reports.
+Layout Inspector 状态栏接受 **Report File** 或 **Report Folder**。支持的文件包括
+`*-composables.txt`、`*-composables.csv` 和 `*-classes.txt`。选择一个文件会导入
+具有相同模块前缀的受支持同级文件；选择文件夹会导入其中的直接报告文件，不会
+递归处理。CSV 标志和 TXT 参数详情会按模块合并，并保留重载顺序。`*-module.json`、
+APK 以及无关文件不是编译器报告。
 
-Imports run in a bounded background task independently of capture. Cancelling
-the picker or failing an import preserves the previous report and layout frame.
-The result shows file/function/class counts, source paths and parser warnings,
-and can be reopened from the status-bar summary. Unique function-name/source-file
-matches add static compiler flags and parameter stability to node properties;
-ambiguous matches are explicitly left unattached. This does not create measured
-recomposition/timing/jank evidence or authorize runtime injection.
+导入会独立于捕获，在有界后台任务中运行。取消选择器或导入失败会保留之前的报告
+和布局帧。结果会显示文件/函数/类数量、源路径和解析器警告，并可从状态栏摘要
+重新打开。唯一的函数名/源文件匹配会向节点属性添加静态编译器标志和参数稳定性；
+有歧义的匹配会明确保持未关联。这不会生成经过测量的重组/计时/卡顿证据，也不会
+授权运行时注入。
 
-Compiler input budgets are independent of archive budgets: at most 10,000
-directory entries, 256 reports, 8 MiB per file, 32 MiB in total, 64 KiB per line,
-8 KiB per field, 256 CSV columns, 512 parameters/members per function/class and
-250,000 parsed/scanned records. A limit violation rejects the import rather than
-publishing partial evidence. The node view shows at most 32 parameter rows and
-explicitly marks omitted rows or shortened values without modifying the report.
+编译器输入预算独立于归档预算：最多 10,000 个目录条目、256 份报告、每个文件
+8 MiB、总计 32 MiB、每行 64 KiB、每字段 8 KiB、256 个 CSV 列、每个函数/类 512 个
+参数/成员以及 250,000 条解析/扫描记录。违反限制会拒绝导入，而不是发布不完整的
+证据。节点视图最多显示 32 行参数，并会明确标记省略的行或缩短的值，不会修改报告。
 
-**Settings > Layout Inspector > Compose compiler reports** includes copyable
-Kotlin 2.x `composeCompiler` configuration and the generation command. Use reports
-from the inspected app's source revision and build variant. The importer does not
-configure or execute the target project's build.
+**Settings > Layout Inspector > Compose compiler reports** 包含可复制的 Kotlin 2.x
+`composeCompiler` 配置和生成命令。请使用与被检查应用源代码修订版和构建变体对应的
+报告。导入器不会配置或执行目标项目的构建。
 
-## Capture and archive contracts
+## 捕获和归档契约
 
-Reads the existing **ZIP** `agentperf-inspector-capture` archive versions 1 and 2,
-not a replacement JSON format. The contracts are the retained Kotlin
-`CaptureArchiveCodec.kt`, `CaptureArchive.kt`, `ProtocolModels.kt` and
-`ComposeInspectionModels.kt`. Android Agents remain Kotlin/Java. Archive import
-performs no ADB or injection. The separate blocking `capture_compatible` adapter
-is agent-first, like the Compose host's `LiveDeviceClient`: for a foreground app
-it reads the app's `files/agentperf/session.json` descriptor through
-`adb shell run-as`, registers one loopback `adb forward` to the agent's abstract
-socket, authenticates with the session token and pulls one bounded frame. An app
-that is not debuggable, is not agent-enabled or no longer runs the agent makes
-this path unavailable, and the capture falls back to ADB exactly like Compose's
-`AgentUnavailableException` fallback; a malformed descriptor, forward failure,
-authentication mismatch, remote `ERROR` response or invalid frame stays a hard
-error. The adapter installs no helpers and changes no device settings. The host
-provides manual refresh only, and publishes after every stage succeeds.
+读取现有的 **ZIP** `agentperf-inspector-capture` 归档版本 1 和 2，而不是替代性的
+JSON 格式。契约是保留的 Kotlin `CaptureArchiveCodec.kt`、`CaptureArchive.kt`、
+`ProtocolModels.kt` 和 `ComposeInspectionModels.kt`。Android Agent 仍使用 Kotlin/Java。
+归档导入不会执行 ADB 或注入。独立的阻塞式 `capture_compatible` 适配器以 Agent
+优先，类似 Compose 主机的 `LiveDeviceClient`：对于前台应用，它读取应用的
+`files/agentperf/session.json` 描述文件，通过 `adb shell run-as` 访问该描述文件，向 Agent
+的抽象套接字注册一个回环 `adb forward`，使用会话令牌进行身份验证，然后拉取一个
+有界帧。不可调试、未启用 Agent 或不再运行 Agent 的应用会使此路径不可用，捕获会
+完全按照 Compose 的 `AgentUnavailableException` 回退方式回退到 ADB；描述文件格式
+错误、转发失败、身份验证不匹配、远程 `ERROR` 响应或无效帧都会保持为硬错误。该
+适配器不会安装辅助程序，也不会修改设备设置。主机只提供手动刷新，并在每个阶段
+都成功后发布结果。
 
-The in-app agent frame is a protocol `LayoutSnapshot` plus a PNG screenshot,
-carried by the Kotlin `CaptureFrameCodec` framing (`CAPTURE <snapshotBytes>
-<screenshotBytes>` after a `PING`/`PONG` handshake). Each capture uses its own
-short-lived forward, which is removed again on success and failure; unlike
-Compose's reusable session it does not keep a forwarding socket open between
-refreshes. A single-window frame keeps the agent screenshot and the activity
-window display extent; a multi-window frame re-captures the full display with
-`screencap -p` and replaces the display extent, matching Compose's
-`requiresFullDisplayScreenshot` path. The snapshot is projected through the same
-bounded `parse_snapshot` ingestion as archives and is marked as an agent frame so
-the host can distinguish it from an ADB projection. Frame verification is
-stricter than Compose: screenshot dimensions must equal the final display extent,
-and a failed multi-window `screencap` is an error instead of silently mixing a
-window-sized image with a display-sized snapshot.
+应用内 Agent 帧是协议 `LayoutSnapshot` 加 PNG 截图，由 Kotlin `CaptureFrameCodec`
+帧格式承载（发送 `CAPTURE <snapshotBytes>
+<screenshotBytes>`，并在 `PING`/`PONG` 握手后完成）。每次捕获都会使用自己的短生命周期转发，并在成功或失败后
+删除；不同于 Compose 的可复用会话，它不会在刷新之间保持转发套接字打开。单窗口
+帧保留 Agent 截图和 Activity 窗口显示范围；多窗口帧使用 `screencap -p` 重新捕获
+整个显示区域并替换显示范围，与 Compose 的 `requiresFullDisplayScreenshot` 路径
+一致。快照会像归档一样通过有界的 `parse_snapshot` 入口投影，并标记为 Agent 帧，
+使主机能够将其与 ADB 投影区分开。帧验证比 Compose 更严格：截图尺寸必须等于最终
+显示范围；多窗口 `screencap` 失败时会报错，而不是默默将窗口大小的图像与显示
+大小的快照混合使用。
 
-ADB fallback capture prefers the WindowManager runtime View dump: the device returns a
-ZIP with one encoded hierarchy per visible window (Android
-`ViewHierarchyEncoder` wire format), decoded into the same shape as the Compose
-version's `VisibleWindowHierarchyParser` — real per-window View classes,
-layout/drawing/interaction attributes and raw runtime properties, with absolute
-bounds composed from window offsets, scroll and drawing translation. Window
-identity, title/type, package filtering and System UI title/launcher-taskbar
-matching follow the Kotlin oracle. When a window contains a
-`ComposeView`/`AndroidComposeView`, the accessibility projection is compared as
-Kotlin `expandShallowComposeHierarchy` does and adopted only when it carries
-Compose semantics and more nodes; descendants of the host are then promoted to
-bounded Compose nodes with the Kotlin semantic class/role/properties. Otherwise
-`uiautomator dump` is the fallback projection. Neither ADB path is injected
-Compose inspection (the separate `ComposeBridge` helper covers that opt-in).
+ADB 回退捕获优先使用 WindowManager 运行时 View 转储：设备返回一个 ZIP，其中每个
+可见窗口包含一个编码后的层级（Android `ViewHierarchyEncoder` 线格式），并按照
+Compose 版本的 `VisibleWindowHierarchyParser` 解码为相同形态：真实的每窗口 View
+类、布局/绘制/交互属性和原始运行时属性，绝对边界由窗口偏移、滚动和绘制平移合成。
+窗口身份、标题/类型、包过滤以及 System UI 标题/启动器任务栏匹配遵循 Kotlin
+基准实现。当窗口包含 `ComposeView`/`AndroidComposeView` 时，会像 Kotlin
+`expandShallowComposeHierarchy` 一样比较无障碍投影，只有在其携带 Compose 语义且
+节点更多时才采用；随后将宿主的后代提升为带有 Kotlin 语义类/角色/属性的有界
+Compose 节点。否则使用 `uiautomator dump` 作为回退投影。两条 ADB 路径都不会
+注入 Compose 检查（独立的 `ComposeBridge` 辅助程序负责该可选功能）。
 
-Inspector capture uses the selected device's **foreground app**, independently
-of the process selected for other profilers. Compose preflight discovers the
-foreground package and running PID automatically; when personal/work-profile
-copies share a process name, the focused ActivityRecord disambiguates the PID.
-The existing helper still requires a debuggable Compose app, and injection still
-requires the explicit confirmation for the discovered device/package/PID.
-Foreground and PID checks around preflight/capture reject stale targets rather
-than transferring authorization to another app. Discovery is read-only and
-does not launch apps or attach an inspector.
+检查器捕获使用所选设备的**前台应用**，与其他分析器选定的进程相互独立。Compose
+预检会自动发现前台包和正在运行的 PID；当个人资料/工作资料副本共享进程名时，
+聚焦的 ActivityRecord 会消除 PID 歧义。现有辅助程序仍要求应用是可调试的 Compose
+应用，注入仍要求针对已发现的设备/包/PID 进行明确确认。预检/捕获前后的前台和
+PID 检查会拒绝过期目标，而不是把授权转移给另一个应用。发现过程是只读的，不会
+启动应用或附加检查器。
 
-An occupied `ui_inspector_<PID>` socket can belong to an active inspector or a
-disconnected older APS agent, not necessarily another tool. Preflight waits
-briefly for cleanup and then explains the conflict without connecting to or
-terminating an unknown session. Older agents retain their five-minute idle
-timeout; the updated bundled agent releases its socket when its authenticated
-host disconnects, even if writing a shutdown acknowledgement fails. Recovery
-never restarts the app automatically or changes its runtime state.
+被占用的 `ui_inspector_<PID>` 套接字可能属于活动中的检查器或已断开的旧版 APS
+Agent，不一定属于其他工具。预检会短暂等待清理，然后解释冲突，不会连接到或
+终止未知会话。旧版 Agent 保留五分钟的空闲超时；更新后的内置 Agent 会在已认证
+主机断开时释放其套接字，即使写入关闭确认失败也是如此。恢复过程绝不会自动
+重启应用或更改其运行时状态。
 
-Runtime-dump and screenshot acquisition is sequential and non-atomic: display
-size is re-read, the screenshot must agree with `wm size` (including rotation
-transposition), and the target package is re-checked after capture. The System UI
-target does not require a foreground app. Accessibility fallback bounds are
-sanity-bounded instead of being clamped to the display, blank UIAutomator
-text/resource/content descriptions become absent, and node/window limits are
-enforced. ZIP input, entry, decoded-byte and entry-count budgets are bounded;
-decoded depth is capped at 63 and 100k nodes across the dump so the archive
-ingestion contract holds (children past those limits are dropped). Node/window
-IDs are refresh-local, and app-only cropping is not strict package isolation.
-XML uses cached `roxmltree` with DTD disabled and byte/depth/node limits; `png`
-validates bounded screenshot decoding. No atomicity or Compose capability is
-inferred from successful capture.
+运行时转储和截图获取是顺序且非原子的：会重新读取显示尺寸，截图必须与 `wm size`
+一致（包括旋转转置），并在捕获后重新检查目标包。System UI 目标不要求存在前台
+应用。无障碍回退边界会进行合理性限制，而不是被裁剪到显示区域；空白的 UIAutomator
+文本/资源/内容描述会视为缺失，并强制执行节点/窗口限制。ZIP 输入、条目、解码字节
+和条目数预算均有界；解码深度上限为 63，整个转储的节点数上限为 100k，以满足归档
+导入契约（超过这些限制的子节点会被丢弃）。节点/窗口 ID 只在当前刷新内有效，仅针对
+应用的裁剪不是严格的包隔离。XML 使用已缓存的 `roxmltree`，禁用 DTD 并设有字节/
+深度/节点限制；`png` 会验证有界的截图解码。不能从捕获成功推断原子性或 Compose
+能力。
 
-`InspectorArchive::open` freezes a bounded byte sequence from one file handle,
-then hashes and parses that exact immutable buffer (no path reopen). This retains
-up to an additional 172 MiB compressed input while parsing; it is not a low-RSS
-streaming claim. Path replacement cannot bind another file to the parsed frame.
-It validates the EOCD before ZIP metadata allocation:
-single disk, 1–17 entries, <=1 MiB central directory, no ZIP64. It rejects unsafe
-paths, duplicates, directories, symlinks, encrypted entries and methods other than
-Stored/Deflate. Compressed archive <=172 MiB, total uncompressed payload <=156 MiB,
-manifest <=256 KiB, snapshot <=108 MiB, Compose <=64 MiB, screenshot/raw ZIP <=32 MiB,
-raw text <=8 MiB, reports/timeline <=4 MiB, unknown optional entries <=1 MiB.
-Per-entry reads enforce a real output cap and consume EOF for CRC verification;
-byte count and shared SHA-256 must match the manifest before any frame publishes.
-No entry is extracted to disk, including embedded raw ZIPs. Unsupported required
-entries, missing manifest declarations and incomplete raw ZIP/text pairs fail.
+`InspectorArchive::open` 会从一个文件句柄冻结有界字节序列，然后对该精确的不可变
+缓冲区进行哈希和解析（不会重新打开路径）。解析期间最多会额外保留 172 MiB 的
+压缩输入；这不是低 RSS 流式处理的声明。路径替换无法将另一个文件绑定到已解析
+的帧。它会在分配 ZIP 元数据之前验证 EOCD：
+单磁盘、1–17 个条目、中心目录 <=1 MiB、不使用 ZIP64。它会拒绝不安全路径、重复项、
+目录、符号链接、加密条目以及 Stored/Deflate 之外的方法。压缩归档 <=172 MiB，
+总未压缩负载 <=156 MiB，清单 <=256 KiB，快照 <=108 MiB，Compose <=64 MiB，
+截图/原始 ZIP <=32 MiB，原始文本 <=8 MiB，报告/时间线 <=4 MiB，未知可选条目 <=1 MiB。
+每个条目的读取都会强制执行实际输出上限，并读取到 EOF 以验证 CRC；在发布任何帧
+之前，字节数和共享 SHA-256 必须与清单一致。不会将任何条目提取到磁盘，包括嵌入的
+原始 ZIP。不支持的必需条目、缺失的清单声明以及不完整的原始 ZIP/文本对都会导致失败。
 
-Protocol major 1 is accepted, newer minor versions preserve their version and
-ignore unknown fields. Manifest and snapshot package/timestamp/version must
-match; Compose sidecar package/timestamp must match the same frame. Original
-window and node IDs/bounds, protocol version, default-window choice and flattened
-parent/depth structure are retained. Identity is scoped to archive SHA-256 and
-window; node IDs do not establish cross-frame correspondence. Limits include
-64 windows, 100,000 total nodes, hierarchy depth <=128, strict JSON duplicate
-rejection and structure budgets. Snapshot and Compose-sidecar JSON explicitly
-allow <=288 JSON levels: each logical node adds an object and a children array,
-plus envelope/leaf fields. A real 79-level Compose tree reaches 163 JSON levels
-and must not be rejected by the shared JSON parser's default 64-level cap. That
-default still applies to other module inputs and archive manifests. Imports
-retain every node within these limits rather than silently flattening/truncating
-deep trees. These intentionally bound imports more tightly than every Kotlin
-configuration, so large/deep archives can be rejected rather than truncated.
+接受协议主版本 1；较新的次版本会保留其版本并忽略未知字段。清单和快照的包/
+时间戳/版本必须匹配；Compose 附属文件的包/时间戳必须与同一帧匹配。原始窗口和
+节点 ID/边界、协议版本、默认窗口选择以及扁平化的父级/深度结构都会保留。身份
+限定于归档 SHA-256 和窗口；节点 ID 不建立跨帧对应关系。限制包括 64 个窗口、总计
+100,000 个节点、层级深度 <=128、严格拒绝 JSON 重复键以及结构预算。快照和
+Compose 附属文件的 JSON 明确允许 <=288 层 JSON：每个逻辑节点会增加一个对象和一个
+children 数组，另外还有封装/叶子字段。一个真实的 79 层 Compose 树会达到 163 层
+JSON，不得被共享 JSON 解析器默认的 64 层上限拒绝。该默认上限仍适用于其他模块
+输入和归档清单。导入会保留这些限制内的每个节点，而不是默默扁平化/截断深层树。
+这些限制有意比所有 Kotlin 配置都更严格，因此大型/深层归档可以被拒绝，而不是被截断。
 
-UI-independent three-panel contracts are `hierarchy(window,offset,limit)` (<=200
-nodes), `canvas(window)` (same physical-pixel display/window bounds), and
-`properties(window,node)`. Nodes now retain the bounded structural projection
-Compose displays: node text (<=64 KiB), semantics role, and the protocol
-`ViewAttributes` fields used by the Layout/Drawing/Interaction sections. Raw and
-semantic property maps are capped per node (256 entries, 512-byte names, 8 KiB
-values) and by a 4 MiB archive-wide budget; once the budget is spent later nodes
-keep structural attributes but no property map. The Compose inspection sidecar
-now also yields a bounded per-node projection for the Compose category that the
-host only renders while the Compose Agent toggle is on: node name/source/
-recompose+skip counts/systemCreated/flags, parameters/modifiers/merged+unmerged
-semantics (value depth <=8, <=512 rows per list, <=200k retained values total,
-4 KiB per text value) and state-read groups (<=20k reads) plus the existing
-coverage records. Malformed optional sidecar content falls back to an empty
-projection instead of rejecting the archive. Screenshot bytes are retained after
-the same integrity validation so the host can decode and draw the canvas image;
-the adapter itself never decodes pixels.
+与 UI 无关的三面板契约是 `hierarchy(window,offset,limit)`（<=200 个节点）、
+`canvas(window)`（相同的物理像素显示/窗口边界）和 `properties(window,node)`。
+节点现在会保留 Compose 所显示的有界结构投影：节点文本（<=64 KiB）、语义角色，
+以及布局/绘制/交互区段使用的协议 `ViewAttributes` 字段。原始属性和语义属性映射会
+同时按节点（256 个条目、名称 512 字节、值 8 KiB）和归档总预算 4 MiB 限制；预算
+用尽后，后续节点仍保留结构属性，但不再保留属性映射。Compose 检查附属文件现在
+还会为 Compose 类别提供有界的逐节点投影，主机仅在 Compose Agent 开关打开时
+渲染该投影：节点名称/源、重组+跳过次数、systemCreated/flags，参数/修饰符/合并+
+未合并语义（值深度 <=8、每个列表 <=512 行、总计保留值 <=200k、每个文本值 4 KiB），
+以及状态读取组（<=20k 次读取）和已有覆盖率记录。格式错误的可选附属文件内容会
+回退为空投影，而不是拒绝归档。经过相同完整性验证后会保留截图字节，使主机可以
+解码并绘制画布图像；适配器本身绝不解码像素。
 
-Compose metadata retains frameId/generation/mode, producer-declared privacy and
-completeness, capability availability and exact coverage identities/states/counts.
-Details/parameters/modifiers/semantics are **not** loaded into presentation state,
-and `details_available=false` is unconditional. A producer's `COMPLETE` or
-`SAFE_REDACTED` declaration is not promoted to a claim that this adapter verified
-full Compose capability or safe export. Coverage/truncation reasons and detailed
-content remain outside this initial read model. Full-fidelity archives stay
-sensitive even when the returned projection omits values. There is no export,
-AI upload or persistence path here.
+Compose 元数据会保留 frameId/generation/mode、生产者声明的隐私性和完整性、能力
+可用性以及精确的覆盖身份/状态/数量。详情/参数/修饰符/语义**不会**加载到展示状态，
+并且 `details_available=false` 无条件成立。生产者的 `COMPLETE` 或 `SAFE_REDACTED`
+声明不会被提升为该适配器已验证完整 Compose 能力或安全导出的结论。覆盖/截断原因
+和详细内容仍不属于初始读取模型。即使返回的投影省略了值，完整保真的归档仍然是
+敏感数据。这里没有导出、AI 上传或持久化路径。
 
-For read-only archive diagnosis without printing runtime values:
+若要在不打印运行时值的情况下进行只读归档诊断：
 `cargo run --locked --offline -p aps-layout-inspector --example archive_probe -- <capture.zip>`.
 
-All I/O/decompression/parsing is blocking: schedule it on a background executor.
-Cancellation is checked while reading entries and around source digest scans;
-hashing, ZIP metadata construction and JSON decoding do not offer a hard latency
-guarantee. ZIP decode is in-process and has byte/structure caps, not an RSS/CPU
-sandbox. Same-input Kotlin parity, malicious/archive fixtures, screenshots,
-multiframe/Compose interaction, native UI and packaging need separate validation.
+所有 I/O/解压/解析都是阻塞操作：请将其安排到后台执行器。读取条目期间以及源摘要
+扫描前后会检查取消；哈希计算、ZIP 元数据构建和 JSON 解码不提供硬延迟保证。ZIP
+解码在进程内执行，并具备字节/结构上限，但不是 RSS/CPU 沙箱。相同输入的 Kotlin
+一致性、恶意输入/归档测试样本、截图、多帧/Compose 交互、原生 UI 和打包需要单独验证。
 
-The host-side `InspectorProtocolSession` also accepts one bounded
-`inspector.frame.open` request through the shared `aps-protocol` envelope. It
-binds session ID, source digest and strictly increasing generation, validates an
-exact package/frame/window/node schema, enforces 64-window/100,000-node/200-row
-limits, and returns only the first bounded hierarchy page. Cancellation is
-acknowledged through the protocol; no field implies device or process exit.
-This is a host ingestion contract for an already-authorized Agent transport,
-not a live ADB capture implementation. The GPUI Inspector entity consumes the
-same validated frame publication contract as archive import, while Android
-Agent/socket transport wiring remains a separate implementation gate.
+主机侧 `InspectorProtocolSession` 还会接受一个有界的 `inspector.frame.open` 请求，
+通过共享的 `aps-protocol` 封装传递。它绑定会话 ID、源摘要和严格递增的 generation，验证
+精确的包/帧/窗口/节点模式，强制执行 64 窗口/100,000 节点/200 行限制，并且只返回
+第一个有界的层级页面。取消会通过协议确认；任何字段都不表示设备或进程退出。
+这是针对已获授权 Agent 传输的主机导入契约，而不是实时 ADB 捕获实现。GPUI 检查器
+实体与归档导入使用相同的已验证帧发布契约，而 Android Agent/套接字传输接线仍是
+独立的实现门禁。
 
-The authorized archive dependency is pinned `zip = =9.4.0` (MIT, MSRV 1.88), with
-default features disabled and only `deflate-flate2-zlib-rs`. Metadata and public
-upstream security advisories were inspected on 2026-11-06; this is not an audit
-or a claim that future advisories cannot affect the pin.
+已授权的归档依赖固定为 `zip = =9.4.0`（MIT，MSRV 1.88），禁用默认功能，仅启用
+`deflate-flate2-zlib-rs`。元数据和公开的上游安全公告已于 2026-11-06 检查；这不是
+审计，也不表示未来公告不会影响该固定版本。

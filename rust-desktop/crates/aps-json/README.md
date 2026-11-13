@@ -1,30 +1,25 @@
 # aps-json
 
-Strict bounded JSON for independent Rust domains. Existing locked serde 1.0.229
-and serde_json 1.0.151 are pinned exactly; no second JSON syntax implementation is
-introduced. `Value`, `Map` and `Number` use standard serde_json interfaces.
+面向独立 Rust 领域的严格有界 JSON。现有锁定的 serde 1.0.229 和
+serde_json 1.0.151 已精确固定；不会引入第二套 JSON 语法实现。`Value`、`Map`
+和 `Number` 使用标准 serde_json 接口。
 
-`read` and `parse_slice` enforce a pre-decode hard byte cap. A custom recursive
-deserialization seed enforces depth, total value nodes, string bytes and collection
-limits, retaining arrays and booleans and rejecting duplicate keys. Duplicate
-fields are never accepted as silent last-wins. `to_vec` checks structure and uses
-a capped writer so escaped output cannot exceed the encoded-byte budget.
+`read` 和 `parse_slice` 会在解码前强制执行硬字节上限。自定义的递归反序列化
+种子会限制深度、值节点总数、字符串字节数和集合大小，同时保留数组与布尔值，
+并拒绝重复键。重复字段绝不会被默默按后者覆盖的方式接受。`to_vec` 会检查
+结构，并使用有上限的写入器，确保转义后的输出不会超过编码字节预算。
 
-Inputs default to 64 MiB / 64 depth / 1 million value nodes / 1 MiB per string /
-100,000 items per collection. Object keys count against string and collection
-budgets; value nodes have a separate budget. String escape decoding is still
-bounded by the complete input-byte cap before it reaches the visitor.
+输入默认限制为 64 MiB / 64 层深度 / 100 万个值节点 / 每个字符串 1 MiB /
+每个集合 100,000 项。对象键会计入字符串和集合预算；值节点使用独立预算。
+字符串转义解码在到达访问器之前，仍受完整输入字节上限约束。
 
-Hierarchy archives can explicitly use `parse_slice_with_extended_depth` with a
-caller-specified JSON depth budget capped at 320. This path opts out of
-serde_json's separate container recursion cap, but the same strict seed still
-checks depth before every value and keeps all byte/node/string/collection and
-duplicate-key checks. The ordinary `read`, `parse_slice` and `to_vec` limits
-remain capped at 64; no existing caller is implicitly opted into deeper input.
+层级归档可以显式使用 `parse_slice_with_extended_depth`，并由调用方指定最高为
+320 的 JSON 深度预算。该路径会退出 serde_json 单独的容器递归上限，但同一个
+严格种子仍会在每个值之前检查深度，并继续执行所有字节/节点/字符串/集合以及
+重复键检查。普通 `read`、`parse_slice` 和 `to_vec` 的限制仍封顶为 64；不会
+让任何现有调用方隐式获得更深的输入能力。
 
-Errors are sanitized and omit source text, arbitrary paths and data values.
-These are resource bounds, not malicious-code isolation or schema validation;
-each domain must validate its own fields and semantics.
+错误信息会经过清理，不包含源文本、任意路径和数据值。这些是资源边界，不是
+恶意代码隔离或模式验证；每个领域都必须验证自己的字段和语义。
 
-Test sources are written but deliberately not executed until the complete rewrite
-is implemented.
+测试源文件已经编写，但在完整重写实现之前会按计划不执行。

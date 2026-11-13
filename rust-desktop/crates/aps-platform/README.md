@@ -1,26 +1,23 @@
 # aps-platform
 
-Independent Rust desktop host boundary. This crate has no third-party dependencies.
+独立的 Rust 桌面主机边界。此 crate 没有第三方依赖。
 
-- `ProcessRunner::run` is blocking. Invoke it on a background executor.
-- `ProcessRequest` passes explicit argument values to the OS, not shell source.
-- stdout and stderr drain concurrently with separate byte limits (maximum 64 MiB
-  each). Stdin is closed. Cancellation, timeout and output-limit failures kill and
-  reap the direct child.
-- Unix children start in an owned process group, signalled on forced termination.
-  This is not a security sandbox. Windows descendant job confinement and daemons
-  that intentionally escape a process group are not covered. After termination,
-  reader completion has a bounded grace period rather than an unbounded join.
-- Errors omit program paths, arguments, environment values and captured stderr.
-- `AppDirectories` uses a new `AndroidPerformanceStudio-Rust` namespace for data,
-  cache and scratch directories; it never reads Compose configuration.
-- `atomic_write` uses an exclusive same-directory temporary file, file sync and
-  rename. Failed replacement never deletes or truncates the old destination.
-  It is not a multi-file transaction or a promise of power-loss durability.
-- `TempWorkspace` owns an exclusively created directory and removes only that
-  directory on drop. It is not permission isolation for arbitrary untrusted code.
+- `ProcessRunner::run` 是阻塞操作。请在后台执行器上调用。
+- `ProcessRequest` 将显式参数值传给操作系统，而不是传递 shell 源码。
+- stdout 和 stderr 会并发排空，分别受字节上限约束（各自最大 64 MiB）。
+  Stdin 会被关闭。取消、超时和输出超限失败会终止并回收直接子进程。
+- Unix 子进程在所拥有的进程组中启动，强制终止时会向该进程组发送信号。
+  这不是安全沙箱。不涵盖通过 Windows 作业对象约束后代进程的能力，
+  也不涵盖故意逃离进程组的守护进程。终止后，读取器只允许有界的完成宽限期，
+  而不是无限等待线程结束。
+- 错误中不包含程序路径、参数、环境变量值和捕获的 stderr。
+- `AppDirectories` 使用新的 `AndroidPerformanceStudio-Rust` 命名空间存放数据、
+  缓存和临时工作目录；绝不读取 Compose 配置。
+- `atomic_write` 使用在同目录下独占创建的临时文件、文件同步和重命名。
+  替换失败绝不会删除或截断旧目标。它不是多文件事务，也不承诺断电后的持久性。
+- `TempWorkspace` 拥有一个独占创建的目录，并在析构时只删除该目录。
+  它不为任意不受信任代码提供权限隔离。
 
-Test sources under `tests/` are deferred until the full rewrite is implemented,
-as requested. No test from this platform slice has been executed. A macOS
-`cargo check -p aps-platform` completed while the slice was being integrated;
-that is compilation evidence only, not process/cancellation/runtime acceptance.
+按照要求，`tests/` 下的测试源推迟到完整重写实现后再执行。
+此平台部分尚未执行任何测试。集成该部分时已完成 macOS 上的
+`cargo check -p aps-platform`；这仅是编译证据，不代表进程、取消或运行时验收通过。

@@ -1,95 +1,72 @@
 # aps-battery
 
-Read-only Battery Snapshot domain. `parse_snapshot` accepts the existing
-`dumpsys batterystats --checkin`, report UID modeled-energy lines, and
-`dumpsys battery` key/value state as separate evidence channels. It does not
-execute ADB or reconstruct missing fields. The separate `capture_live` adapter
-uses an explicitly supplied `AdbClient`, after user approval, off the UI thread.
+只读的 Battery Snapshot 领域。`parse_snapshot` 将现有的 `dumpsys batterystats --checkin`、
+报告中的 UID 模拟能耗行以及 `dumpsys battery` 键/值状态作为独立证据
+通道接受。它不会执行 ADB，也不会重建缺失字段。独立的 `capture_live` 适配器在
+用户批准后使用显式提供的 `AdbClient`，并在 UI 线程之外运行。
 
-## Explicit live capture
+## 明确的实时捕获
 
-`BatteryCaptureTarget` freezes the selected serial, PID, process and installed
-package. Capture verifies that target against `AdbClient` discovery, then binds
-the boot ID, `/proc` process start ticks and actual UID. Read-only package UID
-enumeration identifies shared UIDs; discovery/process observations bracket every
-snapshot and attribution is rechecked before publication. The selected active
-PackageManager record's `codePath`, `versionCode` and `lastUpdateTime` are frozen
-before collection and rechecked inside process-identity brackets at completion.
-Hidden system-package records and other packages cannot supply those fields.
-This is metadata continuity, not APK-content/signature verification; sibling
-packages sharing the UID are not independently installation-verified.
-Process death/PID reuse,
-reboot, permission errors or changing package/UID/accumulator identity abort the
-operation without replacing the previously displayed report.
+`BatteryCaptureTarget` 会冻结选定的 serial、PID、进程和已安装包。捕获会通过
+`AdbClient` 发现结果验证该目标，然后绑定启动 ID、`/proc` 进程启动 tick 和实际
+UID。只读的包 UID 枚举会识别共享 UID；每次快照都由发现/进程观测包围，并在发布前
+重新检查归因。选定的活动 PackageManager 记录中的 `codePath`、`versionCode` 和
+`lastUpdateTime` 会在采集前冻结，并在完成时的进程身份边界内重新检查。隐藏的系统
+包记录和其他包不能提供这些字段。这是元数据连续性，而不是 APK 内容/签名验证；
+共享 UID 的同级包不会被独立验证安装状态。进程死亡/PID 重用、重启、权限错误或
+包/UID/累加器身份变化会中止操作，不会替换之前显示的报告。
 
-Supported modes are bounded Interactive, Timed, Repeated and low-frequency Online.
-Durations are at most 600 seconds per run, runs at most 10, and snapshot count at
-most 1024. Online periodic polling is at least 30 seconds. Per-command output and
-timeouts plus a separate finite session deadline apply. `stop_and_analyze` obtains
-a final verified observation and publishes completed runs; cancellation terminates
-the owned host ADB operation and discards the pending result. No global
-BatteryStats reset, package launch/kill, settings mutation, remote file, port
-forwarding, agent or persistent service is created.
+支持的模式包括有界的 Interactive、Timed、Repeated 和低频 Online。每次运行最长
+600 秒，运行次数最多 10 次，快照数量最多 1024 个。Online 周期轮询至少间隔 30 秒。
+每条命令都有输出和超时限制，另有独立的有限会话截止期限。`stop_and_analyze` 会
+获取最终验证过的观测并发布已完成的运行；取消会终止所拥有的主机 ADB 操作并丢弃
+待处理结果。不会创建全局 BatteryStats 重置、包启动/终止、设置修改、远程文件、
+端口转发、Agent 或持久化服务。
 
-Every full snapshot reads checkin, optional system-model energy, battery state
-and optional device-wide thermal status. Missing channels stay unavailable.
-Battery sensor temperature is not CPU/GPU temperature; thermal status does not
-prove app-specific throttling, and modeled mAh is not measured hardware energy.
-Host progress time is separate from device uptime-based observation duration.
+每个完整快照都会读取 checkin、可选的系统模型能量、电池状态和可选的设备级热状态。
+缺失通道会保持不可用。电池传感器温度不是 CPU/GPU 温度；热状态不能证明应用级
+限频，模拟的 mAh 不是测量得到的硬件能量。主机进度时间与基于设备运行时间的观测
+持续时间相互独立。
 
-For native checkin v9, accumulator identity comes from the global `bt` start-clock
-field. Typed job/sensor/wakelock records already contain milliseconds. Partial
-wakelocks are retained without double-counting their background subset; APK
-service duration is not interpreted as alarm activity. Explicit legacy snapshot
-imports retain their older marked projection. Unknown layouts are omitted with
-diagnostics, never guessed. An intermediate missing or reset cumulative counter
-stays unavailable for the entire run even if it later exceeds the baseline.
+对于原生 checkin v9，累加器身份来自全局 `bt` start-clock 字段。类型化的
+job/sensor/wakelock 记录已经包含毫秒值。部分 wakelock 会被保留，但不会重复计算其
+后台子集；APK 服务时长不会被解释为闹钟活动。明确的旧版快照导入会保留其旧的标记
+投影。未知布局会带诊断信息省略，绝不会猜测。中途缺失或重置的累计计数器在整个
+运行期间都会保持不可用，即使后来超过基线也是如此。
 
-`BatteryDelta::between` computes UID resource/network/system-model differences
-only when the same UID, device ID, boot ID, statistics period, monotonic elapsed
-domain and present UID records establish continuity. Missing identity, counter
-resets, changed periods and reboots produce unavailable deltas, never negative
-usage or synthetic zero. Charge-level difference remains device state and is not
-called UID energy. Shared UID is explicitly retained as a scope warning; it does
-not prove package ownership.
+`BatteryDelta::between` 只有在相同 UID、设备 ID、启动 ID、统计周期、单调流逝时间
+域以及存在的 UID 记录共同建立连续性时，才会计算 UID 资源/网络/系统模型差异。身份
+缺失、计数器重置、周期变化和重启会产生不可用差异，绝不会产生负使用量或合成零值。
+电量差异仍是设备状态，不称为 UID 能量。共享 UID 会明确保留为范围警告；它不能
+证明包的所有权。
 
-`BatteryReport` imports the existing schema-version-1 derived JSON exporter for
-paginated inspection. Derived reports deliberately cannot restore raw snapshot
-continuity or measured-zero semantics and report that limitation. Input, line,
-record and collection bounds are enforced. Battery Historian, thermal/DVFS rail
-causality, saved sessions, full raw device/history evidence and real-device acceptance are
-separate gates. `BatteryReport::from_live_snapshots` publishes actual capture into
-the same report/workspace projection; imported documents cannot claim live
-provenance by setting an untrusted field.
+`BatteryReport` 导入现有的模式版本 1 派生 JSON 导出器，以支持分页检查。派生报告
+有意不能恢复原始快照连续性或测量为零的语义，并会报告这一限制。输入、行、记录和
+集合边界都会强制执行。Battery Historian、热状态/DVFS 电源轨因果关系、已保存会话、
+完整的原始设备/历史证据以及真实设备验收都是独立门禁。`BatteryReport::from_live_snapshots`
+会将实际捕获发布到相同的报告/工作区投影；导入文档不能通过设置不可信字段来声称
+具有实时来源。
 
-## Owned minimized evidence
+## 所拥有的最小化证据
 
-A successful live outcome owns immutable private bytes for exactly three flat
-entries: `manifest.json`, `analysis.json` and `snapshots.jsonl`. The manifest binds
-the selected serial/PID/process, boot/start ticks, UID package set, installation
-metadata, requested configuration and completed observation counts. The ledger
-retains parsed selected-UID cumulative counters, battery state, device-wide thermal
-status, device uptime and availability diagnostics for every actual observation.
-It does not contain whole-device dumpsys text, other UID counters, raw history,
-APK bytes or signatures. Its alarm durations are count-only placeholders as
-explicitly diagnosed, not measured alarm execution time. Report duration remains
-the sequential observation interval, not an atomic workload interval.
+成功的实时结果会为恰好三个扁平条目拥有不可变的私有字节：`manifest.json`、
+`analysis.json` 和 `snapshots.jsonl`。清单绑定选定的 serial/PID/进程、启动/开始 tick、
+UID 包集合、安装元数据、请求配置和已完成的观测数量。账本会保留每次实际观测解析
+出的选定 UID 累计计数器、电池状态、设备级热状态、设备运行时间和可用性诊断。它不
+包含整机 dumpsys 文本、其他 UID 计数器、原始历史、APK 字节或签名。其闹钟时长是
+明确诊断过的仅计数占位符，不是测量得到的闹钟执行时间。报告时长仍是顺序观测区间，
+而不是原子工作负载区间。
 
-Budgets are 256 KiB per ledger record, 2 MiB for the complete ledger, 1 MiB for the
-complete schema-v1 analysis and 32 KiB for the manifest. Budget/encoding failures
-abort publication rather than silently truncating evidence. `BatteryReport::to_json`
-preserves optional metadata, missing versus explicit-empty timer/window arrays,
-measured zero, confidence and all runs; extracted `analysis.json` reimports through
-the existing importer as a derived report, never as live provenance. ZIP bundle
-import and saved-session persistence are not implemented by this adapter.
+预算为每条账本记录 256 KiB、完整账本 2 MiB、完整 schema-v1 分析 1 MiB，以及清单
+32 KiB。预算/编码失败会中止发布，而不是默默截断证据。`BatteryReport::to_json`
+会保留可选元数据、缺失与显式空的计时器/窗口数组的区别、测量零、置信度和所有运行；
+提取的 `analysis.json` 会通过现有导入器重新导入为派生报告，绝不会作为实时来源。
+此适配器未实现 ZIP 包导入和已保存会话持久化。
 
-The UI retains the last successful report and its `Arc`-owned artifact across a
-failed/cancelled/new pending capture or import. Export is available only when the
-active report is live and its session identity matches that artifact. A successful
-replacement capture atomically replaces both; imported/closed reports cannot
-export an earlier capture's evidence. The explicit toolbar export writes a fixed
-three-entry ZIP via the shared create-new 4 MiB exporter, with private permissions
-and no overwriting. There is no automatic artifact persistence or device upload.
+在失败/取消/新的待处理捕获或导入期间，UI 会保留最后一次成功的报告及其由 `Arc`
+拥有的工件。只有当活动报告是实时报告且其会话身份与该工件匹配时，才能导出。成功
+的替换捕获会原子地替换两者；导入或关闭的报告不能导出更早捕获的证据。明确的工具
+栏导出会通过共享的 create-new 4 MiB 导出器写入固定的三个条目 ZIP，使用私有权限
+且不会覆盖文件。不存在自动工件持久化或设备上传。
 
-Tests are written but deliberately unexecuted until the complete rewrite is
-implemented.
+测试已经编写，但在完整重写实现之前会按计划不执行。

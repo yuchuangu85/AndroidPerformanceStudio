@@ -1,112 +1,94 @@
 # aps-method-recording
 
-Offline ART method-event import and duration analysis. Std-only. It does not
-reinterpret Simpleperf sample counts as method calls, and is independent of
-Compose/JVM storage.
+离线 ART 方法事件导入与时长分析。仅依赖标准库。它不会将 Simpleperf 样本计数
+重新解释为方法调用，并且独立于 Compose/JVM 存储。
 
-## Public surface
+## 公共接口
 
-- `MethodRecordingSession::parse(bytes)` / `open(path)` use default bounds.
-- `import_bytes(bytes, ImportLimits)` / `import_file(path, ImportLimits)` allow
-  tighter caller bounds, never values above the documented hard caps.
-- `header()`, `summary()`, `diagnostics()`, `thread(id)`, `method(id)` expose
-  immutable metadata and integrity state.
-- `threads_page`, `methods_page`, `events_page`, `top_methods_page`,
-  `call_tree_page`, `timeline_page` return at most 512 rows; zero-sized and
-  over-limit pages fail. Offsets beyond the end return empty pages.
-- `TimelineQuery` optionally selects a thread and half-open primary-clock
-  window. Intersecting intervals retain original boundaries: no hidden
-  clipping/reweighting. `stack(leaf_node_id)` resolves one selected path.
-- Call-tree IDs remain stable for the session. Each thread has a synthetic
-  root (`method_id: None`); descendant rows are in preorder. Catalogs retain
-  event-only threads and unresolved method IDs rather than losing their data.
+- `MethodRecordingSession::parse(bytes)` / `open(path)` 使用默认边界。
+- `import_bytes(bytes, ImportLimits)` / `import_file(path, ImportLimits)` 允许调用方
+  使用更严格的边界，但绝不会超过文档规定的硬上限。
+- `header()`、`summary()`、`diagnostics()`、`thread(id)`、`method(id)` 暴露不可变元数据
+  和完整性状态。
+- `threads_page`、`methods_page`、`events_page`、`top_methods_page`、
+  `call_tree_page`、`timeline_page` 最多返回 512 行；大小为零或超限的页面会失败。
+  超出末尾的偏移量返回空页面。
+- `TimelineQuery` 可选地选择线程和半开的主时钟窗口。相交的区间保留
+  原始边界：不会隐式裁剪或重新加权。`stack(leaf_node_id)` 解析一条选定路径。
+- 调用树 ID 在会话内保持稳定。每个线程都有一个合成根节点
+  （`method_id: None`）；后代行按前序排列。目录会保留只有事件的线程和
+  未解析的方法 ID，而不是丢失其数据。
 
-## Supported import layouts and evidence boundary
+## 支持的导入布局与证据边界
 
-This ports the byte-level **fixture-supported layouts of the existing Kotlin
-`parser-art-trace`**, rather than claiming support for every AOSP/Android trace
-variant:
+这里移植的是现有 Kotlin `parser-art-trace` 的字节级**测试样本支持的布局**，
+而不是声称支持所有 AOSP/Android 轨迹变体：
 
-- Binary-first little-endian `SLOW` header, versions 2/3/4/5 only.
-- v4/v5: 32-byte header with nanosecond start value; thread info packet 0,
-  method info packet 1, delta entry block packet 2 and text summary packet 3.
-  Entry blocks contain U24 record counts and U32 payload lengths. Signed
-  method-word and unsigned timestamp LEB128 accumulators reset per block.
-- v2/v3: 32-byte header with microsecond start value, optional following LF
-  `*threads`/`*methods`/`*end` tables, then 10-/14-byte records. Absent tables
-  use the validated data offset, at least 32. A nonzero record-size header
-  field must match the supported version. Bare classic table IDs retain the
-  existing hexadecimal-first interpretation.
-- Action bits: 0 ENTER, 1 EXIT, 2 UNROLL; reserved action 3 is counted and
-  reported, not treated as a call. Method words are shifted by two to obtain
-  method IDs; streaming method-table IDs are already normalized indexes.
+- 以二进制开头的小端 `SLOW` 头，仅支持版本 2/3/4/5。
+- v4/v5：32 字节头，包含纳秒起始值；依次为线程信息包 0、
+  方法信息包 1、增量条目块包 2 和文本摘要包 3。
+  条目块包含 U24 记录数和 U32 载荷长度。有符号的方法字
+  和无符号的时间戳 LEB128 累加器会在每个块重置。
+- v2/v3：32 字节头，包含微秒起始值；后面可选 LF 分隔的
+  `*threads`/`*methods`/`*end` 表，然后是 10/14 字节的记录。缺失这些表时
+  使用经过校验的数据偏移，且至少为 32。非零的记录大小头字段必须与支持的
+  版本匹配。裸经典格式表 ID 保留现有的十六进制优先解释。
+- 动作位：0 ENTER、1 EXIT、2 UNROLL；保留动作 3 会计数并报告，不会被当作调用。
+  方法字右移两位得到方法 ID；流式方法表 ID 已经是规范化索引。
 
-**Not implemented:** text-first conventional Android `.trace` variants,
-other packet schemas or headers, legacy Dalvik v1, wraparound reconstruction,
-agent capture transport, rooted-device capture, or external tool export.
-Unknown streaming packets stop interpretation and yield a visible partial
-result. Truncated headers/packets, invalid UTF-8, arithmetic overflow, and
-budget violations fail import rather than returning plausible prefix data.
-Trailing partial classic records and leftover block bytes are diagnosed.
+**未实现：** 以文本为首的常规 Android `.trace` 变体、其他包结构定义
+或头、旧版 Dalvik v1、回绕重建、Agent 采集传输、root 设备采集或外部工具导出。
+未知流式包会停止解析并产生可见的部分结果。截断的头/包、无效 UTF-8、算术溢出和预算违规会
+导致导入失败，而不是返回看似合理的前缀数据。尾部不完整的经典格式记录和剩余
+块字节会被诊断。
 
-## Time and call semantics
+## 时间与调用语义
 
-- v2 primary values are **thread CPU** nanoseconds, not wall time.
-- v3/v5 retain separate primary wall and thread CPU values in this supported
-  layout. v4 single-clock selection is **unspecified**: no wall/CPU claim is
-  invented without producer clock metadata.
-- Producer header start values stay separate from event-relative timestamps.
-  They do not establish an epoch or comparability with Perfetto or another
-  recording.
-- ENTER counts are real call counts. Each matched EXIT increments normal
-  completion count; UNROLL has a separate exception-unwind count. Unclosed
-  or implicitly abandoned child frames have incomplete counts.
-- Adjacent observed events produce a timeline interval only while that
-  thread has a nonempty stack. Self time is charged to its leaf; inclusive
-  duration sums invocation lifetimes over valid clock segments. Recursive
-  invocations therefore contribute separately and method inclusive totals
-  can exceed nonrecursive occupancy. Self time is not event/sample count.
-- Unmatched exits do not pop unrelated frames. Ancestor exits mark open
-  children incomplete before closing the matching ancestor.
-- Final open frames stop at **their own thread's last event**, without
-  inventing a tail to the global maximum time or capture-stop wall clock.
-- Primary clock regressions mark open frames incomplete, clear that stack,
-  and do not create negative or cross-discontinuity duration. Regressing
-  CPU deltas are excluded while valid primary intervals remain available.
-  Missing/invalid CPU deltas are diagnosed; returned numeric totals cover
-  observed valid segments only, not fabricated replacement values.
-- Root active totals sum active intervals across threads; they are **not
-  process wall time**, nor a total obtained by adding recursive inclusive
-  values.
-- A `data-file-overflow=true` / `=1` summary marker records producer overflow.
-  Lack of a marker or other diagnostic does not prove complete on-device
-  capture, absence of sampling/overhead, or end-to-end format parity.
+- v2 主时钟值是**线程 CPU** 纳秒，而不是墙钟时间。
+- v3/v5 在此支持的布局中保留独立的主墙钟值和线程 CPU 值。
+  v4 的单时钟选择为**未指定**：没有生产者时钟元数据时，
+  不臆造墙钟/CPU 结论。
+- 生产者头中的起始值与事件相对时间戳保持分离。它们不会建立纪元时间，
+  也不能证明与 Perfetto 或其他录制数据可比较。
+- ENTER 计数是真实的调用计数。每个匹配的 EXIT 都会增加正常完成计数；UNROLL
+  有独立的异常展开计数。未关闭或被隐式放弃的子栈帧具有不完整计数。
+- 只有在线程拥有非空栈时，相邻观测事件才会产生时间线区间。自身时长计入
+  叶节点；包含时长对有效时钟区段中的调用生命周期求和。因此递归调用会分别贡献，
+  方法包含时长总量可能超过非递归占用时间。自身时长不是事件/样本计数。
+- 不匹配的退出不会弹出无关栈帧。祖先退出会先将打开的子栈帧标记为不完整，
+  再关闭匹配的祖先栈帧。
+- 最终打开的栈帧在**其所属线程的最后一个事件**处停止，不会将尾部虚构到全局最大时间
+  或采集停止的墙钟时间。
+- 主时钟回退会将打开的栈帧标记为不完整、清空该栈，并且不会生成负时长
+  或跨不连续点的时长。回退的 CPU 增量会被排除，同时保留有效的主时钟区间。
+  缺失/无效 CPU 增量会被诊断；返回的数值总量只覆盖观测到的有效区段，不会伪造替代值。
+- 根节点活动总量汇总各线程的活动区间；它们**不是进程墙钟时间**，也不是将
+  递归包含时长相加得到的总量。
+- `data-file-overflow=true` / `=1` 摘要标记记录生产者溢出。缺少标记或其他
+  诊断，不能证明设备端采集完整、没有采样/开销，或端到端格式对齐。
 
-## Resource limits
+## 资源限制
 
-Default: 64 MiB input, 1 million raw records, 100,000 methods, 16,384 threads,
-16 MiB catalog/summary text, 16 KiB per text packet/line, depth 512,
-1 million call-tree nodes (including thread roots), and 1,024 diagnostic
-messages. Raw record budgets include ignored reserved actions. Diagnostic
-counts retain all occurrences while representative messages are capped.
+默认值：输入 64 MiB、100 万条原始记录、100,000 个方法、16,384 个线程、
+16 MiB 的目录/摘要文本、每个文本包/行 16 KiB、深度 512、
+100 万个调用树节点（包括线程根节点）以及 1,024 条诊断消息。
+原始记录预算包括被忽略的保留动作。诊断计数保留所有出现次数，
+而代表性消息设有上限。
 
-Hard ceilings: 512 MiB input, 4 million raw records/nodes, 1 million methods,
-65,536 threads, 64 MiB table text, 65,535-byte text packets/lines, depth 2,048,
-and 16,384 messages. The file reader uses 64 KiB scratch space and at most
-one extra byte to prove that input exceeds its cap. Bounds cover input,
-analysis topology, and returned rows; this is an eager bounded import, not a
-claim of constant-memory indexing. Time totals use checked arithmetic.
+硬上限：输入 512 MiB、400 万条原始记录/节点、100 万个方法、65,536 个线程、
+64 MiB 的表文本、65,535 字节的文本包/行、深度 2,048 以及 16,384 条消息。
+文件读取器使用 64 KiB 临时缓冲空间，最多额外读取一个字节来证明输入超过上限。
+这些边界覆盖输入、分析拓扑和返回行；这是一次性完成的有界导入，不声称索引使用恒定内存。
+时间总量使用经过溢出检查的算术运算。
 
-Analysis does not clone complete stacks for every interval. A timeline slice
-references a stable call-tree node; stack materialization happens only when
-requested. Aggregated top-method rows and tree preorder are prepared once at
-import. Timeline/event filter scans remain linear in imported rows, with
-bounded output; there is no latency claim for unmeasured large captures.
+分析不会为每个区间克隆完整栈。时间线切片引用稳定的调用树节点；
+只有在请求时才物化栈。聚合的热点方法行和树前序在导入时准备一次。
+时间线/事件过滤扫描对导入行数保持线性，并提供有界输出；对于未经测量的大型采集，
+不作延迟保证。
 
-## Validation status
+## 验证状态
 
-`tests/offline_trace.rs` contains parser/projection, clock, malformed-input,
-limits, pagination, recursion, mismatch and partial-capture regression sources.
-Per the user instruction, this lane did **not** compile or execute tests while
-implementation was in progress. Full-workspace validation is deferred to the
-rewrite integration phase; these sources are not passing-test evidence.
+`tests/offline_trace.rs` 包含解析器/投影、时钟、格式错误输入、限制、
+分页、递归、不匹配和部分采集回归源。按照用户要求，
+此工作流在实现期间**没有**编译或执行测试。完整工作区验证推迟到重写集成阶段；这些
+源文件不是测试通过的证据。

@@ -1,119 +1,89 @@
 # aps-ai
 
-Explicitly approved, bounded OpenAI-compatible **Chat Completions** analysis.
-This crate is an independent implementation, not a claim of complete Kotlin AI
-parity or a configurable arbitrary-tool agent. It never executes model tools.
+经过明确批准且受边界约束的、兼容 OpenAI 的 **Chat Completions** 分析。
+此 crate 是独立实现，不声称与 Kotlin AI 完全一致，也不是可配置的任意工具 Agent。
+它绝不会执行模型工具。
 
-## Trusted host integration
+## 可信主机集成
 
-1. Register explicit provider metadata with `ProviderConfig::new`. HTTPS is
-   required except literal loopback/localhost HTTP. URL userinfo, query and
-   fragment are rejected. The supplied base URL resolves to `/chat/completions`.
-   No legacy settings, environment credentials or provider files are discovered.
-2. A profiler adapter selects minimized `Evidence`; optional `SourceCandidate`s
-   carry workspace, immutable snapshot, content digest and relative-path/line
-   identity. Source resolution must happen in the deterministic source domain,
-   not in a provider answer. Adapters own sensitive-data minimization: JSON
-   bounds alone do not prove evidence is safe to upload.
-3. Freeze `AnalysisRequest` and provider with `PreparedRun::new`. Present the
-   provider/endpoint/model and exact evidence/source scope to the user. A
-   digest/label is correlation, never permission.
-4. The trusted UI handler calls `RunCoordinator::activate`, then
-   `approve_explicit` only for a genuine matching user approval. Approvals are
-   one-use, issuer-bound, expire within five minutes, and include the exact
-   source candidate IDs. Source metadata is conservatively treated as an upload
-   even if snippets are absent. Each active generation authorizes at most one
-   run; start a higher generation to retry. Cancellation clears approvals and
-   invalidates authorized in-flight work. Nothing is auto-approved.
-5. Optionally `SessionStore::begin(&authorized)`, then await
-   `OpenAiGateway::execute(authorized)` on a background executor. Inject a trusted
-   `Arc<dyn http_client::HttpClient>` and `Arc<dyn CredentialResolver>`.
-   The HTTP client must honor `RedirectPolicy::NoFollow`, sensitive headers and
-   dropped request/body cancellation. No automatic redirect, retry, fallback
-   endpoint or model substitution is implemented. Credentials resolve only
-   after approval and never enter application metadata or result types.
-6. Before publishing after await, call `coordinator.accept_result(&result)`;
-   awaiting a request is not proof its session/generation is still selected.
-   Update optional audit state with `complete`/`fail`.
+1. 使用 `ProviderConfig::new` 注册明确的提供商元数据。除字面上的回环地址/localhost
+   HTTP 外，必须使用 HTTPS。URL 中的用户信息、查询和片段会被拒绝。提供的基础 URL
+   会解析到 `/chat/completions`。不会发现旧版设置、环境凭据或提供商文件。
+2. 分析器适配器选择经过最小化的 `Evidence`；可选的 `SourceCandidate` 携带工作区、
+   不可变快照、内容摘要以及相对路径/行身份。源解析必须发生在确定性的源领域中，
+   而不是由提供商回答决定。适配器负责敏感数据最小化：仅有 JSON 边界不能证明证据
+   可以安全上传。
+3. 冻结 `AnalysisRequest` 和提供商，使用 `PreparedRun::new`。向用户展示提供商/
+   端点/模型以及精确的证据/源范围。摘要/标签用于关联，但绝不代表权限。
+4. 可信 UI 处理器调用 `RunCoordinator::activate`，然后仅在用户确实做出匹配批准时
+   调用 `approve_explicit`。批准只能使用一次，与签发者绑定，五分钟内过期，并包含
+   精确的源候选 ID。即使没有片段，源元数据也会被保守地视为上传内容。每个活动
+   generation 最多授权一次运行；重试时必须启动更高的 generation。取消会清除批准，
+   并使已授权的进行中工作失效。不会自动批准任何操作。
+5. 可以选择调用 `SessionStore::begin(&authorized)`，然后在后台执行器中等待
+   `OpenAiGateway::execute(authorized)`。注入可信的 `Arc<dyn http_client::HttpClient>`
+   和 `Arc<dyn CredentialResolver>`。HTTP 客户端必须遵守 `RedirectPolicy::NoFollow`、
+   敏感标头以及请求/请求体丢弃后的取消。不会实现自动重定向、重试、回退端点或模型
+   替换。凭据只有在批准后解析，并且绝不会进入应用元数据或结果类型。
+6. 等待完成后发布结果之前，调用 `coordinator.accept_result(&result)`；等待请求完成
+   不能证明其会话/generation 仍被选中。使用 `complete`/`fail` 更新可选的审计状态。
 
-The transport has a two-minute overall deadline, thirty-second body-idle
-deadline and 25 ms cancellation polling. It caps full nonstream envelopes at
-1 MiB, stream wire data at 2 MiB and analysis text at 256 KiB. Header limits are
-checked before reading, with actual body accounting independent of headers.
-Only HTTP 200 and matching JSON/SSE media types are accepted. Provider error
-body text, URLs and underlying transport diagnostics are never exposed as
-errors. An injected resolver is the only credential access path; OS keychain
-integration belongs to the host and remains unimplemented here.
+传输具有两分钟的总截止期限、三十秒的响应体空闲截止期限和 25 ms 的取消轮询间隔。
+完整的非流式封装上限为 1 MiB，流式线路数据上限为 2 MiB，分析文本上限为 256 KiB。
+读取前会检查标头限制，实际响应体计数独立于标头。只接受 HTTP 200 以及匹配的
+JSON/SSE 媒体类型。提供商错误响应体文本、URL 和底层传输诊断绝不会作为错误暴露。
+注入的解析器是唯一的凭据访问路径；OS 密钥链集成属于主机，尚未在此实现。
 
-`SecretCredential` has no Debug/Clone/Serialize or text getter. Authorization
-headers are marked sensitive; this is a trusted-client contract, not isolation
-from the HTTP implementation. Best-effort buffer clearing is not cryptographic
-zeroization. A response containing the resolved credential (including JSON
-escaped string forms) is rejected before publication. This is not a universal
-PII/secret detector. No raw stream text is sent to UI: progress callbacks carry
-only a byte count until the whole answer passes validation.
+`SecretCredential` 没有 Debug/Clone/Serialize 实现或文本 getter。Authorization 标头
+会标记为敏感；这是可信客户端契约，不是与 HTTP 实现隔离。尽力清除缓冲区不等同于
+密码学零化。包含已解析凭据的响应（包括 JSON 转义字符串形式）会在发布前被拒绝。
+这不是通用的 PII/秘密检测器。不会向 UI 发送原始流文本：在完整答案通过验证前，
+进度回调只携带字节数。
 
-## Decoder and result contracts
+## 解码器和结果契约
 
-`SseDecoder` handles arbitrary byte/UTF-8/CRLF chunk boundaries, BOM, comments
-and multiline data fields with independent wire/line/event/content/event-count
-budgets. It rejects duplicate JSON keys, changing completion/model identities,
-nonzero/multiple choices, tool/refusal output, malformed deltas, length-truncated
-finishes, data after stop, missing stop and missing `[DONE]`. One optional final
-usage chunk is allowed. EOF alone does not produce a successful result. This is
-a strict Chat Completions dialect, **not** Responses API or arbitrary SSE.
+`SseDecoder` 处理任意字节/UTF-8/CRLF 分块边界、BOM、注释和多行数据字段，并分别
+限制线路/行/事件/内容/事件数量预算。它会拒绝重复 JSON 键、变化的完成/模型身份、
+非零/多个 choices、工具/拒绝输出、格式错误的增量、被长度截断的结束、停止后的数据、
+缺失停止标记以及缺失 `[DONE]`。允许一个可选的最终 usage 分块。仅有 EOF 不会生成
+成功结果。这是严格的 Chat Completions 方言，**不是** Responses API 或任意 SSE。
 
-Final JSON accepts exactly the declared summary/finding fields, at most twelve
-findings and one hundred unique references per kind. Every finding requires
-supplied evidence IDs. All candidate IDs must come from the frozen request;
-there are no provider-created navigable file paths or line numbers. Prose stays
-untrusted plain text and must not be interpreted as tool calls, permissions or
-source links by the host.
+最终 JSON 只接受已声明的 summary/finding 字段，最多十二个 finding，以及每种类型
+一百个唯一引用。每个 finding 都必须有提供的证据 ID。所有候选 ID 都必须来自冻结的
+请求；不存在由提供商创建的可导航文件路径或行号。散文内容保持为不可信的纯文本，
+主机不得将其解释为工具调用、权限或源链接。
 
-`ProviderCatalog::parse_models` sanitizes IDs from an already obtained bounded
-`/models` document. It does not make a request and does not infer streaming or
-JSON schema capabilities from model names. Catalog network refresh, Responses
-API, conversation history, plain direct chat, provider import UI and persisted
-validated report reopening remain separate parity work.
+`ProviderCatalog::parse_models` 会清理已经获取的有界 `/models` 文档中的 ID。它不会
+发起请求，也不会根据模型名称推断流式或 JSON schema 能力。目录网络刷新、Responses
+API、对话历史、普通直接聊天、提供商导入 UI 以及重新打开已持久化的验证报告仍是
+独立的一致性工作。
 
-## Audit persistence and validation boundary
+## 审计持久化和验证边界
 
-`SessionStore` owns only the explicit absolute `aps-ai-audit-v1.json` path,
-rejects linked file/ancestors, preserves old data on failed atomic replacement
-and caps history at 1000 records. It stores only session/run/provider IDs,
-generation, frozen request digest, state and counts. Questions, evidence, source
-contents/paths, endpoints, credentials/references and provider answers are not
-persisted. Reopening `running` metadata never resumes a request or restores an
-approval. It is single-host-owned, not a cross-process transactional database or
-an OS race-proof filesystem sandbox.
+`SessionStore` 只拥有明确的绝对路径 `aps-ai-audit-v1.json`，拒绝链接文件/祖先路径，
+在原子替换失败时保留旧数据，并将历史限制为 1000 条记录。它只存储会话/运行/提供商
+ID、generation、冻结的请求摘要、状态和数量。问题、证据、源内容/路径、端点、凭据/
+引用和提供商答案不会持久化。重新打开 `running` 元数据绝不会恢复请求或还原批准。
+它由单个主机拥有，不是跨进程事务数据库，也不是能防止 OS 竞态的文件系统沙箱。
 
-No live provider, keychain, device or hosted request has been exercised. Test
-sources are deliberately not executed until the complete rewrite implementation
-is ready, following the user's instruction. Compilation is owned by the parent
-integration lane. Security tests, native approval UI acceptance and same-input
-parity remain required evidence, not implied by these implemented boundaries.
+尚未实际调用提供商、密钥链、设备或托管请求。遵循用户指示，在完整重写实现准备好
+之前不会执行测试源。编译由父级集成工作流负责。安全测试、原生批准 UI 验收以及
+相同输入一致性仍是必需证据，不能从这些已实现边界中推断出来。
 
-## Explicit application execution surface
+## 明确的应用执行界面
 
-The GPUI application accepts only actual profiler-supplied `AnalysisRequest`s.
-Provider ID/base URL/model/reference are entered explicitly and frozen before
-approval. `PreparedRun::review_body()` exposes the **exact immutable JSON request
-body** to the trusted local review panel; it is sensitive content, never audit
-metadata or implicitly copied text. Endpoint and credential reference are shown
-separately, and the Authorization header is never part of that body.
+GPUI 应用只接受分析器实际提供的 `AnalysisRequest`。提供商 ID/基础 URL/模型/引用
+必须显式输入，并在批准前冻结。`PreparedRun::review_body()` 会向可信本地审查面板
+展示**精确且不可变的 JSON 请求体**；它是敏感内容，绝不是审计元数据，也不会被
+隐式复制。端点和凭据引用会分开显示，Authorization 标头绝不会属于该请求体。
 
-The user can enter a temporary API credential in a masked field. It is never
-persisted, searched for, logged or restored; sending/cancelling clears the field
-and its SDK editing history. `OneShotCredential` holds a noncloneable secret,
-resolves only its exact opaque reference once, and then refuses a second lookup.
-No OS keychain adapter is claimed. Upstream UI/TLS memory clearing remains best
-effort. An injected trusted resolver remains supported by `OpenAiGateway`.
+用户可以在掩码字段中输入临时 API 凭据。它绝不会被持久化、搜索、记录日志或恢复；
+发送/取消时会清除该字段及其 SDK 编辑历史。`OneShotCredential` 持有不可克隆的秘密，
+只解析一次其精确的不透明引用，之后拒绝第二次查找。不声称提供 OS 密钥链适配器。
+上游 UI/TLS 内存清除仍是尽力而为。`OpenAiGateway` 仍支持注入可信解析器。
 
-Only the real Send click issues one-use approval after separate endpoint/network
-consent and (when applicable) exact source candidate upload consent. No request
-is made while configuring, freezing or reviewing. The UI waits for validated
-plain-text results, cancels its coordinator on close, and gates publication by
-both a local epoch and the coordinator's session/run/generation check. A consumed
-or cancelled request cannot simply be re-frozen into a second send; the profiler
-must supply fresh evidence. No provider output becomes executable code or a new
-source-navigation target.
+只有真实的 Send 点击会在独立的端点/网络同意以及（如适用）精确的源候选上传同意
+之后发出一次性批准。配置、冻结或审查期间不会发起请求。UI 会等待经过验证的纯
+文本结果，在关闭时取消其协调器，并同时通过本地 epoch 与协调器的会话/运行/
+generation 检查来控制发布。已消费或已取消的请求不能简单地重新冻结后再次发送；
+分析器必须提供新的证据。提供商输出不会变成可执行代码或新的源导航目标。

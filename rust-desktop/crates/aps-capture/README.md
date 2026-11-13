@@ -1,108 +1,88 @@
-# Explicit CPU capture boundary
+# 显式 CPU 采集边界
 
-`CaptureController::plan_cpu` is read-only and returns a single-use
-`PlannedCapture`. The user-facing caller must show its serial/PID/process name,
-boot ID and `/proc/PID/stat` start ticks and call `confirm` with the exact values.
-`ConfirmedCapture::run` re-observes the process before any mutation. This narrows
-PID-reuse risk but is not an atomic kernel guarantee. The GPUI capture workspace now exposes a separate explicit confirmation action
-that consumes the displayed plan. Navigation and Inspect never call `run`. Plans
-expire after 60 seconds and the target is re-observed immediately before side
-effects; this is not a kernel process-instance lease.
+`CaptureController::plan_cpu` 是只读操作，返回一个只能使用一次的
+`PlannedCapture`。面向用户的调用方必须展示其设备序列号、PID、进程名称、启动 ID
+以及 `/proc/PID/stat` 中的启动时钟计数，并使用这些精确值调用 `confirm`。
+`ConfirmedCapture::run` 会在进行任何变更前重新观测进程。这可以降低 PID 复用风险，
+但不是内核层面的原子性保证。GPUI 采集工作区现在提供独立的显式确认操作，
+用于消耗所展示的计划。导航和 Inspect 从不调用 `run`。计划在 60 秒后过期，
+并且会在产生副作用前立即重新观测目标；这不是内核提供的进程实例租约。
 
-The confirmed run creates a new local session directory and a uniquely named
-remote `/data/local/tmp/aps-rust-<run-id>` directory without `-p`. It executes
-validated ADB arguments for bounded-duration `simpleperf record`, obtains the exact
-remote recorder PID, waits for the supervisor's recorder and stdin-writer exit
-acknowledgement, and then reads `perf.data`
-through `adb exec-out cat` with a hard 64 MiB stdout cap. The owned
-ADB child is terminated on overflow and no local artifact is written before the
-bounded read completes. This deliberately rejects larger profiles instead of
-risking unbounded local disk use. A remote size pre-probe is not trusted as a
-transfer limit because the remote file can change between probe and read. An optional, explicitly provided absolute host `simpleperf`
-executable converts using the Compose oracle command:
-`report-sample --protobuf --show-callchain -i perf.data -o report-sample.pb`.
-Raw and converted outputs have size limits, SHA-256 and provenance; converted
-output links to the raw digest.
+确认后的运行会新建本地会话目录，以及名称唯一的远程
+`/data/local/tmp/aps-rust-<run-id>` 目录，不使用 `-p`。它使用经过校验的 ADB 参数
+执行有时长限制的 `simpleperf record`，获取远程录制器的精确 PID，等待监督进程
+确认录制器和标准输入写入器均已退出，然后通过 `adb exec-out cat` 读取 `perf.data`，
+并对 stdout 设置 64 MiB 的硬上限。超限时会终止所拥有的 ADB 子进程，在有界读取
+完成前不会写入任何本地产物。这里有意拒绝更大的性能剖析文件，以避免本地磁盘使用量
+失控。远程文件大小预探测不被视为可信的传输上限，因为文件可能在探测与读取之间变化。
+可选的主机 `simpleperf` 可执行文件需要显式提供绝对路径，并使用 Compose 基准命令转换：
+`report-sample --protobuf --show-callchain -i perf.data -o report-sample.pb`。
+原始输出和转换后的输出都有大小限制、SHA-256 和来源记录；转换后的输出关联原始摘要。
 
-No `pkill`, broad remote cleanup, package install, root or bundled tool mutation
-is performed. Remote shell strings use validated numeric arguments, the
-restricted run ID, and the discovered, validated application package. Arbitrary
-user shell text is never accepted. The detached worker starts through a fresh
-shell exec so Android shell redirection-save descriptors cannot retain the ADB
-connection. Its private stdin pipe is explicitly duplicated before launching
-the asynchronous recorder; `--stdio-controls-profiling` stops on pipe EOF.
-Cancel creates only this run's stop marker, closing its writer, without signalling
-any numeric PID. Recorder completion also closes the writer immediately rather
-than waiting for its duration-plus-ten-second safety bound. The supervisor
-publishes the recorder's actual exit code only after the writer has acknowledged
-completion. Cancellation cleanup ignores the cancelled host token so it can
-confirm shutdown for up to ten seconds. Unconfirmed shutdown becomes
-`CancellationUnverified` and retains the exact remote directory for recovery.
-Failure/cancellation removes only the freshly created local run's exact
-`perf.data` and `report-sample.pb` names; no completed artifact is returned.
-Successful and verified failed/cancelled runs remove only the owned remote
-artifact/coordination files and their fresh directory. Local cleanup is best-effort;
-a filesystem error can leave a partial file, which must never be imported as a
-completed capture. On Unix, the optional converter's explicit `-o` path is `/dev/stdout`, an
-inherited pipe read through the same 64 MiB hard stdout bound. No regular
-protobuf file is created until the bounded stream completes; only then is it
-atomically written. Expected output must begin with the SIMPLEPERF v1 header.
-This relies on the selected Simpleperf accepting a pipe output; incompatible
-binaries fail closed, and actual packaged-version compatibility has not been
-run. Windows conversion is rejected rather than falling back to an unbounded
-regular file. Executing an explicitly selected local tool is not a security
-sandbox: an arbitrary malicious executable could write other paths. There is
-no Perfetto capture, tool provisioning or verified packaged Simpleperf resolver
-here. The recorder and its control writer have bounded lifetimes; uncertain
-shutdown never authorizes artifact removal. Packaged compatibility remains a
-separate release gate. A valid raw file and recorder exit zero prove transport
-completion, not populated CPU samples or successful conversion/import.
+不会执行 `pkill`、大范围远程清理、软件包安装、root 操作或修改随附工具。
+远程 shell 字符串使用经过校验的数值参数、受限的运行 ID，以及发现并校验过的应用包。
+绝不接受任意用户 shell 文本。脱离父进程的工作进程通过一次新的 shell exec 启动，
+以免 Android shell 为保存重定向而使用的描述符继续维持 ADB 连接。
+在启动异步录制器之前，会显式复制其私有 stdin 管道；
+`--stdio-controls-profiling` 会在管道 EOF 时停止。
+Cancel 只创建本次运行的停止标记，关闭其写入器，不向任何数值 PID 发送信号。
+录制器完成时也会立即关闭写入器，而不是等到“录制时长加十秒”的安全上限。
+监督进程只有在写入器确认完成后，才会发布录制器的实际退出码。
+取消清理会忽略主机上已取消的令牌，以便在最多十秒内确认关闭。
+无法确认关闭时，状态变为 `CancellationUnverified`，并保留该确切远程目录以供恢复。
+失败或取消时，只删除新建的本地运行中名称精确匹配 `perf.data` 和
+`report-sample.pb` 的文件，不返回已完成产物。
+成功运行以及已验证的失败或取消运行，只删除所拥有的远程产物、协调文件及其新建目录。
+本地清理会尽力执行；文件系统错误可能留下不完整文件，绝不能将其作为已完成采集导入。
+在 Unix 上，可选转换器显式使用的 `-o` 路径为 `/dev/stdout`，它是继承的管道，
+读取时受同样的 64 MiB stdout 硬上限约束。有界流完成之前不会创建普通 protobuf 文件；
+只有完成后才会以原子方式写入。预期输出必须以 SIMPLEPERF v1 头部开头。
+这依赖所选 Simpleperf 接受管道输出；不兼容的二进制文件会安全拒绝执行，
+实际打包版本的兼容性尚未验证。Windows 上会拒绝转换，不会回退到不受大小限制的普通文件。
+执行显式选定的本地工具并不构成安全沙箱：任意恶意可执行文件仍可能写入其他路径。
+这里没有 Perfetto 采集、工具配置部署或经过验证的随包 Simpleperf 解析器。
+录制器及其控制写入器的生命周期都有上限；关闭状态不确定时，绝不允许删除产物。
+打包兼容性仍是独立的发布门禁。有效的原始文件和录制器退出码为零只能证明传输完成，
+不能证明 CPU 样本非空，也不能证明转换或导入成功。
 
-Unit tests use a fake ADB/recorder to cover the detached exec boundary, prompt
-pipeline completion, private-pipe cancellation, recorder failure, and exact
-cleanup/retention. They do not invoke a device.
+单元测试使用模拟 ADB 和录制器，覆盖脱离父进程的 exec 边界、流水线及时完成、
+私有管道取消、录制器失败以及精确清理或保留行为。它们不会调用设备。
 
-## Application integration
+## 应用集成
 
-`CaptureWorkspace` displays immutable device/PID/process, boot/start identity,
-duration, event, frequency/period, scope, callgraph, converter, local/remote paths and side effects before its
-one-shot confirmation button. Current editable controls cannot alter the
-frozen plan; edits require Inspect again. Background status is sampled from
-`CaptureHandle`; Cancel requests an owned stdin-pipe stop and exposes an
-unverified state if the stop cannot be confirmed. Completed
-outputs emit `CaptureCompleted(CaptureOutput)` for trusted shell integration.
-The protobuf header check is not a full parser or parity guarantee; CPU import
-performs its own complete supported-format parsing. Real-device validation is
-separate from unit tests and compilation.
+`CaptureWorkspace` 在一次性确认按钮之前展示不可变的设备、PID、进程、启动身份、
+进程启动身份、时长、事件、频率或周期、范围、调用图、转换器、本地及远程路径和副作用。
+当前可编辑控件无法改变冻结的计划；编辑后需要再次执行 Inspect。
+后台状态从 `CaptureHandle` 采样；Cancel 请求通过所拥有的 stdin 管道停止，
+如果无法确认停止，则展示未验证状态。已完成的输出会发出
+`CaptureCompleted(CaptureOutput)`，用于受信任的应用外壳集成。
+protobuf 头部检查不是完整解析器，也不是功能对齐保证；CPU 导入会自行完整解析其支持的格式。
+真实设备验证独立于单元测试和编译。
 
-The selected host converter is hashed during planning and rehashed immediately
-before conversion. This detects ordinary replacement but is not an atomic
-execute-by-file-descriptor guarantee or a sandbox. Remote recording is bounded
-by duration, not a remote filesystem quota; a transfer larger than 64 MiB is
-rejected locally, with exact remote cleanup only after verified shutdown. Plan
-hashing is blocking on the background executor and has no hard cancellation
-latency guarantee.
+所选主机转换器会在规划期间计算哈希，并在转换前立即重新计算。
+这能检测一般的替换，但不是通过文件描述符原子执行的保证，也不是沙箱。
+远程录制受时长限制，而不是远程文件系统配额限制；超过 64 MiB 的传输会在本地被拒绝，
+并且只有在验证关闭后才进行精确的远程清理。
+计划的哈希计算会阻塞后台执行器，不提供取消延迟的硬性保证。
 
-## Sampling Configuration
+## 采样配置
 
-`CpuCaptureRequest.sampling` owns `SamplingConfiguration`: an event token,
-`SamplingRate::Frequency` or `Period`, `EventScope` and `CallGraphMode`.
-`SamplingTemplate::create(app_scoped)` ports all five Compose presets without
-changing the target, requesting root or granting profiling permission. Template
-scope defaults to USER for discovered app context and BOTH otherwise.
+`CpuCaptureRequest.sampling` 拥有 `SamplingConfiguration`，其中包含事件标记、
+`SamplingRate::Frequency` 或 `Period`、`EventScope` 和 `CallGraphMode`。
+`SamplingTemplate::create(app_scoped)` 移植了全部五个 Compose 预设，
+不会改变目标、请求 root 或授予性能剖析权限。
+发现应用上下文时，模板范围默认为 USER，否则为 BOTH。
 
-Request validation runs before device discovery. Event tokens are at most 256
-bytes and restricted to ASCII alphanumerics plus `_:-./`, beginning with an
-alphanumeric; shell expressions and whitespace are not accepted. Scope adds
-`:u`, `:k` or no suffix. Frequency uses `-f` (1..4000); period uses `-c` with a
-positive signed-64-bit count. Callgraphs retain the Compose `-g`, `--call-graph fp`
-or absent-argument mapping. The frozen configuration builds the actual command,
-and failure diagnostics name its event/scope without claiming kernel sampling
-was not requested. No root or permission change is performed.
+请求校验在设备发现之前运行。事件标记最多 256 字节，仅允许 ASCII 字母、数字和
+`_:-./`，并且必须以字母或数字开头；不接受 shell 表达式或空白字符。
+范围会添加 `:u`、`:k` 或不添加后缀。频率使用 `-f`（1..4000）；
+周期使用 `-c`，计数必须为有符号 64 位正整数。调用图保留 Compose 中
+`-g`、`--call-graph fp` 或不传参数的映射。
+实际命令由冻结的配置构建；失败诊断会注明事件和范围，不会声称未请求内核采样。
+不会执行 root 操作或更改权限。
 
-`tests/fixtures/compose-sampling.tsv` contains 46 cases generated by executing
-the real Compose models using the retained Java driver. Its provenance records
-the oracle source hashes. Normalized event/rate/scope/callgraph semantics and
-template duration match; target forms, capture permissions and resource/duration
-limits are separate, unfinished parity boundaries. Fake-recorder tests inspect
-executed argv and owned cleanup, not just the command builder.
+`tests/fixtures/compose-sampling.tsv` 包含 46 个用例，
+由保留的 Java 驱动程序执行真实 Compose 模型生成。其来源记录包含基准源文件的哈希。
+规范化后的事件、采样速率、范围、调用图语义以及模板时长保持一致；
+目标形式、采集权限、资源及时间限制仍是独立且尚未完成的对齐边界。
+模拟录制器测试会检查实际执行的 argv 和所拥有资源的清理，而不只检查命令构建器。

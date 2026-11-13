@@ -1,45 +1,40 @@
 # aps-protocol
 
-Bounded worker transport envelopes using the existing typed-value codec source
-at `desktop-viewer/memory-profiler/hprof-engine-rust/src/wire.rs` via `#[path]`.
-It does not import HPROF dispatch, reinterpret old engine requests as the new
-protocol, or claim compatibility with the older `version/id/op` envelopes.
-`aps-contracts` currently has a transitive HPROF dependency solely for digest reuse.
+通过 `#[path]` 使用位于
+`desktop-viewer/memory-profiler/hprof-engine-rust/src/wire.rs` 的现有类型化值编解码器源码，
+提供有界的工作进程传输信封。它不引入 HPROF 分发逻辑，不把旧引擎请求重新解释为新协议，
+也不声称兼容旧的 `version/id/op` 信封。
+`aps-contracts` 当前存在传递性的 HPROF 依赖，唯一目的是复用摘要实现。
 
-## Schema
+## 结构定义
 
-Request has exactly `protocolVersion`, `requestId`, `sourceDigest`, `sessionId`,
-`generation`, `operation`, and map-valued `args`. Response has exactly
-`protocolVersion`, `requestId`, `sourceDigest`, `sessionId`, `generation`, `status`,
-`payload`, and `error`. Protocol version is 1; generations fit nonnegative i64.
-Digests normalize to 64-character SHA-256 lowercase hex. Typed IDs are bounded.
-Unknown/missing/wrong-typed envelope fields and duplicate raw map keys fail closed.
-`Response::validate_for` checks all correlation fields, not only request IDs.
+Request 恰好包含 `protocolVersion`、`requestId`、`sourceDigest`、`sessionId`、
+`generation`、`operation` 和值为映射的 `args`。Response 恰好包含
+`protocolVersion`、`requestId`、`sourceDigest`、`sessionId`、`generation`、`status`、
+`payload` 和 `error`。协议版本为 1；代数值必须在非负 i64 范围内。
+摘要统一为 64 字符的 SHA-256 小写十六进制。类型化 ID 有长度限制。
+未知、缺失或类型错误的信封字段，以及重复的原始映射键都会被安全拒绝。
+`Response::validate_for` 检查所有关联字段，而不只是请求 ID。
 
-Operation names are bounded identifiers, not an allowlist. Each implementing
-handler should supply `OperationSchema` to reject unknown/missing/wrong-typed
-arguments, then perform its own value, authorization and resource checks. A map
-that passes envelope validation is not authority to execute its operation.
+操作名是有界标识符，不是允许列表。每个操作处理器都应提供 `OperationSchema`，
+用于拒绝未知、缺失或类型错误的参数，然后自行执行值、授权和资源检查。
+通过信封校验的映射不等于获得执行该操作的权限。
 
-## Framing and budgets
+## 分帧与预算
 
-Frames are four-byte big-endian byte lengths followed by one typed Value. Default
-limits are 4 MiB encoded bytes, 256 KiB strings, 100,000 values, depth 32; callers
-may narrow them within the existing codec's hard limits. Reads reject the length
-before allocating the body. The legacy codec applies its hard decode limits;
-configured smaller string/count/depth limits are checked immediately after that
-bounded decode, not during its internal allocations. Encoding computes the exact
-byte budget before encoding/writing. I/O failures can leave partial bytes: close
-that channel rather than retrying into a partially written frame.
+帧由四字节大端字节长度及其后的一个类型化 Value 组成。默认限制为：编码字节数 4 MiB、
+字符串 256 KiB、值数量 100,000、深度 32；调用方可在现有编解码器的硬限制内进一步收窄。
+读取会在分配帧体之前拒绝超限长度。旧编解码器应用其硬解码限制；配置的更小字符串、
+数量和深度限制，会在有界解码后立即检查，而不是在其内部分配期间检查。
+编码会在编码或写入之前计算精确的字节预算。I/O 失败可能留下部分字节：
+应关闭该通道，不要向已部分写入的帧中重试。
 
-`GenerationGuard` rejects identity mismatches, stale generations and repeated
-request IDs, with at most 4096 accepted IDs per generation. Advancing generation
-requires explicit monotonically increasing state; it does not cancel old workers.
+`GenerationGuard` 拒绝身份不匹配、过期代数和重复请求 ID，每代最多接受 4096 个 ID。
+推进代数需要显式的单调递增状态；它不会取消旧工作进程。
 
-`CancellationState` is an atomic per-request cooperative lifecycle. Requesting
-cancel does not mark a request cancelled until a performer acknowledges it.
-Neither the flag nor a cancelled response proves OS termination, resource cleanup,
-permission, credential access or sandbox enforcement. Those remain host runner
-and operation-owner responsibilities.
+`CancellationState` 是按请求划分的原子协作式生命周期。请求取消后，只有执行方确认，
+请求才会被标记为已取消。无论是该标记还是已取消响应，都不能证明操作系统层面的终止、
+资源清理、权限授予、凭据访问或沙箱强制约束已经发生。
+这些仍由主机运行器和操作所有者负责。
 
-Tests are written but not executed, following the user's rewrite-first instruction.
+测试已编写但尚未执行，遵循用户要求先完成重写的指示。

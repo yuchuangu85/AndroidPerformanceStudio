@@ -1,52 +1,43 @@
 # aps-contracts
 
-Framework-independent vocabulary and validation for Capture Artifacts, Profiler
-Sessions, Device Targets, Process Identity, Clock Domains, Provenance,
-Capabilities, Artifact Completeness and bounded public-safe errors. Names follow
-`desktop-viewer/CONTEXT.md`; data structs are validated values, not an immutable
-storage implementation. Call `validate()` after constructing or mutating public
-fields, before persistence/publication or crossing process boundaries.
+面向采集产物、性能分析会话、设备目标、进程身份、
+时钟域、来源链、能力、产物完整度和有界公共安全错误的
+框架无关词汇与校验。名称遵循 `desktop-viewer/CONTEXT.md`；数据结构是经过校验的
+值，而不是不可变存储实现。构造或修改公共字段后、持久化/发布或跨进程边界之前，
+调用 `validate()`。
 
-## Identity boundaries
+## 身份边界
 
-- Typed IDs accept bounded ASCII identifiers; `IdSequence` uses an explicitly
-  caller-owned namespace and checked sequence. It does not generate randomness
-  or promise cross-run uniqueness if the namespace is reused.
-- PID is never a process-instance ID. `compare()` only reports `SameInstance`
-  when device/PID/name and explicit boot/start-tick identities match; missing
-  start evidence reports `WeakIdentity`.
-- `Capabilities` describe information a source can provide, not permission or
-  evidence of a complete capture. Partial completeness identifies every missing
-  requested capability with a bounded reason.
-- Import preserves content digest and original producer in the provenance chain.
-  Metadata does not authenticate that the claimed producer is genuine.
-- Clock mappings are explicit equal-rate anchor mappings with a validity interval
-  and error bound. They reject out-of-domain/out-of-range/overflow values rather
-  than extrapolating or comparing unrelated raw timestamps.
-- Error messages must be sanitized by the caller. Length/control validation is
-  not a secret detector; never place raw stderr/configuration/credentials or
-  source content into the public error message.
+- 类型化 ID 接受有界 ASCII 标识符；`IdSequence` 使用由调用方明确拥有的命名空间
+  和经过检查的序列。它不会生成随机值，也不承诺在重复使用命名空间时跨运行唯一。
+- PID 永远不是进程实例 ID。只有当设备/PID/名称以及明确的启动 ID/进程启动时钟节拍
+  身份都匹配时，`compare()` 才报告 `SameInstance`；缺少启动证据时报告
+  `WeakIdentity`。
+- `Capabilities` 描述来源能够提供的信息，不代表权限或完整采集的证据。部分完整性
+  会以有界原因标识每项缺失的请求能力。
+- 导入会在来源链中保留内容摘要和原始生产者。元数据不会证明所声明的
+  生产者确实真实可信。
+- 时钟映射是显式的等速率锚点映射，带有有效区间和误差界限。遇到超出定义域、越界
+  或溢出的值时会拒绝，而不是外推或比较无关的原始时间戳。
+- 错误消息必须由调用方清理。长度/控制字符校验不是秘密检测器；绝不能把原始 stderr、
+  配置、凭据或源内容放入公共错误消息。
 
-## SHA-256 reuse
+## SHA-256 复用
 
-`SourceDigest::hash_reader(reader, max_bytes)` and
-`SourceDigest::hash_file(path, max_bytes)` reuse the cache's existing std-only
-SHA-256 core through the new `aps_hprof_engine::cache::sha256_reader` API.
-The reader API hashes no more than the configured content budget and consumes at
-most one extra byte solely to distinguish exact EOF from overflow; it rejects
-oversize input rather than returning a digest of its prefix. Interrupted reads
-retry and all other I/O failures reject the digest. No temporary file is required
-for archive entry bytes. Caller-owned buffered readers/decompressors can perform
-additional internal work, so this is a logical input bound, not their CPU/RAM bound.
+`SourceDigest::hash_reader(reader, max_bytes)` 和
+`SourceDigest::hash_file(path, max_bytes)` 通过新的
+`aps_hprof_engine::cache::sha256_reader` API，复用缓存中现有的仅依赖 std 的
+SHA-256 核心。读取器 API 至多对配置的内容预算进行哈希，并且最多额外消耗一个
+字节，仅用于区分精确 EOF 和溢出；对于超大输入会拒绝，而不是返回其前缀的摘要。
+中断读取会重试，其他所有 I/O 失败都会拒绝生成摘要。归档条目字节不需要临时文件。
+调用方拥有的缓冲读取器/解压器可能执行额外内部工作，因此这是逻辑输入上限，
+不是它们的 CPU/RAM 上限。
 
-The file API hashes a single read-only handle and checks that handle and the path
-against source metadata before/after the read, including Unix device/inode/ctime.
-This is **not a read-duration deadline or cancellation mechanism**: a blocked or
-hostile reader still needs a bounded worker. The digest identifies bytes read;
-it neither authorizes future path access nor proves a later read has that content.
+文件 API 对单个只读句柄进行哈希，并在读取前后根据源元数据检查该句柄和路径，
+其中包括 Unix device/inode/ctime。这**不是读取时长截止时间或取消机制**：阻塞的
+或恶意的读取器仍需要由有界工作进程承载。摘要标识已读取的字节；它既不授权未来
+访问该路径，也不能证明之后的读取仍具有相同内容。
 
-The temporary path dependency compiles HPROF code into the dependency graph even
-though contracts call only its digest API. Extracting the existing SHA utility
-into a small shared crate remains migration debt; no new SHA algorithm is added.
-Standard-vector and contract test sources are present, but execution is deferred
-by the user's rewrite-first instruction.
+临时路径依赖会将 HPROF 代码编译进依赖图，尽管契约模块只调用其摘要 API。
+将现有 SHA 工具提取为小型共享 crate 仍属于迁移债务；未新增 SHA 算法。
+标准向量和契约测试源已经存在，但按照用户要求先完成重写的指示推迟执行。
