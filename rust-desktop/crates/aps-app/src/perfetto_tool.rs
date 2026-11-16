@@ -39,5 +39,21 @@ pub(crate) fn viewer_assets_dir() -> Option<PathBuf> {
     }
     let executable = std::env::current_exe().ok()?;
     let candidate = executable.parent()?.join("resources/perfetto-ui");
-    candidate.join("index.html").is_file().then_some(candidate)
+    if candidate.join("index.html").is_file() {
+        return Some(candidate);
+    }
+
+    // In a debug checkout the Perfetto submodule is the source of truth for
+    // the local viewer assets. Packaged builds must use the copied resources
+    // above and must not read arbitrary files from the repository.
+    #[cfg(debug_assertions)]
+    {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3)?;
+        let repository_assets = root.join("third_party/perfetto/out/ui/dist");
+        if repository_assets.join("index.html").is_file() {
+            return Some(repository_assets);
+        }
+    }
+
+    None
 }
