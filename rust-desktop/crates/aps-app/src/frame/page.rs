@@ -22,6 +22,7 @@ use gpui_kit::{
         menu::{DropdownMenu, PopupMenuItem},
         scroll::ScrollableElement,
         spinner::Spinner,
+        WindowExt,
     },
     prelude::*,
     *,
@@ -39,8 +40,6 @@ const SPLITTER: f32 = 7.;
 const MIN_TIMELINE_HEIGHT: f32 = 184.;
 const NARROW_TIMELINE_HEIGHT: f32 = 360.;
 const MIN_BODY_HEIGHT: f32 = 140.;
-const MIN_CONTEXT_HEIGHT: f32 = 96.;
-const CONTEXT_HEIGHT: f32 = 128.;
 const CLUSTERS_MIN_WIDTH: f32 = 180.;
 const PROBLEMS_MIN_WIDTH: f32 = 260.;
 const DETAILS_MIN_WIDTH: f32 = 260.;
@@ -58,11 +57,11 @@ const AXIS_GUTTER_WIDTH: f32 = 48.;
 const FRAME_AXIS_HEIGHT: f32 = 18.;
 const STATUS_BAR_HEIGHT: f32 = 25.;
 const PROBLEM_ROW_HEIGHT: f32 = 22.;
+const FRAME_DETAIL_SCROLLBAR_GUTTER: f32 = 16.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SplitterKind {
     Timeline,
-    Context,
     Clusters,
     Details,
 }
@@ -95,7 +94,6 @@ pub(in crate::frame) struct PageUi {
     timeline_pan: Option<TimelinePan>,
     split_drag: Option<SplitterDrag>,
     timeline_ratio: f32,
-    context_height: f32,
     clusters_ratio: f32,
     details_ratio: f32,
     workspace_size: (f32, f32),
@@ -118,7 +116,6 @@ impl PageUi {
             timeline_pan: None,
             split_drag: None,
             timeline_ratio: 0.30,
-            context_height: CONTEXT_HEIGHT,
             clusters_ratio: 0.30,
             details_ratio: 0.72,
             workspace_size: (0., 0.),
@@ -320,11 +317,6 @@ fn update_split_drag(
                 cx.notify();
             }
         }
-        SplitterKind::Context => {
-            let delta = f32::from(event.position.y) - drag.start_y;
-            this.ui.context_height = (drag.start_ratio + delta).clamp(MIN_CONTEXT_HEIGHT, 400.);
-            cx.notify();
-        }
         SplitterKind::Clusters => {
             if width > 0.0 {
                 let delta = (f32::from(event.position.x) - drag.start_x) / width;
@@ -350,6 +342,73 @@ fn header_button(
     colors: &StudioColors,
 ) -> Button {
     studio::compact_text_button(id, label, enabled, selected, colors).flex_shrink_0()
+}
+
+fn open_attribution_dialog(
+    this: &FrameWorkspace,
+    window: &mut Window,
+    cx: &mut Context<FrameWorkspace>,
+) {
+    let attributions = this
+        .filtered_analysis
+        .as_deref()
+        .map(|analysis| analysis.attributions.clone())
+        .unwrap_or_default();
+    if attributions.is_empty() && this.warnings.is_empty() {
+        return;
+    }
+    let language = this.language;
+    let warnings = this.warnings.clone();
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let colors = StudioColors::from_theme(cx);
+        let mut content = div()
+            .id("frame-attribution-dialog-content")
+            .w(px(560.))
+            .max_h(px(520.))
+            .overflow_y_scrollbar()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .p(px(studio::metrics::COMPACT_PADDING));
+        for attribution in attributions.iter().take(5) {
+            content = content.child(
+                div()
+                    .w_full()
+                    .text_size(px(FONT_SUPPORTING))
+                    .text_color(colors.secondary_text)
+                    .child(crate::studio::selectable(model::attribution_entry(
+                        attribution,
+                        language,
+                    ))),
+            );
+        }
+        for warning in &warnings {
+            content = content.child(
+                div()
+                    .w_full()
+                    .text_size(px(FONT_SUPPORTING))
+                    .text_color(colors.warning)
+                    .child(crate::studio::selectable(warning.clone())),
+            );
+        }
+        dialog
+            .title(language.text(TextKey::FrameAttribution))
+            .w(px(600.))
+            .centered()
+            .child(content)
+            .footer(
+                div().flex().justify_end().child(
+                    studio::compact_text_button(
+                        "frame-attribution-dialog-close",
+                        language.text(TextKey::FrameAttributionClose),
+                        true,
+                        false,
+                        &colors,
+                    )
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
+                ),
+            )
+    });
 }
 
 fn header(
@@ -464,6 +523,21 @@ fn header(
             })),
         )
         .child(div().flex_1())
+        .child(
+            header_button(
+                "frame-attribution",
+                language.text(TextKey::FrameAttribution),
+                this.filtered_analysis
+                    .as_deref()
+                    .is_some_and(|analysis| !analysis.attributions.is_empty())
+                    || !this.warnings.is_empty(),
+                false,
+                colors,
+            )
+            .on_click(cx.listener(|this, _, window, cx| {
+                open_attribution_dialog(this, window, cx);
+            })),
+        )
         .child(
             studio::text_button(
                 "frame-ai-analysis",
@@ -845,7 +919,6 @@ fn splitter(
             cx.listener(move |this, event: &MouseDownEvent, _, cx| {
                 let start_ratio = match kind {
                     SplitterKind::Timeline => this.ui.timeline_ratio,
-                    SplitterKind::Context => this.ui.context_height,
                     SplitterKind::Clusters => this.ui.clusters_ratio,
                     SplitterKind::Details => this.ui.details_ratio,
                 };
@@ -900,36 +973,19 @@ fn wide_workspace(
     colors: &StudioColors,
     cx: &Context<FrameWorkspace>,
 ) -> AnyElement {
-    let filtered = this.filtered_analysis.as_deref();
-    let show_context = filtered.is_some_and(|analysis| !analysis.attributions.is_empty())
-        || !this.warnings.is_empty();
     let available = (height
         - SUMMARY_CARD_HEIGHT
         - studio::metrics::CARD_GAP
         - 2.0 * studio::metrics::WORKSPACE_PADDING)
         .max(180.0);
-    let dividers = SPLITTER * if show_context { 2.0 } else { 1.0 };
-    let minimum_total = MIN_TIMELINE_HEIGHT
-        + MIN_BODY_HEIGHT
-        + if show_context {
-            MIN_CONTEXT_HEIGHT
-        } else {
-            0.0
-        };
+    let dividers = SPLITTER;
+    let minimum_total = MIN_TIMELINE_HEIGHT + MIN_BODY_HEIGHT;
     let pane_height = (available - dividers).max(minimum_total);
-    let mut context_height = if show_context {
-        this.ui.context_height.clamp(MIN_CONTEXT_HEIGHT, 400.0)
-    } else {
-        0.0
-    };
-    let timeline_upper = (pane_height - MIN_BODY_HEIGHT - context_height).max(MIN_TIMELINE_HEIGHT);
+    let timeline_upper = (pane_height - MIN_BODY_HEIGHT).max(MIN_TIMELINE_HEIGHT);
     let timeline_height =
         (pane_height * this.ui.timeline_ratio).clamp(MIN_TIMELINE_HEIGHT, timeline_upper);
-    context_height = context_height
-        .min((pane_height - timeline_height - MIN_BODY_HEIGHT).max(MIN_CONTEXT_HEIGHT))
-        .max(0.0);
-    let body_height = (pane_height - timeline_height - context_height).max(MIN_BODY_HEIGHT);
-    let interior_height = timeline_height + body_height + context_height + dividers;
+    let body_height = (pane_height - timeline_height).max(MIN_BODY_HEIGHT);
+    let interior_height = timeline_height + body_height + dividers;
 
     let available_body_width = width - 2.0 * studio::metrics::WORKSPACE_PADDING;
     let body_width = available_body_width
@@ -989,7 +1045,7 @@ fn wide_workspace(
                 .child(detail_panel(this, colors, cx)),
         );
 
-    let mut interior = div()
+    let interior = div()
         .id("frame-workspace-interior")
         .w_full()
         .h(px(interior_height))
@@ -1019,24 +1075,6 @@ fn wide_workspace(
                 .overflow_x_scroll()
                 .child(body_row),
         );
-    if show_context {
-        interior = interior
-            .child(splitter(
-                "frame-context-height-resizer",
-                SplitterKind::Context,
-                false,
-                colors,
-                cx,
-            ))
-            .child(
-                div()
-                    .h(px(context_height))
-                    .w_full()
-                    .flex_shrink_0()
-                    .overflow_hidden()
-                    .child(context_panel(this, colors, cx)),
-            );
-    }
     let card = div()
         .id("frame-analysis-card")
         .w_full()
@@ -1065,10 +1103,7 @@ fn narrow_workspace(
     colors: &StudioColors,
     cx: &Context<FrameWorkspace>,
 ) -> AnyElement {
-    let filtered = this.filtered_analysis.as_deref();
-    let show_context = filtered.is_some_and(|analysis| !analysis.attributions.is_empty())
-        || !this.warnings.is_empty();
-    let mut column = div()
+    let column = div()
         .id("frame-workspace-narrow")
         .flex_1()
         .min_h_0()
@@ -1117,15 +1152,6 @@ fn narrow_workspace(
                 .flex_shrink_0()
                 .child(analysis_card(detail_panel(this, colors, cx), None, colors)),
         );
-    if show_context {
-        column = column.child(
-            div()
-                .h(px(220.))
-                .w_full()
-                .flex_shrink_0()
-                .child(analysis_card(context_panel(this, colors, cx), None, colors)),
-        );
-    }
     column.into_any_element()
 }
 
@@ -2321,58 +2347,6 @@ fn problem_row(
         .into_any_element()
 }
 
-fn context_panel(
-    this: &FrameWorkspace,
-    colors: &StudioColors,
-    _cx: &Context<FrameWorkspace>,
-) -> AnyElement {
-    let language = this.language;
-    let header = panel_header(language.text(TextKey::FrameAttribution), None, colors);
-    let mut content = div()
-        .id("frame-context-content")
-        .flex_1()
-        .min_h_0()
-        .w_full()
-        .overflow_y_scrollbar()
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .px(px(studio::metrics::COMPACT_PADDING))
-        .py(px(8.));
-    if let Some(analysis) = this.filtered_analysis.as_deref() {
-        for (index, attribution) in analysis.attributions.iter().take(5).enumerate() {
-            content = content.child(
-                div()
-                    .id(("frame-attribution-entry", index))
-                    .w_full()
-                    .text_size(px(FONT_SUPPORTING))
-                    .text_color(colors.secondary_text)
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(model::attribution_entry(attribution, language)),
-            );
-        }
-    }
-    for warning in &this.warnings {
-        content = content.child(
-            div()
-                .w_full()
-                .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.warning)
-                .child(crate::studio::selectable(warning.clone())),
-        );
-    }
-    div()
-        .id("frame-context-panel")
-        .size_full()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .child(header)
-        .child(content)
-        .into_any_element()
-}
-
 fn detail_panel(
     this: &FrameWorkspace,
     colors: &StudioColors,
@@ -2497,6 +2471,7 @@ fn detail_body(
         .flex_basis(relative(0.))
         .min_w_0()
         .h_full()
+        .pr(px(FRAME_DETAIL_SCROLLBAR_GUTTER))
         .overflow_y_scrollbar()
         .flex()
         .flex_col()
@@ -2987,4 +2962,36 @@ fn layout_preview(
         );
     }
     column.into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn frame_detail_scroll_reserves_overlay_scrollbar_gutter() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        assert!(implementation.contains("const FRAME_DETAIL_SCROLLBAR_GUTTER: f32 = 16.;"));
+        assert!(implementation.contains(".pr(px(FRAME_DETAIL_SCROLLBAR_GUTTER))"));
+    }
+
+    #[test]
+    fn attribution_moves_to_toolbar_dialog_without_bottom_space() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        assert!(implementation.contains("fn open_attribution_dialog("));
+        assert!(implementation.contains("window.open_dialog(cx"));
+        let header = implementation
+            .split("fn header(")
+            .nth(1)
+            .unwrap()
+            .split("fn status_message(")
+            .next()
+            .unwrap();
+        assert!(
+            header.find("\"frame-attribution\"").unwrap()
+                < header.find("\"frame-ai-analysis\"").unwrap()
+        );
+        assert!(!implementation.contains("fn context_panel("));
+        assert!(!implementation.contains("frame-context-height-resizer"));
+    }
 }

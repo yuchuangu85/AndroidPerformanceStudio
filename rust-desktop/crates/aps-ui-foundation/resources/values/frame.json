@@ -4,6 +4,7 @@
   "frame_all_sources": "All Sources",
   "frame_associate_perfetto_trace": "Associate Perfetto Trace…",
   "frame_attribution": "Jank attribution",
+  "frame_attribution_close": "Close",
   "frame_attribution_entry": "{value1} · {value2} · {value3} jank / {value4} frames · p95 {value5}",
   "frame_average_fps": "Average FPS",
   "frame_back_to_home": "Back to home",

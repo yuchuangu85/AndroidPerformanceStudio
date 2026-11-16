@@ -4,6 +4,7 @@
   "frame_all_sources": "全部来源",
   "frame_associate_perfetto_trace": "关联 Perfetto Trace…",
   "frame_attribution": "卡顿归因",
+  "frame_attribution_close": "关闭",
   "frame_attribution_entry": "{value1} · {value2} · {value3} 次卡顿 / {value4} 帧 · p95 {value5}",
   "frame_average_fps": "平均帧率",
   "frame_back_to_home": "返回主页",
