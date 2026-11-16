@@ -60,6 +60,7 @@ struct LoadedHeap {
     page: PageData,
     snapshot: Arc<aps_memory::MemorySnapshot>,
     import_duration: Duration,
+    conversion_warning: Option<&'static str>,
 }
 
 static HISTORY_COMMIT: Mutex<()> = Mutex::new(());
@@ -164,12 +165,14 @@ fn load_capture(
         .map_err(|_| UiText::from("Memory session is unavailable"))?
         .snapshot(cancel)
         .map_err(|error| UiText::from(error.to_string()))?;
+    let conversion_warning = artifact.conversion_warning;
     Ok(LoadedHeap {
         artifact,
         session,
         page,
         snapshot: Arc::new(snapshot),
         import_duration: started.elapsed(),
+        conversion_warning,
     })
 }
 
@@ -319,10 +322,19 @@ impl ImportWorkspace {
                             super::snapshot_label(&loaded.artifact.path),
                         );
                         this.memory_state.capture_artifact = Some(loaded.artifact);
-                        this.memory_state.notice = Some(this.language.format(
+                        let mut notice = this.language.format(
                             TextKey::MemoryPageCaptureComplete,
                             &[("process", &target.process_name), ("pid", &target.pid)],
-                        ));
+                        );
+                        if let Some(warning) = loaded.conversion_warning {
+                            notice.push(' ');
+                            notice.push_str(this.language.text(if warning == "missing" {
+                                TextKey::MemoryAppHprofConvUnavailable
+                            } else {
+                                TextKey::MemoryAppHprofConvFailed
+                            }));
+                        }
+                        this.memory_state.notice = Some(notice);
                         this.import_started = None;
                         this.import_duration = Some(loaded.import_duration);
                         this.retain_memory_capture_history(history_artifact, history_digest, cx);

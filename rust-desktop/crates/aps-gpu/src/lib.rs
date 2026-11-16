@@ -19,16 +19,28 @@ pub use analysis::{
     GpuAnalysisError, GpuAnalysisPage, GpuAnalysisSummary, GpuFrequencySample, GpuMemorySample,
     GpuRenderStage, decode as decode_analysis_page, summarize as summarize_analysis,
 };
-pub use device::{GpuDeviceContext, GpuDeviceContextReader, GpuDeviceEvidence};
+pub use device::{GpuDeviceContext, GpuDeviceContextReader, parse as parse_device_context};
 pub use store::{GpuArtifactStore, GpuStoreError};
-pub use toolchain::{AgiCapability, AgiLaunchMode, AgiToolchain, AgiToolchainError};
+pub use toolchain::{
+    AgiCapability, AgiLaunchMode, AgiLocator, AgiPreferences, AgiToolchain, AgiToolchainError,
+    WARNING_AGI_NOT_FOUND, WARNING_ARTIFACT_OPEN_UNVERIFIED, WARNING_GUI_ONLY, WARNING_HELP_FAILED,
+    WARNING_HELP_TIMED_OUT, WARNING_PREFERENCE_NOT_SAVED, WARNING_VERSION_TIMED_OUT,
+    WARNING_VERSION_UNKNOWN,
+};
 
 pub const MAX_ARTIFACT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 pub const MAX_ARTIFACTS: usize = 10_000;
 pub const MAX_LOCATIONS: usize = 64;
 pub const MAX_PAGE_SIZE: usize = 200;
+pub const MAX_LABEL_CHARS: usize = 512;
+pub const MAX_WARNINGS: usize = 32;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Emitted when a file cannot be classified; the artifact is still indexed as
+/// opaque evidence instead of being dropped or renamed.
+pub const WARNING_UNKNOWN_ARTIFACT: &str =
+    "Unknown artifact format; it is indexed as opaque evidence.";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ArtifactKind {
     AgiSystemProfile,
     AgiFrameProfile,
@@ -37,7 +49,7 @@ pub enum ArtifactKind {
     ExternalReport,
     Unknown,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OpenRoute {
     Agi,
     Perfetto,
@@ -52,6 +64,24 @@ pub enum LocationStatus {
     ContentChanged,
     Unreadable,
 }
+
+/// Graphics APIs observed on a device or recorded for an artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GraphicsApi {
+    Vulkan,
+    OpenGlEs,
+    WebGpu,
+}
+impl GraphicsApi {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Vulkan => "Vulkan",
+            Self::OpenGlEs => "OpenGL ES",
+            Self::WebGpu => "WebGPU",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuError {
     InvalidFile,
@@ -85,6 +115,18 @@ impl fmt::Display for GpuError {
 }
 impl std::error::Error for GpuError {}
 
+/// Capture-time identity supplied by an explicit capture workflow. The desktop
+/// file import never supplies it: file modification time is not capture time.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GpuCaptureContext {
+    pub device: Option<GpuDeviceContext>,
+    pub package_name: Option<String>,
+    pub graphics_api: Option<GraphicsApi>,
+    pub graphics_implementation: Option<String>,
+    pub captured_at: Option<SystemTime>,
+    pub warnings: Vec<String>,
+}
+
 /// Intentionally not Debug: locations can contain private host path components.
 #[derive(Clone)]
 pub struct GpuArtifact {
@@ -93,44 +135,82 @@ pub struct GpuArtifact {
     pub size_bytes: u64,
     pub modified_at: Option<SystemTime>,
     pub open_route: OpenRoute,
+    pub agi_version: Option<String>,
+    pub device: Option<GpuDeviceContext>,
+    pub package_name: Option<String>,
+    pub graphics_api: Option<GraphicsApi>,
+    pub graphics_implementation: Option<String>,
+    pub captured_at: Option<SystemTime>,
+    pub imported_at: Option<SystemTime>,
+    pub notes: Option<String>,
+    pub warnings: Vec<String>,
     locations: Vec<PathBuf>,
 }
 
+/// One decoded index row before metadata validation.
+pub(crate) struct IndexedArtifact {
+    pub kind: ArtifactKind,
+    pub sha256: SourceDigest,
+    pub size_bytes: u64,
+    pub modified_at: Option<SystemTime>,
+    pub open_route: OpenRoute,
+    pub agi_version: Option<String>,
+    pub device: Option<GpuDeviceContext>,
+    pub package_name: Option<String>,
+    pub graphics_api: Option<GraphicsApi>,
+    pub graphics_implementation: Option<String>,
+    pub captured_at: Option<SystemTime>,
+    pub imported_at: Option<SystemTime>,
+    pub notes: Option<String>,
+    pub warnings: Vec<String>,
+    pub locations: Vec<PathBuf>,
+}
+
 impl GpuArtifact {
-    pub(crate) fn from_indexed(
-        kind: ArtifactKind,
-        sha256: SourceDigest,
-        size_bytes: u64,
-        modified_at: Option<SystemTime>,
-        open_route: OpenRoute,
-        locations: Vec<PathBuf>,
-    ) -> Result<Self, GpuError> {
-        if size_bytes > MAX_ARTIFACT_BYTES
-            || locations.is_empty()
-            || locations.len() > MAX_LOCATIONS
-            || locations.iter().any(|path| !path.is_absolute())
-            || locations.iter().collect::<BTreeSet<_>>().len() != locations.len()
+    pub(crate) fn from_indexed(parts: IndexedArtifact) -> Result<Self, GpuError> {
+        if parts.size_bytes > MAX_ARTIFACT_BYTES
+            || parts.locations.is_empty()
+            || parts.locations.len() > MAX_LOCATIONS
+            || parts.locations.iter().any(|path| !path.is_absolute())
+            || parts.locations.iter().collect::<BTreeSet<_>>().len() != parts.locations.len()
+            || !metadata_bounded(&parts)
         {
             return Err(GpuError::InvalidFile);
         }
         Ok(Self {
-            kind,
-            sha256,
-            size_bytes,
-            modified_at,
-            open_route,
-            locations,
+            kind: parts.kind,
+            sha256: parts.sha256,
+            size_bytes: parts.size_bytes,
+            modified_at: parts.modified_at,
+            open_route: parts.open_route,
+            agi_version: parts.agi_version,
+            device: parts.device,
+            package_name: parts.package_name,
+            graphics_api: parts.graphics_api,
+            graphics_implementation: parts.graphics_implementation,
+            captured_at: parts.captured_at,
+            imported_at: parts.imported_at,
+            notes: parts.notes,
+            warnings: parts.warnings,
+            locations: parts.locations,
         })
     }
-}
-
-pub struct LocationResolution {
-    pub status: LocationStatus,
-    pub path: Option<PathBuf>,
 }
 impl GpuArtifact {
     /// Blocking file scanning, no executable launch or device interaction.
     pub fn import(selected_file: &Path, cancel: &CancellationToken) -> Result<Self, GpuError> {
+        Self::import_capture(selected_file, None, None, None, cancel)
+    }
+
+    /// Import with optional capture identity. A missing context leaves device,
+    /// package, API and capture time unrecorded rather than inferring them.
+    pub fn import_capture(
+        selected_file: &Path,
+        context: Option<&GpuCaptureContext>,
+        agi_version: Option<&str>,
+        notes: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<Self, GpuError> {
         check_cancel(cancel)?;
         let path = selected_file
             .canonicalize()
@@ -147,6 +227,12 @@ impl GpuArtifact {
         // pathname open which may now point to replacement content.
         let (sha256, header) = hash_open_source(&path, &mut file, &metadata, cancel)?;
         let kind = classify(&path, &header);
+        let mut warnings = context
+            .map(|value| value.warnings.clone())
+            .unwrap_or_default();
+        if kind == ArtifactKind::Unknown {
+            warnings.push(WARNING_UNKNOWN_ARTIFACT.into());
+        }
         Ok(Self {
             kind,
             sha256,
@@ -158,6 +244,16 @@ impl GpuArtifact {
                 ArtifactKind::Screenshot | ArtifactKind::ExternalReport => OpenRoute::Desktop,
                 ArtifactKind::Unknown => OpenRoute::None,
             },
+            agi_version: normalize(agi_version.map(str::to_owned)),
+            device: context.and_then(|value| value.device.clone()),
+            package_name: context.and_then(|value| normalize(value.package_name.clone())),
+            graphics_api: context.and_then(|value| value.graphics_api),
+            graphics_implementation: context
+                .and_then(|value| normalize(value.graphics_implementation.clone())),
+            captured_at: context.and_then(|value| value.captured_at),
+            imported_at: Some(SystemTime::now()),
+            notes: normalize(notes.map(str::to_owned)),
+            warnings: normalize_warnings(warnings),
             locations: vec![path],
         })
     }
@@ -269,6 +365,11 @@ impl GpuArtifact {
     }
 }
 
+pub struct LocationResolution {
+    pub status: LocationStatus,
+    pub path: Option<PathBuf>,
+}
+
 #[derive(Clone, Default)]
 pub struct GpuArtifactIndex {
     artifacts: Vec<GpuArtifact>,
@@ -332,7 +433,21 @@ impl GpuArtifactIndex {
         selected_file: &Path,
         cancel: &CancellationToken,
     ) -> Result<SourceDigest, GpuError> {
-        let imported = GpuArtifact::import(selected_file, cancel)?;
+        self.import_capture(selected_file, None, None, None, cancel)
+    }
+
+    /// Imports with optional capture identity. Duplicate content keeps the
+    /// recorded identity and only gains a verified location and import time.
+    pub fn import_capture(
+        &mut self,
+        selected_file: &Path,
+        context: Option<&GpuCaptureContext>,
+        agi_version: Option<&str>,
+        notes: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<SourceDigest, GpuError> {
+        let imported =
+            GpuArtifact::import_capture(selected_file, context, agi_version, notes, cancel)?;
         check_cancel(cancel)?;
         let digest = imported.sha256;
         if let Some(existing) = self
@@ -340,6 +455,7 @@ impl GpuArtifactIndex {
             .iter()
             .position(|value| value.sha256 == digest)
         {
+            self.artifacts[existing].imported_at = imported.imported_at;
             self.artifacts[existing].prepend_locations(imported.locations)?;
             let artifact = self.artifacts.remove(existing);
             self.artifacts.insert(0, artifact);
@@ -363,6 +479,91 @@ impl GpuArtifactIndex {
             .iter()
             .find(|artifact| artifact.sha256 == digest)
     }
+
+    /// Artifacts sharing an explicitly recorded device serial or package name.
+    /// Matching metadata never implies a shared timeline.
+    pub fn related(&self, digest: SourceDigest) -> Vec<&GpuArtifact> {
+        let Some(anchor) = self.get(digest) else {
+            return Vec::new();
+        };
+        let serial = anchor
+            .device
+            .as_ref()
+            .map(|device| device.serial.as_str())
+            .filter(|serial| !serial.is_empty());
+        let package = anchor
+            .package_name
+            .as_deref()
+            .filter(|package| !package.is_empty());
+        self.artifacts
+            .iter()
+            .filter(|candidate| candidate.sha256 != digest)
+            .filter(|candidate| {
+                serial.is_some_and(|serial| {
+                    candidate
+                        .device
+                        .as_ref()
+                        .is_some_and(|device| device.serial == serial)
+                }) || package
+                    .is_some_and(|package| candidate.package_name.as_deref() == Some(package))
+            })
+            .collect()
+    }
+}
+
+fn normalize(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| {
+            text.trim()
+                .chars()
+                .take(MAX_LABEL_CHARS)
+                .collect::<String>()
+        })
+        .filter(|text| !text.is_empty())
+}
+
+fn normalize_warnings(mut warnings: Vec<String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    warnings.retain(|warning| {
+        let warning = warning.trim();
+        !warning.is_empty()
+            && seen.insert(warning.chars().take(MAX_LABEL_CHARS).collect::<String>())
+    });
+    warnings.truncate(MAX_WARNINGS);
+    warnings
+        .into_iter()
+        .map(|warning| warning.trim().chars().take(MAX_LABEL_CHARS).collect())
+        .collect()
+}
+
+fn bounded(value: &Option<String>) -> bool {
+    value
+        .as_deref()
+        .is_none_or(|text| text.chars().count() <= MAX_LABEL_CHARS)
+}
+
+fn metadata_bounded(parts: &IndexedArtifact) -> bool {
+    bounded(&parts.agi_version)
+        && bounded(&parts.package_name)
+        && bounded(&parts.graphics_implementation)
+        && bounded(&parts.notes)
+        && parts.warnings.len() <= MAX_WARNINGS
+        && parts
+            .warnings
+            .iter()
+            .all(|warning| !warning.trim().is_empty() && warning.chars().count() <= MAX_LABEL_CHARS)
+        && parts.device.as_ref().is_none_or(|device| {
+            device.serial.chars().count() <= MAX_LABEL_CHARS
+                && bounded(&device.model)
+                && bounded(&device.android_release)
+                && bounded(&device.gpu_vendor)
+                && bounded(&device.gpu_renderer)
+                && bounded(&device.driver)
+                && bounded(&device.open_gl_es_version)
+                && bounded(&device.vulkan_version)
+                && bounded(&device.graphics_implementation)
+                && device.evidence.len() <= MAX_WARNINGS
+        })
 }
 
 fn classify(path: &Path, header: &[u8]) -> ArtifactKind {

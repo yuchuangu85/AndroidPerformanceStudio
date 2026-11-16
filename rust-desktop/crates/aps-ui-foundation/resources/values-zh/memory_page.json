@@ -414,5 +414,6 @@
   "memory_page_value_kind": "值类型",
   "memory_page_warning": "警告",
   "memory_page_width_height": "宽度 × 高度",
-  "memory_page_working": "处理中…"
+  "memory_page_working": "处理中…",
+  "memory_app_hprof_conv_failed": "hprof-conv 执行失败；已直接解析 Android HPROF。"
 }

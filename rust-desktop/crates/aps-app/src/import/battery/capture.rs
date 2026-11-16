@@ -5,10 +5,10 @@ use aps_battery::{
     BatteryCaptureArtifact, BatteryCaptureConfig, BatteryCaptureControl, BatteryCaptureMode,
     BatteryCaptureTarget,
 };
-use gpui_kit::component::radio::Radio;
+use gpui_kit::component::{checkbox::Checkbox, radio::Radio};
 
 #[derive(Default)]
-pub(super) struct BatteryCaptureUi {
+pub(in crate::import) struct BatteryCaptureUi {
     serial: Option<String>,
     pid: Option<u32>,
     target: Option<BatteryCaptureTarget>,
@@ -20,7 +20,7 @@ pub(super) struct BatteryCaptureUi {
     control: Option<BatteryCaptureControl>,
     pub(super) artifact: Option<Arc<BatteryCaptureArtifact>>,
     pub(super) export_cancel: Option<CancellationToken>,
-    pub(super) in_progress: bool,
+    pub(in crate::import) in_progress: bool,
 }
 impl Drop for BatteryCaptureUi {
     fn drop(&mut self) {
@@ -497,6 +497,33 @@ impl ImportWorkspace {
                 );
             }
             controls = controls.child(modes);
+            {
+                let entity = entity.clone();
+                let checked = config.launch_app;
+                controls = controls.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            Checkbox::new("battery-config-launch")
+                                .checked(checked)
+                                .disabled(!enabled)
+                                .on_change(move |checked, _, cx| {
+                                    let checked = *checked;
+                                    entity.update(cx, |this, cx| {
+                                        if this.busy || this.battery_shell_ui.capture.in_progress {
+                                            return;
+                                        }
+                                        this.battery_shell_ui.capture.revoke();
+                                        this.battery_shell_ui.capture.config.launch_app = checked;
+                                        cx.notify();
+                                    });
+                                }),
+                        )
+                        .child(note(language.text(TextKey::BatteryLaunchApp), &colors)),
+                );
+            }
             for (row, key, values, current) in [
                 (
                     0usize,
@@ -587,6 +614,293 @@ impl ImportWorkspace {
                     ),
                 )
         });
+    }
+
+    pub(in crate::import) fn battery_device_serial(&self) -> Option<String> {
+        self.battery_shell_ui.capture.serial.clone().or_else(|| {
+            self.battery_shell_ui
+                .capture
+                .target
+                .as_ref()
+                .map(|target| target.serial.clone())
+        })
+    }
+
+    pub(crate) fn battery_reset_statistics(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.kind != Destination::Battery
+            || self.busy
+            || self.export_busy
+            || self.battery_shell_ui.capture.in_progress
+        {
+            return;
+        }
+        let Some(serial) = self.battery_device_serial() else {
+            self.notice = Some(TextKey::BatteryCaptureSelectTarget.into());
+            cx.notify();
+            return;
+        };
+        let entity = cx.entity().downgrade();
+        let language = self.language;
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let colors = studio::StudioColors::from_theme(cx);
+            let Some(entity) = entity.upgrade() else {
+                return dialog;
+            };
+            let enabled = {
+                let this = entity.read(cx);
+                !this.busy && !this.battery_shell_ui.capture.in_progress
+            };
+            let serial = serial.clone();
+            dialog
+                .title(language.text(TextKey::BatteryResetConfirmTitle))
+                .w(px(560.))
+                .centered()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .text_size(px(studio::FONT_BODY))
+                        .child(note(
+                            language.text(TextKey::BatteryResetConfirmBody),
+                            &colors,
+                        ))
+                        .child(note(language.text(TextKey::BatteryResetScope), &colors)),
+                )
+                .footer(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(6.))
+                        .child(
+                            studio::compact_text_button(
+                                "battery-reset-cancel",
+                                language.text(TextKey::BatteryDone),
+                                true,
+                                false,
+                                &colors,
+                            )
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child({
+                            let entity = entity.clone();
+                            studio::compact_text_button(
+                                "battery-reset-confirm",
+                                language.text(TextKey::BatteryResetGlobal),
+                                enabled,
+                                true,
+                                &colors,
+                            )
+                            .on_click(move |_, window, cx| {
+                                entity.update(cx, |this, cx| {
+                                    window.close_dialog(cx);
+                                    this.begin_battery_reset(serial.clone(), cx);
+                                });
+                            })
+                        }),
+                )
+        });
+    }
+
+    fn begin_battery_reset(&mut self, serial: String, cx: &mut Context<Self>) {
+        if self.busy || self.battery_shell_ui.capture.in_progress {
+            return;
+        }
+        self.busy = true;
+        self.error = None;
+        self.notice = None;
+        let generation = self.generation;
+        let cancel = self.cancel.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let location = AdbLocator::new()
+                        .locate(None)
+                        .map_err(|error| error.to_string())?;
+                    aps_battery::reset_batterystats(&location.executable, &serial, &cancel)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                this.busy = false;
+                match result {
+                    Ok(()) => {
+                        this.session = None;
+                        this.page = None;
+                        this.session_id = None;
+                        this.path = None;
+                        this.battery_metrics = None;
+                        this.battery_ui.reset();
+                        this.battery_workspace_ui = Default::default();
+                        this.battery_shell_ui.capture.artifact = None;
+                        this.battery_shell_ui.restored_artifact = None;
+                        this.battery_shell_ui.baseline = Default::default();
+                        this.battery_shell_ui.current_saved_key = None;
+                        this.notice = Some(TextKey::BatteryResetDone.into());
+                    }
+                    Err(error) => this.error = Some(error.into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(crate) fn battery_historian_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.kind != Destination::Battery || self.busy || self.export_busy {
+            return;
+        }
+        let Some(serial) = self.battery_device_serial() else {
+            self.notice = Some(TextKey::BatteryCaptureSelectTarget.into());
+            cx.notify();
+            return;
+        };
+        let entity = cx.entity().downgrade();
+        let language = self.language;
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let colors = studio::StudioColors::from_theme(cx);
+            let Some(entity) = entity.upgrade() else {
+                return dialog;
+            };
+            let enabled = {
+                let this = entity.read(cx);
+                !this.busy && !this.export_busy
+            };
+            let serial = serial.clone();
+            dialog
+                .title(language.text(TextKey::BatteryHistorianConfirmTitle))
+                .w(px(600.))
+                .centered()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .text_size(px(studio::FONT_BODY))
+                        .child(note(
+                            language.text(TextKey::BatteryHistorianConfirmBody),
+                            &colors,
+                        )),
+                )
+                .footer(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(6.))
+                        .child(
+                            studio::compact_text_button(
+                                "battery-historian-cancel",
+                                language.text(TextKey::BatteryDone),
+                                true,
+                                false,
+                                &colors,
+                            )
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child({
+                            let entity = entity.clone();
+                            studio::compact_text_button(
+                                "battery-historian-confirm",
+                                language.text(TextKey::BatteryHistorian),
+                                enabled,
+                                true,
+                                &colors,
+                            )
+                            .on_click(move |_, window, cx| {
+                                entity.update(cx, |this, cx| {
+                                    window.close_dialog(cx);
+                                    this.begin_battery_historian(serial.clone(), window, cx);
+                                });
+                            })
+                        }),
+                )
+        });
+    }
+
+    fn begin_battery_historian(
+        &mut self,
+        serial: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy || self.export_busy {
+            return;
+        }
+        let directory = aps_platform::home_directory().unwrap_or_else(|_| PathBuf::from("."));
+        let filename = "battery-historian-bugreport.zip";
+        let picker = cx.prompt_for_new_path(&directory, Some(filename));
+        self.export_busy = true;
+        self.error = None;
+        self.notice = Some(TextKey::BatteryHistorianGenerating.into());
+        self.export_generation = self.export_generation.wrapping_add(1);
+        let generation = self.export_generation;
+        let publication_generation = self.generation;
+        let cancel = self.cancel.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let chosen = picker.await;
+            let path = this
+                .update_in(cx, |this, _, cx| {
+                    if this.export_generation != generation {
+                        return None;
+                    }
+                    match chosen {
+                        Ok(Ok(Some(path))) => Some(path),
+                        Ok(Err(_)) => {
+                            this.error = Some(TextKey::ImportUiSavePickerFailed.into());
+                            this.export_busy = false;
+                            cx.notify();
+                            None
+                        }
+                        _ => {
+                            this.export_busy = false;
+                            cx.notify();
+                            None
+                        }
+                    }
+                })
+                .ok()
+                .flatten();
+            let Some(path) = path else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let location = AdbLocator::new()
+                        .locate(None)
+                        .map_err(|error| error.to_string())?;
+                    aps_battery::generate_bugreport(&location.executable, &serial, &path, &cancel)
+                        .map(|bytes| (path, bytes))
+                })
+                .await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                if this.export_generation != generation || this.generation != publication_generation
+                {
+                    return;
+                }
+                this.export_busy = false;
+                match result {
+                    Ok((path, bytes)) => {
+                        this.notice = Some(UiText::format(
+                            TextKey::BatteryHistorianDone,
+                            [
+                                ("path", path.display().to_string().into()),
+                                ("bytes", bytes.to_string().into()),
+                            ],
+                        ))
+                    }
+                    Err(error) => this.error = Some(error.into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 }
 

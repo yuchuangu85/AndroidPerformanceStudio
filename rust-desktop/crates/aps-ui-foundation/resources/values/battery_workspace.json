@@ -47,5 +47,16 @@
   "battery_workspace_window_bounds": "Source bounds: {start} → {end}",
   "battery_workspace_yes": "Yes",
   "battery_workspace_no": "No",
-  "battery_workspace_evidence_missing": "This resource evidence was not retained. Missing records are not measured zeros."
+  "battery_workspace_evidence_missing": "This resource evidence was not retained. Missing records are not measured zeros.",
+  "battery_workspace_mobile_rx": "Mobile received",
+  "battery_workspace_mobile_tx": "Mobile sent",
+  "battery_workspace_wifi_rx": "Wi-Fi received",
+  "battery_workspace_wifi_tx": "Wi-Fi sent",
+  "battery_workspace_bluetooth_rx": "Bluetooth received",
+  "battery_workspace_bluetooth_tx": "Bluetooth sent",
+  "battery_workspace_mobile_rx_packets": "Mobile RX packets",
+  "battery_workspace_mobile_tx_packets": "Mobile TX packets",
+  "battery_workspace_wifi_rx_packets": "Wi-Fi RX packets",
+  "battery_workspace_wifi_tx_packets": "Wi-Fi TX packets",
+  "battery_workspace_radio_active": "Mobile radio active"
 }

@@ -341,23 +341,31 @@ fn native_size_by_class(
     if !include_bitmap_evidence {
         return result;
     }
-    let mut bitmaps_by_class: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
+    // Findings are a bounded page, not necessarily a complete class inventory.
+    // Never present a partial sum as the native size of the entire class.
+    if snapshot.findings.bitmaps.rows.len() as u64 != snapshot.findings.bitmaps.total {
+        return result;
+    }
+    let mut bitmaps_by_class: BTreeMap<&str, Vec<Option<u64>>> = BTreeMap::new();
     for bitmap in &snapshot.findings.bitmaps.rows {
         bitmaps_by_class
             .entry(bitmap.class_name.as_str())
-            .or_default();
-        if let Some(native) = bitmap.native_size_bytes {
-            bitmaps_by_class
-                .entry(bitmap.class_name.as_str())
-                .or_default()
-                .push(native);
-        }
+            .or_default()
+            .push(bitmap.native_size_bytes);
     }
-    for (class_name, known) in bitmaps_by_class {
-        if result.contains_key(class_name) || known.is_empty() {
+    for (class_name, sizes) in bitmaps_by_class {
+        let Some(stats) = base.iter().find(|stats| stats.class_name == class_name) else {
+            continue;
+        };
+        if result.contains_key(class_name) || sizes.len() as u64 != stats.instance_count {
             continue;
         }
-        result.insert(class_name.to_owned(), known.iter().sum());
+        if let Some(total) = sizes
+            .into_iter()
+            .try_fold(0u64, |sum, size| sum.checked_add(size?))
+        {
+            result.insert(class_name.to_owned(), total);
+        }
     }
     result
 }
@@ -651,7 +659,7 @@ fn leaf_row(stats: &ClassStats, depth: u32) -> ClassifierRow {
         total_count: stats.total_count.unwrap_or(stats.instance_count),
         native_size: stats.native_size,
         shallow_size: stats.shallow_size,
-        retained_native_size: stats.reachable_native_size,
+        retained_native_size: stats.retained_native_size,
         retained_size: stats.retained_size,
         module_name: stats.module_name.clone(),
         allocations: None,
@@ -723,15 +731,13 @@ fn row_compare(
             compare_optional(Some(left.shallow_size), Some(right.shallow_size), direction)
         }
         ClassifierColumn::RetainedNativeSize => compare_optional(
-            Some(left.retained_native_size.unwrap_or(0)),
-            Some(right.retained_native_size.unwrap_or(0)),
+            left.retained_native_size,
+            right.retained_native_size,
             direction,
         ),
-        ClassifierColumn::RetainedSize => compare_optional(
-            Some(left.retained_size.unwrap_or(0)),
-            Some(right.retained_size.unwrap_or(0)),
-            direction,
-        ),
+        ClassifierColumn::RetainedSize => {
+            compare_optional(left.retained_size, right.retained_size, direction)
+        }
         ClassifierColumn::AllocationsSize => {
             compare_optional(left.allocations_size, right.allocations_size, direction)
         }
@@ -802,6 +808,20 @@ fn summary_for(
         .iter()
         .filter(|stats| duplicate_classes.contains(&stats.class_name))
         .count() as u64;
+    let retained_size = if class_filter_active {
+        None
+    } else if let Some(heap) = filter.heap.as_deref() {
+        snapshot
+            .per_heap_summaries
+            .get(heap)
+            .and_then(|summary| summary.retained_size)
+            .or_else(|| sum_all(&known_reachable_shallow, displayed.len()))
+    } else {
+        snapshot
+            .summary
+            .retained_size
+            .or_else(|| sum_all(&known_reachable_shallow, displayed.len()))
+    };
     ClassListSummary {
         class_count: displayed.len() as u64,
         leak_count,
@@ -811,14 +831,18 @@ fn summary_for(
         total_retained_native_size: if class_filter_active {
             None
         } else {
-            sum_all(&known_reachable_native, displayed.len())
+            sum_all(&known_reachable_native, displayed.len()).or_else(|| {
+                sum_all(
+                    &displayed
+                        .iter()
+                        .filter_map(|stats| stats.retained_native_size)
+                        .collect::<Vec<_>>(),
+                    displayed.len(),
+                )
+            })
         },
         total_shallow_size: displayed.iter().map(|stats| stats.shallow_size).sum(),
-        total_retained_size: if class_filter_active {
-            None
-        } else {
-            sum_all(&known_reachable_shallow, displayed.len())
-        },
+        total_retained_size: retained_size,
     }
 }
 

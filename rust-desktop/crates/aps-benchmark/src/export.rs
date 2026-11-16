@@ -9,8 +9,66 @@ use std::path::Path;
 use serde_json::{Map, Value};
 
 use crate::compare::{Classification, MetricComparison, RegressionReport, ReleaseGateResult};
+use crate::experiment::BaselineProfileComparison;
 
 pub use crate::pdf::{render_pdf_lines, write_pdf};
+
+/// Compose schema-2 Baseline Profile experiment, including profile and trace evidence.
+pub fn write_baseline_profile_json(
+    comparison: &BaselineProfileComparison,
+    path: &Path,
+) -> Result<(), String> {
+    let report = &comparison.report;
+    let comparisons: Vec<Value> = report
+        .comparisons
+        .iter()
+        .map(|row| {
+            let mut value = Map::new();
+            value.insert("case".into(), Value::String(row.case_identity.clone()));
+            value.insert("metric".into(), Value::String(row.metric_name.clone()));
+            value.insert(
+                "classification".into(),
+                Value::String(row.classification.label().into()),
+            );
+            value.insert(
+                "confidence".into(),
+                Value::String(row.confidence.label().into()),
+            );
+            for (key, number) in [
+                ("baseline", row.baseline_value),
+                ("current", row.current_value),
+                ("relativeDeltaPercent", row.relative_delta_percent),
+            ] {
+                if let Some(number) = number.and_then(serde_json::Number::from_f64) {
+                    value.insert(key.into(), Value::Number(number));
+                }
+            }
+            Value::Object(value)
+        })
+        .collect();
+    let trace_pairs: Vec<Value> = comparison.trace_pairs.iter().map(|pair| serde_json::json!({
+        "case": pair.case_identity,
+        "before": pair.before.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+        "after": pair.after.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+    })).collect();
+    let json = serde_json::json!({
+        "schemaVersion": 2,
+        "kind": "baseline-profile-comparison",
+        "baselineProfileStatus": comparison.baseline_status.label(),
+        "profiledProfileStatus": comparison.profiled_status.label(),
+        "regressionReport": {
+            "baselineRunId": report.baseline_run_id,
+            "currentRunId": report.current_run_id,
+            "createdAt": report.created_at,
+            "regressionCount": regression_count(report),
+            "comparisons": comparisons,
+        },
+        "tracePairs": trace_pairs,
+    });
+    let text = serde_json::to_string_pretty(&json)
+        .map_err(|error| format!("Cannot encode baseline profile report JSON: {error}"))?;
+    write_text(path, &text)
+}
 
 /// JSON report. With a gate this is the schema-2 release export, otherwise the schema-1 report view.
 pub fn write_json(

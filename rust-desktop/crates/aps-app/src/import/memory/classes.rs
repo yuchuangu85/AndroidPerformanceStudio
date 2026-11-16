@@ -43,10 +43,11 @@ const INSTANCE_DEPTH_WIDTH: f32 = 60.;
 const INSTANCE_NATIVE_WIDTH: f32 = 104.;
 const INSTANCE_SHALLOW_WIDTH: f32 = 96.;
 const INSTANCE_RETAINED_WIDTH: f32 = 120.;
-const INSTANCE_COLUMN_WIDTHS: [f32; 4] = [
+const INSTANCE_COLUMN_WIDTHS: [f32; 5] = [
     INSTANCE_DEPTH_WIDTH,
     INSTANCE_NATIVE_WIDTH,
     INSTANCE_SHALLOW_WIDTH,
+    INSTANCE_RETAINED_WIDTH,
     INSTANCE_RETAINED_WIDTH,
 ];
 /// Compose INITIAL_CLASS_PANE_FRACTION; minimums are scaled down on short panes.
@@ -308,7 +309,10 @@ impl ImportWorkspace {
             )
             .on_click(cx.listener(move |this, _, _, cx| this.memory_set_regex(!use_regex, cx))),
         );
-        row.overflow_x_scrollbar().into_any_element()
+        row.child(div().flex_1())
+            .child(self.render_memory_evidence_button(colors))
+            .overflow_x_scrollbar()
+            .into_any_element()
     }
 
     // ---- eight KPI cards ----------------------------------------------
@@ -323,7 +327,7 @@ impl ImportWorkspace {
             if loaded { value } else { unavailable.clone() }
         };
         let optional_bytes = |bytes: Option<u64>| match (loaded, bytes) {
-            (true, Some(bytes)) => format_bytes(bytes),
+            (true, Some(bytes)) => integer(bytes),
             _ => unavailable.clone(),
         };
         let cards: Vec<(TextKey, String, bool)> = vec![
@@ -354,7 +358,7 @@ impl ImportWorkspace {
             ),
             (
                 TextKey::MemoryPageShallow,
-                metric(format_bytes(summary.total_shallow_size)),
+                metric(integer(summary.total_shallow_size)),
                 false,
             ),
             (
@@ -676,7 +680,7 @@ impl ImportWorkspace {
         .h_full()
         .w_full()
         .track_scroll(&self.memory_state.classifier_scroll);
-        let metric_columns = if show_heap { 5 } else { 4 };
+        let metric_columns = if show_heap { 6 } else { 5 };
         pane.child(
             div()
                 .relative()
@@ -686,7 +690,7 @@ impl ImportWorkspace {
                 .child(list)
                 .child(table_grid_overlay(
                     "memory-classifier-grid",
-                    &[METRIC_WIDTH; 5][..metric_columns],
+                    &[METRIC_WIDTH; 6][..metric_columns],
                     colors,
                 ))
                 .child(vertical_scrollbar(
@@ -742,6 +746,10 @@ impl ImportWorkspace {
             (ClassifierColumn::TotalCount, TextKey::MemoryPageInstances),
             (ClassifierColumn::NativeSize, TextKey::MemoryPageNativeSize),
             (ClassifierColumn::ShallowSize, TextKey::MemoryPageShallow),
+            (
+                ClassifierColumn::RetainedNativeSize,
+                TextKey::MemoryPageRetainedNativeSize,
+            ),
             (ClassifierColumn::RetainedSize, TextKey::MemoryPageRetained),
         ] {
             header = header.child(
@@ -1175,7 +1183,12 @@ fn classifier_row(
         ))
         .child(metric_cell(
             Some(METRIC_WIDTH),
-            format_bytes(row.shallow_size),
+            integer(row.shallow_size),
+            colors,
+        ))
+        .child(metric_cell(
+            Some(METRIC_WIDTH),
+            optional_bytes(row.retained_native_size, language),
             colors,
         ))
         .child(metric_cell(
@@ -1234,7 +1247,7 @@ fn instance_row(
         |value| integer(u64::from(value)),
     );
     let shallow = if row.shallow_size_known {
-        format_bytes(row.shallow_size)
+        integer(row.shallow_size)
     } else {
         language.text(TextKey::MemoryPageUnavailable).to_owned()
     };
@@ -1272,15 +1285,21 @@ fn instance_row(
         .child(metric_cell(Some(INSTANCE_DEPTH_WIDTH), depth, colors))
         .child(metric_cell(
             Some(INSTANCE_NATIVE_WIDTH),
-            row.native_size.map_or_else(|| "—".to_owned(), format_bytes),
+            row.native_size.map_or_else(|| "—".to_owned(), integer),
             colors,
         ))
         .child(metric_cell(Some(INSTANCE_SHALLOW_WIDTH), shallow, colors))
         .child(metric_cell(
             Some(INSTANCE_RETAINED_WIDTH),
+            row.retained_native_size
+                .map_or_else(|| "—".to_owned(), integer),
+            colors,
+        ))
+        .child(metric_cell(
+            Some(INSTANCE_RETAINED_WIDTH),
             row.retained_size.map_or_else(
                 || language.text(TextKey::MemoryPageUnavailable).to_owned(),
-                format_bytes,
+                integer,
             ),
             colors,
         ))
@@ -1325,6 +1344,13 @@ fn instance_table_header(language: Language, colors: &StudioColors) -> AnyElemen
         .child(header_cell(
             Some(INSTANCE_SHALLOW_WIDTH),
             language.text(TextKey::MemoryPageShallow),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(INSTANCE_RETAINED_WIDTH),
+            language.text(TextKey::MemoryPageRetainedNativeSize),
             true,
             true,
             colors,
@@ -1544,7 +1570,7 @@ fn integer(value: u64) -> String {
 fn optional_bytes(value: Option<u64>, language: Language) -> String {
     value.map_or_else(
         || language.text(TextKey::MemoryPageUnavailable).to_owned(),
-        format_bytes,
+        integer,
     )
 }
 

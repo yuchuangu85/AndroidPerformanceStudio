@@ -23,7 +23,11 @@ close 会清空缓存。Histogram 和 findings 的缓存未命中仍会在子进
 然后在那里分页。这不满足未来持久化查询索引的延迟目标，worker 仍可能有较大的峰值
 RSS；但它确实保证堆不会进入 UI 内存。
 数组详情使用 engine 分页；普通字段在 worker 中分页。截断的链/引用会通过 payload
-中的 `presentationOmissions` 明确报告。原始 HPROF 字段/字符串详情仍属于敏感的
+中的 `presentationOmissions` 明确报告。
+
+`bitmap` 模块除隔离提取外，还提供 ARGB_8888 内容大小摘要（导出图像/唯一内容/
+重复组/最大图/平均图）与跨 dump 的 SHA-256 内容比较。比较绝不使用对象 ID 作为
+跨 dump 身份；新增、移除和重复计数变化分别报告。原始 HPROF 字段/字符串详情仍属于敏感的
 本地证据；本 crate 不实现持久化、导出、AI 上传或隐式授权。
 
 现有 engine fixture 对齐、相同输入的 Kotlin 对比、worker 崩溃和取消压力测试、RSS

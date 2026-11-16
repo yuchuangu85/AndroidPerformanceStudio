@@ -107,6 +107,11 @@ pub(super) fn count_delta(row: &ClassifierDelta) -> i128 {
     i128::from(row.b_count) - i128::from(row.a_count)
 }
 
+/// B - A shallow-size delta. HPROF histogram rows always carry shallow size.
+pub(super) fn shallow_delta(row: &ClassifierDelta) -> i128 {
+    i128::from(row.b_shallow) - i128::from(row.a_shallow)
+}
+
 /// B - A retained-size delta; unknown when either side is unavailable.
 pub(super) fn retained_delta(row: &ClassifierDelta) -> Option<i128> {
     Some(i128::from(row.b_retained?) - i128::from(row.a_retained?))
@@ -125,6 +130,8 @@ pub(super) fn compare(
     struct Metrics {
         a_count: u64,
         b_count: u64,
+        a_shallow: u64,
+        b_shallow: u64,
         a_retained: Option<u64>,
         b_retained: Option<u64>,
     }
@@ -132,11 +139,13 @@ pub(super) fn compare(
     for class in &a.classes {
         let entry = merged.entry(class.class_name.clone()).or_default();
         entry.a_count = class.instance_count;
+        entry.a_shallow = class.shallow_size;
         entry.a_retained = class.retained_size;
     }
     for class in &b.classes {
         let entry = merged.entry(class.class_name.clone()).or_default();
         entry.b_count = class.instance_count;
+        entry.b_shallow = class.shallow_size;
         entry.b_retained = class.retained_size;
     }
     let mut rows = merged
@@ -145,6 +154,8 @@ pub(super) fn compare(
             class_name,
             a_count: metrics.a_count,
             b_count: metrics.b_count,
+            a_shallow: metrics.a_shallow,
+            b_shallow: metrics.b_shallow,
             a_retained: metrics.a_retained,
             b_retained: metrics.b_retained,
         })
@@ -276,6 +287,27 @@ fn comparison_header(language: Language, colors: &StudioColors) -> AnyElement {
         ))
         .child(header_cell(
             Some(112.),
+            language.text(TextKey::MemoryDiffBeforeShallow),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(112.),
+            language.text(TextKey::MemoryDiffAfterShallow),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(112.),
+            language.text(TextKey::MemoryDiffDeltaShallow),
+            true,
+            true,
+            colors,
+        ))
+        .child(header_cell(
+            Some(112.),
             language.text(TextKey::MemoryPageMemoryBeforeRetained),
             true,
             true,
@@ -354,6 +386,18 @@ fn comparison_row(
             96.,
             signed_count(count),
             if count > 0 { colors.error } else { colors.text },
+            colors.border,
+        ))
+        .child(metric_cell(Some(112.), format_bytes(row.a_shallow), colors))
+        .child(metric_cell(Some(112.), format_bytes(row.b_shallow), colors))
+        .child(value_cell(
+            112.,
+            signed_bytes(shallow_delta(row)),
+            if shallow_delta(row) > 0 {
+                colors.error
+            } else {
+                colors.text
+            },
             colors.border,
         ))
         .child(metric_cell(
@@ -716,6 +760,7 @@ mod tests {
         assert_eq!(report.rows.len(), 3);
         assert_eq!(report.rows[0].class_name, "example.Grown");
         assert_eq!(retained_delta(&report.rows[0]), Some(990));
+        assert_eq!(shallow_delta(&report.rows[0]), 0);
         assert_eq!(count_delta(&report.rows[0]), 0);
         let unknown = report
             .rows
@@ -723,6 +768,7 @@ mod tests {
             .find(|row| row.class_name == "example.Unknown")
             .unwrap();
         assert_eq!(retained_delta(unknown), None);
+        assert_eq!(shallow_delta(unknown), 0);
         assert_eq!(count_delta(unknown), 1);
         assert_eq!(report.rows.last().unwrap().class_name, "example.Unknown");
     }

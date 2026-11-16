@@ -1,6 +1,6 @@
 use aps_network::{
-    EntryQuery, EntrySort, HarSession, ImportLimits, MAX_PAGE_SIZE, MAX_QUERY_BYTES, MINIMIZED_URL,
-    NetworkError, OutcomeFilter, StatusFilter,
+    ConnectionUse, EntryOutcome, EntryQuery, EntrySort, HarSession, ImportLimits, MAX_PAGE_SIZE,
+    MAX_QUERY_BYTES, NetworkError, OutcomeFilter, REDACTED_PATH, StatusFilter,
 };
 use aps_platform::CancellationToken;
 use std::fs::{self, File, OpenOptions};
@@ -43,17 +43,42 @@ fn har(entries: &[&str]) -> String {
 
 #[test]
 fn har_cannot_invent_transport_outcomes_from_http_status() {
-    let file = Fixture::new(har(&[ENTRY]).as_bytes());
+    let failed = ENTRY.replace(
+        "\"time\":12.5",
+        "\"time\":12.5,\"_error\":\"net::ERR_CONNECTION\"",
+    );
+    let file = Fixture::new(har(&[ENTRY, &failed]).as_bytes());
     let cancel = CancellationToken::new();
     let session = HarSession::open(&file.0, ImportLimits::default(), &cancel).unwrap();
-    let query = EntryQuery {
-        outcome: OutcomeFilter::Completed,
-        ..EntryQuery::default()
-    };
-    assert!(matches!(
-        session.query_entries(0, 10, &query, &cancel),
-        Err(NetworkError::InvalidQuery)
-    ));
+    let completed = session
+        .query_entries(
+            0,
+            10,
+            &EntryQuery {
+                outcome: OutcomeFilter::Completed,
+                ..EntryQuery::default()
+            },
+            &cancel,
+        )
+        .unwrap();
+    assert_eq!(completed.total, 1);
+    assert_eq!(completed.rows[0].index, 0);
+    let failed = session
+        .query_entries(
+            0,
+            10,
+            &EntryQuery {
+                outcome: OutcomeFilter::Failed,
+                ..EntryQuery::default()
+            },
+            &cancel,
+        )
+        .unwrap();
+    assert_eq!(failed.total, 1);
+    assert_eq!(failed.rows[0].index, 1);
+    // The same 200 response appears in both outcome classes; HTTP status alone
+    // never establishes a transport outcome.
+    assert_eq!(failed.rows[0].status, 200);
 }
 
 #[test]
@@ -67,17 +92,20 @@ fn summary_and_pages_reuse_the_engine_without_exposing_traffic() {
     assert_eq!(page.total, 3);
     assert_eq!(page.rows.len(), 1);
     assert_eq!(page.rows[0].index, 1);
-    assert_eq!(page.rows[0].minimized_url, MINIMIZED_URL);
+    assert_eq!(
+        page.rows[0].redacted_url,
+        "https://<redacted>@example.test/<redacted-path>?token=<redacted>"
+    );
+    assert!(page.rows[0].redacted_url.contains(REDACTED_PATH));
     assert_eq!(page.rows[0].duration_ms, Some(12.5));
     let presentation = format!("{:?}{:?}", session.summary(), page);
     for secret in [
         "alice",
         "password",
-        "example.test",
         "users/private",
         "topsecret",
         "Authorization",
-        "credential",
+        "Bearer credential",
         "sensitive body",
         "private response",
         "secret-timestamp",
@@ -212,6 +240,29 @@ fn whole_session_query_filters_before_paging_not_after() {
 }
 
 #[test]
+fn filtered_pages_never_poison_the_unfiltered_page_cache() {
+    let post = ENTRY.replace("\"GET\"", "\"POST\"");
+    let file = Fixture::new(har(&[ENTRY, &post]).as_bytes());
+    let cancel = CancellationToken::new();
+    let session = HarSession::open(&file.0, ImportLimits::default(), &cancel).unwrap();
+    let filtered = session
+        .query_entries(
+            0,
+            1,
+            &EntryQuery {
+                method: Some("POST".into()),
+                ..EntryQuery::default()
+            },
+            &cancel,
+        )
+        .unwrap();
+    assert_eq!(filtered.rows[0].method, "POST");
+    let unfiltered = session.entries(0, 1, &cancel).unwrap();
+    assert_eq!(unfiltered.rows[0].method, "GET");
+    assert_eq!(unfiltered.total, 2);
+}
+
+#[test]
 fn query_sort_is_global_stable_and_unknown_values_sort_last() {
     let entries = [
         ENTRY
@@ -295,7 +346,7 @@ fn query_never_searches_or_returns_raw_traffic_or_producer_values() {
     for secret in [
         "alice",
         "password",
-        "example.test",
+        "users/private",
         "topsecret",
         "credential",
         "sensitive body",
@@ -316,21 +367,25 @@ fn query_never_searches_or_returns_raw_traffic_or_producer_values() {
             0
         );
     }
-    assert_eq!(
-        session
-            .query_entries(
-                0,
-                100,
-                &EntryQuery {
-                    search: "minimized-url".into(),
-                    ..EntryQuery::default()
-                },
-                &cancel
-            )
-            .unwrap()
-            .total,
-        1
-    );
+    // The redaction policy retains scheme, host, query keys and the path marker.
+    for search in ["example.test", "redacted-path", "token=", "GET"] {
+        assert_eq!(
+            session
+                .query_entries(
+                    0,
+                    100,
+                    &EntryQuery {
+                        search: search.into(),
+                        ..EntryQuery::default()
+                    },
+                    &cancel
+                )
+                .unwrap()
+                .total,
+            1,
+            "search {search}"
+        );
+    }
 }
 
 #[test]
@@ -409,6 +464,7 @@ fn duration_percentiles_interpolate_known_producer_timings() {
     assert_eq!(percentiles.sample_count, 4);
     assert_eq!(percentiles.missing_count, 0);
     assert_eq!(percentiles.median_ms, Some(15.0));
+    assert_eq!(percentiles.p90_ms, Some(27.0));
     assert!((percentiles.p95_ms.unwrap() - 28.5).abs() < 0.000_001);
 }
 
@@ -483,7 +539,11 @@ fn export_visitor_is_whole_session_minimized_and_propagates_failure() {
     session
         .visit_entries(&cancel, |entry| {
             assert_eq!(entry.index, count);
-            assert_eq!(entry.minimized_url, MINIMIZED_URL);
+            assert!(entry.redacted_url.contains("example.test"));
+            assert!(entry.redacted_url.contains(REDACTED_PATH));
+            assert!(!entry.redacted_url.contains("users/private"));
+            assert_eq!(entry.outcome, EntryOutcome::Completed);
+            assert_eq!(entry.connection_use, ConnectionUse::Reused);
             count += 1;
             Ok(())
         })

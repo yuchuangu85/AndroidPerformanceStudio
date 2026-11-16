@@ -6,7 +6,6 @@ mod framing;
 mod lifecycle;
 mod message;
 mod schema;
-#[path = "../../../../desktop-viewer/memory-profiler/hprof-engine-rust/src/wire.rs"]
 pub mod wire;
 
 pub use framing::*;

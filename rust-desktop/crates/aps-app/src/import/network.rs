@@ -8,8 +8,9 @@ mod live;
 
 use super::*;
 use aps_network::{
-    DurationPercentiles, EntryPage, EntryQuery, EntrySort, HarSummary, MINIMIZED_URL,
-    ObservedCapture, ObservedOutcome, OutcomeFilter, StatusFilter,
+    ACTIVITY_BUCKETS, DomainSummary, DurationPercentiles, EntryDetail, EntryPage, EntryQuery,
+    EntrySort, HarSummary, MAX_DOMAINS, NetworkActivity, NetworkAnalysis, ObservedCapture,
+    ObservedOutcome, OutcomeFilter, StatusFilter,
 };
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
@@ -26,7 +27,14 @@ pub(super) struct NetworkUi {
     search_language: Option<Language>,
     pub total: u64,
     percentiles: Option<DurationPercentiles>,
-    domains: bool,
+    analysis: Option<NetworkAnalysis>,
+    activity: Option<NetworkActivity>,
+    domains: Option<Vec<DomainSummary>>,
+    pub selected_detail: Option<(u64, EntryDetail)>,
+    pub detail_loading: bool,
+    detail_generation: u64,
+    detail_cancel: CancellationToken,
+    domains_view: bool,
     draft_needs_reset: bool,
     filters_expanded: bool,
 }
@@ -39,7 +47,15 @@ impl NetworkUi {
         self.published_query = EntryQuery::default();
         self.total = 0;
         self.percentiles = None;
-        self.domains = false;
+        self.analysis = None;
+        self.activity = None;
+        self.domains = None;
+        self.selected_detail = None;
+        self.detail_loading = false;
+        self.detail_cancel.cancel();
+        self.detail_cancel = CancellationToken::new();
+        self.detail_generation = self.detail_generation.wrapping_add(1);
+        self.domains_view = false;
         self.filters_expanded = false;
         self.draft_needs_reset = true;
     }
@@ -49,6 +65,9 @@ pub(super) struct NetworkPublication {
     pub(super) page: PageData,
     total: u64,
     percentiles: DurationPercentiles,
+    analysis: NetworkAnalysis,
+    activity: Option<NetworkActivity>,
+    domains: Vec<DomainSummary>,
 }
 
 pub(super) fn load_page(
@@ -56,6 +75,7 @@ pub(super) fn load_page(
     offset: usize,
     query: &EntryQuery,
     timing: Option<DurationPercentiles>,
+    activity: Option<NetworkActivity>,
     cancel: &CancellationToken,
 ) -> Result<NetworkPublication, UiText> {
     let page = session
@@ -69,13 +89,26 @@ pub(super) fn load_page(
             .duration_percentiles(cancel)
             .map_err(network_error)?,
     };
+    let analysis = session.analysis(cancel).map_err(network_error)?;
+    let activity = match activity {
+        Some(activity) => Some(activity),
+        None => session
+            .activity(ACTIVITY_BUCKETS, cancel)
+            .map_err(network_error)?,
+    };
+    let domains = session
+        .domains(query, MAX_DOMAINS, cancel)
+        .map_err(network_error)?;
     let total = page.total;
-    let mut page = projection(session.summary(), page);
+    let mut page = projection(session.summary(), &analysis, page);
     live::project_observed(session, &mut page, total);
     Ok(NetworkPublication {
         page,
         total,
         percentiles,
+        analysis,
+        activity,
+        domains,
     })
 }
 
@@ -90,42 +123,147 @@ pub(super) fn network_error(error: aps_network::NetworkError) -> UiText {
     .into()
 }
 
-fn projection(summary: &HarSummary, page: EntryPage) -> PageData {
+fn projection(summary: &HarSummary, analysis: &NetworkAnalysis, page: EntryPage) -> PageData {
     PageData {
         ui: PageUi::default().warning(0, TextKey::ImportUiNetworkWarning.into()),
-        summary: format!("{} matching requests / {} HAR entries · SHA-256 {} · {}",
-            page.total, summary.entry_count, page.source_digest, page.minimization_policy),
-        columns: ["#", "Method", "Status", "Duration ms", "Request bytes", "Response bytes", "URL"]
-            .into_iter().map(str::to_owned).collect(),
-        rows: page.rows.into_iter().map(|row| vec![
-            row.index.to_string(), row.method.into(), row.status.to_string(),
-            row.duration_ms.map_or_else(|| "unavailable".into(), |v| v.to_string()),
-            row.request_bytes.map_or_else(|| "unavailable".into(), |v| v.to_string()),
-            row.response_bytes.map_or_else(|| "unavailable".into(), |v| v.to_string()),
-            row.minimized_url.into(),
-        ]).collect(),
+        summary: format!(
+            "{} matching / {} entries · {} completed · {} failed · SHA-256 {} · {}",
+            page.total,
+            summary.entry_count,
+            analysis.completed_count,
+            analysis.failed_count,
+            page.source_digest,
+            page.minimization_policy
+        ),
+        columns: [
+            "#",
+            "Method",
+            "URL",
+            "Status",
+            "Duration ms",
+            "Transferred bytes",
+            "Protocol",
+            "Outcome",
+            "Source",
+            "Connection",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect(),
+        rows: page
+            .rows
+            .into_iter()
+            .map(|row| {
+                let transferred = row
+                    .request_bytes
+                    .zip(row.response_bytes)
+                    .map(|(request, response)| request.saturating_add(response));
+                vec![
+                    row.index.to_string(),
+                    row.method.into(),
+                    row.redacted_url,
+                    row.status.to_string(),
+                    row.duration_ms
+                        .map_or_else(|| "unavailable".into(), |v| v.to_string()),
+                    transferred.map_or_else(|| "unavailable".into(), |v| v.to_string()),
+                    row.protocol.unwrap_or_else(|| "unavailable".into()),
+                    row.outcome.label().into(),
+                    "HAR".into(),
+                    row.connection_use.name().to_ascii_lowercase(),
+                ]
+            })
+            .collect(),
         offset: page.offset,
         has_more: (page.offset as u64).saturating_add(PAGE as u64) < page.total,
-        warnings: vec!["Minimized HAR evidence; raw URLs, timestamps, headers, cookies and bodies excluded. Call outcome and capture completeness are unknown.".into()],
+        warnings: vec![
+            "Redacted HAR evidence: scheme, host and port are retained; paths, query values, headers, cookies and bodies are removed. Producer timings are inferred and do not establish event coverage.".into(),
+        ],
         row_actions: Vec::new(),
     }
 }
 
 impl ImportWorkspace {
     pub(super) fn publish_network(&mut self, publication: NetworkPublication, query: EntryQuery) {
-        let selected = self.selected_network.as_ref().and_then(|row| row.first());
+        let previous = self
+            .selected_network
+            .as_ref()
+            .and_then(|row| row.first().cloned());
         self.selected_network = publication
             .page
             .rows
             .iter()
-            .find(|row| selected.is_some() && row.first() == selected)
+            .find(|row| previous.is_some() && row.first() == previous.as_ref())
             .or_else(|| publication.page.rows.first())
             .cloned();
+        if previous
+            != self
+                .selected_network
+                .as_ref()
+                .and_then(|row| row.first().cloned())
+        {
+            self.network.selected_detail = None;
+        }
         self.network.total = publication.total;
         self.network.percentiles = Some(publication.percentiles);
+        self.network.analysis = Some(publication.analysis);
+        self.network.activity = publication.activity;
+        self.network.domains = Some(publication.domains);
         self.network.query = query.clone();
         self.network.published_query = query;
         self.page = Some(publication.page);
+    }
+
+    fn selected_network_index(&self) -> Option<u64> {
+        self.selected_network
+            .as_ref()
+            .and_then(|row| row.first())
+            .and_then(|index| index.parse::<u64>().ok())
+    }
+
+    /// Loads phase/header evidence for the selected entry. The parsed detail
+    /// stays in memory only for this workspace session.
+    pub(super) fn load_network_detail(&mut self, cx: &mut Context<Self>) {
+        let Some(index) = self.selected_network_index() else {
+            return;
+        };
+        if self
+            .network
+            .selected_detail
+            .as_ref()
+            .is_some_and(|(current, _)| *current == index)
+        {
+            return;
+        }
+        let Some(Session::Network(session)) = self.session.clone() else {
+            return;
+        };
+        self.network.detail_cancel.cancel();
+        self.network.detail_cancel = CancellationToken::new();
+        let cancel = self.network.detail_cancel.clone();
+        self.network.detail_generation = self.network.detail_generation.wrapping_add(1);
+        let generation = self.network.detail_generation;
+        self.network.detail_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { session.entry_detail(index, &cancel) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.network.detail_generation != generation {
+                    return;
+                }
+                this.network.detail_loading = false;
+                match result {
+                    Ok(Some(detail)) => this.network.selected_detail = Some((index, detail)),
+                    Ok(None) => this.network.selected_detail = None,
+                    Err(error) => this.error = Some(network_error(error)),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(super) fn query_network(
@@ -148,12 +286,14 @@ impl ImportWorkspace {
         let generation = self.generation;
         let cancel = self.cancel.clone();
         let timing = self.network.percentiles;
+        let activity = self.network.activity.clone();
         self.network.query = query.clone();
+        self.network.selected_detail = None;
         self.busy = true;
         self.error = None;
         self.notice = None;
         let task = cx.background_executor().spawn(async move {
-            load_page(&session, offset, &query, timing, &cancel).map(|page| (page, query))
+            load_page(&session, offset, &query, timing, activity, &cancel).map(|page| (page, query))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -163,7 +303,10 @@ impl ImportWorkspace {
                 }
                 this.busy = false;
                 match result {
-                    Ok((page, query)) => this.publish_network(page, query),
+                    Ok((page, query)) => {
+                        this.publish_network(page, query);
+                        this.load_network_detail(cx);
+                    }
                     Err(error) => {
                         this.network.query = this.network.published_query.clone();
                         this.error = Some(error);
@@ -260,6 +403,7 @@ impl ImportWorkspace {
                 + usize::from(self.notice.is_some())
                 + usize::from(self.busy),
         );
+        let analysis = self.network.analysis.as_ref();
         let mut content = studio::page(&colors)
             .h_auto()
             .min_h(px(layout.viewport_height))
@@ -267,6 +411,7 @@ impl ImportWorkspace {
             .child(summary_cards(
                 summary,
                 self.network.percentiles,
+                analysis,
                 observed,
                 language,
                 &colors,
@@ -281,7 +426,7 @@ impl ImportWorkspace {
                     &colors,
                 ))
             } else {
-                content.child(coverage_panel(summary, language, &colors))
+                content.child(coverage_panel(summary, analysis, language, &colors))
             };
         }
         if let Some(error) = &self.error {
@@ -306,7 +451,11 @@ impl ImportWorkspace {
         content = if let Some(observed) = observed {
             content.child(live::activity_panel(observed, language, &colors))
         } else {
-            content.child(activity_panel(language, &colors))
+            content.child(network_activity_panel(
+                self.network.activity.as_ref(),
+                language,
+                &colors,
+            ))
         };
         if let Some(consent) = self.network_live_consent_panel(&colors, cx) {
             content = content.child(consent);
@@ -315,13 +464,17 @@ impl ImportWorkspace {
         let table = self.network_table(&colors, cx);
         let detail = if self.busy && self.selected_network.is_none() {
             detail::request_detail_loading(language, &colors)
-        } else if let Some(capture) = match &self.session {
-            Some(Session::Network(session)) => session.observed(),
-            _ => None,
-        } {
-            live::request_detail(capture, self.selected_network.as_deref(), language, &colors)
         } else {
-            detail::request_detail(self.selected_network.as_deref(), language, &colors)
+            detail::request_detail(
+                self.selected_network.as_deref(),
+                self.network
+                    .selected_detail
+                    .as_ref()
+                    .map(|(_, detail)| detail),
+                self.network.detail_loading,
+                language,
+                &colors,
+            )
         };
         let mut panes = div()
             .id("network-evidence-panes")
@@ -507,11 +660,14 @@ impl ImportWorkspace {
                 studio::compact_text_button(
                     "network-raw-bundle",
                     language.text(TextKey::NetworkRawBundle),
-                    false,
+                    ready,
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::NetworkRawUnavailableReason)),
+                .tooltip(language.text(TextKey::NetworkRawUnavailableReason))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.save_network_session(exports::NetworkExport::RawBundle, cx)
+                })),
             )
             .child(
                 studio::compact_text_button(
@@ -550,7 +706,7 @@ impl ImportWorkspace {
                 .gap(px(8.))
                 .child(div().h(px(36.)).px(px(8.)).flex().items_center().child(
                     studio::section_title(
-                        language.text(if self.network.domains {
+                        language.text(if self.network.domains_view {
                             TextKey::NetworkDomains
                         } else {
                             TextKey::ImportUiRequestList
@@ -558,38 +714,88 @@ impl ImportWorkspace {
                         colors,
                     ),
                 ));
-        if self.network.domains {
+        if self.network.domains_view {
+            let domains = self.network.domains.clone().unwrap_or_default();
+            let domain_cell = |value: String, grow: f32| {
+                div()
+                    .flex_1()
+                    .flex_basis(px(0.))
+                    .flex_grow(grow)
+                    .min_w_0()
+                    .pr(px(6.))
+                    .text_size(px(studio::FONT_SUPPORTING))
+                    .line_height(px(15.))
+                    .text_color(colors.text)
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(crate::studio::selectable(value))
+            };
+            let header = studio::table_header_row(colors).gap_0().children(
+                [
+                    TextKey::NetworkDomain,
+                    TextKey::ImportUiNetworkCalls,
+                    TextKey::ImportUiNetworkFailures,
+                    TextKey::ImportUiNetworkTransferred,
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(index, key)| {
+                    div()
+                        .flex_1()
+                        .flex_grow(if index == 0 { 2. } else { 1. })
+                        .child(studio::dense_label(
+                            language.text(key),
+                            colors.secondary_text,
+                        ))
+                }),
+            );
+            let mut body = div().flex_1().min_h_0().overflow_y_scrollbar();
+            if domains.is_empty() {
+                body = body.child(div().p(px(12.)).child(studio::supporting(
+                    language.text(TextKey::ImportUiNetworkNoRows),
+                    colors,
+                )));
+            }
+            for (index, domain) in domains.iter().enumerate() {
+                body = body.child(
+                    div()
+                        .id(("network-domain-row", index))
+                        .flex()
+                        .items_center()
+                        .h(px(30.))
+                        .flex_shrink_0()
+                        .px(px(8.))
+                        .border_b_1()
+                        .border_color(colors.border)
+                        .child(domain_cell(
+                            domain.domain.clone().unwrap_or_else(|| "—".into()),
+                            2.,
+                        ))
+                        .child(domain_cell(domain.call_count.to_string(), 1.))
+                        .child(domain_cell(domain.failure_count.to_string(), 1.))
+                        .child(domain_cell(
+                            domain.transferred_bytes.map_or_else(|| "—".into(), bytes),
+                            1.,
+                        )),
+                );
+            }
             return table
                 .child(
                     div()
                         .flex_1()
                         .min_h_0()
-                        .overflow_y_scrollbar()
+                        .min_w_0()
+                        .overflow_x_scrollbar()
                         .child(
-                            studio::table_header_row(colors).gap_0().children(
-                                [
-                                    TextKey::NetworkDomain,
-                                    TextKey::ImportUiNetworkCalls,
-                                    TextKey::ImportUiNetworkFailures,
-                                    TextKey::ImportUiNetworkTransferred,
-                                ]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, key)| {
-                                    div()
-                                        .flex_1()
-                                        .flex_grow(if index == 0 { 2. } else { 1. })
-                                        .child(studio::dense_label(
-                                            language.text(key),
-                                            colors.secondary_text,
-                                        ))
-                                }),
-                            ),
-                        )
-                        .child(studio::supporting(
-                            language.text(TextKey::NetworkDomainsUnavailable),
-                            colors,
-                        )),
+                            div()
+                                .min_w(px(520.))
+                                .w_full()
+                                .h_full()
+                                .flex()
+                                .flex_col()
+                                .child(header)
+                                .child(body),
+                        ),
                 )
                 .into_any_element();
         }
@@ -634,7 +840,7 @@ impl ImportWorkspace {
             let cells = display_cells(row, language);
             let click_row = row.clone();
             let row_color =
-                status_color(row.get(2).map(String::as_str).unwrap_or_default(), colors);
+                status_color(row.get(3).map(String::as_str).unwrap_or_default(), colors);
             rows = rows.child(
                 Button::new(("network-request-row", index))
                     .ghost()
@@ -664,6 +870,7 @@ impl ImportWorkspace {
                     ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.selected_network = Some(click_row.clone());
+                        this.load_network_detail(cx);
                         cx.notify();
                     })),
             );
@@ -842,21 +1049,32 @@ fn panel_header(title: &'static str, colors: &studio::StudioColors) -> Div {
 
 fn coverage_panel(
     summary: &HarSummary,
+    analysis: Option<&NetworkAnalysis>,
     language: Language,
     colors: &studio::StudioColors,
 ) -> Stateful<Div> {
-    panel(colors)
+    let partial = analysis.is_some_and(|analysis| analysis.invalid_timing_count > 0)
+        || summary.invalid_duration_count > 0;
+    let mut view = panel(colors)
         .id("network-evidence-coverage")
         .p(px(8.))
-        .gap(px(8.))
+        .gap(px(6.))
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
                 .child(evidence_chip(
-                    language.text(TextKey::NetworkUnknown),
-                    colors.warning,
+                    language.text(if partial {
+                        TextKey::NetworkCompletenessPartial
+                    } else {
+                        TextKey::NetworkCompletenessComplete
+                    }),
+                    if partial {
+                        colors.warning
+                    } else {
+                        colors.success
+                    },
                 ))
                 .child(
                     div()
@@ -865,9 +1083,10 @@ fn coverage_panel(
                         .text_size(px(13.))
                         .line_height(px(17.))
                         .line_clamp(2)
-                        .child(crate::studio::selectable(
-                            language.text(TextKey::NetworkCoverage),
-                        )),
+                        .child(crate::studio::selectable(language.format(
+                            TextKey::NetworkCoverageVersion,
+                            &[("version", &summary.har_version)],
+                        ))),
                 ),
         )
         .child(
@@ -875,13 +1094,38 @@ fn coverage_panel(
                 .line_height(px(15.))
                 .text_color(colors.warning)
                 .line_clamp(2),
-        )
-        .child(
-            studio::supporting(format!("SHA-256 {}", summary.source_digest), colors)
-                .line_height(px(15.))
-                .whitespace_nowrap()
-                .text_ellipsis(),
-        )
+        );
+    if let Some(analysis) = analysis {
+        if let (Some(start), Some(end)) = (analysis.started_at_ms, analysis.ended_at_ms) {
+            view = view.child(studio::supporting(
+                language.format(
+                    TextKey::NetworkCaptureWindow,
+                    &[
+                        ("start", &aps_network::format_rfc3339_ms(start)),
+                        ("end", &aps_network::format_rfc3339_ms(end)),
+                    ],
+                ),
+                colors,
+            ));
+        }
+        view = view.child(studio::supporting(
+            language.format(
+                TextKey::NetworkConnectionSummary,
+                &[
+                    ("new", &analysis.new_connection_count),
+                    ("reused", &analysis.reused_connection_count),
+                    ("unknown", &analysis.unknown_connection_count),
+                ],
+            ),
+            colors,
+        ));
+    }
+    view.child(
+        studio::supporting(format!("SHA-256 {}", summary.source_digest), colors)
+            .line_height(px(15.))
+            .whitespace_nowrap()
+            .text_ellipsis(),
+    )
 }
 
 fn message_strip(message: String, tone: Rgba, colors: &studio::StudioColors) -> Div {
@@ -895,25 +1139,75 @@ fn message_strip(message: String, tone: Rgba, colors: &studio::StudioColors) -> 
     )
 }
 
-fn activity_panel(language: Language, colors: &studio::StudioColors) -> Stateful<Div> {
-    panel(colors)
+/// Completion-bucketed byte activity. Bars are completed bytes, not a measured
+/// instantaneous throughput; unknown byte counts remain visibly unknown.
+fn network_activity_panel(
+    activity: Option<&NetworkActivity>,
+    language: Language,
+    colors: &studio::StudioColors,
+) -> Stateful<Div> {
+    let mut view = panel(colors)
         .id("network-activity-panel")
         .p(px(8.))
-        .gap(px(8.))
+        .gap(px(6.))
         .child(panel_header(
             language.text(TextKey::NetworkActivity),
             colors,
-        ))
-        .child(
+        ));
+    let Some(activity) = activity else {
+        return view.child(
             studio::supporting(language.text(TextKey::NetworkActivityUnavailable), colors)
                 .line_height(px(15.))
                 .line_clamp(2),
-        )
-        .child(
-            studio::supporting(language.text(TextKey::NetworkActivityLegend), colors)
-                .line_height(px(15.))
-                .line_clamp(2),
-        )
+        );
+    };
+    let peak = activity
+        .buckets
+        .iter()
+        .flatten()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    view = view.child(
+        div()
+            .id("network-activity-chart")
+            .flex()
+            .items_end()
+            .gap(px(2.))
+            .h(px(64.))
+            .w_full()
+            .children(activity.buckets.iter().map(|bucket| {
+                let (height, tone) = match bucket {
+                    Some(value) => (((*value as f32 / peak as f32) * 60.).max(1.), colors.accent),
+                    None => (3., colors.warning),
+                };
+                div().flex_1().h(px(height)).rounded(px(1.)).bg(tone)
+            })),
+    );
+    view = view.child(studio::supporting(
+        language.format(
+            TextKey::NetworkActivityMetrics,
+            &[
+                ("timed", &activity.timed_calls),
+                ("omitted", &activity.omitted_calls),
+                ("peak", &activity.peak_concurrency),
+                (
+                    "average",
+                    &activity
+                        .average_concurrency
+                        .map_or_else(|| "—".to_owned(), |value| format!("{value:.2}")),
+                ),
+                ("incomplete", &activity.incomplete_byte_calls),
+            ],
+        ),
+        colors,
+    ));
+    view.child(
+        studio::supporting(language.text(TextKey::NetworkActivityLegend), colors)
+            .line_height(px(15.))
+            .line_clamp(2),
+    )
 }
 
 fn panel(colors: &studio::StudioColors) -> Div {
@@ -930,6 +1224,7 @@ fn panel(colors: &studio::StudioColors) -> Div {
 fn summary_cards(
     summary: Option<&HarSummary>,
     timing: Option<DurationPercentiles>,
+    analysis: Option<&NetworkAnalysis>,
     observed: Option<&ObservedCapture>,
     language: Language,
     colors: &studio::StudioColors,
@@ -950,18 +1245,25 @@ fn summary_cards(
         ),
         (
             TextKey::ImportUiNetworkFailures,
-            observed.map_or_else(absent, |capture| {
-                format!(
-                    "{} / {}",
-                    capture.outcome_count(ObservedOutcome::Failed),
-                    capture.outcome_count(ObservedOutcome::Cancelled)
-                )
-            }),
+            observed.map_or_else(
+                || {
+                    analysis.map_or_else(absent, |analysis| {
+                        format!("{} / {}", analysis.failed_count, analysis.cancelled_count)
+                    })
+                },
+                |capture| {
+                    format!(
+                        "{} / {}",
+                        capture.outcome_count(ObservedOutcome::Failed),
+                        capture.outcome_count(ObservedOutcome::Cancelled)
+                    )
+                },
+            ),
             language
                 .text(if observed.is_some() {
                     TextKey::NetworkLiveTransportFailures
                 } else {
-                    TextKey::NetworkOutcomeUnknown
+                    TextKey::NetworkOutcomeFailuresSupport
                 })
                 .to_owned(),
             colors.warning,
@@ -1000,8 +1302,16 @@ fn summary_cards(
             },
             observed.map_or_else(
                 || {
-                    summary.map_or_else(absent, |_| {
-                        language.text(TextKey::NetworkUnknown).to_owned()
+                    analysis.map_or_else(absent, |analysis| {
+                        let partial = analysis.invalid_timing_count > 0
+                            || summary.is_some_and(|summary| summary.invalid_duration_count > 0);
+                        language
+                            .text(if partial {
+                                TextKey::NetworkCompletenessPartial
+                            } else {
+                                TextKey::NetworkCompletenessComplete
+                            })
+                            .to_owned()
                     })
                 },
                 |capture| {
@@ -1015,7 +1325,24 @@ fn summary_cards(
                 },
             ),
             observed.map_or_else(
-                || language.text(TextKey::NetworkCoverageUnknown).to_owned(),
+                || {
+                    analysis.map_or_else(
+                        || language.text(TextKey::NetworkCoverageUnknown).to_owned(),
+                        |analysis| {
+                            language.format(
+                                TextKey::NetworkCompletenessSupport,
+                                &[
+                                    ("invalid", &analysis.invalid_timing_count),
+                                    (
+                                        "missing",
+                                        &summary
+                                            .map_or(0, |summary| summary.missing_duration_count),
+                                    ),
+                                ],
+                            )
+                        },
+                    )
+                },
                 |capture| live::counts(capture, language),
             ),
             colors.warning,
@@ -1154,43 +1481,34 @@ fn byte_value(row: &[String], column: usize) -> Option<u64> {
 
 fn display_cells(row: &[String], language: Language) -> [String; 8] {
     let status = row
-        .get(2)
+        .get(3)
         .filter(|s| s.as_str() != "0")
         .cloned()
         .unwrap_or_else(|| "—".into());
-    let transferred = byte_value(row, 4)
-        .zip(byte_value(row, 5))
-        .map(|(a, b)| a.saturating_add(b));
     [
         row.get(1).cloned().unwrap_or_default(),
-        row.get(6).cloned().unwrap_or_default(),
+        row.get(2).cloned().unwrap_or_default(),
         status,
-        duration(number(row, 3)),
-        transferred.map_or_else(|| "—".into(), bytes),
-        row.get(8)
+        duration(number(row, 4)),
+        byte_value(row, 5).map_or_else(|| "—".into(), bytes),
+        row.get(6)
             .filter(|value| value.as_str() != "unavailable")
             .cloned()
             .unwrap_or_else(|| "—".into()),
         row.get(7).map_or_else(
             || language.text(TextKey::NetworkUnknown).into(),
-            |value| {
-                let outcome = match value.as_str() {
-                    "completed" => Some(ObservedOutcome::Completed),
-                    "failed" => Some(ObservedOutcome::Failed),
-                    "cancelled" => Some(ObservedOutcome::Cancelled),
-                    "in-flight" => Some(ObservedOutcome::InFlight),
-                    _ => None,
-                };
-                outcome.map_or_else(
-                    || language.text(TextKey::NetworkUnknown).into(),
-                    |outcome| live::outcome_label(outcome, language).into(),
-                )
+            |value| match value.as_str() {
+                "completed" => language.text(TextKey::NetworkOutcomeCompleted).into(),
+                "failed" => language.text(TextKey::NetworkOutcomeFailed).into(),
+                "cancelled" => language.text(TextKey::NetworkOutcomeCancelled).into(),
+                "incomplete" => language.text(TextKey::NetworkOutcomeIncomplete).into(),
+                "in-flight" => language.text(TextKey::NetworkOutcomeInFlight).into(),
+                _ => language.text(TextKey::NetworkUnknown).into(),
             },
         ),
-        row.get(9).map_or_else(
-            || "HAR".into(),
-            |_| language.text(TextKey::NetworkLiveSource).into(),
-        ),
+        row.get(8)
+            .cloned()
+            .unwrap_or_else(|| language.text(TextKey::NetworkSourceHar).into()),
     ]
 }
 
@@ -1303,6 +1621,7 @@ mod tests {
             total_bytes: 0,
         };
         let mut summary = HarSummary {
+            har_version: "1.2".into(),
             entry_count: 1,
             status_families: Default::default(),
             request_bytes: ByteTotals {
@@ -1357,18 +1676,24 @@ mod tests {
         let row = [
             "2",
             "GET",
+            "https://example.test/<redacted-path>",
             "503",
             "unavailable",
             "unavailable",
-            "10",
-            "redacted://minimized-url",
+            "unavailable",
+            "incomplete",
+            "HAR",
+            "unknown",
         ]
         .map(str::to_owned);
         let cells = display_cells(&row, Language::English);
         assert_eq!(cells[2], "503");
         assert_eq!(cells[3], "—");
         assert_eq!(cells[4], "—");
-        assert_eq!(cells[6], Language::English.text(TextKey::NetworkUnknown));
+        assert_eq!(
+            cells[6],
+            Language::English.text(TextKey::NetworkOutcomeIncomplete)
+        );
     }
     #[::core::prelude::v1::test]
     fn reference_panes_stack_only_below_page_breakpoint() {
@@ -1382,18 +1707,22 @@ mod tests {
         let row = [
             "0",
             "GET",
+            "https://example.test/<redacted-path>",
             "0",
             "12.5",
             "1024",
-            "1024",
-            "redacted://minimized-url",
+            "h2",
+            "completed",
+            "HAR",
+            "new",
         ]
         .map(str::to_owned);
         let cells = display_cells(&row, Language::English);
         assert_eq!(cells[2], "—");
         assert_eq!(cells[3], "12.5 ms");
-        assert_eq!(cells[4], "2.0 KiB");
-        assert_eq!(number(&row, 3), Some(12.5));
+        assert_eq!(cells[4], "1.0 KiB");
+        assert_eq!(cells[6], "Completed");
+        assert_eq!(number(&row, 4), Some(12.5));
     }
 
     #[::core::prelude::v1::test]
@@ -1415,8 +1744,12 @@ mod tests {
                 sample_count: 0,
                 missing_count: ids.len() as u64,
                 median_ms: None,
+                p90_ms: None,
                 p95_ms: None,
             },
+            analysis: NetworkAnalysis::default(),
+            activity: None,
+            domains: Vec::new(),
         };
         workspace.selected_network = Some(vec!["42".into()]);
         let query = EntryQuery {

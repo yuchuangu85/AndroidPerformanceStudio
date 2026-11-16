@@ -42,6 +42,9 @@ pub(crate) enum ImportMenuCommand {
     NetworkExport(network::exports::NetworkExport),
     BatteryOpenSaved(String),
     BatteryCaptureBundle,
+    BatterySessionExport(battery::session_export::BatterySessionFormat),
+    BatteryResetStatistics,
+    BatteryHistorianInput,
     MemoryView(u8),
     SelectMemorySnapshot(u64),
     CloseMemorySnapshot(u64),
@@ -221,13 +224,17 @@ impl ImportWorkspace {
                 submenu
                     .item_when(
                         ready,
-                        TextKey::BatterySavePageJson,
-                        ImportMenuCommand::SavePage(PageExport::Json),
+                        TextKey::BatterySaveSessionJson,
+                        ImportMenuCommand::BatterySessionExport(
+                            self::battery::session_export::BatterySessionFormat::Json,
+                        ),
                     )
                     .item_when(
                         ready,
-                        TextKey::BatterySavePageCsv,
-                        ImportMenuCommand::SavePage(PageExport::Csv),
+                        TextKey::BatterySaveSessionCsv,
+                        ImportMenuCommand::BatterySessionExport(
+                            self::battery::session_export::BatterySessionFormat::Csv,
+                        ),
                     )
                     .item_when(
                         ready && self.battery_capture_artifact().is_some(),
@@ -235,11 +242,19 @@ impl ImportWorkspace {
                         ImportMenuCommand::BatteryCaptureBundle,
                     )
             });
-        let tools = MenuGroup::new(TextKey::ShellMenuTools).item_when(
-            false,
-            TextKey::BatteryResetGlobal,
-            ImportMenuCommand::Unavailable,
-        );
+        let ready = !self.busy && !self.export_busy && !self.battery_shell_ui.capture.in_progress;
+        let device = self.battery_device_serial().is_some();
+        let tools = MenuGroup::new(TextKey::ShellMenuTools)
+            .item_when(
+                ready && device,
+                TextKey::BatteryResetGlobal,
+                ImportMenuCommand::BatteryResetStatistics,
+            )
+            .item_when(
+                ready && device,
+                TextKey::BatteryHistorian,
+                ImportMenuCommand::BatteryHistorianInput,
+            );
         vec![file, tools]
     }
 
@@ -285,7 +300,7 @@ impl MenuHost for ImportWorkspace {
     fn run_menu_command(
         &mut self,
         command: Self::Command,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match command {
@@ -296,6 +311,11 @@ impl MenuHost for ImportWorkspace {
             ImportMenuCommand::NetworkExport(format) => self.save_network_session(format, cx),
             ImportMenuCommand::BatteryOpenSaved(key) => self.open_battery_saved_session(key, cx),
             ImportMenuCommand::BatteryCaptureBundle => self.save_battery_capture_bundle(cx),
+            ImportMenuCommand::BatterySessionExport(format) => {
+                self.save_battery_session(format, cx)
+            }
+            ImportMenuCommand::BatteryResetStatistics => self.battery_reset_statistics(window, cx),
+            ImportMenuCommand::BatteryHistorianInput => self.battery_historian_input(window, cx),
             ImportMenuCommand::MemoryView(index) => {
                 if let Some(mode) = self::memory::menus::memory_view_mode(index) {
                     self.memory_set_view_mode(mode, cx);
@@ -466,14 +486,16 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn battery_tools_reset_statistics_is_disabled_without_a_capture_adapter() {
+    fn battery_tools_publish_reset_and_historian_but_require_a_device() {
         let workspace = ImportWorkspace::new(Destination::Battery, Language::English);
         let groups = workspace.menu_groups(Language::English);
         let tools = groups
             .iter()
             .find(|group| group.title() == TextKey::ShellMenuTools)
             .expect("Battery publishes Tools");
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
+        // Without a selected device both destructive/privacy-sensitive rows stay
+        // disabled instead of silently targeting an unknown serial.
         assert_eq!(tools.enabled(), 0);
     }
 

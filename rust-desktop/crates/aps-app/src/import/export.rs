@@ -139,27 +139,40 @@ pub(super) fn analysis_request(
         _ => return Err("Workspace has no imported profiler evidence".into()),
     };
     // Only the existing minimized/summary projection is eligible. No source path,
-    // heap field/value text or network private detail enters this request.
+    // heap field/value text or network private detail enters this request. The
+    // network URL column (redacted host and path marker) stays local, matching
+    // the Compose AI payload, which excludes URLs.
+    let network = kind == Destination::Network;
+    let selected = |row: &[String]| {
+        row.iter()
+            .enumerate()
+            .filter(|(index, _)| !(network && *index == 2))
+            .map(|(_, cell)| cell.as_str())
+            .take(8)
+            .map(|cell| clipped(cell, 128).into())
+            .collect::<Vec<Value>>()
+    };
     let rows: Vec<Value> = page
         .rows
         .iter()
         .take(16)
-        .map(|row| {
-            Value::Array(
-                row.iter()
-                    .take(8)
-                    .map(|cell| clipped(cell, 128).into())
-                    .collect(),
-            )
-        })
+        .map(|row| Value::Array(selected(row)))
+        .collect();
+    let columns: Vec<Value> = page
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !(network && *index == 2))
+        .map(|(_, name)| clipped(name, 128).into())
+        .take(8)
         .collect();
     let payload = object([
-        ("projectionPolicy", "aps-current-page-minimized-v1".into()),
+        ("projectionPolicy", "aps-current-page-minimized-v2".into()),
         ("offset", page.offset.into()), ("publishedRows", page.rows.len().into()),
         ("hasMore", page.has_more.into()), ("evidenceRowLimit", 16.into()),
-        ("columns", page.columns.iter().take(8).map(|v| clipped(v, 128)).collect::<Vec<_>>().into()),
+        ("columns", Value::Array(columns)),
         ("rows", Value::Array(rows)),
-        ("omissions", "At most 16 rows, 8 columns and 128 UTF-8 bytes per cell; heap fields and private traffic excluded".into()),
+        ("omissions", "At most 16 rows, 8 columns and 128 UTF-8 bytes per cell; heap fields, URLs and private traffic excluded".into()),
     ]);
     aps_json::to_vec(
         &payload,
@@ -274,6 +287,50 @@ mod tests {
         assert_eq!(rows[0].as_array().unwrap().len(), 8);
         assert!(rows[0][0].as_str().unwrap().len() <= 128);
     }
+    #[test]
+    fn network_ai_evidence_excludes_the_redacted_url_column() {
+        let mut page = page();
+        page.columns = [
+            "#",
+            "Method",
+            "URL",
+            "Status",
+            "Duration ms",
+            "Transferred bytes",
+            "Protocol",
+            "Outcome",
+            "Source",
+            "Connection",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        page.rows = vec![vec![
+            "1".into(),
+            "GET".into(),
+            "https://example.test/<redacted-path>".into(),
+            "200".into(),
+            "1.5".into(),
+            "42".into(),
+            "h2".into(),
+            "completed".into(),
+            "HAR".into(),
+            "new".into(),
+        ]];
+        let request = analysis_request(Destination::Network, "network-ai", 1, &page).unwrap();
+        let payload = &request.evidence[0].payload;
+        assert!(!payload.to_string().contains("example.test"));
+        assert_eq!(payload["columns"].as_array().unwrap().len(), 8);
+        assert_eq!(payload["rows"][0].as_array().unwrap().len(), 8);
+        assert!(
+            !payload["columns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|column| column.as_str() == Some("URL"))
+        );
+    }
+
     #[test]
     fn csv_budget_fails_without_partial_export_result() {
         let mut page = page();

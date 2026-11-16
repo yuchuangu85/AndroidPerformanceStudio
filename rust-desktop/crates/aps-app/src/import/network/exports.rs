@@ -5,6 +5,7 @@ use std::{
     fs::OpenOptions,
     io::{BufWriter, Write},
 };
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 const MAX_SESSION_EXPORT_BYTES: usize = 128 * 1024 * 1024;
 
@@ -13,6 +14,7 @@ pub(crate) enum NetworkExport {
     Json,
     Csv,
     PartialHar,
+    RawBundle,
 }
 
 impl NetworkExport {
@@ -21,6 +23,7 @@ impl NetworkExport {
             Self::Json => "json",
             Self::Csv => "csv",
             Self::PartialHar => "har",
+            Self::RawBundle => "zip",
         }
     }
 }
@@ -49,56 +52,134 @@ fn json(value: &Value) -> Result<Vec<u8>, String> {
     aps_json::to_vec(value, Limits::default()).map_err(|error| error.to_string())
 }
 
-fn observed_request(session: &HarSession, entry: &aps_network::NetworkEntry) -> Value {
-    let Some(request) = session
-        .observed()
-        .and_then(|capture| capture.request(entry.index))
-    else {
-        return Value::Null;
-    };
+fn header_json(headers: &[(String, String)]) -> Value {
+    Value::Array(
+        headers
+            .iter()
+            .map(|(name, value)| serde_json::json!({"name": name, "value": value}))
+            .collect(),
+    )
+}
+
+fn entry_json(entry: &aps_network::NetworkEntry, detail: &aps_network::EntryDetail) -> Value {
     serde_json::json!({
-        "outcome": request.outcome.label(),
-        "startNs": request.start_ns,
-        "endNs": request.end_ns,
-        "protocol": request.protocol,
-        "cancellationRequested": request.cancellation_requested,
-        "phasesTruncated": request.phases_truncated,
-        "phases": request.phases.iter().map(|phase| serde_json::json!({
-            "kind": phase.kind.label(), "startNs": phase.start_ns,
-            "endNs": phase.end_ns, "failed": phase.failed,
+        "index": entry.index,
+        "method": entry.method,
+        "url": entry.redacted_url,
+        "status": entry.status,
+        "durationMs": entry.duration_ms,
+        "requestBytes": entry.request_bytes,
+        "responseBytes": entry.response_bytes,
+        "protocol": entry.protocol,
+        "outcome": entry.outcome.label(),
+        "connectionUse": entry.connection_use.name(),
+        "startedAt": entry.started_at_ms.map(aps_network::format_rfc3339_ms),
+        "requestHeaders": header_json(&detail.request_headers),
+        "responseHeaders": header_json(&detail.response_headers),
+        "tlsVersion": detail.tls_version,
+        "cipherSuite": detail.cipher_suite,
+        "failureType": detail.failure_type,
+        "phases": detail.phases.iter().map(|phase| serde_json::json!({
+            "kind": phase.kind.name(),
+            "durationMs": phase.duration_ms,
+            "availability": phase.availability.name(),
+            "confidence": phase.confidence.name(),
+            "parentKind": phase.parent.map(|parent| parent.name()),
         })).collect::<Vec<_>>(),
     })
 }
 
-fn entry_json(session: &HarSession, entry: &aps_network::NetworkEntry) -> Value {
-    serde_json::json!({
-        "index": entry.index, "method": entry.method, "status": entry.status,
-        "durationMs": entry.duration_ms, "requestBytes": entry.request_bytes,
-        "responseBytes": entry.response_bytes, "url": entry.minimized_url,
-        "observation": observed_request(session, entry),
-    })
+fn timing(detail: &aps_network::EntryDetail, kind: aps_network::PhaseKind) -> f64 {
+    detail
+        .phases
+        .iter()
+        .find(|phase| phase.kind == kind)
+        .and_then(|phase| phase.duration_ms)
+        .unwrap_or(-1.0)
 }
 
-fn partial_har_entry(session: &HarSession, entry: &aps_network::NetworkEntry) -> Value {
-    // The minimized source has no wall-clock epoch. Do not synthesize the HAR
-    // startedDateTime field from a monotonic timestamp or host export time.
-    serde_json::json!({
+fn partial_har_entry(
+    entry: &aps_network::NetworkEntry,
+    detail: &aps_network::EntryDetail,
+) -> Value {
+    let mut value = serde_json::json!({
         "time": entry.duration_ms.unwrap_or(-1.0),
-        "request": {"method": entry.method, "url": entry.minimized_url,
-            "httpVersion": "", "headers": [], "cookies": [], "queryString": [],
-            "headersSize": -1, "bodySize": entry.request_bytes.map(Value::from).unwrap_or((-1).into())},
-        "response": {"status": entry.status, "statusText": "", "httpVersion": "",
-            "headers": [], "cookies": [], "redirectURL": "", "headersSize": -1,
-            "bodySize": entry.response_bytes.map(Value::from).unwrap_or((-1).into()),
-            "content": {"size": -1, "mimeType": ""}},
-        "cache": {}, "timings": {"send": -1, "wait": -1, "receive": -1},
-        "_aps": {"partial": true, "originalIndex": entry.index,
-            "startedDateTimeAvailable": false, "observation": observed_request(session, entry)},
+        "request": {
+            "method": entry.method,
+            "url": entry.redacted_url,
+            "httpVersion": entry.protocol.clone().unwrap_or_default(),
+            "headers": header_json(&detail.request_headers),
+            "cookies": [],
+            "queryString": [],
+            "headersSize": -1,
+            "bodySize": entry.request_bytes.map(Value::from).unwrap_or_else(|| (-1).into()),
+        },
+        "response": {
+            "status": entry.status,
+            "statusText": "",
+            "httpVersion": entry.protocol.clone().unwrap_or_default(),
+            "headers": header_json(&detail.response_headers),
+            "cookies": [],
+            "redirectURL": "",
+            "headersSize": -1,
+            "bodySize": entry.response_bytes.map(Value::from).unwrap_or_else(|| (-1).into()),
+            "content": {"size": -1, "mimeType": ""},
+        },
+        "cache": {},
+        "timings": {
+            "blocked": timing(detail, aps_network::PhaseKind::DispatcherQueue),
+            "dns": timing(detail, aps_network::PhaseKind::Dns),
+            "connect": timing(detail, aps_network::PhaseKind::Connect),
+            "ssl": timing(detail, aps_network::PhaseKind::Tls),
+            "send": timing(detail, aps_network::PhaseKind::RequestBody),
+            "wait": timing(detail, aps_network::PhaseKind::ServerWait),
+            "receive": timing(detail, aps_network::PhaseKind::ResponseBody),
+        },
+        "_aps": {
+            "partial": true,
+            "policy": aps_network::MINIMIZATION_POLICY,
+            "originalIndex": entry.index,
+            "startedDateTimeAvailable": entry.started_at_ms.is_some(),
+            "outcome": entry.outcome.label(),
+            "connectionUse": entry.connection_use.name(),
+            "bodiesCaptured": false,
+        },
+    });
+    if let Some(started) = entry.started_at_ms {
+        value["startedDateTime"] = serde_json::json!(aps_network::format_rfc3339_ms(started));
+    }
+    value
+}
+
+fn analysis_json(analysis: &aps_network::NetworkAnalysis) -> Value {
+    serde_json::json!({
+        "completedCount": analysis.completed_count,
+        "failedCount": analysis.failed_count,
+        "cancelledCount": analysis.cancelled_count,
+        "incompleteCount": analysis.incomplete_count,
+        "inFlightCount": analysis.in_flight_count,
+        "connectionReuse": {
+            "new": analysis.new_connection_count,
+            "reused": analysis.reused_connection_count,
+            "unknown": analysis.unknown_connection_count,
+        },
+        "p90Ms": analysis.p90_ms,
+        "invalidTimingCount": analysis.invalid_timing_count,
+        "startedAt": analysis.started_at_ms.map(aps_network::format_rfc3339_ms),
+        "endedAt": analysis.ended_at_ms.map(aps_network::format_rfc3339_ms),
+        "phases": analysis.phase_summaries.iter().map(|phase| serde_json::json!({
+            "kind": phase.kind.name(),
+            "sampleCount": phase.sample_count,
+            "missingCount": phase.missing_count,
+            "medianMs": phase.median_ms,
+            "p95Ms": phase.p95_ms,
+        })).collect::<Vec<_>>(),
     })
 }
 
 fn capture_metadata(session: &HarSession) -> Value {
     session.observed().map_or(Value::Null, |capture| {
+        let concurrency = capture.concurrency();
         serde_json::json!({
             "processId": capture.process_id,
             "processStartTicks": capture.process_start_ticks,
@@ -110,6 +191,19 @@ fn capture_metadata(session: &HarSession) -> Value {
             "unknownEvents": capture.unknown_events, "discardedEvents": capture.discarded_events,
             "omittedCallEvents": capture.omitted_call_events,
             "stopAcknowledged": capture.stop_acknowledged, "limitReached": capture.limit_reached,
+            "rawEventsRetained": false,
+            "analysis": {
+                "concurrency": {
+                    "includedCalls": concurrency.included_calls,
+                    "excludedCalls": concurrency.excluded_calls,
+                    "peak": concurrency.peak,
+                    "peakNs": concurrency.peak_ns,
+                    "average": concurrency.average,
+                    "timeline": concurrency.timeline.iter().map(|(time, active)|
+                        serde_json::json!({"timeNs": time, "activeCalls": active})
+                    ).collect::<Vec<_>>(),
+                },
+            },
         })
     })
 }
@@ -128,20 +222,19 @@ fn encode_session(
     if format == NetworkExport::Csv {
         output
             .write_all(
-                b"index,method,url,outcome,status,duration_ms,request_bytes,response_bytes\r\n",
+                b"index,method,url,status,duration_ms,request_bytes,response_bytes,protocol,outcome,connection,source\r\n",
             )
             .map_err(write_error)?;
+        let source = if session.observed().is_some() {
+            "agent"
+        } else {
+            "har"
+        };
         session.visit_entries(cancel, |entry| {
-            let outcome = session
-                .observed()
-                .and_then(|capture| capture.request(entry.index))
-                .map(|request| request.outcome.label())
-                .unwrap_or("");
             let row = [
                 entry.index.to_string(),
                 entry.method.into(),
-                entry.minimized_url.into(),
-                outcome.into(),
+                entry.redacted_url.clone(),
                 entry.status.to_string(),
                 entry
                     .duration_ms
@@ -155,6 +248,10 @@ fn encode_session(
                     .response_bytes
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
+                entry.protocol.clone().unwrap_or_default(),
+                entry.outcome.label().into(),
+                entry.connection_use.name().to_ascii_lowercase(),
+                source.into(),
             ];
             for (index, cell) in row.iter().enumerate() {
                 if index > 0 {
@@ -165,44 +262,77 @@ fn encode_session(
             }
             output.write_all(b"\r\n").map_err(write_error)
         })?;
-    } else {
+    } else if format == NetworkExport::Json {
         let summary = session.summary();
+        let analysis = session
+            .analysis(cancel)
+            .map_err(|error| error.to_string())?;
         let metadata = serde_json::json!({
-            "format": "aps-network-session-v1", "scope": "whole-session",
+            "schemaVersion": 2,
+            "format": "aps-network-session-v2",
+            "scope": "whole-session",
             "sourceDigest": summary.source_digest.to_string(),
             "minimizationPolicy": summary.minimization_policy,
-            "entryCount": summary.entry_count, "capture": capture_metadata(session),
-            "omitted": ["raw URLs", "headers", "cookies", "bodies", "wall-clock timestamps"],
+            "entryCount": summary.entry_count,
+            "sourceFormatVersion": summary.har_version,
+            "summary": {
+                "requestBytes": summary.request_bytes.total_bytes,
+                "responseBytes": summary.response_bytes.total_bytes,
+                "meanDurationMs": summary.mean_duration_ms,
+                "maxDurationMs": summary.max_duration_ms,
+                "missingDurationCount": summary.missing_duration_count,
+                "invalidDurationCount": summary.invalid_duration_count,
+            },
+            "analysis": analysis_json(&analysis),
+            "capture": capture_metadata(session),
+            "omitted": ["cookies", "bodies", "raw header values", "user info", "URL paths", "query values"],
         });
-        if format == NetworkExport::Json {
-            output.write_all(b"{\"metadata\":").map_err(write_error)?;
-            output.write_all(&json(&metadata)?).map_err(write_error)?;
-            output.write_all(b",\"entries\":[").map_err(write_error)?;
-        } else {
-            output.write_all(b"{\"log\":{\"version\":\"1.2\",\"creator\":{\"name\":\"AndroidPerformanceStudio\",\"version\":\"1\"},\"_aps\":").map_err(write_error)?;
-            output.write_all(&json(&metadata)?).map_err(write_error)?;
-            output.write_all(b",\"entries\":[").map_err(write_error)?;
-        }
+        output.write_all(b"{\"session\":").map_err(write_error)?;
+        output.write_all(&json(&metadata)?).map_err(write_error)?;
+        output.write_all(b",\"entries\":[").map_err(write_error)?;
         let mut first = true;
-        session.visit_entries(cancel, |entry| {
+        session.visit_details(cancel, |entry, detail| {
             if !first {
                 output.write_all(b",").map_err(write_error)?;
             }
             first = false;
-            let value = if format == NetworkExport::Json {
-                entry_json(session, entry)
-            } else {
-                partial_har_entry(session, entry)
-            };
-            output.write_all(&json(&value)?).map_err(write_error)
+            output
+                .write_all(&json(&entry_json(entry, detail))?)
+                .map_err(write_error)
         })?;
+        output.write_all(b"]}").map_err(write_error)?;
+    } else if format == NetworkExport::PartialHar {
+        let summary = session.summary();
+        let analysis = session
+            .analysis(cancel)
+            .map_err(|error| error.to_string())?;
+        let metadata = serde_json::json!({
+            "sourceDigest": summary.source_digest.to_string(),
+            "minimizationPolicy": summary.minimization_policy,
+            "analysis": analysis_json(&analysis),
+            "capture": capture_metadata(session),
+            "omitted": ["cookies", "bodies", "raw header values", "user info", "URL paths", "query values"],
+        });
         output
-            .write_all(if format == NetworkExport::Json {
-                b"]}"
-            } else {
-                b"]}}"
-            })
+            .write_all(
+                b"{\"log\":{\"version\":\"1.2\",\"creator\":{\"name\":\"Android Performance Studio\",\"version\":\"1\"},\"_aps\":",
+            )
             .map_err(write_error)?;
+        output.write_all(&json(&metadata)?).map_err(write_error)?;
+        output.write_all(b",\"entries\":[").map_err(write_error)?;
+        let mut first = true;
+        session.visit_details(cancel, |entry, detail| {
+            if !first {
+                output.write_all(b",").map_err(write_error)?;
+            }
+            first = false;
+            output
+                .write_all(&json(&partial_har_entry(entry, detail))?)
+                .map_err(write_error)
+        })?;
+        output.write_all(b"]}}").map_err(write_error)?;
+    } else {
+        return Err("Use the raw bundle writer for archive exports".into());
     }
     if cancel.is_cancelled() {
         return Err("Network export cancelled".into());
@@ -210,12 +340,57 @@ fn encode_session(
     output.flush().map_err(write_error)
 }
 
-fn write_session(
+fn write_raw_bundle(
     session: &HarSession,
-    format: NetworkExport,
     path: &Path,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
+    let result = write_raw_bundle_inner(session, path, cancel);
+    if result.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    result
+}
+
+fn write_raw_bundle_inner(
+    session: &HarSession,
+    path: &Path,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    let mut report = Vec::new();
+    encode_session(session, NetworkExport::Json, &mut report, cancel)?;
+    let file = open_destination(path)?;
+    let mut zip = ZipWriter::new(BufWriter::new(file));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    zip.start_file("network-session.json", options)
+        .map_err(|error| error.to_string())?;
+    zip.write_all(&report).map_err(|error| error.to_string())?;
+    zip.start_file("raw-events.json", options)
+        .map_err(|error| error.to_string())?;
+    // Agent raw event bytes are not retained by this adapter; the archive says so
+    // instead of fabricating a raw stream.
+    zip.write_all(b"[]").map_err(|error| error.to_string())?;
+    zip.start_file("manifest.txt", options)
+        .map_err(|error| error.to_string())?;
+    let summary = session.summary();
+    let manifest = format!(
+        "schema=2\nsession={}\npolicy={}\nentries={}\nraw_events=not_retained\nsource={}\nbodies=excluded\ncookies=excluded\n",
+        summary.source_digest,
+        summary.minimization_policy,
+        summary.entry_count,
+        if session.observed().is_some() {
+            "agent"
+        } else {
+            "har"
+        },
+    );
+    zip.write_all(manifest.as_bytes())
+        .map_err(|error| error.to_string())?;
+    zip.finish().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn open_destination(path: &Path) -> Result<std::fs::File, String> {
     if !path.is_absolute() {
         return Err("Network export requires an absolute destination".into());
     }
@@ -226,9 +401,21 @@ fn write_session(
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let file = options
-        .open(path)
-        .map_err(|_| "Select a new export filename; the destination exists or cannot be created")?;
+    options.open(path).map_err(|_| {
+        "Select a new export filename; the destination exists or cannot be created".into()
+    })
+}
+
+fn write_session(
+    session: &HarSession,
+    format: NetworkExport,
+    path: &Path,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    if format == NetworkExport::RawBundle {
+        return write_raw_bundle(session, path, cancel);
+    }
+    let file = open_destination(path)?;
     let mut output = BufWriter::new(file);
     let result = encode_session(session, format, &mut output, cancel).and_then(|()| {
         output
@@ -321,7 +508,32 @@ impl ImportWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn fixture(count: usize) -> HarSession {
+    use aps_network::{EntryOutcome, ImportLimits};
+    use aps_platform::TempWorkspace;
+    use std::io::Read as _;
+
+    fn har_entry(index: usize) -> String {
+        format!(
+            "{{\"startedDateTime\":\"2026-11-16T22:00:00.000Z\",\"time\":12.5,\"request\":{{\"method\":\"GET\",\"url\":\"https://alice:pw@example.test/private/{index}?token=secret&page=2\",\"headers\":[{{\"name\":\"Authorization\",\"value\":\"Bearer secret\"}},{{\"name\":\"Content-Type\",\"value\":\"application/json\"}}],\"bodySize\":3}},\"response\":{{\"status\":200,\"bodySize\":9,\"httpVersion\":\"h2\",\"headers\":[{{\"name\":\"Content-Type\",\"value\":\"application/json\"}}],\"content\":{{\"size\":18}}}},\"timings\":{{\"blocked\":1,\"dns\":2,\"connect\":3,\"ssl\":4,\"send\":5,\"wait\":10,\"receive\":6}}}}"
+        )
+    }
+
+    fn har_session(count: usize) -> (TempWorkspace, HarSession) {
+        let workspace = TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let entries: Vec<_> = (0..count).map(har_entry).collect();
+        let document = format!(
+            "{{\"log\":{{\"version\":\"1.2\",\"creator\":{{\"name\":\"fixture\"}},\"entries\":[{}]}}}}",
+            entries.join(",")
+        );
+        let path = workspace.path().join("session.har");
+        std::fs::write(&path, document).unwrap();
+        let session =
+            HarSession::open(&path, ImportLimits::default(), &CancellationToken::new()).unwrap();
+        (workspace, session)
+    }
+
+    fn observed_session(count: usize) -> HarSession {
+        let url = "https://example.test/<redacted-path>?q=<redacted>";
         HarSession::from_observed(ObservedCapture {
             process_id: 123,
             process_start_ticks: 1,
@@ -346,12 +558,19 @@ mod tests {
                         duration_ms: Some(0.0001),
                         request_bytes: None,
                         response_bytes: Some(5),
-                        minimized_url: MINIMIZED_URL,
+                        redacted_url: url.into(),
+                        protocol: Some("h2".into()),
+                        outcome: EntryOutcome::Completed,
+                        connection_use: aps_network::ConnectionUse::Unknown,
+                        started_at_ms: None,
                     },
                     outcome: ObservedOutcome::Completed,
                     start_ns: Some(0),
                     end_ns: Some(100),
                     protocol: Some("h2"),
+                    redacted_url: url.into(),
+                    tls_version: None,
+                    cipher_suite: None,
                     cancellation_requested: false,
                     phases_truncated: 0,
                     phases: Vec::new(),
@@ -360,9 +579,10 @@ mod tests {
         })
         .unwrap()
     }
+
     #[::core::prelude::v1::test]
     fn session_exports_all_entries_not_only_the_current_ui_page() {
-        let session = fixture(251);
+        let (_workspace, session) = har_session(251);
         let mut bytes = Vec::new();
         encode_session(
             &session,
@@ -372,20 +592,66 @@ mod tests {
         )
         .unwrap();
         let report = aps_json::parse_slice(&bytes, Limits::default()).unwrap();
+        assert_eq!(report["session"]["scope"], "whole-session");
+        assert_eq!(report["session"]["entryCount"], 251);
+        assert_eq!(report["session"]["analysis"]["completedCount"], 251);
         assert_eq!(report["entries"].as_array().unwrap().len(), 251);
-        assert_eq!(report["metadata"]["scope"], "whole-session");
-        assert_eq!(report["metadata"]["capture"]["droppedEvents"], 2);
-        assert_eq!(
-            report["entries"][250]["observation"]["outcome"],
-            "completed"
-        );
-        assert_eq!(report["entries"][250]["status"], 500);
+        let last = &report["entries"][250];
+        assert_eq!(last["status"], 200);
+        assert!(last["url"].as_str().unwrap().contains("example.test"));
+        assert!(last["url"].as_str().unwrap().contains("<redacted-path>"));
+        assert_eq!(last["outcome"], "completed");
+        assert_eq!(last["connectionUse"], "NEW");
+        let headers = last["requestHeaders"].as_array().unwrap();
+        assert!(headers.iter().any(|header| {
+            header["name"] == "Authorization" && header["value"] == "<redacted>"
+        }));
+        let text = String::from_utf8(bytes).unwrap();
+        for secret in ["alice", "pw@", "private/", "token=secret", "Bearer secret"] {
+            assert!(!text.contains(secret), "leaked {secret}");
+        }
     }
+
     #[::core::prelude::v1::test]
-    fn partial_har_does_not_fabricate_wall_time_or_raw_content() {
+    fn partial_har_carries_redacted_identity_timings_and_header_metadata() {
+        let (_workspace, session) = har_session(1);
         let mut bytes = Vec::new();
         encode_session(
-            &fixture(1),
+            &session,
+            NetworkExport::PartialHar,
+            &mut bytes,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        let report = aps_json::parse_slice(&bytes, Limits::default()).unwrap();
+        let entry = &report["log"]["entries"][0];
+        assert_eq!(entry["startedDateTime"], "2026-11-16T22:00:00Z");
+        assert_eq!(entry["_aps"]["startedDateTimeAvailable"], true);
+        assert_eq!(
+            entry["request"]["url"],
+            "https://<redacted>@example.test/<redacted-path>?token=<redacted>&page=<redacted>"
+        );
+        assert_eq!(entry["timings"]["wait"], 10.0);
+        assert_eq!(entry["timings"]["dns"], 2.0);
+        let headers = entry["request"]["headers"].as_array().unwrap();
+        assert!(headers.iter().any(|header| {
+            header["name"] == "Authorization" && header["value"] == "<redacted>"
+        }));
+        assert!(entry["response"]["content"].get("text").is_none());
+        assert_eq!(entry["response"]["content"]["size"], -1);
+        assert!(
+            report["log"]["_aps"]["capture"]
+                .get("deviceBootId")
+                .is_none()
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn observed_session_never_fabricates_wall_time() {
+        let session = observed_session(3);
+        let mut bytes = Vec::new();
+        encode_session(
+            &session,
             NetworkExport::PartialHar,
             &mut bytes,
             &CancellationToken::new(),
@@ -395,21 +661,19 @@ mod tests {
         let entry = &report["log"]["entries"][0];
         assert!(entry.get("startedDateTime").is_none());
         assert_eq!(entry["_aps"]["startedDateTimeAvailable"], false);
-        assert_eq!(entry["request"]["url"], MINIMIZED_URL);
-        assert!(entry["request"]["headers"].as_array().unwrap().is_empty());
-        assert!(entry["response"]["content"].get("text").is_none());
-        assert_eq!(entry["response"]["content"]["size"], -1);
-        assert!(
-            report["log"]["_aps"]["capture"]
-                .get("deviceBootId")
-                .is_none()
+        assert_eq!(
+            entry["request"]["url"],
+            "https://example.test/<redacted-path>?q=<redacted>"
         );
+        assert!(entry["request"]["headers"].as_array().unwrap().is_empty());
     }
+
     #[::core::prelude::v1::test]
     fn csv_includes_all_rows_and_unknown_values_are_empty() {
+        let session = observed_session(201);
         let mut bytes = Vec::new();
         encode_session(
-            &fixture(201),
+            &session,
             NetworkExport::Csv,
             &mut bytes,
             &CancellationToken::new(),
@@ -417,25 +681,63 @@ mod tests {
         .unwrap();
         let csv = String::from_utf8(bytes).unwrap();
         assert_eq!(csv.lines().count(), 202);
-        assert!(csv.contains("\"completed\",\"500\",\"0.0001\",\"\",\"5\""));
+        assert!(
+            csv.contains(
+                "\"500\",\"0.0001\",\"\",\"5\",\"h2\",\"completed\",\"unknown\",\"agent\""
+            )
+        );
     }
+
+    #[::core::prelude::v1::test]
+    fn raw_bundle_contains_report_manifest_and_no_fabricated_raw_events() {
+        let workspace = TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let (_har, session) = har_session(2);
+        let path = workspace.path().join("bundle.zip");
+        write_session(
+            &session,
+            NetworkExport::RawBundle,
+            &path,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("network-session.json").is_ok());
+        assert!(archive.by_name("manifest.txt").is_ok());
+        let mut manifest = String::new();
+        archive
+            .by_name("manifest.txt")
+            .unwrap()
+            .read_to_string(&mut manifest)
+            .unwrap();
+        assert!(manifest.contains("raw_events=not_retained"));
+        let mut raw = String::new();
+        archive
+            .by_name("raw-events.json")
+            .unwrap()
+            .read_to_string(&mut raw)
+            .unwrap();
+        assert_eq!(raw, "[]");
+    }
+
     #[::core::prelude::v1::test]
     fn cancellation_existing_destinations_and_byte_bounds_fail_closed() {
         let cancel = CancellationToken::new();
         cancel.cancel();
-        assert!(encode_session(&fixture(1), NetworkExport::Json, Vec::new(), &cancel).is_err());
+        let (_har, session) = har_session(1);
+        assert!(encode_session(&session, NetworkExport::Json, Vec::new(), &cancel).is_err());
         let mut writer = BoundedWriter {
             inner: Vec::new(),
             remaining: 2,
         };
         assert!(writer.write_all(b"abc").is_err());
         assert!(writer.inner.is_empty());
-        let workspace = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let workspace = TempWorkspace::create(&std::env::temp_dir()).unwrap();
         let path = workspace.path().join("report.json");
         std::fs::write(&path, b"original").unwrap();
         assert!(
             write_session(
-                &fixture(1),
+                &session,
                 NetworkExport::Json,
                 &path,
                 &CancellationToken::new()
@@ -444,7 +746,7 @@ mod tests {
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"original");
         let cancelled = workspace.path().join("cancelled.json");
-        assert!(write_session(&fixture(1), NetworkExport::Json, &cancelled, &cancel).is_err());
+        assert!(write_session(&session, NetworkExport::Json, &cancelled, &cancel).is_err());
         assert!(!cancelled.exists());
     }
 }

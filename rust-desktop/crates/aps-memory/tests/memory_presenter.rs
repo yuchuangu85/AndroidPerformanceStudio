@@ -29,6 +29,7 @@ fn snapshot_data(
         summary: HeapSummary::default(),
         classes,
         per_heap_classes,
+        per_heap_summaries: BTreeMap::new(),
         findings,
     }
 }
@@ -464,6 +465,42 @@ fn native_size_is_enriched_from_bitmap_evidence() {
 }
 
 #[test]
+fn incomplete_bitmap_evidence_never_becomes_a_class_native_total() {
+    let bitmap = BitmapInstance {
+        native_size_bytes: Some(40_000),
+        ..bitmap("android.graphics.Bitmap", Some(100), Some(100), None, None)
+    };
+    for (instances, total, rows) in [
+        (1, 2, vec![bitmap.clone()]),
+        (2, 1, vec![bitmap.clone()]),
+        (
+            2,
+            2,
+            vec![
+                bitmap.clone(),
+                BitmapInstance {
+                    native_size_bytes: None,
+                    ..bitmap.clone()
+                },
+            ],
+        ),
+    ] {
+        let snapshot = snapshot_data(
+            vec![class("android.graphics.Bitmap", instances, 16)],
+            BTreeMap::new(),
+            FindingsSnapshot {
+                bitmaps: FindingsPage { total, rows },
+                ..FindingsSnapshot::default()
+            },
+        );
+        assert_eq!(
+            displayed_classes(&snapshot, &MemoryFilter::default())[0].native_size,
+            None
+        );
+    }
+}
+
+#[test]
 fn filtered_summary_does_not_claim_retained_evidence() {
     let mut first = class("com.example.Item", 2, 80);
     first.retained_size = Some(100);
@@ -725,9 +762,9 @@ fn retained_columns_order_unavailable_values_as_zero() {
         rows.iter()
             .map(|row| row.class_name.as_deref().unwrap())
             .collect::<Vec<_>>(),
-        vec!["b.Unknown", "a.Known"]
+        vec!["a.Known", "b.Unknown"]
     );
-    assert_eq!(rows[0].retained_size, None);
+    assert_eq!(rows[1].retained_size, None);
 }
 
 #[test]

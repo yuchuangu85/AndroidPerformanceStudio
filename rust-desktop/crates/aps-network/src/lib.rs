@@ -1,13 +1,22 @@
-//! Bounded, minimized HAR import and explicitly observed Agent snapshots.
+//! Bounded, redacted HAR import and explicitly observed Agent snapshots.
 //!
-//! Raw entry frames exist only transiently inside the parser/adapter. They are
-//! never returned, logged or persisted. Whole-session queries lazily retain an
-//! index containing only minimized entries, bounded by the configured entry cap.
+//! Raw entry frames exist only transiently inside the parser/adapter. Structured
+//! request identity is redacted before retention: scheme, host and port survive,
+//! while userinfo, paths, query values, cookies, bodies and headers (except
+//! content metadata) are removed. Whole-session queries retain an index of
+//! bounded, redacted entries; per-entry phase and header evidence is parsed on
+//! demand and never persisted by this adapter.
 
 mod observed;
+mod redact;
 pub use observed::{
-    OBSERVED_MINIMIZATION_POLICY, ObservedCapture, ObservedOutcome, ObservedPhase,
-    ObservedPhaseKind, ObservedRequest,
+    OBSERVED_MINIMIZATION_POLICY, ObservedCapture, ObservedConcurrency, ObservedOutcome,
+    ObservedPhase, ObservedPhaseKind, ObservedPhaseSummary, ObservedRequest,
+};
+pub use redact::{
+    INVALID_URL, MAX_HEADER_NAME_CHARS, MAX_HEADER_VALUE_CHARS, MAX_HEADERS,
+    MAX_REDACTED_URL_CHARS, REDACTED_PATH, REDACTED_VALUE, format_rfc3339_ms, parse_rfc3339_ms,
+    redact_headers, redact_url, redact_url_with,
 };
 
 use aps_contracts::SourceDigest;
@@ -24,9 +33,15 @@ use std::time::SystemTime;
 pub const MAX_PAGE_SIZE: usize = 200;
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const MAX_QUERY_BYTES: usize = 128;
+pub const MAX_PROTOCOL_CHARS: usize = 32;
+pub const MAX_PHASES: usize = 12;
+pub const MAX_DOMAINS: usize = 2_000;
+pub const ACTIVITY_BUCKETS: usize = 24;
+/// Structured redaction replaces the former fully minimized URL constant.
+pub const MINIMIZATION_POLICY: &str = "aps-network-redacted-v2";
 const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
-pub const MINIMIZED_URL: &str = "redacted://minimized-url";
-pub const MINIMIZATION_POLICY: &str = "aps-network-rust-minimized-v1";
+const MAX_CACHED_PAGES: usize = 8;
+const MAX_CACHED_BYTES: usize = 512 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ImportLimits {
@@ -91,6 +106,7 @@ impl From<aps_har_engine::ByteSummary> for ByteTotals {
 
 #[derive(Debug)]
 pub struct HarSummary {
+    pub har_version: String,
     pub entry_count: u64,
     pub status_families: BTreeMap<String, u64>,
     pub request_bytes: ByteTotals,
@@ -105,8 +121,212 @@ pub struct HarSummary {
     pub source_digest: SourceDigest,
 }
 
-/// Deliberately excludes raw URLs, arbitrary methods, timestamps, headers,
-/// cookies, query names/values, bodies, producer strings and error output.
+/// Terminal state of one call. HAR import can establish completed, failed or
+/// incomplete evidence; Agent observations add cancelled and in-flight states.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+    Incomplete,
+    InFlight,
+}
+impl EntryOutcome {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Incomplete => "incomplete",
+            Self::InFlight => "in-flight",
+        }
+    }
+}
+
+/// Connection reuse inferred from the absence of DNS/CONNECT/TLS evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectionUse {
+    New,
+    Reused,
+    Unknown,
+}
+impl ConnectionUse {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::New => "NEW",
+            Self::Reused => "REUSED",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PhaseKind {
+    DispatcherQueue,
+    ProxySelect,
+    Dns,
+    Connect,
+    Tls,
+    RequestHeaders,
+    RequestBody,
+    ServerWait,
+    ResponseHeaders,
+    ResponseBody,
+    ConnectionHeld,
+    Total,
+}
+impl PhaseKind {
+    pub const ALL: [Self; MAX_PHASES] = [
+        Self::DispatcherQueue,
+        Self::ProxySelect,
+        Self::Dns,
+        Self::Connect,
+        Self::Tls,
+        Self::RequestHeaders,
+        Self::RequestBody,
+        Self::ServerWait,
+        Self::ResponseHeaders,
+        Self::ResponseBody,
+        Self::ConnectionHeld,
+        Self::Total,
+    ];
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::DispatcherQueue => "DISPATCHER_QUEUE",
+            Self::ProxySelect => "PROXY_SELECT",
+            Self::Dns => "DNS",
+            Self::Connect => "CONNECT",
+            Self::Tls => "TLS",
+            Self::RequestHeaders => "REQUEST_HEADERS",
+            Self::RequestBody => "REQUEST_BODY",
+            Self::ServerWait => "SERVER_WAIT",
+            Self::ResponseHeaders => "RESPONSE_HEADERS",
+            Self::ResponseBody => "RESPONSE_BODY",
+            Self::ConnectionHeld => "CONNECTION_HELD",
+            Self::Total => "TOTAL",
+        }
+    }
+    fn position(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|kind| *kind == self)
+            .expect("phase kind is part of ALL")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhaseAvailability {
+    Value,
+    NotApplicable,
+    Unavailable,
+    Invalid,
+}
+impl PhaseAvailability {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Value => "VALUE",
+            Self::NotApplicable => "NOT_APPLICABLE",
+            Self::Unavailable => "UNAVAILABLE",
+            Self::Invalid => "INVALID",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhaseConfidence {
+    Exact,
+    Derived,
+    Inferred,
+    Approximated,
+    Partial,
+    Unknown,
+}
+impl PhaseConfidence {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Exact => "EXACT",
+            Self::Derived => "DERIVED",
+            Self::Inferred => "INFERRED",
+            Self::Approximated => "APPROXIMATED",
+            Self::Partial => "PARTIAL",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntryPhase {
+    pub kind: PhaseKind,
+    pub duration_ms: Option<f64>,
+    pub availability: PhaseAvailability,
+    pub confidence: PhaseConfidence,
+    pub parent: Option<PhaseKind>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EntryDetail {
+    pub request_headers: Vec<(String, String)>,
+    pub response_headers: Vec<(String, String)>,
+    pub phases: Vec<EntryPhase>,
+    /// Bounded failure type; never a raw error message.
+    pub failure_type: Option<String>,
+    pub tls_version: Option<String>,
+    pub cipher_suite: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhaseDurationSummary {
+    pub kind: PhaseKind,
+    pub sample_count: u64,
+    pub missing_count: u64,
+    pub median_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+}
+
+/// Whole-session analysis derived from the same redacted entries the table
+/// shows. Timings describe the recorded evidence; they are not a coverage claim.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NetworkAnalysis {
+    pub completed_count: u64,
+    pub failed_count: u64,
+    pub cancelled_count: u64,
+    pub incomplete_count: u64,
+    pub in_flight_count: u64,
+    pub new_connection_count: u64,
+    pub reused_connection_count: u64,
+    pub unknown_connection_count: u64,
+    pub p90_ms: Option<f64>,
+    pub phase_summaries: Vec<PhaseDurationSummary>,
+    pub invalid_timing_count: u64,
+    pub started_at_ms: Option<i64>,
+    pub ended_at_ms: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DomainSummary {
+    pub domain: Option<String>,
+    pub call_count: u64,
+    pub failure_count: u64,
+    /// Available only when every counted call reports both byte directions.
+    pub transferred_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetworkActivity {
+    pub origin_ns: u64,
+    pub duration_ns: u64,
+    pub timed_calls: u64,
+    pub omitted_calls: u64,
+    pub incomplete_byte_calls: u64,
+    /// Bytes assigned to the bucket where the call ended; None means one of the
+    /// calls in that bucket has an unknown byte count.
+    pub buckets: Vec<Option<u64>>,
+    pub peak_concurrency: usize,
+    pub average_concurrency: Option<f64>,
+}
+
+/// Structured request identity retained by the index. Never contains userinfo,
+/// paths, query values, headers, cookies or bodies.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkEntry {
     pub index: u64,
@@ -115,7 +335,14 @@ pub struct NetworkEntry {
     pub duration_ms: Option<f64>,
     pub request_bytes: Option<u64>,
     pub response_bytes: Option<u64>,
-    pub minimized_url: &'static str,
+    /// Redacted URL: scheme, host, optional port, path placeholder and redacted
+    /// query values.
+    pub redacted_url: String,
+    pub protocol: Option<String>,
+    pub outcome: EntryOutcome,
+    pub connection_use: ConnectionUse,
+    /// Absolute producer timestamp for HAR entries; None for Agent entries.
+    pub started_at_ms: Option<i64>,
 }
 
 /// HTTP response classes, not network call outcomes. A 4xx/5xx response does
@@ -130,8 +357,7 @@ pub enum StatusFilter {
     Unknown,
 }
 
-/// Observed call terminal state, independent of HTTP status. Minimized HAR
-/// sources cannot establish this evidence and accept only `All`.
+/// Call outcome filter, independent of HTTP status.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OutcomeFilter {
     #[default]
@@ -139,17 +365,19 @@ pub enum OutcomeFilter {
     Completed,
     Failed,
     Cancelled,
+    Incomplete,
     InFlight,
 }
 impl OutcomeFilter {
-    fn matches(self, outcome: ObservedOutcome) -> bool {
+    fn matches(self, outcome: EntryOutcome) -> bool {
         matches!(
             (self, outcome),
             (Self::All, _)
-                | (Self::Completed, ObservedOutcome::Completed)
-                | (Self::Failed, ObservedOutcome::Failed)
-                | (Self::Cancelled, ObservedOutcome::Cancelled)
-                | (Self::InFlight, ObservedOutcome::InFlight)
+                | (Self::Completed, EntryOutcome::Completed)
+                | (Self::Failed, EntryOutcome::Failed)
+                | (Self::Cancelled, EntryOutcome::Cancelled)
+                | (Self::Incomplete, EntryOutcome::Incomplete)
+                | (Self::InFlight, EntryOutcome::InFlight)
         )
     }
 }
@@ -163,7 +391,7 @@ pub enum EntrySort {
 }
 
 /// Filters apply to the entire selected session before paging. Search inspects
-/// minimized fields only; it never searches the raw URL, producer or traffic.
+/// redacted presentation fields only.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EntryQuery {
     pub status: StatusFilter,
@@ -206,6 +434,7 @@ impl EntryQuery {
             StatusFilter::Unknown => entry.status == 0,
         };
         if !status_matches
+            || !self.outcome.matches(entry.outcome)
             || self
                 .method
                 .as_deref()
@@ -215,7 +444,17 @@ impl EntryQuery {
         }
         search.is_empty()
             || entry.method.to_ascii_lowercase().contains(search)
-            || entry.minimized_url.contains(search)
+            || entry.redacted_url.to_ascii_lowercase().contains(search)
+            || entry
+                .protocol
+                .as_deref()
+                .is_some_and(|protocol| protocol.to_ascii_lowercase().contains(search))
+            || entry.outcome.label().contains(search)
+            || entry
+                .connection_use
+                .name()
+                .to_ascii_lowercase()
+                .contains(search)
             || entry.index.to_string().contains(search)
             || entry.status.to_string().contains(search)
             || entry
@@ -241,13 +480,13 @@ pub struct EntryPage {
 
 /// Duration statistics derived from HAR producer timing values. These values
 /// describe the timing fields present in the imported artifact only; they do
-/// not establish event coverage or prove that all network activity was
-/// observed.
+/// not establish event coverage or prove that all network activity was observed.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DurationPercentiles {
     pub sample_count: u64,
     pub missing_count: u64,
     pub median_ms: Option<f64>,
+    pub p90_ms: Option<f64>,
     pub p95_ms: Option<f64>,
 }
 
@@ -278,8 +517,8 @@ impl SourceStamp {
 }
 
 /// A selected HAR file or an explicit, immutable Agent observation. Retains only
-/// minimized evidence. File metadata detects mutation; an observed-source
-/// digest identifies its minimized snapshot, never the original wire stream.
+/// redacted evidence. File metadata detects mutation; an observed-source digest
+/// identifies its redacted snapshot, never the original wire stream.
 pub struct HarSession {
     path: PathBuf,
     source: Option<SourceStamp>,
@@ -288,10 +527,8 @@ pub struct HarSession {
     summary: HarSummary,
     cache: Mutex<Vec<CachedPage>>,
     index: Mutex<Option<Arc<Vec<NetworkEntry>>>>,
+    analysis: Mutex<Option<Arc<NetworkAnalysis>>>,
 }
-
-const MAX_CACHED_PAGES: usize = 8;
-const MAX_CACHED_BYTES: usize = 512 * 1024;
 
 struct CachedPage {
     offset: usize,
@@ -347,6 +584,7 @@ impl HarSession {
             return Err(NetworkError::SourceChanged);
         }
         let summary = HarSummary {
+            har_version: raw.har_version,
             entry_count: raw.entry_count,
             status_families: raw.status_families,
             request_bytes: raw.request_bytes.into(),
@@ -368,6 +606,7 @@ impl HarSession {
             summary,
             cache: Mutex::new(Vec::new()),
             index: Mutex::new(None),
+            analysis: Mutex::new(None),
         };
         session.check_source()?;
         if cancel.is_cancelled() {
@@ -381,7 +620,7 @@ impl HarSession {
     }
 
     /// An explicitly observed, immutable memory projection, not a HAR file.
-    /// The digest identifies the minimized snapshot, never the original wire
+    /// The digest identifies the redacted snapshot, never the original wire
     /// stream. No raw traffic or filesystem path is fabricated for this source.
     pub fn from_observed(capture: ObservedCapture) -> Result<Self, NetworkError> {
         let (summary, entries) = capture.project()?;
@@ -393,6 +632,7 @@ impl HarSession {
             summary,
             cache: Mutex::new(Vec::new()),
             index: Mutex::new(Some(Arc::new(entries))),
+            analysis: Mutex::new(None),
         })
     }
 
@@ -400,7 +640,7 @@ impl HarSession {
         self.observed.as_deref()
     }
 
-    /// Explicit whole-session export boundary. Only minimized entries reach the
+    /// Explicit whole-session export boundary. Only redacted entries reach the
     /// visitor; the source is checked before and after the complete traversal.
     /// Callers must discard their output if this returns an error.
     pub fn visit_entries(
@@ -428,61 +668,35 @@ impl HarSession {
         check()
     }
 
-    /// Parses to EOF before returning a page: partial/invalid streams are discarded.
+    /// Paged entries for the selected source. HAR pages share the same redacted
+    /// whole-session index used by filtering, so source identity is verified
+    /// before returning any page.
     pub fn entries(
         &self,
         offset: usize,
         limit: usize,
         cancel: &CancellationToken,
     ) -> Result<EntryPage, NetworkError> {
-        if self.observed.is_some() {
-            return self.query_entries(offset, limit, &EntryQuery::default(), cancel);
-        }
-        if limit == 0 || limit > MAX_PAGE_SIZE || offset.checked_add(limit).is_none() {
-            return Err(NetworkError::InvalidPage);
-        }
         if cancel.is_cancelled() {
             return Err(NetworkError::Cancelled);
         }
         self.check_source()?;
         self.check_digest(cancel)?;
-        if let Some(page) = self.cached_page(offset, limit) {
+        if limit > 0
+            && limit <= MAX_PAGE_SIZE
+            && offset.checked_add(limit).is_some()
+            && let Some(page) = self.cached_page(offset, limit)
+        {
             return Ok(page);
         }
-        let mut file = self.open_validated_source()?;
-        self.check_open_digest(&mut file, cancel)?;
-        let mut sink = EntrySink::new(offset, limit, self.summary.entry_count);
-        aps_har_engine::stream_entries(
-            CheckedReader::new(&mut file, self.limits.max_file_bytes, cancel),
-            &mut sink,
-        )
-        .map_err(|_| {
-            if cancel.is_cancelled() {
-                NetworkError::Cancelled
-            } else {
-                NetworkError::InvalidHar
-            }
-        })?;
-        if !sink.complete || sink.pending.is_some() || !sink.header.is_empty() {
-            return Err(NetworkError::InvalidHar);
-        }
-        self.check_open_digest(&mut file, cancel)?;
-        let page = EntryPage {
-            offset,
-            total: self.summary.entry_count,
-            rows: sink.rows,
-            minimization_policy: self.summary.minimization_policy,
-            source_digest: self.summary.source_digest,
-        };
-        self.cache_page(page.clone(), limit);
-        Ok(page)
+        self.query_entries(offset, limit, &EntryQuery::default(), cancel)
     }
 
     /// Blocking whole-session query. Only a bounded page leaves the adapter;
-    /// the lazy index contains at most `ImportLimits::max_entries` minimized
-    /// entries, never raw entry frames. Equal values sort by original index and
-    /// missing values sort after known values. Source identity is revalidated
-    /// even when the minimized index is already cached.
+    /// the lazy index contains at most ImportLimits::max_entries redacted
+    /// entries. Equal values sort by original index and missing values sort
+    /// after known values. Source identity is revalidated even when the
+    /// minimized index is already cached.
     pub fn query_entries(
         &self,
         offset: usize,
@@ -494,9 +708,6 @@ impl HarSession {
             return Err(NetworkError::InvalidPage);
         }
         query.validate()?;
-        if query.outcome != OutcomeFilter::All && self.observed.is_none() {
-            return Err(NetworkError::InvalidQuery);
-        }
         if cancel.is_cancelled() {
             return Err(NetworkError::Cancelled);
         }
@@ -504,23 +715,10 @@ impl HarSession {
         self.check_digest(cancel)?;
         let index = self.minimized_index(cancel)?;
         let search = query.search.trim().to_ascii_lowercase();
-        let mut matches = Vec::new();
-        for (position, entry) in index.iter().enumerate() {
-            if position % 256 == 0 && cancel.is_cancelled() {
-                return Err(NetworkError::Cancelled);
-            }
-            // Observed entries and requests are validated and indexed in the
-            // same original order, so filtering needs no per-row map/search.
-            let outcome_matches = query.outcome == OutcomeFilter::All
-                || self.observed.as_ref().is_some_and(|capture| {
-                    capture.requests.get(position).is_some_and(|request| {
-                        request.entry.index == entry.index && query.outcome.matches(request.outcome)
-                    })
-                });
-            if outcome_matches && query.matches(entry, &search) {
-                matches.push(entry);
-            }
-        }
+        let mut matches: Vec<&NetworkEntry> = index
+            .iter()
+            .filter(|entry| query.matches(entry, &search))
+            .collect();
         matches.sort_unstable_by(|left, right| {
             let value_order = match query.sort {
                 EntrySort::Entry => std::cmp::Ordering::Equal,
@@ -553,17 +751,399 @@ impl HarSession {
         if cancel.is_cancelled() {
             return Err(NetworkError::Cancelled);
         }
-        Ok(EntryPage {
+        let page = EntryPage {
             offset,
             total,
             rows,
             minimization_policy: self.summary.minimization_policy,
             source_digest: self.summary.source_digest,
-        })
+        };
+        if query == &EntryQuery::default() {
+            self.cache_page(page.clone(), limit);
+        }
+        Ok(page)
     }
 
-    /// Computes median and p95 from the same validated minimized index used by
-    /// filtered pages. Quantiles use linear interpolation at `(n - 1) * p`.
+    /// Parses and returns phase/header evidence for one already-indexed entry.
+    /// Nothing from this call is persisted.
+    pub fn entry_detail(
+        &self,
+        index: u64,
+        cancel: &CancellationToken,
+    ) -> Result<Option<EntryDetail>, NetworkError> {
+        self.check_digest(cancel)?;
+        if let Some(capture) = &self.observed {
+            let Some(request) = capture.request(index) else {
+                return Ok(None);
+            };
+            return Ok(Some(observed_detail(request, capture.start_monotonic_ns)));
+        }
+        let mut requested = None;
+        self.stream_frames(cancel, |frame_index, bytes| {
+            if frame_index == index {
+                requested = Some(detail_from_frame(bytes).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid HAR entry")
+                })?);
+            }
+            Ok(())
+        })?;
+        Ok(requested)
+    }
+
+    /// Whole-session detail traversal for exports. The source is verified before
+    /// and after; callers must discard partial output on error.
+    pub fn visit_details(
+        &self,
+        cancel: &CancellationToken,
+        mut visitor: impl FnMut(&NetworkEntry, &EntryDetail) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if let Some(capture) = &self.observed {
+            let entries = self
+                .minimized_index(cancel)
+                .map_err(|error| error.to_string())?;
+            for entry in entries.iter() {
+                if cancel.is_cancelled() {
+                    return Err(NetworkError::Cancelled.to_string());
+                }
+                let Some(request) = capture.request(entry.index) else {
+                    continue;
+                };
+                visitor(entry, &observed_detail(request, capture.start_monotonic_ns))?;
+            }
+            return Ok(());
+        }
+        if cancel.is_cancelled() {
+            return Err(NetworkError::Cancelled.to_string());
+        }
+        self.check_source().map_err(|error| error.to_string())?;
+        self.check_digest(cancel)
+            .map_err(|error| error.to_string())?;
+        let entries = self
+            .minimized_index(cancel)
+            .map_err(|error| error.to_string())?;
+        self.stream_frames(cancel, |index, bytes| -> io::Result<()> {
+            let Some(entry) = entries.get(index as usize) else {
+                return Ok(());
+            };
+            let detail = detail_from_frame(bytes)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid HAR entry"))?;
+            visitor(entry, &detail).map_err(io::Error::other)
+        })
+        .map_err(|error| error.to_string())?;
+        self.check_source().map_err(|error| error.to_string())?;
+        self.check_digest(cancel)
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    /// Whole-session analysis. Cached per immutable source snapshot.
+    pub fn analysis(&self, cancel: &CancellationToken) -> Result<NetworkAnalysis, NetworkError> {
+        self.check_source()?;
+        self.check_digest(cancel)?;
+        if let Some(analysis) = self
+            .analysis
+            .lock()
+            .map_err(|_| NetworkError::InvalidHar)?
+            .clone()
+        {
+            return Ok((*analysis).clone());
+        }
+        let index = self.minimized_index(cancel)?;
+        let mut analysis = NetworkAnalysis::default();
+        let mut durations = Vec::with_capacity(index.len());
+        let mut phase_values: Vec<Vec<f64>> = vec![Vec::new(); MAX_PHASES];
+        let mut phase_missing = [0_u64; MAX_PHASES];
+        let mut invalid_timing_count = 0_u64;
+        for (position, entry) in index.iter().enumerate() {
+            if position % 256 == 0 && cancel.is_cancelled() {
+                return Err(NetworkError::Cancelled);
+            }
+            match entry.outcome {
+                EntryOutcome::Completed => analysis.completed_count += 1,
+                EntryOutcome::Failed => analysis.failed_count += 1,
+                EntryOutcome::Cancelled => analysis.cancelled_count += 1,
+                EntryOutcome::Incomplete => analysis.incomplete_count += 1,
+                EntryOutcome::InFlight => analysis.in_flight_count += 1,
+            }
+            match entry.connection_use {
+                ConnectionUse::New => analysis.new_connection_count += 1,
+                ConnectionUse::Reused => analysis.reused_connection_count += 1,
+                ConnectionUse::Unknown => analysis.unknown_connection_count += 1,
+            }
+            if let Some(duration) = entry
+                .duration_ms
+                .filter(|value| value.is_finite() && *value >= 0.0)
+            {
+                durations.push(duration);
+            }
+            if let Some(start) = entry.started_at_ms {
+                analysis.started_at_ms = Some(
+                    analysis
+                        .started_at_ms
+                        .map_or(start, |current| current.min(start)),
+                );
+                if let Some(duration) = entry.duration_ms {
+                    let end = start.saturating_add((duration * 1_000_000.0) as i64);
+                    analysis.ended_at_ms =
+                        Some(analysis.ended_at_ms.map_or(end, |current| current.max(end)));
+                }
+            }
+        }
+        if let Some(capture) = &self.observed {
+            for request in &capture.requests {
+                for phase in &request.phases {
+                    let slot = observed_phase_kind(phase.kind).position();
+                    match phase.duration_ms() {
+                        Some(duration) => phase_values[slot].push(duration),
+                        None => phase_missing[slot] += 1,
+                    }
+                }
+                match (request.start_ns, request.end_ns) {
+                    (Some(start), Some(end)) if end >= start => phase_values
+                        [PhaseKind::Total.position()]
+                    .push((end - start) as f64 / 1_000_000.),
+                    _ => phase_missing[PhaseKind::Total.position()] += 1,
+                }
+            }
+        } else {
+            self.stream_frames(cancel, |_, bytes| {
+                let phases = phases_from_frame(bytes)
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid HAR entry"))?;
+                for phase in phases {
+                    let slot = phase.kind.position();
+                    match phase.duration_ms {
+                        Some(duration) if phase.availability == PhaseAvailability::Value => {
+                            phase_values[slot].push(duration)
+                        }
+                        _ => phase_missing[slot] += 1,
+                    }
+                    if phase.availability == PhaseAvailability::Invalid {
+                        invalid_timing_count += 1;
+                    }
+                }
+                Ok(())
+            })?;
+        }
+        durations.sort_by(f64::total_cmp);
+        analysis.p90_ms = percentile(&durations, 0.90);
+        analysis.invalid_timing_count = invalid_timing_count;
+        analysis.phase_summaries = PhaseKind::ALL
+            .into_iter()
+            .filter_map(|kind| {
+                let slot = kind.position();
+                let mut values = std::mem::take(&mut phase_values[slot]);
+                if values.is_empty() && phase_missing[slot] == 0 {
+                    return None;
+                }
+                values.sort_by(f64::total_cmp);
+                Some(PhaseDurationSummary {
+                    kind,
+                    sample_count: values.len() as u64,
+                    missing_count: phase_missing[slot],
+                    median_ms: percentile(&values, 0.50),
+                    p95_ms: percentile(&values, 0.95),
+                })
+            })
+            .collect();
+        let analysis = Arc::new(analysis);
+        *self.analysis.lock().map_err(|_| NetworkError::InvalidHar)? = Some(analysis.clone());
+        Ok((*analysis).clone())
+    }
+
+    /// Grouped redacted domains for the filtered session, sorted by call count.
+    pub fn domains(
+        &self,
+        query: &EntryQuery,
+        limit: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<DomainSummary>, NetworkError> {
+        if limit == 0 || limit > MAX_DOMAINS {
+            return Err(NetworkError::InvalidQuery);
+        }
+        self.check_source()?;
+        self.check_digest(cancel)?;
+        let index = self.minimized_index(cancel)?;
+        let search = query.search.trim().to_ascii_lowercase();
+        let mut domains: BTreeMap<Option<String>, DomainSummary> = BTreeMap::new();
+        for (position, entry) in index.iter().enumerate() {
+            if position % 256 == 0 && cancel.is_cancelled() {
+                return Err(NetworkError::Cancelled);
+            }
+            if !query.matches(entry, &search) {
+                continue;
+            }
+            let domain = authority_host(&entry.redacted_url);
+            let summary = domains.entry(domain.clone()).or_insert(DomainSummary {
+                domain,
+                call_count: 0,
+                failure_count: 0,
+                transferred_bytes: Some(0),
+            });
+            summary.call_count += 1;
+            if entry.outcome == EntryOutcome::Failed {
+                summary.failure_count += 1;
+            }
+            summary.transferred_bytes = match (
+                summary.transferred_bytes,
+                entry.request_bytes,
+                entry.response_bytes,
+            ) {
+                (Some(total), Some(request), Some(response)) => {
+                    Some(total.saturating_add(request).saturating_add(response))
+                }
+                _ => None,
+            };
+        }
+        let mut rows: Vec<_> = domains.into_values().collect();
+        rows.sort_by(|left, right| {
+            right
+                .call_count
+                .cmp(&left.call_count)
+                .then_with(|| left.domain.cmp(&right.domain))
+        });
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    /// Completion-bucketed byte activity plus call concurrency. Buckets contain
+    /// completion bytes, not measured instantaneous throughput.
+    pub fn activity(
+        &self,
+        bucket_count: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Option<NetworkActivity>, NetworkError> {
+        if bucket_count == 0 || bucket_count > 256 {
+            return Err(NetworkError::InvalidQuery);
+        }
+        self.check_source()?;
+        self.check_digest(cancel)?;
+        let index = self.minimized_index(cancel)?;
+        let observed_start = self
+            .observed
+            .as_ref()
+            .map(|capture| capture.start_monotonic_ns);
+        let har_origin = index.iter().filter_map(|entry| entry.started_at_ms).min();
+        let mut timed: Vec<(u64, u64, Option<u64>)> = Vec::new();
+        let mut omitted = 0_u64;
+        for (position, entry) in index.iter().enumerate() {
+            if position % 256 == 0 && cancel.is_cancelled() {
+                return Err(NetworkError::Cancelled);
+            }
+            let interval = if let Some(capture) = &self.observed {
+                let Some(request) = capture.request(entry.index) else {
+                    omitted += 1;
+                    continue;
+                };
+                match (request.start_ns, request.end_ns) {
+                    (Some(start), Some(end)) if end >= start => Some((
+                        start.saturating_sub(observed_start.unwrap_or(0)),
+                        end.saturating_sub(observed_start.unwrap_or(0)),
+                    )),
+                    _ => None,
+                }
+            } else if let (Some(start), Some(duration)) = (entry.started_at_ms, entry.duration_ms) {
+                let origin = har_origin.unwrap_or(start);
+                let start_ns = (start.saturating_sub(origin) as u64).saturating_mul(1_000_000);
+                let end_ns = start_ns.saturating_add((duration * 1_000_000.0) as u64);
+                Some((start_ns, end_ns))
+            } else {
+                None
+            };
+            match interval {
+                Some((start, end)) => timed.push((
+                    start,
+                    end,
+                    match (entry.request_bytes, entry.response_bytes) {
+                        (Some(request), Some(response)) => Some(request.saturating_add(response)),
+                        _ => None,
+                    },
+                )),
+                None => omitted += 1,
+            }
+        }
+        if timed.is_empty() {
+            return Ok(None);
+        }
+        let origin = timed.iter().map(|(start, _, _)| *start).min().unwrap_or(0);
+        let end = timed.iter().map(|(_, end, _)| *end).max().unwrap_or(origin);
+        let duration = end.saturating_sub(origin).max(1);
+        let mut buckets: Vec<Option<u64>> = vec![Some(0); bucket_count];
+        let mut incomplete = 0_u64;
+        let mut events = Vec::with_capacity(timed.len() * 2);
+        for (start, call_end, bytes) in &timed {
+            let position = (((*call_end - origin) as f64 / duration as f64) * bucket_count as f64)
+                .floor() as usize;
+            let position = position.min(bucket_count - 1);
+            match bytes {
+                Some(bytes) => {
+                    buckets[position] = Some(buckets[position].unwrap_or(0).saturating_add(*bytes))
+                }
+                None => {
+                    buckets[position] = None;
+                    incomplete += 1;
+                }
+            }
+            events.push((*start, 1_i8));
+            events.push((*call_end, -1_i8));
+        }
+        events.sort_unstable();
+        let mut active = 0_usize;
+        let mut peak = 0_usize;
+        let mut weighted = 0_f64;
+        let mut last = events.first().map(|(time, _)| *time).unwrap_or(0);
+        for (time, delta) in events {
+            weighted += active as f64 * (time.saturating_sub(last)) as f64;
+            if delta < 0 {
+                active = active.saturating_sub(1);
+            } else {
+                active += 1;
+            }
+            peak = peak.max(active);
+            last = time;
+        }
+        Ok(Some(NetworkActivity {
+            origin_ns: origin,
+            duration_ns: duration,
+            timed_calls: timed.len() as u64,
+            omitted_calls: omitted,
+            incomplete_byte_calls: incomplete,
+            buckets,
+            peak_concurrency: peak,
+            average_concurrency: Some(weighted / duration as f64),
+        }))
+    }
+
+    fn stream_frames(
+        &self,
+        cancel: &CancellationToken,
+        mut visitor: impl FnMut(u64, &[u8]) -> io::Result<()>,
+    ) -> Result<(), NetworkError> {
+        if self.observed.is_some() {
+            return Ok(());
+        }
+        let mut file = self.open_validated_source()?;
+        self.check_open_digest(&mut file, cancel)?;
+        let mut sink = FrameSink::new(self.summary.entry_count, cancel, &mut visitor);
+        aps_har_engine::stream_entries(
+            CheckedReader::new(&mut file, self.limits.max_file_bytes, cancel),
+            &mut sink,
+        )
+        .map_err(|_| {
+            if cancel.is_cancelled() {
+                NetworkError::Cancelled
+            } else {
+                NetworkError::InvalidHar
+            }
+        })?;
+        if !sink.complete {
+            return Err(NetworkError::InvalidHar);
+        }
+        self.check_open_digest(&mut file, cancel)?;
+        Ok(())
+    }
+
+    /// Computes median, p90 and p95 from the same validated redacted index used
+    /// by filtered pages. Quantiles use linear interpolation at (n - 1) * p.
     pub fn duration_percentiles(
         &self,
         cancel: &CancellationToken,
@@ -589,31 +1169,19 @@ impl HarSession {
             }
         }
         values.sort_by(f64::total_cmp);
-        let quantile = |p: f64| {
-            if values.is_empty() {
-                return None;
-            }
-            let position = (values.len() - 1) as f64 * p;
-            let lower = position.floor() as usize;
-            let upper = position.ceil() as usize;
-            if lower == upper {
-                Some(values[lower])
-            } else {
-                let fraction = position - lower as f64;
-                Some(values[lower] + (values[upper] - values[lower]) * fraction)
-            }
+        let percentiles = DurationPercentiles {
+            sample_count: values.len() as u64,
+            missing_count,
+            median_ms: percentile(&values, 0.50),
+            p90_ms: percentile(&values, 0.90),
+            p95_ms: percentile(&values, 0.95),
         };
         self.check_source()?;
         self.check_digest(cancel)?;
         if cancel.is_cancelled() {
             return Err(NetworkError::Cancelled);
         }
-        Ok(DurationPercentiles {
-            sample_count: values.len() as u64,
-            missing_count,
-            median_ms: quantile(0.5),
-            p95_ms: quantile(0.95),
-        })
+        Ok(percentiles)
     }
 
     fn minimized_index(
@@ -628,37 +1196,22 @@ impl HarSession {
         {
             return Ok(index);
         }
-        let mut file = self.open_validated_source()?;
-        self.check_open_digest(&mut file, cancel)?;
-        let count =
-            usize::try_from(self.summary.entry_count).map_err(|_| NetworkError::InvalidHar)?;
         if self.summary.entry_count > self.limits.max_entries {
             return Err(NetworkError::InvalidHar);
         }
-        let mut sink = EntrySink::new(0, count, self.summary.entry_count);
-        aps_har_engine::stream_entries(
-            CheckedReader::new(&mut file, self.limits.max_file_bytes, cancel),
-            &mut sink,
-        )
-        .map_err(|_| {
-            if cancel.is_cancelled() {
-                NetworkError::Cancelled
-            } else {
-                NetworkError::InvalidHar
-            }
+        let mut entries =
+            Vec::with_capacity(self.summary.entry_count.min(u32::MAX as u64) as usize);
+        self.stream_frames(cancel, |index, bytes| {
+            entries
+                .push(parse_entry(index, bytes).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid HAR entry")
+                })?);
+            Ok(())
         })?;
-        if !sink.complete
-            || sink.pending.is_some()
-            || !sink.header.is_empty()
-            || sink.rows.len() != count
-        {
+        if entries.len() as u64 != self.summary.entry_count {
             return Err(NetworkError::InvalidHar);
         }
-        self.check_open_digest(&mut file, cancel)?;
-        if cancel.is_cancelled() {
-            return Err(NetworkError::Cancelled);
-        }
-        let index = Arc::new(sink.rows);
+        let index = Arc::new(entries);
         *self.index.lock().map_err(|_| NetworkError::InvalidHar)? = Some(index.clone());
         Ok(index)
     }
@@ -678,7 +1231,7 @@ impl HarSession {
         let bytes = page
             .rows
             .iter()
-            .map(|row| row.method.len() + row.minimized_url.len() + 32)
+            .map(|row| row.method.len() + row.redacted_url.len() + 48)
             .sum::<usize>();
         if bytes > MAX_CACHED_BYTES {
             return;
@@ -708,15 +1261,22 @@ impl HarSession {
             std::fs::metadata(&self.path).map_err(|_| NetworkError::SourceChanged)?,
         )?;
         if &stamp != source {
-            if let Ok(mut cache) = self.cache.lock() {
-                cache.clear();
-            }
-            if let Ok(mut index) = self.index.lock() {
-                *index = None;
-            }
+            self.invalidate();
             return Err(NetworkError::SourceChanged);
         }
         Ok(())
+    }
+
+    fn invalidate(&self) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut index) = self.index.lock() {
+            *index = None;
+        }
+        if let Ok(mut analysis) = self.analysis.lock() {
+            *analysis = None;
+        }
     }
 
     fn open_validated_source(&self) -> Result<File, NetworkError> {
@@ -742,12 +1302,7 @@ impl HarSession {
             Ok(digest) if digest == self.summary.source_digest => Ok(()),
             Err(NetworkError::Cancelled) => Err(NetworkError::Cancelled),
             _ => {
-                if let Ok(mut cache) = self.cache.lock() {
-                    cache.clear();
-                }
-                if let Ok(mut index) = self.index.lock() {
-                    *index = None;
-                }
+                self.invalidate();
                 Err(NetworkError::SourceChanged)
             }
         }
@@ -763,6 +1318,86 @@ impl HarSession {
         }
         let mut file = self.open_validated_source()?;
         self.check_open_digest(&mut file, cancel)
+    }
+}
+
+fn percentile(values: &[f64], fraction: f64) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let position = (values.len() - 1) as f64 * fraction;
+    let lower = position.floor() as usize;
+    let upper = position.ceil() as usize;
+    if lower == upper {
+        Some(values[lower])
+    } else {
+        let weight = position - lower as f64;
+        Some(values[lower] + (values[upper] - values[lower]) * weight)
+    }
+}
+
+fn observed_phase_kind(kind: ObservedPhaseKind) -> PhaseKind {
+    match kind {
+        ObservedPhaseKind::Proxy => PhaseKind::ProxySelect,
+        ObservedPhaseKind::Dns => PhaseKind::Dns,
+        ObservedPhaseKind::Connect => PhaseKind::Connect,
+        ObservedPhaseKind::Tls => PhaseKind::Tls,
+        ObservedPhaseKind::RequestHeaders => PhaseKind::RequestHeaders,
+        ObservedPhaseKind::RequestBody => PhaseKind::RequestBody,
+        ObservedPhaseKind::ResponseHeaders => PhaseKind::ResponseHeaders,
+        ObservedPhaseKind::ResponseBody => PhaseKind::ResponseBody,
+    }
+}
+
+fn observed_detail(request: &ObservedRequest, boundary: u64) -> EntryDetail {
+    let mut phases: Vec<EntryPhase> = request
+        .phases
+        .iter()
+        .map(|phase| {
+            let confidence = match (phase.start_ns, phase.end_ns) {
+                (Some(_), Some(_)) => PhaseConfidence::Exact,
+                (Some(_), None) | (None, Some(_)) => PhaseConfidence::Partial,
+                (None, None) => PhaseConfidence::Unknown,
+            };
+            EntryPhase {
+                kind: observed_phase_kind(phase.kind),
+                duration_ms: phase.duration_ms(),
+                availability: match phase.duration_ms() {
+                    Some(_) => PhaseAvailability::Value,
+                    None => PhaseAvailability::Unavailable,
+                },
+                confidence,
+                parent: None,
+            }
+        })
+        .collect();
+    let start = request.start_ns.map(|value| value.saturating_sub(boundary));
+    let end = request.end_ns.map(|value| value.saturating_sub(boundary));
+    phases.push(EntryPhase {
+        kind: PhaseKind::Total,
+        duration_ms: start
+            .zip(end)
+            .map(|(start, end)| end.saturating_sub(start) as f64 / 1_000_000.),
+        availability: if start.is_some() && end.is_some() {
+            PhaseAvailability::Value
+        } else {
+            PhaseAvailability::Unavailable
+        },
+        confidence: if start.is_some() && end.is_some() {
+            PhaseConfidence::Exact
+        } else {
+            PhaseConfidence::Partial
+        },
+        parent: None,
+    });
+    EntryDetail {
+        request_headers: Vec::new(),
+        response_headers: Vec::new(),
+        phases,
+        failure_type: (request.outcome == ObservedOutcome::Failed)
+            .then(|| "AGENT_CALL_FAILED".to_owned()),
+        tls_version: request.tls_version.clone(),
+        cipher_suite: request.cipher_suite.clone(),
     }
 }
 
@@ -854,25 +1489,26 @@ impl<R: Read> Read for CheckedReader<'_, R> {
     }
 }
 
-struct PendingFrame {
-    length: usize,
-    entry: Option<u64>,
-    bytes: Vec<u8>,
-    consumed: usize,
+enum FrameStep {
+    Buffered,
+    Header,
+    Completed,
 }
-struct EntrySink {
+
+/// Consumes the engine's framed entry stream and invokes a visitor per entry.
+/// Only one frame is retained at a time; partial frames are never published.
+struct FrameSink<'a, F> {
     header: Vec<u8>,
-    pending: Option<PendingFrame>,
+    pending: Option<(usize, Option<u64>, Vec<u8>, usize)>,
     started: bool,
     complete: bool,
     seen: u64,
     expected: u64,
-    offset: usize,
-    limit: usize,
-    rows: Vec<NetworkEntry>,
+    cancel: &'a CancellationToken,
+    visit: &'a mut F,
 }
-impl EntrySink {
-    fn new(offset: usize, limit: usize, expected: u64) -> Self {
+impl<'a, F: FnMut(u64, &[u8]) -> io::Result<()>> FrameSink<'a, F> {
+    fn new(expected: u64, cancel: &'a CancellationToken, visit: &'a mut F) -> Self {
         Self {
             header: Vec::new(),
             pending: None,
@@ -880,12 +1516,11 @@ impl EntrySink {
             complete: false,
             seen: 0,
             expected,
-            offset,
-            limit,
-            rows: Vec::new(),
+            cancel,
+            visit,
         }
     }
-    fn header(&mut self) -> io::Result<()> {
+    fn restart_header(&mut self) -> io::Result<()> {
         let header = std::str::from_utf8(&self.header).map_err(|_| invalid())?;
         if !self.started {
             if header != "APS-HAR-ENTRIES\t1" {
@@ -924,47 +1559,58 @@ impl EntrySink {
         if length > MAX_FRAME_BYTES {
             return Err(invalid());
         }
-        let wanted = entry.is_some_and(|index| {
-            index >= self.offset as u64 && index < (self.offset + self.limit) as u64
-        });
-        self.pending = Some(PendingFrame {
-            length,
-            entry: entry.filter(|_| wanted),
-            bytes: Vec::new(),
-            consumed: 0,
-        });
+        self.pending = Some((length, entry, Vec::new(), 0));
         Ok(())
     }
-}
-impl Write for EntrySink {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        for byte in bytes {
-            if self.complete {
+    fn feed(&mut self, byte: u8) -> io::Result<FrameStep> {
+        if self.complete {
+            return Err(invalid());
+        }
+        if let Some((length, entry, frame, consumed)) = self.pending.as_mut() {
+            if *consumed < *length {
+                if entry.is_some() {
+                    frame.push(byte);
+                }
+                *consumed += 1;
+                return Ok(FrameStep::Buffered);
+            }
+            if byte != b'\n' {
                 return Err(invalid());
             }
-            if let Some(frame) = self.pending.as_mut() {
-                if frame.consumed < frame.length {
-                    if frame.entry.is_some() {
-                        frame.bytes.push(*byte);
-                    }
-                    frame.consumed += 1;
-                } else {
-                    if *byte != b'\n' {
-                        return Err(invalid());
-                    }
-                    let frame = self.pending.take().ok_or_else(invalid)?;
-                    if let Some(index) = frame.entry {
-                        self.rows.push(minimized_entry(index, &frame.bytes)?);
+            return Ok(FrameStep::Completed);
+        }
+        if byte == b'\n' {
+            return Ok(FrameStep::Header);
+        }
+        if self.header.len() >= 128 {
+            return Err(invalid());
+        }
+        self.header.push(byte);
+        Ok(FrameStep::Buffered)
+    }
+    fn take_completed(&mut self) -> Option<(u64, Vec<u8>)> {
+        self.pending
+            .take()
+            .and_then(|(_, entry, frame, _)| entry.map(|index| (index, frame)))
+    }
+}
+impl<F: FnMut(u64, &[u8]) -> io::Result<()>> Write for FrameSink<'_, F> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        for byte in bytes {
+            match self.feed(*byte)? {
+                FrameStep::Buffered => {}
+                FrameStep::Header => {
+                    self.restart_header()?;
+                    self.header.clear();
+                }
+                FrameStep::Completed => {
+                    if let Some((index, frame)) = self.take_completed() {
+                        if self.cancel.is_cancelled() {
+                            return Err(io::ErrorKind::ConnectionAborted.into());
+                        }
+                        (self.visit)(index, &frame)?;
                     }
                 }
-            } else if *byte == b'\n' {
-                self.header()?;
-                self.header.clear();
-            } else {
-                if self.header.len() >= 128 {
-                    return Err(invalid());
-                }
-                self.header.push(*byte);
             }
         }
         Ok(bytes.len())
@@ -976,20 +1622,26 @@ impl Write for EntrySink {
 fn invalid() -> io::Error {
     io::ErrorKind::InvalidData.into()
 }
-fn minimized_entry(index: u64, bytes: &[u8]) -> io::Result<NetworkEntry> {
+
+fn entry_value(bytes: &[u8]) -> io::Result<aps_har_engine::json::Value> {
     let mut parser = Parser::new(bytes);
     let value = parser.bounded_value(0).map_err(|_| invalid())?;
     parser.whitespace().map_err(|_| invalid())?;
     if parser.peek().map_err(|_| invalid())?.is_some() {
         return Err(invalid());
     }
-    let value = value.object().map_err(|_| invalid())?;
-    let request = value
+    Ok(value)
+}
+
+fn parse_entry(index: u64, bytes: &[u8]) -> io::Result<NetworkEntry> {
+    let value = entry_value(bytes)?;
+    let map = value.object().map_err(|_| invalid())?;
+    let request = map
         .get("request")
         .ok_or_else(invalid)?
         .object()
         .map_err(|_| invalid())?;
-    let response = value
+    let response = map
         .get("response")
         .ok_or_else(invalid)?
         .object()
@@ -1013,206 +1665,239 @@ fn minimized_entry(index: u64, bytes: &[u8]) -> io::Result<NetworkEntry> {
     };
     let status = response
         .get("status")
-        .and_then(|v| v.integer().ok())
-        .filter(|s| *s == 0 || (100..=599).contains(s))
+        .and_then(|value| value.integer().ok())
+        .filter(|status| *status == 0 || (100..=599).contains(status))
         .ok_or_else(invalid)? as u16;
+    let redacted_url = request
+        .get("url")
+        .and_then(|value| value.text().ok())
+        .map_or_else(|| INVALID_URL.to_owned(), redact_url);
+    let duration_ms = map
+        .get("time")
+        .and_then(|value| value.number().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0);
+    let protocol = response
+        .get("httpVersion")
+        .and_then(|value| value.text().ok())
+        .and_then(clean_protocol);
+    let started_at_ms = map
+        .get("startedDateTime")
+        .and_then(|value| value.text().ok())
+        .and_then(parse_rfc3339_ms);
+    let connection_use = connection_use(map);
+    let outcome = if map
+        .get("_error")
+        .and_then(|value| value.text().ok())
+        .is_some()
+    {
+        EntryOutcome::Failed
+    } else if duration_ms.is_some() {
+        EntryOutcome::Completed
+    } else {
+        EntryOutcome::Incomplete
+    };
     Ok(NetworkEntry {
         index,
         method,
         status,
-        duration_ms: value
-            .get("time")
-            .and_then(|v| v.number().ok())
-            .filter(|v| v.is_finite() && *v >= 0.),
+        duration_ms,
         request_bytes: request
             .get("bodySize")
-            .and_then(|v| v.integer().ok())
-            .and_then(|v| v.try_into().ok()),
+            .and_then(|value| value.integer().ok())
+            .and_then(|value| u64::try_from(value).ok()),
         response_bytes: response
             .get("bodySize")
-            .and_then(|v| v.integer().ok())
-            .and_then(|v| v.try_into().ok()),
-        minimized_url: MINIMIZED_URL,
+            .and_then(|value| value.integer().ok())
+            .and_then(|value| u64::try_from(value).ok()),
+        redacted_url,
+        protocol,
+        outcome,
+        connection_use,
+        started_at_ms,
     })
 }
 
-#[cfg(test)]
-mod descriptor_identity_tests {
-    use super::{
-        CancellationToken, CheckedReader, HarSession, ImportLimits, NetworkError, SourceDigest,
-        SourceStamp, hash_open_source, validate_open_source,
+fn clean_protocol(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty()
+        || raw.chars().count() > MAX_PROTOCOL_CHARS
+        || raw.chars().any(|character| character.is_control())
+    {
+        return None;
+    }
+    Some(raw.to_owned())
+}
+
+fn connection_use(map: &BTreeMap<String, aps_har_engine::json::Value>) -> ConnectionUse {
+    let timings = map.get("timings").and_then(|value| value.object().ok());
+    let observed = |field: &str| {
+        timings
+            .and_then(|timings| timings.get(field))
+            .and_then(|value| value.number().ok())
+            .is_some_and(|value| value >= 0.0)
     };
-    use std::{
-        fs::{self, File, OpenOptions},
-        io::{Cursor, Read},
-        path::PathBuf,
-        sync::atomic::{AtomicU64, Ordering},
-    };
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    struct Fixture(PathBuf);
-    impl Fixture {
-        fn new() -> Self {
-            let root = std::env::temp_dir().join(format!(
-                "aps-har-descriptor-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&root).unwrap();
-            Self(root)
-        }
-        fn path(&self) -> PathBuf {
-            self.0.join("selected.har")
-        }
-        fn write(&self, bytes: &[u8]) {
-            fs::write(self.path(), bytes).unwrap();
-        }
+    if observed("dns") || observed("connect") || observed("ssl") {
+        ConnectionUse::New
+    } else if timings.is_some() {
+        ConnectionUse::Reused
+    } else {
+        ConnectionUse::Unknown
     }
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+}
 
-    #[test]
-    fn hash_rewinds_the_same_open_descriptor_for_parsing() {
-        let fixture = Fixture::new();
-        fixture.write(b"source A");
-        let mut file = File::open(fixture.path()).unwrap();
-        let stamp = SourceStamp::from_metadata(file.metadata().unwrap()).unwrap();
-        let digest = hash_open_source(
-            &fixture.path(),
-            &mut file,
-            &stamp,
-            100,
-            &CancellationToken::new(),
-        )
-        .unwrap();
-        assert_eq!(
-            digest,
-            SourceDigest::hash_reader(Cursor::new(b"source A"), 100).unwrap()
-        );
-        let mut parsed = String::new();
-        file.read_to_string(&mut parsed).unwrap();
-        assert_eq!(parsed, "source A");
-        assert_eq!(
-            hash_open_source(
-                &fixture.path(),
-                &mut file,
-                &stamp,
-                100,
-                &CancellationToken::new()
-            )
-            .unwrap(),
-            digest
-        );
-    }
+fn detail_from_frame(bytes: &[u8]) -> io::Result<EntryDetail> {
+    let value = entry_value(bytes)?;
+    let map = value.object().map_err(|_| invalid())?;
+    let (request_headers, response_headers) = headers_from_frame(bytes)?;
+    Ok(EntryDetail {
+        request_headers,
+        response_headers,
+        phases: derive_phases(map),
+        failure_type: map
+            .get("_error")
+            .and_then(|value| value.text().ok())
+            .map(|_| "HAR_ERROR".to_owned()),
+        tls_version: None,
+        cipher_suite: None,
+    })
+}
 
-    #[cfg(unix)]
-    #[test]
-    fn replacement_between_descriptor_open_and_hash_cannot_bind_a_summary_to_b_digest() {
-        let fixture = Fixture::new();
-        fixture.write(b"source A");
-        let mut file = File::open(fixture.path()).unwrap();
-        let stamp = SourceStamp::from_metadata(file.metadata().unwrap()).unwrap();
-        let modified = file.metadata().unwrap().modified().unwrap();
-        let replacement = fixture.0.join("replacement.har");
-        fs::write(&replacement, b"source B").unwrap();
-        OpenOptions::new()
-            .write(true)
-            .open(&replacement)
-            .unwrap()
-            .set_modified(modified)
-            .unwrap();
-        // Deterministic replacement at the exact old split-handle boundary;
-        // equal length and mtime must not make the two files interchangeable.
-        fs::rename(replacement, fixture.path()).unwrap();
-        assert!(matches!(
-            hash_open_source(
-                &fixture.path(),
-                &mut file,
-                &stamp,
-                100,
-                &CancellationToken::new()
-            ),
-            Err(NetworkError::SourceChanged)
-        ));
-    }
+fn phases_from_frame(bytes: &[u8]) -> io::Result<Vec<EntryPhase>> {
+    let value = entry_value(bytes)?;
+    let map = value.object().map_err(|_| invalid())?;
+    Ok(derive_phases(map))
+}
 
-    #[cfg(unix)]
-    #[test]
-    fn replacement_after_parsing_is_detected_even_with_equal_content_and_mtime() {
-        let fixture = Fixture::new();
-        fixture.write(b"source A");
-        let mut file = File::open(fixture.path()).unwrap();
-        let stamp = SourceStamp::from_metadata(file.metadata().unwrap()).unwrap();
-        hash_open_source(
-            &fixture.path(),
-            &mut file,
-            &stamp,
-            100,
-            &CancellationToken::new(),
-        )
-        .unwrap();
-        let mut parsed = String::new();
-        file.read_to_string(&mut parsed).unwrap();
-        let replacement = fixture.0.join("replacement.har");
-        fs::write(&replacement, parsed).unwrap();
-        OpenOptions::new()
-            .write(true)
-            .open(&replacement)
-            .unwrap()
-            .set_modified(file.metadata().unwrap().modified().unwrap())
-            .unwrap();
-        fs::rename(replacement, fixture.path()).unwrap();
-        assert!(matches!(
-            validate_open_source(&fixture.path(), &file, &stamp),
-            Err(NetworkError::SourceChanged)
-        ));
-    }
-
-    #[test]
-    fn cancellation_interrupts_hash_reader_between_bounded_chunks() {
-        struct CancelAfterFirstRead<'a> {
-            bytes: Cursor<Vec<u8>>,
-            cancel: &'a CancellationToken,
-        }
-        impl Read for CancelAfterFirstRead<'_> {
-            fn read(&mut self, target: &mut [u8]) -> std::io::Result<usize> {
-                let count = self.bytes.read(target)?;
-                self.cancel.cancel();
-                Ok(count)
+/// HAR timings are wall-clock producer values: every value is INFERRED, and a
+/// -1 only means "not applicable" when the request was plaintext.
+fn derive_phases(map: &BTreeMap<String, aps_har_engine::json::Value>) -> Vec<EntryPhase> {
+    let timings = map.get("timings").and_then(|value| value.object().ok());
+    let secure = map
+        .get("request")
+        .and_then(|value| value.object().ok())
+        .and_then(|request| request.get("url"))
+        .and_then(|value| value.text().ok())
+        .is_none_or(|url| !url.trim_start().to_ascii_lowercase().starts_with("http://"));
+    let mut phases = Vec::with_capacity(8);
+    for (kind, field, parent) in [
+        (PhaseKind::DispatcherQueue, "blocked", None),
+        (PhaseKind::Dns, "dns", None),
+        (PhaseKind::Connect, "connect", None),
+        (PhaseKind::Tls, "ssl", Some(PhaseKind::Connect)),
+        (PhaseKind::RequestBody, "send", None),
+        (PhaseKind::ServerWait, "wait", None),
+        (PhaseKind::ResponseBody, "receive", None),
+    ] {
+        let raw = timings
+            .and_then(|timings| timings.get(field))
+            .and_then(|value| value.number().ok())
+            .filter(|value| value.is_finite());
+        let (duration, availability) = match raw {
+            None => (None, PhaseAvailability::Unavailable),
+            Some(value) if value >= 0.0 => (Some(value), PhaseAvailability::Value),
+            Some(-1.0) if kind == PhaseKind::Tls && !secure => {
+                (None, PhaseAvailability::NotApplicable)
             }
-        }
-        let cancel = CancellationToken::new();
-        let source = CancelAfterFirstRead {
-            bytes: Cursor::new(vec![1; 256 * 1024]),
-            cancel: &cancel,
+            Some(-1.0) => (None, PhaseAvailability::Unavailable),
+            Some(_) => (None, PhaseAvailability::Invalid),
         };
-        assert!(
-            SourceDigest::hash_reader(CheckedReader::new(source, 256 * 1024, &cancel), 256 * 1024)
-                .is_err()
-        );
-        assert!(cancel.is_cancelled());
+        phases.push(EntryPhase {
+            kind,
+            duration_ms: duration,
+            availability,
+            confidence: if availability == PhaseAvailability::Value {
+                PhaseConfidence::Inferred
+            } else {
+                PhaseConfidence::Unknown
+            },
+            parent,
+        });
     }
+    let total = map
+        .get("time")
+        .and_then(|value| value.number().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0);
+    phases.push(EntryPhase {
+        kind: PhaseKind::Total,
+        duration_ms: total,
+        availability: if total.is_some() {
+            PhaseAvailability::Value
+        } else {
+            PhaseAvailability::Unavailable
+        },
+        confidence: if total.is_some() {
+            PhaseConfidence::Inferred
+        } else {
+            PhaseConfidence::Unknown
+        },
+        parent: None,
+    });
+    phases
+}
 
-    #[test]
-    fn cancelled_cached_query_does_not_publish_or_poison_the_next_query() {
-        let fixture = Fixture::new();
-        fixture.write(br#"{"log":{"version":"1.2","creator":{"name":"producer","version":"1"},"entries":[{"startedDateTime":"2026-01-01T00:00:00.000Z","time":1,"request":{"method":"GET","url":"https://secret.invalid","bodySize":0},"response":{"status":200,"bodySize":0},"timings":{}}]}}"#);
-        let active = CancellationToken::new();
-        let session = HarSession::open(&fixture.path(), ImportLimits::default(), &active).unwrap();
-        let query = super::EntryQuery::default();
-        let before = session.query_entries(0, 1, &query, &active).unwrap();
-        let cancelled = CancellationToken::new();
-        cancelled.cancel();
-        assert!(matches!(
-            session.query_entries(0, 1, &query, &cancelled),
-            Err(NetworkError::Cancelled)
-        ));
-        let after = session
-            .query_entries(0, 1, &query, &CancellationToken::new())
-            .unwrap();
-        assert_eq!(before.rows, after.rows);
-        assert_eq!(before.source_digest, after.source_digest);
+/// Header arrays are opaque to the engine's bounded value parser, so the detail
+/// path parses the frame with the shared strict JSON boundary instead.
+type HeaderPairs = Vec<(String, String)>;
+
+fn headers_from_frame(bytes: &[u8]) -> io::Result<(HeaderPairs, HeaderPairs)> {
+    let limits = aps_json::Limits {
+        max_bytes: bytes.len().min(MAX_FRAME_BYTES) as u64,
+        max_depth: 12,
+        max_nodes: 50_000,
+        max_string_bytes: 256 * 1024,
+        max_collection_items: 4096,
+    };
+    let value = aps_json::parse_slice(bytes, limits).map_err(|_| invalid())?;
+    let headers = |path: &str| -> Vec<(String, String)> {
+        value
+            .get(path)
+            .and_then(|part| part.get("headers"))
+            .and_then(|headers| headers.as_array())
+            .map(|headers| {
+                headers
+                    .iter()
+                    .filter_map(|header| {
+                        Some((
+                            header.get("name")?.as_str()?.to_owned(),
+                            header
+                                .get("value")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or_default()
+                                .to_owned(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Ok((
+        redact_headers(headers("request")),
+        redact_headers(headers("response")),
+    ))
+}
+
+fn authority_host(redacted_url: &str) -> Option<String> {
+    if redacted_url == INVALID_URL {
+        return None;
     }
+    let rest = redacted_url.split_once("://")?.1;
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    let authority = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        rest.split_once(']').map(|(host, _)| format!("[{host}]"))?
+    } else {
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, port)| {
+                if port.bytes().all(|byte| byte.is_ascii_digit()) {
+                    host
+                } else {
+                    authority
+                }
+            })
+            .to_owned()
+    };
+    (!host.is_empty()).then_some(host.to_ascii_lowercase())
 }

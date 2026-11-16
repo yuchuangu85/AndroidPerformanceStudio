@@ -62,6 +62,8 @@ pub struct BatteryCaptureConfig {
     pub polling_seconds: u32,
     pub runs: u32,
     pub cooldown_seconds: u32,
+    /// Explicitly requested app launch before each run. Never implied.
+    pub launch_app: bool,
 }
 impl Default for BatteryCaptureConfig {
     fn default() -> Self {
@@ -71,6 +73,7 @@ impl Default for BatteryCaptureConfig {
             polling_seconds: 5,
             runs: 3,
             cooldown_seconds: 15,
+            launch_app: false,
         }
     }
 }
@@ -170,9 +173,126 @@ struct ProcessIdentity {
     uid: u32,
     start_ticks: u64,
 }
+/// One thermal observation parsed from `dumpsys thermalservice`. Sensor values
+/// are retained as a bounded maximum, not attributed to CPU/GPU components.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ThermalSample {
+    pub elapsed_ms: u64,
+    pub status: Option<u32>,
+    pub peak_celsius: Option<f64>,
+    pub throttled: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BatteryCapabilities {
+    pub level: String,
+    pub checkin: bool,
+    pub history: bool,
+    pub reset: bool,
+    pub energy: bool,
+    pub bugreport: bool,
+    pub missing_reasons: Vec<String>,
+}
+
+impl BatteryCapabilities {
+    fn detect(help: &str, checkin: bool, history: bool, energy: bool) -> Self {
+        let reset = help.contains("--reset");
+        let mut missing_reasons = Vec::new();
+        if !checkin {
+            missing_reasons.push("batterystats --checkin is unavailable".into());
+        }
+        if !history {
+            missing_reasons.push("batterystats history is unavailable".into());
+        }
+        if !reset {
+            missing_reasons.push("batterystats --reset is unavailable".into());
+        }
+        if !energy {
+            missing_reasons.push("system-model energy is unavailable".into());
+        }
+        let level = if energy && checkin {
+            "ENERGY_ENHANCED"
+        } else if checkin && history {
+            "RESOURCE_FULL"
+        } else if checkin {
+            "RESOURCE_BASIC"
+        } else {
+            "UNAVAILABLE"
+        };
+        Self {
+            level: level.into(),
+            checkin,
+            history,
+            reset,
+            energy,
+            bugreport: true,
+            missing_reasons,
+        }
+    }
+}
+
 struct Observation {
     snapshot: BatterySnapshot,
     thermal_status: Option<u32>,
+    thermal: ThermalSample,
+    history: Vec<crate::BatteryHistoryEvent>,
+}
+
+/// Parses a bounded thermal maximum and device-wide status. No sensor value is
+/// attributed to a component, and unparseable output stays unavailable.
+fn parse_thermal_sample(output: &str, elapsed_ms: u64) -> ThermalSample {
+    let mut statuses = BTreeSet::new();
+    let mut peak: Option<f64> = None;
+    let mut throttled = false;
+    for line in output.lines() {
+        let lower = line.trim().to_ascii_lowercase();
+        let trimmed = line.trim();
+        let status_field = trimmed.strip_prefix("Thermal Status:").or_else(|| {
+            trimmed
+                .strip_prefix("mStatus=")
+                .or_else(|| trimmed.strip_prefix("mStatus:"))
+        });
+        if let Some(value) = status_field {
+            if let Ok(value) = value.trim().parse::<u32>()
+                && value <= 6
+            {
+                statuses.insert(value);
+            }
+            continue;
+        }
+        if lower.contains("throttl") {
+            throttled = true;
+        }
+        let Some(position) = lower.find("mvalue").or_else(|| lower.find("value")) else {
+            continue;
+        };
+        let rest = &line[position + 5..];
+        let Some(sep) = rest.find(['=', ':']) else {
+            continue;
+        };
+        let number = rest[sep + 1..]
+            .split(|character: char| !(character.is_ascii_digit() || character == '.'))
+            .next()
+            .and_then(|value| value.parse::<f64>().ok())
+            .filter(|value| value.is_finite() && (0.0..200.0).contains(value));
+        if let Some(number) = number {
+            peak = Some(peak.map_or(number, |current| current.max(number)));
+        }
+    }
+    let status = if statuses.len() == 1 {
+        statuses.first().copied()
+    } else {
+        None
+    };
+    if status.is_some_and(|status| status >= 2) {
+        throttled = true;
+    }
+    ThermalSample {
+        elapsed_ms,
+        status,
+        peak_celsius: peak,
+        throttled,
+    }
 }
 struct Capture<'a> {
     adb: &'a AdbClient,
@@ -297,13 +417,42 @@ fn capture_inner(
         ledger: SnapshotLedger::default(),
     };
     capture.verify_packages()?;
+    let mut capability_warnings = Vec::new();
+    let help = capture
+        .optional(
+            &["dumpsys", "batterystats", "--help"],
+            256 * 1024,
+            "BatteryStats help output is unavailable; capability detection is limited to observed commands.",
+            &mut capability_warnings,
+        )
+        .unwrap_or_default();
     let mut observations = Vec::new();
     for iteration in 1..=config.run_count() {
         control.update(|progress| {
             progress.iteration = iteration;
             progress.cooling_down = false;
         });
-        let before = capture.snapshot(iteration)?;
+        let mut launch_warnings = Vec::new();
+        if config.launch_app {
+            let launched = capture.optional(
+                &[
+                    "monkey",
+                    "-p",
+                    &target.package_name,
+                    "-c",
+                    "android.intent.category.LAUNCHER",
+                    "1",
+                ],
+                128 * 1024,
+                "App launch via monkey failed; the workload may not have been started.",
+                &mut launch_warnings,
+            );
+            if launched.is_err() {
+                return Err("App launch via monkey could not be issued.".into());
+            }
+        }
+        let mut before = capture.snapshot(iteration)?;
+        before.snapshot.warnings.extend(launch_warnings);
         let mut previous = before.snapshot.clone();
         let mut invalid_timers = BTreeSet::<(ResourceKind, String)>::new();
         let mut invalid_network = BTreeSet::new();
@@ -315,6 +464,7 @@ fn capture_inner(
             .into_iter()
             .collect::<Vec<_>>();
         let mut thermal_statuses = before.thermal_status.into_iter().collect::<Vec<_>>();
+        let mut thermal_samples = vec![before.thermal];
         let mut charging_states = vec![before.snapshot.device.powered];
         let run_started = Instant::now();
         let duration = Duration::from_secs(u64::from(config.duration_seconds));
@@ -325,6 +475,7 @@ fn capture_inner(
             let mut next = capture.snapshot(iteration)?;
             temperatures.extend(next.snapshot.device.temperature_tenths_celsius);
             thermal_statuses.extend(next.thermal_status);
+            thermal_samples.push(next.thermal);
             charging_states.push(next.snapshot.device.powered);
             let continuity = BatteryDelta::between(&previous, &next.snapshot);
             if continuity.availability == DeltaAvailability::IncompatibleIdentity
@@ -376,12 +527,21 @@ fn capture_inner(
                 break next;
             }
         };
+        let (history, history_warnings) = capture.history();
+        let mut after = after;
+        after.history = history;
+        if !after.history.is_empty() {
+            after.snapshot.history = after.history.clone();
+        }
+        after.snapshot.warnings.extend(history_warnings);
         observations.push(BatteryRunObservation {
             iteration,
             before: before.snapshot,
             after: after.snapshot,
             temperatures_tenths_celsius: temperatures,
             thermal_statuses,
+            thermal_samples,
+            history: after.history,
             charging_states,
         });
         control.update(|progress| progress.completed_runs = iteration);
@@ -406,15 +566,29 @@ fn capture_inner(
         .map_err(|_| "Host clock cannot create a unique Battery session identity")?
         .as_nanos();
     let session_id = format!("battery-{}-{timestamp:x}-{sequence:x}", std::process::id());
+    let history_supported =
+        help.contains("--history") || observations.iter().any(|run| !run.history.is_empty());
+    let energy_supported = observations.iter().any(|run| {
+        !run.before.modeled_energy_mah.is_empty() || !run.after.modeled_energy_mah.is_empty()
+    });
+    let capabilities =
+        BatteryCapabilities::detect(&help, true, history_supported, energy_supported);
     let mut report = BatteryReport::from_live_snapshots(
         &session_id,
         &target.package_name,
         config.mode.as_str(),
         &observations,
+        Some(capabilities.clone()),
     )?;
     report.workload_id = workload_id.map(str::to_owned);
     report.configuration = crate::baseline::parse_config(&crate::baseline::config_value(config))?;
-    report.warnings.push("Only explicitly selected UID cumulative statistics are compared. No global reset, app launch, agent injection or device setting change was performed.".into());
+    report.warnings.extend(capability_warnings);
+    report.warnings.push(
+        "Only explicitly selected UID cumulative statistics are compared. No global reset, agent injection or device setting change was performed by this capture.".into(),
+    );
+    if config.launch_app {
+        report.warnings.push("The selected app was explicitly launched before each run via monkey; launch success is not a workload-completion claim.".into());
+    }
     report.warnings.push("Temperature is the observed battery sensor state, not CPU/GPU temperature. Thermal status is device-wide; energy is the system model, not measured hardware energy.".into());
     report.warnings.push("Installation continuity uses matching PackageManager codePath, versionCode and lastUpdateTime at capture boundaries. APK bytes/signatures and unchanged sibling packages in a shared UID are not independently verified.".into());
     if config.mode == BatteryCaptureMode::Online {
@@ -585,6 +759,7 @@ impl Capture<'_> {
         {
             return Err("Device returned no supported battery state fields.".into());
         }
+        let thermal_sample = parse_thermal_sample(&thermal, elapsed_ms);
         self.ledger.append(iteration, &snapshot, thermal_status)?;
         self.snapshots += 1;
         self.control.update(|progress| {
@@ -594,7 +769,43 @@ impl Capture<'_> {
         Ok(Observation {
             snapshot,
             thermal_status,
+            thermal: thermal_sample,
+            history: Vec::new(),
         })
+    }
+    /// Final-snapshot history is optional evidence: an unavailable command keeps
+    /// the run and records a warning instead of fabricating events.
+    fn history(&self) -> (Vec<crate::BatteryHistoryEvent>, Vec<String>) {
+        let mut warnings = Vec::new();
+        match self.optional(
+            &["dumpsys", "batterystats", "--history"],
+            8 * 1024 * 1024,
+            "Battery history is unavailable on this device; the final snapshot retains no history events.",
+            &mut warnings,
+        ) {
+            Ok(text) => {
+                let mut events = crate::parse_history(&text);
+                if events.len() > 20_000 {
+                    warnings.push(format!(
+                        "Battery history exceeded 20,000 events; {} later events were omitted.",
+                        events.len() - 20_000
+                    ));
+                    events.truncate(20_000);
+                }
+                for event in &mut events {
+                    event.raw = event.raw.chars().take(1024).collect();
+                    event.name = event
+                        .name
+                        .as_ref()
+                        .map(|name| name.chars().take(256).collect());
+                }
+                (events, warnings)
+            }
+            Err(error) => {
+                warnings.push(format!("Battery history read failed: {error}"));
+                (Vec::new(), warnings)
+            }
+        }
     }
     fn optional(
         &self,
@@ -802,5 +1013,47 @@ fn check_cancelled(control: &BatteryCaptureControl) -> Result<(), String> {
         Err("Battery capture cancelled; the previous report is retained.".into())
     } else {
         Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thermal_sensor_max_and_status_are_parsed_without_component_attribution() {
+        let sample = parse_thermal_sample(
+            "Thermal Status: 3\nTemperature{mValue=36.5, mType=3, mName=CPU}\nTemperature{mValue=42.0, mType=3, mName=GPU}\n",
+            7_000,
+        );
+        assert_eq!(sample.elapsed_ms, 7_000);
+        assert_eq!(sample.status, Some(3));
+        assert_eq!(sample.peak_celsius, Some(42.0));
+        assert!(sample.throttled);
+        let empty = parse_thermal_sample("no thermal fields", 1);
+        assert_eq!(empty.status, None);
+        assert_eq!(empty.peak_celsius, None);
+        assert!(!empty.throttled);
+        let out_of_range = parse_thermal_sample("Temperature{mValue=400, mName=CPU}", 1);
+        assert_eq!(out_of_range.peak_celsius, None);
+    }
+
+    #[test]
+    fn capability_levels_and_missing_reasons_follow_observed_commands() {
+        let full = BatteryCapabilities::detect("--checkin --history --reset", true, true, true);
+        assert_eq!(full.level, "ENERGY_ENHANCED");
+        assert!(full.reset && full.bugreport && full.missing_reasons.is_empty());
+        let basic = BatteryCapabilities::detect("--checkin", true, true, false);
+        assert_eq!(basic.level, "RESOURCE_FULL");
+        assert!(
+            basic
+                .missing_reasons
+                .iter()
+                .any(|reason| reason.contains("reset"))
+        );
+        let energy = BatteryCapabilities::detect("--checkin", true, false, true);
+        assert_eq!(energy.level, "ENERGY_ENHANCED");
+        let unavailable = BatteryCapabilities::detect("", false, false, false);
+        assert_eq!(unavailable.level, "UNAVAILABLE");
+        assert_eq!(unavailable.missing_reasons.len(), 4);
     }
 }

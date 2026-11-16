@@ -4,6 +4,7 @@ mod baseline;
 mod capture;
 mod capture_export;
 mod model;
+pub(super) mod session_export;
 pub(super) mod workspace;
 use super::*;
 use gpui_kit::component::{
@@ -28,7 +29,7 @@ pub(super) struct BatteryShellUi {
     restored_artifact: Option<(Arc<BatteryReport>, Arc<aps_battery::BatteryCaptureArtifact>)>,
     pub(super) current_saved_key: Option<String>,
     pub(super) session_error: Option<String>,
-    capture: capture::BatteryCaptureUi,
+    pub(super) capture: capture::BatteryCaptureUi,
     baseline: baseline::BatteryBaselineState,
 }
 
@@ -476,7 +477,40 @@ impl ImportWorkspace {
                             TextKey::BatteryDerivedNotice
                         }),
                         &colors,
-                    )),
+                    ))
+                    .when(report.capabilities.is_some(), |card| {
+                        let capabilities = report.capabilities.as_ref().expect("checked");
+                        let flag = |value: bool| {
+                            self.language.text(if value {
+                                TextKey::BatteryWorkspaceYes
+                            } else {
+                                TextKey::BatteryWorkspaceNo
+                            })
+                        };
+                        let mut card = card.child(note(
+                            self.language.format(
+                                TextKey::BatteryCapabilityFlags,
+                                &[
+                                    ("checkin", &flag(capabilities.checkin)),
+                                    ("history", &flag(capabilities.history)),
+                                    ("reset", &flag(capabilities.reset)),
+                                    ("energy", &flag(capabilities.energy)),
+                                    ("bugreport", &flag(capabilities.bugreport)),
+                                ],
+                            ),
+                            &colors,
+                        ));
+                        if !capabilities.missing_reasons.is_empty() {
+                            card = card.child(note(
+                                self.language.format(
+                                    TextKey::BatteryCapabilityMissing,
+                                    &[("reasons", &capabilities.missing_reasons.join("; "))],
+                                ),
+                                &colors,
+                            ));
+                        }
+                        card
+                    }),
             );
             let mut provenance = div().flex().flex_wrap().gap(px(12.));
             for (key, value) in [
@@ -646,22 +680,26 @@ impl ImportWorkspace {
             .child(
                 studio::compact_text_button(
                     "battery-json",
-                    language.text(TextKey::BatterySavePageJson),
+                    language.text(TextKey::BatterySaveSessionJson),
                     loaded && !self.busy && !self.export_busy,
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.save_page(export::Format::Json, cx))),
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.save_battery_session(session_export::BatterySessionFormat::Json, cx)
+                })),
             )
             .child(
                 studio::compact_text_button(
                     "battery-csv",
-                    language.text(TextKey::BatterySavePageCsv),
+                    language.text(TextKey::BatterySaveSessionCsv),
                     loaded && !self.busy && !self.export_busy,
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.save_page(export::Format::Csv, cx))),
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.save_battery_session(session_export::BatterySessionFormat::Csv, cx)
+                })),
             )
             .child(
                 studio::compact_text_button(
@@ -678,11 +716,17 @@ impl ImportWorkspace {
                 studio::compact_text_button(
                     "battery-reset",
                     language.text(TextKey::BatteryResetGlobal),
-                    false,
+                    self.battery_device_serial().is_some()
+                        && !self.busy
+                        && !self.export_busy
+                        && !self.battery_shell_ui.capture.in_progress,
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::BatteryCaptureUnavailable)),
+                .tooltip(language.text(TextKey::BatteryResetConfirmBody))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.battery_reset_statistics(window, cx)),
+                ),
             )
             .when(self.busy, |toolbar| {
                 toolbar.child(
@@ -704,11 +748,14 @@ impl ImportWorkspace {
                 studio::compact_text_button(
                     "battery-historian",
                     language.text(TextKey::BatteryHistorian),
-                    false,
+                    self.battery_device_serial().is_some() && !self.busy && !self.export_busy,
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::BatteryHistorianUnavailable)),
+                .tooltip(language.text(TextKey::BatteryHistorianConfirmBody))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.battery_historian_input(window, cx)),
+                ),
             )
             .into_any_element()
     }

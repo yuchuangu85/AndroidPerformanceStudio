@@ -1,15 +1,14 @@
-//! Memory Profiler toolbar, snapshot tabs, evidence strip and status bar.
+//! Memory Profiler toolbar, snapshot tabs, evidence popover and status bar.
 //!
 //! Layout mirrors the Compose MemoryProfilerMainPage: capture actions and view
-//! modes in a 40 dp command bar, a 32 dp snapshot tab row, the collapsible
-//! evidence strip and the operation status bar.
+//! modes in a 40 dp command bar, a 32 dp snapshot tab row and the operation status bar.
 use super::super::*;
 use super::ImportWorkspace;
 use super::state::MemoryViewMode;
 use super::widgets::{self, toolbar_button};
 use crate::studio::{self, StudioColors};
 use aps_ui_foundation::{Destination, TextKey, typography};
-use gpui_kit::{prelude::*, *};
+use gpui_kit::{component::popover::Popover, prelude::*, *};
 
 impl ImportWorkspace {
     pub(super) fn render_memory_toolbar(
@@ -242,102 +241,76 @@ impl ImportWorkspace {
         row.into_any_element()
     }
 
-    pub(super) fn render_memory_evidence(
-        &mut self,
-        colors: &StudioColors,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        if matches!(
-            self.memory_state.view_mode,
-            MemoryViewMode::NativeHeap | MemoryViewMode::SampledArt | MemoryViewMode::BitmapDump
-        ) {
-            return div().into_any_element();
-        }
+    pub(super) fn render_memory_evidence_button(&self, colors: &StudioColors) -> AnyElement {
         let language = self.language;
-        let Some(snapshot) = self.memory_state.snapshot.clone() else {
-            return div().into_any_element();
+        let button = toolbar_button(
+            "memory-evidence-button",
+            language.text(TextKey::MemoryPageMemoryEvidence),
+            self.memory_state.snapshot.is_some(),
+            false,
+            colors,
+        );
+        let Some(snapshot) = &self.memory_state.snapshot else {
+            return button.into_any_element();
         };
-        let open = self.memory_state.warnings_open;
-        let warning_count = snapshot.metadata.warnings.len();
-        let mut strip = div()
-            .id("memory-evidence")
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .child(
+        let mut lines = vec![self.memory_state.snapshot_label.clone()];
+        lines.extend(evidence_lines(
+            snapshot,
+            self.memory_state.mapping_loaded,
+            self.memory_state.mapping_entries,
+            language,
+        ));
+        let text = lines.join("\n");
+        let copy_text = text.clone();
+        let colors = *colors;
+        Popover::new("memory-evidence-popover")
+            .anchor(Anchor::TopRight)
+            .trigger(button)
+            .content(move |_, _, _| {
+                let copy_text = copy_text.clone();
                 div()
-                    .id("memory-evidence-toggle")
+                    .id("memory-evidence-details")
+                    .w(px(440.))
+                    .max_h(px(360.))
                     .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(12.))
-                    .py(px(6.))
-                    .cursor_pointer()
+                    .flex_col()
+                    .gap(px(8.))
                     .child(
                         div()
-                            .w(px(12.))
-                            .text_size(px(typography::BODY))
-                            .text_color(colors.secondary_text)
-                            .child(if open { "▾" } else { "▸" }),
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(studio::section_title(
+                                language.text(TextKey::MemoryPageMemoryEvidence),
+                                &colors,
+                            ))
+                            .child(
+                                toolbar_button(
+                                    "memory-evidence-copy",
+                                    language.text(TextKey::ShellNotificationCopyAll),
+                                    true,
+                                    false,
+                                    &colors,
+                                )
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        copy_text.clone(),
+                                    ));
+                                }),
+                            ),
                     )
                     .child(
                         div()
-                            .text_size(px(typography::BODY))
+                            .id("memory-evidence-scroll")
+                            .min_h_0()
+                            .overflow_y_scrollbar()
+                            .text_size(px(typography::SUPPORTING))
                             .line_height(px(16.))
                             .text_color(colors.secondary_text)
-                            .child(language.text(TextKey::MemoryPageMemoryEvidence)),
+                            .child(studio::selectable(text.clone())),
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(typography::BODY))
-                            .line_height(px(16.))
-                            .text_color(colors.secondary_text)
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(self.memory_state.snapshot_label.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(typography::BODY))
-                            .line_height(px(16.))
-                            .text_color(colors.warning)
-                            .child(warning_count.to_string()),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.memory_state.warnings_open = !this.memory_state.warnings_open;
-                        cx.notify();
-                    })),
-            );
-        if open {
-            let mut panel = div()
-                .id("memory-evidence-details")
-                .max_h(px(160.))
-                .overflow_y_scrollbar()
-                .px(px(8.))
-                .pb(px(6.))
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .child(studio::section_title(
-                    language.text(TextKey::MemoryPageMemoryEvidence),
-                    colors,
-                ));
-            let mapping_loaded = self.memory_state.mapping_loaded;
-            let mapping_entries = self.memory_state.mapping_entries;
-            for line in evidence_lines(&snapshot, mapping_loaded, mapping_entries, language) {
-                panel = panel.child(
-                    div()
-                        .text_size(px(typography::SUPPORTING))
-                        .line_height(px(15.))
-                        .text_color(colors.secondary_text)
-                        .child(line),
-                );
-            }
-            strip = strip.child(panel);
-        }
-        strip.into_any_element()
+            })
+            .into_any_element()
     }
 
     pub(super) fn render_memory_status(
@@ -484,7 +457,7 @@ fn evidence_lines(
             .text(TextKey::MemoryPageEvidenceBoundary)
             .to_owned(),
     ];
-    for warning in snapshot.metadata.warnings.iter().take(8) {
+    for warning in &snapshot.metadata.warnings {
         lines.push(format!(
             "{}: {warning}",
             language.text(TextKey::MemoryPageWarning)
@@ -505,4 +478,29 @@ fn evidence_lines(
         ));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::evidence_lines;
+    use aps_memory::MemorySnapshot;
+    use aps_ui_foundation::Language;
+
+    #[test]
+    fn evidence_keeps_all_warnings_and_mapping_status() {
+        let mut snapshot = MemorySnapshot::default();
+        snapshot.source_digest = "digest".into();
+        snapshot.metadata.warnings = (0..12).map(|index| format!("warning-{index}")).collect();
+
+        let lines = evidence_lines(&snapshot, true, 42, Language::English);
+        for index in 0..12 {
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.contains(&format!("warning-{index}")))
+            );
+        }
+        assert!(lines.iter().any(|line| line.contains("digest")));
+        assert!(lines.iter().any(|line| line.contains("42")));
+    }
 }

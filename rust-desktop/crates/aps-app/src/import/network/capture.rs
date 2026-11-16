@@ -3,8 +3,8 @@
 //! thread; only the allocated local ADB forward is owned and removed here.
 use aps_adb::{AdbClient, AdbLocator, validate_serial};
 use aps_network::{
-    HarSession, MINIMIZED_URL, NetworkEntry, ObservedCapture, ObservedOutcome, ObservedPhase,
-    ObservedPhaseKind, ObservedRequest,
+    ConnectionUse, EntryOutcome, HarSession, INVALID_URL, NetworkEntry, ObservedCapture,
+    ObservedOutcome, ObservedPhase, ObservedPhaseKind, ObservedRequest, redact_url,
 };
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner};
 use std::{
@@ -54,6 +54,7 @@ impl LiveSnapshot {
             &session,
             0,
             &aps_network::EntryQuery::default(),
+            None,
             None,
             &CancellationToken::new(),
         )
@@ -721,6 +722,10 @@ struct Event {
     status: Option<u16>,
     bytes: Option<u64>,
     protocol: Option<&'static str>,
+    /// Redacted on the transport boundary; the raw value is not retained.
+    url: Option<String>,
+    tls_version: Option<String>,
+    cipher_suite: Option<String>,
 }
 impl Event {
     fn parse(raw: &aps_json::Value) -> Result<Self, String> {
@@ -807,8 +812,28 @@ impl Event {
                     .ok_or("Network Agent HTTP status is invalid")
             })
             .transpose()?;
-        // URL, message, TLS/cipher, connection and instrumentation strings are
-        // intentionally never copied from this transient JSON representation.
+        // The URL is redacted before it leaves this transient representation.
+        // Messages, connection ids and instrumentation strings are dropped.
+        let url = raw.get("url").and_then(aps_json::Value::as_str).map(|url| {
+            let redacted = redact_url(url);
+            if redacted.is_empty() {
+                INVALID_URL.to_owned()
+            } else {
+                redacted
+            }
+        });
+        let bounded_text = |value: &aps_json::Value, key: &str| {
+            value
+                .get(key)
+                .and_then(aps_json::Value::as_str)
+                .map(str::trim)
+                .filter(|text| {
+                    !text.is_empty()
+                        && text.chars().count() <= 64
+                        && !text.chars().any(char::is_control)
+                })
+                .map(str::to_owned)
+        };
         Ok(Self {
             sequence: integer(raw, "sequence")?,
             clock: integer(raw, "monotonicNs")?,
@@ -818,6 +843,9 @@ impl Event {
             status,
             bytes: optional_integer(raw, "byteCount")?,
             protocol,
+            url,
+            tls_version: bounded_text(raw, "tlsVersion"),
+            cipher_suite: bounded_text(raw, "cipherSuite"),
         })
     }
 }
@@ -936,16 +964,33 @@ impl Collector {
                         duration_ms: None,
                         request_bytes: None,
                         response_bytes: None,
-                        minimized_url: MINIMIZED_URL,
+                        redacted_url: INVALID_URL.to_owned(),
+                        protocol: None,
+                        outcome: EntryOutcome::InFlight,
+                        connection_use: ConnectionUse::Unknown,
+                        started_at_ms: None,
                     },
                     outcome: ObservedOutcome::InFlight,
                     start_ns: None,
                     end_ns: None,
                     protocol: None,
+                    redacted_url: INVALID_URL.to_owned(),
+                    tls_version: None,
+                    cipher_suite: None,
                     cancellation_requested: false,
                     phases_truncated: 0,
                     phases: Vec::new(),
                 });
+            if let Some(url) = &event.url {
+                request.redacted_url = url.clone();
+                request.entry.redacted_url = url.clone();
+            }
+            if let Some(tls) = &event.tls_version {
+                request.tls_version = Some(tls.clone());
+            }
+            if let Some(cipher) = &event.cipher_suite {
+                request.cipher_suite = Some(cipher.clone());
+            }
             if let Some(method) = event.method {
                 request.entry.method = method;
             }
@@ -1109,6 +1154,9 @@ mod tests {
             status: None,
             bytes: None,
             protocol: None,
+            url: None,
+            tls_version: None,
+            cipher_suite: None,
         }
     }
 
@@ -1233,11 +1281,11 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn transient_agent_strings_never_enter_the_observed_snapshot() {
+    fn transient_agent_strings_are_redacted_or_dropped_before_the_snapshot() {
         let raw = serde_json::json!({
             "sequence": 1, "monotonicNs": 2_000_000,
             "callId": "c-1", "kind": "callStart", "method": "private-method",
-            "url": "https://private-url/?token=private-credential",
+            "url": "https://example.test/private-path?token=private-credential",
             "message": "private-diagnostic", "tlsVersion": "private-tls",
             "cipherSuite": "private-cipher", "instrumentationId": "private-factory",
             "protocol": "private-protocol", "connectionId": "private-connection",
@@ -1249,11 +1297,24 @@ mod tests {
             .apply(reply(vec![Event::parse(&value).unwrap()], 1))
             .unwrap();
         let snapshot = collector.snapshot().unwrap();
-        let minimized = format!("{:?}", snapshot.observed().unwrap());
-        assert!(!minimized.contains("private-"));
+        let request = &snapshot.observed().unwrap().requests[0];
         assert_eq!(
-            snapshot.observed().unwrap().requests[0].entry.method,
-            "OTHER"
+            request.entry.redacted_url,
+            "https://example.test/<redacted-path>?token=<redacted>"
         );
+        for secret in [
+            "private-path",
+            "private-credential",
+            "private-diagnostic",
+            "private-factory",
+            "private-connection",
+        ] {
+            assert!(!format!("{:?}", snapshot.observed().unwrap()).contains(secret));
+        }
+        // Bounded TLS evidence is retained; free-form diagnostics are not.
+        assert_eq!(request.tls_version.as_deref(), Some("private-tls"));
+        assert_eq!(request.cipher_suite.as_deref(), Some("private-cipher"));
+        assert_eq!(request.entry.method, "OTHER");
+        assert_eq!(request.protocol, None);
     }
 }

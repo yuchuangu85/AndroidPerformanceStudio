@@ -43,13 +43,13 @@ fn restores_order_identity_and_alternative_locations_without_owning_files() {
     assert!(catalog.load(&cancel).unwrap().index.is_empty());
     assert!(!fixture.store_path().exists());
     let (_, a) = catalog
-        .apply(CatalogChange::Import(first.clone()), &cancel)
+        .apply(CatalogChange::import(first.clone()), &cancel)
         .unwrap();
     let (_, b) = catalog
-        .apply(CatalogChange::Import(second), &cancel)
+        .apply(CatalogChange::import(second), &cancel)
         .unwrap();
     let (snapshot, merged) = catalog
-        .apply(CatalogChange::Import(copy.clone()), &cancel)
+        .apply(CatalogChange::import(copy.clone()), &cancel)
         .unwrap();
     assert_eq!(merged, a);
     assert_eq!(snapshot.index.len(), 2);
@@ -87,10 +87,10 @@ fn relocation_preserves_order_and_remove_persists_without_deleting_sources() {
     let cancel = CancellationToken::new();
     let catalog = fixture.catalog();
     let (_, a) = catalog
-        .apply(CatalogChange::Import(first.clone()), &cancel)
+        .apply(CatalogChange::import(first.clone()), &cancel)
         .unwrap();
     let (_, b) = catalog
-        .apply(CatalogChange::Import(second.clone()), &cancel)
+        .apply(CatalogChange::import(second.clone()), &cancel)
         .unwrap();
     let a = a.unwrap();
     let b = b.unwrap();
@@ -132,12 +132,12 @@ fn corrupt_catalog_is_never_overwritten_by_import_relocation_or_removal() {
     let cancel = CancellationToken::new();
     let catalog = fixture.catalog();
     let (_, digest) = catalog
-        .apply(CatalogChange::Import(file.clone()), &cancel)
+        .apply(CatalogChange::import(file.clone()), &cancel)
         .unwrap();
     fs::write(fixture.store_path(), b"{broken catalog").unwrap();
     assert!(catalog.load(&cancel).is_err());
     for change in [
-        CatalogChange::Import(file.clone()),
+        CatalogChange::import(file.clone()),
         CatalogChange::Relocate(digest.unwrap(), file),
         CatalogChange::Remove(digest.unwrap()),
     ] {
@@ -158,7 +158,7 @@ fn failed_save_and_cancelled_changes_keep_previous_publication_and_store() {
     let catalog = fixture.catalog();
     let cancel = CancellationToken::new();
     let (published, digest) = catalog
-        .apply(CatalogChange::Import(first), &cancel)
+        .apply(CatalogChange::import(first), &cancel)
         .unwrap();
     let committed = fs::read(fixture.store_path()).unwrap();
     let cancelled = CancellationToken::new();
@@ -177,7 +177,7 @@ fn failed_save_and_cancelled_changes_keep_previous_publication_and_store() {
         fs::rename(&parent, &backup).unwrap();
         std::os::unix::fs::symlink(&backup, &parent).unwrap();
         let error = catalog
-            .apply(CatalogChange::Import(second), &cancel)
+            .apply(CatalogChange::import(second), &cancel)
             .err()
             .unwrap();
         assert!(matches!(
@@ -200,7 +200,7 @@ fn workspace_publication_clears_removed_evidence_and_restores_selected_identity(
     let file = fixture.file("capture.pftrace", b"trace");
     let cancel = CancellationToken::new();
     let catalog = fixture.catalog();
-    let (snapshot, digest) = catalog.apply(CatalogChange::Import(file), &cancel).unwrap();
+    let (snapshot, digest) = catalog.apply(CatalogChange::import(file), &cancel).unwrap();
     let mut workspace = ImportWorkspace::new(Destination::Gpu, Language::English);
     workspace.gpu_accept_catalog(snapshot);
     let record = workspace.gpu.artifacts[0].clone();

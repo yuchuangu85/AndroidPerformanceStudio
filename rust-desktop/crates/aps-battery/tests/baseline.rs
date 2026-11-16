@@ -31,7 +31,10 @@ fn snapshot(elapsed_ms: u64, bytes: Option<u64>) -> BatterySnapshot {
         },
         timers: BTreeMap::new(),
         network_bytes,
+        network_packets: BTreeMap::new(),
+        radio_active_ms: None,
         modeled_energy_mah: BTreeMap::new(),
+        history: Vec::new(),
         uid_records_present: true,
         warnings: Vec::new(),
     }
@@ -47,6 +50,8 @@ fn report(id: &str, values: &[Option<u64>]) -> BatteryReport {
             after: snapshot(index as u64 * 10_000 + 5_000, *value),
             temperatures_tenths_celsius: vec![300, 301],
             thermal_statuses: vec![0],
+            thermal_samples: Vec::new(),
+            history: Vec::new(),
             charging_states: vec![Some(false), Some(false)],
         })
         .collect::<Vec<_>>();
@@ -56,7 +61,7 @@ fn report(id: &str, values: &[Option<u64>]) -> BatteryReport {
         BatteryCaptureMode::Repeated
     };
     let mut report =
-        BatteryReport::from_live_snapshots(id, "example.app", mode.as_str(), &observations)
+        BatteryReport::from_live_snapshots(id, "example.app", mode.as_str(), &observations, None)
             .unwrap();
     report.workload_id = Some("scroll-feed-v1".into());
     report.configuration = Some(BatteryCaptureConfig {
@@ -65,6 +70,7 @@ fn report(id: &str, values: &[Option<u64>]) -> BatteryReport {
         polling_seconds: 5,
         runs: values.len() as u32,
         cooldown_seconds: 0,
+        launch_app: false,
     });
     report.stopped_early = Some(false);
     report

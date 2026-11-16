@@ -6,4 +6,4 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
-aps-hprof-engine = { path = "../../../desktop-viewer/memory-profiler/hprof-engine-rust" }
+aps-hprof-engine = { path = "../aps-hprof-engine" }

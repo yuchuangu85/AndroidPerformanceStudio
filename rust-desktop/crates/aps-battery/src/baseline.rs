@@ -39,7 +39,10 @@ impl BatterySnapshotEvidence {
             },
             timers: BTreeMap::new(),
             network_bytes: self.network_bytes.clone(),
+            network_packets: BTreeMap::new(),
+            radio_active_ms: None,
             modeled_energy_mah: BTreeMap::new(),
+            history: Vec::new(),
             uid_records_present: self.uid_records_present,
             warnings: Vec::new(),
         }
@@ -180,6 +183,7 @@ pub(crate) fn config_value(config: BatteryCaptureConfig) -> Value {
             }
             .into(),
         ),
+        ("launchApp", config.launch_app.into()),
     ])
 }
 
@@ -202,6 +206,10 @@ pub(crate) fn parse_config(value: &Value) -> Result<Option<BatteryCaptureConfig>
         runs: unsigned32(value, "requestedRuns")?.ok_or("Missing Battery requested runs")?,
         cooldown_seconds: unsigned32(value, "cooldownSeconds")?
             .ok_or("Missing Battery cooldown")?,
+        launch_app: value
+            .get("launchApp")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     };
     config.validate()?;
     if (config.mode != BatteryCaptureMode::Repeated

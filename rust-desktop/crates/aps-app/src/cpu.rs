@@ -5556,24 +5556,7 @@ fn stack_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
         };
         return panel_message(ws, colors, message);
     };
-    let mut note = div()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .child(div().flex_1());
-    if ws.query.start.is_some() || ws.query.end.is_some() {
-        note = note.child(
-            studio::compact_text_button(
-                "cpu-stack-reset-range",
-                lang.text(TextKey::CpuWorkspaceResetRange),
-                !ws.busy,
-                false,
-                colors,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.reset_time_range(cx))),
-        );
-    }
-    let mut column = div().size_full().flex().flex_col().gap(px(4.)).child(note);
+    let mut column = div().size_full().flex().flex_col().gap(px(4.));
     if frame.blocks.is_empty() {
         return column
             .child(panel_message(

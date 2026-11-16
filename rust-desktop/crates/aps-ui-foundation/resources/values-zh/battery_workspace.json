@@ -47,5 +47,16 @@
   "battery_workspace_window_bounds": "原始边界：{start} → {end}",
   "battery_workspace_yes": "是",
   "battery_workspace_no": "否",
-  "battery_workspace_evidence_missing": "未保留此类资源证据。记录缺失并非实测为零。"
+  "battery_workspace_evidence_missing": "未保留此类资源证据。记录缺失并非实测为零。",
+  "battery_workspace_mobile_rx": "移动网络接收",
+  "battery_workspace_mobile_tx": "移动网络发送",
+  "battery_workspace_wifi_rx": "Wi-Fi 接收",
+  "battery_workspace_wifi_tx": "Wi-Fi 发送",
+  "battery_workspace_bluetooth_rx": "蓝牙接收",
+  "battery_workspace_bluetooth_tx": "蓝牙发送",
+  "battery_workspace_mobile_rx_packets": "移动网络接收包数",
+  "battery_workspace_mobile_tx_packets": "移动网络发送包数",
+  "battery_workspace_wifi_rx_packets": "Wi-Fi 接收包数",
+  "battery_workspace_wifi_tx_packets": "Wi-Fi 发送包数",
+  "battery_workspace_radio_active": "移动射频活跃时间"
 }

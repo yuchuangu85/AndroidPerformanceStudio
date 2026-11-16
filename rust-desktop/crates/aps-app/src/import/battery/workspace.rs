@@ -105,10 +105,10 @@ fn cells(row: &EvidenceRow, language: Language) -> [String; 4] {
             "—".into(),
             confidence.clone(),
         ],
-        EvidenceRow::Network { bytes, .. } => [
-            language.text(TextKey::BatteryWorkspaceNetworkTotal).into(),
-            bytes
-                .map(|v| format!("{v} B"))
+        EvidenceRow::Network { counter, value, .. } => [
+            language.text(counter.key()).into(),
+            value
+                .map(|v| format!("{v} {}", counter.unit()))
                 .unwrap_or_else(|| absent.into()),
             "—".into(),
             unknown.into(),
@@ -588,8 +588,20 @@ impl ImportWorkspace {
                             colors,
                         ));
                 }
-                EvidenceRow::Network { .. } => {
+                EvidenceRow::Network { counter, value, .. } => {
                     content = content
+                        .child(detail(
+                            counter.key(),
+                            value
+                                .map(|value| format!("{value} {}", counter.unit()))
+                                .unwrap_or_else(|| {
+                                    language
+                                        .text(TextKey::BatteryWorkspaceUnavailable)
+                                        .to_owned()
+                                }),
+                            language,
+                            colors,
+                        ))
                         .child(detail(
                             TextKey::BatteryWorkspaceValue,
                             values[1].clone(),
@@ -809,9 +821,20 @@ mod tests {
             tab: ResourceTab::Network,
             source_index: 0,
         };
-        let missing = cells(&EvidenceRow::Network { id, bytes: None }, Language::English);
+        let missing = cells(
+            &EvidenceRow::Network {
+                id,
+                counter: NetworkCounter::MobileRx,
+                value: None,
+            },
+            Language::English,
+        );
         let zero = cells(
-            &EvidenceRow::Network { id, bytes: Some(0) },
+            &EvidenceRow::Network {
+                id,
+                counter: NetworkCounter::MobileRx,
+                value: Some(0),
+            },
             Language::English,
         );
         assert_eq!(missing[1], "Unavailable");

@@ -42,13 +42,24 @@ impl AdbClient {
         serial: &str,
         cancellation: &CancellationToken,
     ) -> Result<DeviceProperties, AdbError> {
+        let output = self.getprop_output(serial, cancellation)?;
+        parse_properties(&output)
+    }
+
+    /// Raw `getprop` evidence for callers that inspect hardware properties the
+    /// identity projection above intentionally drops. The caller owns parsing and
+    /// bounding; no device fact is inferred from this text here.
+    pub fn getprop_output(
+        &self,
+        serial: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<String, AdbError> {
         validate_serial(serial)?;
-        let output = self.run(
+        self.run(
             &["-s", serial, "shell", "getprop"],
             1024 * 1024,
             cancellation,
-        )?;
-        parse_properties(&output)
+        )
     }
 
     pub fn surfaceflinger_dump(

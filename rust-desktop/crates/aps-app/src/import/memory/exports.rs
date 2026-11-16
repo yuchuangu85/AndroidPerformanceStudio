@@ -1,10 +1,11 @@
 //! Bounded HPROF exports for the Memory Profiler File > Export menu.
 //!
 //! Every text/JSON export is built in memory under the shared 4 MiB export
-//! budget and committed with the create-new/no-overwrite writer. The raw HPROF
-//! copy streams the retained source bytes after re-verifying size and digest,
-//! and cleans up a partial file. Standard HPROF, native heap, ART sample and
-//! bitmap exports remain disabled rows because no adapter produces them.
+//! budget and committed with the create-new/no-overwrite writer. Raw and
+//! standard HPROF copies stream retained bytes after re-verifying size and
+//! digest. Standard HPROF requires the explicit hprof-conv output of a live
+//! capture; it is never synthesized. Native heap, ART sample and bitmap ZIP
+//! exports live in the advanced adapter.
 use super::ImportWorkspace;
 use super::state::ComparisonReport;
 use crate::import::{Session, export};
@@ -12,7 +13,9 @@ use aps_contracts::SourceDigest;
 use aps_json::{Limits, Map, Value};
 use aps_memory::{
     ClassStats, InstanceDetail, InstanceField, InstancesPage, MemorySnapshot, ObjectReference,
+    bitmap::BitmapDumpComparison,
 };
+use aps_platform::TempWorkspace;
 use aps_ui_foundation::{Destination, TextKey};
 use gpui_kit::prelude::*;
 use std::path::{Path, PathBuf};
@@ -20,11 +23,13 @@ use std::path::{Path, PathBuf};
 const EXPORT_ANALYSIS_VERSION: &str = "offline-hprof-viewer-v1";
 const MAX_REPORT_ROWS: usize = 50;
 
-/// One runnable File > Export row. Native heap, ART sample, standard HPROF and
-/// bitmap exports are intentionally absent: no Rust adapter produces them.
+/// One runnable File > Export row. Native heap, ART sample and bitmap ZIP rows
+/// are owned by the advanced adapter; the remaining rows are bounded writers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MemoryExportKind {
     RawHprof,
+    StandardHprof,
+    BitmapComparison,
     HistogramCsv,
     SnapshotJson,
     ClassInstancesCsv,
@@ -37,6 +42,8 @@ impl MemoryExportKind {
     pub(crate) fn default_filename(self) -> &'static str {
         match self {
             Self::RawHprof => "heap-raw.hprof",
+            Self::StandardHprof => "heap-standard.hprof",
+            Self::BitmapComparison => "bitmap-comparison.md",
             Self::HistogramCsv => "class-histogram.csv",
             Self::SnapshotJson => "heap-snapshot.json",
             Self::ClassInstancesCsv => "class-instances.csv",
@@ -363,6 +370,17 @@ fn field_json(field: &InstanceField) -> Value {
 
 fn reference_json(reference: &ObjectReference) -> Value {
     object([
+        (
+            "fieldName",
+            reference
+                .field_name
+                .clone()
+                .map_or(Value::Null, Value::from),
+        ),
+        (
+            "rootKind",
+            reference.root_kind.clone().map_or(Value::Null, Value::from),
+        ),
         ("targetObjectId", reference.object_id.into()),
         ("targetClassName", reference.class_name.clone().into()),
     ])
@@ -387,6 +405,10 @@ pub(super) fn object_investigation_json(
         ),
         ("objectId", detail.object_id.into()),
         ("className", detail.class_name.clone().into()),
+        (
+            "heapName",
+            detail.heap_name.clone().map_or(Value::Null, Value::from),
+        ),
         (
             "shallowSize",
             if detail.shallow_size_known {
@@ -449,6 +471,9 @@ pub(super) fn diff_csv(report: &ComparisonReport) -> Result<Vec<u8>, String> {
             "beforeCount".to_owned(),
             "afterCount".to_owned(),
             "countDelta".to_owned(),
+            "beforeShallowSizeBytes".to_owned(),
+            "afterShallowSizeBytes".to_owned(),
+            "shallowSizeDeltaBytes".to_owned(),
             "beforeRetainedSizeBytes".to_owned(),
             "afterRetainedSizeBytes".to_owned(),
             "retainedSizeDeltaBytes".to_owned(),
@@ -468,6 +493,9 @@ pub(super) fn diff_csv(report: &ComparisonReport) -> Result<Vec<u8>, String> {
                 row.a_count.to_string(),
                 row.b_count.to_string(),
                 signed(count_delta),
+                row.a_shallow.to_string(),
+                row.b_shallow.to_string(),
+                signed(i128::from(row.b_shallow) - i128::from(row.a_shallow)),
                 optional_number(row.a_retained),
                 optional_number(row.b_retained),
                 retained_delta,
@@ -717,6 +745,89 @@ pub(super) fn investigation_report_markdown(
 // Filesystem commits.
 // ---------------------------------------------------------------------------
 
+fn bitmap_comparison_markdown(comparison: &BitmapDumpComparison) -> Result<String, String> {
+    let mut output = String::new();
+    push_line(&mut output, "# Bitmap dump comparison")?;
+    push_line(&mut output, "")?;
+    push_line(&mut output, "| Metric | Before | After | Delta |")?;
+    push_line(&mut output, "|---|---:|---:|---:|")?;
+    for (label, before, after) in [
+        (
+            "Images",
+            comparison.before.exported_images,
+            comparison.after.exported_images,
+        ),
+        (
+            "Unique images",
+            comparison.before.unique_images,
+            comparison.after.unique_images,
+        ),
+        (
+            "Duplicate groups",
+            comparison.before.duplicate_groups,
+            comparison.after.duplicate_groups,
+        ),
+        (
+            "PNG storage bytes",
+            comparison.before.total_png_bytes,
+            comparison.after.total_png_bytes,
+        ),
+        (
+            "Estimated bitmap bytes",
+            comparison.before.estimated_bitmap_bytes,
+            comparison.after.estimated_bitmap_bytes,
+        ),
+        (
+            "Average image bytes",
+            comparison.before.average_bitmap_bytes,
+            comparison.after.average_bitmap_bytes,
+        ),
+    ] {
+        push_line(
+            &mut output,
+            &format!(
+                "| {label} | {before} | {after} | {} |",
+                signed_count(after, before)
+            ),
+        )?;
+    }
+    push_line(&mut output, "")?;
+    push_line(
+        &mut output,
+        "| SHA-256 | Dimensions | Before | After | Delta |",
+    )?;
+    push_line(&mut output, "|---|---:|---:|---:|---:|")?;
+    for change in comparison
+        .added
+        .iter()
+        .chain(&comparison.removed)
+        .chain(&comparison.changed_duplicate_counts)
+    {
+        push_line(
+            &mut output,
+            &format!(
+                "| `{}` | {}×{} | {} | {} | {} |",
+                change.sha256,
+                change.width,
+                change.height,
+                change.before_count,
+                change.after_count,
+                signed_count(change.after_count, change.before_count)
+            ),
+        )?;
+    }
+    Ok(output)
+}
+
+fn signed_count(after: u64, before: u64) -> String {
+    let delta = after as i128 - before as i128;
+    if delta > 0 {
+        format!("+{delta}")
+    } else {
+        delta.to_string()
+    }
+}
+
 /// Streams the retained artifact source to a new file after re-verifying size and
 /// digest, then verifies the copy. Never overwrites and never leaves a partial
 /// file behind.
@@ -789,6 +900,22 @@ impl ImportWorkspace {
             MemoryExportKind::RawHprof => {
                 loaded && self.path.is_some() && matches!(self.session, Some(Session::Memory(_)))
             }
+            MemoryExportKind::StandardHprof => {
+                loaded
+                    && self.path.is_some()
+                    && matches!(self.session, Some(Session::Memory(_)))
+                    && (self
+                        .memory_state
+                        .capture_artifact
+                        .as_ref()
+                        .is_some_and(|artifact| artifact.converted.is_some())
+                        || super::capture::transport::hprof_conv_available())
+            }
+            MemoryExportKind::BitmapComparison => self
+                .memory_advanced
+                .bitmap
+                .as_ref()
+                .is_some_and(|bitmap| bitmap.comparison.is_some()),
             MemoryExportKind::HistogramCsv
             | MemoryExportKind::SnapshotJson
             | MemoryExportKind::InvestigationReport => loaded,
@@ -813,8 +940,11 @@ impl ImportWorkspace {
             self.path
                 .as_ref()
                 .and_then(|path| path.parent())
+                .filter(|path| path.is_absolute())
                 .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("."))
+                .unwrap_or_else(|| {
+                    aps_platform::home_directory().unwrap_or_else(|_| std::env::temp_dir())
+                })
         };
         let source_path = self.path.clone();
         let capture_artifact = self.memory_state.capture_artifact.clone();
@@ -823,6 +953,12 @@ impl ImportWorkspace {
         let instances = self.memory_state.instances.clone();
         let detail = self.memory_state.detail.clone();
         let comparison = self.memory_state.comparison.clone();
+        let bitmap_comparison = self
+            .memory_advanced
+            .bitmap
+            .as_ref()
+            .and_then(|bitmap| bitmap.comparison.clone());
+        let cancel = self.cancel.clone();
         let selection = self
             .memory_state
             .selected_class_label
@@ -889,8 +1025,68 @@ impl ImportWorkspace {
                             return Err(destination_error());
                         }
                     }
-                    let _capture_artifact = capture_artifact;
                     match kind {
+                        MemoryExportKind::StandardHprof => {
+                            let converted = capture_artifact
+                                .as_ref()
+                                .and_then(|artifact| artifact.converted.clone());
+                            if let Some(converted) = converted {
+                                let digest = SourceDigest::hash_file(
+                                    &converted,
+                                    aps_memory::MAX_INPUT_BYTES,
+                                )
+                                .map_err(|_| "Cannot verify the converted HPROF".to_owned())?;
+                                write_verified_copy(&converted, &target, &digest.to_hex())?;
+                            } else {
+                                let source = source_path.clone().ok_or_else(|| {
+                                    "The active snapshot has no retained HPROF source path"
+                                        .to_owned()
+                                })?;
+                                if let Some(snapshot) = snapshot.as_ref() {
+                                    let digest = SourceDigest::hash_file(
+                                        &source,
+                                        aps_memory::MAX_INPUT_BYTES,
+                                    )
+                                    .map_err(|_| {
+                                        "Cannot re-verify the HPROF source".to_owned()
+                                    })?;
+                                    if digest.to_hex() != snapshot.source_digest {
+                                        return Err(
+                                            "The HPROF bytes changed since the snapshot was opened; conversion aborted"
+                                                .to_owned(),
+                                        );
+                                    }
+                                }
+                                let parent = target.parent().ok_or_else(|| {
+                                    "Select an absolute standard HPROF destination".to_owned()
+                                })?;
+                                let scratch = TempWorkspace::create(parent).map_err(|_| {
+                                    "Cannot create private standard-HPROF conversion storage"
+                                        .to_owned()
+                                })?;
+                                let produced = scratch.path().join("standard.hprof");
+                                super::capture::transport::convert_hprof_for_export(
+                                    &source,
+                                    &produced,
+                                    &cancel,
+                                )?;
+                                let digest = SourceDigest::hash_file(
+                                    &produced,
+                                    aps_memory::MAX_INPUT_BYTES,
+                                )
+                                .map_err(|_| "Cannot verify the converted HPROF".to_owned())?;
+                                write_verified_copy(&produced, &target, &digest.to_hex())?;
+                            }
+                        }
+                        MemoryExportKind::BitmapComparison => {
+                            let comparison = bitmap_comparison.clone().ok_or_else(|| {
+                                "Capture or import a second bitmap dump before exporting the comparison"
+                                    .to_owned()
+                            })?;
+                            let bytes = bitmap_comparison_markdown(&comparison)?.into_bytes();
+                            export::write_new_file(&target, &bytes)
+                                .map_err(|error| error.to_string())?;
+                        }
                         MemoryExportKind::RawHprof => {
                             let session = session.ok_or_else(|| {
                                 "The active snapshot has no memory session".to_owned()
@@ -949,7 +1145,11 @@ impl ImportWorkspace {
                                         mapping_entries,
                                     )?
                                 }
-                                MemoryExportKind::RawHprof => unreachable!("handled above"),
+                                MemoryExportKind::RawHprof
+                                | MemoryExportKind::StandardHprof
+                                | MemoryExportKind::BitmapComparison => {
+                                    unreachable!("handled above")
+                                }
                             };
                             export::write_new_file(&target, &bytes)
                                 .map_err(|error| error.to_string())?;
@@ -1008,6 +1208,7 @@ mod tests {
             },
             summary: HeapSummary {
                 shallow_size: 4096,
+                retained_size: None,
                 object_count: 3,
                 class_count: 2,
                 heap_segments: vec![HeapSegment {
@@ -1034,6 +1235,7 @@ mod tests {
                 },
             ],
             per_heap_classes: Default::default(),
+            per_heap_summaries: Default::default(),
             findings: FindingsSnapshot {
                 leak_suspects: FindingsPage {
                     total: 1,
@@ -1141,6 +1343,7 @@ mod tests {
                 depth: Some(1),
                 reachable: true,
                 native_size: None,
+                retained_native_size: None,
                 shallow_size_known: true,
                 class_name: Some("com.example.C".into()),
                 represented_class_name: None,
@@ -1169,6 +1372,7 @@ mod tests {
         let detail = InstanceDetail {
             object_id: 7,
             class_name: "com.example.C".into(),
+            heap_name: Some("App".into()),
             shallow_size: 16,
             retained_size: None,
             depth: Some(2),
@@ -1184,6 +1388,8 @@ mod tests {
                 ..InstanceField::default()
             }],
             reference_chain: vec![ObjectReference {
+                field_name: Some("next".into()),
+                root_kind: None,
                 object_id: 8,
                 class_name: "com.example.C".into(),
             }],
@@ -1219,6 +1425,8 @@ mod tests {
                 class_name: "com.example.C".into(),
                 a_count: 2,
                 b_count: 5,
+                a_shallow: 16,
+                b_shallow: 40,
                 a_retained: Some(10),
                 b_retained: Some(25),
             }],
@@ -1255,6 +1463,39 @@ mod tests {
         assert!(markdown.contains("## Top classes by retained size"));
         assert!(markdown.contains("| com.example.C | 2 | 1024 | 2048 |"));
         assert!(markdown.contains("## Class-level heap diff"));
+    }
+
+    #[test]
+    fn bitmap_comparison_markdown_uses_sha_content_and_signed_deltas() {
+        use aps_memory::bitmap::{BitmapContentChange, BitmapDumpComparison, BitmapDumpSummary};
+        let comparison = BitmapDumpComparison {
+            before: BitmapDumpSummary {
+                exported_images: 1,
+                unique_images: 1,
+                estimated_bitmap_bytes: 100,
+                ..Default::default()
+            },
+            after: BitmapDumpSummary {
+                exported_images: 2,
+                unique_images: 2,
+                estimated_bitmap_bytes: 300,
+                ..Default::default()
+            },
+            added: vec![BitmapContentChange {
+                sha256: "aa".into(),
+                width: 1,
+                height: 1,
+                before_count: 0,
+                after_count: 2,
+            }],
+            removed: Vec::new(),
+            changed_duplicate_counts: Vec::new(),
+        };
+        let markdown = bitmap_comparison_markdown(&comparison).unwrap();
+        assert!(markdown.starts_with("# Bitmap dump comparison"));
+        assert!(markdown.contains("| Images | 1 | 2 | +1 |"));
+        assert!(markdown.contains("| Estimated bitmap bytes | 100 | 300 | +200 |"));
+        assert!(markdown.contains("| `aa` | 1×1 | 0 | 2 | +2 |"));
     }
 
     #[test]

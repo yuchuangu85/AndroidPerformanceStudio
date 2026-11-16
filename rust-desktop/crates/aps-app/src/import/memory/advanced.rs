@@ -4,6 +4,7 @@ use super::super::*;
 use super::{capture::transport, state::MemoryViewMode, widgets::toolbar_button};
 use crate::import_timing::ImportTiming;
 use aps_contracts::SourceDigest;
+use aps_memory::bitmap::{BitmapDumpComparison, compare_bitmap_dumps};
 use aps_perfetto::{
     TraceSession,
     heap_profile::{HeapProfileKind, HeapProfilePage},
@@ -56,8 +57,12 @@ pub(super) struct HeapDataset {
     import_timing: ImportTiming,
     _capture: Option<Arc<transport::CapturedTrace>>,
 }
-pub(super) struct BitmapDataset {
+pub(in crate::import) struct BitmapDataset {
     pub dump: aps_memory::bitmap::BitmapDump,
+    /// Content comparison with the previous bitmap dump, when one exists.
+    pub comparison: Option<Arc<BitmapDumpComparison>>,
+    /// Optional PSS sample taken around the dump; never inferred from images.
+    pub memory: Option<transport::ProcessMemory>,
     import_timing: ImportTiming,
     _images: TempWorkspace,
     _capture: Option<Arc<transport::CapturedHeap>>,
@@ -66,7 +71,7 @@ pub(super) struct BitmapDataset {
 pub(in crate::import) struct AdvancedMemoryUi {
     native: Option<Arc<HeapDataset>>,
     art: Option<Arc<HeapDataset>>,
-    bitmap: Option<Arc<BitmapDataset>>,
+    pub(in crate::import) bitmap: Option<Arc<BitmapDataset>>,
     selected_image: usize,
 }
 impl AdvancedMemoryUi {
@@ -111,6 +116,7 @@ fn load_trace(
 }
 fn load_bitmap(
     path: &Path,
+    memory: Option<transport::ProcessMemory>,
     capture: Option<Arc<transport::CapturedHeap>>,
     started: Instant,
     cancel: &CancellationToken,
@@ -125,6 +131,8 @@ fn load_bitmap(
     )?;
     Ok(BitmapDataset {
         dump,
+        comparison: None,
+        memory,
         import_timing: ImportTiming::completed(started),
         _images: images,
         _capture: capture,
@@ -274,6 +282,7 @@ impl ImportWorkspace {
                     // recording time is not part of this status metric.
                     Ok(Loaded::Bitmap(load_bitmap(
                         &owner.path,
+                        owner.memory,
                         Some(owner.clone()),
                         Instant::now(),
                         &cancel,
@@ -329,7 +338,12 @@ impl ImportWorkspace {
                 self.memory_state.view_mode = kind.view();
                 self.notice = Some(TextKey::MemoryLivePublished.into());
             }
-            Ok(Loaded::Bitmap(data)) => {
+            Ok(Loaded::Bitmap(mut data)) => {
+                data.comparison = self
+                    .memory_advanced
+                    .bitmap
+                    .as_ref()
+                    .map(|previous| Arc::new(compare_bitmap_dumps(&previous.dump, &data.dump)));
                 self.memory_advanced.bitmap = Some(Arc::new(data));
                 self.memory_advanced.selected_image = 0;
                 self.memory_state.view_mode = MemoryViewMode::BitmapDump;
@@ -393,7 +407,7 @@ impl ImportWorkspace {
         self.memory_state.notice = None;
         let work = cx.background_executor().spawn(async move {
             if kind == AdvancedMemoryKind::Bitmap {
-                load_bitmap(&path, None, started, &cancel).map(Loaded::Bitmap)
+                load_bitmap(&path, None, None, started, &cancel).map(Loaded::Bitmap)
             } else {
                 load_trace(path, kind, None, None, started, &cancel).map(Loaded::Heap)
             }
@@ -760,7 +774,7 @@ impl ImportWorkspace {
                 colors,
             ));
         }
-        let bytes: u64 = dump.images.iter().map(|i| i.png_bytes).sum();
+        let summary = dump.summary();
         page = page.child(studio::supporting(
             self.language.format(
                 TextKey::MemoryLiveBitmapSummary,
@@ -769,11 +783,187 @@ impl ImportWorkspace {
                     ("discovered", &dump.discovered),
                     ("images", &dump.images.len()),
                     ("omitted", &dump.omitted),
-                    ("bytes", &bytes),
+                    ("bytes", &summary.total_png_bytes),
                 ],
             ),
             colors,
         ));
+        let mut cards = div().w_full().flex().flex_wrap().gap(px(4.));
+        for (index, key, value) in [
+            (
+                0,
+                TextKey::MemoryPageBitmapContentMemory,
+                super::auxiliary::memory_bytes(summary.estimated_bitmap_bytes),
+            ),
+            (
+                1,
+                TextKey::MemoryPageBitmapPngStorage,
+                super::auxiliary::memory_bytes(summary.total_png_bytes),
+            ),
+            (
+                2,
+                TextKey::MemoryPageBitmapAverageContent,
+                super::auxiliary::memory_bytes(summary.average_bitmap_bytes),
+            ),
+            (
+                3,
+                TextKey::MemoryPageBitmapExportedImages,
+                summary.exported_images.to_string(),
+            ),
+            (
+                4,
+                TextKey::MemoryPageBitmapUniqueImages,
+                summary.unique_images.to_string(),
+            ),
+            (
+                5,
+                TextKey::MemoryPageBitmapDuplicateGroups,
+                summary.duplicate_groups.to_string(),
+            ),
+        ] {
+            cards = cards.child(
+                studio::card(colors)
+                    .id(("bitmap-summary", index as usize))
+                    .flex_shrink_0()
+                    .gap(px(2.))
+                    .p(px(8.))
+                    .child(studio::supporting(self.language.text(key), colors))
+                    .child(
+                        div()
+                            .text_size(px(studio::FONT_BODY))
+                            .text_color(colors.text)
+                            .child(crate::studio::selectable(value)),
+                    ),
+            );
+        }
+        if let Some(largest) = summary.largest_image {
+            cards = cards.child(
+                studio::card(colors)
+                    .id("bitmap-summary-largest")
+                    .flex_shrink_0()
+                    .gap(px(2.))
+                    .p(px(8.))
+                    .child(studio::supporting(
+                        self.language.text(TextKey::MemoryPageBitmapLargestImage),
+                        colors,
+                    ))
+                    .child(
+                        div()
+                            .text_size(px(studio::FONT_BODY))
+                            .text_color(colors.text)
+                            .child(crate::studio::selectable(format!(
+                                "{}×{} · {}",
+                                largest.width,
+                                largest.height,
+                                super::auxiliary::memory_bytes(largest.estimated_bytes)
+                            ))),
+                    ),
+            );
+        }
+        if let Some(memory) = data.memory {
+            for (index, key, value) in [
+                (6, TextKey::MemoryPageBitmapTotalPss, memory.total_pss_bytes),
+                (
+                    7,
+                    TextKey::MemoryPageBitmapJavaPss,
+                    memory.java_heap_pss_bytes,
+                ),
+                (
+                    8,
+                    TextKey::MemoryPageBitmapNativePss,
+                    memory.native_heap_pss_bytes,
+                ),
+            ] {
+                let Some(value) = value else {
+                    continue;
+                };
+                cards = cards.child(
+                    studio::card(colors)
+                        .id(("bitmap-summary", index as usize))
+                        .flex_shrink_0()
+                        .gap(px(2.))
+                        .p(px(8.))
+                        .child(studio::supporting(self.language.text(key), colors))
+                        .child(
+                            div()
+                                .text_size(px(studio::FONT_BODY))
+                                .text_color(colors.text)
+                                .child(crate::studio::selectable(super::auxiliary::memory_bytes(
+                                    value,
+                                ))),
+                        ),
+                );
+            }
+            if let Some(native) = memory.native_heap_pss_bytes.filter(|native| *native > 0) {
+                let ratio = summary.estimated_bitmap_bytes as f64 / native as f64 * 100.;
+                cards = cards.child(
+                    studio::card(colors)
+                        .id(("bitmap-summary", 9usize))
+                        .flex_shrink_0()
+                        .gap(px(2.))
+                        .p(px(8.))
+                        .child(studio::supporting(
+                            self.language.text(TextKey::MemoryPageBitmapNativeRatio),
+                            colors,
+                        ))
+                        .child(
+                            div()
+                                .text_size(px(studio::FONT_BODY))
+                                .text_color(colors.text)
+                                .child(crate::studio::selectable(format!("{ratio:.1}%"))),
+                        ),
+                );
+            }
+        }
+        page = page.child(cards);
+        if let Some(comparison) = data.comparison.as_ref() {
+            let signed = |value: i64| {
+                if value > 0 {
+                    format!("+{value}")
+                } else {
+                    value.to_string()
+                }
+            };
+            let image_delta =
+                comparison.after.exported_images as i64 - comparison.before.exported_images as i64;
+            let bytes_delta = comparison.after.estimated_bitmap_bytes as i64
+                - comparison.before.estimated_bitmap_bytes as i64;
+            page = page
+                .child(
+                    studio::card(colors)
+                        .gap(px(2.))
+                        .child(studio::section_title(
+                            self.language.text(TextKey::MemoryPageBitmapDumpComparison),
+                            colors,
+                        )),
+                )
+                .child(studio::supporting(
+                    self.language.format(
+                        TextKey::MemoryPageBitmapDumpComparisonSummary,
+                        &[
+                            ("arg_1", &comparison.before.exported_images.to_string()),
+                            ("arg_2", &comparison.after.exported_images.to_string()),
+                            ("arg_3", &signed(image_delta)),
+                            (
+                                "arg_4",
+                                &format!(
+                                    "{} ({})",
+                                    super::auxiliary::memory_bytes(
+                                        comparison.after.estimated_bitmap_bytes
+                                    ),
+                                    signed(bytes_delta)
+                                ),
+                            ),
+                        ],
+                    ),
+                    colors,
+                ));
+        }
+        let mut duplicates: std::collections::BTreeMap<&str, u64> =
+            std::collections::BTreeMap::new();
+        for image in &dump.images {
+            *duplicates.entry(&image.sha256).or_default() += 1;
+        }
         let mut grid = div()
             .id("bitmap-images-grid")
             .w_full()
@@ -847,7 +1037,11 @@ impl ImportWorkspace {
                                     .text_size(px(studio::FONT_SUPPORTING))
                                     .text_color(colors.secondary_text)
                                     .text_ellipsis()
-                                    .child(format!("{} B", image.png_bytes)),
+                                    .child(format!(
+                                        "{} B · dup ×{}",
+                                        image.png_bytes,
+                                        duplicates.get(image.sha256.as_str()).copied().unwrap_or(1)
+                                    )),
                             ),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -975,7 +1169,8 @@ fn export_bitmap_bundle(data: &BitmapDataset, target: &Path) -> Result<(), Strin
             .compression_method(zip::CompressionMethod::Stored);
         let images=data.dump.images.iter().map(|i|serde_json::json!({"file":format!("images/bitmap-{}.png",i.index),"width":i.width,"height":i.height,"pngBytes":i.png_bytes,"sha256":i.sha256,"arrayId":i.array_id})).collect::<Vec<_>>();
         let target_identity=data._capture.as_ref().map(|capture|serde_json::json!({"serial":capture.target.serial,"pid":capture.target.pid,"package":capture.target.package_name,"process":capture.target.process_name,"bootId":capture.boot_id,"startTicks":capture.start_ticks}));
-        let manifest=serde_json::to_vec_pretty(&serde_json::json!({"captureTarget":target_identity,"format":"aps-android-bitmap-dump-v1","sourceDigest":data.dump.source_digest,"recorded":data.dump.recorded,"discovered":data.dump.discovered,"omitted":data.dump.omitted,"images":images})).map_err(|_|"Cannot encode bitmap manifest")?;
+        let memory=data.memory.map(|memory|serde_json::json!({"totalPssBytes":memory.total_pss_bytes,"javaHeapPssBytes":memory.java_heap_pss_bytes,"nativeHeapPssBytes":memory.native_heap_pss_bytes}));
+        let manifest=serde_json::to_vec_pretty(&serde_json::json!({"captureTarget":target_identity,"memorySnapshot":memory,"format":"aps-android-bitmap-dump-v1","sourceDigest":data.dump.source_digest,"recorded":data.dump.recorded,"discovered":data.dump.discovered,"omitted":data.dump.omitted,"images":images})).map_err(|_|"Cannot encode bitmap manifest")?;
         zip.start_file("manifest.json", options)
             .map_err(|_| "Cannot start bitmap manifest")?;
         zip.write_all(&manifest)
@@ -1067,6 +1262,33 @@ mod bitmap_grid_tests {
                 "Missing grid constraint: {constraint}"
             );
         }
+    }
+
+    #[::core::prelude::v1::test]
+    fn bitmap_dump_renders_content_summary_duplicates_and_comparison() {
+        let source = bitmap_view_source();
+        for marker in [
+            "dump.summary()",
+            "MemoryPageBitmapContentMemory",
+            "MemoryPageBitmapPngStorage",
+            "MemoryPageBitmapAverageContent",
+            "MemoryPageBitmapExportedImages",
+            "MemoryPageBitmapUniqueImages",
+            "MemoryPageBitmapDuplicateGroups",
+            "MemoryPageBitmapLargestImage",
+            "MemoryPageBitmapDumpComparisonSummary",
+            "MemoryPageBitmapTotalPss",
+            "MemoryPageBitmapNativeRatio",
+            ".comparison.as_ref()",
+            "duplicates.get(image.sha256.as_str())",
+        ] {
+            assert!(source.contains(marker), "Missing bitmap evidence: {marker}");
+        }
+        assert!(
+            include_str!("advanced.rs").contains(
+                "data.comparison = self.memory_advanced.bitmap.as_ref().map(|previous| {"
+            )
+        );
     }
 
     #[::core::prelude::v1::test]
@@ -1173,7 +1395,7 @@ mod import_timing_tests {
             open.find("letstarted=Instant::now();").unwrap()
                 < open.find("background_executor()").unwrap()
         );
-        assert!(open.contains("load_bitmap(&path,None,started,&cancel)"));
+        assert!(open.contains("load_bitmap(&path,None,None,started,&cancel)"));
         assert!(open.contains("load_trace(path,kind,None,None,started,&cancel)"));
         let page = source
             .split("fn page_advanced_memory(")

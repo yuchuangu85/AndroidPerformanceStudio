@@ -18,9 +18,24 @@ pub(super) struct CatalogSnapshot {
 }
 
 pub(super) enum CatalogChange {
-    Import(PathBuf),
+    Import {
+        path: PathBuf,
+        /// AGI version observed by the capability probe at import time.
+        agi_version: Option<String>,
+    },
     Relocate(SourceDigest, PathBuf),
     Remove(SourceDigest),
+}
+
+impl CatalogChange {
+    /// Import without AGI metadata; only tests use this entry point.
+    #[cfg(test)]
+    pub fn import(path: impl Into<PathBuf>) -> Self {
+        Self::Import {
+            path: path.into(),
+            agi_version: None,
+        }
+    }
 }
 
 impl Catalog {
@@ -59,9 +74,9 @@ impl Catalog {
             .load()
             .map_err(|_| TextKey::GpuCatalogLoadFailed)?;
         let selected = match change {
-            CatalogChange::Import(path) => Some(
+            CatalogChange::Import { path, agi_version } => Some(
                 index
-                    .import(&path, cancel)
+                    .import_capture(&path, None, agi_version.as_deref(), None, cancel)
                     .map_err(|_| TextKey::GpuImportFailed)?,
             ),
             CatalogChange::Relocate(digest, path) => {

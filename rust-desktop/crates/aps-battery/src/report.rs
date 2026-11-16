@@ -1,8 +1,11 @@
 use crate::baseline::{config_value, parse_config};
-use crate::{BatteryCaptureConfig, BatterySnapshotInterval};
+use crate::{
+    BatteryCapabilities, BatteryCaptureConfig, BatteryHistoryEvent, BatterySnapshotInterval,
+    ThermalSample,
+};
 use crate::{BatteryDelta, BatterySnapshot, MAX_PAGE_SIZE, ResourceKind, ResourceTimer};
 use aps_json::{Limits, Map, Number, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// Read-only report projection with optional minimized interval evidence.
@@ -14,6 +17,8 @@ pub struct BatteryReport {
     pub device_local_id: Option<String>,
     pub capture_mode: Option<String>,
     pub capability_level: Option<String>,
+    /// Observed command-level capabilities; None for reports without a probe.
+    pub capabilities: Option<BatteryCapabilities>,
     /// Exported capture timestamp, never inferred from the imported file.
     pub created_at: Option<String>,
     /// User-declared scenario, never inferred from package or process identity.
@@ -35,6 +40,10 @@ pub struct BatteryRunObservation {
     pub after: BatterySnapshot,
     pub temperatures_tenths_celsius: Vec<i32>,
     pub thermal_statuses: Vec<u32>,
+    /// Device-wide thermal samples; empty means the probe was unavailable.
+    pub thermal_samples: Vec<ThermalSample>,
+    /// Final-snapshot history events already filtered by the capture boundary.
+    pub history: Vec<BatteryHistoryEvent>,
     /// Every observed battery charging state, including unavailable samples.
     pub charging_states: Vec<Option<bool>>,
 }
@@ -45,6 +54,9 @@ pub struct BatteryReportRun {
     pub iteration: u32,
     pub duration_ms: u64,
     pub network_bytes: Option<u64>,
+    pub network_counters: BTreeMap<String, Option<u64>>,
+    pub network_packets: BTreeMap<String, Option<u64>>,
+    pub radio_active_ms: Option<u64>,
     pub snapshot_interval: Option<BatterySnapshotInterval>,
     pub timers: Vec<ResourceTimer>,
     /// Source confidences in the same order as `timers`; no confidence is inferred.
@@ -57,6 +69,7 @@ pub struct BatteryReportRun {
     pub throttled_samples: Option<u64>,
     /// None means not supplied; Some(empty) is an explicitly empty window list.
     pub performance_windows: Option<Vec<ImportedPerformanceWindow>>,
+    pub history: Vec<BatteryHistoryEvent>,
     pub warnings: Vec<String>,
 }
 
@@ -126,6 +139,25 @@ impl BatteryReport {
                 ("durationMs", run.duration_ms.into()),
                 ("networkBytes", optional_value(run.network_bytes)),
                 (
+                    "networkCounters",
+                    Value::Object(
+                        run.network_counters
+                            .iter()
+                            .map(|(key, value)| (key.clone(), optional_value(*value)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "networkPackets",
+                    Value::Object(
+                        run.network_packets
+                            .iter()
+                            .map(|(key, value)| (key.clone(), optional_value(*value)))
+                            .collect(),
+                    ),
+                ),
+                ("radioActiveMs", optional_value(run.radio_active_ms)),
+                (
                     "snapshotInterval",
                     run.snapshot_interval
                         .as_ref()
@@ -139,6 +171,7 @@ impl BatteryReport {
                 ("maxThermalStatus", optional_value(run.max_thermal_status)),
                 ("throttledSamples", optional_value(run.throttled_samples)),
                 ("warnings", run.warnings.clone().into()),
+                ("history", history_values(&run.history)),
             ]);
             let fields = row.as_object_mut().expect("Battery run object");
             for (name, kind) in [
@@ -207,6 +240,12 @@ impl BatteryReport {
                 "capabilityLevel",
                 optional_value(self.capability_level.as_deref()),
             ),
+            (
+                "capabilities",
+                self.capabilities
+                    .as_ref()
+                    .map_or(Value::Null, capabilities_value),
+            ),
             ("createdAt", optional_value(self.created_at.as_deref())),
             ("workloadId", optional_value(self.workload_id.as_deref())),
             (
@@ -231,6 +270,86 @@ impl BatteryReport {
         Ok(bytes)
     }
 
+    /// Whole-session CSV matching the Compose exporter columns. Summary rows use
+    /// the same explicit unknown semantics as the JSON projection.
+    pub fn to_csv(&self, max_bytes: usize) -> Result<Vec<u8>, String> {
+        if max_bytes == 0 || max_bytes > crate::MAX_INPUT_BYTES {
+            return Err("Battery CSV export requires a positive byte budget at most 64 MiB".into());
+        }
+        let scope = self.attribution_scope.as_deref().unwrap_or("UNKNOWN");
+        let mut output = String::from(
+            "schema_version,run,resource_type,name,duration_ms,count,bytes,energy_mah,energy_uws,source,scope,confidence\n",
+        );
+        let escape = |value: &str| format!("\"{}\"", value.replace('"', "\"\""));
+        for run in &self.runs {
+            for (timer, confidence) in run.timers.iter().zip(&run.timer_confidence) {
+                let kind = match timer.kind {
+                    ResourceKind::Wakelock => "wakelock",
+                    ResourceKind::Alarm => "alarm",
+                    ResourceKind::Job => "job",
+                    ResourceKind::Sensor => "sensor",
+                };
+                output.push_str(&format!(
+                    "1,{},{},{},{},{},,,,UID_COUNTER,{},{}\n",
+                    run.iteration,
+                    kind,
+                    escape(&timer.name),
+                    timer.duration_ms,
+                    timer.count,
+                    scope,
+                    confidence.as_deref().unwrap_or("UNKNOWN"),
+                ));
+            }
+            output.push_str(&format!(
+                "1,{},network,total,,,,{},,,,,\n",
+                run.iteration,
+                run.network_bytes
+                    .map_or_else(String::new, |value| value.to_string())
+            ));
+            output.push_str(&format!(
+                "1,{},thermal,peak_temperature_c,,,,{},,,,,\n",
+                run.iteration,
+                run.peak_temperature_celsius
+                    .map_or_else(String::new, |value| value.to_string())
+            ));
+            output.push_str(&format!(
+                "1,{},thermal,status,,,,{},,,,,\n",
+                run.iteration,
+                run.max_thermal_status
+                    .map_or_else(String::new, |value| value.to_string())
+            ));
+            for energy in &run.energy {
+                let row = [
+                    "1".to_owned(),
+                    run.iteration.to_string(),
+                    "energy".to_owned(),
+                    escape(&energy.component),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    energy
+                        .energy_mah
+                        .map_or_else(String::new, |value| value.to_string()),
+                    energy
+                        .energy_uws
+                        .map_or_else(String::new, |value| value.to_string()),
+                    energy.source.clone(),
+                    energy.scope.clone(),
+                    energy.confidence.clone(),
+                ];
+                output.push_str(&row.join(","));
+                output.push('\n');
+            }
+            if output.len() > max_bytes {
+                return Err("Battery CSV export exceeds its byte budget".into());
+            }
+        }
+        if output.len() > max_bytes {
+            return Err("Battery CSV export exceeds its byte budget".into());
+        }
+        Ok(output.into_bytes())
+    }
+
     /// Builds the same report projection as import while keeping the real
     /// snapshot/UID continuity gate. A counter that disappeared or reset is
     /// omitted with a warning, never turned into a measured zero.
@@ -239,6 +358,7 @@ impl BatteryReport {
         package_name: &str,
         capture_mode: &str,
         observations: &[BatteryRunObservation],
+        capabilities: Option<BatteryCapabilities>,
     ) -> Result<Self, String> {
         if session_id.is_empty()
             || session_id.len() > 128
@@ -330,6 +450,9 @@ impl BatteryReport {
                 iteration: observation.iteration,
                 duration_ms,
                 network_bytes: delta.network_total_bytes,
+                network_counters: delta.network_bytes.clone(),
+                network_packets: delta.network_packets.clone(),
+                radio_active_ms: delta.radio_active_ms,
                 snapshot_interval: Some(BatterySnapshotInterval::from_snapshots(
                     &observation.before,
                     &observation.after,
@@ -340,20 +463,57 @@ impl BatteryReport {
                 timer_arrays_present,
                 energy,
                 peak_temperature_celsius: observation
-                    .temperatures_tenths_celsius
+                    .thermal_samples
                     .iter()
-                    .copied()
+                    .filter_map(|sample| sample.peak_celsius)
+                    .reduce(f64::max)
+                    .or_else(|| {
+                        observation
+                            .temperatures_tenths_celsius
+                            .iter()
+                            .copied()
+                            .max()
+                            .map(|value| f64::from(value) / 10.)
+                    }),
+                max_thermal_status: observation
+                    .thermal_samples
+                    .iter()
+                    .filter_map(|sample| sample.status)
                     .max()
-                    .map(|value| f64::from(value) / 10.),
-                max_thermal_status: observation.thermal_statuses.iter().copied().max(),
-                throttled_samples: (!observation.thermal_statuses.is_empty()).then(|| {
+                    .or_else(|| observation.thermal_statuses.iter().copied().max()),
+                throttled_samples: (!observation.thermal_samples.is_empty()).then(|| {
                     observation
-                        .thermal_statuses
+                        .thermal_samples
                         .iter()
-                        .filter(|value| **value >= 2)
+                        .filter(|sample| sample.throttled)
                         .count() as u64
                 }),
-                performance_windows: None,
+                performance_windows: Some(
+                    observation
+                        .thermal_samples
+                        .windows(2)
+                        .map(|pair| ImportedPerformanceWindow {
+                            started_at: None,
+                            ended_at: None,
+                            duration_ms: pair[1].elapsed_ms.checked_sub(pair[0].elapsed_ms),
+                            peak_temperature_celsius: [pair[0].peak_celsius, pair[1].peak_celsius]
+                                .into_iter()
+                                .flatten()
+                                .reduce(f64::max),
+                            max_thermal_status: [pair[0].status, pair[1].status]
+                                .into_iter()
+                                .flatten()
+                                .max(),
+                            throttled: Some(pair[0].throttled || pair[1].throttled),
+                        })
+                        .collect(),
+                ),
+                history: observation
+                    .history
+                    .iter()
+                    .filter(|event| event.uid.is_none_or(|uid| uid == first.uid))
+                    .cloned()
+                    .collect(),
                 warnings: run_warnings,
             });
         }
@@ -371,14 +531,18 @@ impl BatteryReport {
             package_name: Some(package_name.into()),
             device_local_id: Some(first.device_id.clone()),
             capture_mode: Some(capture_mode.into()),
-            capability_level: Some(
-                if has_energy {
-                    "ENERGY_ENHANCED"
-                } else {
-                    "RESOURCE_BASIC"
-                }
-                .into(),
-            ),
+            capability_level: Some(capabilities.as_ref().map_or_else(
+                || {
+                    if has_energy {
+                        "ENERGY_ENHANCED"
+                    } else {
+                        "RESOURCE_BASIC"
+                    }
+                    .into()
+                },
+                |capabilities| capabilities.level.clone(),
+            )),
+            capabilities,
             created_at: None,
             workload_id: None,
             configuration: None,
@@ -471,6 +635,9 @@ impl BatteryReport {
                 iteration,
                 duration_ms,
                 network_bytes: integer(row, "networkBytes")?,
+                network_counters: network_counters(row)?,
+                network_packets: optional_counter_map(row, "networkPackets")?,
+                radio_active_ms: integer(row, "radioActiveMs")?,
                 snapshot_interval: BatterySnapshotInterval::from_value(&row["snapshotInterval"])?,
                 timers,
                 timer_confidence,
@@ -480,6 +647,7 @@ impl BatteryReport {
                 max_thermal_status: unsigned32(row, "maxThermalStatus")?,
                 throttled_samples: integer(row, "throttledSamples")?,
                 performance_windows: performance_windows(row)?,
+                history: history_values_from_json(row)?,
                 warnings: strings(row, "warnings")?,
             });
         }
@@ -499,6 +667,7 @@ impl BatteryReport {
             device_local_id: optional_text(&root, "deviceLocalId")?,
             capture_mode: optional_text(&root, "captureMode")?,
             capability_level: optional_text(&root, "capabilityLevel")?,
+            capabilities: parse_capabilities(&root["capabilities"])?,
             created_at: optional_instant(&root, "createdAt")?,
             workload_id: optional_text(&root, "workloadId")?,
             configuration: parse_config(&root["configuration"])?,
@@ -531,6 +700,81 @@ pub(super) fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
 }
 pub(super) fn optional_value<T: Into<Value>>(value: Option<T>) -> Value {
     value.map_or(Value::Null, Into::into)
+}
+
+fn capabilities_value(capabilities: &BatteryCapabilities) -> Value {
+    object([
+        ("level", capabilities.level.clone().into()),
+        ("checkin", capabilities.checkin.into()),
+        ("history", capabilities.history.into()),
+        ("reset", capabilities.reset.into()),
+        ("energy", capabilities.energy.into()),
+        ("bugreport", capabilities.bugreport.into()),
+        (
+            "missingReasons",
+            capabilities.missing_reasons.clone().into(),
+        ),
+    ])
+}
+
+/// Capability flags are observation-backed. A capability block that omits a
+/// required flag is rejected instead of being silently treated as false.
+fn parse_capabilities(value: &Value) -> Result<Option<BatteryCapabilities>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let map = value
+        .as_object()
+        .ok_or("Battery capability block must be an object")?;
+    let level = map
+        .get("level")
+        .and_then(Value::as_str)
+        .filter(|level| {
+            matches!(
+                *level,
+                "RESOURCE_FULL"
+                    | "RESOURCE_BASIC"
+                    | "ENERGY_ENHANCED"
+                    | "HISTORIAN_EXPORT"
+                    | "UNAVAILABLE"
+            )
+        })
+        .ok_or("Battery capability level is invalid")?;
+    let flag = |name: &str| {
+        map.get(name)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| format!("Missing Battery capability flag {name}"))
+    };
+    let missing_reasons = map
+        .get("missingReasons")
+        .map(|value| {
+            value
+                .as_array()
+                .ok_or("Battery capability missing-reasons must be an array")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|text| text.len() <= 512)
+                        .map(str::to_owned)
+                        .ok_or("Invalid Battery capability reason")
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    if missing_reasons.len() > 32 {
+        return Err("Battery capability reasons exceed the bound".into());
+    }
+    Ok(Some(BatteryCapabilities {
+        level: level.into(),
+        checkin: flag("checkin")?,
+        history: flag("history")?,
+        reset: flag("reset")?,
+        energy: flag("energy")?,
+        bugreport: flag("bugreport")?,
+        missing_reasons,
+    }))
 }
 fn finite_value(value: Option<f64>) -> Result<Value, String> {
     value
@@ -621,6 +865,65 @@ fn performance_windows(row: &Value) -> Result<Option<Vec<ImportedPerformanceWind
         })
         .collect::<Result<Vec<_>, _>>()
         .map(Some)
+}
+
+fn network_counters(row: &Value) -> Result<BTreeMap<String, Option<u64>>, String> {
+    optional_counter_map(row, "networkCounters")
+}
+
+fn optional_counter_map(row: &Value, name: &str) -> Result<BTreeMap<String, Option<u64>>, String> {
+    let Some(value) = row.get(name) else {
+        return Ok(BTreeMap::new());
+    };
+    let object = value
+        .as_object()
+        .ok_or("Invalid battery network counter map")?;
+    object
+        .iter()
+        .map(|(key, value)| {
+            let value = if value.is_null() {
+                None
+            } else {
+                Some(value.as_u64().ok_or("Invalid battery network counter")?)
+            };
+            Ok((key.clone(), value))
+        })
+        .collect()
+}
+
+fn history_values(events: &[BatteryHistoryEvent]) -> Value {
+    events
+        .iter()
+        .map(|event| {
+            object([
+                ("elapsedMs", optional_value(event.elapsed_ms)),
+                ("kind", event.kind.clone().into()),
+                ("active", optional_value(event.active)),
+                ("name", optional_value(event.name.as_deref())),
+                ("uid", optional_value(event.uid)),
+                ("raw", event.raw.clone().into()),
+                ("confidence", event.confidence.clone().into()),
+            ])
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
+fn history_values_from_json(row: &Value) -> Result<Vec<BatteryHistoryEvent>, String> {
+    optional_array(row, "history")?
+        .iter()
+        .map(|value| {
+            Ok(BatteryHistoryEvent {
+                elapsed_ms: integer(value, "elapsedMs")?,
+                kind: required_text(value, "kind")?,
+                active: optional_bool(value, "active")?,
+                name: optional_text(value, "name")?,
+                uid: unsigned32(value, "uid")?,
+                raw: required_text(value, "raw")?,
+                confidence: required_text(value, "confidence")?,
+            })
+        })
+        .collect()
 }
 
 fn optional_instant(value: &Value, key: &str) -> Result<Option<String>, String> {

@@ -7,5 +7,6 @@ publish.workspace = true
 
 [dependencies]
 aps-contracts = { path = "../aps-contracts" }
+aps-json = { path = "../aps-json" }
 aps-platform = { path = "../aps-platform" }
 aps-har-engine = { path = "../../../desktop-viewer/network-profiler/native-engine-rust" }

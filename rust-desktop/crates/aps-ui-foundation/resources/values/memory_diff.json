@@ -4,5 +4,9 @@
   "memory_diff_query_failed": "Cannot read the complete class histogram from one of the snapshots.",
   "memory_diff_button": "Compare classes",
   "memory_diff_ready": "Class-level comparison only · object IDs are local to each dump",
-  "memory_diff_unavailable": "Load two HPROF snapshots to compare class counts, shallow and retained size."
+  "memory_diff_unavailable": "Load two HPROF snapshots to compare class counts, shallow and retained size.",
+  "memory_diff_before_shallow": "Before Shallow Size",
+  "memory_diff_after_shallow": "After Shallow Size",
+  "memory_diff_delta_shallow": "Δ Shallow Size",
+  "memory_diff_gc_root_path": "GC Root path"
 }

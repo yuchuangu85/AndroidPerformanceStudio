@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-Memory Profiler 用于抓取、导入和调查 Java HPROF、Native heap 以及 Bitmap dump。当前能力包括类直方图、对象实例、引用链、Dominator/retained size、快照 diff、Bitmap 分析和 LeakCanary/Shark 兼容分析。
+Memory Profiler 用于抓取、导入和调查 Java HPROF、Native heap 以及 Bitmap dump。当前能力包括类直方图、对象实例、引用链、Dominator/retained size、快照 diff、Bitmap 分析与跨 dump 内容比较，以及 LeakCanary/Shark 兼容分析。HPROF 抓取可尽力调用宿主 `hprof-conv` 生成标准副本；导出只复制真实转换输出。
 
 ## 详细设计方案
 

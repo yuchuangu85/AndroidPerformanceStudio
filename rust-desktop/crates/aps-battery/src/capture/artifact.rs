@@ -70,6 +70,7 @@ impl BatteryCaptureArtifact {
                     ("pollingSeconds", config.polling_interval().into()),
                     ("requestedRuns", config.run_count().into()),
                     ("cooldownSeconds", if config.mode == BatteryCaptureMode::Repeated {config.cooldown_seconds} else {0}.into()),
+                    ("launchApp", config.launch_app.into()),
                 ])),
                 ("workloadId", optional(report.workload_id.clone())),
                 ("completedRuns", report.runs().len().into()),
@@ -83,12 +84,15 @@ impl BatteryCaptureArtifact {
                     "dumpsys batterystats --checkin: parsed selected-UID v9 cumulative records",
                     "dumpsys batterystats: optional selected-UID system-model energy",
                     "dumpsys battery: device battery state",
-                    "dumpsys thermalservice: optional unambiguous device-wide thermal status",
+                    "dumpsys thermalservice: optional device-wide thermal status and bounded sensor temperature maximum",
+                    "dumpsys batterystats --help: optional capability probe",
+                    "dumpsys batterystats --history: optional final-snapshot history events",
+                    "monkey: optional explicit app launch before each run",
                     "/proc: boot ID, selected PID UID/start ticks and device uptime",
                     "cmd package list packages -U --user: observed UID package set",
                     "dumpsys package: selected active PackageManager installation metadata",
                 ].into()),
-                ("evidenceBoundary", "Parsed selected-UID cumulative counters and device battery/thermal observations only. No raw whole-device dump, history, other UID counters, APK bytes or signatures. Sequential reads are not atomic workload intervals. Analysis JSON can be imported independently; import does not restore live provenance.".into()),
+                ("evidenceBoundary", "Parsed selected-UID cumulative counters, device battery/thermal observations and parsed history events only. No raw whole-device dump, raw history/thermal text, other UID counters, APK bytes or signatures. Sequential reads are not atomic workload intervals. Analysis JSON can be imported independently; import does not restore live provenance.".into()),
             ]),
             MAX_MANIFEST_BYTES,
         )?;
@@ -234,15 +238,33 @@ fn validate_provenance(
         polling_seconds: stored_u32(configuration, "pollingSeconds")?,
         runs: stored_u32(configuration, "requestedRuns")?,
         cooldown_seconds: stored_u32(configuration, "cooldownSeconds")?,
+        launch_app: configuration
+            .get("launchApp")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     };
     config.validate()?;
     let stopped = root["stoppedEarly"]
         .as_bool()
         .ok_or("Missing Battery stop provenance")?;
+    // Bundles written before the explicit app-launch option omit launchApp; the
+    // normalized default false is accepted for those immutable captures.
+    let stored_config_matches = report.configuration.is_none_or(|report_config| {
+        let expected = crate::baseline::config_value(report_config);
+        if configuration.get("launchApp").is_none() {
+            match (expected, configuration) {
+                (Value::Object(mut expected), Value::Object(stored)) => {
+                    expected.remove("launchApp");
+                    expected == *stored
+                }
+                _ => false,
+            }
+        } else {
+            expected == *configuration
+        }
+    });
     if report.capture_mode.as_deref() != Some(mode.as_str())
-        || report.configuration.is_some_and(|report_config| {
-            crate::baseline::config_value(report_config) != *configuration
-        })
+        || !stored_config_matches
         || report
             .stopped_early
             .is_some_and(|report_stopped| report_stopped != stopped)
@@ -619,8 +641,11 @@ mod tests {
             stats_period: Some("period".into()),
             device: crate::DeviceState::default(),
             timers: BTreeMap::new(),
+            network_packets: BTreeMap::new(),
+            radio_active_ms: None,
             network_bytes: BTreeMap::from([("wifi_rx".into(), Some(0)), ("wifi_tx".into(), None)]),
             modeled_energy_mah: BTreeMap::new(),
+            history: Vec::new(),
             uid_records_present: true,
             warnings: Vec::new(),
         }
@@ -642,8 +667,11 @@ mod tests {
                     after: after.clone(),
                     temperatures_tenths_celsius: Vec::new(),
                     thermal_statuses: Vec::new(),
+                    thermal_samples: Vec::new(),
+                    history: Vec::new(),
                     charging_states: vec![before.device.powered, after.device.powered],
                 }],
+                None,
             )
             .unwrap();
             report.configuration = Some(BatteryCaptureConfig {
@@ -652,6 +680,7 @@ mod tests {
                 polling_seconds: 5,
                 runs: 1,
                 cooldown_seconds: 0,
+                launch_app: false,
             });
             report.workload_id = Some("fixture-workload".into());
             report.stopped_early = Some(false);

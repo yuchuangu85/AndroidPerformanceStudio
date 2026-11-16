@@ -4,5 +4,9 @@
   "memory_diff_query_failed": "无法读取某个快照的完整类直方图。",
   "memory_diff_button": "比较类指标",
   "memory_diff_ready": "仅比较类级指标 · 对象 ID 只在各自转储内有效",
-  "memory_diff_unavailable": "加载两个 HPROF 快照后，可比较类数量、Shallow 与 Retained 大小。"
+  "memory_diff_unavailable": "加载两个 HPROF 快照后，可比较类数量、Shallow 与 Retained 大小。",
+  "memory_diff_before_shallow": "之前 Shallow 大小",
+  "memory_diff_after_shallow": "之后 Shallow 大小",
+  "memory_diff_delta_shallow": "Δ Shallow 大小",
+  "memory_diff_gc_root_path": "GC Root 路径"
 }

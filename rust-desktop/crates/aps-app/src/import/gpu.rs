@@ -4,8 +4,8 @@ mod catalog;
 mod panels;
 use super::*;
 use aps_gpu::{
-    AgiCapability, AgiLaunchMode, AgiToolchain, GpuArtifactIndex, GpuDeviceContext,
-    GpuDeviceContextReader, LocationStatus,
+    AgiCapability, AgiLaunchMode, AgiLocator, AgiPreferences, AgiToolchain, GpuArtifactIndex,
+    GpuDeviceContext, GpuDeviceContextReader, GraphicsApi, LocationStatus, OpenRoute,
 };
 use catalog::{Catalog, CatalogChange};
 use gpui_kit::component::{
@@ -42,6 +42,8 @@ pub(super) struct GpuUi {
     pub artifacts: Vec<GpuRecord>,
     pub selected: Option<String>,
     pub capability: Option<AgiCapability>,
+    preferences: Option<AgiPreferences>,
+    capability_started: bool,
     pub device: Option<GpuDeviceContext>,
     pub device_busy: bool,
     pub device_error: Option<String>,
@@ -54,6 +56,7 @@ pub(super) struct GpuUi {
     language: Option<Language>,
     device_serial: Option<String>,
     device_cancel: CancellationToken,
+    capability_cancel: CancellationToken,
     device_generation: u64,
     import_durations: BTreeMap<String, Duration>,
     catalog: Option<Catalog>,
@@ -71,6 +74,7 @@ impl GpuUi {
 impl Drop for GpuUi {
     fn drop(&mut self) {
         self.device_cancel.cancel();
+        self.capability_cancel.cancel();
     }
 }
 
@@ -114,13 +118,27 @@ fn gpu_note(text: impl Into<SharedString>, colors: &studio::StudioColors) -> Div
 }
 fn artifact_matches(record: &GpuRecord, query: &str) -> bool {
     let query = query.trim().to_lowercase();
-    query.is_empty()
-        || record.id().contains(&query)
-        || format!("{:?}", record.artifact.kind)
-            .to_lowercase()
-            .contains(&query)
-        || record
-            .artifact
+    if query.is_empty() {
+        return true;
+    }
+    let artifact = &record.artifact;
+    let contains = |value: &str| value.to_lowercase().contains(&query);
+    let option = |value: Option<&str>| value.is_some_and(contains);
+    record.id().contains(&query)
+        || contains(&format!("{:?}", artifact.kind))
+        || option(artifact.package_name.as_deref())
+        || option(artifact.graphics_implementation.as_deref())
+        || option(artifact.agi_version.as_deref())
+        || artifact
+            .graphics_api
+            .is_some_and(|api| contains(api.label()))
+        || artifact.device.as_ref().is_some_and(|device| {
+            option(Some(device.serial.as_str()))
+                || option(device.model.as_deref())
+                || option(device.gpu_renderer.as_deref())
+                || option(device.driver.as_deref())
+        })
+        || artifact
             .locations()
             .iter()
             .any(|path| path.to_string_lossy().to_lowercase().contains(&query))
@@ -128,11 +146,18 @@ fn artifact_matches(record: &GpuRecord, query: &str) -> bool {
 fn launch_supported(capability: Option<&AgiCapability>) -> bool {
     capability.is_some_and(|capability| capability.launch_mode != AgiLaunchMode::Unsupported)
 }
+fn artifact_open_supported(capability: Option<&AgiCapability>) -> bool {
+    capability.is_some_and(|capability| {
+        capability.launch_supported() && capability.artifact_open_supported
+    })
+}
 fn can_open(record: Option<&GpuRecord>, capability: Option<&AgiCapability>) -> bool {
     record.is_some_and(|record| {
         record.status == Some(LocationStatus::Available)
             && match record.artifact.open_route {
-                OpenRoute::Agi => launch_supported(capability),
+                OpenRoute::Agi => {
+                    artifact_open_supported(capability) || launch_supported(capability)
+                }
                 OpenRoute::Perfetto | OpenRoute::Desktop => true,
                 OpenRoute::None => false,
             }
@@ -140,11 +165,96 @@ fn can_open(record: Option<&GpuRecord>, capability: Option<&AgiCapability>) -> b
 }
 fn open_key(record: Option<&GpuRecord>, capability: Option<&AgiCapability>) -> TextKey {
     match record.map(|record| record.artifact.open_route) {
+        Some(OpenRoute::Agi) if artifact_open_supported(capability) => TextKey::GpuOpenInAgi,
         Some(OpenRoute::Agi) if launch_supported(capability) => TextKey::GpuLaunchAgi,
         Some(OpenRoute::Perfetto) => TextKey::GpuOpenInPerfetto,
         Some(OpenRoute::Desktop) => TextKey::GpuOpenWithDesktop,
         _ => TextKey::GpuUnavailable,
     }
+}
+fn api_key(api: GraphicsApi) -> TextKey {
+    match api {
+        GraphicsApi::Vulkan => TextKey::GpuGraphicsApiVulkan,
+        GraphicsApi::OpenGlEs => TextKey::GpuGraphicsApiOpenglEs,
+        GraphicsApi::WebGpu => TextKey::GpuGraphicsApiWebgpu,
+    }
+}
+fn graphics_apis_text(device: Option<&GpuDeviceContext>, language: Language) -> Option<String> {
+    let device = device?;
+    (!device.graphics_apis.is_empty()).then(|| {
+        device
+            .graphics_apis
+            .iter()
+            .map(|api| language.text(api_key(*api)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    })
+}
+fn device_text(artifact: &GpuArtifact, language: Language) -> String {
+    artifact
+        .device
+        .as_ref()
+        .map(|device| {
+            device
+                .model
+                .clone()
+                .unwrap_or_else(|| device.serial.clone())
+        })
+        .unwrap_or_else(|| language.text(TextKey::GpuNotRecorded).to_owned())
+}
+fn package_text(artifact: &GpuArtifact, language: Language) -> String {
+    artifact
+        .package_name
+        .clone()
+        .unwrap_or_else(|| language.text(TextKey::GpuNotRecorded).to_owned())
+}
+fn artifact_api_text(artifact: &GpuArtifact, language: Language) -> String {
+    artifact.graphics_api.map_or_else(
+        || language.text(TextKey::GpuNotRecorded).to_owned(),
+        |api| language.text(api_key(api)).to_owned(),
+    )
+}
+/// Capture time is shown only when a capture workflow recorded it; a file's
+/// modification time is never promoted to capture time.
+fn captured_text(artifact: &GpuArtifact, language: Language) -> String {
+    artifact
+        .captured_at
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| crate::trace::format_unix_ms(duration.as_millis() as u64))
+        .unwrap_or_else(|| language.text(TextKey::GpuNotRecorded).to_owned())
+}
+fn related_records<'a>(
+    records: &'a [GpuRecord],
+    selected: Option<&GpuRecord>,
+) -> Vec<&'a GpuRecord> {
+    let Some(selected) = selected else {
+        return Vec::new();
+    };
+    let serial = selected
+        .artifact
+        .device
+        .as_ref()
+        .map(|device| device.serial.as_str())
+        .filter(|serial| !serial.is_empty());
+    let package = selected
+        .artifact
+        .package_name
+        .as_deref()
+        .filter(|package| !package.is_empty());
+    records
+        .iter()
+        .filter(|record| record.id() != selected.id())
+        .filter(|record| {
+            serial.is_some_and(|serial| {
+                record
+                    .artifact
+                    .device
+                    .as_ref()
+                    .is_some_and(|device| device.serial == serial)
+            }) || package
+                .is_some_and(|package| record.artifact.package_name.as_deref() == Some(package))
+        })
+        .collect()
 }
 
 impl ImportWorkspace {
@@ -155,6 +265,18 @@ impl ImportWorkspace {
     ) -> AnyElement {
         if !self.gpu.catalog_started && !self.busy {
             self.gpu_restore_catalog(cx);
+        }
+        if !self.gpu.capability_started {
+            self.gpu_restore_capability(cx);
+        }
+        // Page entry reads the selected target's graphics context once; an
+        // explicit failure stays visible and is only retried from the button.
+        if self.gpu.device_serial.is_some()
+            && self.gpu.device.is_none()
+            && !self.gpu.device_busy
+            && self.gpu.device_error.is_none()
+        {
+            self.gpu_refresh_device(cx);
         }
         let search = self.gpu_search(window, cx);
         let entity = cx.entity();
@@ -420,7 +542,8 @@ impl ImportWorkspace {
                                     "executable",
                                     &value
                                         .executable
-                                        .file_name()
+                                        .as_ref()
+                                        .and_then(|path| path.file_name())
                                         .unwrap_or_default()
                                         .to_string_lossy(),
                                 ),
@@ -732,7 +855,8 @@ impl ImportWorkspace {
                                     .child(
                                         gpu_note(
                                             format!(
-                                                "— · {}",
+                                                "{} · {}",
+                                                captured_text(&record.artifact, language),
                                                 language.text(kind_key(record.artifact.kind))
                                             ),
                                             colors,
@@ -861,6 +985,11 @@ impl ImportWorkspace {
         if relocate && record.is_none() {
             return;
         }
+        let agi_version = self
+            .gpu
+            .capability
+            .as_ref()
+            .and_then(|capability| capability.version.clone());
         let (generation, cancel) = self.gpu_begin(cx);
         self.gpu.catalog_task = Some(generation);
         let picker = cx.prompt_for_paths(PathPromptOptions {
@@ -908,7 +1037,7 @@ impl ImportWorkspace {
                             path,
                         )
                     } else {
-                        CatalogChange::Import(path)
+                        CatalogChange::Import { path, agi_version }
                     };
                     catalog.apply(change, &cancel)
                 })
@@ -969,11 +1098,38 @@ impl ImportWorkspace {
         self.session = Some(Session::Gpu(record.artifact.clone()));
         self.session_id = Some(record.id());
         // AI/export receive only the minimized identity, never the paths or device dumps.
-        self.page=Some(PageData{summary:format!("GPU artifact · {:?} · {} bytes",record.artifact.kind,record.artifact.size_bytes),
-            columns:vec!["SHA-256".into(),"Kind".into(),"Size bytes".into(),"Verification".into()],
-            rows:vec![vec![record.id(),format!("{:?}",record.artifact.kind),record.artifact.size_bytes.to_string(),record.status.map_or_else(||"Unverified".into(),|status|format!("{status:?}"))]],
-            warnings:vec!["Artifact identity only; no AGI frame payload is decoded. Verification does not grant external launch authority.".into()],
-            offset:0,has_more:false,row_actions:Vec::new(),ui:PageUi::default()});
+        let mut warnings = vec!["Artifact identity only; no AGI frame payload is decoded. Verification does not grant external launch authority.".to_owned()];
+        warnings.extend(record.artifact.warnings.iter().cloned());
+        self.page = Some(PageData {
+            summary: format!(
+                "GPU artifact evidence · metadata only · {} indexed",
+                self.gpu.artifacts.len()
+            ),
+            columns: vec![
+                "SHA-256".into(),
+                "Kind".into(),
+                "Size bytes".into(),
+                "Graphics API".into(),
+                "Verification".into(),
+            ],
+            rows: vec![vec![
+                record.id(),
+                format!("{:?}", record.artifact.kind),
+                record.artifact.size_bytes.to_string(),
+                record
+                    .artifact
+                    .graphics_api
+                    .map_or_else(|| "Not recorded".into(), |api| api.label().to_owned()),
+                record
+                    .status
+                    .map_or_else(|| "Unverified".into(), |status| format!("{status:?}")),
+            ]],
+            warnings,
+            offset: 0,
+            has_more: false,
+            row_actions: Vec::new(),
+            ui: PageUi::default(),
+        });
         self.generation += 1;
         self.export_generation += 1;
         self.export_busy = false;
@@ -1043,6 +1199,22 @@ impl ImportWorkspace {
                                 match record.artifact.open_route {
                                     OpenRoute::Perfetto => cx.emit(OpenGpuTrace(Some(path))),
                                     OpenRoute::Desktop => cx.open_with_system(&path),
+                                    OpenRoute::Agi
+                                        if artifact_open_supported(capability.as_ref()) =>
+                                    {
+                                        let capability = capability
+                                            .as_ref()
+                                            .expect("artifact open requires a capability");
+                                        match AgiToolchain::launch_artifact(capability, &path) {
+                                            Ok(()) => {
+                                                this.notice =
+                                                    Some(TextKey::GpuArtifactOpenRequested.into())
+                                            }
+                                            Err(_) => {
+                                                this.error = Some(TextKey::GpuLaunchFailed.into())
+                                            }
+                                        }
+                                    }
                                     OpenRoute::Agi if launch_supported(capability.as_ref()) => {
                                         this.gpu_launch(cx)
                                     }
@@ -1102,19 +1274,83 @@ impl ImportWorkspace {
         .detach();
     }
     fn gpu_refresh_agi(&mut self, cx: &mut Context<Self>) {
-        if let Some(capability) = &self.gpu.capability {
-            self.gpu_probe(capability.executable.clone(), cx);
+        if let Some(path) = self
+            .gpu
+            .capability
+            .as_ref()
+            .and_then(|capability| capability.executable.clone())
+        {
+            self.gpu_probe(path, cx);
+        } else {
+            self.gpu.capability_started = false;
+            self.gpu_restore_capability(cx);
         }
+    }
+    fn gpu_capability_store(&mut self) -> Option<AgiPreferences> {
+        if self.gpu.preferences.is_none() {
+            self.gpu.preferences = crate::settings_path()
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_path_buf))
+                .map(|directory| {
+                    AgiPreferences::new(directory.join("gpu-integration/agi-executable.txt"))
+                });
+        }
+        self.gpu.preferences.clone()
+    }
+    /// First page visit: use the saved executable when it is still usable, then
+    /// `PATH` and platform defaults. This task is independent of the catalog so
+    /// it cannot cancel a catalog load or import.
+    pub(super) fn gpu_restore_capability(&mut self, cx: &mut Context<Self>) {
+        if self.gpu.capability_started {
+            return;
+        }
+        self.gpu.capability_started = true;
+        let Some(preferences) = self.gpu_capability_store() else {
+            return;
+        };
+        let locator = AgiLocator::from_environment();
+        self.gpu.capability_cancel.cancel();
+        self.gpu.capability_cancel = CancellationToken::new();
+        let cancel = self.gpu.capability_cancel.clone();
+        cx.spawn(async move |this, cx| {
+            let task_cancel = cancel.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { preferences.discover_from(locator.candidates(), &task_cancel) })
+                .await;
+            if cancel.is_cancelled() {
+                return;
+            }
+            this.update(cx, |this, cx| {
+                if this.gpu.capability_cancel.is_cancelled() {
+                    return;
+                }
+                match result {
+                    Ok(Some(capability)) => this.gpu.capability = Some(capability),
+                    Ok(None) => this.gpu.capability = Some(AgiCapability::unavailable()),
+                    Err(_) => this.gpu.capability_started = false,
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
     fn gpu_probe(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
+        let Some(preferences) = self.gpu_capability_store() else {
+            self.error = Some(TextKey::GpuNoDataDirectory.into());
+            cx.notify();
+            return;
+        };
         let (generation, cancel) = self.gpu_begin(cx);
+        self.gpu.capability_started = true;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { AgiToolchain::probe(&path, &cancel) })
+                .spawn(async move { preferences.configure(&path, &cancel) })
                 .await;
             this.update(cx, |this, cx| {
                 if this.generation != generation {
@@ -1150,7 +1386,7 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { AgiToolchain::launch(&capability) })
+                .spawn(async move { AgiToolchain::launch(&capability, &[]) })
                 .await;
             this.update(cx, |this, cx| {
                 if this.generation != generation {
@@ -1226,8 +1462,9 @@ impl ImportWorkspace {
 #[cfg(test)]
 mod tests {
     use super::{
-        ARTIFACT_RAIL, COMPACT_RAIL_HEIGHT, INSIGHT_RAIL, SUMMARY_WIDTH, WIDE_WIDTH, can_open,
-        size_text,
+        ARTIFACT_RAIL, COMPACT_RAIL_HEIGHT, GraphicsApi, INSIGHT_RAIL, Language, LocationStatus,
+        SUMMARY_WIDTH, WIDE_WIDTH, artifact_api_text, can_open, captured_text, device_text,
+        open_key, package_text, related_records, size_text,
     };
     #[test]
     fn reference_layout_dimensions() {
@@ -1371,10 +1608,11 @@ mod tests {
         agi.status = Some(aps_gpu::LocationStatus::Available);
         assert!(!can_open(Some(&agi), None));
         let mut capability = aps_gpu::AgiCapability {
-            executable: fixture.0.join("not-executed"),
+            executable: Some(fixture.0.join("not-executed")),
             version: None,
             launch_mode: aps_gpu::AgiLaunchMode::GuiOnly,
             artifact_open_supported: false,
+            artifact_open_argument: None,
             stable_arguments: Vec::new(),
             warnings: Vec::new(),
         };
@@ -1389,6 +1627,110 @@ mod tests {
     }
 
     #[test]
+    fn agi_open_distinguishes_artifact_open_from_gui_launch() {
+        let fixture = Fixture::new();
+        let mut record = fixture.record("frame.gfxtrace", b"frame");
+        record.status = Some(LocationStatus::Available);
+        let mut capability = aps_gpu::AgiCapability {
+            executable: None,
+            version: None,
+            launch_mode: aps_gpu::AgiLaunchMode::GuiOnly,
+            artifact_open_supported: false,
+            artifact_open_argument: None,
+            stable_arguments: Vec::new(),
+            warnings: Vec::new(),
+        };
+        assert!(can_open(Some(&record), Some(&capability)));
+        assert_eq!(
+            open_key(Some(&record), Some(&capability)),
+            super::TextKey::GpuLaunchAgi
+        );
+        capability.artifact_open_supported = true;
+        capability.artifact_open_argument = Some("--open-artifact".into());
+        assert_eq!(
+            open_key(Some(&record), Some(&capability)),
+            super::TextKey::GpuOpenInAgi
+        );
+        assert_eq!(
+            open_key(Some(&record), None),
+            super::TextKey::GpuUnavailable
+        );
+        assert!(!can_open(Some(&record), None));
+    }
+
+    #[test]
+    fn capture_time_is_shown_only_when_a_capture_recorded_it() {
+        let fixture = Fixture::new();
+        let mut record = fixture.record("frame.gfxtrace", b"frame");
+        assert!(record.artifact.modified_at.is_some());
+        assert_eq!(
+            captured_text(&record.artifact, Language::English),
+            "Not recorded in this artifact index"
+        );
+        std::sync::Arc::make_mut(&mut record.artifact).captured_at =
+            Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000));
+        assert_eq!(
+            captured_text(&record.artifact, Language::English),
+            "2023-11-14-22:13:20Z"
+        );
+    }
+
+    #[test]
+    fn recorded_metadata_is_displayed_or_explicitly_missing() {
+        let fixture = Fixture::new();
+        let mut record = fixture.record("frame.gfxtrace", b"frame");
+        assert_eq!(
+            device_text(&record.artifact, Language::English),
+            "Not recorded in this artifact index"
+        );
+        let artifact = std::sync::Arc::make_mut(&mut record.artifact);
+        artifact.device = Some(aps_gpu::parse_device_context(
+            "serial-1",
+            "[ro.product.model]: [Pixel 9]\n[ro.vulkan.version]: [0x00401000]\n",
+            "",
+        ));
+        artifact.package_name = Some("com.example.app".into());
+        artifact.graphics_api = Some(GraphicsApi::Vulkan);
+        assert_eq!(device_text(&record.artifact, Language::English), "Pixel 9");
+        assert_eq!(
+            package_text(&record.artifact, Language::English),
+            "com.example.app"
+        );
+        assert_eq!(
+            artifact_api_text(&record.artifact, Language::English),
+            "Vulkan"
+        );
+    }
+
+    #[test]
+    fn related_evidence_requires_a_recorded_device_or_package() {
+        let fixture = Fixture::new();
+        let mut records = vec![
+            fixture.record("a.gfxtrace", b"a"),
+            fixture.record("b.gfxtrace", b"b"),
+            fixture.record("c.pftrace", b"c"),
+        ];
+        assert!(related_records(&records, Some(&records[0])).is_empty());
+        let second_id = records[1].id();
+        std::sync::Arc::make_mut(&mut records[0].artifact).device =
+            Some(aps_gpu::parse_device_context("serial-1", "", ""));
+        std::sync::Arc::make_mut(&mut records[1].artifact).device =
+            Some(aps_gpu::parse_device_context("serial-1", "", ""));
+        let related = related_records(&records, Some(&records[0]));
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].id(), second_id);
+        std::sync::Arc::make_mut(&mut records[1].artifact).device =
+            Some(aps_gpu::parse_device_context("serial-2", "", ""));
+        std::sync::Arc::make_mut(&mut records[1].artifact).package_name =
+            Some("com.example.app".into());
+        std::sync::Arc::make_mut(&mut records[0].artifact).package_name =
+            Some("com.example.app".into());
+        assert_eq!(related_records(&records, Some(&records[0])).len(), 1);
+        std::sync::Arc::make_mut(&mut records[0].artifact).package_name = None;
+        assert!(related_records(&records, Some(&records[0])).is_empty());
+    }
+
+    #[test]
     fn application_filter_is_case_insensitive_and_does_not_change_identity() {
         let fixture = Fixture::new();
         let record = fixture.record("FRAME.gfxtrace", b"opaque evidence");
@@ -1397,6 +1739,19 @@ mod tests {
         assert!(super::artifact_matches(&record, "agiframeprofile"));
         assert!(super::artifact_matches(&record, &id[..12]));
         assert!(!super::artifact_matches(&record, "unrelated"));
+        let mut with_metadata = record.clone();
+        let artifact = std::sync::Arc::make_mut(&mut with_metadata.artifact);
+        artifact.package_name = Some("com.example.app".into());
+        artifact.graphics_api = Some(GraphicsApi::Vulkan);
+        artifact.device = Some(aps_gpu::parse_device_context(
+            "serial-1",
+            "[ro.product.model]: [Pixel 9]\n",
+            "",
+        ));
+        assert!(super::artifact_matches(&with_metadata, "com.example"));
+        assert!(super::artifact_matches(&with_metadata, "vulkan"));
+        assert!(super::artifact_matches(&with_metadata, "pixel 9"));
+        assert!(super::artifact_matches(&with_metadata, "serial-1"));
         assert_eq!(record.id(), id);
         assert_eq!(super::status_key(None), super::TextKey::GpuUnverified);
     }

@@ -6,7 +6,7 @@
   "network_detail_unavailable": "不可用",
   "network_detail_not_retained": "未保留",
   "network_detail_bytes": "响应 {response} · 请求 {request}",
-  "network_detail_legend": "时序置信度：精确 / 派生 / 推断 / 近似 / 部分 / 未知。最小化 HAR 适配器未保留阶段时序或置信度证据。",
+  "network_detail_legend": "INFERRED 阶段为生产方上报的估算；EXACT 阶段来自 Agent 回调。",
   "network_detail_entry": "HAR 条目 #{entry}",
   "network_detail_not_exchange": "此 HAR 条目不能证明已验证的 HTTP 交换、重定向链或交换次数。",
   "network_detail_connection_unknown": "连接使用情况未知",
@@ -15,7 +15,7 @@
   "network_detail_protocol": "协议不可用",
   "network_detail_outcome": "调用结果未知。HTTP 状态不能证明调用成功、失败或取消。",
   "network_detail_phases": "阶段证据",
-  "network_detail_phase_hint": "阶段耗时及其置信度未被保留；阶段缺失不代表测量结果为零耗时。",
+  "network_detail_phase_hint": "生产方时序字段；缺失阶段不会由其他值推断。",
   "network_detail_dispatcher_queue": "调度器排队",
   "network_detail_dns": "DNS",
   "network_detail_connect": "连接",
@@ -30,8 +30,8 @@
   "network_detail_request_body_evidence": "请求体证据",
   "network_detail_response_headers_evidence": "响应头证据",
   "network_detail_response_body_evidence": "响应体证据",
-  "network_detail_headers_excluded": "头名称和值已按 aps-network-rust-minimized-v1 策略不可逆移除；这不代表实际观测到空请求头或响应头。",
-  "network_detail_body_excluded": "正文已按 aps-network-rust-minimized-v1 策略不可逆移除；这不代表实际观测到空正文。",
+  "network_detail_headers_excluded": "该条目未捕获请求头",
+  "network_detail_body_excluded": "按策略排除正文；不显示任何载荷。",
   "network_detail_copy": "复制最小化详情",
-  "network_detail_scope": "仅复制已发布的方法、状态、耗时及字节数。URL、主机名、时间戳、头和正文无法从此投影恢复。"
+  "network_detail_scope": "仅限脱敏 URL 与已捕获请求头元数据；正文与 Cookie 不保留。"
 }

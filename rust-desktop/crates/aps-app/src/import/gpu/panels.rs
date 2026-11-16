@@ -127,7 +127,9 @@ fn capability_panel(
         ))
         .child(context(
             TextKey::GpuAgiExecutable,
-            capability.map(|c| c.executable.display().to_string()),
+            capability
+                .and_then(|capability| capability.executable.as_ref())
+                .map(|path| path.display().to_string()),
             language,
             colors,
         ))
@@ -144,8 +146,12 @@ fn capability_panel(
             colors,
         ));
     let arguments = capability
-        .map(|c| c.stable_arguments.join(" "))
-        .filter(|v| !v.is_empty())
+        .map(|capability| {
+            let mut stable = capability.stable_arguments.clone();
+            stable.sort();
+            stable.join(" ")
+        })
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| language.text(TextKey::GpuCapabilityNoArguments).into());
     panel = panel
         .child(context(
@@ -181,16 +187,17 @@ fn capability_panel(
 }
 fn localized_warning(warning: &str, language: Language) -> String {
     let key = match warning {
-        "AGI version could not be verified." => Some(TextKey::GpuWarningAgiVersionUnknown),
-        "AGI help probe did not complete successfully." => {
-            Some(TextKey::GpuWarningAgiHelpProbeFailed)
-        }
-        "Stable AGI artifact-open arguments were not detected." => {
+        aps_gpu::WARNING_AGI_NOT_FOUND => Some(TextKey::GpuWarningAgiExecutableNotFound),
+        aps_gpu::WARNING_VERSION_TIMED_OUT => Some(TextKey::GpuWarningAgiProbeTimedOut),
+        aps_gpu::WARNING_VERSION_UNKNOWN => Some(TextKey::GpuWarningAgiVersionUnknown),
+        aps_gpu::WARNING_HELP_TIMED_OUT => Some(TextKey::GpuWarningAgiHelpProbeTimedOut),
+        aps_gpu::WARNING_HELP_FAILED => Some(TextKey::GpuWarningAgiHelpProbeFailed),
+        aps_gpu::WARNING_GUI_ONLY => Some(TextKey::GpuWarningAgiGuiOnly),
+        aps_gpu::WARNING_ARTIFACT_OPEN_UNVERIFIED => {
             Some(TextKey::GpuWarningAgiArtifactOpenUnverified)
         }
-        "Stable AGI artifact-open arguments are not verified; open artifacts from the AGI application." => {
-            Some(TextKey::GpuAgiManualOpen)
-        }
+        aps_gpu::WARNING_UNKNOWN_ARTIFACT => Some(TextKey::GpuWarningUnknownArtifact),
+        aps_gpu::WARNING_PREFERENCE_NOT_SAVED => Some(TextKey::GpuConfigurationSaveFailed),
         _ => None,
     };
     key.map_or_else(|| warning.to_owned(), |key| language.text(key).into())
@@ -264,7 +271,7 @@ impl ImportWorkspace {
             (TextKey::GpuGpuDriver, device.and_then(|d| d.driver.clone())),
             (
                 TextKey::GpuGraphicsApi,
-                device.and_then(|d| d.graphics_api.clone()),
+                graphics_apis_text(device, language),
             ),
             (
                 TextKey::GpuGraphicsImplementation,
@@ -282,8 +289,8 @@ impl ImportWorkspace {
         for (index, (tab, key)) in [
             (GpuTab::Overview, TextKey::GpuTabOverview),
             (GpuTab::Artifacts, TextKey::GpuTabArtifacts),
-            (GpuTab::RelatedEvidence, TextKey::GpuRelatedEvidence),
-            (GpuTab::ToolCapability, TextKey::GpuToolCapability),
+            (GpuTab::RelatedEvidence, TextKey::GpuTabRelatedEvidence),
+            (GpuTab::ToolCapability, TextKey::GpuTabToolCapability),
         ]
         .into_iter()
         .enumerate()
@@ -309,16 +316,7 @@ impl ImportWorkspace {
         let tab_content = match self.gpu_tab {
             GpuTab::Overview => self.gpu_preview(wide, colors, cx),
             GpuTab::Artifacts => self.gpu_artifacts_table(wide, colors, cx),
-            GpuTab::RelatedEvidence => studio::card(colors)
-                .flex_shrink_0()
-                .when(wide, |panel| panel.flex_grow(1.))
-                .min_h(px(180.))
-                .child(section(TextKey::GpuRelatedEvidence, language, colors))
-                .child(supporting(
-                    language.text(TextKey::GpuRelatedUnavailable),
-                    colors,
-                ))
-                .into_any_element(),
+            GpuTab::RelatedEvidence => self.gpu_related_panel(wide, colors, cx),
             GpuTab::ToolCapability => {
                 capability_panel(self.gpu.capability.as_ref(), language, colors, true)
                     .when(wide, |panel| panel.flex_grow(1.))
@@ -368,6 +366,16 @@ impl ImportWorkspace {
                             .min_w_0(),
                     )
                     .child(supporting(language.text(status_key(record.status)), colors))
+                    .child(supporting(
+                        language.format(
+                            TextKey::GpuArtifactRelatedCount,
+                            &[(
+                                "count",
+                                &related_records(&self.gpu.artifacts, Some(record)).len(),
+                            )],
+                        ),
+                        colors,
+                    ))
                     .child(
                         studio::compact_text_button(
                             "gpu-preview-open",
@@ -379,7 +387,7 @@ impl ImportWorkspace {
                         .on_click(cx.listener(|this, _, _, cx| this.gpu_open(cx))),
                     ),
             );
-            let unknown = language.text(TextKey::GpuUnknown).to_owned();
+            let not_recorded = language.text(TextKey::GpuNotRecorded).to_owned();
             panel = panel
                 .child(
                     div().flex().flex_wrap().gap(px(12.)).children(
@@ -388,14 +396,43 @@ impl ImportWorkspace {
                                 TextKey::GpuArtifactColumnKind,
                                 language.text(kind_key(artifact.kind)).to_owned(),
                             ),
-                            (TextKey::GpuArtifactColumnPackage, unknown.clone()),
-                            (TextKey::GpuArtifactColumnDevice, unknown.clone()),
-                            (TextKey::GpuGraphicsApi, unknown.clone()),
+                            (
+                                TextKey::GpuArtifactColumnPackage,
+                                package_text(artifact, language),
+                            ),
+                            (
+                                TextKey::GpuArtifactColumnDevice,
+                                device_text(artifact, language),
+                            ),
+                            (
+                                TextKey::GpuGraphicsApi,
+                                artifact_api_text(artifact, language),
+                            ),
                             (TextKey::GpuArtifactSize, size_text(artifact.size_bytes)),
-                            (TextKey::GpuArtifactColumnCaptured, unknown.clone()),
-                            (TextKey::GpuArtifactAgiVersion, unknown.clone()),
-                            (TextKey::GpuGraphicsImplementation, unknown.clone()),
-                            (TextKey::GpuArtifactNotesLabel, unknown.clone()),
+                            (
+                                TextKey::GpuArtifactColumnCaptured,
+                                captured_text(artifact, language),
+                            ),
+                            (
+                                TextKey::GpuArtifactAgiVersion,
+                                artifact
+                                    .agi_version
+                                    .clone()
+                                    .unwrap_or_else(|| not_recorded.clone()),
+                            ),
+                            (
+                                TextKey::GpuGraphicsImplementation,
+                                artifact
+                                    .graphics_implementation
+                                    .clone()
+                                    .unwrap_or_else(|| not_recorded.clone()),
+                            ),
+                            (
+                                TextKey::GpuArtifactNotesLabel,
+                                artifact.notes.clone().unwrap_or_else(|| {
+                                    language.text(TextKey::GpuNoArtifactNotes).to_owned()
+                                }),
+                            ),
                             (
                                 TextKey::GpuArtifactOpenRoute,
                                 language.text(route_key(artifact.open_route)).to_owned(),
@@ -409,6 +446,20 @@ impl ImportWorkspace {
                         }),
                     ),
                 )
+                .when(!artifact.warnings.is_empty(), |panel| {
+                    let mut warnings = panel.child(studio::divider(colors)).child(section(
+                        TextKey::GpuArtifactWarnings,
+                        language,
+                        colors,
+                    ));
+                    for warning in &artifact.warnings {
+                        warnings = warnings.child(
+                            supporting(localized_warning(warning, language), colors)
+                                .text_color(colors.warning),
+                        );
+                    }
+                    warnings
+                })
                 .child(supporting(language.text(TextKey::GpuMetadataHint), colors))
                 .child(studio::divider(colors))
                 .child(context(
@@ -519,10 +570,10 @@ impl ImportWorkspace {
             let values = [
                 language.text(kind_key(record.artifact.kind)).to_owned(),
                 record.title(),
-                language.text(TextKey::GpuUnknown).into(),
-                language.text(TextKey::GpuUnknown).into(),
-                language.text(TextKey::GpuUnknown).into(),
-                language.text(TextKey::GpuUnknown).into(),
+                device_text(&record.artifact, language),
+                package_text(&record.artifact, language),
+                artifact_api_text(&record.artifact, language),
+                captured_text(&record.artifact, language),
                 language.text(status_key(record.status)).into(),
             ];
             let selected = self.gpu.selected.as_deref() == Some(id.as_str());
@@ -648,6 +699,127 @@ impl ImportWorkspace {
                     ),
             )
             .into_any_element()
+    }
+
+    /// Related evidence is grouped by an actually recorded identity: the same
+    /// device serial or the same package name. Time correlation is not implied.
+    fn gpu_related_panel(
+        &self,
+        wide: bool,
+        colors: &StudioColors,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let language = self.language;
+        let selected = self.gpu.selected_record();
+        let related = related_records(&self.gpu.artifacts, selected);
+        let mut panel = studio::card(colors)
+            .flex_shrink_0()
+            .when(wide, |panel| panel.flex_grow(1.))
+            .min_h(px(180.))
+            .child(section(TextKey::GpuRelatedEvidence, language, colors))
+            .child(supporting(
+                language.text(TextKey::GpuRelatedEvidenceHint),
+                colors,
+            ));
+        if selected.is_none() {
+            panel = panel.child(supporting(
+                language.text(TextKey::GpuSelectAnalysisArtifact),
+                colors,
+            ));
+        } else if related.is_empty() {
+            panel = panel.child(supporting(
+                language.text(TextKey::GpuNoRelatedEvidence),
+                colors,
+            ));
+        } else {
+            let mut row_index: usize = 0;
+            for kind in [
+                ArtifactKind::AgiSystemProfile,
+                ArtifactKind::AgiFrameProfile,
+                ArtifactKind::PerfettoTrace,
+                ArtifactKind::Screenshot,
+                ArtifactKind::ExternalReport,
+                ArtifactKind::Unknown,
+            ] {
+                let group: Vec<_> = related
+                    .iter()
+                    .copied()
+                    .filter(|record| record.artifact.kind == kind)
+                    .collect();
+                if group.is_empty() {
+                    continue;
+                }
+                panel = panel.child(
+                    studio::section_title(
+                        format!("{} · {}", language.text(kind_key(kind)), group.len()),
+                        colors,
+                    )
+                    .line_height(px(18.))
+                    .flex_shrink_0(),
+                );
+                for record in group {
+                    let id = record.id();
+                    row_index += 1;
+                    panel = panel.child(
+                        Button::new(("gpu-related", row_index))
+                            .ghost()
+                            .h(px(30.))
+                            .w_full()
+                            .flex_shrink_0()
+                            .px(px(4.))
+                            .justify_start()
+                            .rounded(px(6.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .w_full()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(record.title()),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(140.))
+                                            .min_w_0()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(device_text(&record.artifact, language)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(140.))
+                                            .min_w_0()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(package_text(&record.artifact, language)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(170.))
+                                            .whitespace_nowrap()
+                                            .child(captured_text(&record.artifact, language)),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(110.))
+                                            .child(language.text(status_key(record.status))),
+                                    ),
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.gpu_select(id.clone(), cx)),
+                            ),
+                    );
+                }
+            }
+        }
+        panel.into_any_element()
     }
 
     pub(super) fn gpu_insights(&self, colors: &StudioColors, cx: &mut Context<Self>) -> AnyElement {

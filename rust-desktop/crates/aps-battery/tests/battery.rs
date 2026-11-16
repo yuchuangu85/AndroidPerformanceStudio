@@ -52,6 +52,21 @@ fn same_boot_period_device_uid_produces_real_uid_counter_deltas() {
 }
 
 #[test]
+fn packet_and_radio_counters_are_distinct_from_bytes() {
+    let snapshot = parse_snapshot(
+        "9,0,l,start,period-a\n9,10123,l,nt,1,2,3,4,5,6,7,8,9,10,11000\n",
+        "",
+        "level: 80\n",
+        identity(10123, Some("boot-a"), Some("period-a")),
+    )
+    .unwrap();
+    assert_eq!(snapshot.network_bytes["mobile_rx"], Some(1));
+    assert_eq!(snapshot.network_packets["mobile_rx_packets"], Some(7));
+    assert_eq!(snapshot.network_packets["wifi_tx_packets"], Some(10));
+    assert_eq!(snapshot.radio_active_ms, Some(11));
+}
+
+#[test]
 fn missing_identity_or_stats_period_is_unknown_not_zero() {
     let before = parse_snapshot(
         &checkin(1_000_000, 10123),

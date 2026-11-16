@@ -414,5 +414,6 @@
   "memory_page_value_kind": "Value kind",
   "memory_page_warning": "Warning",
   "memory_page_width_height": "Width × height",
-  "memory_page_working": "Working…"
+  "memory_page_working": "Working…",
+  "memory_app_hprof_conv_failed": "hprof-conv failed; parsed the Android HPROF directly."
 }

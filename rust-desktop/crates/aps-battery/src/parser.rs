@@ -26,7 +26,10 @@ pub fn parse_snapshot(
         device: parse_device_state(battery)?,
         timers: BTreeMap::new(),
         network_bytes: BTreeMap::new(),
+        network_packets: BTreeMap::new(),
+        radio_active_ms: None,
         modeled_energy_mah: BTreeMap::new(),
+        history: Vec::new(),
         uid_records_present: false,
         warnings: Vec::new(),
     };
@@ -128,7 +131,7 @@ pub fn parse_snapshot(
                 .checked_add(count)
                 .ok_or("Battery timer count overflow")?;
         } else if fields[3] == "nt" {
-            if !snapshot.network_bytes.is_empty() {
+            if !snapshot.network_bytes.is_empty() || !snapshot.network_packets.is_empty() {
                 return Err("Duplicate network counters for selected UID".into());
             }
             for (index, key) in [
@@ -147,6 +150,25 @@ pub fn parse_snapshot(
                     data.get(index).and_then(|value| value.parse::<u64>().ok()),
                 );
             }
+            for (index, key) in [
+                "mobile_rx_packets",
+                "mobile_tx_packets",
+                "wifi_rx_packets",
+                "wifi_tx_packets",
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                snapshot.network_packets.insert(
+                    key.into(),
+                    data.get(index + 6)
+                        .and_then(|value| value.parse::<u64>().ok()),
+                );
+            }
+            snapshot.radio_active_ms = data
+                .get(10)
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(|microseconds| microseconds / 1_000);
         }
     }
     if snapshot.stats_period.is_none() {
@@ -224,6 +246,70 @@ fn parse_timer(
             .ok_or("Battery timer count overflow")?;
     }
     Ok(Some((data[0].clone(), duration_us / 1000, count)))
+}
+
+/// Parses the device-version-dependent `dumpsys batterystats --history` stream
+/// without mapping its clock onto snapshot time. Unknown markers remain visible.
+pub fn parse_history(text: &str) -> Vec<crate::BatteryHistoryEvent> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let elapsed_ms = line
+                .split(|character| matches!(character, ':' | ',' | ';' | ' '))
+                .next()
+                .and_then(|value| value.parse::<u64>().ok());
+            let marker = line
+                .split_whitespace()
+                .find(|token| token.len() > 1 && matches!(token.as_bytes()[0], b'+' | b'-'));
+            let active = marker.map(|token| token.as_bytes()[0] == b'+');
+            let name = marker.map(|token| token[1..].to_owned());
+            let marker_name = name.as_deref().unwrap_or("").to_ascii_lowercase();
+            let kind = if marker_name.contains("wake") {
+                "WAKELOCK"
+            } else if marker_name.contains("alarm") {
+                "ALARM"
+            } else if marker_name.contains("job") {
+                "JOB"
+            } else if marker_name.contains("sensor") {
+                "SENSOR"
+            } else if marker_name.contains("wifi")
+                || marker_name.contains("network")
+                || marker_name.contains("mobile")
+            {
+                "NETWORK"
+            } else if marker_name.contains("screen") {
+                "SCREEN"
+            } else if marker_name.contains("charge") || marker_name.contains("plug") {
+                "CHARGING"
+            } else if marker_name.contains("temp") || marker_name.contains("thermal") {
+                "THERMAL"
+            } else if marker_name.contains("top") || marker_name.contains("proc") {
+                "APP_STATE"
+            } else {
+                "UNKNOWN"
+            };
+            let uid = line
+                .split(|character: char| !character.is_ascii_digit())
+                .filter(|value| !value.is_empty())
+                .filter_map(|value| value.parse::<u32>().ok())
+                .find(|value| *value >= 10_000);
+            crate::BatteryHistoryEvent {
+                elapsed_ms,
+                kind: kind.into(),
+                active,
+                name,
+                uid,
+                raw: line.to_owned(),
+                confidence: if marker.is_some() {
+                    "EXACT"
+                } else {
+                    "INFERRED"
+                }
+                .into(),
+            }
+        })
+        .collect()
 }
 
 pub fn parse_device_state(text: &str) -> Result<DeviceState, String> {

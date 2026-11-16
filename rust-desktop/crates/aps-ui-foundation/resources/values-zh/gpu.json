@@ -126,7 +126,7 @@
   "gpu_unverified": "尚未验证",
   "gpu_refresh_graphics": "读取图形上下文",
   "gpu_not_recorded": "产物索引未记录此字段",
-  "gpu_metadata_hint": "未记录设备、包名、API 和采集时间。文件修改时间不代表采集时间。",
+  "gpu_metadata_hint": "未记录的设备、包名、API 或采集时间保持为空。文件修改时间绝不视为采集时间。",
   "gpu_related_unavailable": "缺少已记录的设备/包身份和关联证据适配器，文件名或修改时间相同不能证明关联。",
   "gpu_agi_manual_open": "没有已验证的产物打开参数，请启动 AGI 后手动打开已验证文件。",
   "gpu_select_executable": "选择本地 AGI 可执行文件",
@@ -187,5 +187,7 @@
   "gpu_route_perfetto": "Perfetto",
   "gpu_route_desktop": "系统查看器",
   "gpu_route_none": "无已验证的打开途径",
-  "gpu_unknown": "未知"
+  "gpu_unknown": "未知",
+  "gpu_artifact_warnings": "产物警告",
+  "gpu_artifact_open_requested": "已请求在 AGI 中打开产物；未验证渲染结果。"
 }

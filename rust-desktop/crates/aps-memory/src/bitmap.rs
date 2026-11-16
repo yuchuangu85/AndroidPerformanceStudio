@@ -39,6 +39,164 @@ pub struct BitmapDump {
     pub images: Vec<BitmapImage>,
 }
 
+/// Aggregate image evidence for one dump. Sizes are estimates for ARGB_8888
+/// content (width × height × 4); PNG bytes remain separate compressed storage.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BitmapDumpSummary {
+    pub recorded: u64,
+    pub discovered: u64,
+    pub omitted: u64,
+    pub exported_images: u64,
+    pub unique_images: u64,
+    pub duplicate_groups: u64,
+    pub total_png_bytes: u64,
+    pub estimated_bitmap_bytes: u64,
+    pub average_bitmap_bytes: u64,
+    pub largest_image: Option<BitmapImageSize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BitmapImageSize {
+    pub width: u32,
+    pub height: u32,
+    pub estimated_bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BitmapContentChange {
+    pub sha256: String,
+    pub width: u32,
+    pub height: u32,
+    pub before_count: u64,
+    pub after_count: u64,
+}
+
+impl BitmapContentChange {
+    pub fn count_delta(&self) -> i64 {
+        self.after_count as i64 - self.before_count as i64
+    }
+}
+
+/// Content-level comparison keyed only by SHA-256. Object ids are dump-local
+/// and are never treated as cross-dump identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BitmapDumpComparison {
+    pub before: BitmapDumpSummary,
+    pub after: BitmapDumpSummary,
+    pub added: Vec<BitmapContentChange>,
+    pub removed: Vec<BitmapContentChange>,
+    pub changed_duplicate_counts: Vec<BitmapContentChange>,
+}
+
+impl BitmapImage {
+    pub fn estimated_bytes(&self) -> u64 {
+        u64::from(self.width)
+            .saturating_mul(u64::from(self.height))
+            .saturating_mul(4)
+    }
+}
+
+impl BitmapDump {
+    pub fn summary(&self) -> BitmapDumpSummary {
+        let mut counts: BTreeMap<&str, u64> = BTreeMap::new();
+        let mut total_png = 0u64;
+        let mut estimated = 0u64;
+        let mut largest: Option<BitmapImageSize> = None;
+        for image in &self.images {
+            *counts.entry(&image.sha256).or_default() += 1;
+            total_png = total_png.saturating_add(image.png_bytes);
+            let bytes = image.estimated_bytes();
+            estimated = estimated.saturating_add(bytes);
+            let size = BitmapImageSize {
+                width: image.width,
+                height: image.height,
+                estimated_bytes: bytes,
+            };
+            if largest.is_none_or(|current| size.estimated_bytes > current.estimated_bytes) {
+                largest = Some(size);
+            }
+        }
+        let exported = self.images.len() as u64;
+        BitmapDumpSummary {
+            recorded: self.recorded,
+            discovered: self.discovered,
+            omitted: self.omitted,
+            exported_images: exported,
+            unique_images: counts.len() as u64,
+            duplicate_groups: counts.values().filter(|count| **count > 1).count() as u64,
+            total_png_bytes: total_png,
+            estimated_bitmap_bytes: estimated,
+            average_bitmap_bytes: estimated.checked_div(exported).unwrap_or(0),
+            largest_image: largest,
+        }
+    }
+}
+
+pub fn compare_bitmap_dumps(before: &BitmapDump, after: &BitmapDump) -> BitmapDumpComparison {
+    let before_content = image_counts(before);
+    let after_content = image_counts(after);
+    let keys: std::collections::BTreeSet<&String> = before_content
+        .keys()
+        .chain(after_content.keys())
+        .copied()
+        .collect();
+    let mut changes = Vec::new();
+    for sha in keys {
+        let old = before_content.get(sha);
+        let new = after_content.get(sha);
+        let before_count = old.map_or(0, |(count, _)| *count);
+        let after_count = new.map_or(0, |(count, _)| *count);
+        if before_count == after_count {
+            continue;
+        }
+        let (width, height) = new
+            .map(|(_, image)| (image.width, image.height))
+            .or_else(|| old.map(|(_, image)| (image.width, image.height)))
+            .unwrap_or((0, 0));
+        changes.push(BitmapContentChange {
+            sha256: sha.clone(),
+            width,
+            height,
+            before_count,
+            after_count,
+        });
+    }
+    changes.sort_by(|left, right| {
+        right
+            .count_delta()
+            .abs()
+            .cmp(&left.count_delta().abs())
+            .then_with(|| left.sha256.cmp(&right.sha256))
+    });
+    BitmapDumpComparison {
+        before: before.summary(),
+        after: after.summary(),
+        added: changes
+            .iter()
+            .filter(|change| change.before_count == 0)
+            .cloned()
+            .collect(),
+        removed: changes
+            .iter()
+            .filter(|change| change.after_count == 0)
+            .cloned()
+            .collect(),
+        changed_duplicate_counts: changes
+            .into_iter()
+            .filter(|change| change.before_count > 0 && change.after_count > 0)
+            .collect(),
+    }
+}
+
+fn image_counts(dump: &BitmapDump) -> BTreeMap<&String, (u64, &BitmapImage)> {
+    let mut counts: BTreeMap<&String, (u64, &BitmapImage)> = BTreeMap::new();
+    for image in &dump.images {
+        let entry = counts.entry(&image.sha256).or_insert((0, image));
+        entry.0 += 1;
+    }
+    counts
+}
+
 pub fn extract_in_worker(
     worker: &Path,
     source: &Path,
@@ -674,3 +832,89 @@ const fn crc_table() -> [u32; 256] {
     out
 }
 const CRC: [u32; 256] = crc_table();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image(index: u32, sha: &str, width: u32, height: u32) -> BitmapImage {
+        BitmapImage {
+            index,
+            array_id: format!("0x{index:x}"),
+            width,
+            height,
+            png_bytes: 100 + u64::from(index),
+            sha256: sha.into(),
+            path: PathBuf::from(format!("bitmap-{index}.png")),
+        }
+    }
+
+    fn dump(images: Vec<BitmapImage>) -> BitmapDump {
+        BitmapDump {
+            source_digest: "a".repeat(64),
+            recorded: images.len() as u64,
+            discovered: images.len() as u64,
+            omitted: 0,
+            images,
+        }
+    }
+
+    #[test]
+    fn summary_counts_unique_images_duplicates_and_argb_bytes() {
+        let summary = dump(vec![
+            image(0, "aa", 10, 20),
+            image(1, "aa", 10, 20),
+            image(2, "bb", 4, 5),
+        ])
+        .summary();
+        assert_eq!(summary.exported_images, 3);
+        assert_eq!(summary.unique_images, 2);
+        assert_eq!(summary.duplicate_groups, 1);
+        assert_eq!(summary.total_png_bytes, 100 + 101 + 102);
+        assert_eq!(summary.estimated_bitmap_bytes, 800 + 800 + 80);
+        assert_eq!(
+            summary.largest_image,
+            Some(BitmapImageSize {
+                width: 10,
+                height: 20,
+                estimated_bytes: 800
+            })
+        );
+    }
+
+    #[test]
+    fn comparison_is_sha_based_and_never_uses_object_identity() {
+        let before = dump(vec![
+            image(0, "aa", 10, 20),
+            image(1, "bb", 4, 5),
+            image(2, "bb", 4, 5),
+        ]);
+        let after = dump(vec![
+            image(9, "aa", 10, 20),
+            image(10, "bb", 4, 5),
+            image(11, "cc", 2, 2),
+        ]);
+        let comparison = compare_bitmap_dumps(&before, &after);
+        assert_eq!(comparison.added.len(), 1);
+        assert_eq!(comparison.added[0].sha256, "cc");
+        assert_eq!(comparison.removed.len(), 0);
+        assert_eq!(comparison.changed_duplicate_counts.len(), 1);
+        assert_eq!(comparison.changed_duplicate_counts[0].sha256, "bb");
+        assert_eq!(comparison.changed_duplicate_counts[0].count_delta(), -1);
+        assert_eq!(comparison.before.exported_images, 3);
+        assert_eq!(comparison.after.exported_images, 3);
+    }
+
+    #[test]
+    fn removed_content_and_identical_dumps_are_reported_without_noise() {
+        let before = dump(vec![image(0, "aa", 1, 1)]);
+        let same = compare_bitmap_dumps(&before, &before);
+        assert!(same.added.is_empty());
+        assert!(same.removed.is_empty());
+        assert!(same.changed_duplicate_counts.is_empty());
+        let after = dump(Vec::new());
+        let removed = compare_bitmap_dumps(&before, &after);
+        assert_eq!(removed.removed.len(), 1);
+        assert_eq!(removed.removed[0].sha256, "aa");
+        assert_eq!(removed.after.exported_images, 0);
+    }
+}

@@ -1,11 +1,13 @@
 //! Minimized Agent observations. This is neither HAR synthesis nor proof of
-//! full device traffic. Only allowlisted values and numeric event evidence are
-//! retained; arbitrary Agent strings never belong in these contracts.
+//! full device traffic. URLs are redacted on the device boundary before they
+//! reach this contract; only allowlisted values and numeric event evidence are
+//! retained.
 use super::*;
 
-pub const OBSERVED_MINIMIZATION_POLICY: &str = "aps-network-observed-minimized-v1";
+pub const OBSERVED_MINIMIZATION_POLICY: &str = "aps-network-observed-minimized-v2";
 pub const MAX_OBSERVED_REQUESTS: usize = 20_000;
 pub const MAX_OBSERVED_PHASES: usize = 64;
+pub const MAX_TLS_TEXT_CHARS: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObservedOutcome {
@@ -21,6 +23,14 @@ impl ObservedOutcome {
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
+        }
+    }
+    fn entry_outcome(self) -> EntryOutcome {
+        match self {
+            Self::InFlight => EntryOutcome::InFlight,
+            Self::Completed => EntryOutcome::Completed,
+            Self::Failed => EntryOutcome::Failed,
+            Self::Cancelled => EntryOutcome::Cancelled,
         }
     }
 }
@@ -73,6 +83,10 @@ pub struct ObservedRequest {
     pub start_ns: Option<u64>,
     pub end_ns: Option<u64>,
     pub protocol: Option<&'static str>,
+    /// Redacted on the Agent transport; never a raw URL.
+    pub redacted_url: String,
+    pub tls_version: Option<String>,
+    pub cipher_suite: Option<String>,
     pub cancellation_requested: bool,
     pub phases_truncated: u64,
     pub phases: Vec<ObservedPhase>,
@@ -102,7 +116,128 @@ pub struct ObservedCapture {
     pub requests: Vec<ObservedRequest>,
 }
 
+/// Concurrency of calls with both observed endpoints. Intervals are half-open;
+/// calls with missing or invalid endpoints are excluded, not treated as idle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObservedConcurrency {
+    pub included_calls: usize,
+    pub excluded_calls: usize,
+    pub peak: usize,
+    pub peak_ns: Option<u64>,
+    pub average: Option<f64>,
+    pub timeline: Vec<(u64, usize)>,
+}
+
+/// Statistics over recorded phase occurrences, not an estimate of missing events.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObservedPhaseSummary {
+    pub kind: ObservedPhaseKind,
+    pub sample_count: usize,
+    pub missing_count: usize,
+    pub median_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+}
+
+fn connection_use(phases: &[ObservedPhase]) -> ConnectionUse {
+    if phases.is_empty() {
+        return ConnectionUse::Unknown;
+    }
+    if phases.iter().any(|phase| {
+        matches!(
+            phase.kind,
+            ObservedPhaseKind::Dns | ObservedPhaseKind::Connect | ObservedPhaseKind::Tls
+        )
+    }) {
+        ConnectionUse::New
+    } else {
+        ConnectionUse::Reused
+    }
+}
+
+fn valid_redacted_url(url: &str) -> bool {
+    !url.is_empty() && url.chars().count() <= MAX_REDACTED_URL_CHARS && redact_url(url) == url
+}
+
+fn valid_tls_text(value: &Option<String>) -> bool {
+    value.as_deref().is_none_or(|value| {
+        !value.is_empty()
+            && value.chars().count() <= MAX_TLS_TEXT_CHARS
+            && !value.chars().any(char::is_control)
+    })
+}
+
 impl ObservedCapture {
+    pub fn phase_summaries(&self) -> Vec<ObservedPhaseSummary> {
+        let mut groups: BTreeMap<ObservedPhaseKind, (Vec<f64>, usize)> = BTreeMap::new();
+        for phase in self.requests.iter().flat_map(|request| &request.phases) {
+            let group = groups.entry(phase.kind).or_default();
+            match phase.duration_ms() {
+                Some(duration) => group.0.push(duration),
+                None => group.1 += 1,
+            }
+        }
+        groups
+            .into_iter()
+            .map(|(kind, (mut durations, missing_count))| {
+                durations.sort_by(f64::total_cmp);
+                let percentile = |p: f64| {
+                    (!durations.is_empty())
+                        .then(|| durations[((durations.len() - 1) as f64 * p) as usize])
+                };
+                ObservedPhaseSummary {
+                    kind,
+                    sample_count: durations.len(),
+                    missing_count,
+                    median_ms: percentile(0.5),
+                    p95_ms: percentile(0.95),
+                }
+            })
+            .collect()
+    }
+
+    pub fn concurrency(&self) -> ObservedConcurrency {
+        let mut events = Vec::new();
+        for request in &self.requests {
+            if let (Some(start), Some(end)) = (request.start_ns, request.end_ns)
+                && end > start
+            {
+                events.push((start, 1i8));
+                events.push((end, -1i8));
+            }
+        }
+        events.sort_unstable(); // end before start at the same timestamp
+        let included_calls = events.len() / 2;
+        let mut result = ObservedConcurrency {
+            included_calls,
+            excluded_calls: self.requests.len() - included_calls,
+            peak: 0,
+            peak_ns: None,
+            average: None,
+            timeline: Vec::with_capacity(events.len()),
+        };
+        if let Some(&(first, _)) = events.first() {
+            let mut last = first;
+            let mut active = 0usize;
+            let mut weighted = 0f64;
+            for (time, delta) in events {
+                weighted += active as f64 * (time - last) as f64;
+                if delta < 0 {
+                    active -= 1;
+                } else {
+                    active += 1;
+                }
+                result.timeline.push((time, active));
+                if active > result.peak {
+                    result.peak = active;
+                    result.peak_ns = Some(time);
+                }
+                last = time;
+            }
+            result.average = Some(weighted / (last - first) as f64);
+        }
+        result
+    }
+
     pub fn request(&self, index: u64) -> Option<&ObservedRequest> {
         // HarSession::from_observed validates strict original-index order.
         self.requests
@@ -208,7 +343,10 @@ impl ObservedCapture {
                         | "TRACE"
                         | "OTHER"
                 )
-                || entry.minimized_url != MINIMIZED_URL
+                || !valid_redacted_url(&request.redacted_url)
+                || entry.redacted_url != request.redacted_url
+                || !valid_tls_text(&request.tls_version)
+                || !valid_tls_text(&request.cipher_suite)
                 || !(entry.status == 0 || (100..600).contains(&entry.status))
                 || request.phases.len() > MAX_OBSERVED_PHASES
                 || request.protocol.is_some_and(|protocol| {
@@ -278,6 +416,8 @@ impl ObservedCapture {
             canonical.push(entry.method.len() as u8);
             canonical.extend_from_slice(entry.method.as_bytes());
             canonical.extend_from_slice(&entry.status.to_be_bytes());
+            canonical.push(request.redacted_url.len() as u8);
+            canonical.extend_from_slice(request.redacted_url.as_bytes());
             for value in [
                 request.start_ns,
                 request.end_ns,
@@ -292,6 +432,15 @@ impl ObservedCapture {
             let protocol = request.protocol.unwrap_or("");
             canonical.push(protocol.len() as u8);
             canonical.extend_from_slice(protocol.as_bytes());
+            for value in [&request.tls_version, &request.cipher_suite] {
+                match value {
+                    Some(value) => {
+                        canonical.push(value.len() as u8);
+                        canonical.extend_from_slice(value.as_bytes());
+                    }
+                    None => canonical.push(0),
+                }
+            }
             canonical.extend_from_slice(&request.phases_truncated.to_be_bytes());
             canonical.push(request.phases.len() as u8);
             for phase in &request.phases {
@@ -302,13 +451,20 @@ impl ObservedCapture {
                     canonical.extend_from_slice(&value.unwrap_or_default().to_be_bytes());
                 }
             }
-            entries.push(entry.clone());
+            entries.push(NetworkEntry {
+                redacted_url: request.redacted_url.clone(),
+                protocol: request.protocol.map(str::to_owned),
+                outcome: request.outcome.entry_outcome(),
+                connection_use: connection_use(&request.phases),
+                ..entry.clone()
+            });
         }
         let digest = SourceDigest::hash_reader(canonical.as_slice(), 64 * 1024 * 1024)
             .map_err(|_| NetworkError::InvalidLimit)?;
         let entry_count = entries.len() as u64;
         Ok((
             HarSummary {
+                har_version: "agent-v2".into(),
                 entry_count,
                 status_families,
                 request_bytes,

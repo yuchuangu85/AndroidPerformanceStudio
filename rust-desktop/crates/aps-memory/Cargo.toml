@@ -7,7 +7,7 @@ publish.workspace = true
 
 [dependencies]
 aps-platform = { path = "../aps-platform" }
-aps-hprof-engine = { path = "../../../desktop-viewer/memory-profiler/hprof-engine-rust" }
+aps-hprof-engine = { path = "../aps-hprof-engine" }
 
 [[bin]]
 name = "aps-memory-worker"

@@ -140,5 +140,17 @@
   "battery_capture_bundle": "Export capture bundle",
   "battery_capture_bundle_scope": "Minimized evidence for the active live capture only: selected UID counters, battery/thermal state, installation metadata and reimportable analysis.json. No raw whole-device dump, history, APK or signatures. Device and selected UID identifiers are included.",
   "battery_capture_bundle_unavailable": "The active report has no matching owned live capture bundle. Imported reports cannot export a previous capture's evidence.",
-  "battery_capture_bundle_saved": "Saved minimized Battery capture bundle: {path}"
+  "battery_capture_bundle_saved": "Saved minimized Battery capture bundle: {path}",
+  "battery_reset_confirm_title": "Reset global BatteryStats",
+  "battery_reset_confirm_body": "This clears BatteryStats and Battery Historian history for every app on the device. It cannot be undone and is not part of a normal capture.",
+  "battery_reset_scope": "Only the selected device is affected. The current analysis and baseline comparison will be cleared.",
+  "battery_reset_done": "Global device BatteryStats were reset; start a new experiment.",
+  "battery_historian_confirm_title": "Generate Battery Historian input",
+  "battery_historian_confirm_body": "A bugreport may contain accounts, SSIDs, installed apps, logs and device state. Generate it only with explicit consent and share it carefully.",
+  "battery_historian_generating": "Generating a privacy-sensitive battery bugreport…",
+  "battery_historian_done": "Generated Battery Historian input ({bytes} bytes) at {path}.",
+  "battery_save_session_json": "Save session JSON",
+  "battery_save_session_csv": "Save session CSV",
+  "battery_capability_flags": "checkin {checkin} · history {history} · reset {reset} · energy {energy} · bugreport {bugreport}",
+  "battery_capability_missing": "Unavailable: {reasons}"
 }

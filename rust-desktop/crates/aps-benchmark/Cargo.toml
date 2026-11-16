@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 
+[[bin]]
+name = "aps-benchmark"
+path = "src/cli.rs"
+
 [dependencies]
 aps-json = { path = "../aps-json" }
 aps-contracts = { path = "../aps-contracts" }

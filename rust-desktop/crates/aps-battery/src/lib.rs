@@ -1,20 +1,22 @@
 //! Read-only Battery snapshots, explicitly requested capture and conservative UID differences.
+mod actions;
 mod baseline;
 mod capture;
 mod parser;
 mod report;
 mod sessions;
 
+pub use actions::{MAX_BUGBREPORT_BYTES, generate_bugreport, reset_batterystats};
 pub use baseline::{
     BaselineIssue, BatteryReportComparison, BatterySnapshotEvidence, BatterySnapshotInterval,
     baseline_issues, compare_reports,
 };
 pub use capture::{
-    BatteryCaptureArtifact, BatteryCaptureConfig, BatteryCaptureControl, BatteryCaptureMode,
-    BatteryCaptureOutcome, BatteryCaptureProgress, BatteryCaptureTarget, capture_live,
-    capture_live_with_workload,
+    BatteryCapabilities, BatteryCaptureArtifact, BatteryCaptureConfig, BatteryCaptureControl,
+    BatteryCaptureMode, BatteryCaptureOutcome, BatteryCaptureProgress, BatteryCaptureTarget,
+    ThermalSample, capture_live, capture_live_with_workload,
 };
-pub use parser::{parse_device_state, parse_snapshot};
+pub use parser::{parse_device_state, parse_history, parse_snapshot};
 pub use report::{
     BatteryReport, BatteryReportRun, BatteryRunObservation, ImportedEnergy,
     ImportedPerformanceWindow,
@@ -67,10 +69,26 @@ pub struct BatterySnapshot {
     pub timers: BTreeMap<(ResourceKind, String), ResourceTimer>,
     /// None means missing, not a measured zero. Keys identify byte counters.
     pub network_bytes: BTreeMap<String, Option<u64>>,
+    /// Packets are counters, not bytes and are never added to byte totals.
+    pub network_packets: BTreeMap<String, Option<u64>>,
+    /// Mobile radio active time in milliseconds; checkin reports microseconds.
+    pub radio_active_ms: Option<u64>,
     /// System-model mAh attributed to the selected UID, not hardware energy.
     pub modeled_energy_mah: BTreeMap<String, f64>,
+    pub history: Vec<BatteryHistoryEvent>,
     pub uid_records_present: bool,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatteryHistoryEvent {
+    pub elapsed_ms: Option<u64>,
+    pub kind: String,
+    pub active: Option<bool>,
+    pub name: Option<String>,
+    pub uid: Option<u32>,
+    pub raw: String,
+    pub confidence: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +117,8 @@ pub struct BatteryDelta {
     pub timers: Vec<TimerDelta>,
     pub network_bytes: BTreeMap<String, Option<u64>>,
     pub network_total_bytes: Option<u64>,
+    pub network_packets: BTreeMap<String, Option<u64>>,
+    pub radio_active_ms: Option<u64>,
     pub modeled_energy_mah: BTreeMap<String, Option<f64>>,
     pub device_level_change: Option<i16>,
     pub warnings: Vec<String>,
@@ -192,6 +212,28 @@ impl BatteryDelta {
         } else {
             None
         };
+        let mut network_packets = BTreeMap::new();
+        for key in before
+            .network_packets
+            .keys()
+            .chain(after.network_packets.keys())
+            .collect::<BTreeSet<_>>()
+        {
+            let delta = before
+                .network_packets
+                .get(key)
+                .copied()
+                .flatten()
+                .zip(after.network_packets.get(key).copied().flatten())
+                .filter(|_| allowed)
+                .and_then(|(before, after)| after.checked_sub(before));
+            network_packets.insert(key.clone(), delta);
+        }
+        let radio_active_ms = before
+            .radio_active_ms
+            .zip(after.radio_active_ms)
+            .filter(|_| allowed)
+            .and_then(|(before, after)| after.checked_sub(before));
         let mut modeled_energy_mah = BTreeMap::new();
         for key in before
             .modeled_energy_mah
@@ -223,6 +265,8 @@ impl BatteryDelta {
             timers,
             network_bytes,
             network_total_bytes,
+            network_packets,
+            radio_active_ms,
             modeled_energy_mah,
             // Device charge-level change is not attributed UID energy consumption.
             device_level_change: before

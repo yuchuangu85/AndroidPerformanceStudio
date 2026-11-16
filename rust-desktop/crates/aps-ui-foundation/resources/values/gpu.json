@@ -126,7 +126,7 @@
   "gpu_unverified": "Not verified",
   "gpu_refresh_graphics": "Read graphics context",
   "gpu_not_recorded": "Not recorded in this artifact index",
-  "gpu_metadata_hint": "Device, package, API and capture time were not recorded. File modification time is not capture time.",
+  "gpu_metadata_hint": "Unrecorded device, package, API or capture time stays empty. File modification time is never treated as capture time.",
   "gpu_related_unavailable": "Recorded device/package identity and related-evidence adapters are unavailable. Matching filenames or modification times do not establish a relationship.",
   "gpu_agi_manual_open": "No verified artifact-open arguments. Launch AGI and open the verified file manually.",
   "gpu_select_executable": "Select the local AGI executable",
@@ -187,5 +187,7 @@
   "gpu_route_perfetto": "Perfetto",
   "gpu_route_desktop": "System viewer",
   "gpu_route_none": "No verified open route",
-  "gpu_unknown": "Unknown"
+  "gpu_unknown": "Unknown",
+  "gpu_artifact_warnings": "Artifact warnings",
+  "gpu_artifact_open_requested": "Artifact open requested in AGI; rendering is not verified."
 }

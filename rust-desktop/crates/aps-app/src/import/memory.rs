@@ -56,8 +56,7 @@ impl ImportWorkspace {
             .child(self.render_memory_toolbar(window, &colors, cx))
             .child(studio::divider(&colors))
             .child(self.render_memory_snapshot_tabs(&colors, cx))
-            .child(studio::divider(&colors))
-            .child(self.render_memory_evidence(&colors, cx));
+            .child(studio::divider(&colors));
         let content = match self.memory_state.view_mode {
             MemoryViewMode::Dashboard => self.render_memory_dashboard(&colors, cx),
             MemoryViewMode::Classes => self.render_memory_classes(window, &colors, cx),

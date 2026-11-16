@@ -76,6 +76,8 @@ pub(crate) struct ClassifierDelta {
     pub class_name: String,
     pub a_count: u64,
     pub b_count: u64,
+    pub a_shallow: u64,
+    pub b_shallow: u64,
     pub a_retained: Option<u64>,
     pub b_retained: Option<u64>,
 }
@@ -113,7 +115,6 @@ pub(crate) struct MemoryState {
     pub loading_message: Option<String>,
     pub error: Option<String>,
     pub notice: Option<String>,
-    pub warnings_open: bool,
     pub filter: MemoryFilter,
     pub sort_column: ClassifierColumn,
     pub sort_direction: SortDirection,
@@ -211,7 +212,6 @@ impl MemoryState {
             loading_message: None,
             error: None,
             notice: None,
-            warnings_open: false,
             filter: MemoryFilter::default(),
             sort_column: ClassifierColumn::RetainedSize,
             sort_direction: SortDirection::Descending,
@@ -342,6 +342,13 @@ impl MemoryState {
         self.error = None;
         self.notice = None;
         self.filter = MemoryFilter::default();
+        self.filter.heap = self.snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .per_heap_classes
+                .keys()
+                .find(|name| name.eq_ignore_ascii_case("app"))
+                .cloned()
+        });
         self.sort_column = ClassifierColumn::RetainedSize;
         self.sort_direction = SortDirection::Descending;
         self.expanded_classifiers.clear();
@@ -426,6 +433,7 @@ impl MemoryState {
             aps_memory::HeapSummary {
                 object_count: self.class_summary.total_count,
                 shallow_size: self.class_summary.total_shallow_size,
+                retained_size: self.class_summary.total_retained_size,
                 class_count: self.class_summary.class_count,
                 heap_segments: snapshot.summary.heap_segments.clone(),
             }

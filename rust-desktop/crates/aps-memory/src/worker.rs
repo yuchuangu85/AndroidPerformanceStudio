@@ -25,7 +25,10 @@ pub fn serve(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<()> 
             .map_err(|_| invalid())?;
         // The combined snapshot read is one deliberate, bounded response; every
         // other operation keeps the 2 MiB page-response ceiling.
-        let snapshot = request.get("op").and_then(Value::as_str) == Ok("snapshot");
+        let snapshot = matches!(
+            request.get("op").and_then(Value::as_str),
+            Ok("snapshot" | "heapHistogram")
+        );
         if request.get("op").and_then(Value::as_str) == Ok("open") {
             digest = request
                 .get("sourceDigest")
@@ -83,6 +86,32 @@ fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
         .map_err(|_| ())?;
     if operation == "snapshot" {
         return snapshot_response(session, request, args);
+    }
+    if operation == "retainedSummary" {
+        return retained_summary_response(session, request, None);
+    }
+    if operation == "heapRetainedSummary" {
+        let heap = args.get("heapName").ok_or(())?.as_str().map_err(|_| ())?;
+        return retained_summary_response(session, request, Some(heap));
+    }
+    if operation == "heapHistogram" {
+        let id = request.get("id").and_then(Value::as_int).map_err(|_| ())?;
+        let digest = request
+            .get("sourceDigest")
+            .and_then(Value::as_str)
+            .map_err(|_| ())?;
+        let heap = args.get("heapName").ok_or(())?.as_str().map_err(|_| ())?;
+        if heap.is_empty() || heap.len() > 4096 {
+            return Err(());
+        }
+        let payload = engine_call(
+            session,
+            id,
+            digest,
+            "histogram",
+            Value::map([("heapName", heap.into())]),
+        )?;
+        return Ok(ok_response(id, digest, payload));
     }
     if operation == "open" {
         let path = args.get("path").ok_or(())?.as_str().map_err(|_| ())?;
@@ -263,7 +292,22 @@ fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
             ]);
         }
         "detail" if *payload != Value::Null => {
+            let object_id = args.get("objectId").ok_or(())?.as_int().map_err(|_| ())?;
+            let id = request.get("id").and_then(Value::as_int).map_err(|_| ())?;
+            let digest = request
+                .get("sourceDigest")
+                .and_then(Value::as_str)
+                .map_err(|_| ())?;
+            let identity = engine_call(
+                session,
+                id,
+                digest,
+                "identity",
+                Value::map([("objectId", object_id.into())]),
+            )?;
+            let heap_name = identity.get("heapName").cloned().unwrap_or(Value::Null);
             let map = as_map_mut(payload)?;
+            map.insert("heapName".into(), heap_name);
             let is_array = map.get("isArray").ok_or(())?.as_bool().map_err(|_| ())?;
             let offset = detail_offset.ok_or(())?;
             let fields = map.remove("fields").ok_or(())?;
@@ -360,6 +404,7 @@ fn snapshot_response(
         ));
     }
     let mut per_heap = BTreeMap::new();
+    let mut per_heap_summaries = BTreeMap::new();
     let mut per_heap_size = 0usize;
     for name in &heap_names {
         let payload = engine_call(
@@ -381,18 +426,110 @@ fn snapshot_response(
             .ok_or(())?
             .checked_add(name.len() + 64)
             .ok_or(())?;
+        per_heap_summaries.insert(name.clone(), heap_summary);
         per_heap.insert(name.clone(), heap_classes);
     }
     let per_heap_omitted = base_size.saturating_add(per_heap_size) > budget;
     let mut payload = BTreeMap::new();
+    let retained = retained_summary_response(session, request, None)?;
+    let mut summary = summary;
+    if let Value::Map(retained) = retained {
+        if let Some(value) = retained.get("retainedSize") {
+            if let Value::Map(summary_map) = &mut summary {
+                summary_map.insert("retainedSize".into(), value.clone());
+            }
+        }
+    }
     payload.insert("summary".into(), summary);
     payload.insert("classes".into(), classes);
     payload.insert("perHeapOmitted".into(), per_heap_omitted.into());
     if !per_heap_omitted {
         payload.insert("perHeap".into(), Value::Map(per_heap));
+        payload.insert("perHeapSummaries".into(), Value::Map(per_heap_summaries));
     }
     payload.insert("findings".into(), findings);
     Ok(ok_response(id, digest, Value::Map(payload)))
+}
+
+fn retained_summary_response(
+    session: &mut Session,
+    request: &Value,
+    heap_name: Option<&str>,
+) -> Result<Value, ()> {
+    let id = request.get("id").and_then(Value::as_int).map_err(|_| ())?;
+    let digest = request
+        .get("sourceDigest")
+        .and_then(Value::as_str)
+        .map_err(|_| ())?;
+    let mut retained = 0u64;
+    let mut saw_row = false;
+    let mut offset = 0usize;
+    loop {
+        let page = engine_call(
+            session,
+            id,
+            digest,
+            "dominators",
+            Value::map([
+                ("parentObjectId", Value::Null),
+                ("offset", (offset as i64).into()),
+                ("limit", 500i64.into()),
+            ]),
+        )?;
+        let Value::Map(page) = page else {
+            return Err(());
+        };
+        let rows = page.get("rows").ok_or(())?.as_list().map_err(|_| ())?;
+        for row in rows {
+            let belongs = if let Some(expected_heap) = heap_name {
+                let object_id = row
+                    .get("objectId")
+                    .and_then(Value::as_int)
+                    .map_err(|_| ())?;
+                let identity = engine_call(
+                    session,
+                    id,
+                    digest,
+                    "identity",
+                    Value::map([("objectId", object_id.into())]),
+                )?;
+                identity
+                    .get("heapName")
+                    .ok()
+                    .and_then(|value| value.as_str().ok())
+                    .is_some_and(|actual| actual == expected_heap)
+            } else {
+                true
+            };
+            if belongs {
+                saw_row = true;
+                let value = row
+                    .get("retainedSize")
+                    .and_then(Value::as_int)
+                    .map_err(|_| ())?;
+                if value < 0 {
+                    return Err(());
+                }
+                retained = retained.checked_add(value as u64).ok_or(())?;
+            }
+        }
+        let total = page.get("total").ok_or(())?.as_int().map_err(|_| ())?;
+        if total < 0 {
+            return Err(());
+        }
+        offset = offset.checked_add(rows.len()).ok_or(())?;
+        if offset >= total as usize {
+            break;
+        }
+    }
+    Ok(Value::map([(
+        "retainedSize",
+        if saw_row {
+            (retained as i64).into()
+        } else {
+            Value::Null
+        },
+    )]))
 }
 
 /// Runs one engine operation through the shared session dispatcher. The

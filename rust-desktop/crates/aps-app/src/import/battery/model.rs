@@ -1,6 +1,7 @@
 //! Read-only projections of a derived Battery report. Missing counter fields
 //! never establish measured zero; strings from the artifact remain verbatim.
 use aps_battery::{BatteryReport, BatteryReportRun, ResourceKind};
+use aps_ui_foundation::TextKey;
 
 pub const EVIDENCE_PAGE_LIMIT: usize = 100;
 pub const QUERY_LIMIT: usize = 128;
@@ -229,6 +230,91 @@ pub fn run_page(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkCounter {
+    MobileRx,
+    MobileTx,
+    WifiRx,
+    WifiTx,
+    BluetoothRx,
+    BluetoothTx,
+    MobileRxPackets,
+    MobileTxPackets,
+    WifiRxPackets,
+    WifiTxPackets,
+    RadioActive,
+}
+impl NetworkCounter {
+    pub const ALL: [Self; 11] = [
+        Self::MobileRx,
+        Self::MobileTx,
+        Self::WifiRx,
+        Self::WifiTx,
+        Self::BluetoothRx,
+        Self::BluetoothTx,
+        Self::MobileRxPackets,
+        Self::MobileTxPackets,
+        Self::WifiRxPackets,
+        Self::WifiTxPackets,
+        Self::RadioActive,
+    ];
+    pub fn key(self) -> TextKey {
+        match self {
+            Self::MobileRx => TextKey::BatteryWorkspaceMobileRx,
+            Self::MobileTx => TextKey::BatteryWorkspaceMobileTx,
+            Self::WifiRx => TextKey::BatteryWorkspaceWifiRx,
+            Self::WifiTx => TextKey::BatteryWorkspaceWifiTx,
+            Self::BluetoothRx => TextKey::BatteryWorkspaceBluetoothRx,
+            Self::BluetoothTx => TextKey::BatteryWorkspaceBluetoothTx,
+            Self::MobileRxPackets => TextKey::BatteryWorkspaceMobileRxPackets,
+            Self::MobileTxPackets => TextKey::BatteryWorkspaceMobileTxPackets,
+            Self::WifiRxPackets => TextKey::BatteryWorkspaceWifiRxPackets,
+            Self::WifiTxPackets => TextKey::BatteryWorkspaceWifiTxPackets,
+            Self::RadioActive => TextKey::BatteryWorkspaceRadioActive,
+        }
+    }
+    fn report_key(self) -> Option<&'static str> {
+        match self {
+            Self::MobileRx => Some("mobile_rx"),
+            Self::MobileTx => Some("mobile_tx"),
+            Self::WifiRx => Some("wifi_rx"),
+            Self::WifiTx => Some("wifi_tx"),
+            Self::BluetoothRx => Some("bluetooth_rx"),
+            Self::BluetoothTx => Some("bluetooth_tx"),
+            Self::MobileRxPackets => Some("mobile_rx_packets"),
+            Self::MobileTxPackets => Some("mobile_tx_packets"),
+            Self::WifiRxPackets => Some("wifi_rx_packets"),
+            Self::WifiTxPackets => Some("wifi_tx_packets"),
+            Self::RadioActive => None,
+        }
+    }
+    pub fn unit(self) -> &'static str {
+        match self {
+            Self::RadioActive => "ms",
+            Self::MobileRxPackets
+            | Self::MobileTxPackets
+            | Self::WifiRxPackets
+            | Self::WifiTxPackets => "packets",
+            _ => "B",
+        }
+    }
+    fn value(self, run: &BatteryReportRun) -> Option<u64> {
+        self.report_key()
+            .and_then(|key| {
+                run.network_counters
+                    .get(key)
+                    .copied()
+                    .flatten()
+                    .or_else(|| run.network_packets.get(key).copied().flatten())
+            })
+            .or_else(|| {
+                (self == Self::RadioActive)
+                    .then_some(run.radio_active_ms)
+                    .flatten()
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EvidenceRow {
     Timer {
@@ -248,10 +334,12 @@ pub enum EvidenceRow {
         scope: String,
         confidence: String,
     },
-    /// A report aggregate, not a request event or a reconstructed radio counter.
+    /// A report aggregate, not a request event. Packet and radio counters are
+    /// never added to byte totals.
     Network {
         id: EvidenceId,
-        bytes: Option<u64>,
+        counter: NetworkCounter,
+        value: Option<u64>,
     },
     Warning {
         id: EvidenceId,
@@ -330,8 +418,7 @@ pub fn evidence_page(
             unfiltered_total: 0,
             offset,
             rows: Vec::with_capacity(limit),
-            unavailable: tab == ResourceTab::History
-                || (tab == ResourceTab::Energy && run.energy.is_empty())
+            unavailable: (tab == ResourceTab::Energy && run.energy.is_empty())
                 || tab
                     .timer_kind()
                     .is_some_and(|kind| !run.has_timer_evidence(kind)),
@@ -400,17 +487,30 @@ pub fn evidence_page(
                 }
             }
             ResourceTab::Network => {
-                let matches = query.is_empty()
-                    || format!("network total bytes {:?}", run.network_bytes)
+                for counter in NetworkCounter::ALL {
+                    let value = counter.value(run);
+                    let matches = query.is_empty()
+                        || format!(
+                            "{} {:?} {}",
+                            match counter.report_key() {
+                                Some(key) => key,
+                                None => "radio_active",
+                            },
+                            value,
+                            counter.unit()
+                        )
                         .to_lowercase()
                         .contains(&query);
-                output.add(matches, || EvidenceRow::Network {
-                    id: EvidenceId {
-                        tab,
-                        source_index: 0,
-                    },
-                    bytes: run.network_bytes,
-                });
+                    let source_index = NetworkCounter::ALL
+                        .iter()
+                        .position(|candidate| *candidate == counter)
+                        .unwrap_or(0);
+                    output.add(matches, || EvidenceRow::Network {
+                        id: EvidenceId { tab, source_index },
+                        counter,
+                        value,
+                    });
+                }
             }
             ResourceTab::Warnings => {
                 for (index, warning) in run.warnings.iter().enumerate() {
@@ -433,8 +533,8 @@ pub fn evidence_page(
 #[cfg(test)]
 mod tests {
     use super::{
-        BatteryUi, EVIDENCE_PAGE_LIMIT, EvidenceRow, QUERY_LIMIT, ResourceKind, ResourceTab,
-        evidence_page, report_metrics, run_page, run_stats,
+        BatteryUi, EVIDENCE_PAGE_LIMIT, EvidenceRow, NetworkCounter, QUERY_LIMIT, ResourceKind,
+        ResourceTab, evidence_page, report_metrics, run_page, run_stats,
     };
     use aps_battery::BatteryReport;
     fn fixture_report(runs: &str) -> BatteryReport {
@@ -460,7 +560,7 @@ mod tests {
         let page = evidence_page(&report.runs()[0], ResourceTab::Network, "", 0, 10).unwrap();
         assert!(matches!(
             page.rows[0],
-            EvidenceRow::Network { bytes: None, .. }
+            EvidenceRow::Network { value: None, .. }
         ));
     }
     #[::core::prelude::v1::test]
@@ -520,12 +620,88 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn history_is_explicitly_unavailable_without_source_evidence() {
+    fn history_page_stays_empty_without_source_events() {
         let report =
             fixture_report(r#"{"runId":"r1","iteration":1,"durationMs":1000,"networkBytes":0}"#);
         let page = evidence_page(&report.runs()[0], ResourceTab::History, "", 0, 10).unwrap();
-        assert!(page.unavailable);
+        // Live capture now records final-snapshot history; an imported report
+        // without events is an empty track, not an invented event list.
+        assert!(!page.unavailable);
         assert!(page.rows.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn network_evidence_exposes_bytes_packets_and_radio_without_mixing_units() {
+        let report = fixture_report(
+            r#"{"runId":"r1","iteration":1,"durationMs":1000,"networkCounters":{"mobile_rx":100,"wifi_tx":null},"networkPackets":{"mobile_rx_packets":7},"radioActiveMs":250}"#,
+        );
+        let page = evidence_page(&report.runs()[0], ResourceTab::Network, "", 0, 32).unwrap();
+        assert_eq!(page.total, 11);
+        let mobile_rx = page
+            .rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row,
+                    EvidenceRow::Network {
+                        counter: NetworkCounter::MobileRx,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert_eq!(cells_for(mobile_rx), "100 B");
+        let packets = page
+            .rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row,
+                    EvidenceRow::Network {
+                        counter: NetworkCounter::MobileRxPackets,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert_eq!(cells_for(packets), "7 packets");
+        let radio = page
+            .rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row,
+                    EvidenceRow::Network {
+                        counter: NetworkCounter::RadioActive,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert_eq!(cells_for(radio), "250 ms");
+        let missing = page
+            .rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row,
+                    EvidenceRow::Network {
+                        counter: NetworkCounter::WifiTx,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert_eq!(cells_for(missing), "Unavailable");
+    }
+
+    fn cells_for(row: &EvidenceRow) -> String {
+        match row {
+            EvidenceRow::Network { counter, value, .. } => value
+                .map(|value| format!("{} {}", value, counter.unit()))
+                .unwrap_or_else(|| "Unavailable".into()),
+            _ => String::new(),
+        }
     }
     #[::core::prelude::v1::test]
     fn nearest_rank_statistics_match_reference_and_keep_signed_temperatures() {

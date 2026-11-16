@@ -9,6 +9,7 @@ fn outcome_filter_label(filter: OutcomeFilter, language: Language) -> &'static s
         OutcomeFilter::Completed => TextKey::NetworkOutcomeCompleted,
         OutcomeFilter::Failed => TextKey::NetworkOutcomeFailed,
         OutcomeFilter::Cancelled => TextKey::NetworkOutcomeCancelled,
+        OutcomeFilter::Incomplete => TextKey::NetworkOutcomeIncomplete,
         OutcomeFilter::InFlight => TextKey::NetworkOutcomeInFlight,
     })
 }
@@ -29,8 +30,7 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let language = self.language;
         let ready = matches!(self.session, Some(Session::Network(_))) && !self.busy;
-        let observed = matches!(&self.session, Some(Session::Network(session)) if session.observed().is_some());
-        let outcome_ready = ready && observed;
+        let outcome_ready = ready;
         let active_filters = active_advanced_filters(&self.network.query);
         let more_label = language.text(if self.network.filters_expanded {
             TextKey::NetworkControlsLessFilters
@@ -69,12 +69,12 @@ impl ImportWorkspace {
                     studio::tab_button(
                         ("network-view", usize::from(domains)),
                         language.text(key),
-                        self.network.domains == domains,
+                        self.network.domains_view == domains,
                         colors,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         // Switching presentation must not reset an unsubmitted search.
-                        this.network.domains = domains;
+                        this.network.domains_view = domains;
                         cx.notify();
                     }))
                 }),
@@ -87,10 +87,7 @@ impl ImportWorkspace {
                     self.network.query.outcome != OutcomeFilter::All,
                     colors,
                 )
-                .when(!observed, |button| {
-                    button.tooltip(language.text(TextKey::NetworkControlsOutcomeUnavailable))
-                })
-                .when(observed && !ready, |button| {
+                .when(!ready, |button| {
                     button.tooltip(language.text(TextKey::NetworkControlsOutcomeBusy))
                 })
                 .dropdown_menu({
@@ -106,6 +103,7 @@ impl ImportWorkspace {
                             OutcomeFilter::Completed,
                             OutcomeFilter::Failed,
                             OutcomeFilter::Cancelled,
+                            OutcomeFilter::Incomplete,
                             OutcomeFilter::InFlight,
                         ] {
                             let label = outcome_filter_label(outcome, language);
@@ -115,16 +113,19 @@ impl ImportWorkspace {
                                 label.to_owned()
                             };
                             let workspace = workspace.clone();
-                            menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                                let _ = workspace.update(cx, |this, cx| {
-                                    if this.busy || !matches!(&this.session, Some(Session::Network(session)) if session.observed().is_some()) {
-                                        return;
-                                    }
-                                    let mut query = this.network.query.clone();
-                                    query.outcome = outcome;
-                                    this.query_network(0, query, cx);
-                                });
-                            }));
+                            menu =
+                                menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                                    let _ = workspace.update(cx, |this, cx| {
+                                        if this.busy
+                                            || !matches!(this.session, Some(Session::Network(_)))
+                                        {
+                                            return;
+                                        }
+                                        let mut query = this.network.query.clone();
+                                        query.outcome = outcome;
+                                        this.query_network(0, query, cx);
+                                    });
+                                }));
                         }
                         menu
                     }
@@ -393,10 +394,11 @@ mod tests {
             .unwrap();
         assert!(!tabs.contains("query_network("));
         assert!(!tabs.contains("set_value("));
-        assert!(implementation.contains("NetworkControlsOutcomeUnavailable"));
+        assert!(!implementation.contains("NetworkControlsOutcomeUnavailable"));
         assert!(implementation.contains("NetworkControlsOutcomeBusy"));
         assert!(implementation.contains("NetworkControlsAllOutcomes"));
-        assert!(implementation.contains("let outcome_ready = ready && observed"));
+        assert!(implementation.contains("let outcome_ready = ready;"));
+        assert!(implementation.contains("OutcomeFilter::Incomplete"));
         assert!(implementation.contains("query.outcome = outcome"));
         assert!(implementation.contains("NetworkControlsHttpStatus"));
         for choice in [

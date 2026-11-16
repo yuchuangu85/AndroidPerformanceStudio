@@ -34,6 +34,10 @@ struct PublicationBackup {
     published_query: EntryQuery,
     total: u64,
     percentiles: Option<DurationPercentiles>,
+    analysis: Option<aps_network::NetworkAnalysis>,
+    activity: Option<aps_network::NetworkActivity>,
+    domains: Option<Vec<aps_network::DomainSummary>>,
+    selected_detail: Option<(u64, aps_network::EntryDetail)>,
     duration: Option<Duration>,
     observed_target: Option<CaptureTarget>,
 }
@@ -142,6 +146,10 @@ impl ImportWorkspace {
             self.network.published_query = backup.published_query;
             self.network.total = backup.total;
             self.network.percentiles = backup.percentiles;
+            self.network.analysis = backup.analysis;
+            self.network.activity = backup.activity;
+            self.network.domains = backup.domains;
+            self.network.selected_detail = backup.selected_detail;
             self.import_duration = backup.duration;
             self.network.observed_target = backup.observed_target;
             self.import_started = None;
@@ -208,6 +216,10 @@ impl ImportWorkspace {
             published_query: self.network.published_query.clone(),
             total: self.network.total,
             percentiles: self.network.percentiles,
+            analysis: self.network.analysis.clone(),
+            activity: self.network.activity.clone(),
+            domains: self.network.domains.clone(),
+            selected_detail: self.network.selected_detail.clone(),
             duration: self.import_duration,
             observed_target: self.network.observed_target.clone(),
         });
@@ -226,6 +238,10 @@ impl ImportWorkspace {
         self.notice = None;
         self.import_started = None;
         self.selected_network = None;
+        self.network.analysis = None;
+        self.network.activity = None;
+        self.network.domains = None;
+        self.network.selected_detail = None;
         // The worker owns transport and scoped resource cleanup. Dropping the
         // entity cancels its control; it cannot orphan a UI publication task.
         cx.background_executor()
@@ -407,9 +423,6 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
     );
     page.columns.extend(
         [
-            "Outcome",
-            "Protocol",
-            "Evidence source",
             "Start offset ms",
             "End offset ms",
             "Observed phase records",
@@ -427,6 +440,9 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
             .and_then(|index| index.parse::<u64>().ok())
             .and_then(|index| capture.request(index));
         if let Some(request) = request {
+            if let Some(source) = row.get_mut(8) {
+                *source = "APS Network Agent v2".to_owned();
+            }
             let offset = |time: Option<u64>| {
                 time.and_then(|time| time.checked_sub(capture.start_monotonic_ns))
                     .map_or_else(
@@ -435,9 +451,6 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
                     )
             };
             row.extend([
-                request.outcome.label().into(),
-                request.protocol.unwrap_or("unavailable").into(),
-                "APS Network Agent v2".into(),
                 offset(request.start_ns),
                 offset(request.end_ns),
                 request.phases.len().to_string(),
@@ -452,7 +465,7 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
                 phase_evidence(request, capture.start_monotonic_ns),
             ]);
         } else {
-            row.extend(["unavailable"; 10].into_iter().map(str::to_owned));
+            row.extend(["unavailable"; 7].into_iter().map(str::to_owned));
         }
     }
     page.warnings = vec![
@@ -559,11 +572,48 @@ pub(super) fn counts(capture: &ObservedCapture, language: Language) -> String {
     )
 }
 
+fn phase_label(kind: ObservedPhaseKind, language: Language) -> &'static str {
+    language.text(match kind {
+        ObservedPhaseKind::Dns => TextKey::NetworkDetailDns,
+        ObservedPhaseKind::Connect => TextKey::NetworkDetailConnect,
+        ObservedPhaseKind::Tls => TextKey::NetworkDetailTls,
+        ObservedPhaseKind::RequestHeaders => TextKey::NetworkDetailRequestHeaders,
+        ObservedPhaseKind::RequestBody => TextKey::NetworkDetailRequestBody,
+        ObservedPhaseKind::ResponseHeaders => TextKey::NetworkDetailResponseHeaders,
+        ObservedPhaseKind::ResponseBody => TextKey::NetworkDetailResponseBody,
+        ObservedPhaseKind::Proxy => TextKey::NetworkLiveProxy,
+    })
+}
+
 pub(super) fn activity_panel(
     capture: &ObservedCapture,
     language: Language,
     colors: &studio::StudioColors,
 ) -> Stateful<Div> {
+    let concurrency = capture.concurrency();
+    let chinese = language.resolved() == Language::SimplifiedChinese;
+    let concurrency_text = if chinese {
+        format!(
+            "观测并发：峰值 {}，平均 {}；包含 {} 个请求，排除 {} 个端点缺失或无效的请求。",
+            concurrency.peak,
+            concurrency
+                .average
+                .map_or_else(|| "—".into(), |n| format!("{n:.2}")),
+            concurrency.included_calls,
+            concurrency.excluded_calls
+        )
+    } else {
+        format!(
+            "Observed concurrency: peak {}, average {}; {} calls included, {} excluded due to missing or invalid endpoints.",
+            concurrency.peak,
+            concurrency
+                .average
+                .map_or_else(|| "—".into(), |n| format!("{n:.2}")),
+            concurrency.included_calls,
+            concurrency.excluded_calls
+        )
+    };
+    let phases = capture.phase_summaries();
     panel(colors)
         .id("network-live-activity")
         .p(px(8.))
@@ -597,127 +647,45 @@ pub(super) fn activity_panel(
             ),
             colors,
         ))
+        .child(studio::supporting(concurrency_text, colors))
+        .children(phases.into_iter().map(|phase| {
+            let median = duration(phase.median_ms);
+            let p95 = duration(phase.p95_ms);
+            let text = if chinese {
+                format!(
+                    "{}：中位数 {}，P95 {}；样本 {}，缺失 {}",
+                    phase_label(phase.kind, language),
+                    median,
+                    p95,
+                    phase.sample_count,
+                    phase.missing_count
+                )
+            } else {
+                format!(
+                    "{}: median {}, P95 {}; {} samples, {} missing",
+                    phase_label(phase.kind, language),
+                    median,
+                    p95,
+                    phase.sample_count,
+                    phase.missing_count
+                )
+            };
+            studio::supporting(text, colors)
+        }))
         .child(studio::supporting(
             language.text(TextKey::NetworkLiveBodyBytesNote),
             colors,
         ))
 }
 
-fn phase_label(kind: ObservedPhaseKind, language: Language) -> &'static str {
-    language.text(match kind {
-        ObservedPhaseKind::Dns => TextKey::NetworkDetailDns,
-        ObservedPhaseKind::Connect => TextKey::NetworkDetailConnect,
-        ObservedPhaseKind::Tls => TextKey::NetworkDetailTls,
-        ObservedPhaseKind::RequestHeaders => TextKey::NetworkDetailRequestHeaders,
-        ObservedPhaseKind::RequestBody => TextKey::NetworkDetailRequestBody,
-        ObservedPhaseKind::ResponseHeaders => TextKey::NetworkDetailResponseHeaders,
-        ObservedPhaseKind::ResponseBody => TextKey::NetworkDetailResponseBody,
-        ObservedPhaseKind::Proxy => TextKey::NetworkLiveProxy,
-    })
-}
-
-pub(super) fn request_detail(
-    capture: &ObservedCapture,
-    row: Option<&[String]>,
-    language: Language,
-    colors: &studio::StudioColors,
-) -> AnyElement {
-    let request = row
-        .and_then(|row| row.first())
-        .and_then(|index| index.parse::<u64>().ok())
-        .and_then(|index| capture.request(index));
-    let mut view = panel(colors)
-        .id("network-live-request-detail")
-        .size_full()
-        .min_h_0()
-        .min_w_0()
-        .p(px(8.))
-        .gap(px(6.))
-        .child(panel_header(
-            language.text(TextKey::NetworkDetailTitle),
-            colors,
-        ));
-    let Some(request) = request else {
-        return view
-            .child(studio::supporting(
-                language.text(TextKey::NetworkEmpty),
-                colors,
-            ))
-            .into_any_element();
-    };
-    view = view
-        .child(studio::supporting(
-            format!(
-                "#{} · {} · {} · {}",
-                request.entry.index,
-                request.entry.method,
-                outcome_label(request.outcome, language),
-                request.protocol.unwrap_or("—")
-            ),
-            colors,
-        ))
-        .child(studio::supporting(MINIMIZED_URL, colors));
-    let mut phases = div()
-        .flex_1()
-        .min_h_0()
-        .overflow_y_scrollbar()
-        .flex()
-        .flex_col()
-        .gap(px(5.));
-    for (index, phase) in request.phases.iter().enumerate() {
-        let status = if phase.failed {
-            language.text(TextKey::NetworkLivePhaseFailed)
-        } else {
-            ""
-        };
-        phases = phases.child(
-            div()
-                .flex()
-                .gap(px(6.))
-                .min_w_0()
-                .child(
-                    studio::supporting(
-                        format!("{}. {}", index + 1, phase_label(phase.kind, language)),
-                        colors,
-                    )
-                    .flex_1(),
-                )
-                .child(studio::supporting(
-                    format!("{} {status}", duration(phase.duration_ms())),
-                    colors,
-                )),
-        );
-    }
-    view.child(phases)
-        .child(studio::supporting(
-            language.text(TextKey::NetworkLivePhasePartial),
-            colors,
-        ))
-        .child(studio::supporting(
-            language.text(TextKey::NetworkLiveNoContent),
-            colors,
-        ))
-        .into_any_element()
-}
-
-pub(super) fn outcome_label(outcome: ObservedOutcome, language: Language) -> &'static str {
-    // Canonical outcome values remain stable in exports; the existing detail
-    // status resources do not conflate HTTP error classes with call failures.
-    language.text(match outcome {
-        ObservedOutcome::InFlight => TextKey::NetworkOutcomeInFlight,
-        ObservedOutcome::Completed => TextKey::NetworkOutcomeCompleted,
-        ObservedOutcome::Failed => TextKey::NetworkOutcomeFailed,
-        ObservedOutcome::Cancelled => TextKey::NetworkOutcomeCancelled,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aps_network::{NetworkEntry, ObservedPhase, ObservedRequest};
+    use aps_network::{ConnectionUse, EntryOutcome, NetworkEntry, ObservedPhase, ObservedRequest};
 
     #[::core::prelude::v1::test]
-    fn observed_projection_exports_real_minimized_endpoints_and_unknowns() {
+    fn observed_projection_exports_redacted_identity_and_phase_evidence() {
+        let url = "https://example.test/<redacted-path>?q=<redacted>";
         let request = ObservedRequest {
             entry: NetworkEntry {
                 index: 1,
@@ -726,12 +694,19 @@ mod tests {
                 duration_ms: Some(3.),
                 request_bytes: None,
                 response_bytes: Some(20),
-                minimized_url: MINIMIZED_URL,
+                redacted_url: url.into(),
+                protocol: Some("h2".into()),
+                outcome: EntryOutcome::Completed,
+                connection_use: ConnectionUse::New,
+                started_at_ms: None,
             },
             outcome: ObservedOutcome::Completed,
             start_ns: Some(1_000_000),
             end_ns: Some(4_000_000),
             protocol: Some("h2"),
+            redacted_url: url.into(),
+            tls_version: None,
+            cipher_suite: None,
             cancellation_requested: true,
             phases_truncated: 2,
             phases: vec![
@@ -772,26 +747,17 @@ mod tests {
             0,
             &EntryQuery::default(),
             None,
+            None,
             &CancellationToken::new(),
         )
         .unwrap();
         let page = publication.page;
         assert_eq!(page.columns.len(), 17);
         assert_eq!(page.rows[0].len(), page.columns.len());
-        assert_eq!(
-            &page.rows[0][7..16],
-            [
-                "completed",
-                "h2",
-                "APS Network Agent v2",
-                "0",
-                "3",
-                "2",
-                "1",
-                "true",
-                "2"
-            ]
-        );
+        assert_eq!(page.rows[0][2], url);
+        assert_eq!(page.rows[0][7], "completed");
+        assert_eq!(page.rows[0][9], "new");
+        assert_eq!(&page.rows[0][10..16], ["0", "3", "2", "1", "true", "2"]);
         let phases: serde_json::Value = serde_json::from_str(&page.rows[0][16]).unwrap();
         assert_eq!(phases[0]["start_ms"], 1.);
         assert_eq!(phases[0]["end_ms"], 2.);

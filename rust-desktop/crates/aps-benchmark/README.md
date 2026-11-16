@@ -38,10 +38,20 @@ Compose 的 `BenchmarkJsonParser`：根级 `benchmarks`/`results`/`tests`，按�
   导入替换、最近运行、趋势指标键和按时间顺序排列的指标历史。
 - `export`：JSON（模式 1 报告视图 / 模式 2 发布导出）、CSV、Markdown、JUnit、
   SARIF 2.1.0，以及无依赖的 PDF 1.4 写入器（Helvetica、A4、每页 60 行，非 ASCII
-  字符替换为 `?`）。
+  字符替换为 `?`）。Baseline Profile 对比另有包含状态和 trace 对的模式 2 JSON。
 - `report_index`：导出工件的有界 JSON 目录；绝不删除用户文件。
 - `orchestrate`：精确的 Macrobenchmark Gradle 命令/环境构建器，带合并输出、取消
   和超时的阻塞运行器，以及有界的 benchmark 结果定位器。
+
+## 命令行
+
+使用 `cargo run -p aps-benchmark --bin aps-benchmark -- --baseline BASE.json --current CURRENT.json`
+比较结果，可选 `--threshold-percent`、`--json`、`--junit`、`--sarif`。
+`macro-plan --project DIR` 预览命令；`macro-run --project DIR` 执行，支持
+`--result`、`--baseline`、`--report-json` 及编排选项。比较退出码为 0（有结论且无回归）、
+1（存在回归）、2（运行错误）、3（数据不足或不兼容）；执行超时为 124。
+与 Compose CLI 不同，Rust CLI 不会将无法确定的结果当作成功。两端的统计判定
+方法也不同，同一输入的分类可能不同；此命令不是 Compose 判定结果的逐位复现。
 
 ## 验证
 

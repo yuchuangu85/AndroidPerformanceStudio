@@ -85,6 +85,8 @@ impl ImportWorkspace {
         // a live Rust adapter follow the current snapshot/selection; rows with
         // no adapter stay disabled exactly like Compose's unavailable state.
         let raw = self.memory_export_enabled(MemoryExportKind::RawHprof);
+        let standard = self.memory_export_enabled(MemoryExportKind::StandardHprof);
+        let bitmap_comparison = self.memory_export_enabled(MemoryExportKind::BitmapComparison);
         let histogram = self.memory_export_enabled(MemoryExportKind::HistogramCsv);
         let instances = self.memory_export_enabled(MemoryExportKind::ClassInstancesCsv);
         let object = self.memory_export_enabled(MemoryExportKind::ObjectInvestigationJson);
@@ -100,9 +102,9 @@ impl ImportWorkspace {
                     ImportMenuCommand::MemoryExport(MemoryExportKind::RawHprof),
                 )
                 .item_when(
-                    false,
+                    standard,
                     TextKey::MemoryAppExportStandardHprof,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::StandardHprof),
                 )
                 .item_when(
                     self.advanced_memory_export_enabled(AdvancedMemoryKind::Native),
@@ -152,9 +154,9 @@ impl ImportWorkspace {
                     ImportMenuCommand::MemoryExportAdvanced(AdvancedMemoryKind::Bitmap),
                 )
                 .item_when(
-                    false,
+                    bitmap_comparison,
                     TextKey::MemoryAppExportBitmapComparison,
-                    ImportMenuCommand::Unavailable,
+                    ImportMenuCommand::MemoryExport(MemoryExportKind::BitmapComparison),
                 )
             });
         // Open snapshot tabs stay real Rust functionality, so they keep their

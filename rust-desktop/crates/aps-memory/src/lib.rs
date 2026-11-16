@@ -422,7 +422,48 @@ impl MemorySession {
         if value.get("exceeded").and_then(Value::as_bool) == Ok(true) {
             return Err(MemoryError::ResponseLimit);
         }
-        MemorySnapshot::decode(&value, &metadata, &self.source_digest)
+        let mut snapshot = MemorySnapshot::decode(&value, &metadata, &self.source_digest)?;
+        if value.get("perHeapOmitted").and_then(Value::as_bool) == Ok(true) {
+            let mut total_bytes = 0usize;
+            for heap in &metadata.heaps {
+                let payload = match self.request_bounded(
+                    "heapHistogram",
+                    Value::map([("heapName", heap.as_str().into())]),
+                    cancel,
+                    SNAPSHOT_TIMEOUT,
+                    MAX_SNAPSHOT_BYTES,
+                ) {
+                    Ok(payload) => payload,
+                    Err(MemoryError::EngineRejected | MemoryError::ResponseLimit) => {
+                        snapshot.per_heap_classes.clear();
+                        break;
+                    }
+                    Err(error) => return Err(error),
+                };
+                total_bytes = total_bytes.saturating_add(
+                    wire::encode(&payload)
+                        .map_err(|_| MemoryError::InvalidResponse)?
+                        .len(),
+                );
+                if total_bytes > 2 * MAX_SNAPSHOT_BYTES {
+                    snapshot.per_heap_classes.clear();
+                    break;
+                }
+                let classes = payload
+                    .get("classes")
+                    .map_err(|_| MemoryError::InvalidResponse)?;
+                let summary = model::HeapSummary::from_value(
+                    payload
+                        .get("summary")
+                        .map_err(|_| MemoryError::InvalidResponse)?,
+                )?;
+                snapshot
+                    .per_heap_classes
+                    .insert(heap.clone(), model::decode_classes(classes)?);
+                snapshot.per_heap_summaries.insert(heap.clone(), summary);
+            }
+        }
+        Ok(snapshot)
     }
 
     /// Instance rows for every leaf class of one selected classifier row.
@@ -970,6 +1011,19 @@ mod tests {
         assert!(snapshot.per_heap_classes.is_empty());
         assert_eq!(snapshot.classes.len(), 2);
         assert_eq!(snapshot.metadata.id_size, 8);
+    }
+
+    #[test]
+    fn object_reference_keeps_root_kind_separate_from_field_name() {
+        let value = Value::map([
+            ("fieldName", "GC Root (JNI Global)".into()),
+            ("targetObjectId", 42i64.into()),
+            ("targetClassName", "sample.Root".into()),
+        ]);
+        let reference = model::ObjectReference::from_value(&value).unwrap();
+        assert_eq!(reference.field_name, None);
+        assert_eq!(reference.root_kind.as_deref(), Some("JNI Global"));
+        assert_eq!(reference.object_id, 42);
     }
 
     #[test]

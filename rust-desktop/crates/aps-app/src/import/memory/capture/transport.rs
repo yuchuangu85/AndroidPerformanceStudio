@@ -1,7 +1,10 @@
 //! Blocking, user-initiated raw Android HPROF capture. Run off the UI thread.
 //!
 //! Only generated device paths and app-created local files are owned here. No
-//! root, process restart, install, conversion, or user export is performed.
+//! root, process restart, install, or user export is performed. The host
+//! `hprof-conv` is invoked best-effort on the pulled raw heap so a Java-SE copy
+//! can be exported; its absence or failure keeps the raw dump as the analysis
+//! source and surfaces a warning.
 //! `adb pull` does not expose a streaming byte limit: metadata checks and a
 //! polling watchdog reject oversized/changing files, but cannot impose a hard
 //! disk-write ceiling. Full HPROF parsing belongs to the isolated memory worker.
@@ -46,11 +49,26 @@ pub(in crate::import::memory) struct HeapCaptureTarget {
 
 /// Retain this owner (including in raw-export tasks) as long as `path` is used.
 /// Dropping the last owner removes its private, capture-only scratch directory.
+/// Process memory sampled around a bitmap dump. Values are PSS bytes; each
+/// category remains unavailable when absent rather than becoming zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::import) struct ProcessMemory {
+    pub total_pss_bytes: Option<u64>,
+    pub java_heap_pss_bytes: Option<u64>,
+    pub native_heap_pss_bytes: Option<u64>,
+}
+
 pub(in crate::import::memory) struct CapturedHeap {
     pub path: PathBuf,
     pub target: HeapCaptureTarget,
     pub boot_id: String,
     pub start_ticks: u64,
+    /// Java-SE-compatible copy produced by the host `hprof-conv`, when available.
+    pub converted: Option<PathBuf>,
+    /// "missing" or "failed"; the raw Android HPROF remains the analysis source.
+    pub conversion_warning: Option<&'static str>,
+    /// Optional PSS sample for bitmap dumps; never inferred for Java heaps.
+    pub memory: Option<ProcessMemory>,
     _workspace: TempWorkspace,
 }
 
@@ -256,13 +274,23 @@ fn capture_with_options(
         (Ok(()), Ok(())) => {}
     }
     check_cancelled(cancel)?;
-    Ok(CapturedHeap {
+    let memory = if bitmap {
+        read_process_memory(executor, executable, target, cancel)
+    } else {
+        None
+    };
+    let mut captured = CapturedHeap {
         path,
         target: target.clone(),
         boot_id: frozen.boot_id,
         start_ticks: frozen.start_ticks,
+        converted: None,
+        conversion_warning: None,
+        memory,
         _workspace: workspace,
-    })
+    };
+    convert_captured_hprof(&mut captured, cancel);
+    Ok(captured)
 }
 
 fn validate_target(target: &HeapCaptureTarget, root: &Path) -> Result<(), String> {
@@ -762,6 +790,219 @@ fn reports_command_error(bytes: &[u8]) -> bool {
     })
 }
 
+fn read_process_memory(
+    executor: &impl HeapExecutor,
+    executable: &Path,
+    target: &HeapCaptureTarget,
+    cancel: &CancellationToken,
+) -> Option<ProcessMemory> {
+    let mut request = request(executable, &target.serial, COMMAND_TIMEOUT).args([
+        "shell",
+        "dumpsys",
+        "meminfo",
+        &target.pid.to_string(),
+    ]);
+    // Full meminfo output is much larger than a command-status response; keep a
+    // bounded 1 MiB ceiling so the TOTAL row is not truncated away.
+    request.stdout_limit = 1024 * 1024;
+    let output = executor.run(&request, cancel).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let memory = parse_process_memory(&text);
+    (memory.total_pss_bytes.is_some()
+        || memory.java_heap_pss_bytes.is_some()
+        || memory.native_heap_pss_bytes.is_some())
+    .then_some(memory)
+}
+
+fn parse_process_memory(text: &str) -> ProcessMemory {
+    let mut memory = ProcessMemory::default();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        let (slot, rest) = if let Some(rest) = trimmed.strip_prefix("Java Heap:") {
+            (&mut memory.java_heap_pss_bytes, rest)
+        } else if lower.starts_with("dalvik heap") {
+            (
+                &mut memory.java_heap_pss_bytes,
+                &trimmed["dalvik heap".len()..],
+            )
+        } else if lower.starts_with("native heap") {
+            (
+                &mut memory.native_heap_pss_bytes,
+                &trimmed["native heap".len()..],
+            )
+        } else if let Some(rest) = trimmed.strip_prefix("TOTAL PSS:") {
+            (&mut memory.total_pss_bytes, rest)
+        } else if lower.starts_with("total") {
+            (&mut memory.total_pss_bytes, &trimmed["total".len()..])
+        } else {
+            continue;
+        };
+        if slot.is_some() {
+            continue;
+        }
+        let Some(kilobytes) = rest
+            .split_whitespace()
+            .find_map(|token| token.trim_matches(':').parse::<u64>().ok())
+        else {
+            continue;
+        };
+        *slot = kilobytes.checked_mul(1024);
+    }
+    memory
+}
+
+fn locate_hprof_conv() -> Option<PathBuf> {
+    let executable_name = if cfg!(target_os = "windows") {
+        "hprof-conv.exe"
+    } else {
+        "hprof-conv"
+    };
+    if let Some(path) = std::env::var_os("APS_HPROF_CONV") {
+        let path = PathBuf::from(path);
+        if path.is_absolute() && executable_file(&path) {
+            return Some(path);
+        }
+    }
+    if let Some(paths) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&paths) {
+            let candidate = directory.join(executable_name);
+            if executable_file(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    // Prefer the platform-tools directory of the ADB actually selected by the
+    // application, then explicit SDK roots and the default per-OS location.
+    if let Ok(location) = AdbLocator::new().locate(None)
+        && let Some(directory) = location.executable.parent()
+    {
+        let candidate = directory.join(executable_name);
+        if executable_file(&candidate) {
+            return Some(candidate);
+        }
+    }
+    let mut roots = Vec::new();
+    for key in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Some(root) = std::env::var_os(key) {
+            roots.push(PathBuf::from(root));
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = PathBuf::from(home);
+        #[cfg(target_os = "macos")]
+        roots.push(home.join("Library/Android/sdk"));
+        #[cfg(target_os = "windows")]
+        roots.push(
+            std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("AppData/Local"))
+                .join("Android/Sdk"),
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        roots.push(home.join("Android/Sdk"));
+    }
+    roots
+        .into_iter()
+        .map(|root| root.join("platform-tools").join(executable_name))
+        .find(|candidate| executable_file(candidate))
+}
+
+fn executable_file(path: &Path) -> bool {
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return false;
+        }
+    }
+    #[cfg(target_os = "windows")]
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    {
+        return false;
+    }
+    true
+}
+
+pub(in crate::import::memory) fn hprof_conv_available() -> bool {
+    locate_hprof_conv().is_some()
+}
+
+/// Produces a standard HPROF for an already loaded source. The output is a new
+/// private file from the host `hprof-conv`; callers copy it and never modify
+/// the retained raw source.
+pub(in crate::import::memory) fn convert_hprof_for_export(
+    source: &Path,
+    target: &Path,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    if target.exists() {
+        return Err("Standard HPROF export destination already exists".into());
+    }
+    let tool = locate_hprof_conv().ok_or(
+        "hprof-conv is unavailable; install Android SDK platform-tools to export standard HPROF",
+    )?;
+    convert_with_tool(&tool, source, target, cancel)
+}
+
+fn convert_captured_hprof(captured: &mut CapturedHeap, cancel: &CancellationToken) {
+    let Some(tool) = locate_hprof_conv() else {
+        captured.conversion_warning = Some("missing");
+        return;
+    };
+    let Some(directory) = captured.path.parent() else {
+        captured.conversion_warning = Some("failed");
+        return;
+    };
+    let converted = directory.join("capture.hprof");
+    match convert_with_tool(&tool, &captured.path, &converted, cancel) {
+        Ok(()) => captured.converted = Some(converted),
+        Err(_) => {
+            let _ = fs::remove_file(&converted);
+            captured.conversion_warning = Some("failed");
+        }
+    }
+}
+
+fn convert_with_tool(
+    tool: &Path,
+    raw: &Path,
+    converted: &Path,
+    cancel: &CancellationToken,
+) -> Result<(), String> {
+    if !executable_file(tool) {
+        return Err("hprof-conv is not an executable file".into());
+    }
+    let mut request = ProcessRequest::new(tool).arg(raw).arg(converted);
+    request.timeout = Duration::from_secs(120);
+    request.stdout_limit = OUTPUT_LIMIT;
+    request.stderr_limit = OUTPUT_LIMIT;
+    let output = ProcessRunner
+        .run(&request, cancel)
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err("hprof-conv did not complete successfully".into());
+    }
+    let metadata = fs::symlink_metadata(converted).map_err(|_| "hprof-conv produced no file")?;
+    if metadata.is_symlink() || !metadata.is_file() || metadata.len() == 0 {
+        return Err("hprof-conv produced no usable file".into());
+    }
+    check_cancelled(cancel)?;
+    Ok(())
+}
+
 fn sanitized_diagnostic(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -827,6 +1068,41 @@ mod tests {
         bytes.extend(0u64.to_be_bytes());
         bytes.extend([0x2c, 0, 0, 0, 0, 0, 0, 0, 0]);
         bytes
+    }
+
+    #[test]
+    fn process_memory_parses_pss_categories_and_keeps_absent_fields_unknown() {
+        let memory = parse_process_memory(
+            "** MEMINFO in pid 123 [com.example] **\n  Java Heap:   100   50   0\n  Native Heap: 200   60   0\n  Graphics:    30\n  TOTAL PSS:   500   80   0\n",
+        );
+        assert_eq!(memory.java_heap_pss_bytes, Some(100 * 1024));
+        assert_eq!(memory.native_heap_pss_bytes, Some(200 * 1024));
+        assert_eq!(memory.total_pss_bytes, Some(500 * 1024));
+        let missing = parse_process_memory("** MEMINFO in pid 123 **\n  Graphics: 30\n");
+        assert_eq!(missing, ProcessMemory::default());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hprof_conv_output_is_optional_and_must_be_a_real_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let raw = workspace.path().join("raw.hprof");
+        fs::write(&raw, hprof()).unwrap();
+        let converted = workspace.path().join("converted.hprof");
+        let tool = workspace.path().join("hprof-conv");
+        fs::write(&tool, "#!/bin/sh\nprintf 'converted' > \"$2\"\n").unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+        let cancel = CancellationToken::new();
+        convert_with_tool(&tool, &raw, &converted, &cancel).unwrap();
+        assert_eq!(fs::read(&converted).unwrap(), b"converted");
+
+        let failing = workspace.path().join("failing-conv");
+        fs::write(&failing, "#!/bin/sh\nexit 1\n").unwrap();
+        fs::set_permissions(&failing, fs::Permissions::from_mode(0o700)).unwrap();
+        let rejected = workspace.path().join("rejected.hprof");
+        assert!(convert_with_tool(&failing, &raw, &rejected, &cancel).is_err());
+        assert!(!rejected.exists());
     }
 
     #[cfg(unix)]

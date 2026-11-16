@@ -28,7 +28,8 @@ pub use compare::{
 };
 pub use experiment::{BaselineProfileComparison, compare_baseline_profile};
 pub use export::{
-    render_pdf_lines, write_csv, write_json, write_junit, write_markdown, write_pdf, write_sarif,
+    render_pdf_lines, write_baseline_profile_json, write_csv, write_json, write_junit,
+    write_markdown, write_pdf, write_sarif,
 };
 pub use model::{
     BenchmarkBuild, BenchmarkCase, BenchmarkDevice, BenchmarkRun, Confidence, Metric,

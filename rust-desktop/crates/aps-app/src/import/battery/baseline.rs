@@ -185,8 +185,11 @@ mod tests {
                 after,
                 temperatures_tenths_celsius: Vec::new(),
                 thermal_statuses: Vec::new(),
+                thermal_samples: Vec::new(),
+                history: Vec::new(),
                 charging_states: vec![Some(false), Some(false)],
             }],
+            None,
         )
         .unwrap();
         report.configuration = Some(aps_battery::BatteryCaptureConfig {
@@ -195,6 +198,7 @@ mod tests {
             polling_seconds: 5,
             runs: 1,
             cooldown_seconds: 0,
+            launch_app: false,
         });
         report.workload_id = Some("workload".into());
         report.stopped_early = Some(false);

@@ -14,7 +14,7 @@ use crate::studio;
 use aps_battery::BatteryReport;
 use aps_contracts::SourceDigest;
 use aps_frame::{BudgetSource, DeadlineVerdict, FrameQuery, FrameSession};
-use aps_gpu::{ArtifactKind, GpuArtifact, OpenRoute};
+use aps_gpu::{ArtifactKind, GpuArtifact};
 use aps_memory::MemorySession;
 use aps_network::{HarSession, ImportLimits};
 use aps_perfetto::{QueryPreset, TraceProcessor, TraceSession};
@@ -494,6 +494,7 @@ impl ImportWorkspace {
                     &session,
                     0,
                     &aps_network::EntryQuery::default(),
+                    None,
                     None,
                     &cancel,
                 )?;
@@ -1216,23 +1217,56 @@ fn page_for(
             let resolved = artifact
                 .resolve_location(cancel)
                 .map_err(|e| e.to_string())?;
+            let missing = TextKey::GpuNotRecorded.as_str().to_owned();
+            let mut warnings = vec![
+                "Artifact classification does not prove AGI is installed or authorize launching an external tool.".to_owned(),
+            ];
+            warnings.extend(artifact.warnings.iter().cloned());
             Ok(PageData {
                 ui: PageUi::new(
-                    UiText::format(TextKey::ImportUiGpuSummary, [
-                        ("kind", format!("{:?}", artifact.kind).into()),
-                        ("bytes", artifact.size_bytes.to_string().into()),
-                    ]),
+                    UiText::format(
+                        TextKey::ImportUiGpuSummary,
+                        [
+                            ("kind", format!("{:?}", artifact.kind).into()),
+                            ("bytes", artifact.size_bytes.to_string().into()),
+                        ],
+                    ),
                     &[
                         TextKey::ImportUiSha256,
                         TextKey::ImportUiVerifiedLocationStatus,
                         TextKey::ImportUiProposedOpenRoute,
+                        TextKey::GpuArtifactColumnPackage,
+                        TextKey::GpuGraphicsApi,
                     ],
-                ).warning(0, TextKey::ImportUiGpuWarning.into()),
+                )
+                .warning(0, TextKey::ImportUiGpuWarning.into()),
                 row_actions: Vec::new(),
-                summary:format!("GPU artifact · {:?} · {} bytes",artifact.kind,artifact.size_bytes),
-                columns:vec!["SHA-256".into(),"Verified location status".into(),"Proposed open route".into()],
-                rows:vec![vec![artifact.sha256.to_hex(),format!("{:?}",resolved.status),format!("{:?}",artifact.open_route)]],offset:0,has_more:false,
-                warnings:vec!["Artifact classification does not prove AGI is installed or authorize launching an external tool.".into()],
+                summary: format!(
+                    "GPU artifact · {:?} · {} bytes",
+                    artifact.kind, artifact.size_bytes
+                ),
+                columns: vec![
+                    "SHA-256".into(),
+                    "Verified location status".into(),
+                    "Proposed open route".into(),
+                    "Package".into(),
+                    "Graphics API".into(),
+                ],
+                rows: vec![vec![
+                    artifact.sha256.to_hex(),
+                    format!("{:?}", resolved.status),
+                    format!("{:?}", artifact.open_route),
+                    artifact
+                        .package_name
+                        .clone()
+                        .unwrap_or_else(|| missing.clone()),
+                    artifact
+                        .graphics_api
+                        .map_or_else(|| missing.clone(), |api| api.label().to_owned()),
+                ]],
+                offset: 0,
+                has_more: false,
+                warnings,
             })
         }
         Session::Network(session) => {
@@ -1276,9 +1310,11 @@ fn page_for(
                     "Method",
                     "Status",
                     "Duration ms",
-                    "Request bytes",
-                    "Response bytes",
-                    "URL",
+                    "Transferred bytes",
+                    "Protocol",
+                    "Outcome",
+                    "Source",
+                    "Connection",
                 ]
                 .into_iter()
                 .map(str::to_owned)
@@ -1287,21 +1323,28 @@ fn page_for(
                     .rows
                     .into_iter()
                     .map(|row| {
+                        let transferred = row
+                            .request_bytes
+                            .zip(row.response_bytes)
+                            .map(|(request, response)| request.saturating_add(response));
                         vec![
                             row.index.to_string(),
                             row.method.into(),
+                            row.redacted_url,
                             row.status.to_string(),
                             format!("{:?}", row.duration_ms),
-                            format!("{:?}", row.request_bytes),
-                            format!("{:?}", row.response_bytes),
-                            row.minimized_url.into(),
+                            format!("{:?}", transferred),
+                            row.protocol.unwrap_or_else(|| "unavailable".into()),
+                            row.outcome.label().into(),
+                            "HAR".into(),
+                            row.connection_use.name().to_ascii_lowercase(),
                         ]
                     })
                     .collect(),
                 offset,
                 has_more: (offset as u64 + PAGE as u64) < page.total,
                 warnings: vec![
-                    "URL, headers, cookies and body are excluded from this preview".into(),
+                    "Redacted HAR evidence: host retained; paths, query values, headers, cookies and bodies excluded.".into(),
                 ],
             })
         }
@@ -2233,7 +2276,7 @@ mod tests {
             ui: PageUi::default(),
             summary: "2 requests · minimized".into(),
             columns: vec!["Method".into(), "URL".into()],
-            rows: vec![vec!["GET".into(), aps_network::MINIMIZED_URL.into()]],
+            rows: vec![vec!["GET".into(), aps_network::INVALID_URL.into()]],
             offset: 0,
             has_more: true,
             warnings: Vec::new(),

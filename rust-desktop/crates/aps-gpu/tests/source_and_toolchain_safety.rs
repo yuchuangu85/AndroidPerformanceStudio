@@ -20,15 +20,16 @@ fn cancelled_import_and_probe_never_publish_partial_results() {
 #[test]
 fn unsupported_launch_is_rejected_without_starting_a_process() {
     let capability = AgiCapability {
-        executable: "/missing/agi".into(),
+        executable: Some("/missing/agi".into()),
         version: None,
         launch_mode: AgiLaunchMode::Unsupported,
         artifact_open_supported: false,
+        artifact_open_argument: None,
         stable_arguments: Vec::new(),
         warnings: Vec::new(),
     };
     assert!(matches!(
-        AgiToolchain::launch(&capability),
+        AgiToolchain::launch(&capability, &[]),
         Err(AgiToolchainError::InvalidExecutable)
     ));
 }
@@ -72,13 +73,42 @@ mod unix {
     }
 
     #[test]
+    fn advertised_arguments_are_detected_without_granting_launch_authority() {
+        let executable = Executable::new(
+            "#!/bin/sh\ncase \"$1\" in\n--version) printf 'AGI fixture\\n';;\n--help) printf '  --open-artifact <file>\\n  --device <serial>\\n';;\nesac\n",
+        );
+        let capability = AgiToolchain::probe(&executable.0, &CancellationToken::new()).unwrap();
+        assert_eq!(capability.launch_mode, AgiLaunchMode::VerifiedCli);
+        assert_eq!(capability.stable_arguments, vec!["--device"]);
+        assert!(capability.artifact_open_supported);
+        assert_eq!(
+            capability.artifact_open_argument.as_deref(),
+            Some("--open-artifact")
+        );
+        assert!(
+            !capability
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("No stable automation arguments"))
+        );
+    }
+
+    #[test]
     fn unsuccessful_version_probe_does_not_promote_stdout_to_a_capability() {
         let executable =
             Executable::new("#!/bin/sh\nprintf 'AGI misleading open artifact\\n'\nexit 1\n");
         let capability = AgiToolchain::probe(&executable.0, &CancellationToken::new()).unwrap();
-        assert_eq!(capability.launch_mode, AgiLaunchMode::Unsupported);
+        // The executable exists but reported nothing verifiable: only the
+        // independent no-argument GUI launch remains, with explicit warnings.
+        assert_eq!(capability.launch_mode, AgiLaunchMode::GuiOnly);
         assert!(capability.version.is_none());
         assert!(!capability.artifact_open_supported);
+        assert!(
+            capability
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("could not be determined"))
+        );
     }
 
     #[test]
@@ -107,14 +137,15 @@ mod unix {
         )
         .unwrap();
         let capability = AgiCapability {
-            executable: executable.0.clone(),
+            executable: Some(executable.0.clone()),
             version: Some("fixture".into()),
             launch_mode: AgiLaunchMode::GuiOnly,
             artifact_open_supported: true,
+            artifact_open_argument: Some("--open-artifact".into()),
             stable_arguments: vec!["must-not-be-forwarded".into()],
             warnings: Vec::new(),
         };
-        AgiToolchain::launch(&capability).unwrap();
+        AgiToolchain::launch(&capability, &["--open-artifact".into()]).unwrap();
         for _ in 0..100 {
             if std::fs::read(&marker).is_ok_and(|value| value == b"0") {
                 std::fs::remove_file(marker).unwrap();

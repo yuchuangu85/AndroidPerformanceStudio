@@ -425,15 +425,24 @@ impl ImportWorkspace {
 
         // Title row: Instance Details - shortClass@id (0xhex) with the close
         // control in a 28 px square on the trailing edge.
-        let title = format!(
-            "{} - {}",
-            language.text(TextKey::MemoryPageInstanceDetails),
-            object_label(
-                detail.object_id,
-                &detail.class_name,
-                detail.represented_class_name.as_deref(),
-            )
+        let object_title = object_label(
+            detail.object_id,
+            &detail.class_name,
+            detail.represented_class_name.as_deref(),
         );
+        let title = match detail.heap_name.as_deref() {
+            Some(heap) => format!(
+                "{} - {} · {}",
+                language.text(TextKey::MemoryPageInstanceDetails),
+                object_title,
+                heap,
+            ),
+            None => format!(
+                "{} - {}",
+                language.text(TextKey::MemoryPageInstanceDetails),
+                object_title,
+            ),
+        };
         panel = panel.child(
             div()
                 .id("memory-inspector-title")
@@ -1059,17 +1068,11 @@ fn inspector_columns(
     columns
 }
 
-/// Compose gates NATIVE_SIZE on HeapCapability.NATIVE_SIZE. HPROF never reports
-/// native sizes, and the Rust snapshot model does not project the capability
-/// set yet, so the closest honest proof available here is a non-Java-profile
-/// histogram that actually reported a native size.
+/// Native columns require actual registered-native evidence in the snapshot.
 fn snapshot_native_capability(snapshot: Option<&MemorySnapshot>) -> bool {
     let Some(snapshot) = snapshot else {
         return false;
     };
-    if snapshot.metadata.format.starts_with("JAVA PROFILE") {
-        return false;
-    }
     snapshot
         .classes
         .iter()
@@ -1160,6 +1163,7 @@ fn build_rows_with_references(
                 sort_ascending,
                 &mut rows,
             );
+            append_gc_root_path_rows(detail, language, &mut rows);
             if nearest_only {
                 let has_chain = rows[1..].iter().any(|row| row.in_reference_chain);
                 if has_chain {
@@ -1182,6 +1186,36 @@ fn build_rows_with_references(
         sort_rows(&mut rows, sort_column, sort_ascending);
     }
     rows
+}
+
+fn append_gc_root_path_rows(
+    detail: &InstanceDetail,
+    language: Language,
+    rows: &mut Vec<InspectorRow>,
+) {
+    if detail.reference_chain.is_empty() {
+        return;
+    }
+    let mut path = String::from("GC Root");
+    for edge in &detail.reference_chain {
+        if let Some(root_kind) = edge.root_kind.as_deref() {
+            path.push_str(" [");
+            path.push_str(root_kind);
+            path.push_str("] ");
+        } else if let Some(field_name) = edge.field_name.as_deref() {
+            path.push_str(" --");
+            path.push_str(field_name);
+            path.push_str("--> ");
+        } else {
+            path.push_str(" -> ");
+        }
+        path.push_str(&format!("{} (0x{:x})", edge.class_name, edge.object_id));
+    }
+    rows.push(InspectorRow::message_with_path(
+        format!("{}: {path}", language.text(TextKey::MemoryDiffGcRootPath)),
+        1,
+        "gc-root-path".to_owned(),
+    ));
 }
 
 fn append_reference_rows(
@@ -1630,6 +1664,8 @@ mod tests {
             object_id: 42,
             class_name: "sample.Target".into(),
             reference_chain: vec![aps_memory::ObjectReference {
+                field_name: Some("root".into()),
+                root_kind: None,
                 object_id: 4,
                 class_name: "sample.Root".into(),
             }],
@@ -1671,10 +1707,12 @@ mod tests {
             InspectorColumn::Depth,
             true,
         );
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert!(rows[0].is_root);
         assert_eq!(rows[0].label, "Target@42 (0x2a)");
         assert_eq!(rows[1].tree_depth, 1);
+        assert!(rows[2].is_message);
+        assert!(rows[2].label.contains("GC Root path"));
 
         let mut collapsed = BTreeSet::new();
         collapsed.insert(42);
@@ -1866,6 +1904,8 @@ mod tests {
             object_id: 42,
             class_name: "sample.Target".into(),
             reference_chain: vec![aps_memory::ObjectReference {
+                field_name: Some("root".into()),
+                root_kind: None,
                 object_id: 4,
                 class_name: "sample.Root".into(),
             }],
@@ -1939,7 +1979,7 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn hprof_snapshots_never_grow_native_columns() {
+    fn hprof_native_columns_require_evidence() {
         let hprof = MemorySnapshot {
             metadata: SnapshotMetadata {
                 format: "JAVA PROFILE 1.0.3".into(),
@@ -1952,7 +1992,7 @@ mod tests {
             }],
             ..MemorySnapshot::default()
         };
-        assert!(!snapshot_native_capability(Some(&hprof)));
+        assert!(snapshot_native_capability(Some(&hprof)));
 
         let native = MemorySnapshot {
             classes: vec![ClassStats {

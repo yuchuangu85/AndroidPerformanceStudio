@@ -70,9 +70,9 @@ let version = Language::English.format(
 Memory 和 Frame 现在使用专用的 GPUI 工作区，而不是通用导入表。Memory 遵循 Compose Memory Profiler 页面：包含命令工具栏（导入、捕获操作、Overview/Classes/Dominators/Diff、辅助视图、Mapping、AI 分析）、快照标签页、证据/警告条和状态栏。
 Classes 具有主筛选栏、八张 KPI 卡片、堆分布、可调整大小的分类器树（堆/包分组、排序、展开、泄漏和重复项着色）、实例列表分页，以及内嵌对象检查器（Fields/References、最近 GC 根、深入导航和数组分页）。
 Dominators 具有 KPI、分布、筛选器、延迟加载的支配树和检查器；Diff 比较两个 dump 之间的类数量、浅层大小和保留大小，不建立跨 dump 的身份关系；Leak Analysis 展示 HPROF 启发式发现。
-Native Heap 和 ART Samples 在专用页面中使用有边界的 heapprofd 跟踪投影；Bitmap image dump 使用隔离的提取流程和图像预览/导出。
+Native Heap 和 ART Samples 在专用页面中使用有边界的 heapprofd 跟踪投影；Bitmap image dump 使用隔离的提取流程、ARGB 内容/唯一内容/重复组摘要、与上一份 dump 的 SHA-256 内容比较，以及图像预览/导出。
 这些产物仍与普通 Java HPROF 发现保持独立，缺少样本/不支持的图像 dump 仍会明确显示。类型化的 `aps-memory` 领域层移植了 Compose presenter（包括有边界的无依赖 regex 子集），并通过隔离的 HPROF worker 执行一次有边界的快照读取以及类型化的实例/详情/支配树页面。
-Mapping 导入（ProGuard/R8）和七种 HPROF 导出格式已通过 File 菜单接入，并使用有边界、经过摘要校验的写入。Frame 提供离线 gfxinfo FrameStats 摘要卡片、截止时间筛选、分页、窗口筛选、帧选择、使用 Canvas 渲染的有边界分页/缩放/悬停时长时间线、问题帧导航、可信的预算来源、阶段分解详情、警告、证据复制以及相同的有边界导出生命周期。
+Mapping 导入（ProGuard/R8）和 HPROF 导出（raw/standard、类直方图、实例、对象调查、Diff、快照 JSON、调查报告、Bitmap dump/比较）已通过 File 菜单接入，并使用有边界、经过摘要校验的写入；standard HPROF 只复制宿主 `hprof-conv` 的真实输出，缺失时保留 raw 分析并提示。Frame 提供离线 gfxinfo FrameStats 摘要卡片、截止时间筛选、分页、窗口筛选、帧选择、使用 Canvas 渲染的有边界分页/缩放/悬停时长时间线、问题帧导航、可信的预算来源、阶段分解详情、警告、证据复制以及相同的有边界导出生命周期。
 
 这些页面有意受当前可用 Rust 引擎的能力边界约束：Memory 支持离线 HPROF 分析，以及从标题栏设备/进程目标进行显式 Java heap 捕获。
 Dump Heap 运行有边界的 ADB 命令，为其快照标签页保留捕获文件，并通过隔离 worker 加载该文件。设备必须允许对该进程执行 `am dumpheap`；应用不会获取设备 root 权限、重启进程或绕过 Android 权限。

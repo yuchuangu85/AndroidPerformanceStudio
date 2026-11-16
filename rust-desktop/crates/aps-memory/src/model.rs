@@ -145,6 +145,7 @@ impl HeapSegment {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HeapSummary {
     pub shallow_size: u64,
+    pub retained_size: Option<u64>,
     pub object_count: u64,
     pub class_count: u64,
     pub heap_segments: Vec<HeapSegment>,
@@ -154,6 +155,7 @@ impl HeapSummary {
     pub(crate) fn from_value(value: &Value) -> Result<Self, MemoryError> {
         Ok(Self {
             shallow_size: required_u64(value, "shallowSize")?,
+            retained_size: optional_u64(value, "retainedSize")?,
             object_count: required_u64(value, "objectCount")?,
             class_count: required_u64(value, "classCount")?,
             heap_segments: decode_list(
@@ -412,6 +414,7 @@ pub struct MemorySnapshot {
     pub summary: HeapSummary,
     pub classes: Vec<ClassStats>,
     pub per_heap_classes: BTreeMap<String, Vec<ClassStats>>,
+    pub per_heap_summaries: BTreeMap<String, HeapSummary>,
     pub findings: FindingsSnapshot,
 }
 
@@ -433,12 +436,19 @@ impl MemorySnapshot {
                 per_heap_classes.insert(heap.clone(), decode_classes(classes)?);
             }
         }
+        let mut per_heap_summaries = BTreeMap::new();
+        if !omitted && let Some(Value::Map(heaps)) = lookup(payload, "perHeapSummaries") {
+            for (heap, summary) in heaps {
+                per_heap_summaries.insert(heap.clone(), HeapSummary::from_value(summary)?);
+            }
+        }
         Ok(Self {
             source_digest: source_digest.to_owned(),
             metadata: metadata.clone(),
             summary,
             classes,
             per_heap_classes,
+            per_heap_summaries,
             findings: FindingsSnapshot::from_value(required(payload, "findings")?)?,
         })
     }
@@ -454,6 +464,7 @@ pub struct InstanceRow {
     pub depth: Option<u32>,
     pub reachable: bool,
     pub native_size: Option<u64>,
+    pub retained_native_size: Option<u64>,
     pub shallow_size_known: bool,
     pub class_name: Option<String>,
     pub represented_class_name: Option<String>,
@@ -469,6 +480,7 @@ impl InstanceRow {
             depth: optional_u32(value, "depth")?,
             reachable: required_bool(value, "reachable")?,
             native_size: optional_u64(value, "nativeSize")?,
+            retained_native_size: optional_u64(value, "retainedNativeSize")?,
             shallow_size_known: required_bool(value, "shallowSizeKnown")?,
             class_name: optional_string(value, "className")?,
             represented_class_name: optional_string(value, "representedClassName")?,
@@ -543,13 +555,27 @@ impl AsRef<str> for HeapValueKind {
 /// One edge of the shortest reference chain to a GC root.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectReference {
+    /// Field or array-edge label supplied by the engine.
+    pub field_name: Option<String>,
+    /// Root kind supplied by the engine, for example `JNI Global` or
+    /// `Thread Object`. This is separate from a field edge in Android
+    /// Studio's path presentation.
+    pub root_kind: Option<String>,
     pub object_id: u64,
     pub class_name: String,
 }
 
 impl ObjectReference {
     pub(crate) fn from_value(value: &Value) -> Result<Self, MemoryError> {
+        let field_name = optional_string(value, "fieldName")?;
+        let root_kind = field_name.as_deref().and_then(|name| {
+            name.strip_prefix("GC Root (")
+                .and_then(|name| name.strip_suffix(')'))
+                .map(str::to_owned)
+        });
         Ok(Self {
+            field_name: field_name.filter(|_| root_kind.is_none()),
+            root_kind,
             object_id: required_object_id(value, "targetObjectId")?,
             class_name: optional_string(value, "targetClassName")?
                 .unwrap_or_else(|| "<unknown>".into()),
@@ -603,6 +629,7 @@ impl InstanceField {
 pub struct InstanceDetail {
     pub object_id: u64,
     pub class_name: String,
+    pub heap_name: Option<String>,
     pub shallow_size: u64,
     pub retained_size: Option<u64>,
     pub depth: Option<u32>,
@@ -636,6 +663,7 @@ impl InstanceDetail {
         Ok(Self {
             object_id: optional_object_id(value, "objectId")?.unwrap_or(requested_object_id),
             class_name: optional_string(value, "className")?.unwrap_or_default(),
+            heap_name: optional_string(value, "heapName")?,
             shallow_size: required_u64(value, "shallowSize")?,
             retained_size: optional_u64(value, "retainedSize")?,
             depth: optional_u32(value, "depth")?,
