@@ -8,7 +8,10 @@
 //! Every action goes through the FrameWorkspace runtime; this module owns
 //! presentation-only state.
 
+mod detail_ui;
+
 use super::FrameWorkspace;
+use super::detail_data::DetailSectionKey;
 use super::model;
 use crate::studio::{self, FONT_BODY, FONT_SUPPORTING, FONT_TITLE, StudioColors};
 use aps_frame::analysis::{AnalyzedFrame, DeadlineMissCluster, FrameAnalysisResult};
@@ -96,6 +99,7 @@ pub(in crate::frame) struct PageUi {
     timeline_ratio: f32,
     clusters_ratio: f32,
     details_ratio: f32,
+    detail_expanded: BTreeSet<DetailSectionKey>,
     workspace_size: (f32, f32),
     problem_scroll: UniformListScrollHandle,
     problem_selected: Option<u64>,
@@ -118,6 +122,9 @@ impl PageUi {
             timeline_ratio: 0.30,
             clusters_ratio: 0.30,
             details_ratio: 0.72,
+            detail_expanded: [DetailSectionKey::Summary, DetailSectionKey::Stages]
+                .into_iter()
+                .collect(),
             workspace_size: (0., 0.),
             problem_scroll: UniformListScrollHandle::new(),
             problem_selected: None,
@@ -2439,7 +2446,7 @@ fn detail_panel(
         .gap(px(10.))
         .px(px(studio::metrics::COMPACT_PADDING))
         .pb(px(8.))
-        .child(detail_body(this, frame, colors, cx))
+        .child(detail_ui::detail_body(this, frame, colors, cx))
         .child(layout_preview(this, frame, colors, cx));
     div()
         .id("frame-detail-panel")
@@ -2449,366 +2456,6 @@ fn detail_panel(
         .overflow_hidden()
         .child(header)
         .child(content)
-        .into_any_element()
-}
-
-fn detail_body(
-    this: &FrameWorkspace,
-    frame: &AnalyzedFrame,
-    colors: &StudioColors,
-    cx: &Context<FrameWorkspace>,
-) -> AnyElement {
-    let language = this.language;
-    let sample = &frame.sample;
-    let duration_color = if frame.deadline_verdict == FrameDeadlineVerdict::Missed {
-        colors.error
-    } else {
-        colors.text
-    };
-    let mut details = div()
-        .id("frame-detail-body")
-        .flex_grow(1.2)
-        .flex_basis(relative(0.))
-        .min_w_0()
-        .h_full()
-        .pr(px(FRAME_DETAIL_SCROLLBAR_GUTTER))
-        .overflow_y_scrollbar()
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .child(
-            div()
-                .w_full()
-                .flex()
-                .gap(px(12.))
-                .child(detail_metric(
-                    language.text(TextKey::FrameDuration),
-                    model::format_millis(sample.resolved_duration_ns()),
-                    duration_color,
-                    colors,
-                ))
-                .child(detail_metric(
-                    language.text(TextKey::FrameBudget),
-                    model::display_budget(sample),
-                    colors.text,
-                    colors,
-                )),
-        )
-        .child(studio::divider(colors))
-        .child(detail_row(
-            language.text(TextKey::FrameBudgetSource),
-            model::expected_duration_source_enum_name(sample.expected_duration_source),
-            colors.text,
-            colors,
-        ))
-        .child(detail_row(
-            language.text(TextKey::FrameVerdict),
-            frame.deadline_verdict.as_name(),
-            colors.text,
-            colors,
-        ))
-        .child(detail_row(
-            language.text(TextKey::FrameMissedVsync),
-            frame
-                .missed_vsync_count
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "—".to_owned()),
-            colors.text,
-            colors,
-        ))
-        .child(detail_row(
-            language.text(TextKey::FramePlatformJank),
-            sample
-                .platform_jank
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "—".to_owned()),
-            colors.text,
-            colors,
-        ))
-        .child(detail_row(
-            language.text(TextKey::FrameTimelineVsyncId),
-            sample
-                .frame_timeline_vsync_id
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "—".to_owned()),
-            colors.text,
-            colors,
-        ))
-        .child(detail_row(
-            language.text(TextKey::FrameLargestReportedStage),
-            frame
-                .largest_reported_stage
-                .clone()
-                .unwrap_or_else(|| "—".to_owned()),
-            colors.text,
-            colors,
-        ));
-    let stages = sample.stages.values();
-    if !stages.is_empty() {
-        let maximum = model::maximum_stage_ns(&sample.stages);
-        details = details.child(
-            div()
-                .w_full()
-                .pt(px(2.))
-                .text_size(px(FONT_BODY))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(colors.text)
-                .child(crate::studio::selectable(
-                    language.text(TextKey::FrameStageBreakdown),
-                )),
-        );
-        for (index, (name, duration)) in stages.into_iter().enumerate() {
-            details = details.child(stage_row(name, duration, maximum, index, colors));
-        }
-    }
-    details = details.child(detail_row(
-        language.text(TextKey::FrameSource),
-        model::source_display(language, sample.source),
-        colors.text,
-        colors,
-    ));
-    if let Some(activity) = sample
-        .activity_name
-        .as_deref()
-        .and_then(|name| name.rsplit('.').next())
-    {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameActivity),
-            activity.to_owned(),
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(fragment) = sample.fragment_name.clone() {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameFragment),
-            fragment,
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(page) = sample.page_name.clone() {
-        details = details.child(detail_row(
-            language.text(TextKey::FramePage),
-            page,
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(state) = sample.interaction_state.clone() {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameInteractionState),
-            state,
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(render_thread) = sample.render_thread_name.clone() {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameRenderThread),
-            render_thread,
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(window) = sample.window_id.clone() {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameWindow),
-            window,
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(surface_flinger) = sample.surface_flinger_jank_type.clone() {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameSurfaceFlingerJank),
-            surface_flinger,
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(jank_stats) = sample.jank_stats_jank {
-        details = details.child(detail_row(
-            language.text(TextKey::FrameJankStats),
-            jank_stats.to_string(),
-            colors.text,
-            colors,
-        ));
-    }
-    if !sample.jank_stats_reasons.is_empty() {
-        let reasons: Vec<&str> = sample
-            .jank_stats_reasons
-            .iter()
-            .map(String::as_str)
-            .collect();
-        details = details.child(detail_row(
-            language.text(TextKey::FrameJankStatsReasons),
-            reasons.join(", "),
-            colors.text,
-            colors,
-        ));
-    }
-    if let Some(stage) = frame.largest_reported_stage.clone() {
-        details = details.child(
-            div()
-                .w_full()
-                .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.secondary_text)
-                .child(
-                    language.format(TextKey::FrameStageInvestigationHint, &[("value1", &stage)]),
-                ),
-        );
-    }
-    if !frame.platform_jank_types.is_empty() {
-        let names: Vec<&str> = frame
-            .platform_jank_types
-            .iter()
-            .map(|jank_type| jank_type.as_name())
-            .collect();
-        details = details.child(detail_row(
-            language.text(TextKey::FrameJankTypes),
-            names.join(", "),
-            colors.text,
-            colors,
-        ));
-    }
-    for (key, value) in &sample.states {
-        let label = language.format(TextKey::FrameStateDetail, &[("value1", key)]);
-        details = details.child(detail_row(label, value.clone(), colors.text, colors));
-    }
-    if this.perfetto_trace_file.is_some() {
-        details = details.child(
-            studio::compact_text_button(
-                "frame-open-trace-from-detail",
-                language.text(TextKey::FrameOpenTraceInPerfetto),
-                true,
-                false,
-                colors,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.open_trace(cx))),
-        );
-    }
-    let evidence = model::copy_evidence_text(frame, language);
-    let evidence_frame_id = frame.sample.frame_id;
-    details = details
-        .child(
-            studio::compact_text_button(
-                "frame-copy-evidence",
-                language.text(TextKey::FrameCopyEvidence),
-                true,
-                false,
-                colors,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(evidence.clone()));
-                this.ui.copy_feedback = Some((evidence_frame_id, true));
-                cx.notify();
-            })),
-        )
-        .child(
-            div()
-                .w_full()
-                .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.secondary_text)
-                .child(crate::studio::selectable(
-                    language.text(TextKey::FrameCopyEvidencePrivacyHint),
-                )),
-        );
-    if let Some((frame_id, succeeded)) = this.ui.copy_feedback {
-        if frame_id == frame.sample.frame_id {
-            details = details.child(
-                div()
-                    .w_full()
-                    .text_size(px(FONT_SUPPORTING))
-                    .text_color(if succeeded {
-                        colors.success
-                    } else {
-                        colors.error
-                    })
-                    .child(crate::studio::selectable(language.text(if succeeded {
-                        TextKey::FrameEvidenceCopied
-                    } else {
-                        TextKey::FrameClipboardUnavailable
-                    }))),
-            );
-        }
-    }
-    details.into_any_element()
-}
-
-fn detail_metric(
-    label: impl Into<SharedString>,
-    value: String,
-    value_color: Rgba,
-    colors: &StudioColors,
-) -> AnyElement {
-    div()
-        .flex_grow(1.)
-        .flex_basis(relative(0.))
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .child(
-            div()
-                .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.secondary_text)
-                .whitespace_nowrap()
-                .child(label.into()),
-        )
-        .child(
-            div()
-                .text_size(px(FONT_BODY))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(value_color)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(value)),
-        )
-        .into_any_element()
-}
-
-fn detail_row(
-    label: impl Into<SharedString>,
-    value: impl Into<SharedString>,
-    value_color: Rgba,
-    colors: &StudioColors,
-) -> AnyElement {
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
-            div()
-                .w_full()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(FONT_SUPPORTING))
-                        .text_color(colors.secondary_text)
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(label.into()),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(FONT_SUPPORTING))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(value_color)
-                        .text_right()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(value.into()),
-                ),
-        )
-        .child(studio::divider(colors))
         .into_any_element()
 }
 
@@ -2839,8 +2486,8 @@ fn stage_row(
                 .gap(px(6.))
                 .child(
                     div()
-                        .w(px(92.))
-                        .flex_shrink_0()
+                        .flex_1()
+                        .min_w_0()
                         .text_size(px(FONT_SUPPORTING))
                         .text_color(colors.text)
                         .whitespace_nowrap()
@@ -2970,8 +2617,9 @@ mod tests {
     fn frame_detail_scroll_reserves_overlay_scrollbar_gutter() {
         let source = include_str!("page.rs");
         let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let detail = include_str!("page/detail_ui.rs");
         assert!(implementation.contains("const FRAME_DETAIL_SCROLLBAR_GUTTER: f32 = 16.;"));
-        assert!(implementation.contains(".pr(px(FRAME_DETAIL_SCROLLBAR_GUTTER))"));
+        assert!(detail.contains(".pr(px(FRAME_DETAIL_SCROLLBAR_GUTTER))"));
     }
 
     #[test]

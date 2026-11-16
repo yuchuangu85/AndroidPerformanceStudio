@@ -10,6 +10,7 @@ mod ai;
 mod analysis_json;
 mod artifact;
 mod capture;
+mod detail_data;
 mod export;
 mod model;
 mod page;
