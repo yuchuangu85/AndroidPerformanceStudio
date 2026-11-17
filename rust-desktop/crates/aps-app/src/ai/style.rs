@@ -14,6 +14,7 @@ pub struct DshChatColors {
     /// Whether these tokens are the dark palette (used for code token tints).
     pub dark: bool,
     pub background: Rgba,
+    pub dialog_background: Rgba,
     pub text: Rgba,
     pub muted: Rgba,
     pub sidebar: Rgba,
@@ -30,6 +31,7 @@ impl DshChatColors {
         Self {
             dark: false,
             background: rgb(0xffffff),
+            dialog_background: crate::studio::dialog_background(false),
             text: rgb(0x0f1115),
             muted: rgb(0x686b73),
             sidebar: rgb(0xf7f7f8),
@@ -46,6 +48,7 @@ impl DshChatColors {
         Self {
             dark: true,
             background: rgb(0x151517),
+            dialog_background: rgb(0x0c0c0e),
             text: rgb(0xf9fafb),
             muted: rgb(0xababb3),
             sidebar: rgb(0x202024),
@@ -183,10 +186,12 @@ mod tests {
         let light = DshChatColors::light();
         let dark = DshChatColors::dark();
         assert_eq!(light.background, rgb(0xffffff));
+        assert_eq!(light.dialog_background, rgb(0xf0f0f2));
         assert_eq!(light.text, rgb(0x0f1115));
         assert_eq!(light.send, rgb(0x4176e6));
         assert_eq!(light.bubble, rgb(0xedf3fe));
         assert_eq!(dark.background, rgb(0x151517));
+        assert_eq!(dark.dialog_background, rgb(0x0c0c0e));
         assert_eq!(dark.send, rgb(0x7aaaff));
         assert_eq!(dark.on_send, rgb(0x151517));
         assert_eq!(dark.error, rgb(0xffa2ab));

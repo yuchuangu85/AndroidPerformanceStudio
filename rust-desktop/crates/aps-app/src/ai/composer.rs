@@ -472,7 +472,7 @@ fn model_popup(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .bg(colors.sidebar)
+        .bg(colors.dialog_background)
         .border_1()
         .border_color(colors.border)
         .rounded(px(tokens::SMALL_RADIUS))

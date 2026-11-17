@@ -174,7 +174,7 @@ pub(super) fn confirmation_dialog(
                     .w(px(460.))
                     .max_w_full()
                     .p(px(12.))
-                    .bg(colors.panel)
+                    .bg(colors.dialog_background)
                     .border_1()
                     .border_color(colors.strong_border)
                     .rounded(px(studio::metrics::CARD_RADIUS))

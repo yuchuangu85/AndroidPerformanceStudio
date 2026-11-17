@@ -2030,7 +2030,7 @@ fn compose_inspection_confirmation(
                 .id("inspector-compose-inspection-dialog")
                 .w(px(460.))
                 .p(px(12.))
-                .bg(colors.panel)
+                .bg(colors.dialog_background)
                 .border_1()
                 .border_color(colors.strong_border)
                 .rounded(px(studio::metrics::CARD_RADIUS))

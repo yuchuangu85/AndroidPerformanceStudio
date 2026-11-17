@@ -411,7 +411,7 @@ impl Render for NotificationCenter {
             .max_h(px(560.))
             .flex()
             .flex_col()
-            .bg(colors.panel)
+            .bg(colors.dialog_background)
             .border_1()
             .border_color(colors.border)
             .rounded(px(10.))

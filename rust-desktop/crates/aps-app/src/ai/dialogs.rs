@@ -72,7 +72,7 @@ fn card(colors: &DshChatColors) -> Stateful<Div> {
         .flex_col()
         .gap(px(12.))
         .p(px(16.))
-        .bg(colors.background)
+        .bg(colors.dialog_background)
         .border_1()
         .border_color(colors.border)
         .rounded(px(tokens::SMALL_RADIUS))

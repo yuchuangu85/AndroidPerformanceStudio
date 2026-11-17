@@ -1127,7 +1127,7 @@ fn modal(
                 .id(card_id)
                 .w(px(width))
                 .p(px(12.))
-                .bg(colors.panel)
+                .bg(colors.dialog_background)
                 .border_1()
                 .border_color(colors.strong_border)
                 .rounded(px(studio::metrics::CARD_RADIUS))

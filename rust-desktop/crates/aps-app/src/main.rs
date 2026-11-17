@@ -103,9 +103,8 @@ fn apply_theme_with_appearance(settings: &Settings, appearance: WindowAppearance
     });
 }
 
-/// Repaints every GPUI background surface with the title bar color, matching the
-/// custom title bar and the studio palette. Component states (hover, active,
-/// selection) keep their own tints.
+/// Aligns GPUI workspace surfaces with the title bar while keeping floating
+/// surfaces distinct. Component states keep their own tints.
 fn unify_background_surfaces(theme: &mut Theme, surface: Hsla) {
     macro_rules! unify {
         ($theme:expr, $surface:expr; $($field:ident),+ $(,)?) => {
@@ -124,7 +123,6 @@ fn unify_background_surfaces(theme: &mut Theme, surface: Hsla) {
         list_even,
         list_head,
         muted,
-        popover,
         secondary,
         sidebar,
         status_bar,
@@ -137,6 +135,7 @@ fn unify_background_surfaces(theme: &mut Theme, surface: Hsla) {
         table_head,
         title_bar,
     );
+    theme.colors.popover = studio::dialog_background(theme.is_dark()).into();
     // `input` is the control border, including unchecked radio rings, not a fill.
     theme.colors.input =
         studio::StudioColors::for_mode_with_accent(theme.is_dark(), theme.accent.into())
@@ -422,6 +421,13 @@ mod theme_tests {
             assert_eq!(theme.background, surface);
             assert_eq!(theme.group_box, surface);
             assert_eq!(theme.sidebar, surface);
+            assert_eq!(theme.popover, studio::dialog_background(dark).into());
+            let colors = studio::StudioColors::for_mode_with_accent(dark, theme.accent.into());
+            let dialog = luminance(colors.dialog_background);
+            assert!(dialog < luminance(colors.workspace));
+            let text = luminance(colors.text);
+            let contrast = (text.max(dialog) + 0.05) / (text.min(dialog) + 0.05);
+            assert!(contrast >= 4.5, "dark={dark}: text contrast={contrast}");
             assert_ne!(theme.input, surface);
         }
     }

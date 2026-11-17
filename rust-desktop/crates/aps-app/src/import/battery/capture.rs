@@ -240,6 +240,7 @@ impl ImportWorkspace {
                 )
             );
             dialog
+                .bg(colors.dialog_background)
                 .title(language.text(TextKey::BatteryRunExperiment))
                 .w(px(560.))
                 .centered()
@@ -597,6 +598,7 @@ impl ImportWorkspace {
                 controls = controls.child(choices);
             }
             dialog
+                .bg(colors.dialog_background)
                 .title(language.text(TextKey::BatteryConfiguration))
                 .w(px(600.))
                 .centered()
@@ -652,6 +654,7 @@ impl ImportWorkspace {
             };
             let serial = serial.clone();
             dialog
+                .bg(colors.dialog_background)
                 .title(language.text(TextKey::BatteryResetConfirmTitle))
                 .w(px(560.))
                 .centered()
@@ -773,6 +776,7 @@ impl ImportWorkspace {
             };
             let serial = serial.clone();
             dialog
+                .bg(colors.dialog_background)
                 .title(language.text(TextKey::BatteryHistorianConfirmTitle))
                 .w(px(600.))
                 .centered()

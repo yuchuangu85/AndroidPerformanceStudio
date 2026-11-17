@@ -255,7 +255,7 @@ pub(super) fn result_dialog(
                     .flex()
                     .flex_col()
                     .gap(px(10.))
-                    .bg(colors.panel)
+                    .bg(colors.dialog_background)
                     .border_1()
                     .border_color(colors.strong_border)
                     .rounded(px(studio::metrics::CARD_RADIUS))

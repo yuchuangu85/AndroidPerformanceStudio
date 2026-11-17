@@ -64,6 +64,7 @@ pub struct StudioColors {
     pub workspace: Rgba,
     pub toolbar: Rgba,
     pub panel: Rgba,
+    pub dialog_background: Rgba,
     pub border: Rgba,
     pub strong_border: Rgba,
     pub field: Rgba,
@@ -90,6 +91,13 @@ pub struct StudioColors {
 /// card surface.
 pub fn titlebar_background(dark: bool) -> Rgba {
     if dark { rgb(0x29292b) } else { rgb(0xfafafb) }
+}
+
+/// Background for transient dialogs and popovers. It is intentionally one
+/// step deeper than the window chrome so floating surfaces remain distinct
+/// without changing the page/card palette.
+pub fn dialog_background(dark: bool) -> Rgba {
+    if dark { rgb(0x151517) } else { rgb(0xf0f0f2) }
 }
 
 /// The one separator color shared by every screen, panel and component: page
@@ -140,6 +148,7 @@ impl StudioColors {
             workspace: background,
             toolbar: background,
             panel: rgb(0xffffff),
+            dialog_background: dialog_background(false),
             border: divider_color(false),
             strong_border: rgb(0xb8b8bd),
             field: rgb(0xffffff),
@@ -170,6 +179,7 @@ impl StudioColors {
             workspace: background,
             toolbar: background,
             panel: rgb(0x2c2c2e),
+            dialog_background: dialog_background(true),
             border: divider_color(true),
             strong_border: rgb(0x636366),
             field: rgb(0x1c1c1e),

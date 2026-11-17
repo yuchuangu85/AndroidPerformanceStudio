@@ -399,6 +399,7 @@ fn open_attribution_dialog(
             );
         }
         dialog
+            .bg(colors.dialog_background)
             .title(language.text(TextKey::FrameAttribution))
             .w(px(600.))
             .centered()
