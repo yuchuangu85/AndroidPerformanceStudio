@@ -1,10 +1,12 @@
 # 功能介绍目录
 
-本目录记录 AndroidPerformanceStudio 当前已经实现或正在维护的用户可见功能。每份文档都按同一结构说明：
+本目录包含性能工具的功能说明，其中部分页面保留了历史 Compose 实现细节。它们不保证准确描述当前 Rust 代码；当前能力与缺口以 [Rust Compose 对等审计](../../rust-desktop/FUNCTIONAL_PARITY.md) 中的证据和门禁为准。
+
+本目录按统一结构说明功能：
 
 1. 功能介绍与适用场景；
 2. 详细设计方案；
-3. 当前实现方案与关键代码入口；
+3. 实现方案与关键代码入口；
 4. 使用流程、输入输出与证据边界；
 5. 已知限制和后续方向。
 
@@ -32,11 +34,9 @@
 
 ## 代码入口
 
-- [Desktop Shell](../../desktop-viewer/desktop-app/)：导航、首页、统一 Settings、窗口和打包；共享控件、主题、菜单与标题栏位于 [ui-components](../../desktop-viewer/ui-components/)。
-- [Layout Inspector](../../desktop-viewer/layout-inspector/)：`presentation`、`application`、`adb-gateway` 和 `shared-kernel`。
-- [CPU Profiler](../../desktop-viewer/simpleperf-viewer/)：`app-desktop`、`presentation`、`application`、`profile-analysis`、`visualization` 和 `storage-sqlite`。
-- [Trace Analyzer](../../desktop-viewer/perfetto-viewer/)：`perfetto-app`、`perfetto-presentation`；共享 Trace Processor 边界位于 [platform-perfetto](../../desktop-viewer/platform-perfetto/)。
-- [Memory](../../desktop-viewer/memory-profiler/)、[Frame](../../desktop-viewer/frame-profiler/)、[Startup](../../desktop-viewer/startup-profiler/)、[Battery](../../desktop-viewer/battery-profiler/)、[Network](../../desktop-viewer/network-profiler/)、[GPU](../../desktop-viewer/gpu-inspector-integration/)、[Benchmark](../../desktop-viewer/benchmark-regression/)：分别维护各自的应用、展示、采集、分析和导出模块。
-- [platform-core](../../desktop-viewer/platform-core/)：共享 ADB、Host Toolchain 和采集产物契约；[ai-core](../../desktop-viewer/ai-core/) 与 [source-workspace](../../desktop-viewer/source-workspace/) 分别维护 AI 传输及可信源码访问。
+- [Rust Desktop](../../rust-desktop/README.md)：当前桌面实现、构建和验证入口。
+- [CPU Profiler 引擎](../../rust-desktop/crates/aps-simpleperf-engine/README.md)：Rust Simpleperf 解析引擎说明及其验证边界。
+- [功能对等审计](../../rust-desktop/FUNCTIONAL_PARITY.md)：当前 Rust 工作流、已接入功能和剩余验收门禁。
+- 各 crate 的 `README.md`：Rust 模块职责、构建入口和依赖边界。
 
-具体函数和交互以当前源码为准，不再维护与源码重复且容易过期的逐控件路径地图。
+各功能页保留用户可见能力、证据边界及历史设计背景；具体当前实现应以 Rust 源码、crate 文档和对等审计为准。

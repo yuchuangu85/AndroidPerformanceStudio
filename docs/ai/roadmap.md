@@ -1,15 +1,13 @@
 # AI 路线与缺口
 
-本页按当前源码区分“已接线”“已有局部实现”和“尚待产品验收”。详细实施项见
-[AI Agent Platform TODO](agent-platform-todo.md)，新测试计数与执行结果由主线更新到
-[状态统计](agent-platform-todo-status.md)。本地验证与真实 Provider、原生平台、hosted 和签名证据分别统计，不能互相替代。
+本页保留 Kotlin AI Platform 的历史路线和验收要求，不描述当前 Rust 实现。Rust Provider 的当前边界见 [Rust Provider README](../../rust-desktop/crates/aps-ai/README.md)，跨平台和发布门禁见 [Rust AI 与 Agent TODO](../../rust-desktop/TODO.md)。
 
 ## 1. 已有实现，不再作为从零建设项
 
 ### 模块与桌面入口
 
 - `ai-core` 保留中立分析契约、OpenAI Responses client/gateway、输出校验、Credential Store 和 Analysis Session。
-- `ai-platform` 的 model/registry/storage/providers/runtime 分别负责契约、包信任、引用与结构化结果/审计、Provider/process 边界和编排；app 负责 profile 生命周期/上下文/设置，presentation 负责全局 UI，provider-claude/provider-codex 负责各自 API/CLI 边界，script-runtime 负责沙箱与 Artifact。具体依赖和源码入口见 [模块说明](../../desktop-viewer/ai-platform/README.md)。
+- `ai-platform` 的 model/registry/storage/providers/runtime 分别负责契约、包信任、引用与结构化结果/审计、Provider/process 边界和编排；app 负责 profile 生命周期/上下文/设置，presentation 负责全局 UI，provider-claude/provider-codex 负责各自 API/CLI 边界，script-runtime 负责沙箱与 Artifact。此为 Kotlin 历史模块说明。
 - `AiPlatformRuntime.open()` 已由桌面调用，创建目录、取得独占 profile、安装内置包、注册可发现的 Provider 并把未完成记录恢复为 interrupted。恢复不重放请求，关闭先取消并等待所属工作。
 - 全局 `AiConversationWindowHost` 已接入导航栏、菜单与快捷键。已有业务上下文绑定、证据追问、预检确认、取消/重试、Finding/Evidence/Source Candidate、时间线及只读历史；Provider/Agent/Skill/Policy 设置页已存在。应用 AI 设置继续管理 OpenAI 凭证/endpoint/model。
 

@@ -1,18 +1,16 @@
 # AI Agent Platform TODO
 
-状态：分阶段实施，创建于 2026-10-30；2026-10-31 已接入统一桌面并完成本地集成验证。
+状态：分阶段实施规划（创建于 2026-10-30）；本文件记录目标与要求，不是当前 Rust 实现状态或完成统计。
 
 本轮覆盖全局对话窗口、AI 设置、首次启动安装、Layout/Simpleperf 迁移、11 类业务上下文、
 Provider 子进程、Codex Responses adapter、通用独立 child/脚本图编排、Linux arm64 Python/Node
 原生隔离和本机打包。真实 Provider 各一次尝试均超时；macOS/Windows 沙箱仍不合格，
 hosted/真实签名/公证还受未发布源码、证书和受保护凭据环境阻塞。
-逐项完成/部分完成状态和证据见 [状态统计](agent-platform-todo-status.md)。
 
 ## 目标
 
 将 AI 从各个 Profiler 内部的可选 gateway，演进为一个独立的 AI Platform：
 
-- 可接入 OpenAI、Codex、Claude 等 provider/SDK/本地 agent runtime；
 - Agent 可以在声明的权限和预算内调用 provider、内置 Skill、外部 Skill 和脚本；
 - 读取本机 Codex、Claude 等工具的**配置元信息和凭证引用**，但不复制、展示或写入
   明文凭证；
