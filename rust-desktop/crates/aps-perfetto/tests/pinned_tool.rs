@@ -28,7 +28,7 @@ fn tool_path() -> Option<PathBuf> {
 
 fn fixture_path() -> Option<PathBuf> {
     let path = repository_root()
-        .join("desktop-viewer/desktop-app/src/test/resources/fixtures/synthetic-empty.pftrace");
+        .join("rust-desktop/crates/aps-perfetto/tests/fixtures/synthetic-empty.pftrace");
     path.is_file().then_some(path)
 }
 

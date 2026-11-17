@@ -1,4 +1,0 @@
-// Pure Kotlin domain model shared by every Startup Profiler module.
-dependencies {
-    api(libs.aps.profiler.contracts)
-}

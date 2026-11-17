@@ -991,9 +991,7 @@ mod tests {
 
     #[test]
     fn pinned_hash_matches_the_canonical_manifest() {
-        let manifest = include_str!(
-            "../../../../desktop-viewer/platform-perfetto/trace-processor-manifest.json"
-        );
+        let manifest = include_str!("../../../assets/manifests/trace-processor-manifest.json");
         if let Ok(hash) = pinned_host_sha256() {
             assert!(manifest.contains(hash));
             assert!(manifest.contains(PINNED_VERSION));

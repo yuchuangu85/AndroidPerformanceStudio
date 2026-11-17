@@ -9,4 +9,4 @@ publish.workspace = true
 aps-contracts = { path = "../aps-contracts" }
 aps-json = { path = "../aps-json" }
 aps-platform = { path = "../aps-platform" }
-aps-har-engine = { path = "../../../desktop-viewer/network-profiler/native-engine-rust" }
+aps-har-engine = { path = "../aps-har-engine" }

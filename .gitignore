@@ -40,7 +40,6 @@ google-services.json
 
 # Android Profiling
 *.hprof
-!desktop-viewer/memory-profiler/parser-hprof/src/test/resources/hprof/*.hprof
 
 .vscode/
 .superpowers/

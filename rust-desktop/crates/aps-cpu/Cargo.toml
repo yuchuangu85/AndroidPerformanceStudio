@@ -6,7 +6,7 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
-aps-simpleperf-engine = { path = "../../../desktop-viewer/simpleperf-viewer/native-engine-rust" }
+aps-simpleperf-engine = { path = "../aps-simpleperf-engine" }
 aps-json = { path = "../aps-json" }
 
 [dev-dependencies]

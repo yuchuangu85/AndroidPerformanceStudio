@@ -1,9 +1,6 @@
 # Android Performance Studio — Rust 桌面端
 
-这是与现有 Compose 应用并行的独立 Rust + GPUI Kit 重写版本。
-完整范围和切换门槛仍记录在
-[`rust-gpui-kit-migration-plan.md`](../desktop-viewer/docs/design/rust-gpui-kit-migration-plan.md) 中。
-本目录仍处于实现过程中，**不是**替代版发布版本。
+Android Performance Studio desktop application implemented with Rust and GPUI Kit.
 
 ## 开发
 
@@ -17,8 +14,7 @@ cd rust-desktop
 cargo run --locked -p aps-app
 ```
 
-旧版应用未作修改：`cd desktop-viewer && ./gradlew :desktop-app:run`。
-Rust 设置和存储使用各自的应用数据根目录，不会自动迁移或覆盖 Compose 设置。
+Rust settings and storage use their own application-data root and do not migrate or overwrite settings from older application versions.
 
 ## 验证策略
 

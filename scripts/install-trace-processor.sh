@@ -4,7 +4,7 @@ set -euo pipefail
 
 version="v59.1"
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-checksum_manifest="$repository_root/desktop-viewer/platform-perfetto/trace-processor-manifest.json"
+checksum_manifest="$repository_root/rust-desktop/assets/manifests/trace-processor-manifest.json"
 install_dir="${PERFETTO_TOOLS_DIR:-$HOME/.android-performance-studio/tools/perfetto/$version}"
 temporary="$(mktemp -t trace_processor.XXXXXX)"
 

@@ -182,7 +182,7 @@ mod tests {
             .nth(3)
             .expect("repository root");
         let fixture: PathBuf = repository_root
-            .join("desktop-viewer/desktop-app/src/test/resources/fixtures/synthetic-empty.pftrace");
+            .join("rust-desktop/crates/aps-perfetto/tests/fixtures/synthetic-empty.pftrace");
         if !fixture.is_file() {
             return;
         }

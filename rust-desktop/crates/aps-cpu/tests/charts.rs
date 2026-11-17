@@ -1,4 +1,4 @@
-#[path = "../../../../desktop-viewer/simpleperf-viewer/native-engine-rust/tests/common/mod.rs"]
+#[path = "engine-fixtures/mod.rs"]
 mod common;
 
 use aps_cpu::{

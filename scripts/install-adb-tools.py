@@ -17,7 +17,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
-MANIFEST = ROOT / "desktop-viewer/platform-core/adb-core/adb-tools-manifest.json"
+MANIFEST = ROOT / "rust-desktop/assets/manifests/adb-tools-manifest.json"
 PREPARE = ROOT / "scripts/prepare-adb-tools.py"
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 

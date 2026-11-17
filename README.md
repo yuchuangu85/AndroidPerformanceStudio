@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Android Performance Studio is a Compose Desktop workstation for collecting, inspecting, and correlating Android performance evidence. Layout, CPU, system traces, memory, frames, startup, battery, network, GPU tooling, and benchmark regression share one desktop shell, while each analyzer keeps its own data model and implementation.
+Android Performance Studio is a desktop workstation for collecting, inspecting, and correlating Android performance evidence. The Rust + GPUI Kit application in [`rust-desktop`](rust-desktop/README.md) is the active desktop implementation.
 
 > Some executable and installer names retain the historical `AndroidPerfermanceStudio` spelling for compatibility.
 
@@ -107,128 +107,14 @@ Artifact indexing, integrity verification, and external-tool capability checks.
 - UID-attributed resources, system-modeled energy, and device-level power measurements have different scopes. Missing evidence stays unavailable rather than being replaced with an invented value.
 - Local-first analysis does not mean optional AI requests remain on the machine. AI analysis sends the selected evidence to the configured endpoint after an explicit action; source snippets require workspace authorization. Registering a source workspace does not upload the project.
 - Tool handoffs and time overlap aid correlation; they do not establish causality. Screenshots are not a device/API compatibility matrix.
-- Large, deep, fragmented Stack Chart data has a documented [performance optimization plan](desktop-viewer/simpleperf-viewer/docs/design/2026-10-29-stack-chart-performance-optimization-plan.md); the plan remains **unimplemented**.
 
 ## Build from source
 
-### Prerequisites
-
-- JDK 21 and Git.
-- Node.js **24** and Yarn Classic **1.x** for the pinned Firefox Profiler assets.
-- Python 3, `curl`, and `unzip` for asset preparation; release CI uses Python 3.13.
-- Android SDK command-line tools, SDK Platform Tools, NDK/CMake, and `patch` on the inspection-runtime build host.
-- A Bash-compatible shell for the scripts below. Windows uses `gradlew.bat` for Gradle tasks.
-
-Pinned tool versions are declared in the [Gradle wrapper](desktop-viewer/gradle/wrapper/gradle-wrapper.properties), [version catalog](desktop-viewer/gradle/libs.versions.toml), and [release workflow](.github/workflows/release.yml).
-
-### 1. Clone and prepare profiler assets
-
-```bash
-git clone --recurse-submodules https://github.com/yuchuangu85/AndroidPerformanceStudio.git
-cd AndroidPerformanceStudio
-
-npm install --global yarn@1
-./scripts/firefox-profiler.sh all
-./scripts/build-perfetto-ui.sh download
-PERFETTO_TOOLS_DIR="$PWD/build/perfetto-tools" ./scripts/install-trace-processor.sh
-```
-
-For an existing checkout without submodules, run `git submodule update --init --depth 1 --recursive` first. The Perfetto `download` mode prepares the complete pinned UI distribution, including its WASM assets.
-
-### 2. Prepare the verified Compose inspection runtime
-
-The desktop resource preparation checks this bundle before launch or packaging. On a configured Unix build host, set `ANDROID_HOME` to the intended SDK and install the tools used by release CI:
-
-```bash
-sdkmanager --sdk_root="${ANDROID_HOME:?Set ANDROID_HOME to your Android SDK}" --install \
-  "platforms;android-35" "build-tools;35.0.0" \
-  "ndk;27.1.12297006" "cmake;3.22.1"
-
-./desktop-viewer/gradlew -p desktop-viewer \
-  :layout-inspector:compose-agent-build:verifyComposeAgentBundle \
-  --no-configuration-cache --no-daemon
-```
-
-These SDK pins build the host-independent inspection runtime, not the optional Android sample app. Release CI builds the bundle once on Linux x64 and supplies it to all packaging jobs. A packaging host can consume an already built bundle at `desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle/`; its manifest, dexed JARs, and device ABIs are checked before use. See [runtime build details](desktop-viewer/layout-inspector/compose-inspection-host/AGENT_BUNDLE.md).
-
-### 3. Run
-
-```bash
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:run
-```
-
-## Test and package
-
-Run the desktop application tests; feature modules are separate included builds and have their own test tasks:
-
-```bash
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:test --no-daemon
-
-# Examples of feature-specific validation
-./desktop-viewer/gradlew -p desktop-viewer \
-  :layout-inspector:presentation:test \
-  :simpleperf-viewer:profile-analysis:test --no-daemon
-```
-
-After preparing the resources above, create an application image for the current host:
-
-```bash
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:createDistributable --no-daemon
-```
-
-An application image is not an installer. Build installers on a matching operating system with the appropriate JDK architecture; Linux installer builds also need `fakeroot` and `rpm`:
-
-```bash
-# macOS Apple Silicon / Intel: choose arm64 or x64 on the matching host
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDmg :desktop-app:packagePkg -Ptarget.arch=arm64 --no-daemon
-
-# Windows x64
-./desktop-viewer/gradlew.bat -p desktop-viewer :desktop-app:packageMsi :desktop-app:packageExe -Ptarget.arch=x64 --no-daemon
-
-# Linux x64 / arm64: choose the matching architecture
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -Ptarget.arch=x64 --no-daemon
-./desktop-viewer/gradlew -p desktop-viewer :desktop-app:packageDeb :desktop-app:packageRpm -Ptarget.arch=arm64 --no-daemon
-```
-
-The application version is centralized in [desktop-viewer/build.gradle.kts](desktop-viewer/build.gradle.kts) and can be overridden with `-PappVersion=0.7.1`. A custom packaging JDK can be selected with `-Ptarget.javaHome=/absolute/path/to/jdk`.
-
-The release workflow has two publication paths. Pushing a `v*` tag publishes unsigned development installers: it runs tests, prepares the inspection runtime, builds the ten installers in the platform matrix, and publishes only after re-verifying the uploaded assets. A manual `workflow_dispatch` with `release_qualified=true` and `run_real_provider=true` publishes the signed, notarized release instead; that path requires the macOS notarization, Windows Authenticode and real-provider credentials to be configured.
-
-## Project layout
-
-```text
-desktop-viewer/          Compose Desktop application and composite feature builds
-  desktop-app/           Shell, navigation, settings, and native packaging
-  layout-inspector/      View/Compose inspection, archives, and findings
-  simpleperf-viewer/     CPU sampling, queries, and report visualizations
-  perfetto-viewer/       System trace capture, diagnostics, and viewer integration
-  memory-profiler/       HPROF, instance/reference, native heap, and Bitmap analysis
-  frame-profiler/        Frame timing, deadline misses, and jank evidence
-  startup-profiler/      Startup experiments and compilation/profile evidence
-  battery-profiler/      Battery experiments and UID resource evidence
-  network-profiler/      Configured network-agent capture and HAR analysis
-  gpu-inspector-integration/  AGI discovery and verified artifact routing
-  benchmark-regression/  Benchmark comparison, orchestration, and reports
-  source-workspace/      Source providers, snapshots, indexes, and resolution
-  ai-core/               Shared AI transport and evidence-bound contracts
-  platform-core/         Shared profiler, ADB, and host-toolchain contracts
-  platform-perfetto/     Pinned Trace Processor and shared Perfetto infrastructure
-  ui-components/         Shared Compose controls and theme
-media/                   Application screenshots used in this README
-third_party/             Pinned upstream code and profiler resources
-scripts/                 Resource preparation and build helpers
-docs-user/               English user guide
-docs-user-zh/            Simplified Chinese user guide
-docs/                    Architecture, requirements, and feature documentation
-```
+See [`rust-desktop/README.md`](rust-desktop/README.md) for the active application build and verification instructions.
 
 ## More documentation
 
 - [Feature documentation](docs/features/README.md)
-- [Desktop development guide](desktop-viewer/docs/architecture/DEVELOPMENT.md)
-- [Layout Inspector protocol](desktop-viewer/docs/architecture/PROTOCOL.md)
-- [Source Workspace](desktop-viewer/source-workspace/README.md)
-- [AI Core](desktop-viewer/ai-core/README.md)
 - [AI documentation](docs/ai/README.md)
 - [Third-party resources and provenance](third_party/README.md)
 - [Documentation index](docs/README.md)
