@@ -7,9 +7,10 @@
 //! ascending). Class names are matched by name only; no metric is inferred.
 use super::ImportWorkspace;
 use super::comparison::{display_class_name, format_bytes, format_count, row_background};
-use super::state::DashboardSort;
+use super::state::{DashboardSort, MemoryTable};
 use super::widgets::{
     TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, metric_cell,
+    resizable_header,
 };
 use crate::studio::{self, StudioColors};
 use aps_memory::ClassStats;
@@ -44,6 +45,7 @@ fn overview_metric_card(
     index: usize,
     label: &'static str,
     value: String,
+    available: bool,
     colors: &StudioColors,
 ) -> Stateful<Div> {
     div()
@@ -68,16 +70,7 @@ fn overview_metric_card(
                 .text_ellipsis()
                 .child(crate::studio::selectable(label)),
         )
-        .child(
-            div()
-                .text_size(px(typography::TITLE))
-                .line_height(px(19.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(colors.text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(value)),
-        )
+        .child(super::widgets::summary_value(value, available, colors.text))
 }
 
 /// 24 px section-surface header with the same 1 px accent column grid as the
@@ -87,6 +80,7 @@ fn histogram_header(
     sort: DashboardSort,
     colors: &StudioColors,
     language: Language,
+    widths: &[f32; 4],
     cx: &mut Context<ImportWorkspace>,
 ) -> AnyElement {
     let count_label = if sort == DashboardSort::Count {
@@ -108,37 +102,73 @@ fn histogram_header(
         .items_center()
         .bg(colors.section_background)
         .child(
-            header_cell(
-                None,
-                language.text(TextKey::MemoryPageClassName),
-                false,
-                false,
-                colors,
+            resizable_header(
+                header_cell(
+                    None,
+                    language.text(TextKey::MemoryPageClassName),
+                    false,
+                    false,
+                    colors,
+                ),
+                MemoryTable::Dashboard,
+                0,
+                widths[0],
+                cx,
             )
             .pl(px(8.)),
         )
         .child(
-            header_cell(Some(96.), language.text(count_label), true, true, colors)
-                .id("memory-dashboard-sort-count")
-                .cursor_pointer()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.memory_set_dashboard_sort(DashboardSort::Count, cx)
-                })),
+            resizable_header(
+                header_cell(
+                    Some(widths[1]),
+                    language.text(count_label),
+                    true,
+                    true,
+                    colors,
+                ),
+                MemoryTable::Dashboard,
+                1,
+                widths[1],
+                cx,
+            )
+            .id("memory-dashboard-sort-count")
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.memory_set_dashboard_sort(DashboardSort::Count, cx)
+            })),
         )
         .child(
-            header_cell(Some(112.), language.text(shallow_label), true, true, colors)
-                .id("memory-dashboard-sort-shallow")
-                .cursor_pointer()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.memory_set_dashboard_sort(DashboardSort::Shallow, cx)
-                })),
+            resizable_header(
+                header_cell(
+                    Some(widths[2]),
+                    language.text(shallow_label),
+                    true,
+                    true,
+                    colors,
+                ),
+                MemoryTable::Dashboard,
+                2,
+                widths[2],
+                cx,
+            )
+            .id("memory-dashboard-sort-shallow")
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.memory_set_dashboard_sort(DashboardSort::Shallow, cx)
+            })),
         )
-        .child(header_cell(
-            Some(140.),
-            language.text(TextKey::MemoryPageRetained),
-            true,
-            true,
-            colors,
+        .child(resizable_header(
+            header_cell(
+                Some(widths[3]),
+                language.text(TextKey::MemoryPageRetained),
+                true,
+                true,
+                colors,
+            ),
+            MemoryTable::Dashboard,
+            3,
+            widths[3],
+            cx,
         ))
         .into_any_element()
 }
@@ -150,6 +180,7 @@ fn histogram_row(
     entity: &Entity<ImportWorkspace>,
     colors: &StudioColors,
     language: Language,
+    widths: &[f32; 4],
 ) -> AnyElement {
     let class_name = stats.class_name.clone();
     let entity = entity.clone();
@@ -190,16 +221,16 @@ fn histogram_row(
                 .child(crate::studio::selectable(display_class_name(stats))),
         )
         .child(metric_cell(
-            Some(96.),
+            Some(widths[1]),
             format_count(stats.instance_count),
             colors,
         ))
         .child(metric_cell(
-            Some(112.),
+            Some(widths[2]),
             format_bytes(stats.shallow_size),
             colors,
         ))
-        .child(metric_cell(Some(140.), retained, colors))
+        .child(metric_cell(Some(widths[3]), retained, colors))
         .into_any_element()
 }
 
@@ -210,6 +241,7 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
+        let column_widths = self.memory_state.dashboard_column_widths;
         let loaded = self.memory_state.snapshot.is_some();
         let summary = self.memory_state.summary_metrics();
         let activity = self.memory_state.activity_count();
@@ -271,7 +303,13 @@ impl ImportWorkspace {
                             .into_iter()
                             .enumerate()
                             .map(|(index, (key, value))| {
-                                overview_metric_card(index, language.text(key), value, colors)
+                                overview_metric_card(
+                                    index,
+                                    language.text(key),
+                                    value,
+                                    loaded,
+                                    colors,
+                                )
                             }),
                     ),
             );
@@ -293,7 +331,7 @@ impl ImportWorkspace {
                         colors,
                     )),
             )
-            .child(histogram_header(sort, colors, language, cx))
+            .child(histogram_header(sort, colors, language, &column_widths, cx))
             .child(studio::divider(colors));
         if classes.is_empty() {
             histogram = histogram.child(
@@ -327,6 +365,7 @@ impl ImportWorkspace {
                                 &entity,
                                 &colors_copy,
                                 language,
+                                &column_widths,
                             ));
                         }
                     }

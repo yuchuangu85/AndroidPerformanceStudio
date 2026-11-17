@@ -30,7 +30,7 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use state::MemoryViewMode;
+use state::{MemoryTable, MemoryViewMode};
 use std::sync::Arc;
 
 pub(super) const MEMORY_INSTANCE_PAGE: usize = 500;
@@ -38,6 +38,31 @@ pub(super) const MEMORY_DOMINATOR_PAGE: usize = 500;
 pub(super) const MEMORY_ARRAY_PAGE: usize = 200;
 
 impl ImportWorkspace {
+    pub(super) fn memory_resize_column(
+        &mut self,
+        table: MemoryTable,
+        column: usize,
+        width: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let width = width.max(40.0).min(640.0);
+        let widths = match table {
+            MemoryTable::Dashboard => &mut self.memory_state.dashboard_column_widths[..],
+            MemoryTable::Classifier => &mut self.memory_state.classifier_column_widths[..],
+            MemoryTable::Instances => &mut self.memory_state.instance_column_widths[..],
+            MemoryTable::Inspector => &mut self.memory_state.inspector_column_widths[..],
+            MemoryTable::Dominators => &mut self.memory_state.dominator_column_widths[..],
+            MemoryTable::Comparison => &mut self.memory_state.comparison_column_widths[..],
+            MemoryTable::LeakSuspects => &mut self.memory_state.leak_suspects_column_widths[..],
+            MemoryTable::LeakActivities => &mut self.memory_state.leak_activities_column_widths[..],
+            MemoryTable::LeakLifecycle => &mut self.memory_state.leak_lifecycle_column_widths[..],
+        };
+        if let Some(value) = widths.get_mut(column) {
+            *value = width;
+            cx.notify();
+        }
+    }
+
     pub(super) fn render_memory_profiler(
         &mut self,
         window: &mut Window,
@@ -323,6 +348,11 @@ impl ImportWorkspace {
     pub(super) fn memory_select_instance(&mut self, object_id: u64, cx: &mut Context<Self>) {
         self.memory_state.selected_object = Some(object_id);
         self.memory_state.push_history(object_id);
+        // A new instance starts with the complete References list visible.
+        // Nearest-GC-root traversal remains an explicit opt-in from the
+        // References toolbar instead of making selection appear incremental.
+        self.memory_state.nearest_root_only = false;
+        self.memory_state.inspector_nearest_auto_expand = false;
         self.memory_reset_reference_tree();
         self.memory_load_inspector_object(object_id, 0, cx);
     }

@@ -7,10 +7,10 @@
 //! not publish stay an em dash; nothing is inferred across dumps.
 use super::ImportWorkspace;
 use super::dominators::{memory_heap_distribution, memory_summary_row};
-use super::state::{ClassifierDelta, ComparisonReport};
+use super::state::{ClassifierDelta, ComparisonReport, MemoryTable};
 use super::widgets::{
     TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, metric_cell,
-    toolbar_button,
+    resizable_header, toolbar_button,
 };
 use crate::studio::{self, StudioColors};
 use aps_memory::{ClassStats, MemorySnapshot};
@@ -245,89 +245,48 @@ fn comparison_selector(
 }
 
 /// 24 px section-surface header with the shared 1 px accent column grid.
-fn comparison_header(language: Language, colors: &StudioColors) -> AnyElement {
-    div()
+fn comparison_header(
+    language: Language,
+    widths: &[f32; 10],
+    colors: &StudioColors,
+    cx: &mut Context<ImportWorkspace>,
+) -> AnyElement {
+    let labels = [
+        (TextKey::MemoryPageDiffClass, false, false),
+        (TextKey::MemoryPageMemoryBeforeCount, true, true),
+        (TextKey::MemoryPageMemoryAfterCount, true, true),
+        (TextKey::MemoryPageMemoryDeltaCount, true, true),
+        (TextKey::MemoryDiffBeforeShallow, true, true),
+        (TextKey::MemoryDiffAfterShallow, true, true),
+        (TextKey::MemoryDiffDeltaShallow, true, true),
+        (TextKey::MemoryPageMemoryBeforeRetained, true, true),
+        (TextKey::MemoryPageMemoryAfterRetained, true, true),
+        (TextKey::MemoryPageMemoryDeltaRetained, true, true),
+    ];
+    let mut header = div()
         .id("memory-comparison-header-row")
         .w_full()
         .h(px(TABLE_HEADER_HEIGHT))
         .flex_shrink_0()
         .flex()
         .items_center()
-        .bg(colors.section_background)
-        .child(
+        .bg(colors.section_background);
+    for (index, (key, right, grid)) in labels.into_iter().enumerate() {
+        header = header.child(resizable_header(
             header_cell(
-                None,
-                language.text(TextKey::MemoryPageDiffClass),
-                false,
-                false,
+                (index != 0).then_some(widths[index]),
+                language.text(key),
+                right,
+                grid,
                 colors,
-            )
-            .pl(px(8.)),
-        )
-        .child(header_cell(
-            Some(96.),
-            language.text(TextKey::MemoryPageMemoryBeforeCount),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(96.),
-            language.text(TextKey::MemoryPageMemoryAfterCount),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(96.),
-            language.text(TextKey::MemoryPageMemoryDeltaCount),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(112.),
-            language.text(TextKey::MemoryDiffBeforeShallow),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(112.),
-            language.text(TextKey::MemoryDiffAfterShallow),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(112.),
-            language.text(TextKey::MemoryDiffDeltaShallow),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(112.),
-            language.text(TextKey::MemoryPageMemoryBeforeRetained),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(112.),
-            language.text(TextKey::MemoryPageMemoryAfterRetained),
-            true,
-            true,
-            colors,
-        ))
-        .child(header_cell(
-            Some(112.),
-            language.text(TextKey::MemoryPageMemoryDeltaRetained),
-            true,
-            true,
-            colors,
-        ))
-        .into_any_element()
+            ),
+            MemoryTable::Comparison,
+            index,
+            widths[index],
+            cx,
+        ));
+    }
+    header.into_any_element()
 }
 
 /// 20 px body-compact value cell with the continuous accent column grid.
@@ -356,6 +315,7 @@ fn comparison_row(
     row: &ClassifierDelta,
     colors: &StudioColors,
     _language: Language,
+    widths: &[f32; 10],
 ) -> AnyElement {
     let count = count_delta(row);
     let retained = retained_delta(row);
@@ -380,18 +340,34 @@ fn comparison_row(
                 .text_ellipsis()
                 .child(crate::studio::selectable(row.class_name.clone())),
         )
-        .child(metric_cell(Some(96.), format_count(row.a_count), colors))
-        .child(metric_cell(Some(96.), format_count(row.b_count), colors))
+        .child(metric_cell(
+            Some(widths[1]),
+            format_count(row.a_count),
+            colors,
+        ))
+        .child(metric_cell(
+            Some(widths[2]),
+            format_count(row.b_count),
+            colors,
+        ))
         .child(value_cell(
-            96.,
+            widths[3],
             signed_count(count),
             if count > 0 { colors.error } else { colors.text },
             colors.border,
         ))
-        .child(metric_cell(Some(112.), format_bytes(row.a_shallow), colors))
-        .child(metric_cell(Some(112.), format_bytes(row.b_shallow), colors))
+        .child(metric_cell(
+            Some(widths[4]),
+            format_bytes(row.a_shallow),
+            colors,
+        ))
+        .child(metric_cell(
+            Some(widths[5]),
+            format_bytes(row.b_shallow),
+            colors,
+        ))
         .child(value_cell(
-            112.,
+            widths[6],
             signed_bytes(shallow_delta(row)),
             if shallow_delta(row) > 0 {
                 colors.error
@@ -401,17 +377,17 @@ fn comparison_row(
             colors.border,
         ))
         .child(metric_cell(
-            Some(112.),
+            Some(widths[7]),
             row.a_retained.map(format_bytes).unwrap_or_else(missing),
             colors,
         ))
         .child(metric_cell(
-            Some(112.),
+            Some(widths[8]),
             row.b_retained.map(format_bytes).unwrap_or_else(missing),
             colors,
         ))
         .child(value_cell(
-            112.,
+            widths[9],
             retained.map(signed_bytes).unwrap_or_else(missing),
             if retained.is_some_and(|delta| delta > 0) {
                 colors.error
@@ -486,6 +462,7 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
+        let column_widths = self.memory_state.comparison_column_widths;
         let loaded = self.memory_state.snapshot.is_some();
         let tabs = self.memory_snapshot_tabs();
         let pair = self
@@ -617,7 +594,7 @@ impl ImportWorkspace {
                 .w_full()
                 .p_0()
                 .gap_0()
-                .child(comparison_header(language, colors))
+                .child(comparison_header(language, &column_widths, colors, cx))
                 .child(studio::divider(colors));
             if report.rows.is_empty() {
                 table = table.child(hint(
@@ -635,7 +612,13 @@ impl ImportWorkspace {
                         let mut items = Vec::with_capacity(range.len());
                         for index in range {
                             if let Some(row) = report.rows.get(index) {
-                                items.push(comparison_row(index, row, &colors_copy, language));
+                                items.push(comparison_row(
+                                    index,
+                                    row,
+                                    &colors_copy,
+                                    language,
+                                    &column_widths,
+                                ));
                             }
                         }
                         items

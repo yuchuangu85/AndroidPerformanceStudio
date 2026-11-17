@@ -8,9 +8,10 @@
 //! row drives the shared object inspector.
 use super::ImportWorkspace;
 use super::comparison::{format_bytes, format_count, row_background};
-use super::state::MemoryState;
+use super::state::{MemoryState, MemoryTable};
 use super::widgets::{
     self, TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, kpi_card,
+    resizable_header,
 };
 use crate::studio::{self, StudioColors};
 use aps_memory::{
@@ -250,6 +251,7 @@ pub(super) fn memory_summary_row(
                 (id, index),
                 language.text(*key),
                 value.clone(),
+                loaded,
                 *warning,
                 card_width,
                 &colors,
@@ -375,6 +377,7 @@ fn dominator_row(
     entity: &Entity<ImportWorkspace>,
     colors: &StudioColors,
     _language: Language,
+    widths: &[f32; 3],
 ) -> AnyElement {
     match entry {
         DominatorEntry::Node {
@@ -393,47 +396,34 @@ fn dominator_row(
                 row_background(colors, index)
             };
             let mut row = div()
-                .id(("memory-dominator-row", index))
-                .h(px(TABLE_ROW_HEIGHT))
-                .w_full()
-                .flex_shrink_0()
+                .h_full()
+                .flex_1()
+                .min_w_0()
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .pl(px(indent_for(*depth)))
-                .pr(px(8.))
-                .bg(background);
+                .pl(px(indent_for(*depth)));
             if *can_expand {
                 let toggle_entity = entity.clone();
                 let object_id = *object_id;
                 let expanded = *expanded;
                 row = row.child(
-                    div()
-                        .id(("memory-dominator-toggle", index))
-                        .w(px(12.))
-                        .h_full()
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        .on_click(move |_, _, cx| {
-                            let _ = toggle_entity.update(cx, |this, cx| {
-                                this.memory_toggle_dominator(object_id, cx);
-                            });
-                            cx.stop_propagation();
-                        })
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(colors.accent)
-                                .child(if expanded { "\u{25be}" } else { "\u{25b8}" }),
-                        ),
+                    super::widgets::disclosure_button(
+                        ("memory-dominator-toggle", index),
+                        expanded,
+                        colors.accent,
+                    )
+                    .on_click(move |_, _, cx| {
+                        let _ = toggle_entity.update(cx, |this, cx| {
+                            this.memory_toggle_dominator(object_id, cx);
+                        });
+                        cx.stop_propagation();
+                    }),
                 );
             } else {
                 row = row.child(
                     div()
-                        .w(px(12.))
+                        .w(px(super::widgets::DISCLOSURE_WIDTH))
                         .flex_shrink_0()
                         .flex()
                         .items_center()
@@ -448,7 +438,7 @@ fn dominator_row(
             }
             let select_entity = entity.clone();
             let object_id = *object_id;
-            row.child(
+            let name = row.child(
                 div()
                     .flex_1()
                     .min_w_0()
@@ -458,38 +448,49 @@ fn dominator_row(
                     .whitespace_nowrap()
                     .text_ellipsis()
                     .child(crate::studio::selectable(label.clone())),
-            )
-            .child(
-                div()
-                    .w(px(80.))
-                    .flex_shrink_0()
-                    .text_size(px(TABLE_FONT))
-                    .line_height(px(TABLE_LINE))
-                    .text_color(colors.text)
-                    .text_align(TextAlign::Right)
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(crate::studio::selectable(shallow.clone())),
-            )
-            .child(
-                div()
-                    .w(px(80.))
-                    .flex_shrink_0()
-                    .text_size(px(TABLE_FONT))
-                    .line_height(px(TABLE_LINE))
-                    .text_color(colors.text)
-                    .text_align(TextAlign::Right)
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(crate::studio::selectable(retained.clone())),
-            )
-            .cursor_pointer()
-            .on_click(move |_, _, cx| {
-                let _ = select_entity.update(cx, |this, cx| {
-                    this.memory_select_dominator(object_id, cx);
-                });
-            })
-            .into_any_element()
+            );
+            div()
+                .id(("memory-dominator-row", index))
+                .h(px(TABLE_ROW_HEIGHT))
+                .w_full()
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .bg(background)
+                .child(name)
+                .child(
+                    div()
+                        .w(px(widths[1]))
+                        .flex_shrink_0()
+                        .text_size(px(TABLE_FONT))
+                        .px(px(6.))
+                        .line_height(px(TABLE_LINE))
+                        .text_color(colors.text)
+                        .text_align(TextAlign::Right)
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(crate::studio::selectable(shallow.clone())),
+                )
+                .child(
+                    div()
+                        .w(px(widths[2]))
+                        .flex_shrink_0()
+                        .text_size(px(TABLE_FONT))
+                        .px(px(6.))
+                        .line_height(px(TABLE_LINE))
+                        .text_color(colors.text)
+                        .text_align(TextAlign::Right)
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child(crate::studio::selectable(retained.clone())),
+                )
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    let _ = select_entity.update(cx, |this, cx| {
+                        this.memory_select_dominator(object_id, cx);
+                    });
+                })
+                .into_any_element()
         }
         DominatorEntry::Status { depth, text } => div()
             .id(("memory-dominator-status", index))
@@ -518,6 +519,8 @@ fn dominator_tree_card(
     entity: &Entity<ImportWorkspace>,
     colors: &StudioColors,
     language: Language,
+    widths: &[f32; 3],
+    cx: &mut Context<ImportWorkspace>,
 ) -> AnyElement {
     let card = div()
         .id("memory-dominator-tree")
@@ -545,28 +548,46 @@ fn dominator_tree_card(
                 .items_center()
                 .bg(colors.section_background)
                 .child(
-                    header_cell(
-                        None,
-                        language.text(TextKey::MemoryPageClassName),
-                        false,
-                        false,
-                        colors,
+                    resizable_header(
+                        header_cell(
+                            None,
+                            language.text(TextKey::MemoryPageClassName),
+                            false,
+                            false,
+                            colors,
+                        ),
+                        MemoryTable::Dominators,
+                        0,
+                        widths[0],
+                        cx,
                     )
                     .pl(px(8.)),
                 )
-                .child(header_cell(
-                    Some(80.),
-                    language.text(TextKey::MemoryPageShallow),
-                    true,
-                    true,
-                    colors,
+                .child(resizable_header(
+                    header_cell(
+                        Some(widths[1]),
+                        language.text(TextKey::MemoryPageShallow),
+                        true,
+                        true,
+                        colors,
+                    ),
+                    MemoryTable::Dominators,
+                    1,
+                    widths[1],
+                    cx,
                 ))
-                .child(header_cell(
-                    Some(80.),
-                    language.text(TextKey::MemoryPageRetained),
-                    true,
-                    true,
-                    colors,
+                .child(resizable_header(
+                    header_cell(
+                        Some(widths[2]),
+                        language.text(TextKey::MemoryPageRetained),
+                        true,
+                        true,
+                        colors,
+                    ),
+                    MemoryTable::Dominators,
+                    2,
+                    widths[2],
+                    cx,
                 )),
         )
         .child(studio::divider(colors));
@@ -623,6 +644,7 @@ fn dominator_tree_card(
     }
     let scroll_handle = state.dominator_scroll.clone();
     let colors_copy = *colors;
+    let widths_copy = *widths;
     let list = uniform_list("memory-dominator-rows", entries.len(), {
         let entries = entries.clone();
         let entity = entity.clone();
@@ -630,7 +652,14 @@ fn dominator_tree_card(
             let mut items = Vec::with_capacity(range.len());
             for index in range {
                 if let Some(entry) = entries.get(index) {
-                    items.push(dominator_row(index, entry, &entity, &colors_copy, language));
+                    items.push(dominator_row(
+                        index,
+                        entry,
+                        &entity,
+                        &colors_copy,
+                        language,
+                        &widths_copy,
+                    ));
                 }
             }
             items
@@ -774,7 +803,14 @@ impl ImportWorkspace {
             })
         });
         let filters = self.memory_dominator_filters(window, colors, cx);
-        let tree = dominator_tree_card(&self.memory_state, &entity, colors, language);
+        let tree = dominator_tree_card(
+            &self.memory_state,
+            &entity,
+            colors,
+            language,
+            &self.memory_state.dominator_column_widths,
+            cx,
+        );
         let inspector = self.render_memory_inspector(colors, cx);
 
         let mut root = div()

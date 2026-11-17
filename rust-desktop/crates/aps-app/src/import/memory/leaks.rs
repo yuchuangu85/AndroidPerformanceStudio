@@ -6,9 +6,10 @@
 //! available and are presented as an explicit, non-simulated section.
 use super::ImportWorkspace;
 use super::comparison::row_background;
-use super::state::LeakTab;
+use super::state::{LeakTab, MemoryTable};
 use super::widgets::{
-    TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, header_cell, toolbar_button,
+    TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, column_resize_overlay,
+    header_cell, toolbar_button,
 };
 use crate::studio::{self, StudioColors};
 use aps_memory::{ActivityLeak, ClassifierRow, LeakSuspect, LifecycleLeakObject, MemorySnapshot};
@@ -20,7 +21,6 @@ use gpui_kit::{
 };
 use std::rc::Rc;
 
-const LEAK_OBJECT_ID_WIDTH: f32 = 108.;
 const LEAK_COUNT_WIDTH: f32 = 78.;
 const LEAK_RETAINED_WIDTH: f32 = 96.;
 
@@ -51,6 +51,11 @@ impl ImportWorkspace {
         };
         let rows: Rc<Vec<LeakRowData>> = Rc::new(rows_for(active, snapshot.as_deref()));
         let entity = cx.entity();
+        let column_widths: &[f32] = match active {
+            LeakTab::Suspects => &self.memory_state.leak_suspects_column_widths,
+            LeakTab::Activities => &self.memory_state.leak_activities_column_widths,
+            LeakTab::Lifecycle => &self.memory_state.leak_lifecycle_column_widths,
+        };
 
         let summary = div()
             .w_full()
@@ -168,11 +173,18 @@ impl ImportWorkspace {
             );
         } else {
             table = table
-                .child(leak_table_header(active, language, colors))
+                .child(leak_table_header(
+                    active,
+                    language,
+                    column_widths,
+                    colors,
+                    cx,
+                ))
                 .child(studio::divider(colors));
             let colors_copy = *colors;
             let rows_for_list = rows.clone();
             let entity = entity.clone();
+            let column_widths = column_widths.to_vec();
             let list = uniform_list("memory-leak-rows", rows_for_list.len(), {
                 let rows = rows_for_list.clone();
                 move |range, _, _| {
@@ -185,6 +197,7 @@ impl ImportWorkspace {
                                 entity.clone(),
                                 language,
                                 &colors_copy,
+                                &column_widths,
                             ));
                         }
                     }
@@ -301,7 +314,13 @@ fn classifier_row_for_class(rows: &[ClassifierRow], class_name: &str) -> Option<
 }
 
 /// 24 px section-surface header with the shared 1 px accent column grid.
-fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) -> AnyElement {
+fn leak_table_header(
+    tab: LeakTab,
+    language: Language,
+    widths: &[f32],
+    colors: &StudioColors,
+    cx: &mut Context<ImportWorkspace>,
+) -> AnyElement {
     let mut header = div()
         .id("memory-leak-table-header")
         .w_full()
@@ -324,21 +343,21 @@ fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) ->
                     .pl(px(8.)),
                 )
                 .child(header_cell(
-                    None,
+                    Some(widths[1]),
                     language.text(TextKey::ImportUiReason),
-                    false,
-                    false,
+                    true,
+                    true,
                     colors,
                 ))
                 .child(header_cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths.get(2).copied().unwrap_or(LEAK_COUNT_WIDTH)),
                     language.text(TextKey::MemoryPageInstances),
                     true,
                     true,
                     colors,
                 ))
                 .child(header_cell(
-                    Some(LEAK_RETAINED_WIDTH),
+                    Some(widths.last().copied().unwrap_or(LEAK_RETAINED_WIDTH)),
                     language.text(TextKey::MemoryPageRetained),
                     true,
                     true,
@@ -358,28 +377,28 @@ fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) ->
                     .pl(px(8.)),
                 )
                 .child(header_cell(
-                    None,
+                    Some(widths[1]),
                     language.text(TextKey::MemoryPageActivityFragmentLeak),
-                    false,
-                    false,
+                    true,
+                    true,
                     colors,
                 ))
                 .child(header_cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths.get(2).copied().unwrap_or(LEAK_COUNT_WIDTH)),
                     language.text(TextKey::MemoryPageLiveInstances),
                     true,
                     true,
                     colors,
                 ))
                 .child(header_cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths[3]),
                     language.text(TextKey::MemoryPageDestroyedInstances),
                     true,
                     true,
                     colors,
                 ))
                 .child(header_cell(
-                    Some(LEAK_RETAINED_WIDTH),
+                    Some(widths.last().copied().unwrap_or(LEAK_RETAINED_WIDTH)),
                     language.text(TextKey::MemoryPageRetained),
                     true,
                     true,
@@ -390,7 +409,7 @@ fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) ->
             header = header
                 .child(
                     header_cell(
-                        Some(LEAK_OBJECT_ID_WIDTH),
+                        None,
                         language.text(TextKey::MemoryPageObjectId),
                         false,
                         false,
@@ -399,14 +418,14 @@ fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) ->
                     .pl(px(8.)),
                 )
                 .child(header_cell(
-                    None,
+                    Some(widths[1]),
                     language.text(TextKey::MemoryPageClassName),
-                    false,
-                    false,
+                    true,
+                    true,
                     colors,
                 ))
                 .child(header_cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths.get(2).copied().unwrap_or(LEAK_COUNT_WIDTH)),
                     language.text(TextKey::MemoryPageHeap),
                     true,
                     true,
@@ -414,7 +433,18 @@ fn leak_table_header(tab: LeakTab, language: Language, colors: &StudioColors) ->
                 ));
         }
     }
-    header.into_any_element()
+    header
+        .relative()
+        .child(column_resize_overlay(
+            match tab {
+                LeakTab::Suspects => MemoryTable::LeakSuspects,
+                LeakTab::Activities => MemoryTable::LeakActivities,
+                LeakTab::Lifecycle => MemoryTable::LeakLifecycle,
+            },
+            widths,
+            cx,
+        ))
+        .into_any_element()
 }
 
 /// 20 px / 13 px body cell with the continuous accent column grid.
@@ -454,6 +484,7 @@ fn leak_row(
     entity: Entity<ImportWorkspace>,
     language: Language,
     colors: &StudioColors,
+    widths: &[f32],
 ) -> AnyElement {
     let background = row_background(colors, index);
     let mut element = div()
@@ -472,15 +503,15 @@ fn leak_row(
             element = element
                 .child(cell(None, class_name, colors.text, false, false, colors))
                 .child(cell(
-                    None,
+                    Some(widths[1]),
                     suspect.reason.clone(),
                     colors.secondary_text,
-                    false,
-                    false,
+                    true,
+                    true,
                     colors,
                 ))
                 .child(cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths.get(2).copied().unwrap_or(LEAK_COUNT_WIDTH)),
                     suspect.instance_count.to_string(),
                     colors.text,
                     true,
@@ -488,7 +519,7 @@ fn leak_row(
                     colors,
                 ))
                 .child(cell(
-                    Some(LEAK_RETAINED_WIDTH),
+                    Some(widths.last().copied().unwrap_or(LEAK_RETAINED_WIDTH)),
                     super::auxiliary::memory_optional_bytes(suspect.retained_size),
                     colors.text,
                     true,
@@ -505,15 +536,15 @@ fn leak_row(
             element = element
                 .child(cell(None, class_name, colors.text, false, false, colors))
                 .child(cell(
-                    None,
+                    Some(widths[1]),
                     language.text(TextKey::MemoryPageActivityFragmentLeak),
                     colors.secondary_text,
-                    false,
-                    false,
+                    true,
+                    true,
                     colors,
                 ))
                 .child(cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths.get(2).copied().unwrap_or(LEAK_COUNT_WIDTH)),
                     activity.live_instance_count.to_string(),
                     colors.text,
                     true,
@@ -521,7 +552,7 @@ fn leak_row(
                     colors,
                 ))
                 .child(cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths[3]),
                     activity.destroyed_instance_count.to_string(),
                     colors.text,
                     true,
@@ -529,7 +560,7 @@ fn leak_row(
                     colors,
                 ))
                 .child(cell(
-                    Some(LEAK_RETAINED_WIDTH),
+                    Some(widths.last().copied().unwrap_or(LEAK_RETAINED_WIDTH)),
                     super::auxiliary::memory_optional_bytes(activity.retained_size),
                     colors.text,
                     true,
@@ -544,7 +575,7 @@ fn leak_row(
             let object_id = object.object_id;
             element = element
                 .child(cell(
-                    Some(LEAK_OBJECT_ID_WIDTH),
+                    None,
                     format!("0x{object_id:x}"),
                     colors.secondary_text,
                     false,
@@ -552,15 +583,15 @@ fn leak_row(
                     colors,
                 ))
                 .child(cell(
-                    None,
+                    Some(widths[1]),
                     object.class_name.clone(),
                     colors.text,
-                    false,
-                    false,
+                    true,
+                    true,
                     colors,
                 ))
                 .child(cell(
-                    Some(LEAK_COUNT_WIDTH),
+                    Some(widths.get(2).copied().unwrap_or(LEAK_COUNT_WIDTH)),
                     object
                         .heap_name
                         .clone()
@@ -662,6 +693,18 @@ fn vertical_scrollbar(id: &'static str, handle: &UniformListScrollHandle) -> Any
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn leak_table_cells_use_flexible_first_column_and_right_aligned_values() {
+        let colors = StudioColors::light();
+        let mut first = cell(None, "class", colors.text, false, false, &colors);
+        assert_eq!(first.style().flex_grow, Some(1.));
+        assert_eq!(first.style().flex_shrink, Some(1.));
+
+        let mut value = cell(Some(220.), "reason", colors.text, true, true, &colors);
+        assert_eq!(value.style().flex_shrink, Some(0.));
+        assert_eq!(value.style().justify_content, Some(JustifyContent::End));
+    }
 
     #[::core::prelude::v1::test]
     fn classifier_leaf_resolution_requires_a_concrete_class() {

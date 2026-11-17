@@ -61,6 +61,27 @@ pub(crate) enum LeakTab {
     Lifecycle,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum MemoryTable {
+    Dashboard,
+    Classifier,
+    Instances,
+    Inspector,
+    Dominators,
+    Comparison,
+    LeakSuspects,
+    LeakActivities,
+    LeakLifecycle,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ColumnResizeOrigin {
+    pub table: MemoryTable,
+    pub column: usize,
+    pub pointer_x: f32,
+    pub width: f32,
+}
+
 impl LeakTab {
     pub(super) fn label(self) -> TextKey {
         match self {
@@ -144,9 +165,9 @@ pub(crate) struct MemoryState {
     pub detail_loading: bool,
     pub inspector_tab: InspectorTab,
     pub nearest_root_only: bool,
+    pub inspector_nearest_auto_expand: bool,
     /// Explicit selection is scoped to the current object and inspector tab.
     pub inspector_selected_path: Option<String>,
-    pub inspector_nearest_auto_expand: bool,
     /// Inspector-local expansion (drill-in rows keep their chevron state).
     pub inspector_expanded: BTreeSet<String>,
     /// Array pages are independent for each expanded field path.
@@ -197,6 +218,16 @@ pub(crate) struct MemoryState {
     pub dashboard_scroll: UniformListScrollHandle,
     pub comparison_scroll: UniformListScrollHandle,
     pub leaks_scroll: UniformListScrollHandle,
+    pub dashboard_column_widths: [f32; 4],
+    pub classifier_column_widths: [f32; 7],
+    pub instance_column_widths: [f32; 6],
+    pub inspector_column_widths: [f32; 6],
+    pub dominator_column_widths: [f32; 3],
+    pub comparison_column_widths: [f32; 10],
+    pub leak_suspects_column_widths: [f32; 4],
+    pub leak_activities_column_widths: [f32; 5],
+    pub leak_lifecycle_column_widths: [f32; 3],
+    pub column_resize_origin: Option<ColumnResizeOrigin>,
 }
 
 impl Default for MemoryState {
@@ -238,11 +269,11 @@ impl MemoryState {
             instance_offset: 0,
             selected_object: None,
             detail: None,
-            inspector_selected_path: None,
             detail_loading: false,
             inspector_tab: InspectorTab::Fields,
             nearest_root_only: false,
             inspector_nearest_auto_expand: false,
+            inspector_selected_path: None,
             inspector_expanded: BTreeSet::new(),
             inspector_field_array_offsets: BTreeMap::new(),
             inspector_reference_expanded: BTreeSet::new(),
@@ -286,6 +317,16 @@ impl MemoryState {
             dashboard_scroll: UniformListScrollHandle::new(),
             comparison_scroll: UniformListScrollHandle::new(),
             leaks_scroll: UniformListScrollHandle::new(),
+            dashboard_column_widths: [220., 96., 112., 140.],
+            classifier_column_widths: [220., 104., 104., 104., 104., 104., 104.],
+            instance_column_widths: [220., 60., 104., 96., 120., 120.],
+            inspector_column_widths: [180., 72., 68., 70., 76., 74.],
+            dominator_column_widths: [220., 80., 80.],
+            comparison_column_widths: [220., 96., 96., 96., 112., 112., 112., 112., 112., 112.],
+            leak_suspects_column_widths: [220., 220., 78., 96.],
+            leak_activities_column_widths: [220., 220., 78., 78., 96.],
+            leak_lifecycle_column_widths: [108., 220., 78.],
+            column_resize_origin: None,
         }
     }
 
@@ -375,9 +416,9 @@ impl MemoryState {
         self.detail = None;
         self.detail_loading = false;
         self.inspector_tab = InspectorTab::Fields;
-        self.inspector_selected_path = None;
         self.nearest_root_only = false;
         self.inspector_nearest_auto_expand = false;
+        self.inspector_selected_path = None;
         self.inspector_expanded.clear();
         self.inspector_field_array_offsets.clear();
         self.inspector_reference_expanded.clear();

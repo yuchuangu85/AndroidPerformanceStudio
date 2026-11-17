@@ -153,6 +153,30 @@ fn set_macos_process_name() {
     NSProcessInfo::processInfo().setProcessName(&name);
 }
 
+#[cfg(target_os = "macos")]
+fn set_macos_application_icon() {
+    use objc2::{AnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = NSData::with_bytes(include_bytes!("../assets/icons/app-icon.png"));
+    let image = NSImage::initWithData(NSImage::alloc(), &data);
+    if let Some(image) = image {
+        // SAFETY: AppKit is accessed on the main thread and receives a valid image.
+        unsafe { NSApplication::sharedApplication(mtm).setApplicationIconImage(Some(&image)) };
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_window_icon() -> Option<std::sync::Arc<image::RgbaImage>> {
+    image::load_from_memory(include_bytes!("../assets/icons/linux/app-icon.png"))
+        .ok()
+        .map(|image| std::sync::Arc::new(image.into_rgba8()))
+}
+
 fn main() {
     #[cfg(target_os = "macos")]
     set_macos_process_name();
@@ -188,6 +212,8 @@ fn main() {
         .with_http_client(http_client);
     application.run(move |cx| {
         init(cx);
+        #[cfg(target_os = "macos")]
+        set_macos_application_icon();
         apply_theme(&settings, cx);
         cx.on_action(|_: &shell::Quit, cx| cx.quit());
         // `secondary-*` is an OS-resolved alias in GPUI. Use the dynamic loader;
@@ -336,6 +362,8 @@ fn main() {
                 }),
                 app_owns_titlebar_drag: true,
                 app_id: Some("com.androidperformancestudio.rust".into()),
+                #[cfg(target_os = "linux")]
+                icon: linux_window_icon(),
                 ..Default::default()
             },
             cx,

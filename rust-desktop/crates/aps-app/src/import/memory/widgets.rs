@@ -4,6 +4,8 @@
 //! headers the section surface; the accent colors interactive state only.
 //! `StudioColors::from_theme` owns that palette for every profiler, so this
 //! module only adds Memory-specific primitives and never re-derives colors.
+use super::ImportWorkspace;
+use super::state::{ColumnResizeOrigin, MemoryTable};
 use crate::studio::{self, StudioColors};
 use aps_memory::HeapValueKind;
 use aps_ui_foundation::typography;
@@ -28,10 +30,144 @@ pub(super) const TABLE_LINE: f32 = 16.;
 pub(super) const METRIC_WIDTH: f32 = 104.;
 /// Compose NAME_WARNING_WIDTH.
 pub(super) const WARNING_WIDTH: f32 = 22.;
+/// Full-row disclosure hit target shared by all Memory trees.
+pub(super) const DISCLOSURE_WIDTH: f32 = 20.;
+
+pub(super) fn disclosure_button(
+    id: impl Into<ElementId>,
+    expanded: bool,
+    color: Rgba,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w(px(DISCLOSURE_WIDTH))
+        .h(px(TABLE_ROW_HEIGHT))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(typography::TITLE))
+        .line_height(px(TABLE_ROW_HEIGHT))
+        .text_color(color)
+        .cursor_pointer()
+        .child(if expanded { "▾" } else { "▸" })
+        // Row selection runs on MouseDown; stopping Click alone is too late
+        // to prevent a heap/group row from toggling a second time.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
 
 // The Memory page uses the shared `StudioColors::from_theme` palette (neutral
 // panel, section, border and field surfaces), not page-local overrides, so its
 // cards match every other profiler workspace and never carry the theme color.
+
+#[derive(Clone)]
+struct MemoryResizeDrag {
+    table: MemoryTable,
+    column: usize,
+}
+
+impl Render for MemoryResizeDrag {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
+
+/// Adds transparent resize targets over a header whose columns are assembled
+/// by a tab-specific renderer (for example Leak Analysis).
+pub(super) fn column_resize_overlay(
+    table: MemoryTable,
+    widths: &[f32],
+    cx: &mut Context<ImportWorkspace>,
+) -> Div {
+    let mut overlay = div().absolute().inset_0().flex();
+    for (index, width) in widths.iter().enumerate() {
+        let cell = div().relative().h_full();
+        let cell = if index == 0 {
+            cell.flex_1().min_w_0()
+        } else {
+            cell.w(px(*width)).flex_shrink_0()
+        };
+        overlay = overlay.child(if index > 0 {
+            cell.child(resize_boundary(table, index, *width, cx))
+        } else {
+            cell
+        });
+    }
+    overlay
+}
+
+fn resize_boundary_handle(table: MemoryTable, column: usize) -> Stateful<Div> {
+    div()
+        .id(ElementId::Name(
+            format!("memory-column-boundary-{table:?}-{column}").into(),
+        ))
+        .absolute()
+        .top_0()
+        .left_0()
+        .w(px(8.))
+        .h_full()
+        .flex_shrink_0()
+        .cursor(CursorStyle::ResizeLeftRight)
+}
+
+fn resized_column_width(origin: ColumnResizeOrigin, pointer_x: f32) -> f32 {
+    // The flexible first column absorbs this change; fixed columns stay
+    // anchored on the right, so dragging their left edge right narrows them.
+    origin.width - (pointer_x - origin.pointer_x)
+}
+
+fn resize_boundary(
+    table: MemoryTable,
+    column: usize,
+    width: f32,
+    cx: &mut Context<ImportWorkspace>,
+) -> Stateful<Div> {
+    resize_boundary_handle(table, column)
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.memory_state.column_resize_origin = Some(ColumnResizeOrigin {
+                    table,
+                    column,
+                    pointer_x: f32::from(event.position.x),
+                    width,
+                });
+            }),
+        )
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .on_drag_move(cx.listener(
+            move |this, event: &DragMoveEvent<MemoryResizeDrag>, _, cx| {
+                let Some(origin) = this.memory_state.column_resize_origin else {
+                    return;
+                };
+                if origin.table != table || origin.column != column {
+                    return;
+                }
+                let width = resized_column_width(origin, f32::from(event.event.position.x));
+                this.memory_resize_column(table, column, width, cx);
+            },
+        ))
+        .on_drag(MemoryResizeDrag { table, column }, |drag, _, _, cx| {
+            cx.new(|_| drag.clone())
+        })
+}
+
+/// Adds a narrow, independent drag target to a table-column boundary. The
+/// separate hit area keeps header sorting and column resizing from competing.
+pub(super) fn resizable_header(
+    cell: Div,
+    table: MemoryTable,
+    column: usize,
+    width: f32,
+    cx: &mut Context<ImportWorkspace>,
+) -> Div {
+    if column == 0 {
+        return cell;
+    }
+    cell.relative()
+        .child(resize_boundary(table, column, width, cx))
+}
 
 /// Compose ProfilerCompactButton used in the Memory toolbar and filter bar.
 /// Height 24, 4 dp radius, accent outline, selected rows are accent-filled.
@@ -326,11 +462,29 @@ pub(super) fn metric_cell(
     )
 }
 
+/// Keep unavailable evidence visually subordinate to real metric values.
+pub(super) fn summary_value(value: impl Into<SharedString>, available: bool, color: Rgba) -> Div {
+    div()
+        .w_full()
+        .text_size(px(if available {
+            typography::TITLE
+        } else {
+            typography::SUPPORTING
+        }))
+        .line_height(px(19.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(color)
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .child(crate::studio::selectable(value.into()))
+}
+
 /// Compose MemorySnapshotSummary KPI card.
 pub(super) fn kpi_card(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     value: impl Into<SharedString>,
+    available: bool,
     warning: bool,
     width: f32,
     colors: &StudioColors,
@@ -358,16 +512,100 @@ pub(super) fn kpi_card(
         .p(px(4.))
         .gap(px(0.))
         .child(label_row)
-        .child(
-            div()
-                .w_full()
-                .text_size(px(typography::TITLE))
-                .line_height(px(19.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(if warning { colors.warning } else { colors.text })
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(value)),
-        )
+        .child(summary_value(
+            value,
+            available,
+            if warning { colors.warning } else { colors.text },
+        ))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn unavailable_summary_values_are_smaller_without_shrinking_real_metrics() {
+        let colors = StudioColors::light();
+        for language in [
+            aps_ui_foundation::Language::English,
+            aps_ui_foundation::Language::SimplifiedChinese,
+        ] {
+            let mut unavailable = summary_value(
+                language.text(aps_ui_foundation::TextKey::MemoryPageUnavailable),
+                false,
+                colors.text,
+            );
+            assert_eq!(
+                unavailable.style().text.font_size,
+                Some(px(typography::SUPPORTING).into())
+            );
+        }
+        for value in ["0", "104,134,969", "22.5 MB"] {
+            let mut available = summary_value(value, true, colors.text);
+            assert_eq!(
+                available.style().text.font_size,
+                Some(px(typography::TITLE).into())
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn tree_disclosures_use_larger_glyphs_and_full_row_hit_targets() {
+        for expanded in [false, true] {
+            let mut button = disclosure_button("memory-disclosure-test", expanded, rgb(0x808080));
+            assert_eq!(button.style().size.width, Some(px(20.).into()));
+            assert_eq!(
+                button.style().size.height,
+                Some(px(TABLE_ROW_HEIGHT).into())
+            );
+            assert_eq!(
+                button.style().text.font_size,
+                Some(px(typography::TITLE).into())
+            );
+            assert_eq!(button.style().flex_shrink, Some(0.));
+            assert_eq!(button.style().justify_content, Some(JustifyContent::Center));
+            assert_eq!(button.style().align_items, Some(AlignItems::Center));
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn column_resize_handle_uses_the_fixed_columns_left_boundary() {
+        let mut handle = resize_boundary_handle(MemoryTable::Classifier, 1);
+        assert_eq!(handle.style().inset.left, Some(px(0.).into()));
+        assert_eq!(handle.style().inset.right, None);
+        assert_eq!(handle.style().size.width, Some(px(8.).into()));
+        assert_eq!(handle.style().flex_shrink, Some(0.));
+    }
+
+    #[::core::prelude::v1::test]
+    fn column_resize_keeps_the_right_edge_anchored_as_the_left_edge_moves() {
+        let origin = ColumnResizeOrigin {
+            table: MemoryTable::Classifier,
+            column: 1,
+            pointer_x: 500.,
+            width: 104.,
+        };
+        for (pointer_x, expected_width) in [(480., 124.), (500., 104.), (520., 84.)] {
+            let width = resized_column_width(origin, pointer_x);
+            assert_eq!(width, expected_width);
+            assert_eq!(pointer_x + width, origin.pointer_x + origin.width);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn table_headers_and_metrics_keep_flexible_first_and_right_aligned_rest() {
+        let colors = StudioColors::light();
+        let mut first = header_cell(None, "Name", false, false, &colors);
+        assert_eq!(first.style().flex_grow, Some(1.));
+        assert_eq!(first.style().flex_shrink, Some(1.));
+
+        let mut header = header_cell(Some(104.), "Count", true, true, &colors);
+        assert_eq!(header.style().flex_shrink, Some(0.));
+        assert_eq!(header.style().justify_content, Some(JustifyContent::End));
+
+        let mut value = metric_cell(Some(104.), "42", &colors);
+        assert_eq!(value.style().flex_shrink, Some(0.));
+        assert_eq!(value.style().justify_content, Some(JustifyContent::End));
+    }
 }

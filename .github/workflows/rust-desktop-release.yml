@@ -38,7 +38,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y rpm
       - name: Build binaries
         working-directory: rust-desktop
-        run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory-worker
+        run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
       - name: Package deb and rpm
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -49,9 +49,20 @@ jobs:
           set -e
           version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
           root="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}"
-          mkdir -p "$root/usr/bin" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
+          mkdir -p "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/1024x1024/apps" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
           cp "rust-desktop/target/${TARGET}/release/aps-app" "$root/usr/bin/aps-app"
           cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$root/usr/bin/aps-memory-worker"
+          cp rust-desktop/crates/aps-app/assets/icons/linux/app-icon.png "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png"
+          cat > "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Android Performance Studio
+          Exec=/usr/bin/aps-app
+          Icon=com.androidperformancestudio.rust
+          StartupWMClass=com.androidperformancestudio.rust
+          Categories=Development;
+          Terminal=false
+          EOF
           chmod 0755 "$root/usr/bin/aps-app" "$root/usr/bin/aps-memory-worker"
           mkdir -p "$root/DEBIAN"
           cat > "$root/DEBIAN/control" <<EOF
@@ -66,6 +77,8 @@ jobs:
           dpkg-deb --build --root-owner-group "$root" "dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}.deb"
           cp "$root/usr/bin/aps-app" "dist/rpm/SOURCES/aps-app"
           cp "$root/usr/bin/aps-memory-worker" "dist/rpm/SOURCES/aps-memory-worker"
+          cp "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png" dist/rpm/SOURCES/app-icon.png
+          cp "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" dist/rpm/SOURCES/aps.desktop
           cat > dist/rpm/SPECS/aps-desktop.spec <<EOF
           Name: aps-desktop
           Version: ${version}
@@ -76,12 +89,16 @@ jobs:
           %description
           Android Performance Studio Rust desktop application.
           %install
-          mkdir -p %{buildroot}/usr/bin
+          mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/share/applications %{buildroot}/usr/share/icons/hicolor/1024x1024/apps
           install -m 0755 %{_sourcedir}/aps-app %{buildroot}/usr/bin/aps-app
           install -m 0755 %{_sourcedir}/aps-memory-worker %{buildroot}/usr/bin/aps-memory-worker
+          install -m 0644 %{_sourcedir}/aps.desktop %{buildroot}/usr/share/applications/com.androidperformancestudio.rust.desktop
+          install -m 0644 %{_sourcedir}/app-icon.png %{buildroot}/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png
           %files
           /usr/bin/aps-app
           /usr/bin/aps-memory-worker
+          /usr/share/applications/com.androidperformancestudio.rust.desktop
+          /usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png
           EOF
           rpmbuild --define "_topdir $PWD/dist/rpm" -bb dist/rpm/SPECS/aps-desktop.spec
           cp "dist/rpm/RPMS/${RPM_ARCH}/"*.rpm "dist/aps-desktop-${RELEASE_TAG}-linux-${RPM_ARCH}.rpm"
@@ -100,7 +117,7 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: macos-13
+            runner: macos-15-intel
             target: x86_64-apple-darwin
           - arch: arm64
             runner: macos-14
@@ -116,7 +133,7 @@ jobs:
           target: ${{ matrix.target }}
       - name: Build binaries
         working-directory: rust-desktop
-        run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory-worker
+        run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
       - name: Package dmg and pkg
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -126,10 +143,11 @@ jobs:
           set -e
           version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
           app="dist/Android Performance Studio.app"
-          mkdir -p "$app/Contents/MacOS"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp "rust-desktop/target/${TARGET}/release/aps-app" "$app/Contents/MacOS/aps-app"
           cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$app/Contents/MacOS/aps-memory-worker"
           cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
+          cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
           chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
           hdiutil create -volname "Android Performance Studio" -srcfolder "$app" -ov -format UDZO "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.dmg"
           pkgbuild --component "$app" --install-location /Applications --version "$version" "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.pkg"
@@ -155,7 +173,7 @@ jobs:
           target: x86_64-pc-windows-msvc
       - name: Build binaries
         working-directory: rust-desktop
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc -p aps-app -p aps-memory-worker
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc -p aps-app -p aps-memory
       - name: Install WiX
         shell: pwsh
         run: choco install wixtoolset -y --no-progress
@@ -179,6 +197,7 @@ jobs:
               <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
               <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
               <MediaTemplate EmbedCab="yes" />
+              <Icon Id="AppIcon" SourceFile="rust-desktop\crates\aps-app\assets\icons\windows\app-icon.ico" /><Property Id="ARPPRODUCTICON" Value="AppIcon" />
               <Directory Id="TARGETDIR" Name="SourceDir">
                 <Directory Id="ProgramFiles64Folder">
                   <Directory Id="INSTALLFOLDER" Name="Android Performance Studio" />
@@ -223,5 +242,6 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release create "${RELEASE_TAG}" release-assets/* --generate-notes --title "Rust Desktop ${RELEASE_TAG}"

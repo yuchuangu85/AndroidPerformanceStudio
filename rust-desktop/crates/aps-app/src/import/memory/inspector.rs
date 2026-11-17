@@ -9,11 +9,11 @@
 //!
 //! Expanded fields and references use bounded, lazily loaded InstanceDetail
 //! payloads; their expansion state is local to each tree path.
-use super::state::InspectorTab;
+use super::state::{InspectorTab, MemoryTable};
 use super::{ImportWorkspace, MEMORY_ARRAY_PAGE, widgets};
 use crate::studio::{self, StudioColors};
 use aps_memory::{HeapValueKind, InstanceDetail, InstanceField, MemorySnapshot};
-use aps_ui_foundation::{Language, TextKey};
+use aps_ui_foundation::{Language, TextKey, typography};
 use gpui_kit::{
     component::scroll::{ScrollableElement, Scrollbar, ScrollbarAxis},
     prelude::*,
@@ -154,7 +154,7 @@ const ROW_PADDING_END: f32 = 4.;
 /// Compose inspector row item gap.
 const ROW_GAP: f32 = 3.;
 /// Compose disclosure triangle slot.
-const DISCLOSURE_WIDTH: f32 = 12.;
+const DISCLOSURE_WIDTH: f32 = widgets::DISCLOSURE_WIDTH;
 /// Compose MemoryInspectorColumn.LABEL minimum width.
 const LABEL_MIN_WIDTH: f32 = 120.;
 /// Compose metric column minimum width.
@@ -471,7 +471,7 @@ impl ImportWorkspace {
                         .id("memory-inspector-title-text")
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(TABLE_FONT))
+                        .text_size(px(typography::SUPPORTING))
                         .line_height(px(TABLE_LINE))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.text)
@@ -671,6 +671,8 @@ impl ImportWorkspace {
             &table_scroll,
             language,
             table_empty.clone(),
+            &self.memory_state.inspector_column_widths,
+            cx,
         )));
 
         panel.into_any_element()
@@ -710,6 +712,8 @@ fn inspector_table(
     scroll_handle: &UniformListScrollHandle,
     language: Language,
     empty_message: SharedString,
+    widths: &[f32; 6],
+    cx: &mut Context<ImportWorkspace>,
 ) -> AnyElement {
     // The inspector pane is constrained to roughly 260-620 px in Compose; the
     // label column absorbs all extra width while metric columns stay compact.
@@ -738,14 +742,25 @@ fn inspector_table(
         let metric = *column != InspectorColumn::Label;
         let sort_entity = entity.clone();
         let sort_column = *column;
+        let column_index = InspectorColumn::ALL
+            .iter()
+            .position(|candidate| candidate == column)
+            .unwrap_or(0);
         header = header.child(
-            widgets::header_cell(
-                (*column != InspectorColumn::Label).then(|| column.fixed_width()),
-                title,
-                metric,
-                metric,
-                colors,
+            widgets::resizable_header(
+                widgets::header_cell(
+                    metric.then_some(widths[column_index]),
+                    title,
+                    metric,
+                    metric,
+                    colors,
+                ),
+                MemoryTable::Inspector,
+                column_index,
+                widths[column_index],
+                cx,
             )
+            .text_size(px(typography::SUPPORTING))
             .id(("memory-inspector-header", sort_column as usize))
             .cursor_pointer()
             .on_click(move |_, _, cx| {
@@ -771,6 +786,7 @@ fn inspector_table(
         let list_columns = columns.clone();
         let list_entity = entity.clone();
         let list_colors = *colors;
+        let list_widths = *widths;
         let list = uniform_list("memory-inspector-rows", rows.len(), move |range, _, _| {
             let mut items = Vec::with_capacity(range.len());
             for index in range {
@@ -784,6 +800,7 @@ fn inspector_table(
                     &list_entity,
                     &list_colors,
                     language,
+                    &list_widths,
                 ));
             }
             items
@@ -846,6 +863,7 @@ fn inspector_row(
     entity: &Entity<ImportWorkspace>,
     colors: &StudioColors,
     language: Language,
+    widths: &[f32; 6],
 ) -> AnyElement {
     if let Some(paging) = &row.array_paging {
         return field_array_paging_row(index, row.tree_depth, paging, entity, colors, language);
@@ -885,8 +903,12 @@ fn inspector_row(
         .cursor_pointer();
     element = element.child(inspector_label_cell(index, row, entity, colors));
     for column in columns.iter().skip(1) {
+        let column_index = InspectorColumn::ALL
+            .iter()
+            .position(|candidate| candidate == column)
+            .unwrap_or(0);
         element = element.child(widgets::metric_cell(
-            Some(column.fixed_width()),
+            Some(widths[column_index]),
             metric_text(column.metric(row)),
             colors,
         ));
@@ -898,7 +920,7 @@ fn inspector_row(
         .or_else(|| row.reference_path.clone());
     let row_entity = entity.clone();
     element
-        .on_click(move |_, _, cx| {
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
             cx.stop_propagation();
             if let Some(path) = selection_path.clone() {
                 let _ = row_entity.update(cx, |this, cx| {
@@ -1014,7 +1036,7 @@ fn field_array_page_label(paging: &FieldArrayPaging, language: Language) -> Stri
     }
 }
 
-/// Compose inspector label cell: tree indent, 12 dp disclosure, type badge and
+/// Inspector label cell: tree indent, shared disclosure, type badge and
 /// the label run (with the green string-preview suffix on Fields).
 fn inspector_label_cell(
     index: usize,
@@ -1033,37 +1055,28 @@ fn inspector_label_cell(
         .pl(px(indent))
         .pr(px(ROW_PADDING_END));
     if row.expandable {
-        let glyph = if row.expanded { "▾" } else { "▸" };
         let navigate = row.navigate;
         let reference_path = row.reference_path.clone();
         let field_path = row.field_path.clone();
         let disclosure_entity = entity.clone();
         cell = cell.child(
-            div()
-                .id(("memory-inspector-disclosure", index))
-                .w(px(DISCLOSURE_WIDTH))
-                .h_full()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(12.))
-                .line_height(px(TABLE_LINE))
-                .text_color(colors.secondary_text)
-                .cursor_pointer()
-                .child(glyph)
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = disclosure_entity.update(cx, |this, cx| {
-                        if let Some(path) = reference_path.clone() {
-                            this.memory_toggle_reference(path, navigate, cx);
-                            return;
-                        }
-                        if let Some(path) = field_path.clone() {
-                            this.memory_toggle_field(path, navigate, cx);
-                        }
-                    });
-                }),
+            widgets::disclosure_button(
+                ("memory-inspector-disclosure", index),
+                row.expanded,
+                colors.secondary_text,
+            )
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                let _ = disclosure_entity.update(cx, |this, cx| {
+                    if let Some(path) = reference_path.clone() {
+                        this.memory_toggle_reference(path, navigate, cx);
+                        return;
+                    }
+                    if let Some(path) = field_path.clone() {
+                        this.memory_toggle_field(path, navigate, cx);
+                    }
+                });
+            }),
         );
     } else {
         cell = cell.child(div().w(px(DISCLOSURE_WIDTH)).h_full().flex_shrink_0());
@@ -1083,7 +1096,7 @@ fn inspector_label_cell(
             .text_color(colors.text)
             .whitespace_nowrap()
             .text_ellipsis()
-            .child(crate::studio::selectable(row.label.clone())),
+            .child(row.label.clone()),
     );
     if let Some(preview) = row.string_preview.clone() {
         label = label.child(
@@ -1091,7 +1104,7 @@ fn inspector_label_cell(
                 .flex_shrink_0()
                 .font_weight(FontWeight::BOLD)
                 .text_color(rgb(STRING_PREVIEW_COLOR))
-                .child(crate::studio::selectable(preview)),
+                .child(preview),
         );
     }
     cell.child(label).into_any_element()
@@ -1120,7 +1133,7 @@ fn inspector_placeholder(language: Language, colors: &StudioColors, loading: boo
                 .pl(px(4.))
                 .child(
                     div()
-                        .text_size(px(TABLE_FONT))
+                        .text_size(px(typography::SUPPORTING))
                         .line_height(px(TABLE_LINE))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.text)

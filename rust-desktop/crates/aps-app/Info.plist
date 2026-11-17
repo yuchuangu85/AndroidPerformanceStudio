@@ -8,6 +8,8 @@
   <string>Android Performance Studio</string>
   <key>CFBundleExecutable</key>
   <string>aps-app</string>
+  <key>CFBundleIconFile</key>
+  <string>app-icon.icns</string>
   <key>CFBundleIdentifier</key>
   <string>com.androidperformancestudio.desktop</string>
   <key>CFBundleInfoDictionaryVersion</key>
