@@ -12,7 +12,7 @@ pub struct Engine {
     dom_offsets: Vec<u32>,
     dom_children: Vec<u32>,
     visible_dom_roots: Vec<u32>,
-    class_shallow: Option<u64>,
+    class_shallow: Option<Vec<u64>>,
     native_size: Option<Vec<u64>>,
     retained_native_size: Option<Vec<u64>>,
     reverse_mapping: HashMap<String, Option<String>>,
@@ -82,12 +82,7 @@ impl Engine {
             .iter()
             .map(|c| original_name(&c.name, &mapping))
             .collect();
-        let class_shallow = heap
-            .classes
-            .iter()
-            .enumerate()
-            .find(|(i, _)| class_names[*i] == "java.lang.Class")
-            .map(|(_, c)| c.instance_size);
+        let class_shallow = analysis::class_shallow_sizes(&heap, &class_names)?;
         let mut hierarchy = HashMap::new();
         let mut raw_hierarchy = HashMap::new();
         for (index, class) in heap.classes.iter().enumerate() {
@@ -280,7 +275,11 @@ impl Engine {
             .objects
             .get(node as usize)
             .map(|o| o.shallow_size)
-            .unwrap_or(self.class_shallow.unwrap_or(0))
+            .unwrap_or_else(|| {
+                self.class_shallow.as_ref()
+                    .and_then(|sizes| (node as usize).checked_sub(self.heap.objects.len()).and_then(|i| sizes.get(i)))
+                    .copied().unwrap_or(0)
+            })
     }
     pub fn shallow_known(&self, node: u32) -> bool {
         let Some(object) = self.heap.objects.get(node as usize) else {
@@ -764,18 +763,9 @@ impl Engine {
         } else {
             self.all_values(node)?
         };
-        let mut last_primitive = HashMap::new();
-        for (i, value) in values.iter().enumerate() {
-            if value.ty != 2 {
-                last_primitive.insert(value.name.as_str(), i);
-            }
-        }
         let mut fields = Vec::new();
         let mut field_budget = crate::wire::MAX_FRAME - 2048;
-        for (i, value) in values.iter().enumerate() {
-            if value.ty != 2 && last_primitive.get(value.name.as_str()) != Some(&i) {
-                continue;
-            }
+        for value in &values {
             if fields.len() >= crate::wire::MAX_VALUES / 15 {
                 return Err(
                     "field result exceeds protocol value budget; fields are not truncated".into(),

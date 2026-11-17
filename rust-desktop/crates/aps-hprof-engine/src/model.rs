@@ -78,6 +78,14 @@ pub struct Warning {
     pub offset: Option<u64>,
 }
 
+/// Compare binary class identities without changing display names or interpreting
+/// array descriptors as their component class.
+pub(crate) fn class_name_matches(raw: &str, dotted: &str) -> bool {
+    raw.bytes()
+        .map(|byte| if byte == b'/' { b'.' } else { byte })
+        .eq(dotted.bytes())
+}
+
 impl Heap {
     pub fn open(path: &Path) -> Result<Heap, String> {
         crate::parser::open(path)

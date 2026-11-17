@@ -313,6 +313,9 @@ version = "0.1.0"
 [[package]]
 name = "aps-hprof-engine"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "aps-json"

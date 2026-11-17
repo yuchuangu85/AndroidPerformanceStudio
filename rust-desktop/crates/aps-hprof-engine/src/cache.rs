@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAGIC: &[u8; 8] = b"APSHIDX\0";
-const VERSION: u32 = 2;
+const VERSION: u32 = 4;
 const MAX_STRING: u32 = 16 * 1024 * 1024;
 const SHA256_BYTES: usize = 32;
 const IO_BUFFER_BYTES: usize = 64 * 1024;

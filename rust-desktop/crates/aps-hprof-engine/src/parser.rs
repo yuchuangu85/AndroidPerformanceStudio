@@ -1,5 +1,5 @@
 use crate::model::{Class, Field, Heap, Object, ObjectKind, Root, Source, Value, Warning};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
@@ -307,7 +307,6 @@ struct State {
     objects: Vec<Object>,
     object_by_id: HashMap<u64, usize>,
     roots: Vec<Root>,
-    root_set: HashSet<(u64, &'static str)>,
     warnings: Vec<Warning>,
     current_heap: usize,
 }
@@ -322,7 +321,6 @@ impl State {
             objects: Vec::new(),
             object_by_id: HashMap::new(),
             roots: Vec::new(),
-            root_set: HashSet::new(),
             warnings: Vec::new(),
             current_heap: 3,
         }
@@ -453,7 +451,7 @@ fn parse_heap(reader: &mut Reader<'_>, state: &mut State) -> Result<(), String> 
         if let Some((kind, extra_words, extra_ids)) = root_kind(tag) {
             let id = reader.id()?;
             reader.skip(extra_words * 4 + extra_ids * u64::from(reader.id_size))?;
-            if id != 0 && state.root_set.insert((id, kind)) {
+            if id != 0 {
                 state.roots.push(Root {
                     id,
                     kind: kind.into(),
@@ -505,9 +503,7 @@ fn parse_heap(reader: &mut Reader<'_>, state: &mut State) -> Result<(), String> 
                     payload_offset,
                     count,
                     heap: state.current_heap,
-                    shallow_size: size
-                        .checked_add(if reader.id_size == 4 { 12 } else { 16 })
-                        .ok_or("HPROF object array size overflow")?,
+                    shallow_size: size,
                 })?;
             }
             0x23 | 0xc3 => {
@@ -527,11 +523,6 @@ fn parse_heap(reader: &mut Reader<'_>, state: &mut State) -> Result<(), String> 
                 if has_data {
                     reader.skip(size)?;
                 }
-                let header = if reader.id_size == 8 || ty == 7 || ty == 11 {
-                    16
-                } else {
-                    12
-                };
                 state.add_object(Object {
                     id,
                     class_id: 0,
@@ -539,9 +530,7 @@ fn parse_heap(reader: &mut Reader<'_>, state: &mut State) -> Result<(), String> 
                     payload_offset,
                     count,
                     heap: state.current_heap,
-                    shallow_size: size
-                        .checked_add(header)
-                        .ok_or("HPROF primitive array size overflow")?,
+                    shallow_size: size,
                 })?;
             }
             _ => {
@@ -631,7 +620,7 @@ fn root_kind(tag: u8) -> Option<(&'static str, u64, u64)> {
     })
 }
 
-fn width(ty: u8, id_size: u8) -> Result<u64, String> {
+pub(crate) fn width(ty: u8, id_size: u8) -> Result<u64, String> {
     match ty {
         2 => Ok(u64::from(id_size)),
         4 | 8 => Ok(1),

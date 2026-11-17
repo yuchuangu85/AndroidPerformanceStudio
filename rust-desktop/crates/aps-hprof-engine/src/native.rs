@@ -22,7 +22,7 @@ fn reference(values: &[Value], name: &str) -> Option<u64> {
 fn exact_class(heap: &Heap, object: &Object, name: &str) -> bool {
     heap.class_by_id
         .get(&object.class_id)
-        .is_some_and(|&index| heap.classes[index].name == name)
+        .is_some_and(|&index| crate::model::class_name_matches(&heap.classes[index].name, name))
 }
 
 /// Maps registered native bytes to the Cleaner referent, matching perflib's

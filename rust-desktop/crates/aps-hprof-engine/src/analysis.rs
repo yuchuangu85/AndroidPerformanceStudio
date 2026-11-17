@@ -33,6 +33,31 @@ pub(crate) fn filled<T: Clone>(n: usize, value: T) -> Result<Vec<T>, String> {
     Ok(result)
 }
 
+/// Existing class-object sizing policy: use java.lang.Class's recorded instance
+/// size when available, without synthesizing headers or alignment.
+pub fn class_shallow_size(heap: &Heap, names: &[String]) -> Option<u64> {
+    heap.classes.iter().enumerate().find_map(|(i, class)| {
+        crate::model::class_name_matches(
+            names.get(i).map(String::as_str).unwrap_or(&class.name),
+            "java.lang.Class",
+        )
+        .then_some(class.instance_size)
+    })
+}
+
+/// Perflib stores static field bytes on the represented class object.
+pub fn class_shallow_sizes(heap: &Heap, names: &[String]) -> Result<Option<Vec<u64>>, String> {
+    let Some(base) = class_shallow_size(heap, names) else {
+        return Ok(None);
+    };
+    heap.classes.iter().map(|class| {
+        class.static_fields.iter().try_fold(base, |size, field| {
+            size.checked_add(crate::parser::width(field.ty, heap.id_size)?)
+                .ok_or_else(|| "class shallow size overflow".to_string())
+        })
+    }).collect::<Result<Vec<_>, _>>().map(Some)
+}
+
 pub fn node_of(heap: &Heap, id: u64) -> Option<u32> {
     heap.class_by_id
         .get(&id)
@@ -63,12 +88,13 @@ pub fn assignable_named(heap: &Heap, names: &[String], base: &str) -> Vec<bool> 
                 break;
             };
             let current = &heap.classes[index];
-            if names
-                .get(index)
-                .map(String::as_str)
-                .unwrap_or(&current.name)
-                == base
-            {
+            if crate::model::class_name_matches(
+                names
+                    .get(index)
+                    .map(String::as_str)
+                    .unwrap_or(&current.name),
+                base,
+            ) {
                 result[i] = true;
                 break;
             }
@@ -118,15 +144,21 @@ impl Graph {
             let weak_holder = is_instance
                 && class_index.is_some_and(|i| {
                     reference_classes[i]
-                        || matches!(
-                            names
-                                .get(i)
-                                .map(String::as_str)
-                                .unwrap_or(&heap.classes[i].name),
-                            "java.lang.ref.WeakReference"
-                                | "java.lang.ref.SoftReference"
-                                | "java.lang.ref.PhantomReference"
-                        )
+                        || [
+                            "java.lang.ref.WeakReference",
+                            "java.lang.ref.SoftReference",
+                            "java.lang.ref.PhantomReference",
+                        ]
+                        .iter()
+                        .any(|base| {
+                            crate::model::class_name_matches(
+                                names
+                                    .get(i)
+                                    .map(String::as_str)
+                                    .unwrap_or(&heap.classes[i].name),
+                                base,
+                            )
+                        })
                 });
             if !matches!(object.kind, ObjectKind::PrimitiveArray { .. }) {
                 let count = if is_instance {
@@ -270,6 +302,8 @@ impl Traversal {
             .roots
             .iter()
             .enumerate()
+            // ROOT_UNREACHABLE records preserve provenance, not strong roots.
+            .filter(|(_, r)| r.kind != "UNREACHABLE")
             .filter_map(|(i, r)| node_of(heap, r.id).map(|node| (node, i)))
             .collect();
         roots.sort_by(|(a, ai), (b, bi)| {
@@ -377,12 +411,21 @@ impl Analysis {
     ) -> Result<Self, String> {
         let graph = Graph::build_named_with_storage(heap, names, storage)?;
         let traversal = Traversal::build(heap, &graph, false)?;
-        let shallow: Vec<_> = heap
+        let class_shallow = class_shallow_sizes(heap, names)?
+            .unwrap_or_else(|| vec![0; heap.classes.len()]);
+        let mut shallow: Vec<_> = heap
             .objects
             .iter()
             .map(|o| o.shallow_size)
-            .chain(heap.classes.iter().map(|_| 0))
+            .chain(class_shallow)
             .collect();
+        // Perflib Instance.resetRetainedSize includes attributed native bytes;
+        // retainedNativeSize remains a separately reported subset of this total.
+        if let Some(native) = crate::native::map_native_sizes(heap)? {
+            for (size, native_size) in shallow.iter_mut().zip(native) {
+                *size = size.checked_add(native_size).ok_or("retained size overflow")?;
+            }
+        }
         let (retained, immediate) = dominators(&graph, &traversal, &shallow)?;
         Ok(Self {
             graph,

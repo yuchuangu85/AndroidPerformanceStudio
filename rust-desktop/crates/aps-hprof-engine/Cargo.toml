@@ -6,3 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+
+[dev-dependencies]
+serde_json.workspace = true
