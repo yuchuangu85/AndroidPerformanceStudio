@@ -267,7 +267,6 @@ struct InspectorRow {
     label: String,
     /// Compose colors the field string preview green and semibold.
     string_preview: Option<String>,
-    copy_text: String,
     sort_name: String,
     tree_depth: u32,
     field_depth: Option<u32>,
@@ -311,7 +310,6 @@ impl InspectorRow {
         Self {
             label,
             string_preview: None,
-            copy_text: String::new(),
             sort_name: String::new(),
             tree_depth,
             field_depth: None,
@@ -408,6 +406,10 @@ impl ImportWorkspace {
             language,
             sort_column,
             sort_ascending,
+        );
+        apply_selected_path(
+            &mut rows,
+            self.memory_state.inspector_selected_path.as_deref(),
         );
         let mut empty_message = SharedString::default();
         if references_tab && rows.len() == 1 && rows.first().is_some_and(|row| row.expanded) {
@@ -890,29 +892,19 @@ fn inspector_row(
         ));
     }
 
-    let navigate = row.navigate;
-    let copy_text = row.copy_text.clone();
-    let reference_path = row.reference_path.clone();
-    let field_path = row.field_path.clone();
+    let selection_path = row
+        .field_path
+        .clone()
+        .or_else(|| row.reference_path.clone());
     let row_entity = entity.clone();
     element
         .on_click(move |_, _, cx| {
-            if let Some(path) = reference_path.clone() {
+            cx.stop_propagation();
+            if let Some(path) = selection_path.clone() {
                 let _ = row_entity.update(cx, |this, cx| {
-                    this.memory_toggle_reference(path, navigate, cx);
+                    this.memory_select_inspector_row(path, cx);
                 });
-                return;
             }
-            if let Some(path) = field_path.clone() {
-                cx.stop_propagation();
-                if navigate.is_some() {
-                    let _ = row_entity.update(cx, |this, cx| {
-                        this.memory_toggle_field(path, navigate, cx);
-                    });
-                }
-                return;
-            }
-            cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
         })
         .into_any_element()
 }
@@ -1234,7 +1226,6 @@ fn build_rows_with_references(
                 detail.represented_class_name.as_deref(),
             ),
             string_preview: None,
-            copy_text: detail.class_name.clone(),
             sort_name: detail.class_name.clone(),
             tree_depth: 0,
             field_depth: detail.depth,
@@ -1593,15 +1584,9 @@ fn field_row(
     } else {
         split_field_label(field)
     };
-    let copy_text = if references {
-        label.clone()
-    } else {
-        field_value_label(field)
-    };
     InspectorRow {
         label,
         string_preview,
-        copy_text,
         sort_name: field.name.clone(),
         tree_depth,
         field_depth: field.depth,
@@ -1639,6 +1624,18 @@ fn sort_rows(rows: &mut [InspectorRow], column: InspectorColumn, ascending: bool
             ordering.reverse()
         }
     });
+}
+
+fn apply_selected_path(rows: &mut [InspectorRow], selected: Option<&str>) {
+    let Some(selected) = selected else {
+        return;
+    };
+    for row in rows {
+        row.selected = !row.is_message
+            && row.array_paging.is_none()
+            && (row.field_path.as_deref() == Some(selected)
+                || row.reference_path.as_deref() == Some(selected));
+    }
 }
 
 /// Compose inspectorObjectLabel: represented classes render as
@@ -2018,6 +2015,102 @@ mod tests {
             }
         }
         assert_eq!(rows.len(), 3);
+    }
+
+    #[::core::prelude::v1::test]
+    fn selecting_a_row_preserves_the_current_object_and_tree() {
+        let mut state = super::super::state::MemoryState::new();
+        state.selected_object = Some(1);
+        state.detail = Some(Arc::new(InstanceDetail {
+            object_id: 1,
+            ..InstanceDetail::default()
+        }));
+        state.instances = Some(Arc::new(aps_memory::InstancesPage::default()));
+        state.history = vec![1];
+        state.inspector_expanded.insert("field-root/0".into());
+        state
+            .inspector_reference_expanded
+            .insert("reference-root/0".into());
+        state.inspector_nearest_auto_expand = true;
+        state.select_inspector_row("field-root/1".into());
+        assert_eq!(
+            state.inspector_selected_path.as_deref(),
+            Some("field-root/1")
+        );
+        assert!(!state.inspector_nearest_auto_expand);
+        assert_eq!(state.selected_object, Some(1));
+        assert_eq!(state.detail.as_ref().unwrap().object_id, 1);
+        assert!(state.instances.is_some());
+        assert_eq!(state.history, [1]);
+        assert!(state.inspector_expanded.contains("field-root/0"));
+        assert!(
+            state
+                .inspector_reference_expanded
+                .contains("reference-root/0")
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn selected_path_highlights_only_the_matching_visible_row() {
+        let detail = InstanceDetail {
+            object_id: 42,
+            fields: vec![object_field("object", 7), field("number", Some(4), None)],
+            references: vec![
+                InstanceField {
+                    depth: Some(0),
+                    ..object_field("parent", 7)
+                },
+                InstanceField {
+                    depth: Some(0),
+                    ..object_field("other", 8)
+                },
+            ],
+            reference_chain: vec![aps_memory::ObjectReference {
+                field_name: None,
+                root_kind: None,
+                object_id: 7,
+                class_name: "Root".into(),
+            }],
+            depth: Some(1),
+            ..InstanceDetail::default()
+        };
+        let mut fields = field_tree_rows(
+            &detail,
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+        );
+        apply_selected_path(&mut fields, Some("field-root/1"));
+        assert_eq!(
+            fields
+                .iter()
+                .filter(|row| row.selected)
+                .map(|row| row.sort_name.as_str())
+                .collect::<Vec<_>>(),
+            ["number"]
+        );
+        assert!(fields.iter().all(|row| !row.expanded));
+
+        let mut references = build_rows(
+            &detail,
+            true,
+            true,
+            &BTreeSet::new(),
+            InspectorColumn::Depth,
+            true,
+        );
+        assert!(references.iter().any(|row| row.selected));
+        apply_selected_path(&mut references, Some("reference-root/1"));
+        assert_eq!(
+            references
+                .iter()
+                .filter(|row| row.selected)
+                .map(|row| row.reference_path.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("reference-root/1")]
+        );
+        apply_selected_path(&mut references, Some("reference-root/99"));
+        assert!(references.iter().all(|row| !row.selected));
     }
 
     #[::core::prelude::v1::test]

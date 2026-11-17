@@ -144,6 +144,8 @@ pub(crate) struct MemoryState {
     pub detail_loading: bool,
     pub inspector_tab: InspectorTab,
     pub nearest_root_only: bool,
+    /// Explicit selection is scoped to the current object and inspector tab.
+    pub inspector_selected_path: Option<String>,
     pub inspector_nearest_auto_expand: bool,
     /// Inspector-local expansion (drill-in rows keep their chevron state).
     pub inspector_expanded: BTreeSet<String>,
@@ -236,6 +238,7 @@ impl MemoryState {
             instance_offset: 0,
             selected_object: None,
             detail: None,
+            inspector_selected_path: None,
             detail_loading: false,
             inspector_tab: InspectorTab::Fields,
             nearest_root_only: false,
@@ -314,6 +317,11 @@ impl MemoryState {
         self.refresh_export_availability();
     }
 
+    pub(super) fn select_inspector_row(&mut self, path: String) {
+        self.inspector_selected_path = Some(path);
+        self.inspector_nearest_auto_expand = false;
+    }
+
     /// Recomputes the export-capability mirror after the snapshot or a
     /// selection-bound page changes. The workspace helper adds the raw-HPROF
     /// source-path/session precondition on top of this projection.
@@ -367,6 +375,7 @@ impl MemoryState {
         self.detail = None;
         self.detail_loading = false;
         self.inspector_tab = InspectorTab::Fields;
+        self.inspector_selected_path = None;
         self.nearest_root_only = false;
         self.inspector_nearest_auto_expand = false;
         self.inspector_expanded.clear();

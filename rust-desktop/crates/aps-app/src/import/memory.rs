@@ -328,6 +328,7 @@ impl ImportWorkspace {
     }
 
     fn memory_reset_reference_tree(&mut self) {
+        self.memory_state.inspector_selected_path = None;
         self.memory_state.inspector_expanded.clear();
         self.memory_state.inspector_field_array_offsets.clear();
         self.memory_state.inspector_reference_generation = self
@@ -401,6 +402,9 @@ impl ImportWorkspace {
         tab: state::InspectorTab,
         cx: &mut Context<Self>,
     ) {
+        if self.memory_state.inspector_tab != tab {
+            self.memory_state.inspector_selected_path = None;
+        }
         self.memory_state.inspector_tab = tab;
         if tab == state::InspectorTab::References {
             inspector::open_reference_root(&mut self.memory_state.inspector_reference_expanded);
@@ -409,6 +413,11 @@ impl ImportWorkspace {
                 self.memory_expand_nearest_reference_path(cx);
             }
         }
+        cx.notify();
+    }
+
+    pub(super) fn memory_select_inspector_row(&mut self, path: String, cx: &mut Context<Self>) {
+        self.memory_state.select_inspector_row(path);
         cx.notify();
     }
 
@@ -535,6 +544,7 @@ impl ImportWorkspace {
         self.memory_state.nearest_root_only = value;
         self.memory_state.inspector_nearest_auto_expand = value;
         if value {
+            self.memory_state.inspector_selected_path = None;
             self.memory_state.inspector_reference_expanded.clear();
             inspector::open_reference_root(&mut self.memory_state.inspector_reference_expanded);
             self.memory_expand_nearest_reference_path(cx);
