@@ -762,8 +762,8 @@ fn sort_rows(
 }
 
 /// Aggregate summary for the current filter. Retained totals are unavailable
-/// while a class filter is active or any displayed class lacks retained
-/// evidence; native totals require evidence for every displayed class.
+/// while a class filter is active or the retained evidence is incomplete;
+/// native totals require evidence for every displayed class.
 pub fn class_list_summary(snapshot: &MemorySnapshot, filter: &MemoryFilter) -> ClassListSummary {
     let displayed = displayed_classes(snapshot, filter);
     summary_for(snapshot, filter, &displayed)
@@ -810,17 +810,8 @@ fn summary_for(
         .count() as u64;
     let retained_size = if class_filter_active {
         None
-    } else if let Some(heap) = filter.heap.as_deref() {
-        snapshot
-            .per_heap_summaries
-            .get(heap)
-            .and_then(|summary| summary.retained_size)
-            .or_else(|| sum_all(&known_reachable_shallow, displayed.len()))
     } else {
-        snapshot
-            .summary
-            .retained_size
-            .or_else(|| sum_all(&known_reachable_shallow, displayed.len()))
+        sum_all(&known_reachable_shallow, displayed.len())
     };
     ClassListSummary {
         class_count: displayed.len() as u64,

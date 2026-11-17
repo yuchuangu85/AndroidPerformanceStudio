@@ -103,6 +103,192 @@ fn node(engine: &Engine, id: u64) -> usize {
 }
 
 #[test]
+fn instances_index_combines_classes_with_the_same_mapped_name() {
+    let mut dump = Dump::new();
+    dump.class(1, "a", 0, 8, &[]);
+    dump.class(2, "b", 0, 8, &[]);
+    dump.instance(10, 1, &[]);
+    dump.instance(11, 2, &[]);
+    dump.instance(12, 1, &[]);
+    let fixture = dump.finish();
+    let mapping = BTreeMap::from([
+        ("a".to_owned(), "mapped.Item".to_owned()),
+        ("b".to_owned(), "mapped.Item".to_owned()),
+    ]);
+    let engine = Engine::new(Heap::open(&fixture.0).unwrap(), mapping).unwrap();
+    let page = engine.instances(&["mapped.Item".into()], None, 1, 2, true, None).unwrap();
+    assert_eq!(page.get("total").unwrap().as_int().unwrap(), 3);
+    let rows = page.get("rows").unwrap().as_list().unwrap();
+    assert_eq!(rows.iter().map(|row| row.get("objectId").unwrap().as_int().unwrap()).collect::<Vec<_>>(), vec![11, 12]);
+    assert_eq!(rows.iter().map(|row| row.get("index").unwrap().as_int().unwrap()).collect::<Vec<_>>(), vec![2, 3]);
+}
+
+#[test]
+fn instances_keep_signed_id_order_and_anchor_position() {
+    let mut dump = Dump::new();
+    dump.class(1, "Item", 0, 8, &[]);
+    for id in [10, 11, 12] {
+        dump.instance(id, 1, &[]);
+    }
+    let fixture = dump.finish();
+    let mut heap = Heap::open(&fixture.0).unwrap();
+    for (object, id) in heap.objects.iter_mut().zip([5, u64::MAX, 1u64 << 63]) {
+        object.id = id;
+    }
+    heap.object_by_id = heap.objects.iter().enumerate().map(|(i, object)| (object.id, i)).collect();
+    let engine = Engine::new(heap, BTreeMap::new()).unwrap();
+    let page = engine.instances(&["Item".into()], None, 0, 2, true, Some(u64::MAX)).unwrap();
+    assert_eq!(page.get("total").unwrap().as_int().unwrap(), 3);
+    assert_eq!(page.get("offset").unwrap().as_int().unwrap(), 0);
+    let rows = page.get("rows").unwrap().as_list().unwrap();
+    assert_eq!(rows.iter().map(|row| row.get("objectId").unwrap().as_int().unwrap()).collect::<Vec<_>>(), vec![i64::MIN, -1]);
+    let page = engine.instances(&["Item".into()], None, 2, 2, true, None).unwrap();
+    let rows = page.get("rows").unwrap().as_list().unwrap();
+    assert_eq!(rows[0].get("objectId").unwrap().as_int().unwrap(), 5);
+    assert_eq!(rows[0].get("index").unwrap().as_int().unwrap(), 3);
+}
+
+#[test]
+fn instances_pages_match_full_scan_across_classes_heaps_and_anchors() {
+    let mut dump = Dump::new();
+    dump.class(1, "java.lang.Class", 0, 24, &[]);
+    dump.class(2, "a.Node", 0, 8, &[]);
+    dump.class(3, "a.Node", 0, 12, &[]);
+    dump.class(4, "b.Other", 0, 4, &[]);
+    let app = dump.string("app");
+    let zygote = dump.string("zygote");
+    dump.heap.push(0xfe);
+    dump.heap.extend(0u32.to_be_bytes());
+    dump.heap.extend(app.to_be_bytes());
+    for (id, class) in [(10, 2), (12, 4), (14, 3), (18, 2)] {
+        dump.instance(id, class, &[]);
+    }
+    dump.heap.push(0x23);
+    dump.heap.extend(20u32.to_be_bytes());
+    dump.heap.extend(0u32.to_be_bytes());
+    dump.heap.extend(2u32.to_be_bytes());
+    dump.heap.push(8);
+    dump.heap.extend([1, 2]);
+    dump.heap.push(0xfe);
+    dump.heap.extend(0u32.to_be_bytes());
+    dump.heap.extend(zygote.to_be_bytes());
+    for (id, class) in [(11, 2), (13, 4), (15, 3), (19, 4)] {
+        dump.instance(id, class, &[]);
+    }
+    let fixture = dump.finish();
+    let engine = fixture.engine();
+    let selections = [
+        vec!["a.Node".to_owned()],
+        vec!["a.Node".to_owned(), "b.Other".to_owned(), "a.Node".to_owned()],
+        vec!["byte[]".to_owned(), "a.Node".to_owned()],
+        vec!["missing".to_owned()],
+    ];
+    for names in selections {
+        for heap in [None, Some("App"), Some("Zygote"), Some("missing")] {
+            for ordinary in [false, true] {
+                let mut nodes: Vec<u32> = (0..engine.analysis.retained.len() as u32)
+                    .filter(|&node| {
+                        names.iter().any(|name| name == engine.group_name(node))
+                            && (heap.is_none() || engine.heap_name(node) == heap)
+                            && (!ordinary || engine.heap.objects.get(node as usize)
+                                .is_some_and(|object| matches!(object.kind, aps_hprof_engine::model::ObjectKind::Instance)))
+                    })
+                    .collect();
+                nodes.sort_unstable_by_key(|&node| analysis::id_of(&engine.heap, node) as i64);
+                for anchor in [None, Some(10), Some(11), Some(999)] {
+                    for offset in [0, 2, 4, 20] {
+                        let limit = 2;
+                        let actual = engine.instances(&names, heap, offset, limit, ordinary, anchor).unwrap();
+                        let expected_offset = anchor.and_then(|id| nodes.iter().position(|&n| analysis::id_of(&engine.heap, n) == id))
+                            .map(|position| position / limit * limit).unwrap_or(offset);
+                        let mut ordinals = BTreeMap::new();
+                        let mut expected = Vec::new();
+                        for (position, &node) in nodes.iter().enumerate() {
+                            let ordinal = ordinals.entry(engine.group_name(node)).or_insert(0i64);
+                            *ordinal += 1;
+                            if (expected_offset..expected_offset.saturating_add(limit)).contains(&position) {
+                                expected.push((analysis::id_of(&engine.heap, node) as i64, *ordinal));
+                            }
+                        }
+                        let rows: Vec<_> = actual.get("rows").unwrap().as_list().unwrap().iter()
+                            .map(|row| (row.get("objectId").unwrap().as_int().unwrap(), row.get("index").unwrap().as_int().unwrap()))
+                            .collect();
+                        assert_eq!(actual.get("total").unwrap().as_int().unwrap(), nodes.len() as i64);
+                        assert_eq!(actual.get("offset").unwrap().as_int().unwrap(), expected_offset as i64);
+                        assert_eq!(rows, expected, "names={names:?} heap={heap:?} ordinary={ordinary} anchor={anchor:?} offset={offset}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn reachable_shallow_histogram_uses_object_heap_and_excludes_unreachable() {
+    let mut dump = Dump::new();
+    dump.class(1, "java.lang.Class", 0, 24, &[]);
+    dump.class(2, "Node", 0, 8, &[("child", 2)]);
+    let app = dump.string("app");
+    let zygote = dump.string("zygote");
+    dump.heap.push(0xfe);
+    dump.heap.extend(0u32.to_be_bytes());
+    dump.heap.extend(app.to_be_bytes());
+    dump.instance(10, 2, &11u32.to_be_bytes());
+    dump.instance(12, 2, &0u32.to_be_bytes());
+    dump.root(0xff, 10);
+    dump.heap.push(0xfe);
+    dump.heap.extend(0u32.to_be_bytes());
+    dump.heap.extend(zygote.to_be_bytes());
+    dump.instance(11, 2, &0u32.to_be_bytes());
+    let fixture = dump.finish();
+    let engine = fixture.engine();
+    for (heap, expected) in [(None, 16), (Some("App"), 8), (Some("Zygote"), 8)] {
+        for histogram in [
+            engine.histogram(heap).unwrap(),
+            engine.raw_histogram(heap).unwrap(),
+        ] {
+            let rows = histogram.get("classes").unwrap().as_list().unwrap();
+            let row = rows
+                .iter()
+                .find(|row| row.get("className").unwrap().as_str().unwrap() == "Node")
+                .unwrap();
+            assert_eq!(
+                row.get("reachableShallowSize").unwrap().as_int().unwrap(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn reachable_shallow_reports_unknown_only_for_reachable_unknown_objects() {
+    for reachable in [false, true] {
+        let mut dump = Dump::new();
+        dump.class(1, "java.lang.Class", 0, 24, &[]);
+        dump.instance(10, 99, &[]);
+        if reachable {
+            dump.root(0xff, 10);
+        }
+        let fixture = dump.finish();
+        let engine = fixture.engine();
+        let histogram = engine.histogram(None).unwrap();
+        let rows = histogram.get("classes").unwrap().as_list().unwrap();
+        let unknown = rows
+            .iter()
+            .find(|row| row.get("className").unwrap().as_str().unwrap() == "<unknown>")
+            .unwrap();
+        assert_eq!(
+            unknown.get("reachableShallowSize").unwrap(),
+            &if reachable {
+                Value::Null
+            } else {
+                Value::Int(0)
+            }
+        );
+    }
+}
+
+#[test]
 fn class_static_storage_uses_declared_widths_in_detail_and_retention() {
     let mut dump = Dump::new();
     dump.class(1, "java.lang.Class", 0, 24, &[]);
@@ -182,6 +368,13 @@ fn total_retained_includes_native_owner_and_dominated_bytes_once() {
     assert_eq!(engine.analysis.retained[node(&engine, 13)], 4104);
     assert_eq!(engine.analysis.retained[node(&engine, 14)], 4108);
     assert_eq!(engine.analysis.retained[node(&engine, 10)], 20);
+    let histogram = engine.histogram(None).unwrap();
+    let rows = histogram.get("classes").unwrap().as_list().unwrap();
+    let reachable: i64 = rows
+        .iter()
+        .map(|row| row.get("reachableShallowSize").unwrap().as_int().unwrap())
+        .sum();
+    assert_eq!(reachable, 32);
     let detail = engine.detail(14, 0, 20).unwrap();
     assert_eq!(detail.get("retainedSize").unwrap().as_int().unwrap(), 4108);
     assert_eq!(detail.get("retainedNativeSize").unwrap().as_int().unwrap(), 4096);

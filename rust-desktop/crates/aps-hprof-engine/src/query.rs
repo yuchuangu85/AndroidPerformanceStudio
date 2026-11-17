@@ -2,12 +2,16 @@ use crate::analysis::{self, Analysis, NONE, READ_CHUNK, Traversal, id_of, node_o
 use crate::edges::GraphStorage;
 use crate::model::{Heap, ObjectKind, Value as HeapValue};
 use crate::wire::{Value, number};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+
+// Buckets are ordered by signed object ID and partitioned by heap and kind.
+type InstanceIndex = HashMap<String, HashMap<(usize, bool), Vec<u32>>>;
 
 pub struct Engine {
     pub heap: Heap,
     pub analysis: Analysis,
-    sorted: Vec<u32>,
+    instance_index: InstanceIndex,
     dom_depth: Vec<u32>,
     dom_offsets: Vec<u32>,
     dom_children: Vec<u32>,
@@ -167,7 +171,7 @@ impl Engine {
             retained_native_size,
             heap,
             analysis,
-            sorted,
+            instance_index: HashMap::new(),
             dom_depth,
             dom_offsets,
             dom_children,
@@ -178,6 +182,31 @@ impl Engine {
             raw_hierarchy,
             class_names,
         };
+        let mut instance_index = InstanceIndex::new();
+        for node in sorted {
+            let name = result.group_name(node);
+            if !instance_index.contains_key(name) {
+                instance_index.insert(name.to_owned(), HashMap::new());
+            }
+            let (heap, ordinary) = if let Some(object) = result.heap.objects.get(node as usize) {
+                (object.heap, matches!(object.kind, ObjectKind::Instance))
+            } else {
+                (
+                    result.heap.classes[node as usize - result.heap.objects.len()].heap,
+                    false,
+                )
+            };
+            let nodes = instance_index
+                .get_mut(name)
+                .expect("instance group was inserted")
+                .entry((heap, ordinary))
+                .or_default();
+            nodes
+                .try_reserve(1)
+                .map_err(|_| "cannot allocate instance index")?;
+            nodes.push(node);
+        }
+        result.instance_index = instance_index;
         // Siblings share global depth; sorting once also makes repeat tree expansion cheap.
         for p in 0..=n {
             let begin = result.dom_offsets[p] as usize;
@@ -344,6 +373,8 @@ impl Engine {
         struct Total {
             count: u64,
             shallow: u64,
+            reachable_shallow: u64,
+            reachable_shallow_unknown: bool,
             native: u64,
             reachable_native: u64,
             retained_native: u64,
@@ -374,6 +405,13 @@ impl Engine {
             let total = &mut totals[group as usize];
             total.count += 1;
             add(&mut total.shallow, size)?;
+            if self.analysis.traversal.depth[node as usize] != NONE {
+                if self.shallow_known(node) {
+                    add(&mut total.reachable_shallow, size)?;
+                } else {
+                    total.reachable_shallow_unknown = true;
+                }
+            }
             if let Some(native) = &self.native_size {
                 add(&mut total.native, native[node as usize])?;
                 if self.analysis.traversal.depth[node as usize] != NONE {
@@ -447,6 +485,14 @@ impl Engine {
                     ("className", name.into()),
                     ("instanceCount", number(total.count)?),
                     ("shallowSize", number(total.shallow)?),
+                    (
+                        "reachableShallowSize",
+                        if total.reachable_shallow_unknown {
+                            Value::Null
+                        } else {
+                            number(total.reachable_shallow)?
+                        },
+                    ),
                     ("retainedSize", number(total.retained)?),
                     (
                         "obfuscatedClassName",
@@ -537,42 +583,79 @@ impl Engine {
     ) -> Result<Value, String> {
         check_page(offset, limit, 4096)?;
         let names: HashSet<&str> = names.iter().map(String::as_str).collect();
-        let selected = |node: u32| {
-            names.contains(self.group_name(node))
-                && (heap.is_none() || self.heap_name(node) == heap)
-                && (!ordinary
-                    || self
-                        .heap
-                        .objects
-                        .get(node as usize)
-                        .is_some_and(|o| matches!(o.kind, ObjectKind::Instance)))
-        };
+        let heap_index = heap.and_then(|name| self.heap.heaps.iter().position(|h| h == name));
+        let mut buckets = Vec::new();
         let mut total = 0usize;
-        let mut anchor_position = None;
-        for &node in &self.sorted {
-            if selected(node) {
-                if anchor == Some(id_of(&self.heap, node)) {
-                    anchor_position = Some(total);
+        for name in names {
+            if let Some(groups) = self.instance_index.get(name) {
+                for (&(bucket_heap, bucket_ordinary), nodes) in groups {
+                    if (heap.is_some() && Some(bucket_heap) != heap_index)
+                        || (ordinary && !bucket_ordinary)
+                    {
+                        continue;
+                    }
+                    total = total
+                        .checked_add(nodes.len())
+                        .ok_or("instance count overflow")?;
+                    buckets.push((name, nodes.as_slice()));
                 }
-                total += 1;
             }
         }
+        let anchor_position = anchor.and_then(|id| {
+            let key = id as i64;
+            let mut found = false;
+            let mut position = 0usize;
+            for (_, nodes) in &buckets {
+                let before = nodes.partition_point(|&node| (id_of(&self.heap, node) as i64) < key);
+                position += before;
+                found |= nodes.get(before).is_some_and(|&node| id_of(&self.heap, node) == id);
+            }
+            found.then_some(position)
+        });
         let offset = anchor_position.map(|i| i / limit * limit).unwrap_or(offset);
+        if buckets.len() == 1 {
+            let rows = buckets[0]
+                .1
+                .iter()
+                .enumerate()
+                .skip(offset)
+                .take(limit)
+                .map(|(index, &node)| self.instance_row(node, index + 1))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Value::map([
+                ("total", number(total as u64)?),
+                ("offset", number(offset as u64)?),
+                ("rows", Value::List(rows)),
+            ]));
+        }
         let mut rows = Vec::new();
         let mut index = 0usize;
         let mut class_ordinals: HashMap<&str, usize> = HashMap::new();
-        for &node in &self.sorted {
-            if !selected(node) {
-                continue;
+        let mut next = BinaryHeap::new();
+        for (bucket, (_, nodes)) in buckets
+            .iter()
+            .enumerate()
+            .filter(|_| offset < total)
+        {
+            if let Some(&node) = nodes.first() {
+                next.push(Reverse((id_of(&self.heap, node) as i64, bucket, 0usize)));
             }
-            let ordinal = class_ordinals.entry(self.group_name(node)).or_default();
+        }
+        while let Some(Reverse((_, bucket, position))) = next.pop() {
+            let (name, nodes) = buckets[bucket];
+            let node = nodes[position];
+            let ordinal = class_ordinals.entry(name).or_default();
             *ordinal += 1;
             if index >= offset && rows.len() < limit {
                 rows.push(self.instance_row(node, *ordinal)?);
             }
             index += 1;
-            if index >= offset.saturating_add(limit) {
+            if rows.len() == limit {
                 break;
+            }
+            let position = position + 1;
+            if let Some(&node) = nodes.get(position) {
+                next.push(Reverse((id_of(&self.heap, node) as i64, bucket, position)));
             }
         }
         Ok(Value::map([

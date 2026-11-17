@@ -425,6 +425,56 @@ fn class_list_summary_tracks_native_and_retained_evidence() {
 }
 
 #[test]
+fn retained_summary_prefers_reachable_shallow_for_each_heap() {
+    let mut app_class = class("example.Node", 2, 16);
+    app_class.reachable_shallow_size = Some(8);
+    let mut zygote_class = class("example.Node", 1, 8);
+    zygote_class.reachable_shallow_size = Some(8);
+    let mut all_class = class("example.Node", 3, 24);
+    all_class.reachable_shallow_size = Some(16);
+    let mut snapshot = snapshot_data(
+        vec![all_class],
+        BTreeMap::from([
+            ("App".to_owned(), vec![app_class]),
+            ("Zygote".to_owned(), vec![zygote_class]),
+        ]),
+        FindingsSnapshot::default(),
+    );
+    snapshot.summary.retained_size = Some(1000);
+    snapshot.per_heap_summaries.insert(
+        "App".into(),
+        HeapSummary {
+            retained_size: Some(900),
+            ..HeapSummary::default()
+        },
+    );
+    assert_eq!(
+        class_list_summary(&snapshot, &MemoryFilter::default()).total_retained_size,
+        Some(16)
+    );
+    for heap in ["App", "Zygote"] {
+        let filter = MemoryFilter {
+            heap: Some(heap.into()),
+            ..MemoryFilter::default()
+        };
+        assert_eq!(
+            class_list_summary(&snapshot, &filter).total_retained_size,
+            Some(8)
+        );
+    }
+    snapshot.classes.push(class("unknown", 1, 4));
+    assert_eq!(
+        class_list_summary(&snapshot, &MemoryFilter::default()).total_retained_size,
+        None
+    );
+    snapshot.classes.remove(0);
+    assert_eq!(
+        class_list_summary(&snapshot, &MemoryFilter::default()).total_retained_size,
+        None
+    );
+}
+
+#[test]
 fn class_list_summary_keeps_zero_native_size_as_evidence() {
     let mut zero = class("com.example.Zero", 1, 8);
     zero.native_size = Some(0);
