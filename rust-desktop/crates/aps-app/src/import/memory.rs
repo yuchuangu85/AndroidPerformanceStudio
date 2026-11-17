@@ -250,6 +250,8 @@ impl ImportWorkspace {
         self.memory_state.instance_offset = 0;
         self.memory_state.selected_object = None;
         self.memory_state.detail = None;
+        self.memory_state.detail_generation = self.memory_state.detail_generation.wrapping_add(1);
+        self.memory_state.detail_loading = false;
         self.memory_reset_reference_tree();
         self.memory_state.history.clear();
         self.memory_state.history_index = None;
@@ -326,6 +328,8 @@ impl ImportWorkspace {
     }
 
     fn memory_reset_reference_tree(&mut self) {
+        self.memory_state.inspector_expanded.clear();
+        self.memory_state.inspector_field_array_offsets.clear();
         self.memory_state.inspector_reference_generation = self
             .memory_state
             .inspector_reference_generation
@@ -386,6 +390,7 @@ impl ImportWorkspace {
     pub(super) fn memory_close_inspector(&mut self, cx: &mut Context<Self>) {
         self.memory_state.selected_object = None;
         self.memory_state.detail = None;
+        self.memory_state.detail_generation = self.memory_state.detail_generation.wrapping_add(1);
         self.memory_state.detail_loading = false;
         self.memory_reset_reference_tree();
         cx.notify();
@@ -407,6 +412,41 @@ impl ImportWorkspace {
         cx.notify();
     }
 
+    pub(super) fn memory_toggle_field(
+        &mut self,
+        path: String,
+        target_object_id: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.memory_state.inspector_expanded.remove(&path) {
+            let offset = self
+                .memory_state
+                .inspector_field_array_offsets
+                .get(&path)
+                .copied()
+                .unwrap_or(0);
+            self.memory_state.inspector_expanded.insert(path);
+            if let Some(target_object_id) = target_object_id {
+                self.memory_load_inspector_child(target_object_id, offset, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn memory_page_field_array(
+        &mut self,
+        path: String,
+        object_id: u64,
+        offset: u64,
+        cx: &mut Context<Self>,
+    ) {
+        self.memory_state
+            .inspector_field_array_offsets
+            .insert(path, offset);
+        self.memory_load_inspector_child(object_id, offset, cx);
+        cx.notify();
+    }
+
     pub(super) fn memory_toggle_reference(
         &mut self,
         path: String,
@@ -421,14 +461,23 @@ impl ImportWorkspace {
         };
         if opened {
             if let Some(target_object_id) = target_object_id {
-                self.memory_load_reference_object(target_object_id, cx);
+                self.memory_load_inspector_child(target_object_id, 0, cx);
             }
         }
         cx.notify();
     }
 
-    fn memory_load_reference_object(&mut self, object_id: u64, cx: &mut Context<Self>) {
-        let key = (object_id, 0);
+    fn memory_load_inspector_child(
+        &mut self,
+        object_id: u64,
+        array_start: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(start) = usize::try_from(array_start) else {
+            self.memory_state.error = Some("Array offset is too large".to_owned());
+            return;
+        };
+        let key = (object_id, array_start);
         if self
             .memory_state
             .inspector_reference_details
@@ -452,7 +501,7 @@ impl ImportWorkspace {
                 .lock()
                 .map_err(|_| "Memory session is unavailable".to_owned())?;
             session
-                .detail_page(object_id, 0, MEMORY_ARRAY_PAGE, &cancel)
+                .detail_page(object_id, start, MEMORY_ARRAY_PAGE, &cancel)
                 .map(|detail| detail.map(Arc::new))
                 .map_err(|error| error.to_string())
         });
@@ -527,7 +576,7 @@ impl ImportWorkspace {
             })
         {
             if let Some(target) = target {
-                self.memory_load_reference_object(target, cx);
+                self.memory_load_inspector_child(target, 0, cx);
             }
         } else {
             self.memory_state.inspector_nearest_auto_expand = false;

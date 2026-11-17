@@ -804,7 +804,7 @@ impl ImportWorkspace {
             .child(studio::divider(colors))
             .child(div().flex_1().min_h_0().w_full().child(table))
             .into_any_element();
-        let content = if self.memory_state.detail.is_some() {
+        let content = if inspector_pane_visible(&self.memory_state) {
             // The inspector renders its own content only; this pane is the box.
             let inspector = div()
                 .size_full()
@@ -1642,9 +1642,26 @@ impl InstancePage {
     }
 }
 
+fn inspector_pane_visible(state: &MemoryState) -> bool {
+    state.detail.is_some() || state.detail_loading
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn inspector_pane_remains_visible_while_detail_loads() {
+        let mut state = MemoryState::new();
+        assert!(!inspector_pane_visible(&state));
+        state.detail_loading = true;
+        assert!(inspector_pane_visible(&state));
+        state.detail = Some(std::sync::Arc::new(aps_memory::InstanceDetail::default()));
+        state.detail_loading = false;
+        assert!(inspector_pane_visible(&state));
+        state.detail = None;
+        assert!(!inspector_pane_visible(&state));
+    }
 
     #[::core::prelude::v1::test]
     fn formatters_match_the_compose_oracle() {

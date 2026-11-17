@@ -146,7 +146,9 @@ pub(crate) struct MemoryState {
     pub nearest_root_only: bool,
     pub inspector_nearest_auto_expand: bool,
     /// Inspector-local expansion (drill-in rows keep their chevron state).
-    pub inspector_expanded: BTreeSet<u64>,
+    pub inspector_expanded: BTreeSet<String>,
+    /// Array pages are independent for each expanded field path.
+    pub inspector_field_array_offsets: BTreeMap<String, u64>,
     /// References-tree expansion is path-local so repeated object ids do not
     /// collapse or expand every occurrence at once.
     pub inspector_reference_expanded: BTreeSet<String>,
@@ -239,6 +241,7 @@ impl MemoryState {
             nearest_root_only: false,
             inspector_nearest_auto_expand: false,
             inspector_expanded: BTreeSet::new(),
+            inspector_field_array_offsets: BTreeMap::new(),
             inspector_reference_expanded: BTreeSet::new(),
             inspector_reference_details: BTreeMap::new(),
             inspector_reference_loading: BTreeSet::new(),
@@ -367,6 +370,7 @@ impl MemoryState {
         self.nearest_root_only = false;
         self.inspector_nearest_auto_expand = false;
         self.inspector_expanded.clear();
+        self.inspector_field_array_offsets.clear();
         self.inspector_reference_expanded.clear();
         self.inspector_reference_details.clear();
         self.inspector_reference_loading.clear();

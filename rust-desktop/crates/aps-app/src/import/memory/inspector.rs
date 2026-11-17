@@ -7,10 +7,8 @@
 //! text, disclosure + type badge + Compose label grammar, ASCII-hyphen
 //! unavailable metrics and Compose's column order/widths).
 //!
-//! The bounded InstanceDetail payload is the only evidence source, so an
-//! expandable object reference is a drill-in affordance (the chevron toggles the
-//! persisted expansion marker and the row loads the target object) instead of
-//! claiming nested field rows the worker never sent.
+//! Expanded fields and references use bounded, lazily loaded InstanceDetail
+//! payloads; their expansion state is local to each tree path.
 use super::state::InspectorTab;
 use super::{ImportWorkspace, MEMORY_ARRAY_PAGE, widgets};
 use crate::studio::{self, StudioColors};
@@ -26,6 +24,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 const REFERENCE_ROOT_PATH: &str = "reference-root";
+const FIELD_ROOT_PATH: &str = "field-root";
 
 pub(super) fn open_reference_root(expanded: &mut BTreeSet<String>) {
     expanded.insert(REFERENCE_ROOT_PATH.to_owned());
@@ -277,10 +276,8 @@ struct InspectorRow {
     native_size: Option<u64>,
     retained_native_size: Option<u64>,
     value_kind: HeapValueKind,
-    /// Object to load when the row is activated.
+    /// Object to load when the row is expanded.
     navigate: Option<u64>,
-    /// Object whose chevron expansion marker this row toggles.
-    expand_key: Option<u64>,
     is_root: bool,
     is_message: bool,
     expandable: bool,
@@ -290,6 +287,19 @@ struct InspectorRow {
     selected: bool,
     /// Path-local expansion key for the References tree.
     reference_path: Option<String>,
+    /// Path-local expansion key for the Fields tree.
+    field_path: Option<String>,
+    array_paging: Option<FieldArrayPaging>,
+}
+
+struct FieldArrayPaging {
+    path: String,
+    target: u64,
+    start: u64,
+    page_size: u64,
+    total: u64,
+    page_len: Option<usize>,
+    loading: bool,
 }
 
 impl InspectorRow {
@@ -311,7 +321,6 @@ impl InspectorRow {
             retained_native_size: None,
             value_kind: HeapValueKind::Unknown,
             navigate: None,
-            expand_key: None,
             is_root: false,
             is_message: true,
             expandable: false,
@@ -319,6 +328,8 @@ impl InspectorRow {
             in_reference_chain: false,
             selected: false,
             reference_path: (!path.is_empty()).then_some(path),
+            field_path: None,
+            array_paging: None,
         }
     }
 
@@ -370,6 +381,7 @@ impl ImportWorkspace {
         let references_tab = self.memory_state.inspector_tab == InspectorTab::References;
         let nearest_only = self.memory_state.nearest_root_only;
         let expanded = self.memory_state.inspector_expanded.clone();
+        let field_array_offsets = self.memory_state.inspector_field_array_offsets.clone();
         let reference_expanded = self.memory_state.inspector_reference_expanded.clone();
         let reference_details = self.memory_state.inspector_reference_details.clone();
         let reference_loading = self.memory_state.inspector_reference_loading.clone();
@@ -389,6 +401,7 @@ impl ImportWorkspace {
             references_tab,
             nearest_only,
             &expanded,
+            &field_array_offsets,
             &reference_expanded,
             &reference_details,
             &reference_loading,
@@ -768,6 +781,7 @@ fn inspector_table(
                     &list_columns,
                     &list_entity,
                     &list_colors,
+                    language,
                 ));
             }
             items
@@ -829,7 +843,11 @@ fn inspector_row(
     columns: &[InspectorColumn],
     entity: &Entity<ImportWorkspace>,
     colors: &StudioColors,
+    language: Language,
 ) -> AnyElement {
+    if let Some(paging) = &row.array_paging {
+        return field_array_paging_row(index, row.tree_depth, paging, entity, colors, language);
+    }
     if row.is_message {
         let indent = MESSAGE_ROW_INSET + row.tree_depth.min(TREE_INDENT_LIMIT) as f32 * TREE_INDENT;
         return div()
@@ -874,9 +892,8 @@ fn inspector_row(
 
     let navigate = row.navigate;
     let copy_text = row.copy_text.clone();
-    let is_root = row.is_root;
-    let expand_key = row.expand_key;
     let reference_path = row.reference_path.clone();
+    let field_path = row.field_path.clone();
     let row_entity = entity.clone();
     element
         .on_click(move |_, _, cx| {
@@ -886,28 +903,123 @@ fn inspector_row(
                 });
                 return;
             }
-            if is_root {
-                let _ = row_entity.update(cx, |this, cx| {
-                    if let Some(key) = expand_key {
-                        if !this.memory_state.inspector_expanded.remove(&key) {
-                            this.memory_state.inspector_expanded.insert(key);
-                        }
-                    }
-                    cx.notify();
-                });
-                return;
-            }
-            match navigate {
-                Some(target) => {
+            if let Some(path) = field_path.clone() {
+                cx.stop_propagation();
+                if navigate.is_some() {
                     let _ = row_entity.update(cx, |this, cx| {
-                        this.memory_state.push_history(target);
-                        this.memory_load_inspector_object(target, 0, cx);
+                        this.memory_toggle_field(path, navigate, cx);
                     });
                 }
-                None => cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone())),
+                return;
             }
+            cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
         })
         .into_any_element()
+}
+
+fn field_array_paging_row(
+    index: usize,
+    depth: u32,
+    paging: &FieldArrayPaging,
+    entity: &Entity<ImportWorkspace>,
+    colors: &StudioColors,
+    language: Language,
+) -> AnyElement {
+    let label = field_array_page_label(paging, language);
+    let previous = paging.start.saturating_sub(paging.page_size);
+    let next = paging.start.saturating_add(paging.page_size);
+    let can_previous = paging.start > 0 && !paging.loading;
+    let can_next = paging.page_len.is_some() && next < paging.total && !paging.loading;
+    let target = paging.target;
+    let previous_path = paging.path.clone();
+    let next_path = paging.path.clone();
+    let previous_entity = entity.clone();
+    let next_entity = entity.clone();
+    div()
+        .id(("memory-field-array-page", index))
+        .h(px(TABLE_ROW_HEIGHT))
+        .w_full()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .pl(px(
+            ROW_PADDING_START + depth.min(TREE_INDENT_LIMIT) as f32 * TREE_INDENT
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(TABLE_FONT))
+                .text_color(colors.secondary_text)
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(label),
+        )
+        .child(
+            widgets::icon_button(
+                ("memory-field-array-previous", index),
+                "‹",
+                can_previous,
+                false,
+                colors,
+            )
+            .h(px(TABLE_ROW_HEIGHT))
+            .w(px(TABLE_ROW_HEIGHT))
+            .tooltip(language.text(TextKey::MemoryPagePreviousArrayPage))
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                if can_previous {
+                    let _ = previous_entity.update(cx, |this, cx| {
+                        this.memory_page_field_array(previous_path.clone(), target, previous, cx);
+                    });
+                }
+            }),
+        )
+        .child(
+            widgets::icon_button(
+                ("memory-field-array-next", index),
+                "›",
+                can_next,
+                false,
+                colors,
+            )
+            .h(px(TABLE_ROW_HEIGHT))
+            .w(px(TABLE_ROW_HEIGHT))
+            .tooltip(language.text(TextKey::MemoryPageNextArrayPage))
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                if can_next {
+                    let _ = next_entity.update(cx, |this, cx| {
+                        this.memory_page_field_array(next_path.clone(), target, next, cx);
+                    });
+                }
+            }),
+        )
+        .into_any_element()
+}
+
+fn field_array_page_label(paging: &FieldArrayPaging, language: Language) -> String {
+    match paging.page_len {
+        Some(len) => {
+            let end = paging.start.saturating_add(len as u64).min(paging.total);
+            let first = if end > paging.start {
+                paging.start.saturating_add(1)
+            } else {
+                paging.start
+            };
+            language.format(
+                TextKey::MemoryPageArrayPageRange,
+                &[("arg_1", &first), ("arg_2", &end), ("arg_3", &paging.total)],
+            )
+        }
+        None => language
+            .text(if paging.loading {
+                TextKey::MemoryPageMemoryInspectorLoading
+            } else {
+                TextKey::MemoryPageUnavailable
+            })
+            .to_owned(),
+    }
 }
 
 /// Compose inspector label cell: tree indent, 12 dp disclosure, type badge and
@@ -930,9 +1042,9 @@ fn inspector_label_cell(
         .pr(px(ROW_PADDING_END));
     if row.expandable {
         let glyph = if row.expanded { "▾" } else { "▸" };
-        let toggle_key = row.expand_key;
         let navigate = row.navigate;
         let reference_path = row.reference_path.clone();
+        let field_path = row.field_path.clone();
         let disclosure_entity = entity.clone();
         cell = cell.child(
             div()
@@ -955,17 +1067,8 @@ fn inspector_label_cell(
                             this.memory_toggle_reference(path, navigate, cx);
                             return;
                         }
-                        if let Some(key) = toggle_key {
-                            if !this.memory_state.inspector_expanded.remove(&key) {
-                                this.memory_state.inspector_expanded.insert(key);
-                            }
-                        }
-                        match navigate {
-                            Some(target) => {
-                                this.memory_state.push_history(target);
-                                this.memory_load_inspector_object(target, 0, cx);
-                            }
-                            None => cx.notify(),
+                        if let Some(path) = field_path.clone() {
+                            this.memory_toggle_field(path, navigate, cx);
                         }
                     });
                 }),
@@ -1085,12 +1188,12 @@ fn build_rows(
     detail: &InstanceDetail,
     references_tab: bool,
     nearest_only: bool,
-    expanded: &BTreeSet<u64>,
+    expanded: &BTreeSet<String>,
     sort_column: InspectorColumn,
     sort_ascending: bool,
 ) -> Vec<InspectorRow> {
     let mut reference_expanded = BTreeSet::new();
-    if !expanded.contains(&detail.object_id) {
+    if !expanded.contains(REFERENCE_ROOT_PATH) {
         reference_expanded.insert(REFERENCE_ROOT_PATH.to_owned());
     }
     build_rows_with_references(
@@ -1098,6 +1201,7 @@ fn build_rows(
         references_tab,
         nearest_only,
         expanded,
+        &BTreeMap::new(),
         &reference_expanded,
         &BTreeMap::new(),
         &BTreeSet::new(),
@@ -1111,7 +1215,8 @@ fn build_rows_with_references(
     detail: &InstanceDetail,
     references_tab: bool,
     nearest_only: bool,
-    expanded: &BTreeSet<u64>,
+    expanded: &BTreeSet<String>,
+    field_array_offsets: &BTreeMap<String, u64>,
     reference_expanded: &BTreeSet<String>,
     reference_details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
     reference_loading: &BTreeSet<(u64, u64)>,
@@ -1139,7 +1244,6 @@ fn build_rows_with_references(
             retained_native_size: detail.retained_native_size,
             value_kind: detail.value_kind,
             navigate: None,
-            expand_key: None,
             is_root: true,
             is_message: false,
             expandable: !detail.references.is_empty(),
@@ -1147,6 +1251,8 @@ fn build_rows_with_references(
             in_reference_chain: false,
             selected: false,
             reference_path: Some(REFERENCE_ROOT_PATH.to_owned()),
+            field_path: None,
+            array_paging: None,
         });
         if root_expanded {
             append_reference_rows(
@@ -1177,15 +1283,136 @@ fn build_rows_with_references(
             }
         }
     } else {
-        rows.extend(
-            detail
-                .fields
-                .iter()
-                .map(|field| field_row(field, false, 0, expanded, None, None)),
+        append_field_rows(
+            detail,
+            FIELD_ROOT_PATH,
+            0,
+            &BTreeSet::from([detail.object_id]),
+            expanded,
+            field_array_offsets,
+            reference_details,
+            reference_loading,
+            language,
+            sort_column,
+            sort_ascending,
+            &mut rows,
         );
-        sort_rows(&mut rows, sort_column, sort_ascending);
     }
     rows
+}
+
+fn append_field_rows(
+    detail: &InstanceDetail,
+    parent_path: &str,
+    tree_depth: u32,
+    ancestors: &BTreeSet<u64>,
+    expanded: &BTreeSet<String>,
+    array_offsets: &BTreeMap<String, u64>,
+    details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+    loading: &BTreeSet<(u64, u64)>,
+    language: Language,
+    sort_column: InspectorColumn,
+    sort_ascending: bool,
+    rows: &mut Vec<InspectorRow>,
+) {
+    let mut children: Vec<_> = detail
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let index = if detail.is_array {
+                detail.array_start.saturating_add(index as u64)
+            } else {
+                index as u64
+            };
+            let path = format!("{parent_path}/{index}");
+            field_row(field, false, tree_depth, expanded, None, Some(path))
+        })
+        .collect();
+    sort_rows(&mut children, sort_column, sort_ascending);
+
+    for child in children {
+        let path = child.field_path.clone();
+        let target = child.navigate;
+        let is_expanded = child.expanded;
+        rows.push(child);
+        let (Some(path), Some(target)) = (path, target) else {
+            continue;
+        };
+        if !is_expanded {
+            continue;
+        }
+        let start = array_offsets.get(&path).copied().unwrap_or(0);
+        let key = (target, start);
+        let page = details.get(&key);
+        let metadata = details.get(&(target, 0)).or(page);
+        let is_loading = loading.contains(&key);
+        let message = if ancestors.contains(&target) {
+            Some(TextKey::MemoryPageMemoryInspectorCycle)
+        } else if tree_depth >= 31 {
+            Some(TextKey::MemoryPageMemoryInspectorDepthLimit)
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            rows.push(InspectorRow::message_with_path(
+                language.text(message).to_owned(),
+                tree_depth + 1,
+                path,
+            ));
+            continue;
+        }
+        if let Some(metadata) = metadata.filter(|detail| detail.is_array) {
+            let mut row = InspectorRow::message(String::new(), tree_depth + 1);
+            row.array_paging = Some(FieldArrayPaging {
+                path: path.clone(),
+                target,
+                start,
+                page_size: match metadata.array_page_size {
+                    0 => MEMORY_ARRAY_PAGE as u64,
+                    size => size,
+                },
+                total: metadata.element_count.unwrap_or(0),
+                page_len: page
+                    .filter(|_| !is_loading)
+                    .map(|detail| detail.fields.len()),
+                loading: is_loading,
+            });
+            rows.push(row);
+        }
+        if is_loading || page.is_none() {
+            if metadata.is_none_or(|detail| !detail.is_array) {
+                rows.push(InspectorRow::message_with_path(
+                    language
+                        .text(if is_loading {
+                            TextKey::MemoryPageMemoryInspectorLoading
+                        } else {
+                            TextKey::MemoryPageUnavailable
+                        })
+                        .to_owned(),
+                    tree_depth + 1,
+                    path,
+                ));
+            }
+        } else if let Some(child_detail) = page {
+            let mut next_ancestors = ancestors.clone();
+            next_ancestors.insert(target);
+            append_field_rows(
+                child_detail,
+                &path,
+                tree_depth + 1,
+                &next_ancestors,
+                expanded,
+                array_offsets,
+                details,
+                loading,
+                language,
+                sort_column,
+                sort_ascending,
+                rows,
+            );
+        }
+    }
 }
 
 fn append_gc_root_path_rows(
@@ -1356,9 +1583,9 @@ fn field_row(
     field: &InstanceField,
     references: bool,
     tree_depth: u32,
-    expanded: &BTreeSet<u64>,
+    expanded: &BTreeSet<String>,
     chain: Option<&BTreeSet<u64>>,
-    reference_path: Option<String>,
+    path: Option<String>,
 ) -> InspectorRow {
     let target = field.target_object_id.filter(|id| *id != 0);
     let (label, string_preview) = if references {
@@ -1384,15 +1611,18 @@ fn field_row(
         retained_native_size: field.retained_native_size,
         value_kind: field.value_kind,
         navigate: target,
-        expand_key: target,
         is_root: false,
         is_message: false,
         expandable: target.is_some(),
-        expanded: target.is_some_and(|id| expanded.contains(&id)),
+        expanded: !references
+            && target.is_some()
+            && path.as_ref().is_some_and(|path| expanded.contains(path)),
         in_reference_chain: references
             && target.is_some_and(|target| chain.is_some_and(|chain| chain.contains(&target))),
         selected: false,
-        reference_path,
+        reference_path: references.then(|| path.clone()).flatten(),
+        field_path: (!references).then_some(path).flatten(),
+        array_paging: None,
     }
 }
 
@@ -1715,7 +1945,7 @@ mod tests {
         assert!(rows[2].label.contains("GC Root path"));
 
         let mut collapsed = BTreeSet::new();
-        collapsed.insert(42);
+        collapsed.insert(REFERENCE_ROOT_PATH.to_owned());
         let rows = build_rows(
             &detail,
             true,
@@ -1726,6 +1956,349 @@ mod tests {
         );
         assert_eq!(rows.len(), 1);
         assert!(!rows[0].expanded);
+    }
+
+    fn field_tree_rows(
+        root: &InstanceDetail,
+        expanded: &BTreeSet<String>,
+        details: &BTreeMap<(u64, u64), Arc<InstanceDetail>>,
+        loading: &BTreeSet<(u64, u64)>,
+    ) -> Vec<InspectorRow> {
+        build_rows_with_references(
+            root,
+            false,
+            false,
+            expanded,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            details,
+            loading,
+            Language::English,
+            InspectorColumn::Label,
+            true,
+        )
+    }
+
+    fn object_field(name: &str, target: u64) -> InstanceField {
+        InstanceField {
+            name: name.into(),
+            target_object_id: Some(target),
+            ..InstanceField::default()
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn field_rows_only_expose_non_null_objects_as_expandable() {
+        let root = InstanceDetail {
+            object_id: 1,
+            fields: vec![
+                InstanceField {
+                    name: "primitive".into(),
+                    value_kind: HeapValueKind::Primitive,
+                    ..InstanceField::default()
+                },
+                object_field("null", 0),
+                object_field("object", 2),
+            ],
+            ..InstanceDetail::default()
+        };
+        let rows = field_tree_rows(&root, &BTreeSet::new(), &BTreeMap::new(), &BTreeSet::new());
+        for row in &rows {
+            assert!(row.field_path.is_some());
+            match row.sort_name.as_str() {
+                "primitive" | "null" => {
+                    assert_eq!(row.navigate, None);
+                    assert!(!row.expandable);
+                }
+                "object" => {
+                    assert_eq!(row.navigate, Some(2));
+                    assert!(row.expandable);
+                }
+                _ => panic!("unexpected field"),
+            }
+        }
+        assert_eq!(rows.len(), 3);
+    }
+
+    #[::core::prelude::v1::test]
+    fn nested_array_pages_are_path_local_and_use_absolute_indices() {
+        let root = InstanceDetail {
+            object_id: 1,
+            fields: vec![object_field("a", 2), object_field("b", 2)],
+            ..InstanceDetail::default()
+        };
+        let page = |start, name: &str| {
+            Arc::new(InstanceDetail {
+                object_id: 2,
+                is_array: true,
+                element_count: Some(401),
+                array_start: start,
+                array_page_size: 200,
+                fields: vec![object_field(name, 3), field("other", None, None)],
+                ..InstanceDetail::default()
+            })
+        };
+        let details = BTreeMap::from([((2, 0), page(0, "z")), ((2, 200), page(200, "a"))]);
+        let expanded = BTreeSet::from([
+            "field-root/0".to_owned(),
+            "field-root/1".to_owned(),
+            "field-root/1/200".to_owned(),
+        ]);
+        let mut offsets = BTreeMap::from([("field-root/1".to_owned(), 200)]);
+        let build = |offsets: &BTreeMap<String, u64>, loading: &BTreeSet<(u64, u64)>| {
+            build_rows_with_references(
+                &root,
+                false,
+                false,
+                &expanded,
+                offsets,
+                &BTreeSet::new(),
+                &details,
+                loading,
+                Language::English,
+                InspectorColumn::Label,
+                true,
+            )
+        };
+        let rows = build(&offsets, &BTreeSet::new());
+        let pages: Vec<_> = rows
+            .iter()
+            .filter_map(|row| row.array_paging.as_ref())
+            .collect();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(
+            (&*pages[0].path, pages[0].target, pages[0].start),
+            ("field-root/0", 2, 0)
+        );
+        assert_eq!(
+            (&*pages[1].path, pages[1].target, pages[1].start),
+            ("field-root/1", 2, 200)
+        );
+        assert_eq!(
+            (pages[1].page_size, pages[1].total, pages[1].page_len),
+            (200, 401, Some(2))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/0/0"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/200") && row.expanded)
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/0"))
+        );
+
+        let loading = build(&offsets, &BTreeSet::from([(2, 200)]));
+        let second_page = loading
+            .iter()
+            .filter_map(|row| row.array_paging.as_ref())
+            .nth(1)
+            .unwrap();
+        assert!(second_page.loading);
+        assert_eq!(second_page.page_len, None);
+        assert_eq!(
+            field_array_page_label(second_page, Language::English),
+            Language::English.text(TextKey::MemoryPageMemoryInspectorLoading)
+        );
+        assert!(
+            loading
+                .iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1"))
+        );
+        assert!(
+            !loading
+                .iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/200"))
+        );
+
+        offsets.insert("field-root/1".to_owned(), 400);
+        let unavailable = build(&offsets, &BTreeSet::new());
+        let second_page = unavailable
+            .iter()
+            .filter_map(|row| row.array_paging.as_ref())
+            .nth(1)
+            .unwrap();
+        assert!(!second_page.loading);
+        assert_eq!(second_page.page_len, None);
+        assert_eq!(
+            field_array_page_label(second_page, Language::English),
+            Language::English.text(TextKey::MemoryPageUnavailable)
+        );
+
+        offsets.insert("field-root/1".to_owned(), 0);
+        let rows = build(&offsets, &BTreeSet::new());
+        assert!(
+            rows.iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/0") && !row.expanded)
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/200"))
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn root_array_field_paths_use_the_page_offset() {
+        let root = InstanceDetail {
+            object_id: 1,
+            is_array: true,
+            array_start: 200,
+            fields: vec![object_field("z", 2), object_field("a", 3)],
+            ..InstanceDetail::default()
+        };
+        let rows = field_tree_rows(&root, &BTreeSet::new(), &BTreeMap::new(), &BTreeSet::new());
+        assert_eq!(rows[0].field_path.as_deref(), Some("field-root/201"));
+        assert_eq!(rows[1].field_path.as_deref(), Some("field-root/200"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn fields_expand_by_original_path_sort_each_level_and_collapse_independently() {
+        let root = InstanceDetail {
+            object_id: 1,
+            fields: vec![object_field("z", 2), object_field("a", 2)],
+            ..InstanceDetail::default()
+        };
+        let child = Arc::new(InstanceDetail {
+            object_id: 2,
+            fields: vec![field("z-child", None, None), object_field("a-child", 3)],
+            ..InstanceDetail::default()
+        });
+        let grandchild = Arc::new(InstanceDetail {
+            object_id: 3,
+            fields: vec![field("value", None, None)],
+            ..InstanceDetail::default()
+        });
+        let details = BTreeMap::from([((2, 0), child), ((3, 0), grandchild)]);
+        let mut expanded = BTreeSet::from(["field-root/1".to_owned(), "field-root/1/1".to_owned()]);
+        let rows = field_tree_rows(&root, &expanded, &details, &BTreeSet::new());
+        let paths: Vec<_> = rows.iter().map(|row| row.field_path.as_deref()).collect();
+        assert_eq!(
+            paths,
+            [
+                Some("field-root/1"),
+                Some("field-root/1/1"),
+                Some("field-root/1/1/0"),
+                Some("field-root/1/0"),
+                Some("field-root/0")
+            ]
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.tree_depth).collect::<Vec<_>>(),
+            [0, 1, 2, 1, 0]
+        );
+        assert!(rows[0].expanded);
+        assert!(!rows[4].expanded);
+
+        expanded.insert("field-root/0".to_owned());
+        let rows = field_tree_rows(&root, &expanded, &details, &BTreeSet::new());
+        assert!(
+            rows.iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/0/1"))
+        );
+        expanded.remove("field-root/1");
+        let rows = field_tree_rows(&root, &expanded, &details, &BTreeSet::new());
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/1"))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/0/1"))
+        );
+        expanded.insert("field-root/1".to_owned());
+        let rows = field_tree_rows(&root, &expanded, &details, &BTreeSet::new());
+        assert!(
+            rows.iter()
+                .any(|row| row.field_path.as_deref() == Some("field-root/1/1/0"))
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn fields_keep_parent_while_loading_and_detect_ancestor_cycles() {
+        let root = InstanceDetail {
+            object_id: 1,
+            fields: vec![object_field("child", 2)],
+            ..InstanceDetail::default()
+        };
+        let expanded = BTreeSet::from(["field-root/0".to_owned(), "field-root/0/0".to_owned()]);
+        let loading_rows = field_tree_rows(
+            &root,
+            &expanded,
+            &BTreeMap::new(),
+            &BTreeSet::from([(2, 0)]),
+        );
+        assert_eq!(loading_rows.len(), 2);
+        assert_eq!(loading_rows[0].field_path.as_deref(), Some("field-root/0"));
+        assert!(loading_rows[0].expanded);
+        assert!(loading_rows[1].is_message);
+        assert_eq!(
+            loading_rows[1].label,
+            Language::English.text(TextKey::MemoryPageMemoryInspectorLoading)
+        );
+        let unavailable_rows =
+            field_tree_rows(&root, &expanded, &BTreeMap::new(), &BTreeSet::new());
+        assert_eq!(
+            unavailable_rows[1].label,
+            Language::English.text(TextKey::MemoryPageUnavailable)
+        );
+
+        let child = Arc::new(InstanceDetail {
+            object_id: 2,
+            fields: vec![object_field("back", 1)],
+            ..InstanceDetail::default()
+        });
+        let rows = field_tree_rows(
+            &root,
+            &expanded,
+            &BTreeMap::from([((2, 0), child)]),
+            &BTreeSet::new(),
+        );
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1].field_path.as_deref(), Some("field-root/0/0"));
+        assert_eq!(
+            rows[2].label,
+            Language::English.text(TextKey::MemoryPageMemoryInspectorCycle)
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn fields_stop_after_thirty_two_levels() {
+        let root = InstanceDetail {
+            object_id: 1,
+            fields: vec![object_field("next", 2)],
+            ..InstanceDetail::default()
+        };
+        let mut details = BTreeMap::new();
+        for id in 2..=33 {
+            details.insert(
+                (id, 0),
+                Arc::new(InstanceDetail {
+                    object_id: id,
+                    fields: vec![object_field("next", id + 1)],
+                    ..InstanceDetail::default()
+                }),
+            );
+        }
+        let mut expanded = BTreeSet::new();
+        let mut path = FIELD_ROOT_PATH.to_owned();
+        for _ in 0..32 {
+            path.push_str("/0");
+            expanded.insert(path.clone());
+        }
+        let rows = field_tree_rows(&root, &expanded, &details, &BTreeSet::new());
+        assert_eq!(rows.len(), 33);
+        assert_eq!(rows[31].tree_depth, 31);
+        assert!(rows[32].is_message);
+        assert_eq!(
+            rows[32].label,
+            Language::English.text(TextKey::MemoryPageMemoryInspectorDepthLimit)
+        );
     }
 
     #[::core::prelude::v1::test]
@@ -1762,6 +2335,7 @@ mod tests {
             true,
             false,
             &BTreeSet::new(),
+            &BTreeMap::new(),
             &expanded,
             &details,
             &BTreeSet::new(),
@@ -1786,6 +2360,7 @@ mod tests {
             true,
             false,
             &BTreeSet::new(),
+            &BTreeMap::new(),
             &expanded,
             &details,
             &BTreeSet::new(),
