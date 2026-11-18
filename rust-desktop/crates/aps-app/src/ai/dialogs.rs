@@ -5,7 +5,7 @@ use super::style::{DshChatColors, tokens};
 use super::widgets;
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
-    component::{ActiveTheme, input::Input},
+    component::{ActiveTheme, input::Input, scroll::ScrollableElement},
     prelude::*,
     *,
 };
@@ -23,6 +23,7 @@ pub fn render(
         && dialogs.delete.is_none()
         && dialogs.archive.is_none()
         && dialogs.evidence.is_none()
+        && !dialogs.prompts
     {
         return None;
     }
@@ -37,7 +38,9 @@ pub fn render(
             let _ = close_entity.update(cx, |this, cx| this.close_dialogs(cx));
         });
 
-    let card = if let Some(renaming) = dialogs.rename.clone() {
+    let card = if dialogs.prompts {
+        prompt_dialog(workspace, &colors, language, &entity, cx)
+    } else if let Some(renaming) = dialogs.rename.clone() {
         rename_dialog(workspace, &colors, language, &renaming, &entity, cx)
     } else if let Some(id) = dialogs.delete.clone() {
         delete_dialog(workspace, &colors, language, &id, &entity, window, cx)
@@ -61,6 +64,83 @@ pub fn render(
             .child(card)
             .into_any_element(),
     )
+}
+
+fn prompt_dialog(
+    workspace: &mut AiWorkspace,
+    colors: &DshChatColors,
+    language: Language,
+    entity: &WeakEntity<AiWorkspace>,
+    _cx: &mut Context<AiWorkspace>,
+) -> AnyElement {
+    let suggestions = super::prompts::for_context(workspace.bound_context.as_ref(), language);
+    let mut list = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .overflow_y_scrollbar();
+    for (index, suggestion) in suggestions.into_iter().enumerate() {
+        let use_entity = entity.clone();
+        let prompt = suggestion.prompt.clone();
+        list = list.child(
+            div()
+                .id(ElementId::Name(
+                    format!("ai-prompt-suggestion-{index}").into(),
+                ))
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .p(px(10.))
+                .border_1()
+                .border_color(colors.border)
+                .rounded(px(tokens::SMALL_RADIUS))
+                .cursor_pointer()
+                .on_click(move |_, window, cx| {
+                    let _ = use_entity
+                        .update(cx, |this, cx| this.use_prompt(prompt.clone(), window, cx));
+                })
+                .child(
+                    div()
+                        .text_size(px(tokens::BODY_FONT_SIZE))
+                        .line_height(px(tokens::BODY_LINE_HEIGHT))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(colors.text)
+                        .child(crate::studio::selectable(suggestion.title)),
+                )
+                .child(
+                    div()
+                        .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                        .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                        .text_color(colors.muted)
+                        .child(crate::studio::selectable(suggestion.prompt)),
+                ),
+        );
+    }
+    let close_entity = entity.clone();
+    card(colors)
+        .child(title(
+            language.text(TextKey::AiChatPromptSuggestions),
+            colors,
+        ))
+        .child(body(
+            language.text(TextKey::AiChatPromptSuggestionsHint),
+            colors,
+        ))
+        .child(list.max_h(relative(0.58)))
+        .child(buttons(vec![
+            widgets::text_action(
+                close_entity,
+                language.text(TextKey::AiChatClose),
+                "ai-prompt-close",
+                true,
+                colors.muted,
+                |this, _, cx| this.close_dialogs(cx),
+            )
+            .into_any_element(),
+        ]))
+        .into_any_element()
 }
 
 fn card(colors: &DshChatColors) -> Stateful<Div> {

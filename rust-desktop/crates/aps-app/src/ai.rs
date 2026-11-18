@@ -11,6 +11,7 @@ mod dialogs;
 mod markdown;
 mod messages;
 mod page;
+mod prompts;
 mod sidebar;
 mod state;
 mod style;
@@ -1285,6 +1286,27 @@ impl AiWorkspace {
 
     pub(crate) fn open_evidence_dialog(&mut self, id: String, cx: &mut Context<Self>) {
         self.state.dialogs.evidence = Some(id);
+        cx.notify();
+    }
+
+    pub(crate) fn open_prompt_dialog(&mut self, cx: &mut Context<Self>) {
+        if self.state.busy || self.state.pending_approval.is_some() {
+            return;
+        }
+        self.state.dialogs.prompts = true;
+        cx.notify();
+    }
+
+    pub(crate) fn use_prompt(
+        &mut self,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_draft(&prompt, window, cx);
+        self.state.dialogs.prompts = false;
+        self.composer
+            .update(cx, |state, cx| state.focus(window, cx));
         cx.notify();
     }
 

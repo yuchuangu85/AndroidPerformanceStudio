@@ -238,6 +238,7 @@ pub fn render(
     }
 
     let context_entity = entity.clone();
+    let prompt_entity = entity.clone();
     let list_entity = entity.clone();
     let send_entity = entity.clone();
     let model_entity = entity.clone();
@@ -343,6 +344,17 @@ pub fn render(
         });
         context_button
     });
+    actions = actions.child(widgets::icon_button(
+        prompt_entity,
+        IconName::StarFill,
+        language.text(TextKey::AiChatPromptSuggestions),
+        "ai-prompt-suggestions",
+        !busy && !pending,
+        28.0,
+        rgba(0x00000000),
+        colors.muted,
+        |this, _, cx| this.open_prompt_dialog(cx),
+    ));
     actions = actions.child(div().flex_1().min_w_0());
     actions = actions.child(model_picker(
         workspace,

@@ -31,6 +31,16 @@ impl ImportWorkspace {
             .overflow_x_scrollbar()
             .child(
                 toolbar_button(
+                    "memory-import-hprof",
+                    language.text(TextKey::MemoryPageImportHprof),
+                    self.can_open_home_artifact(),
+                    false,
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.pick(cx))),
+            )
+            .child(
+                toolbar_button(
                     "memory-dump-heap",
                     language.text(TextKey::MemoryPageDumpHeap),
                     self.memory_capture_block_reason().is_none(),

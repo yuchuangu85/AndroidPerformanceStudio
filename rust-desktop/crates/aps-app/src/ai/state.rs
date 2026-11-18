@@ -47,6 +47,7 @@ pub struct Dialogs {
     pub delete: Option<String>,
     pub archive: Option<String>,
     pub evidence: Option<String>,
+    pub prompts: bool,
 }
 
 #[derive(Debug, Clone)]
