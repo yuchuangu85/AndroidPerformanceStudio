@@ -1555,38 +1555,6 @@ fn timeline_panel(
         row
     };
 
-    let caption = {
-        let hint = if cluster_ids.is_empty() {
-            String::new()
-        } else {
-            language
-                .text(TextKey::FrameTimelineClusterMarker)
-                .to_owned()
-        };
-        let hover = this
-            .ui
-            .timeline_hovered
-            .and_then(|index| frames.get(index))
-            .map(|frame| {
-                language.format(
-                    TextKey::FrameTimelineHoverFrame,
-                    &[
-                        ("value1", &frame.sample.frame_id),
-                        (
-                            "value2",
-                            &model::format_millis(frame.sample.resolved_duration_ns()),
-                        ),
-                        ("value3", &frame.deadline_verdict.as_name()),
-                    ],
-                )
-            });
-        let parts: Vec<String> = [hint, hover.unwrap_or_default()]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect();
-        parts.join("  |  ")
-    };
-
     let bars: Vec<(Option<i64>, FrameTimelineStatus, bool)> = visible
         .iter()
         .map(|frame| {
@@ -1848,16 +1816,6 @@ fn timeline_panel(
         )
         .child(plot_row)
         .child(frame_axis)
-        .child(
-            div()
-                .w_full()
-                .flex_shrink_0()
-                .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.secondary_text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(caption)),
-        )
         .into_any_element()
 }
 
@@ -1868,6 +1826,40 @@ fn empty_panel(message: impl Into<SharedString>, colors: &StudioColors) -> AnyEl
         .text_color(colors.secondary_text)
         .child(message.into())
         .into_any_element()
+}
+
+fn empty_frame_panel(
+    message: impl Into<SharedString>,
+    total_frames: usize,
+    language: Language,
+    colors: &StudioColors,
+) -> AnyElement {
+    let mut panel = div()
+        .p(px(8.))
+        .text_size(px(FONT_SUPPORTING))
+        .text_color(colors.secondary_text)
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(message.into());
+    if total_frames > 0 {
+        let start = 1usize;
+        let end = total_frames;
+        panel = panel.child(
+            div()
+                .text_size(px(FONT_SUPPORTING - 1.0))
+                .text_color(colors.muted_text)
+                .child(crate::studio::selectable(language.format(
+                    TextKey::FrameTimelineVisibleRange,
+                    &[
+                        ("value1", &start),
+                        ("value2", &end),
+                        ("value3", &total_frames),
+                    ],
+                ))),
+        );
+    }
+    panel.into_any_element()
 }
 
 fn panel_header(
@@ -1905,6 +1897,7 @@ fn clusters_panel(
     let action = analysis
         .map(|analysis| analysis.clusters.len())
         .unwrap_or(0);
+    let total_frames = analysis.map(|analysis| analysis.frames.len()).unwrap_or(0);
     let subtitle = language.format(TextKey::FrameClusterCount, &[("value1", &action)]);
     let header = panel_header(
         language.text(TextKey::FrameJankClusters),
@@ -1922,14 +1915,18 @@ fn clusters_panel(
         .gap(px(2.));
     match analysis {
         None => {
-            list = list.child(empty_panel(
+            list = list.child(empty_frame_panel(
                 language.text(TextKey::FrameNoJankClustersDetected),
+                total_frames,
+                language,
                 colors,
             ));
         }
         Some(analysis) if analysis.clusters.is_empty() => {
-            list = list.child(empty_panel(
+            list = list.child(empty_frame_panel(
                 language.text(TextKey::FrameNoJankClustersDetected),
+                total_frames,
+                language,
                 colors,
             ));
         }
@@ -2164,6 +2161,7 @@ fn problems_panel(
                 .collect()
         })
         .unwrap_or_default();
+    let total_frames = analysis.map(|analysis| analysis.frames.len()).unwrap_or(0);
     let header = panel_header(language.text(TextKey::FrameProblemFrames), None, colors);
     let columns = div()
         .id("frame-problem-header")
@@ -2206,7 +2204,12 @@ fn problems_panel(
             true,
         ));
     let body = if problem_indices.is_empty() {
-        empty_panel(language.text(TextKey::FrameNoProblemFrames), colors)
+        empty_frame_panel(
+            language.text(TextKey::FrameNoProblemFrames),
+            total_frames,
+            language,
+            colors,
+        )
     } else {
         let entity = cx.entity();
         let selected_frame_id = this.selected_frame_id;
