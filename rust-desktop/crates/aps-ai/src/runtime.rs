@@ -972,9 +972,7 @@ impl AiRuntime {
             crate::mcp::hydrate(context).map_err(|_| RuntimeError::Context)?;
         }
         let context = effective_context.as_ref();
-        let history = if context.is_some_and(|context| {
-            context.is_memory_hprof() || context.memory_phase3_mode().is_some()
-        }) {
+        let history = if context.is_some_and(AnalysisRequest::excludes_chat_history) {
             Vec::new()
         } else {
             self.conversation_context(&options.conversation_id)

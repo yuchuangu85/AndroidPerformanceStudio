@@ -73,6 +73,116 @@ pub struct SourceWorkspace {
     pub(in crate::source) ui: page::PageUi,
 }
 
+#[derive(Clone)]
+pub(crate) struct LocalProbeSource {
+    paths: service::SourcePaths,
+    pub location: SourceLocation,
+}
+#[derive(Clone)]
+pub(crate) struct ProbeRegistry(service::SourcePaths);
+impl ProbeRegistry {
+    pub(crate) fn current(
+        &self,
+        original: &SourceLocation,
+        expected: aps_contracts::SourceDigest,
+    ) -> Result<LocalProbeSource, String> {
+        let ws = service::workspace(&self.0, original.workspace_id)?
+            .ok_or("Probe workspace no longer registered.")?;
+        let snapshot = ws
+            .active_snapshot_id
+            .ok_or("Refresh the instrumented source workspace.")?;
+        if !matches!(ws.config, SourceProviderConfig::Local { .. })
+            || ws.phase != SourceWorkspacePhase::Ready
+        {
+            return Err("A ready local source snapshot is required.".into());
+        }
+        let file = service::file(&self.0, snapshot, &original.relative_path)?
+            .filter(|f| f.content_hash == expected && f.size_bytes <= 512 * 1024)
+            .ok_or("Refresh the workspace after applying the exported probe. Instrumented file hash must match exactly.")?;
+        Ok(LocalProbeSource {
+            paths: self.0.clone(),
+            location: SourceLocation {
+                workspace_id: ws.id,
+                snapshot_id: snapshot,
+                relative_path: file.relative_path,
+                content_hash: expected,
+                range: None,
+            },
+        })
+    }
+}
+impl LocalProbeSource {
+    pub(crate) fn bind_candidate(
+        &self,
+        evidence: &str,
+        range: SourceRange,
+    ) -> Result<String, String> {
+        let mut loc = self.location.clone();
+        let snap = service::snapshot(&self.paths, loc.snapshot_id)?
+            .filter(|s| s.workspace_id == loc.workspace_id)
+            .ok_or("Source snapshot unavailable.")?;
+        let key = format!(
+            "frame-probe:{}:{}:{}:{}:{}:{}:{}",
+            evidence,
+            loc.workspace_id.to_hex(),
+            loc.snapshot_id.to_hex(),
+            loc.content_hash.to_hex(),
+            loc.relative_path,
+            range.start_line,
+            range.end_line
+        );
+        loc.range = Some(range);
+        let id = aps_source::ResolutionCandidateId::from_digest(aps_source::digest_text(&key));
+        service::save_candidates(
+            &self.paths,
+            &[ResolutionCandidate {
+                id,
+                evidence_id: PerformanceEvidenceId::from_digest(aps_source::digest_text(evidence)),
+                location: loc,
+                confidence: ResolutionConfidence::Probable,
+                reasons: vec![
+                    "Exported probe matches instrumented file digest".into(),
+                    "APK build identity not verified".into(),
+                ],
+                index_complete: snap.index_complete,
+                index_version: snap.index_version,
+            }],
+        )?;
+        Ok(id.to_hex())
+    }
+
+    pub(crate) fn read_for_ai(&self) -> Result<String, String> {
+        let dir = self
+            .paths
+            .data_dir
+            .as_ref()
+            .ok_or("No source policy directory.")?;
+        if !permissions::SourcePermissions::load(&dir.join(permissions::FILE_NAME))?
+            .allowed(&self.location.workspace_id.to_hex())
+        {
+            return Err("Enable AI source sharing for this local workspace first.".into());
+        }
+        self.read()
+    }
+    pub(crate) fn read(&self) -> Result<String, String> {
+        let loc = &self.location;
+        let record = service::workspace(&self.paths, loc.workspace_id)?
+            .ok_or("Missing source workspace.")?;
+        if !matches!(record.config, SourceProviderConfig::Local { .. })
+            || record.phase != SourceWorkspacePhase::Ready
+            || record.active_snapshot_id != Some(loc.snapshot_id)
+        {
+            return Err("Local snapshot changed; reselect the source file.".into());
+        }
+        let content = service::read(&self.paths, loc)?;
+        if content.state != aps_source::SourceContentState::Current
+            || aps_source::digest_text(&content.text) != loc.content_hash
+        {
+            return Err("Local file changed or is not UTF-8. Refresh the source snapshot.".into());
+        }
+        Ok(content.text)
+    }
+}
 impl SourceWorkspace {
     pub fn new(
         language: Language,
@@ -137,6 +247,32 @@ impl SourceWorkspace {
         self.studio = Some(studio);
     }
 
+    pub(crate) fn probe_registry(&self) -> ProbeRegistry {
+        ProbeRegistry(self.paths.clone())
+    }
+    pub(crate) fn local_probe_source(&self) -> Option<LocalProbeSource> {
+        let loc = self.selected_location.as_ref()?;
+        let record = self
+            .workspaces
+            .iter()
+            .find(|r| Some(r.id) == self.selected_workspace && r.id == loc.workspace_id)?;
+        let file = self.location_files.iter().find(|f| {
+            f.snapshot_id == loc.snapshot_id
+                && f.relative_path == loc.relative_path
+                && f.content_hash == loc.content_hash
+        })?;
+        (matches!(record.config, SourceProviderConfig::Local { .. })
+            && record.active_snapshot_id == Some(loc.snapshot_id)
+            && file.size_bytes <= 512 * 1024
+            && (loc.relative_path.ends_with(".kt") || loc.relative_path.ends_with(".java"))
+            && self.content.as_ref().is_some_and(|c| {
+                c.location == *loc && c.state == aps_source::SourceContentState::Current
+            }))
+        .then(|| LocalProbeSource {
+            paths: self.paths.clone(),
+            location: loc.clone(),
+        })
+    }
     pub(crate) fn memory_source_plan(&self) -> Option<memory_ai::MemorySourcePlan> {
         if !self.list_loaded || self.permissions_error.is_some() || self.paths.database.is_none() {
             return None;
@@ -1347,5 +1483,54 @@ impl crate::shell::menubar::MenuHost for SourceWorkspace {
             SourceMenuCommand::CopyLocation => self.copy_location(cx),
             SourceMenuCommand::OpenInIde => self.open_location_in_ide(cx),
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn local_probe_fixture(
+    root: &Path,
+    project: PathBuf,
+    path: &str,
+) -> (ProbeRegistry, SourceLocation) {
+    let paths = service::SourcePaths::from_metadata_path(Some(&root.join("aps-metadata.sqlite3")));
+    let ws = service::add_local(&paths, project, "test".into(), &mut |_| {}).unwrap();
+    let snapshot_id = ws.active_snapshot_id.unwrap();
+    let f = service::file(&paths, snapshot_id, path).unwrap().unwrap();
+    (
+        ProbeRegistry(paths),
+        SourceLocation {
+            workspace_id: ws.id,
+            snapshot_id,
+            relative_path: path.into(),
+            range: None,
+            content_hash: f.content_hash,
+        },
+    )
+}
+#[cfg(test)]
+impl ProbeRegistry {
+    pub(crate) fn fixture_refresh(&self, id: SourceWorkspaceId) {
+        service::refresh(&self.0, id, &mut |_| {}).unwrap();
+    }
+    pub(crate) fn fixture_allow(&self, id: SourceWorkspaceId, allowed: bool) {
+        let path = self
+            .0
+            .data_dir
+            .as_ref()
+            .unwrap()
+            .join(permissions::FILE_NAME);
+        permissions::SourcePermissions::default()
+            .with_allowed(&id.to_hex(), allowed)
+            .unwrap()
+            .save(&path)
+            .unwrap();
+    }
+    pub(crate) fn fixture_candidate(&self, id: &str) -> ResolutionCandidate {
+        service::candidate(
+            &self.0,
+            aps_source::ResolutionCandidateId::from_hex(id).unwrap(),
+        )
+        .unwrap()
+        .unwrap()
     }
 }

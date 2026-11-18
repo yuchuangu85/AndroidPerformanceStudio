@@ -5,6 +5,7 @@ mod catalog;
 mod chat;
 mod claude;
 pub mod conversation;
+pub mod frame_edit;
 pub(crate) mod mcp;
 mod model;
 mod persistence;

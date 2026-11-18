@@ -225,7 +225,10 @@ pub fn parse_output(body: &[u8]) -> Result<(String, String), ResponsesError> {
     let root = aps_json::parse_slice(body, crate::model::json_limits(ENVELOPE_LIMIT as u64))
         .map_err(|_| ResponsesError::InvalidResponse)?;
     let object = root.as_object().ok_or(ResponsesError::InvalidResponse)?;
-    if object.get("error").is_some() {
+    if object
+        .get("error")
+        .is_some_and(|error| error != &Value::Null)
+    {
         return Err(ResponsesError::InvalidResponse);
     }
     let status = object.get("status").and_then(Value::as_str);
@@ -341,6 +344,22 @@ mod tests {
             ),
         ]);
         aps_json::to_vec(&body, crate::model::json_limits(1024 * 1024)).unwrap()
+    }
+
+    #[test]
+    fn completed_with_explicit_null_error_is_not_an_error_response() {
+        let mut body: serde_json::Value =
+            serde_json::from_slice(&envelope("output_text", "ok")).unwrap();
+        body["error"] = serde_json::Value::Null;
+        assert_eq!(
+            parse_output(&serde_json::to_vec(&body).unwrap()).unwrap().0,
+            "ok"
+        );
+        body["error"] = serde_json::json!({"message":"bad"});
+        assert!(matches!(
+            parse_output(&serde_json::to_vec(&body).unwrap()),
+            Err(ResponsesError::InvalidResponse)
+        ));
     }
 
     #[test]

@@ -23,6 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 mod csv;
 pub mod diagnostics;
 pub mod findings;
+pub mod frame_probes;
 pub mod frame_timeline;
 pub mod heap_profile;
 pub mod recording;

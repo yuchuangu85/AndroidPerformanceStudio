@@ -66,6 +66,7 @@ pub struct AiWorkspace {
     epoch: u64,
     frozen: Option<FrozenRun>,
     bound_context: Option<AnalysisRequest>,
+    frame_optimization: Option<crate::frame::Optimization>,
     memory_source_guard: Option<crate::source::memory_ai::MemorySourceGuard>,
     bound_title: Option<String>,
     open_settings: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
@@ -131,6 +132,7 @@ impl AiWorkspace {
             epoch: 0,
             frozen: None,
             bound_context: None,
+            frame_optimization: None,
             memory_source_guard: None,
             bound_title: None,
             open_settings: None,
@@ -213,6 +215,7 @@ impl AiWorkspace {
     ) {
         self.cancel_active_run(cx);
         self.memory_source_guard = None;
+        self.frame_optimization = None;
         self.bound_title = Some(if request.is_memory_hprof() {
             self.language.text(TextKey::MemoryAiContextTitle).into()
         } else {
@@ -231,6 +234,9 @@ impl AiWorkspace {
         cx.notify();
     }
 
+    pub(crate) fn bind_frame_optimization(&mut self, guard: crate::frame::Optimization) {
+        self.frame_optimization = Some(guard);
+    }
     pub(crate) fn bind_memory_source_guard(
         &mut self,
         guard: Option<crate::source::memory_ai::MemorySourceGuard>,
@@ -244,6 +250,7 @@ impl AiWorkspace {
         self.cancel_active_run(cx);
         self.bound_context = None;
         self.memory_source_guard = None;
+        self.frame_optimization = None;
         self.bound_title = None;
         self.state.context_title = None;
         self.state.include_source = false;
@@ -760,6 +767,15 @@ impl AiWorkspace {
         let context = self.bound_context.clone();
         let direct_chat = context.is_none();
         let include_source = self.state.include_source;
+        let is_opt = context
+            .as_ref()
+            .is_some_and(AnalysisRequest::is_frame_optimization);
+        let opt_guard = self.frame_optimization.clone().filter(|_| is_opt);
+        if is_opt && (!include_source || opt_guard.is_none()) {
+            self.state.error = Some(self.language.text(TextKey::FrameOptConsent).into());
+            cx.notify();
+            return;
+        }
         let mut frozen_context = context.clone();
         if let Some(request) = frozen_context.as_mut() {
             if !include_source {
@@ -820,6 +836,11 @@ impl AiWorkspace {
         self.set_draft("", window, cx);
         cx.notify();
         let task = cx.background_executor().spawn(async move {
+            if let Some(guard) = opt_guard {
+                guard
+                    .validate()
+                    .map_err(|_| aps_ai::runtime::RuntimeError::Context)?;
+            }
             if let Some(guard) = source_guard {
                 guard
                     .validate()
@@ -873,6 +894,23 @@ impl AiWorkspace {
             return;
         };
         let run_id = frozen.view.run_id.clone();
+        let is_opt = self
+            .bound_context
+            .as_ref()
+            .is_some_and(AnalysisRequest::is_frame_optimization);
+        let opt_guard = self.frame_optimization.clone().filter(|_| is_opt);
+        if is_opt
+            && (opt_guard.is_none()
+                || frozen.view.candidate_count != 1
+                || !self.state.include_source)
+        {
+            runtime.cancel();
+            self.state.pending_approval = None;
+            self.state.busy = false;
+            self.state.error = Some(self.language.text(TextKey::FrameOptConsent).into());
+            cx.notify();
+            return;
+        }
         let needs_guard = frozen.view.candidate_count > 0
             && self
                 .bound_context
@@ -903,7 +941,14 @@ impl AiWorkspace {
                     return Err(aps_ai::runtime::RuntimeError::Context);
                 }
             }
-            runtime.execute(frozen).await
+            if let Some(g) = &opt_guard {
+                if g.validate().is_err() {
+                    runtime.cancel();
+                    return Err(aps_ai::runtime::RuntimeError::Context);
+                }
+            }
+            let result = runtime.execute(frozen).await?;
+            Ok(opt_guard.and_then(|guard| guard.review(&result).transpose()))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -917,7 +962,11 @@ impl AiWorkspace {
                         this.state.status = Some(RunStatus::Succeeded);
                         this.state.add_activity(run_id.clone(), "run", "succeeded");
                         this.state.last_question = None;
-                        let _ = result;
+                        match result {
+                            Some(Ok(diff)) => cx.emit(diff),
+                            Some(Err(err)) => this.state.error = Some(err),
+                            _ => {}
+                        }
                     }
                     Err(error) => {
                         this.state.status = Some(RunStatus::RetryableFailure);
@@ -1238,6 +1287,7 @@ impl AiWorkspace {
     pub(crate) fn start_ordinary_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.bound_context = None;
         self.memory_source_guard = None;
+        self.frame_optimization = None;
         self.bound_title = None;
         self.state.context_title = None;
         self.state.can_include_source = false;

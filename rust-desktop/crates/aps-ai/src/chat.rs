@@ -101,6 +101,11 @@ pub fn build(
             _ => ChatError::InvalidContext,
         })?;
     }
+    if context
+        .is_some_and(|r| r.is_frame_optimization() && (!include_source || r.candidates.len() != 1))
+    {
+        return Err(ChatError::InvalidContext);
+    }
     let (session_id, profiler, scope) = match context {
         Some(context) => (
             context.session_id.clone(),
@@ -135,9 +140,27 @@ pub fn build(
                 .memory_instructions()
         );
     }
+    if let Some(r) = context.filter(|r| r.is_frame_optimization()) {
+        r.validate().map_err(|_| ChatError::InvalidContext)?;
+        let evidence = r
+            .evidence
+            .iter()
+            .find(|e| e.kind == "frame-optimization")
+            .ok_or(ChatError::InvalidContext)?;
+        // Some local Responses-compatible providers do not implement strict JSON schema;
+        // show the actual envelope without relaxing response or citation validation.
+        let shape = serde_json::json!({"summary":"<short summary>","findings":[{
+            "id":"frame-edit","severity":"INFO","title":"<short title>","explanation":"<hypothesis and verification>",
+            "recommendation":crate::frame_edit::example("<exact original lines>", "<replacement lines>"),
+            "analysisConfidence":0.5,"performanceEvidenceIds":[evidence.id],"sourceCandidateIds":[r.candidates[0].id]
+        }]});
+        instructions.push_str(&format!(
+            "\nRespond with precisely this JSON structure (no markdown), replacing placeholders and confidence with your analysis; preserve the exact IDs and keys. Output at most one finding. Use the three literal delimiter lines shown for the recommendation. Between them put only the exact original lines and replacement, preserving indentation. To delete lines put >>> END immediately on the line following === NEW. Do not change the probe. An unsupported edit must return an empty findings array. Be concise.\n{shape}"
+        ));
+    }
     // Memory sends only the current leak findings, approved sources and question. Older
     // dialogue may contain unrelated profiler data or source text.
-    let history = if memory_protocol {
+    let history = if context.is_some_and(AnalysisRequest::excludes_chat_history) {
         Vec::new()
     } else {
         bounded_history(history)?
@@ -638,6 +661,27 @@ mod tests {
         assert!(prompt.scope.starts_with("HPROF-only"));
         context.evidence[1].id = context.evidence[0].id.clone();
         assert!(build(Some(&context), None, &[], false, ReportLanguage::Auto).is_err());
+    }
+
+    #[test]
+    fn frame_approval_is_current_evidence_only_and_optimization_requires_one_excerpt() {
+        let mut r = context();
+        r.evidence[0].kind = "frame-trace-probe".into();
+        let history = [ChatContextTurn {
+            run_id: "old".into(),
+            question: None,
+            answer: "PRIVATE PREVIOUS METHOD".into(),
+        }];
+        let prompt = build(Some(&r), None, &history, false, ReportLanguage::English).unwrap();
+        assert!(prompt.payload.get("untrustedConversationContext").is_none());
+        assert!(!prompt.payload.to_string().contains("PREVIOUS"));
+        r.evidence[0].kind = "frame-optimization".into();
+        assert!(build(Some(&r), None, &[], true, ReportLanguage::English).is_err());
+        r.candidates = crate::model::tests::source_request().candidates;
+        assert!(build(Some(&r), None, &[], false, ReportLanguage::English).is_err());
+        let p = build(Some(&r), None, &history, true, ReportLanguage::English).unwrap();
+        assert_eq!(p.candidate_count, 1);
+        assert!(p.payload.get("untrustedConversationContext").is_none());
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! Frame Analyzer metadata-only AI context.
 //!
 //! Port of Compose FrameAiContext.kt plus the shared boundedAiContext policy:
-//! only summary counters and up to eight frame facts leave this module. Raw
+//! reports contain at most eight frame rows. A selected frame can also include
+//! fixed stage metrics and up to eight validated probe overlaps. Raw
 //! per-frame states, rule versions, arbitrary strings and SQL never do. The
 //! payload is bounded JSON and the evidence id is a SHA-256 binding of the
 //! analysis session id and the serialized payload.
@@ -82,8 +83,42 @@ pub(in crate::frame) fn analysis_request(
         }],
         candidates: Vec::new(),
         user_question: None,
-            mcp: None,
+        mcp: None,
     })
+}
+
+/// No model output is executed. The measurement question, not arbitrary
+/// per-frame strings, is bound into the provider-approved evidence.
+pub(super) fn probe_plan(
+    analysis: &FrameAnalysisResult,
+    id: u64,
+) -> Result<AnalysisRequest, String> {
+    let row = analysis
+        .frames
+        .iter()
+        .find(|f| f.sample.frame_id == id)
+        .ok_or("Frame unavailable")?;
+    let has_probe = !super::perfetto::probes(&row.sample).is_empty();
+    if !super::can_probe(row) && !has_probe {
+        return Err("Select a measured problem frame or a frame with a matched probe.".into());
+    }
+    let mut r = analysis_request(analysis, Some(id))?;
+    r.evidence[0].kind = "frame-trace-probe".into();
+    let question = if has_probe {
+        "Interpret the measured probe overlaps for this frame, including frames within budget. Compare wall time to observed scheduled time only where measured. Do not sum nested spans, infer zero CPU from missing data, or claim an optimization without a comparable baseline."
+    } else {
+        "Propose a falsifiable Trace instrumentation hypothesis, not a source fix. Name the synchronous app boundary worth testing, how to reproduce it, and what would disprove it. If evidence points outside the app, recommend investigation there instead of adding an app probe."
+    };
+    r.scope = format!(
+        "{question} Distinguish deadline misses, platform jank and actual causes. Same-process overlap alone is not causation. No verified method or build mapping was supplied: never invent a path, line or method."
+    );
+    r.run_id = if has_probe {
+        "frame-trace-interpret"
+    } else {
+        "frame-trace-plan"
+    }
+    .into();
+    Ok(r)
 }
 
 fn payload(
@@ -135,6 +170,46 @@ fn payload(
                     let sample = &frame.sample;
                     let mut value = Map::new();
                     value.insert("frameId".into(), Value::from(sample.frame_id));
+                    if selected {
+                        value.insert(
+                            "timelineStatus".into(),
+                            Value::from(aps_frame::frame_timeline_status(sample).as_name()),
+                        );
+                        let stages: Map<String, Value> = sample
+                            .stages
+                            .values()
+                            .into_iter()
+                            .filter(|(_, ns)| *ns >= 0)
+                            .map(|(label, ns)| (label.to_owned(), Value::from(ns)))
+                            .collect();
+                        value.insert("reportedStageNs".into(), Value::Object(stages));
+                        value.insert(
+                            "appTraceOverlaps".into(),
+                            Value::Array(
+                                super::perfetto::probes(sample)
+                                    .into_iter()
+                                    .map(|p| {
+                                        let mut item = Map::new();
+                                        item.insert("marker".into(), Value::from(p.marker));
+                                        item.insert("tid".into(), Value::from(p.tid));
+                                        item.insert(
+                                            "threadRole".into(),
+                                            Value::from(p.role.label()),
+                                        );
+                                        item.insert(
+                                            "windowOverlapNs".into(),
+                                            Value::from(p.overlap_ns),
+                                        );
+                                        item.insert(
+                                            "observedScheduledNs".into(),
+                                            p.scheduled_ns.map_or(Value::Null, Value::from),
+                                        );
+                                        Value::Object(item)
+                                    })
+                                    .collect(),
+                            ),
+                        );
+                    }
                     value.insert(
                         "durationNs".into(),
                         sample
@@ -288,6 +363,29 @@ mod tests {
         );
         assert_eq!(request.evidence[0].kind, "frame-selection");
         assert!(analysis_request(&result, Some(99)).is_err());
+    }
+
+    #[test]
+    fn plan_requires_a_measured_problem_and_uses_only_known_stage_names() {
+        let mut frame = analyzed(7, None);
+        frame.sample.stages.draw_ns = Some(9_000);
+        assert!(probe_plan(&analysis(vec![frame.clone()]), 7).is_err());
+        frame.sample.total_duration_ns = Some(20_000);
+        frame.sample.source = FrameSource::Perfetto;
+        frame.sample.states.insert(
+            "aps.trace.0".into(),
+            "APS.Frame/private-source 7 9 -1 Main".into(),
+        );
+        frame.sample.states.insert(
+            "aps.trace.1".into(),
+            "APS.Frame/1111111111111111 7 90000 -1 Main".into(),
+        );
+        let plan = probe_plan(&analysis(vec![frame.clone()]), 7).unwrap();
+        let facts = &plan.evidence[0].payload["frames"][0];
+        assert_eq!(facts["appTraceOverlaps"].as_array().unwrap().len(), 0);
+        assert_eq!(facts["reportedStageNs"]["Draw"].as_i64(), Some(9_000));
+        frame.deadline_verdict = FrameDeadlineVerdict::Met;
+        assert!(probe_plan(&analysis(vec![frame]), 7).is_err());
     }
 
     #[test]

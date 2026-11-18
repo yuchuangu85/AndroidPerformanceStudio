@@ -1,0 +1,14 @@
+{
+  "frame_compare_title": "采集前后对比",
+  "frame_compare_base": "加入基线组",
+  "frame_compare_after": "加入改动后组",
+  "frame_compare_clear": "清空对比",
+  "frame_compare_help": "仅在交互场景、设备设置和构建配置（待测改动除外）相同时加入。P95 为各次采集 P95 的中位数，未命中率仅使用可判定帧；n 为有效帧/总帧。探针按相同 ID 对比：窗内耗时 P95［覆盖采集次数；匹配帧数/区段数］。缺失不等于零，帧预算相近不代表刷新率相同，也不证明因果。",
+  "frame_optimize": "根据此探针建议源码优化",
+  "frame_opt_consent": "请为本次运行勾选包含源码，并在发送前审批所选方法片段。",
+  "frame_opt_review": "审阅 AI 优化补丁",
+  "frame_opt_review_help": "先审阅修改及其行为风险。不会覆盖源码。请核对补丁基于的版本，构建、测试后，在相同场景多次采集 FrameTimeline 对比。",
+  "frame_probe_locate": "定位探针源码",
+  "frame_compare_baseline_label": "基线组",
+  "frame_compare_after_label": "改动后组"
+}

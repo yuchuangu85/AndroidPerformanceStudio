@@ -1,3 +1,4 @@
+mod frame_probes;
 mod home_page;
 pub(crate) mod menubar;
 mod settings_ai;
@@ -880,6 +881,23 @@ impl Studio {
         })
         .collect();
         let mut subscriptions = vec![
+            cx.subscribe_in(
+                &ai,
+                window,
+                |this, _, diff: &crate::frame::ReviewDiff, window, cx| {
+                    if this.destination == Destination::Ai
+                        && this.ai_origin == Some(Destination::Frame)
+                    {
+                        crate::frame::show_optimization(
+                            diff,
+                            this.settings.language.resolved(),
+                            this.frame.clone(),
+                            window,
+                            cx,
+                        );
+                    }
+                },
+            ),
             cx.subscribe(
                 &frame,
                 |this, _, request: &FrameLayoutInspectionRequest, cx| {
@@ -888,6 +906,7 @@ impl Studio {
                     }
                 },
             ),
+            cx.subscribe_in(&frame, window, Self::handle_frame_probe),
             cx.subscribe_in(
                 &frame,
                 window,

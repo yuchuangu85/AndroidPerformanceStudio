@@ -73,6 +73,143 @@ pub(super) fn detail_body(
             }
         }
     }
+    let probes = super::super::perfetto::probes(&frame.sample);
+    let has_probe = !probes.is_empty();
+    if frame.sample.source == FrameSource::Perfetto {
+        details = details.child(evidence_row(
+            language.text(TextKey::FrameProbeOverlap).into(),
+            language
+                .text(if probes.is_empty() {
+                    TextKey::FrameProbeMissing
+                } else {
+                    TextKey::FrameProbeOverlapHint
+                })
+                .into(),
+            colors,
+        ));
+        let mut locate_markers = std::collections::BTreeSet::new();
+        let mut optimize_markers = std::collections::BTreeSet::new();
+        for p in probes {
+            let marker = p.marker.clone();
+            let name = this
+                .probe_labels
+                .get(&p.marker)
+                .map(|name| format!("{name} · {}", p.marker))
+                .unwrap_or(p.marker);
+            let cpu = model::format_millis(p.scheduled_ns);
+            let wall = model::format_millis(Some(p.overlap_ns));
+            details = details.child(evidence_row(
+                name,
+                language.format(
+                    TextKey::FrameProbeTimes,
+                    &[
+                        ("tid", &p.tid),
+                        ("role", &p.role.label()),
+                        ("wall", &wall),
+                        ("cpu", &cpu),
+                    ],
+                ),
+                colors,
+            ));
+            if !this.is_loading
+                && !this.is_capturing
+                && this.probe_labels.contains_key(&marker)
+                && locate_markers.insert(marker.clone())
+            {
+                let locate = marker.clone();
+                details = details.child(
+                    studio::compact_text_button(
+                        ("frame-locate-probe", locate_markers.len()),
+                        language.text(TextKey::FrameProbeLocate),
+                        true,
+                        false,
+                        colors,
+                    )
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(crate::frame::FrameProbeAction::Locate(locate.clone()))
+                    })),
+                );
+            }
+            if this.probe_binding().is_some()
+                && frame.sample.package_name.is_some()
+                && !frame.sample.states.contains_key("aps.trace.omitted")
+                && p.role != aps_perfetto::frame_probes::ThreadRole::Other
+                && optimize_markers.insert(marker.clone())
+            {
+                details = details.child(
+                    studio::compact_text_button(
+                        ("frame-optimize", optimize_markers.len()),
+                        language.text(TextKey::FrameOptimize),
+                        true,
+                        false,
+                        colors,
+                    )
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(crate::frame::FrameProbeAction::Optimize(marker.clone()))
+                    })),
+                );
+            }
+        }
+        if frame
+            .sample
+            .states
+            .get("aps.trace.omitted")
+            .and_then(|s| s.parse::<usize>().ok())
+            .is_some_and(|n| n > 0)
+        {
+            details = details.child(studio::selectable(
+                language.text(TextKey::FrameProbeLimited),
+            ));
+        }
+    }
+    if frame.sample.source == FrameSource::Perfetto
+        && this
+            .current_session
+            .as_ref()
+            .is_some_and(|s| s.package_name.is_some() && s.device_serial.is_some())
+        && !this.is_loading
+        && !this.is_capturing
+    {
+        details = details.child(
+            studio::compact_text_button(
+                "frame-compare-runs",
+                language.text(TextKey::FrameCompareTitle),
+                true,
+                false,
+                colors,
+            )
+            .on_click(cx.listener(|f, _, w, cx| f.show_comparison(w, cx))),
+        );
+    }
+    let can_patch = this.probe_binding().is_some();
+    if can_patch || (has_probe && !this.is_loading && !this.is_capturing) {
+        details = details.child(
+            studio::compact_text_button(
+                "frame-probe-plan",
+                language.text(if has_probe {
+                    TextKey::FrameProbeInterpret
+                } else {
+                    TextKey::FrameProbeAi
+                }),
+                true,
+                false,
+                colors,
+            )
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(crate::frame::FrameProbeAction::Plan))),
+        );
+    }
+    if can_patch {
+        details = details.child(
+            studio::compact_text_button(
+                "frame-probe-review",
+                language.text(TextKey::FrameProbeReview),
+                true,
+                false,
+                colors,
+            )
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(crate::frame::FrameProbeAction::Patch))),
+        );
+    }
     if this.perfetto_trace_file.is_some() {
         details = details.child(
             studio::compact_text_button(

@@ -13,9 +13,18 @@ mod capture;
 mod detail_data;
 mod export;
 mod model;
+mod optimize;
 mod page;
 mod perfetto;
+mod probe_compare;
+mod probe_receipt;
+mod probe_review;
+#[cfg(test)]
+mod probe_tests;
+pub(crate) use optimize::{Optimization, ReviewDiff};
 mod sessions;
+mod trace_patch;
+pub(crate) use probe_review::{ProbeDraft, show_optimization, show_probe_draft};
 
 use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
@@ -71,6 +80,20 @@ pub(crate) struct FrameLayoutInspectionRequest {
 impl EventEmitter<FrameLayoutInspectionRequest> for FrameWorkspace {}
 impl EventEmitter<crate::evidence::AnalysisRequested> for FrameWorkspace {}
 
+#[derive(Clone)]
+pub(crate) enum FrameProbeAction {
+    Locate(String),
+    Optimize(String),
+    Plan,
+    Patch,
+}
+impl EventEmitter<FrameProbeAction> for FrameWorkspace {}
+fn can_probe(frame: &AnalyzedFrame) -> bool {
+    frame.sample.resolved_duration_ns().is_some_and(|ns| ns > 0)
+        && (frame.deadline_verdict == aps_frame::FrameDeadlineVerdict::Missed
+            || frame.sample.platform_jank == Some(true))
+}
+
 pub struct FrameWorkspace {
     pub(in crate::frame) language: Language,
     pub(in crate::frame) data_dir: Option<PathBuf>,
@@ -105,6 +128,8 @@ pub struct FrameWorkspace {
     pub(in crate::frame) import_generation: u64,
     pub(in crate::frame) capture_generation: u64,
     timeline_operation: Option<FrameTimelineOperation>,
+    comparison: probe_compare::Comparison,
+    probe_labels: std::collections::BTreeMap<String, String>,
 }
 
 impl FrameWorkspace {
@@ -153,6 +178,8 @@ impl FrameWorkspace {
             import_generation: 0,
             capture_generation: 0,
             timeline_operation: None,
+            comparison: Default::default(),
+            probe_labels: Default::default(),
         };
         this
     }
@@ -473,6 +500,7 @@ impl FrameWorkspace {
                     Ok(loaded) => {
                         this.imported_file_name = Some(loaded.file_name);
                         this.perfetto_trace_file = loaded.trace_path.clone();
+                        this.probe_labels.clear();
                         this.artifact = loaded.artifact.clone();
                         this.current_session = Some(loaded.session.clone());
                         this.apply_analysis(loaded.analysis, cx);
@@ -882,14 +910,14 @@ impl FrameWorkspace {
                 process.pid,
                 &process.package_name,
             )?;
-            let processed = perfetto::analyze_with_tool(tool, &captured.trace_file, &cancel)?;
+            let processed = perfetto::analyze_with_tool(tool, &captured.trace_file, Some(process.pid), &cancel)?;
             if cancel.is_cancelled() {
                 return Err(
                     "FrameTimeline capture cancelled; the previous report is retained.".to_owned(),
                 );
             }
             if processed.frames.is_empty() {
-                return Err("Captured trace contains no FrameTimeline rows.".to_owned());
+                return Err(format!("No FrameTimeline rows for selected process {} (pid {}). Reproduce a visible frame or reselect the process after reinstalling.",process.package_name,process.pid));
             }
             let final_artifact = raw_artifact
                 .clone()
@@ -902,6 +930,9 @@ impl FrameWorkspace {
                 .frames
                 .into_iter()
                 .map(|mut frame| {
+                    frame.states.insert("aps.target.process".into(), process.name.clone());
+                    frame.package_name = Some(process.package_name.clone());
+                    frame.process_id = Some(process.pid);
                     frame.session_id = session_id.clone();
                     frame
                 })
@@ -921,7 +952,7 @@ impl FrameWorkspace {
                     expected_frame_deadline: true,
                     app_state_labels: true,
                 }),
-                observed_refresh_rates_hz: Vec::new(),
+                observed_refresh_rates_hz: captured.observed_refresh_rates_hz,
                 imported_file: None,
                 imported_file_sha256: None,
                 imported_at_unix_ms: None,
@@ -930,7 +961,9 @@ impl FrameWorkspace {
                 perfetto_trace_file: Some(captured.trace_file.display().to_string()),
                 artifact: Some(final_artifact.id.clone()),
             };
+            let labels = data_dir.as_deref().map(|d| probe_receipt::labels(d,&process.package_name)).transpose();
             Ok::<_, String>((
+                labels, processed.probe_warning,
                 frames,
                 session,
                 final_artifact,
@@ -965,7 +998,15 @@ impl FrameWorkspace {
                     return;
                 }
                 match result {
-                    Ok((frames, session, final_artifact, trace_file, mut recording)) => {
+                    Ok((
+                        labels,
+                        probe_warning,
+                        frames,
+                        session,
+                        final_artifact,
+                        trace_file,
+                        mut recording,
+                    )) => {
                         if let Some(dir) = this.data_dir.as_deref() {
                             if let Err(error) = final_artifact.save(Some(dir)) {
                                 this.operation_status =
@@ -986,7 +1027,13 @@ impl FrameWorkspace {
                         this.operation_status = Some(model::FrameOperationStatus::CaptureStopped {
                             frame_count: frames.len(),
                         });
-                        this.warnings.clear();
+                        this.probe_labels.clear();
+                        this.warnings = probe_warning.into_iter().collect();
+                        match labels {
+                            Ok(Some(map)) => this.probe_labels = map,
+                            Ok(None) => {}
+                            Err(e) => this.warnings.push(e),
+                        }
                         this.error = None;
                         // Only a successful, current publication becomes a
                         // persistent Frame session. Stale/error tasks stay RAII.
@@ -1163,6 +1210,46 @@ impl FrameWorkspace {
         cx.emit(request);
     }
 
+    fn save_probe_receipt(&mut self, r: &probe_receipt::Receipt, cx: &mut Context<Self>) {
+        let result = self
+            .data_dir
+            .as_deref()
+            .ok_or("No local frame data directory.".to_owned())
+            .and_then(|d| probe_receipt::save(d, r));
+        if let Err(err) = result {
+            self.error = Some(format!(
+                "Patch exported, but its local source binding was not saved: {err}"
+            ));
+        }
+        cx.notify();
+    }
+    pub(crate) fn frame_binding(&self) -> Option<(String, u64)> {
+        if self.is_capturing || self.is_loading {
+            return None;
+        }
+        self.selected_frame()
+            .map(|f| (f.sample.session_id.clone(), f.sample.frame_id))
+    }
+
+    pub(crate) fn probe_binding(&self) -> Option<(String, u64)> {
+        if self.is_loading || self.is_capturing {
+            return None;
+        }
+        self.selected_frame()
+            .filter(|f| can_probe(f))
+            .map(|f| (f.sample.session_id.clone(), f.sample.frame_id))
+    }
+    pub(crate) fn probe_plan_request(&self) -> Result<AnalysisRequest, String> {
+        if self.is_loading || self.is_capturing {
+            return Err("Finish capture before analyzing a probe.".into());
+        }
+        let id = self
+            .selected_frame()
+            .ok_or("Select a frame.")?
+            .sample
+            .frame_id;
+        ai::probe_plan(self.filtered_analysis.as_deref().ok_or("No analysis")?, id)
+    }
     pub(crate) fn analysis_request(&self) -> Result<AnalysisRequest, String> {
         let analysis = self
             .analysis
@@ -1403,7 +1490,7 @@ fn import_perfetto_blocking(
         analysis,
         session,
         frames,
-        warnings: Vec::new(),
+        warnings: processed.probe_warning.into_iter().collect(),
         file_name,
         trace_path: Some(path),
         artifact: Some(final_artifact),
@@ -1703,7 +1790,8 @@ mod tests {
                 < capture.find("capture::capture_frame_timeline(").unwrap()
         );
         assert!(
-            capture.contains("perfetto::analyze_with_tool(tool, &captured.trace_file, &cancel)")
+            capture.contains("Some(process.pid)")
+                && capture.contains("perfetto::analyze_with_tool(")
         );
         assert!(capture.contains("operation.can_publish(this.import_generation)"));
         assert!(

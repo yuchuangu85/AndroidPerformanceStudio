@@ -17,6 +17,7 @@ use std::path::Path;
 
 pub(in crate::frame) struct PerfettoTimeline {
     pub(in crate::frame) frames: Vec<FrameSample>,
+    pub(super) probe_warning: Option<String>,
     pub(in crate::frame) tool_version: String,
     pub(in crate::frame) capabilities: FrameTimelineCapabilities,
 }
@@ -25,26 +26,110 @@ pub(in crate::frame) fn analyze_trace(
     trace: &Path,
     cancel: &CancellationToken,
 ) -> Result<PerfettoTimeline, String> {
-    analyze_with_tool(crate::perfetto_tool::locate(cancel)?, trace, cancel)
+    analyze_with_tool(crate::perfetto_tool::locate(cancel)?, trace, None, cancel)
 }
 
 pub(in crate::frame) fn analyze_with_tool(
     tool: TraceProcessor,
     trace: &Path,
+    pid: Option<i32>,
     cancel: &CancellationToken,
 ) -> Result<PerfettoTimeline, String> {
     let tool_version = tool.version().to_owned();
     let session = TraceSession::open(tool, trace, cancel)
         .map_err(|error| format!("Cannot open the Perfetto FrameTimeline trace: {error}"))?;
     let rows = session
-        .frame_timeline_rows(None, cancel)
+        .frame_timeline_rows(pid, cancel)
         .map_err(|error| format!("Cannot read Perfetto FrameTimeline rows: {error}"))?;
-    let result = map_rows(rows)?;
+    let keys: Vec<_> = rows.iter().map(|r| r.actual_slice_id).collect();
+    let mut result = map_rows(rows)?;
+    let mut probe_warning = None;
+    if keys.iter().any(Option::is_some) {
+        match session.frame_probes(pid, cancel) {
+            Ok(hits) => attach_probes(&mut result.frames, keys, hits),
+            Err(
+                aps_perfetto::PerfettoError::Cancelled | aps_perfetto::PerfettoError::SourceChanged,
+            ) => return Err("Frame trace changed or was cancelled.".into()),
+            Err(err) => probe_warning = Some(format!("App Trace overlap unavailable: {err}")),
+        }
+    }
     Ok(PerfettoTimeline {
         frames: result.frames,
+        probe_warning,
         tool_version,
         capabilities: result.capabilities,
     })
+}
+
+// Keep bounded typed facts alongside each sample so filtering, persistence and
+// export retain row identity. Do not join on display vsync IDs across layers.
+fn attach_probes(
+    frames: &mut [FrameSample],
+    keys: Vec<Option<i64>>,
+    hits: Vec<(i64, aps_perfetto::frame_probes::Probe)>,
+) {
+    use aps_perfetto::frame_probes::PER_FRAME;
+    let mut by_id = std::collections::HashMap::<_, Vec<_>>::new();
+    for (id, probe) in hits {
+        by_id.entry(id).or_default().push(probe);
+    }
+    for (frame, id) in frames.iter_mut().zip(keys) {
+        let Some(probes) = id.and_then(|k| by_id.get(&k)) else {
+            continue;
+        };
+        for (i, p) in probes.iter().take(PER_FRAME).enumerate() {
+            frame.states.insert(
+                format!("aps.trace.{i}"),
+                format!(
+                    "{} {} {} {} {}",
+                    p.marker,
+                    p.tid,
+                    p.overlap_ns,
+                    p.scheduled_ns.unwrap_or(-1),
+                    p.role.label()
+                ),
+            );
+        }
+        if probes.len() > PER_FRAME {
+            frame.states.insert(
+                "aps.trace.omitted".into(),
+                (probes.len() - PER_FRAME).to_string(),
+            );
+        }
+    }
+}
+
+pub(super) fn probes(frame: &FrameSample) -> Vec<aps_perfetto::frame_probes::Probe> {
+    use aps_perfetto::frame_probes::{PER_FRAME, Probe, valid_marker};
+    if frame.source != aps_frame::FrameSource::Perfetto {
+        return Vec::new();
+    }
+    (0..PER_FRAME)
+        .filter_map(|i| {
+            let raw = frame.states.get(&format!("aps.trace.{i}"))?;
+            let mut fields = raw.split(' ');
+            let marker = fields.next()?;
+            let tid = fields.next()?.parse().ok()?;
+            let overlap_ns = fields.next()?.parse().ok()?;
+            let running: i64 = fields.next()?.parse().ok()?;
+            let role = aps_perfetto::frame_probes::ThreadRole::parse(fields.next()?)?;
+            if fields.next().is_some()
+                || !valid_marker(marker)
+                || tid <= 0
+                || !(1..=frame.resolved_duration_ns()?).contains(&overlap_ns)
+                || !(-1..=overlap_ns).contains(&running)
+            {
+                return None;
+            }
+            Some(Probe {
+                marker: marker.to_owned(),
+                role,
+                tid,
+                overlap_ns,
+                scheduled_ns: (running >= 0).then_some(running),
+            })
+        })
+        .collect()
 }
 
 fn map_rows(
@@ -82,6 +167,7 @@ mod tests {
     fn row(frame_id: i64) -> aps_perfetto::frame_timeline::FrameTimelineRow {
         aps_perfetto::frame_timeline::FrameTimelineRow {
             frame_id,
+            actual_slice_id: Some(frame_id),
             expected_ts: Some(1_000),
             expected_dur: Some(16_666_666),
             actual_ts: Some(1_100),
@@ -175,6 +261,75 @@ mod tests {
                 .iter()
                 .all(|frame| frame.platform_jank_types.is_empty())
         );
+    }
+
+    #[test]
+    fn generated_probe_survives_trace_import_selection_report_roundtrip_and_ai_projection() {
+        use crate::frame::{ai, analysis_json, export, trace_patch};
+        let dir = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let binary = if cfg!(windows) {
+            "trace_processor_shell.exe"
+        } else {
+            "trace_processor_shell"
+        };
+        if !root.join("build/perfetto-tools").join(binary).is_file() {
+            return;
+        }
+        let marker = trace_patch::trace_patch(
+            "app/HiddenFeed.kt",
+            "fun bindSecret() {\n    draw()\n}\n",
+            1,
+        )
+        .unwrap()
+        .marker;
+        let mut bytes =
+            include_bytes!("../../../aps-perfetto/tests/fixtures/frame-probes.pftrace").to_vec();
+        let original = b"APS.Frame/0000000000000001";
+        let at = bytes
+            .windows(original.len())
+            .position(|w| w == original)
+            .unwrap();
+        bytes[at..at + original.len()].copy_from_slice(marker.as_bytes());
+        let trace = dir.path().join("recapture.pftrace");
+        std::fs::write(&trace, bytes).unwrap();
+        let cancel = CancellationToken::new();
+        let timeline = analyze_with_tool(
+            TraceProcessor::from_repository(&root, &cancel).unwrap(),
+            &trace,
+            None,
+            &cancel,
+        )
+        .unwrap();
+        assert!(timeline.probe_warning.is_none());
+        assert_eq!(timeline.frames.len(), 2);
+        let sample = timeline
+            .frames
+            .iter()
+            .find(|s| probes(s).first().is_some_and(|p| p.marker == marker))
+            .unwrap();
+        let frame_id = sample.frame_id;
+        assert_eq!(probes(sample)[0].scheduled_ns, Some(7));
+        let analyzer = aps_frame::FrameJankAnalyzer::new();
+        let result = analyzer.analyze(&timeline.frames);
+        let file = dir.path().join("frame-analysis.json");
+        export::export_json(&result, &file).unwrap();
+        let restored =
+            analysis_json::parse_export(&std::fs::read_to_string(file).unwrap(), "reopen").unwrap();
+        let request = ai::probe_plan(&analyzer.analyze(&restored), frame_id).unwrap();
+        let evidence = &request.evidence[0].payload["frames"][0]["appTraceOverlaps"];
+        assert_eq!(evidence.as_array().unwrap().len(), 2);
+        assert_eq!(evidence[0]["marker"].as_str(), Some(marker.as_str()));
+        assert_eq!(evidence[0]["threadRole"].as_str(), Some("Main"));
+        assert_eq!(evidence[0]["windowOverlapNs"].as_i64(), Some(20));
+        assert_eq!(evidence[0]["observedScheduledNs"].as_i64(), Some(7));
+        assert!(
+            !request.evidence[0]
+                .payload
+                .to_string()
+                .contains("HiddenFeed")
+        );
+        assert!(request.candidates.is_empty());
     }
 
     #[test]

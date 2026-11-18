@@ -9,6 +9,7 @@ pub const MAX_FRAME_TIMELINE_ROWS: usize = 200_000;
 
 pub const COLUMNS: &[&str] = &[
     "frame_id",
+    "actual_slice_id",
     "expected_ts",
     "expected_dur",
     "actual_ts",
@@ -25,6 +26,7 @@ pub const COLUMNS: &[&str] = &[
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrameTimelineRow {
     pub frame_id: i64,
+    pub actual_slice_id: Option<i64>,
     pub expected_ts: Option<i64>,
     pub expected_dur: Option<i64>,
     pub actual_ts: Option<i64>,
@@ -46,7 +48,7 @@ pub(crate) fn sql(process_id: Option<i32>) -> String {
     });
     format!(
         "SELECT e.display_frame_token AS frame_id, \
-         e.ts AS expected_ts, \
+         a.id AS actual_slice_id, e.ts AS expected_ts, \
          e.dur AS expected_dur, \
          a.ts AS actual_ts, \
          a.dur AS actual_dur, \
@@ -82,6 +84,7 @@ pub(crate) fn decode(rows: Vec<Vec<String>>) -> Result<Vec<FrameTimelineRow>, Pe
             let frame_id = int(cells.next())?.ok_or(PerfettoError::InvalidResult)?;
             Ok(FrameTimelineRow {
                 frame_id,
+                actual_slice_id: int(cells.next())?,
                 expected_ts: int(cells.next())?,
                 expected_dur: int(cells.next())?,
                 actual_ts: int(cells.next())?,
@@ -132,6 +135,7 @@ mod tests {
         let row = |id: &str, expected: &str, layer: &str| {
             vec![
                 id.into(),
+                "[NULL]".into(),
                 expected.into(),
                 "[NULL]".into(),
                 "[NULL]".into(),

@@ -151,6 +151,21 @@ impl AnalysisRequest {
         instructions
     }
 
+    /// These approvals cover only this capture and its explicitly attached excerpt.
+    pub(crate) fn excludes_chat_history(&self) -> bool {
+        (self.profiler == "frame"
+            && self
+                .evidence
+                .iter()
+                .any(|e| matches!(e.kind.as_str(), "frame-trace-probe" | "frame-optimization")))
+            || self.is_memory_hprof()
+            || self.memory_phase3_mode().is_some()
+    }
+
+    pub fn is_frame_optimization(&self) -> bool {
+        self.profiler == "frame" && self.evidence.iter().any(|e| e.kind == "frame-optimization")
+    }
+
     pub(crate) fn validate(&self) -> Result<(), AiError> {
         for value in [&self.session_id, &self.run_id, &self.profiler] {
             identifier(value)?;

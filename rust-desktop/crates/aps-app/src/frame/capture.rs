@@ -97,6 +97,7 @@ pub(in crate::frame) struct BoundedFrameTimelineCapture {
     pub trace_file: PathBuf,
     pub started_at_unix_ms: u64,
     pub android_api_level: u32,
+    pub observed_refresh_rates_hz: Vec<f64>,
     pub recording: aps_perfetto::recording::RecordingResult,
 }
 
@@ -613,7 +614,7 @@ fn parse_display_refresh_rates(output: &str) -> Vec<f64> {
                 {
                     rates.insert((rate * 1_000.0).round() as i64);
                 }
-                search = &rest[1.min(rest.len())..];
+                search = rest;
                 if search.is_empty() {
                     break;
                 }
@@ -1737,10 +1738,56 @@ pub(in crate::frame) fn open_online_capture(
 // Bounded Android 12+ FrameTimeline capture (BoundedFrameTimelineCapture.kt).
 // ---------------------------------------------------------------------------
 
-fn timeline_config_body() -> String {
-    format!(
-        "buffers: {{\n  size_kb: {FRAME_TIMELINE_BUFFER_SIZE_KB}\n  fill_policy: RING_BUFFER\n}}\ndata_sources: {{\n  config {{\n    name: \"{FRAME_TIMELINE_DATA_SOURCE}\"\n  }}\n}}\n"
-    )
+fn timeline_config_body(package: &str, process_name: &str) -> Result<String, String> {
+    // atrace_apps takes a package, never an arbitrary process pattern or wildcard.
+    if valid_package_name(package).is_none()
+        || package
+            .split('.')
+            .any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    {
+        return Err("Invalid FrameTimeline atrace package".to_owned());
+    }
+    // Android may match atrace apps against the subprocess cmdline, not just
+    // the owning package. Bind only the exact selected package or its child.
+    let child = if process_name == package {
+        String::new()
+    } else if process_name.split_once(':').is_some_and(|(parent, child)| {
+        parent == package
+            && !child.is_empty()
+            && child
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    }) && process_name.len() <= 255
+    {
+        format!("atrace_apps: \"{process_name}\"\n")
+    } else {
+        return Err("Selected process is not a validated target app process.".into());
+    };
+    Ok(format!(
+        "buffers: {{\n  size_kb: {FRAME_TIMELINE_BUFFER_SIZE_KB}\n  fill_policy: RING_BUFFER\n}}\ndata_sources: {{ config {{ name: \"{FRAME_TIMELINE_DATA_SOURCE}\" }} }}\n\
+         data_sources: {{ config {{ name: \"linux.process_stats\" process_stats_config {{ scan_all_processes_on_start: true record_thread_names: true }} }} }}\n\
+         data_sources: {{ config {{ name: \"linux.ftrace\" ftrace_config {{\n\
+         ftrace_events: \"ftrace/print\"\nftrace_events: \"sched/sched_switch\"\natrace_apps: \"{package}\"\n{child}}} }} }}\n"
+    ))
+}
+
+fn check_target(
+    adb: &dyn FrameAdb,
+    serial: &str,
+    process: &FrameProcessOption,
+) -> Result<(), String> {
+    // The process selector may predate an install/restart. Do not label PID-reused rows as the app.
+    let ps = adb.shell(serial, &shell_arguments(&["shell", "pidof", &process.name]))?;
+    if ps.success
+        && ps
+            .stdout
+            .split_whitespace()
+            .any(|v| v.parse::<i32>() == Ok(process.pid))
+    {
+        Ok(())
+    } else {
+        Err("The selected process changed. Refresh the target after installing the APK.".into())
+    }
 }
 
 fn timeline_api_gate(android_api_level: u32) -> Result<(), String> {
@@ -1792,7 +1839,14 @@ pub(in crate::frame) async fn capture_frame_timeline(
     let capture_root = data_dir
         .unwrap_or_else(std::env::temp_dir)
         .join("frame-captures");
-    let config_body = timeline_config_body();
+    let config_body = timeline_config_body(&process.package_name, &process.name)?;
+    check_target(&adb, serial, process)?;
+    let observed_refresh_rates_hz = adb
+        .shell(serial, &shell_arguments(&["shell", "dumpsys", "display"]))
+        .ok()
+        .filter(|out| out.success)
+        .map(|out| parse_display_refresh_rates(&out.stdout))
+        .unwrap_or_default();
     let recording = aps_perfetto::recording::record_bounded(
         &aps_perfetto::recording::RecordingRequest {
             adb_executable: &adb.executable,
@@ -1804,7 +1858,9 @@ pub(in crate::frame) async fn capture_frame_timeline(
         cancel,
     )
     .map_err(|error| error.to_string())?;
+    check_target(&adb, serial, process)?;
     Ok(BoundedFrameTimelineCapture {
+        observed_refresh_rates_hz,
         trace_file: recording.paths.local_trace.clone(),
         started_at_unix_ms: recording.started_at_unix_ms,
         android_api_level,
@@ -2367,7 +2423,16 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn timeline_body_preserves_buffer_source_but_cannot_override_owned_limits() {
-        let config = timeline_config_body();
+        let config = timeline_config_body("com.example.app", "com.example.app").unwrap();
+        assert!(config.contains("atrace_apps: \"com.example.app\""));
+        assert!(config.contains("record_thread_names: true"));
+        assert!(config.contains("ftrace/print") && config.contains("sched/sched_switch"));
+        for invalid in ["*", "", "com.example:remote", "app\" }"] {
+            assert!(timeline_config_body(invalid, invalid).is_err());
+        }
+        let child = timeline_config_body("com.example.app", "com.example.app:renderer").unwrap();
+        assert!(child.contains("atrace_apps: \"com.example.app:renderer\""));
+        assert!(timeline_config_body("com.example.app", "other.app:remote").is_err());
         assert!(config.contains("size_kb: 32768"));
         assert!(config.contains("fill_policy: RING_BUFFER"));
         assert!(config.contains("name: \"android.surfaceflinger.frametimeline\""));

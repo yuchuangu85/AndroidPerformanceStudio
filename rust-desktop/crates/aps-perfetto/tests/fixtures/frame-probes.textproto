@@ -1,0 +1,25 @@
+# Rebuild with protoc -Ithird_party/perfetto --encode=perfetto.protos.Trace
+# protos/perfetto/trace/trace.proto protos/third_party/android/frameworks/native/tracing/frameworks_native_trace_packet.proto
+packet { process_tree { processes { pid:30 cmdline:"com.example" } threads {tid:30 tgid:30 name:"main"} threads {tid:31 tgid:30 name:"RenderThread"} processes {pid:40 cmdline:"other.app"} threads {tid:40 tgid:40 name:"main"} } }
+packet { timestamp:100 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] { expected_surface_frame_start {cookie:1 token:11 display_frame_token:7 pid:30 layer_name:"A"} } }
+packet { timestamp:100 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] { actual_surface_frame_start {cookie:2 token:11 display_frame_token:7 pid:30 layer_name:"A" present_type:PRESENT_LATE} } }
+packet { timestamp:100 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] { expected_surface_frame_start {cookie:3 token:13 display_frame_token:7 pid:40 layer_name:"B"} } }
+packet { timestamp:100 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] { actual_surface_frame_start {cookie:4 token:13 display_frame_token:7 pid:40 layer_name:"B"} } }
+packet { timestamp:120 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] {frame_end {cookie:1}} }
+packet { timestamp:120 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] {frame_end {cookie:3}} }
+packet { timestamp:130 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] {frame_end {cookie:2}} }
+packet { timestamp:130 [com.android.internal.FrameworksNativeTracePacket.frame_timeline_event] {frame_end {cookie:4}} }
+packet { ftrace_events { cpu:0
+ event {timestamp:90 pid:30 print {buf:"B|30|APS.Frame/0000000000000001"}}
+ event {timestamp:101 pid:40 print {buf:"B|40|APS.Frame/0000000000000002"}}
+ event {timestamp:105 pid:0 sched_switch {prev_comm:"idle" prev_pid:0 prev_state:0 next_comm:"main" next_pid:30}}
+ event {timestamp:112 pid:30 sched_switch {prev_comm:"main" prev_pid:30 prev_state:1 next_comm:"idle" next_pid:0}}
+ event {timestamp:117 pid:40 print {buf:"E|40"}}
+ event {timestamp:118 pid:31 print {buf:"B|30|APS.Frame/0000000000000004"}}
+ event {timestamp:120 pid:30 print {buf:"E|30"}}
+ event {timestamp:121 pid:30 print {buf:"B|30|APS.Frame/secret-file-name"}}
+ event {timestamp:124 pid:30 print {buf:"E|30"}}
+ event {timestamp:130 pid:30 print {buf:"B|30|APS.Frame/0000000000000003"}}
+ event {timestamp:136 pid:30 print {buf:"E|30"}}
+ event {timestamp:141 pid:31 print {buf:"E|30"}}
+} }

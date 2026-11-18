@@ -22,6 +22,17 @@ PERFETTO_TOOLS_DIR="$PWD/rust-desktop/target/release/resources/perfetto-tools" b
 
 Rust settings and storage use their own application-data root and do not migrate or overwrite settings from older application versions.
 
+## 帧分析器：用 Trace 验证慢帧假设
+
+1. 选中有可信耗时的超时帧或平台卡顿帧，在帧详情点 **AI 建议在哪里加 Trace**。审批页仅包含帧指标、已报告的阶段以及有界的探针测量，不上传工程。阶段耗时不是方法归因。
+2. 在「源码工作区」打开与被测 APK 对应的本地 Kotlin/Java 文件。回到该帧点 **生成 Trace 补丁**，选择要验证的同步方法。APS 核对文件与索引快照的哈希，不声称已验证 APK 与工程的版本匹配。挂起函数、内联函数和无法安全包装的声明不会列出。
+3. 审阅差异，复制或另存为新的 `.patch`。可以在目标工程根目录运行 `git apply --check /path/to/probe.patch`；确认后再应用、构建并安装可分析的 APK。APS 不修改源码，也不代为编译或安装。
+4. 在 Android 12+ 设备上选择重新安装后的目标进程，点 **采集 FrameTimeline**，在录制期间复现相同操作。普通 gfxinfo 轮询不会采到应用 Trace。也可以直接导入含有相同数据源的 `.pftrace`。
+5. 在新帧的 **本帧应用 Trace** 中按探针 ID 对照补丁。每行显示同进程、同线程的探针与实际帧窗口的交集，以及其中观测到的上 CPU 时间。时间重叠不是因果关系，嵌套区段不能求和；没有证据显示为未知，不是 0。可以用 **AI 解读本帧探针** 继续分析。验证业务优化时，请在相同场景比较多次采集的 P95 和截止时间未命中率，移除探针后再测一次。
+
+6. 刷新插桩后的源码快照，在定向复采的帧详情点 **定位探针源码**。至少两个不同慢帧有同一主线程/渲染线程探针时，可申请 AI 优化补丁；须在工作区和本次请求分别同意发送片段。来源、哈希、引用或语法范围不符时拒绝生成。用户自行审阅、测试和应用。
+7. 使用 **采集前后对比** 把同场景多次采集分别加入两组，查看 P95、未命中率及变化量；不接受重复 Trace 或目标、设备、报告刷新率、帧预算不兼容的采集。[完整使用说明](../docs-user-zh/capture-artifacts.md)。
+
 ## 验证策略
 
 11 月 11 日提出的测试全部功能的要求取代了此前仅进行开发检查、暂缓测试的安排。

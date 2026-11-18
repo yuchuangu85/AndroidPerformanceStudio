@@ -465,7 +465,7 @@ impl AsyncRead for BodyReader {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use futures::io::AsyncReadExt;
     use std::io::Write;
@@ -495,7 +495,9 @@ mod tests {
         }
     }
 
-    fn serve_once(response: &'static [u8]) -> (String, std_mpsc::Receiver<Vec<u8>>) {
+    pub(crate) fn serve_once(
+        response: impl AsRef<[u8]> + Send + 'static,
+    ) -> (String, std_mpsc::Receiver<Vec<u8>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (sender, receiver) = std_mpsc::channel();
@@ -532,7 +534,7 @@ mod tests {
                 request.extend_from_slice(&buffer[..read]);
             }
             let _ = sender.send(request);
-            stream.write_all(response).unwrap();
+            stream.write_all(response.as_ref()).unwrap();
             stream.flush().unwrap();
         });
         (format!("http://{address}/v1/models"), receiver)

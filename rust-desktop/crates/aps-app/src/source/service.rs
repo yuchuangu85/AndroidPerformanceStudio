@@ -334,6 +334,14 @@ pub(super) fn snapshot(
     open(paths)?.snapshot(id)
 }
 
+pub(super) fn file(
+    paths: &SourcePaths,
+    snapshot: SourceSnapshotId,
+    path: &str,
+) -> Result<Option<SourceFile>, String> {
+    open(paths)?.file(snapshot, path)
+}
+
 pub(super) fn files(paths: &SourcePaths, id: SourceSnapshotId) -> Result<Vec<SourceFile>, String> {
     open(paths)?.files(id)
 }
@@ -615,6 +623,12 @@ mod tests {
         assert_eq!(current.state, SourceContentState::Current);
         assert!(current.text.contains("class Widget"));
 
+        let probe_source = crate::source::LocalProbeSource {
+            paths: paths.clone(),
+            location: location.clone(),
+        };
+        assert_eq!(probe_source.read().unwrap(), current.text);
+
         fixture.write(
             "src/main/kotlin/sample/Widget.kt",
             "package sample\nclass Changed\n",
@@ -622,6 +636,10 @@ mod tests {
         let stale = read(&paths, &location).unwrap();
         assert_eq!(stale.state, SourceContentState::Stale);
         assert!(stale.text.contains("class Widget"));
+        assert!(
+            probe_source.read().is_err(),
+            "a stale snapshot must not produce a patch"
+        );
 
         // Deterministic evidence resolution + candidate persistence.
         let evidence = vec![SourceResolutionEvidence::TypeName {
