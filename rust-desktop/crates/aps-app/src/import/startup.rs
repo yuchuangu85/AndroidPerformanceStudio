@@ -1,6 +1,8 @@
 //! Startup workspace over explicit platform experiments and imported CSV evidence.
 //! Missing events and correlated phase evidence are never invented.
 mod capture;
+mod cpu;
+mod cpu_evidence;
 pub(in crate::import) use capture::StartupCaptureUi;
 mod model;
 mod reports;
@@ -245,6 +247,10 @@ impl ImportWorkspace {
                 self.language,
                 &colors,
             ))
+            .children(
+                cpu::selected_evidence(selected, &self.startup_capture.cpu_hotspots)
+                    .map(|(run, evidence)| cpu::panel(run, evidence, self.language, &colors)),
+            )
             .child(self.startup_table(page, width, &colors, cx))
             .child(self.startup_baseline(&colors));
         let rail = self.startup_rail(selected, page.map(|page| &page.summary), &colors, cx);

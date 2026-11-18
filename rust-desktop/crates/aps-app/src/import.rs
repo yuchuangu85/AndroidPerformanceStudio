@@ -845,6 +845,11 @@ impl ImportWorkspace {
                 .text(TextKey::ImportUiNoEvidencePage)
                 .to_owned()
         })?;
+        if self.kind == Destination::Startup
+            && let Some(request) = self.startup_cpu_analysis_request(session, page)
+        {
+            return Ok(request);
+        }
         export::analysis_request(self.kind, session, self.generation, page)
             .map_err(|error| export_error(error).render(self.language))
     }

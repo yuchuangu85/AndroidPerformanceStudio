@@ -1,9 +1,10 @@
-//! Bounded Android Perfetto recordings owned by a unique detached-session key.
+//! Bounded Android Perfetto recordings owned by an exact session identity.
 //!
 //! Blocking API: call from a background executor. A cancelled host ADB process
 //! is not proof that the remote recording stopped. Cleanup uses a fresh bounded
 //! token, attaches only our key with --stop, then checks --is_detached's exact
-//! exit code (0 exists, 2 absent, 1 error). Unknown state retains exact paths.
+//! exit code (0 exists, 2 absent, 1 error). For bounded ready-action traces,
+//! wait for the named session to expire instead. Unknown state retains exact paths.
 use aps_platform::{CancellationToken, ProcessError, ProcessOutput, ProcessRequest, ProcessRunner};
 use std::{
     fmt,
@@ -89,7 +90,7 @@ impl fmt::Display for RecordingFailure {
         if let Some(paths) = &self.preserved_paths {
             write!(
                 f,
-                " Preserved session key {}; local config {}; local trace {}; remote config {}; remote trace {}; shared remote parent {} (never removed). No global stop or PID kill was attempted.",
+                " Preserved recording key {}; local config {}; local trace {}; remote config {}; remote trace {}; shared remote parent {} (never removed). No global stop or PID kill was attempted.",
                 paths.session_key,
                 paths.local_config.display(),
                 paths.local_trace.display(),
@@ -200,15 +201,59 @@ fn record_with(
     cancel: &CancellationToken,
     validate_target: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<RecordingResult, RecordingFailure> {
+    record_with_action(io, request, cancel, validate_target, None)
+}
+
+/// Starts a uniquely named bounded session and waits for Perfetto's
+/// --background-wait acknowledgement *and* the same session's STARTED row.
+/// Unlike --detach, this is a producer readiness barrier. The callback runs
+/// exactly once or not at all. It must be bounded and cancellation-aware;
+/// it is not retried even if stopping/pulling subsequently fails.
+pub fn record_around_action(
+    request: &RecordingRequest<'_>,
+    cancel: &CancellationToken,
+    action: &mut dyn FnMut() -> Result<(), String>,
+) -> Result<RecordingResult, RecordingFailure> {
+    record_with_action(&AdbIo, request, cancel, &mut || Ok(()), Some(action))
+}
+
+fn record_with_action(
+    io: &dyn RecordingIo,
+    request: &RecordingRequest<'_>,
+    cancel: &CancellationToken,
+    validate_target: &mut dyn FnMut() -> Result<(), String>,
+    mut action: Option<&mut dyn FnMut() -> Result<(), String>>,
+) -> Result<RecordingResult, RecordingFailure> {
     validate_request(request)?;
     check_cancel(cancel)?;
     validate_target().map_err(identity_failure)?;
+    let mut local = allocate_local(request.output_root)?;
+    let key = local.paths.session_key.as_str();
+    let named = action.is_some();
+    if named && request.duration > Duration::from_secs(15) {
+        return Err(failure(
+            RecordingFailureKind::InvalidRequest,
+            "A ready-action recording must expire within 15 seconds.",
+        ));
+    }
+    // Android R+ traced creates output_path with O_EXCL. Unlike letting an
+    // older CLI open --out itself, a racing pre-existing file is never clobbered.
+    let (extra, duration) = if named {
+        (
+            format!(
+                "unique_session_name: \"{key}\"\nflush_period_ms: 1000\noutput_path: \"{}\"\n",
+                local.paths.remote_trace
+            ),
+            request.duration,
+        )
+    } else {
+        (String::new(), request.duration.saturating_add(STOP_GRACE))
+    };
     let config = format!(
-        "duration_ms: {}\nwrite_into_file: true\nmax_file_size_bytes: {MAX_RECORDING_BYTES}\n{}\n",
-        request.duration.saturating_add(STOP_GRACE).as_millis(),
+        "duration_ms: {}\nwrite_into_file: true\nmax_file_size_bytes: {MAX_RECORDING_BYTES}\n{extra}{}\n",
+        duration.as_millis(),
         request.config_body
     );
-    let mut local = allocate_local(request.output_root)?;
     write_private(&local.paths.local_config, config.as_bytes())?;
     local.config_owned = true;
     // Reserve the local trace before ADB pull; it is never an existing user file.
@@ -221,7 +266,12 @@ fn record_with(
     let mut start_attempted = false;
     let mut start_acknowledged = false;
     let recorded = (|| {
-        if detached_state(io, request, &paths.session_key, cancel)? != DetachedState::Absent {
+        let in_use = if named {
+            named_session_state(io, request, &paths.session_key, cancel)?.is_some()
+        } else {
+            detached_state(io, request, &paths.session_key, cancel)? != DetachedState::Absent
+        };
+        if in_use {
             return Err(failure(
                 RecordingFailureKind::InvalidRequest,
                 "Generated recording key is already in use; no existing session was stopped.",
@@ -268,21 +318,30 @@ fn record_with(
             quoted(&["test", "!", "-e", &paths.remote_trace]),
             quoted(&["test", "!", "-L", &paths.remote_trace]),
             quoted(&["cat", &paths.remote_config]),
-            quoted(&[
-                "perfetto",
-                "--txt",
-                "-c",
-                "-",
-                "--out",
-                &paths.remote_trace,
-                "--no-clobber",
-                &format!("--detach={}", paths.session_key),
-            ]),
+            if named {
+                quoted(&["perfetto", "--txt", "-c", "-", "--background-wait"])
+            } else {
+                quoted(&[
+                    "perfetto",
+                    "--txt",
+                    "-c",
+                    "-",
+                    "--out",
+                    &paths.remote_trace,
+                    "--no-clobber",
+                    &format!("--detach={}", paths.session_key),
+                ])
+            },
             quoted(&["test", "-f", &paths.remote_trace]),
             quoted(&["test", "!", "-L", &paths.remote_trace]),
             quoted(&["stat", "-c", "%d:%i", &paths.remote_trace]),
         );
-        let start = shell_script(io, request, &command, COMMAND_TIMEOUT, cancel)?;
+        let timeout = if named {
+            Duration::from_secs(35)
+        } else {
+            COMMAND_TIMEOUT
+        };
+        let start = shell_script(io, request, &command, timeout, cancel)?;
         // Only an explicit preflight refusal proves no start was attempted.
         // Empty/garbled stdout can also be a lost transport acknowledgement.
         start_acknowledged = start
@@ -297,15 +356,27 @@ fn record_with(
             remote_trace_identity = reservation_identity(&start.stdout, b"aps-started");
             remote_uncertain = remote_trace_identity.is_none();
         }
-        require_success(
-            start,
-            "Perfetto did not acknowledge the owned detached recording.",
-        )?;
+        require_success(start, "Perfetto did not acknowledge the owned recording.")?;
         if remote_uncertain || !start_acknowledged {
             return Err(failure(
                 RecordingFailureKind::Transport,
                 "Cannot verify the exclusively created remote trace identity.",
             ));
+        }
+        if let Some(action) = &mut action {
+            if named_session_state(io, request, &paths.session_key, cancel)?.as_deref()
+                != Some("STARTED")
+            {
+                return Err(failure(
+                    RecordingFailureKind::Transport,
+                    "The approved trace did not reach an active recording window; the measured action was not started.",
+                ));
+            }
+            check_cancel(cancel)?;
+            action().map_err(|message| failure(RecordingFailureKind::Transport, message))?;
+            // The action may finish after trace expiry. The bounded trace is
+            // still valid; only a complete in-trace display window qualifies.
+            return Ok(started_at_unix_ms);
         }
         let deadline = Instant::now() + request.duration;
         let mut last_identity_check = Instant::now();
@@ -325,16 +396,20 @@ fn record_with(
         Ok(started_at_unix_ms)
     })();
     // The caller's token can already be cancelled. Never use it for the one
-    // bounded attempt to stop/reconcile this exact detached session.
+    // bounded attempt to stop/reconcile this exact owned session.
     let cleanup_cancel = CancellationToken::new();
     let stopped = !start_attempted
-        || confirm_stopped(
-            io,
-            request,
-            &paths.session_key,
-            start_acknowledged,
-            &cleanup_cancel,
-        );
+        || if named {
+            confirm_named_stopped(io, request, &paths.session_key, &cleanup_cancel)
+        } else {
+            confirm_stopped(
+                io,
+                request,
+                &paths.session_key,
+                start_acknowledged,
+                &cleanup_cancel,
+            )
+        };
     if !stopped || remote_uncertain {
         local.preserved = true;
         let message = if !stopped {
@@ -438,6 +513,151 @@ fn record_with(
 enum DetachedState {
     Present,
     Absent,
+}
+
+// Query output must actually include the service's session table; old/unsupported
+// services or schema changes do not establish that the owned trace has gone.
+fn named_session_state(
+    io: &dyn RecordingIo,
+    request: &RecordingRequest<'_>,
+    key: &str,
+    cancel: &CancellationToken,
+) -> Result<Option<String>, RecordingFailure> {
+    let listing = query_service(
+        io,
+        request.adb_executable,
+        request.serial,
+        COMMAND_TIMEOUT,
+        cancel,
+    )?;
+    parse_named_session(&listing, key)
+}
+
+// Service output is CLI metadata, not application startup evidence. Android
+// perfetto may prefix it with ANSI-colored diagnostics. Never publish that text;
+// only the structural tables are consumed. Keep the subprocess/time/size caps.
+fn query_service(
+    io: &dyn RecordingIo,
+    adb: &Path,
+    serial: &str,
+    timeout: Duration,
+    cancel: &CancellationToken,
+) -> Result<String, RecordingFailure> {
+    let mut command =
+        ProcessRequest::new(adb).args(["-s", serial, "shell", "'perfetto' '--query'"]);
+    command.timeout = timeout.min(COMMAND_TIMEOUT);
+    command.stdout_limit = 2 * 1024 * 1024;
+    command.stderr_limit = 64 * 1024;
+    let output = io.run(&command, cancel).map_err(process_failure)?;
+    require_success_code(&output, "Cannot verify the named Perfetto session.")?;
+    String::from_utf8(output.stdout).map_err(|_| {
+        failure(
+            RecordingFailureKind::Transport,
+            "Invalid Perfetto session listing.",
+        )
+    })
+}
+
+fn parse_named_session(text: &str, key: &str) -> Result<Option<String>, RecordingFailure> {
+    let invalid = || {
+        failure(
+            RecordingFailureKind::Transport,
+            "Unsupported or ambiguous Perfetto session list; cannot confirm recording ownership.",
+        )
+    };
+    let (_, table) = text.rsplit_once("TRACING SESSIONS:").ok_or_else(invalid)?;
+    let mut lines = table.lines().filter(|line| !line.trim().is_empty());
+    let header = lines
+        .next()
+        .ok_or_else(invalid)?
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let name_col = match header.as_str() {
+        "ID UID STATE BUF (#) KB DUR (s) #DS STARTED NAME" => 8,
+        "ID UID STATE BUF (#) KB DUR (s) #DS NAME" => 7,
+        _ => return Err(invalid()),
+    };
+    if !lines
+        .next()
+        .is_some_and(|s| s.trim_start().starts_with("==="))
+    {
+        return Err(invalid());
+    }
+    let mut found = None;
+    for line in lines {
+        if line.starts_with("NOTE:") {
+            break;
+        }
+        let fields: Vec<_> = line.split_whitespace().collect();
+        if fields.len() < name_col
+            || fields[0].parse::<u64>().is_err()
+            || fields[1].parse::<u32>().is_err()
+        {
+            return Err(invalid());
+        }
+        if fields.get(name_col) == Some(&key)
+            && fields.len() == name_col + 1
+            && found.replace(fields[2].to_string()).is_some()
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(found)
+}
+
+/// Read-only capability preflight for callers with launch/force-stop side effects.
+pub fn check_action_recording_service(
+    adb: &Path,
+    serial: &str,
+    timeout: Duration,
+    cancel: &CancellationToken,
+) -> Result<(), RecordingFailure> {
+    if !explicit_adb_device(adb, serial) || timeout.is_zero() {
+        return Err(failure(
+            RecordingFailureKind::InvalidRequest,
+            "A service preflight requires an explicit device and remaining time budget.",
+        ));
+    }
+    check_cancel(cancel)?;
+    check_action_service_listing(&query_service(&AdbIo, adb, serial, timeout, cancel)?)
+}
+
+fn check_action_service_listing(listing: &str) -> Result<(), RecordingFailure> {
+    parse_named_session(listing, "aps-unused-preflight-key")?;
+    let sources = listing
+        .split_once("DATA SOURCES REGISTERED:")
+        .and_then(|(_, rest)| rest.split_once("TRACING SESSIONS:"))
+        .map(|(section, _)| section);
+    if !sources.is_some_and(|section| {
+        section
+            .lines()
+            .any(|line| line.split_whitespace().next() == Some("linux.ftrace"))
+    }) {
+        return Err(failure(
+            RecordingFailureKind::InvalidRequest,
+            "The startup CPU trace requires the linux.ftrace data source.",
+        ));
+    }
+    Ok(())
+}
+
+fn confirm_named_stopped(
+    io: &dyn RecordingIo,
+    request: &RecordingRequest<'_>,
+    key: &str,
+    cancel: &CancellationToken,
+) -> bool {
+    // Never signal a numeric PID. Even after cancellation this short session
+    // expires in the service; absence is confirmed before pulling or deleting.
+    let deadline = Instant::now() + request.duration + STOP_GRACE;
+    loop {
+        match named_session_state(io, request, key, cancel) {
+            Ok(None) => return true,
+            Ok(Some(_)) if Instant::now() < deadline => thread::sleep(STOP_RETRY_DELAY),
+            _ => return false,
+        }
+    }
 }
 
 fn detached_state(
@@ -776,15 +996,19 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), RecordingFailure> {
     Ok(())
 }
 
-fn validate_request(request: &RecordingRequest<'_>) -> Result<(), RecordingFailure> {
-    if !request.adb_executable.is_absolute()
-        || !request.output_root.is_absolute()
-        || request.serial.is_empty()
-        || request.serial.len() > 1024
-        || request.serial.starts_with('-')
-        || !request.serial.bytes().all(|b| {
+fn explicit_adb_device(adb: &Path, serial: &str) -> bool {
+    adb.is_absolute()
+        && !serial.is_empty()
+        && serial.len() <= 1024
+        && !serial.starts_with('-')
+        && serial.bytes().all(|b| {
             b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'[' | b']' | b'-')
         })
+}
+
+fn validate_request(request: &RecordingRequest<'_>) -> Result<(), RecordingFailure> {
+    if !explicit_adb_device(request.adb_executable, request.serial)
+        || !request.output_root.is_absolute()
         || request.duration < Duration::from_millis(1)
         || request.duration > MAX_RECORDING_DURATION
         || request.duration.as_millis() > u32::MAX as u128
@@ -908,6 +1132,8 @@ mod tests {
 
     struct FakeIo {
         calls: Mutex<Vec<Vec<String>>>,
+        named_state: &'static str,
+        named_queries: AtomicU64,
         probes: AtomicU64,
         first_probe: i32,
         final_probe: i32,
@@ -932,6 +1158,8 @@ mod tests {
         fn default() -> Self {
             Self {
                 calls: Mutex::new(Vec::new()),
+                named_state: "STARTED",
+                named_queries: AtomicU64::new(0),
                 probes: AtomicU64::new(0),
                 first_probe: 2,
                 final_probe: 2,
@@ -988,6 +1216,25 @@ mod tests {
                 );
                 let script = &arguments[3];
                 assert!(!script.contains("'mkdir'") && !script.contains("'rmdir'"));
+                if script.contains("'--query'") {
+                    let files = self.files.lock().unwrap();
+                    let key = files.keys().find_map(|p| {
+                        p.strip_prefix("/data/misc/perfetto-traces/aps-owned-")
+                            .and_then(|n| n.strip_suffix(".pftrace"))
+                    });
+                    let row = if let Some(key) = key
+                        && self.named_queries.fetch_add(1, Ordering::Relaxed) == 0
+                    {
+                        format!(
+                            "3 2000 {} (2) 24576 12 5 13:31:00 {key}\n",
+                            self.named_state
+                        )
+                    } else {
+                        String::new()
+                    };
+                    return Ok(output(0, format!("TRACING SESSIONS:\nID UID STATE BUF (#) KB DUR (s) #DS STARTED NAME\n=== ===
+{row}").as_bytes()));
+                }
                 if script.contains("--is_detached=") {
                     let code = if self.probes.fetch_add(1, Ordering::Relaxed) == 0 {
                         self.first_probe
@@ -1031,27 +1278,46 @@ mod tests {
                         format!("aps-reserved\n{CONFIG_ID}\n").as_bytes(),
                     ));
                 }
-                if script.contains("--detach=") {
-                    assert!(script.contains("'--no-clobber'"));
+                if script.contains("--detach=") || script.contains("--background-wait") {
+                    let named = script.contains("--background-wait");
+                    assert_eq!(script.contains("'--no-clobber'"), !named);
                     assert!(script.contains("| 'perfetto' '--txt' '-c' '-'"));
                     assert!(script.contains("'cat' '/data/local/tmp/"));
-                    let path = script
-                        .split("'--out' '")
-                        .nth(1)
-                        .unwrap()
-                        .split('\'')
-                        .next()
-                        .unwrap();
+                    let path = if named {
+                        assert!(!script.contains("'--out'"));
+                        let files = self.files.lock().unwrap();
+                        let config =
+                            std::str::from_utf8(&files.values().next().unwrap().1).unwrap();
+                        assert!(config.contains("unique_session_name:"));
+                        assert!(config.contains("flush_period_ms: 1000"));
+                        config
+                            .split_once("output_path: \"")
+                            .unwrap()
+                            .1
+                            .split('"')
+                            .next()
+                            .unwrap()
+                            .to_owned()
+                    } else {
+                        script
+                            .split("'--out' '")
+                            .nth(1)
+                            .unwrap()
+                            .split('\'')
+                            .next()
+                            .unwrap()
+                            .to_owned()
+                    };
                     assert!(
                         path.starts_with("/data/misc/perfetto-traces/")
                             && path.ends_with(".pftrace")
                     );
                     let mut files = self.files.lock().unwrap();
                     if self.collision == Some(".pftrace") {
-                        files.insert(path.into(), ("99:999".into(), b"unowned".to_vec()));
+                        files.insert(path, ("99:999".into(), b"unowned".to_vec()));
                         return Ok(output(1, b"aps-refused\n"));
                     }
-                    files.insert(path.into(), (TRACE_ID.into(), b"data".to_vec()));
+                    files.insert(path, (TRACE_ID.into(), b"data".to_vec()));
                     if self.start_error {
                         return Err(ProcessError::Timeout);
                     }
@@ -1139,6 +1405,88 @@ mod tests {
         cancel: &CancellationToken,
     ) -> Result<RecordingResult, RecordingFailure> {
         record_with(io, &request(root), cancel, &mut || Ok(()))
+    }
+
+    #[test]
+    fn service_metadata_accepts_api34_ansi_banner_but_still_requires_structural_tables() {
+        let banner = "\x1b[31mWARNING: perfetto --query output is not intended for machine consumption\x1b[0m\n";
+        let table = "DATA SOURCES REGISTERED:\nlinux.ftrace traced_probes (1)\nTRACING SESSIONS:\nID UID STATE BUF (#) KB DUR (s) #DS STARTED NAME\n=== ===\n";
+        assert!(check_action_service_listing(&format!("{banner}{table}")).is_ok());
+        assert!(check_action_service_listing(banner).is_err());
+        assert!(
+            check_action_service_listing(&format!(
+                "{banner}{}",
+                table.replace("linux.ftrace", "linux.other")
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn measured_action_needs_both_readiness_and_active_owned_session() {
+        for (state, cancel_early, expect_action) in [
+            ("STARTED", false, true),
+            ("CONFIGURED", false, false),
+            ("STARTED", true, false),
+        ] {
+            let root = root();
+            let io = FakeIo {
+                named_state: state,
+                cancel_after_start: cancel_early,
+                ..Default::default()
+            };
+            let mut calls = 0usize;
+            let cancel = CancellationToken::new();
+            let result = record_with_action(
+                &io,
+                &request(&root),
+                &cancel,
+                &mut || Ok(()),
+                Some(&mut || {
+                    calls += 1;
+                    assert_eq!(io.named_queries.load(Ordering::Relaxed), 1);
+                    Ok(())
+                }),
+            );
+            assert_eq!(calls, usize::from(expect_action));
+            assert_eq!(result.is_ok(), expect_action);
+            assert!(
+                io.files.lock().unwrap().is_empty(),
+                "remove only verified owned paths after expiry"
+            );
+            assert!(
+                io.calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|a| !a.iter().any(|s| s.contains("kill") || s.contains("--stop")))
+            );
+            drop(result);
+            fs::remove_dir(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn measured_launch_failure_is_not_retried_and_its_trace_is_not_published() {
+        let root = root();
+        let io = FakeIo::default();
+        let mut calls = 0;
+        let err = record_with_action(
+            &io,
+            &request(&root),
+            &CancellationToken::new(),
+            &mut || Ok(()),
+            Some(&mut || {
+                calls += 1;
+                Err("launch timed out".into())
+            }),
+        )
+        .unwrap_err();
+        assert!(err.stop_confirmed);
+        assert!(err.message.contains("launch timed out"));
+        assert_eq!(calls, 1);
+        assert!(io.files.lock().unwrap().is_empty());
+        fs::remove_dir(root).unwrap();
     }
 
     #[test]

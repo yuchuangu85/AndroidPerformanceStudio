@@ -26,13 +26,11 @@ pub fn am_start(text: &str, package: &str, requested: StartupMode) -> Result<Sta
                     | "TotalTime"
                     | "WaitTime"
                     | "Complete"
-            ) {
-                if values.insert(key, value).is_some() {
-                    return Err(
-                        "Duplicate am-start launch fields; input may contain multiple launches"
-                            .into(),
-                    );
-                }
+            ) && values.insert(key, value).is_some()
+            {
+                return Err(
+                    "Duplicate am-start launch fields; input may contain multiple launches".into(),
+                );
             }
         } else if line.starts_with("Warning") || line.starts_with("Error") {
             warnings.push(line.into());

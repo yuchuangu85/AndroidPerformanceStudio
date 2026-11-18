@@ -46,3 +46,15 @@ Startup Perfetto 证据包含调度、`sched_waking`、run queue、Binder、主�
 ## ART startup attribution
 
 Startup Perfetto evidence 将 GC、JIT/dex2oat、class loading、class verification/initialization 分别保留，并按 milestone phase 统计重叠时长；JSON round-trip 保留原始 slice，不把多个 ART 通道合并为单一耗时。
+
+## Rust 桌面端：启动 + CPU 热点
+
+在标题栏选择在线设备及应用进程，进入 **启动分析 → CPU 热点：开 → 检查实验配置**。确认后的每轮测量分别启动一份最长 12 秒的 Perfetto 录制：收到数据源就绪回执并核对本轮会话后，才拉起目标 Activity。冷启动按包名限定调用栈采样，不绑定会被强停的旧 PID。关闭开关时仍只采集原有启动指标。此录制要求 Android 11+ 及可用的系统 Perfetto；设备或应用的采样权限还会影响能否得到调用栈。
+
+选择一轮结果查看**启动到首帧（TTID）的主线程 CPU 热点**。窗口来自本轮 Trace 中唯一匹配的启动和首帧，且进程须与启动后验证的目标 PID 一致；不以 Activity Manager 的 TotalTime 或主机时钟补齐。面板分别显示：
+
+- 实际观测的运行、就绪等待 CPU 和其他线程状态时间，以及调度记录覆盖了多少窗口。未覆盖时间不等于阻塞，“其他”不证明在等锁或 I/O。
+- 采到的前 12 个叶符号和样本数，占比分母包含未解析样本。若整份 Trace 有内核采样记录丢失，会提示统计可能不完整；不能确定哪些线程受影响。
+- 未匹配首帧、不支持符号解析或没有样本时的限制。冷启动新进程的早期名称与包名可能不同，即使线程确实使用过 CPU，也可能没有目标样本。样本数既不是方法调用次数，也不是某次调用的耗时。
+
+**AI 分析**使用所选轮次的启动指标、调度摘要及有界的热点计数/符号；不会发送原始 Trace、ADB 日志或本地路径。实时热点随当前采集会话保留，现有 CSV/Compose JSON 启动报告不包含可重新分析的 CPU 轨迹。优化前后请在相同条件下复测，并用关闭 CPU 采集的轮次核对启动指标。

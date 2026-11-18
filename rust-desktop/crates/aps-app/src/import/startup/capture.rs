@@ -27,6 +27,7 @@ pub(in crate::import) struct StartupCaptureUi {
     export_cancel: Option<CancellationToken>,
     progress: Arc<AtomicU32>,
     artifact: Option<Arc<StartupCaptureArtifact>>,
+    pub(super) cpu_hotspots: BTreeMap<String, aps_perfetto::StartupCpuEvidence>,
     pub(in crate::import) in_progress: bool,
 }
 
@@ -46,6 +47,7 @@ impl Default for StartupCaptureUi {
             export_cancel: None,
             progress: Arc::new(AtomicU32::new(0)),
             artifact: None,
+            cpu_hotspots: BTreeMap::new(),
             in_progress: false,
         }
     }
@@ -79,6 +81,7 @@ impl StartupCaptureUi {
     pub(in crate::import) fn clear_published(&mut self) {
         self.cancel_pending();
         self.artifact = None;
+        self.cpu_hotspots.clear();
     }
 
     pub(super) fn has_target(&self) -> bool {
@@ -134,6 +137,7 @@ impl StartupCaptureUi {
 }
 
 struct LoadedStartup {
+    cpu_hotspots: BTreeMap<String, aps_perfetto::StartupCpuEvidence>,
     artifact: Arc<StartupCaptureArtifact>,
     session: Arc<StartupSession>,
     page: PageData,
@@ -155,6 +159,11 @@ fn load_capture(
     )?;
     // Only post-capture publication work is import cost, never the experiment.
     let started = Instant::now();
+    let cpu_hotspots = if experiment.config.cpu_hotspots {
+        super::cpu_evidence::analyze_runs(&captured.session, &captured.artifact.cpu_traces, cancel)?
+    } else {
+        BTreeMap::new()
+    };
     let session = Arc::new(captured.session);
     let page = super::load_page(
         &session,
@@ -165,6 +174,7 @@ fn load_capture(
         cancel,
     )?;
     Ok(LoadedStartup {
+        cpu_hotspots,
         artifact: Arc::new(captured.artifact),
         session,
         page,
@@ -283,6 +293,7 @@ impl ImportWorkspace {
                     Ok(loaded) => {
                         this.path = Some(loaded.artifact.path.clone());
                         this.startup_capture.artifact = Some(loaded.artifact);
+                        this.startup_capture.cpu_hotspots = loaded.cpu_hotspots;
                         this.session = Some(Session::Startup(loaded.session));
                         this.page = Some(loaded.page);
                         this.session_id = Some(new_session_id());
@@ -546,6 +557,24 @@ impl ImportWorkspace {
                     ));
                     cx.notify();
                 })),
+            )
+            .child(
+                studio::compact_text_button(
+                    "startup-live-cpu-hotspots",
+                    language.text(if config.cpu_hotspots {
+                        TextKey::StartupCpuToggleOn
+                    } else {
+                        TextKey::StartupCpuToggleOff
+                    }),
+                    editable,
+                    config.cpu_hotspots,
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.startup_capture.config.cpu_hotspots =
+                        !this.startup_capture.config.cpu_hotspots;
+                    cx.notify();
+                })),
             );
         let displayed_target = state
             .active_target
@@ -600,12 +629,18 @@ impl ImportWorkspace {
                         this.cancel_work(cx);
                     })),
                 );
-        } else if state.review.is_some() {
+        } else if let Some(review) = &state.review {
             panel = panel
                 .child(note(
                     language.text(TextKey::StartupLiveAuthorization),
                     colors.warning,
                 ))
+                .when(review.config.cpu_hotspots, |panel| {
+                    panel.child(note(
+                        language.text(TextKey::StartupCpuReview),
+                        colors.warning,
+                    ))
+                })
                 .child(
                     div()
                         .w_full()

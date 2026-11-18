@@ -1,6 +1,7 @@
 //! Explicit, bounded Android launch experiments. All operations are blocking and
 //! must run off the UI thread after the caller obtains target-specific approval.
 //! No application data, log buffers, compilation settings or Profile are reset.
+mod cpu;
 use crate::{DurationMetric, StartupMode, StartupRun, StartupSession, parser};
 use aps_adb::{AdbClient, AdbLocator, validate_serial};
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner, TempWorkspace, atomic_write};
@@ -32,6 +33,7 @@ pub struct StartupCaptureTarget {
 pub struct StartupCaptureConfig {
     pub mode: StartupMode,
     pub iterations: u32,
+    pub cpu_hotspots: bool,
     pub launch_timeout: Duration,
     pub settle_delay: Duration,
     pub fully_drawn_wait: Duration,
@@ -42,6 +44,7 @@ impl Default for StartupCaptureConfig {
         Self {
             mode: StartupMode::Cold,
             iterations: 5,
+            cpu_hotspots: false,
             launch_timeout: Duration::from_secs(30),
             settle_delay: Duration::from_millis(500),
             fully_drawn_wait: Duration::from_secs(2),
@@ -53,6 +56,8 @@ impl Default for StartupCaptureConfig {
 /// Drop removes only this experiment's exclusively created private directory.
 pub struct StartupCaptureArtifact {
     pub path: PathBuf,
+    /// Verified, locally owned traces keyed by the exact measured run ID.
+    pub cpu_traces: BTreeMap<String, PathBuf>,
     _workspace: TempWorkspace,
 }
 
@@ -129,6 +134,10 @@ pub fn capture_startup(
         "live-{stamp:x}-{:x}",
         NEXT_EXPERIMENT.fetch_add(1, Ordering::Relaxed)
     );
+    if config.cpu_hotspots {
+        cpu::preflight(&runner)?;
+    }
+    let mut cpu_traces = BTreeMap::new();
     let mut runs = Vec::with_capacity(config.iterations as usize);
     progress.store(0, Ordering::Release);
 
@@ -176,32 +185,56 @@ pub fn capture_startup(
         }
         runner.wait(config.settle_delay)?;
         runner.verify_identity(&identity)?;
-        let pids_before = runner.package_pids(&identity)?;
-        if config.mode == StartupMode::Cold && !pids_before.is_empty() {
-            return Err("The approved package still has a process after force-stop; the Cold experiment was stopped.".into());
-        }
-        let before = runner.read_event_log(&mut warnings)?;
-        let output = runner.launch(
-            &component,
-            identity.user,
-            config.mode,
-            config.launch_timeout,
-        )?;
-        write_evidence(workspace.path(), &format!("{prefix}-am-start.txt"), &output)?;
-        let mut run = parse_successful_launch(&output, &target.package_name, config.mode)?;
+        let run_id = format!("{experiment_id}-{iteration}");
+        let mut measure = || -> Result<_, String> {
+            if config.cpu_hotspots {
+                // Recorder setup can take time. Revalidate immediately before
+                // this exact measured Activity launch, not against the old PID.
+                runner.verify_identity(&identity)?;
+            }
+            let pids_before = runner.package_pids(&identity)?;
+            if config.mode == StartupMode::Cold && !pids_before.is_empty() {
+                return Err("The approved package still has a process after force-stop; the Cold experiment was stopped.".into());
+            }
+            let before = runner.read_event_log(&mut warnings)?;
+            let output = runner.launch(
+                &component,
+                identity.user,
+                config.mode,
+                config.launch_timeout,
+            )?;
+            write_evidence(workspace.path(), &format!("{prefix}-am-start.txt"), &output)?;
+            let run = parse_successful_launch(&output, &target.package_name, config.mode)?;
+            let events =
+                runner.collect_events(before.as_deref(), &mut warnings, config.fully_drawn_wait)?;
+            let pids_after = runner.package_pids(&identity)?;
+            runner.verify_identity(&identity)?;
+            Ok((pids_before, run, events, pids_after))
+        };
+        let (pids_before, mut run, events, pids_after) = if config.cpu_hotspots {
+            let name = format!("{prefix}-cpu.pftrace");
+            let path = workspace.path().join(&name);
+            let (value, captured) = cpu::capture(&runner, root, &path, measure)?;
+            environment.insert("cpuHotspotsRequested".into(), "true".into());
+            if captured {
+                cpu_traces.insert(run_id.clone(), path);
+                environment.insert("cpuTraceEvidence".into(), name);
+            } else {
+                warnings.push("The startup was measured, but no verified CPU trace was recovered for this run. The application was not launched again.".into());
+            }
+            value
+        } else {
+            measure()?
+        };
         run.origin = crate::StartupEvidenceOrigin::LiveCapture;
         run.iteration = iteration;
-        run.id = format!("{experiment_id}-{iteration}");
-        let events =
-            runner.collect_events(before.as_deref(), &mut warnings, config.fully_drawn_wait)?;
+        run.id = run_id;
         write_evidence(
             workspace.path(),
             &format!("{prefix}-target-events.txt"),
             &events,
         )?;
         apply_scoped_events(&mut run, &events, identity.user, &mut warnings);
-        let pids_after = runner.package_pids(&identity)?;
-        runner.verify_identity(&identity)?;
         if pids_after.is_empty() {
             warnings.push("No target-package process was observed after launch. Platform timing is not proof that the app stayed running; no crash cause is inferred.".into());
         }
@@ -283,6 +316,7 @@ pub fn capture_startup(
         session,
         artifact: StartupCaptureArtifact {
             path,
+            cpu_traces,
             _workspace: workspace,
         },
     })
@@ -625,21 +659,19 @@ impl AndroidRunner<'_> {
         let end = Instant::now() + wait;
         let mut delta = BTreeSet::new();
         let mut bytes = 0usize;
-        loop {
-            let Some(after) = self.read_event_log(warnings)? else {
-                break;
-            };
+        while let Some(after) = self.read_event_log(warnings)? {
             for line in after.lines() {
-                if !previous.contains(line) && target_event(line, &self.target.package_name) {
-                    if !delta.contains(line) {
-                        bytes = bytes.saturating_add(line.len() + 1);
-                        if bytes > OUTPUT_LIMIT {
-                            return Err(
-                                "New target startup events exceed the capture byte budget.".into(),
-                            );
-                        }
-                        delta.insert(line.to_owned());
+                if !previous.contains(line)
+                    && target_event(line, &self.target.package_name)
+                    && !delta.contains(line)
+                {
+                    bytes = bytes.saturating_add(line.len() + 1);
+                    if bytes > OUTPUT_LIMIT {
+                        return Err(
+                            "New target startup events exceed the capture byte budget.".into()
+                        );
                     }
+                    delta.insert(line.to_owned());
                 }
             }
             if Instant::now() >= end {
@@ -705,7 +737,7 @@ impl AndroidRunner<'_> {
                         .into_iter()
                         .filter_map(value)
                         .collect();
-                    if powered.iter().any(|s| *s == "true") {
+                    if powered.contains(&"true") {
                         fields.insert("charging".into(), "true".into());
                     } else if powered.len() == 3 && powered.iter().all(|s| *s == "false") {
                         fields.insert("charging".into(), "false".into());
@@ -1142,6 +1174,7 @@ mod tests {
         std::fs::write(&path, b"owned").unwrap();
         let artifact = StartupCaptureArtifact {
             path,
+            cpu_traces: BTreeMap::new(),
             _workspace: workspace,
         };
         drop(artifact);

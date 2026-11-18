@@ -122,7 +122,8 @@ fn same_inputs_match_actual_compose_analyzer_status_bca_interval_and_phase() {
 #[test]
 fn missing_and_unknown_evidence_fail_closed_before_statistical_decisions() {
     let baseline = report(&[100; 5], |_, _, _| {});
-    let mutations: Vec<Box<dyn Fn(usize, &mut StartupRun, &mut RunEvidence)>> = vec![
+    type Mutation = Box<dyn Fn(usize, &mut StartupRun, &mut RunEvidence)>;
+    let mutations: Vec<Mutation> = vec![
         Box::new(|_, _, e| e.context = None),
         Box::new(|_, r, _| r.observed_mode = StartupMode::Unknown),
         Box::new(|_, _, e| e.compilation = None),

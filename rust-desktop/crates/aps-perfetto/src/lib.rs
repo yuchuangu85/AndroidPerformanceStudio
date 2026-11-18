@@ -6,8 +6,8 @@
 //! --format csv, and close/Drop runs server kill. When daemonization or remote
 //! queries are unavailable, the documented bounded one-shot CSV path is used
 //! and the degradation is reported through TraceSessionMode instead of being
-//! hidden. Diagnostic SQL is fixed by the ported Compose catalog; the only user
-//! input in SQL is the slice-search term, escaped in the search module. There
+//! hidden. Diagnostic SQL is fixed by the ported Compose catalog; user
+//! text in SQL is either an escaped slice-search term or an allowlisted package. There
 //! is no invented JSON protocol, arbitrary SQL, PATH fallback, downloader,
 //! cloud connection or device command.
 
@@ -27,6 +27,10 @@ pub mod frame_timeline;
 pub mod heap_profile;
 pub mod recording;
 pub mod search;
+mod startup_cpu;
+pub use startup_cpu::{
+    StartupCpuEvidence, StartupCpuHotspot, StartupCpuScheduling, StartupCpuWindow,
+};
 
 pub use diagnostics::{
     CORE_PRESET_ID, DIAGNOSTIC_PRESETS, DIAGNOSTIC_QUERIES, DiagnosticCategory,
