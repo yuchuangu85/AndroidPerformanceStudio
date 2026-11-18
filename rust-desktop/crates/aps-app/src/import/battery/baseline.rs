@@ -67,7 +67,7 @@ fn signed_number(value: Option<f64>, unit: &str) -> String {
 
 impl ImportWorkspace {
     pub(super) fn battery_baseline_comparison(&self, colors: &studio::StudioColors) -> AnyElement {
-        let state = &self.battery_shell_ui.baseline;
+        let state = &self.battery().shell.baseline;
         let language = self.language;
         let mut panel =
             div()
@@ -238,34 +238,68 @@ mod tests {
         workspace.publish_battery_run_page();
         workspace.session = Some(Session::Battery(report("second", 20)));
         workspace.publish_battery_run_page();
-        workspace.battery_ui.query = "retained query".into();
-        workspace.battery_shell_ui.current_saved_key = Some("retained-key".into());
-        let before = workspace.battery_shell_ui.baseline.comparison.clone();
-        let current = workspace.battery_shell_ui.baseline.current.clone().unwrap();
-        let previous = workspace
-            .battery_shell_ui
-            .baseline
-            .previous
-            .clone()
-            .unwrap();
+        workspace.battery_mut().ui.query = "retained query".into();
+        workspace.battery_mut().shell.current_saved_key = Some("retained-key".into());
+        let before = workspace.battery().shell.baseline.comparison.clone();
+        let current = workspace.battery().shell.baseline.current.clone().unwrap();
+        let previous = workspace.battery().shell.baseline.previous.clone().unwrap();
         assert!(BatteryReport::parse_json(b"invalid").is_err());
         let cancel = CancellationToken::new();
-        workspace.battery_shell_ui.capture.export_cancel = Some(cancel.clone());
+        workspace.battery_mut().shell.capture.export_cancel = Some(cancel.clone());
         workspace.invalidate_battery_capture();
         assert!(cancel.is_cancelled());
         workspace.publish_battery_run_page();
-        let state = &workspace.battery_shell_ui.baseline;
+        let state = &workspace.battery().shell.baseline;
         assert!(Arc::ptr_eq(state.current.as_ref().unwrap(), &current));
         assert!(Arc::ptr_eq(state.previous.as_ref().unwrap(), &previous));
         assert_eq!(state.comparison, before);
         assert!(
             matches!(&workspace.session, Some(Session::Battery(report)) if Arc::ptr_eq(report, &current))
         );
-        assert_eq!(workspace.battery_ui.query, "retained query");
+        assert_eq!(workspace.battery().ui.query, "retained query");
         assert_eq!(
-            workspace.battery_shell_ui.current_saved_key.as_deref(),
+            workspace.battery().shell.current_saved_key.as_deref(),
             Some("retained-key")
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn only_battery_route_owns_battery_state_and_view_reset_retains_history() {
+        for kind in [
+            Destination::Memory,
+            Destination::Network,
+            Destination::Startup,
+            Destination::Gpu,
+            Destination::Frame,
+            Destination::Trace,
+        ] {
+            assert!(
+                ImportWorkspace::new(kind, Language::English)
+                    .battery
+                    .is_none()
+            );
+        }
+        let mut workspace = ImportWorkspace::new(Destination::Battery, Language::English);
+        let first = report("first", 10);
+        let state = workspace.battery_mut();
+        state.shell.baseline.publish(first.clone());
+        state.shell.current_saved_key = Some("saved-key".into());
+        state.shell.query = "saved session search".into();
+        state.shell.warnings_offset = 100;
+        state.ui.query = "obsolete evidence search".into();
+        state.ui.run_offset = 100;
+        state.metrics = Some(report_metrics(&first));
+        state.reset_report_view(None);
+        assert!(state.metrics.is_none());
+        assert_eq!(state.shell.warnings_offset, 0);
+        assert!(state.ui.query.is_empty());
+        assert_eq!(state.ui.run_offset, 0);
+        assert_eq!(state.shell.query, "saved session search");
+        assert_eq!(state.shell.current_saved_key.as_deref(), Some("saved-key"));
+        assert!(Arc::ptr_eq(
+            state.shell.baseline.current.as_ref().unwrap(),
+            &first
+        ));
     }
 
     #[::core::prelude::v1::test]
@@ -276,12 +310,13 @@ mod tests {
         workspace.publish_battery_run_page();
         workspace.session = None;
         workspace.publish_battery_run_page();
-        assert!(workspace.battery_shell_ui.baseline.previous.is_none());
+        assert!(workspace.battery().shell.baseline.previous.is_none());
         workspace.session = Some(Session::Battery(report("second", 20)));
         workspace.publish_battery_run_page();
         assert!(Arc::ptr_eq(
             workspace
-                .battery_shell_ui
+                .battery()
+                .shell
                 .baseline
                 .previous
                 .as_ref()

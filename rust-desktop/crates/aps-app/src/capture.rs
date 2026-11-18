@@ -632,7 +632,7 @@ impl CaptureWorkspace {
         let task = cx.background_executor().spawn(async move {
             let mut request = request;
             if request.converter.is_none() {
-                request.converter = crate::cpu::resolve_simpleperf(None).ok();
+                request.converter = crate::simpleperf_tool::discover_simpleperf();
             }
             let location = AdbLocator::new()
                 .locate(None)

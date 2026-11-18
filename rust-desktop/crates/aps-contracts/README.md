@@ -25,9 +25,9 @@
 ## SHA-256 复用
 
 `SourceDigest::hash_reader(reader, max_bytes)` 和
-`SourceDigest::hash_file(path, max_bytes)` 通过新的
-`aps_hprof_engine::cache::sha256_reader` API，复用缓存中现有的仅依赖 std 的
-SHA-256 核心。读取器 API 至多对配置的内容预算进行哈希，并且最多额外消耗一个
+`SourceDigest::hash_file(path, max_bytes)` 通过
+`aps_primitives::sha256::sha256_reader` 复用共享 SHA-256 实现（macOS 使用系统
+CommonCrypto，其余平台使用可移植实现）。读取器 API 至多对配置的内容预算进行哈希，并且最多额外消耗一个
 字节，仅用于区分精确 EOF 和溢出；对于超大输入会拒绝，而不是返回其前缀的摘要。
 中断读取会重试，其他所有 I/O 失败都会拒绝生成摘要。归档条目字节不需要临时文件。
 调用方拥有的缓冲读取器/解压器可能执行额外内部工作，因此这是逻辑输入上限，
@@ -38,6 +38,4 @@ SHA-256 核心。读取器 API 至多对配置的内容预算进行哈希，并�
 或恶意的读取器仍需要由有界工作进程承载。摘要标识已读取的字节；它既不授权未来
 访问该路径，也不能证明之后的读取仍具有相同内容。
 
-临时路径依赖会将 HPROF 代码编译进依赖图，尽管契约模块只调用其摘要 API。
-将现有 SHA 工具提取为小型共享 crate 仍属于迁移债务；未新增 SHA 算法。
-标准向量和契约测试源已经存在，但按照用户要求先完成重写的指示推迟执行。
+契约模块不依赖 HPROF 引擎；引擎的 `cache::sha256_reader` 为既有调用方重导出同一实现。

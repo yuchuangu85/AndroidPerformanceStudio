@@ -23,6 +23,8 @@ Rust settings and storage use their own application-data root and do not migrate
 在 [FUNCTIONAL_PARITY.md](FUNCTIONAL_PARITY.md) 中跟踪剩余的 Compose 对等工作。
 编译、领域测试、相同输入对等性、原生交互、设备/Provider 执行和打包仍属于相互独立的证据类别。
 
+新增 crate、共享能力或跨页面操作时，参见[模块边界与本地检查](ARCHITECTURE.md)。
+
 当前实现和剩余门槛见[迁移进度](MIGRATION.md)。
 
 ## 本地化

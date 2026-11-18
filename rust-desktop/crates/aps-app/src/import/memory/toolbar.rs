@@ -156,7 +156,7 @@ impl ImportWorkspace {
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, window, cx| this.memory_open_ai(window, cx))),
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(crate::evidence::AnalysisRequested))),
             );
         row.into_any_element()
     }

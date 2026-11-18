@@ -5,10 +5,10 @@
 mod portable;
 
 #[cfg(not(target_os = "macos"))]
-pub(super) use portable::Sha256;
+pub use portable::Sha256;
 
 #[cfg(target_os = "macos")]
-pub(super) use commoncrypto::Sha256;
+pub use commoncrypto::Sha256;
 
 #[cfg(target_os = "macos")]
 mod commoncrypto {
@@ -43,13 +43,13 @@ mod commoncrypto {
     }
 
     #[derive(Clone)]
-    pub(crate) struct Sha256 {
+    pub struct Sha256 {
         context: Context,
         length: u64,
     }
 
     impl Sha256 {
-        pub(crate) fn new() -> Self {
+        pub fn new() -> Self {
             let mut context = Context::default();
             // SAFETY: context is initialized, aligned, writable storage with
             // the SDK's CC_SHA256_CTX layout; Init does not retain its pointer.
@@ -57,7 +57,7 @@ mod commoncrypto {
             Self { context, length: 0 }
         }
 
-        pub(crate) fn update(&mut self, bytes: &[u8]) {
+        pub fn update(&mut self, bytes: &[u8]) {
             self.length = self
                 .length
                 .checked_add(bytes.len() as u64)
@@ -74,7 +74,7 @@ mod commoncrypto {
             }
         }
 
-        pub(crate) fn finish(mut self) -> [u8; 32] {
+        pub fn finish(mut self) -> [u8; 32] {
             let _bit_length = self
                 .length
                 .checked_mul(8)
@@ -88,9 +88,61 @@ mod commoncrypto {
     }
 }
 
+impl Default for Sha256 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Hashes an arbitrary reader with a hard
+/// content-byte budget. On reaching the cap, reads at most one additional byte
+/// to distinguish exact EOF from an oversized stream; never returns a prefix
+/// digest. Reader errors and interruptions are handled without partial success.
+/// This bounds input consumed, not wall time or a custom reader's internal work.
+pub fn sha256_reader(mut reader: impl std::io::Read, max_bytes: u64) -> Result<String, String> {
+    if max_bytes > u64::MAX / 8 {
+        return Err("SHA-256 input limit exceeds supported bit-length range".into());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut remaining = max_bytes;
+    loop {
+        if remaining == 0 {
+            loop {
+                match reader.read(&mut buffer[..1]) {
+                    Ok(0) => return Ok(hex(&hash.finish())),
+                    Ok(_) => return Err("SHA-256 source exceeds input byte limit".into()),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => return Err("Cannot read SHA-256 source EOF".into()),
+                }
+            }
+        }
+        let limit = remaining.min(buffer.len() as u64) as usize;
+        match reader.read(&mut buffer[..limit]) {
+            Ok(0) => return Ok(hex(&hash.finish())),
+            Ok(count) => {
+                hash.update(&buffer[..count]);
+                remaining -= count as u64;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err("Cannot read SHA-256 source".into()),
+        }
+    }
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut result = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        result.push(HEX[(byte >> 4) as usize] as char);
+        result.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Sha256, portable::Sha256 as PortableSha256};
+    use super::{portable::Sha256 as PortableSha256, Sha256};
 
     #[test]
     fn portable_known_vectors_include_exact_and_multiple_blocks() {
@@ -123,7 +175,7 @@ mod tests {
                     selected.update(chunk);
                 }
                 let digest = portable.finish();
-                assert_eq!(super::super::hex(&digest), expected);
+                assert_eq!(super::hex(&digest), expected);
                 assert_eq!(selected.finish(), digest);
             }
         }
@@ -132,7 +184,7 @@ mod tests {
             portable.update(&[b'a'; 1000]);
         }
         assert_eq!(
-            super::super::hex(&portable.finish()),
+            super::hex(&portable.finish()),
             "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
         );
     }

@@ -12,14 +12,16 @@ impl ImportWorkspace {
             return None;
         };
         let live = self
-            .battery_shell_ui
+            .battery()
+            .shell
             .capture
             .artifact
             .as_ref()
             .filter(|artifact| report.live_capture && artifact.session_id() == report.session_id)
             .cloned();
         live.or_else(|| {
-            self.battery_shell_ui
+            self.battery()
+                .shell
                 .restored_artifact
                 .as_ref()
                 .filter(|(owner, artifact)| {
@@ -38,9 +40,9 @@ impl ImportWorkspace {
             cx.notify();
             return;
         };
-        self.battery_shell_ui.capture.cancel_export();
+        self.battery_mut().shell.capture.cancel_export();
         let cancel = CancellationToken::new();
-        self.battery_shell_ui.capture.export_cancel = Some(cancel.clone());
+        self.battery_mut().shell.capture.export_cancel = Some(cancel.clone());
         self.export_busy = true;
         self.export_generation += 1;
         let generation = self.export_generation;
@@ -62,7 +64,7 @@ impl ImportWorkspace {
                             .is_some_and(|current| Arc::ptr_eq(&current, &artifact));
                     if !still_current {
                         this.export_busy = false;
-                        this.battery_shell_ui.capture.cancel_export();
+                        this.battery_mut().shell.capture.cancel_export();
                         cx.notify();
                         return None;
                     }
@@ -71,13 +73,13 @@ impl ImportWorkspace {
                         Ok(Err(_)) => {
                             this.error = Some(TextKey::ImportUiSavePickerFailed.into());
                             this.export_busy = false;
-                            this.battery_shell_ui.capture.cancel_export();
+                            this.battery_mut().shell.capture.cancel_export();
                             cx.notify();
                             None
                         }
                         _ => {
                             this.export_busy = false;
-                            this.battery_shell_ui.capture.cancel_export();
+                            this.battery_mut().shell.capture.cancel_export();
                             cx.notify();
                             None
                         }
@@ -107,7 +109,7 @@ impl ImportWorkspace {
                     return;
                 }
                 this.export_busy = false;
-                this.battery_shell_ui.capture.export_cancel = None;
+                this.battery_mut().shell.capture.export_cancel = None;
                 if this.generation != publication_generation || cancel.is_cancelled() {
                     cx.notify();
                     return;

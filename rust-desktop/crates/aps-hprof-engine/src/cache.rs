@@ -9,9 +9,8 @@ use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[path = "sha256.rs"]
-mod sha256;
-use sha256::Sha256;
+pub use aps_primitives::sha256::sha256_reader;
+use aps_primitives::sha256::{Sha256, hex};
 
 const MAGIC: &[u8; 8] = b"APSHIDX\0";
 const VERSION: u32 = 4;
@@ -374,42 +373,6 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
     digest_source(&Source::open(path)?, path)
 }
 
-/// Reuses the cache's SHA-256 implementation for arbitrary readers with a hard
-/// content-byte budget. On reaching the cap, reads at most one additional byte
-/// to distinguish exact EOF from an oversized stream; never returns a prefix
-/// digest. Reader errors and interruptions are handled without partial success.
-/// This bounds input consumed, not wall time or a custom reader's internal work.
-pub fn sha256_reader(mut reader: impl Read, max_bytes: u64) -> Result<String, String> {
-    if max_bytes > u64::MAX / 8 {
-        return Err("SHA-256 input limit exceeds supported bit-length range".into());
-    }
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut remaining = max_bytes;
-    loop {
-        if remaining == 0 {
-            loop {
-                match reader.read(&mut buffer[..1]) {
-                    Ok(0) => return Ok(hex(&hash.finish())),
-                    Ok(_) => return Err("SHA-256 source exceeds input byte limit".into()),
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(_) => return Err("Cannot read SHA-256 source EOF".into()),
-                }
-            }
-        }
-        let limit = remaining.min(buffer.len() as u64) as usize;
-        match reader.read(&mut buffer[..limit]) {
-            Ok(0) => return Ok(hex(&hash.finish())),
-            Ok(count) => {
-                hash.update(&buffer[..count]);
-                remaining -= count as u64;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return Err("Cannot read SHA-256 source".into()),
-        }
-    }
-}
-
 fn digest_source(source: &Source, path: &Path) -> Result<String, String> {
     source.check(path)?;
     let result = {
@@ -445,16 +408,6 @@ fn hash_reader(reader: &mut impl Read, length: Option<u64>) -> Result<[u8; 32], 
         remaining -= count as u64;
     }
     Ok(hash.finish())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut result = String::with_capacity(bytes.len() * 2);
-    for &byte in bytes {
-        result.push(HEX[(byte >> 4) as usize] as char);
-        result.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    result
 }
 
 struct Writer<W: Write> {

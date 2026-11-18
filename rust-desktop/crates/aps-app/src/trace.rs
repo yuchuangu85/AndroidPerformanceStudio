@@ -13,7 +13,7 @@ mod export;
 mod model;
 mod page;
 mod sessions;
-pub(crate) mod viewer;
+use crate::perfetto_viewer::ViewerServer;
 
 use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
@@ -116,7 +116,7 @@ pub struct TraceWorkspace {
     pub(in crate::trace) workspace_bookmarks: Vec<model::TraceWorkspaceBookmark>,
     pub(in crate::trace) capture: capture::Capture,
     pub(in crate::trace) capture_visible: bool,
-    pub(in crate::trace) viewer: viewer::ViewerServer,
+    pub(in crate::trace) viewer: ViewerServer,
     pub(in crate::trace) status: Option<String>,
     pub(in crate::trace) error: Option<String>,
     pub(in crate::trace) studio: Option<WeakEntity<crate::shell::Studio>>,
@@ -186,7 +186,7 @@ impl TraceWorkspace {
             workspace_bookmarks: Vec::new(),
             capture: capture::Capture::new(data_dir),
             capture_visible: false,
-            viewer: viewer::ViewerServer::new(9417),
+            viewer: ViewerServer::new(9417),
             status: None,
             error: None,
             studio: None,

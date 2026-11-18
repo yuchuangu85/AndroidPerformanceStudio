@@ -3,6 +3,9 @@
 use aps_ai::{AnalysisRequest, Evidence};
 use aps_json::{Limits, Value};
 
+/// Intent only: evidence stays with the originating page until the shell accepts it.
+pub(crate) struct AnalysisRequested;
+
 pub fn object(values: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
     Value::Object(values.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }

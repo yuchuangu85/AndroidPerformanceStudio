@@ -5,6 +5,8 @@ use super::super::*;
 use aps_adb::{AdbDevice, AndroidApplicationProcess};
 use transport::{CapturedHeap, HeapCaptureTarget};
 
+impl EventEmitter<crate::home_recent::RecentHistoryChanged> for ImportWorkspace {}
+
 #[derive(Default)]
 pub(in crate::import) struct MemoryCaptureUi {
     serial: Option<String>,
@@ -372,13 +374,7 @@ impl ImportWorkspace {
             let result = task.await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok(_) => {
-                        if let Some(studio) = &this.studio {
-                            studio
-                                .update(cx, |studio, cx| studio.refresh_home_recent(cx))
-                                .ok();
-                        }
-                    }
+                    Ok(_) => cx.emit(crate::home_recent::RecentHistoryChanged),
                     Err(error) => this.publish_memory_history_error(snapshot_id, error),
                 }
                 cx.notify();

@@ -19,6 +19,7 @@ mod sessions;
 
 use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
+use crate::perfetto_viewer::ViewerServer;
 use aps_adb::{AdbDevice, AndroidApplicationProcess};
 use aps_ai::AnalysisRequest;
 use aps_contracts::SourceDigest;
@@ -62,6 +63,14 @@ impl FrameTimelineOperation {
     }
 }
 
+/// Request from the Frame Analyzer to correlate a frame with the Layout Inspector.
+pub(crate) struct FrameLayoutInspectionRequest {
+    pub device_serial: Option<String>,
+}
+
+impl EventEmitter<FrameLayoutInspectionRequest> for FrameWorkspace {}
+impl EventEmitter<crate::evidence::AnalysisRequested> for FrameWorkspace {}
+
 pub struct FrameWorkspace {
     pub(in crate::frame) language: Language,
     pub(in crate::frame) data_dir: Option<PathBuf>,
@@ -90,8 +99,7 @@ pub struct FrameWorkspace {
     pub(in crate::frame) online_capture: Option<capture::OnlineFrameCapture>,
     pub(in crate::frame) online_frames: Vec<FrameSample>,
     pub(in crate::frame) current_session: Option<FrameCaptureSession>,
-    pub(in crate::frame) viewer: crate::trace::viewer::ViewerServer,
-    pub(in crate::frame) studio: Option<WeakEntity<crate::shell::Studio>>,
+    pub(in crate::frame) viewer: ViewerServer,
     pub(in crate::frame) ui: page::PageUi,
     pub(in crate::frame) language_generation: u64,
     pub(in crate::frame) import_generation: u64,
@@ -139,8 +147,7 @@ impl FrameWorkspace {
             online_capture: None,
             online_frames: Vec::new(),
             current_session: None,
-            viewer: crate::trace::viewer::ViewerServer::new(9418),
-            studio: None,
+            viewer: ViewerServer::new(9418),
             ui: page::PageUi::new(window, cx),
             language_generation: 0,
             import_generation: 0,
@@ -148,10 +155,6 @@ impl FrameWorkspace {
             timeline_operation: None,
         };
         this
-    }
-
-    pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
-        self.studio = Some(studio);
     }
 
     pub fn set_language(
@@ -1143,29 +1146,19 @@ impl FrameWorkspace {
     }
 
     pub(in crate::frame) fn inspect_layout(&mut self, cx: &mut Context<Self>) {
-        let Some(studio) = self.studio.clone() else {
-            return;
-        };
         let Some(frame) = self.selected_frame() else {
             return;
         };
-        let sample = &frame.sample;
-        let Some(package_name) = sample.package_name.clone() else {
+        if frame.sample.package_name.is_none() {
             return;
-        };
-        let request = crate::shell::FrameLayoutInspectionRequest {
+        }
+        let request = FrameLayoutInspectionRequest {
             device_serial: self.selected_device_serial.clone(),
-            package_name,
-            activity_name: sample.activity_name.clone(),
-            window_id: sample.window_id.clone(),
-            frame_id: frame.sample.frame_id,
         };
         if self.is_capturing {
             self.stop_capture(cx);
         }
-        studio
-            .update(cx, |studio, cx| studio.open_frame_layout(request, cx))
-            .ok();
+        cx.emit(request);
     }
 
     pub(crate) fn analysis_request(&self) -> Result<AnalysisRequest, String> {
@@ -1578,7 +1571,7 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
                 FrameMenuCommand::CopyEvidence,
             )
             .item_action_when(
-                has_package && self.studio.is_some(),
+                has_package,
                 TextKey::FrameCorrelateInLayoutInspector,
                 FrameMenuCommand::InspectLayout,
                 crate::shell::GoToSourceActiveRoute,

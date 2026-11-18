@@ -28,7 +28,7 @@ qualification.
    only selected references and integer sizes through the original buffered
    source. Cleaner, thunk and registry batches are sorted by file offset;
    assigning sizes follows original Cleaner order.
-2. `aps-hprof-engine/src/sha256.rs`: use macOS CommonCrypto SHA-256, with the
+2. `aps-primitives/src/sha256.rs` (originally `aps-hprof-engine/src/sha256.rs`): use macOS CommonCrypto SHA-256, with the
    original portable implementation on other platforms. The ABI is checked
    against the installed Apple SDK. No new dependency or external command is
    required at runtime.

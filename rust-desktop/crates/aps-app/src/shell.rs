@@ -9,7 +9,8 @@ use crate::{
     benchmark::{BenchmarkWorkspace, OpenBenchmarkTrace},
     capture::{CaptureCompleted, CaptureWorkspace},
     cpu::CpuWorkspace,
-    frame::FrameWorkspace,
+    evidence::AnalysisRequested,
+    frame::{FrameLayoutInspectionRequest, FrameWorkspace},
     home_recent::{
         HistoryMutation, HistoryMutationQueue, RecentPathEntry, RecentPathStore, RecordedFeature,
     },
@@ -652,16 +653,6 @@ fn user_guide_path(language: Language) -> Option<PathBuf> {
     None
 }
 
-/// Request from the Frame Analyzer to correlate a frame with the Layout Inspector.
-#[derive(Clone, Debug)]
-pub(crate) struct FrameLayoutInspectionRequest {
-    pub device_serial: Option<String>,
-    pub package_name: String,
-    pub activity_name: Option<String>,
-    pub window_id: Option<String>,
-    pub frame_id: u64,
-}
-
 #[derive(Default)]
 struct AiRequestEpoch {
     next: u64,
@@ -685,6 +676,14 @@ impl AiRequestEpoch {
 
     fn accepts(&self, epoch: u64, origin: Destination, destination: Destination) -> bool {
         self.pending == Some(epoch) && origin == destination
+    }
+
+    fn take_current(&mut self, epoch: u64, origin: Destination, destination: Destination) -> bool {
+        if !self.accepts(epoch, origin, destination) {
+            return false;
+        }
+        self.cancel();
+        true
     }
 }
 
@@ -849,7 +848,6 @@ impl Studio {
                 cx,
             )
         });
-        frame.update(cx, |frame, _| frame.set_studio(studio_handle.clone()));
         let benchmark = cx.new(|cx| {
             BenchmarkWorkspace::new(
                 settings.language.resolved(),
@@ -878,13 +876,28 @@ impl Studio {
         .into_iter()
         .map(|kind| {
             let workspace = cx.new(|_| ImportWorkspace::new(kind, settings.language.resolved()));
-            workspace.update(cx, |workspace, _| {
-                workspace.set_studio(studio_handle.clone())
-            });
             (kind, workspace)
         })
         .collect();
         let mut subscriptions = vec![
+            cx.subscribe(
+                &frame,
+                |this, _, request: &FrameLayoutInspectionRequest, cx| {
+                    if this.destination == Destination::Frame {
+                        this.open_frame_layout(request, cx);
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &frame,
+                window,
+                |this, page, _: &AnalysisRequested, window, cx| {
+                    if this.destination == Destination::Frame {
+                        let request = page.read(cx).analysis_request();
+                        this.present_ai_request(Destination::Frame, request, window, cx);
+                    }
+                },
+            ),
             cx.subscribe(
                 &inspector,
                 |this, _, event: &crate::home_recent::RecentArtifactOpened, cx| {
@@ -942,6 +955,22 @@ impl Studio {
             }),
         ];
         if let Some(memory) = imports.get(&Destination::Memory) {
+            subscriptions.push(cx.subscribe_in(
+                memory,
+                window,
+                |this, page, _: &AnalysisRequested, window, cx| {
+                    if this.destination == Destination::Memory {
+                        let request = page.read(cx).memory_analysis_request();
+                        this.present_ai_request(Destination::Memory, request, window, cx);
+                    }
+                },
+            ));
+            subscriptions.push(cx.subscribe(
+                memory,
+                |this, _, _: &crate::home_recent::RecentHistoryChanged, cx| {
+                    this.refresh_home_recent(cx);
+                },
+            ));
             subscriptions.push(cx.subscribe(
                 memory,
                 |this, _, event: &crate::home_recent::RecentArtifactOpened, cx| {
@@ -1452,17 +1481,11 @@ impl Studio {
         studio
     }
 
-    pub(crate) fn open_frame_layout(
+    fn open_frame_layout(
         &mut self,
-        request: FrameLayoutInspectionRequest,
+        request: &FrameLayoutInspectionRequest,
         cx: &mut Context<Self>,
     ) {
-        let _ = (
-            request.activity_name.clone(),
-            request.window_id.clone(),
-            request.frame_id,
-        );
-        let _ = &request.package_name;
         self.inspector.update(cx, |inspector, cx| {
             inspector.set_target(request.device_serial.clone(), cx)
         });
@@ -1558,9 +1581,7 @@ impl Studio {
         self.present_ai_request(origin, result, window, cx);
     }
 
-    /// Applies an already-computed analysis request. Page-owned AI buttons call
-    /// this directly: while a workspace entity is being updated, re-reading it
-    /// through `prepare_ai` would borrow the same entity twice.
+    /// Present a local preflight; this never sends evidence to a provider.
     pub(crate) fn present_ai_request(
         &mut self,
         origin: Destination,
@@ -1581,14 +1602,24 @@ impl Studio {
             (_, result) => result,
         };
         if origin == Destination::Memory {
-            // Memory page buttons invoke this while the Memory entity is still
-            // being updated. Defer the binding until that update completes so
-            // the shell observer does not mistake the handoff itself for a
-            // changed HPROF snapshot and immediately invalidate the context.
+            // Finish the current UI update before binding. Navigation, a changed
+            // snapshot, or a newer request must invalidate even this short handoff.
+            let epoch = match self.ai_request_epoch.begin() {
+                Ok(epoch) => epoch,
+                Err(error) => {
+                    self.bind_ai_request(origin, Err(error), None, window, cx);
+                    return;
+                }
+            };
             let studio = cx.entity();
             window.defer(cx, move |window, cx| {
                 let _ = studio.update(cx, |studio, cx| {
-                    studio.bind_ai_request(origin, result, None, window, cx);
+                    if studio
+                        .ai_request_epoch
+                        .take_current(epoch, origin, studio.destination)
+                    {
+                        studio.bind_ai_request(origin, result, None, window, cx);
+                    }
                 });
             });
         } else {
@@ -1603,8 +1634,8 @@ impl Studio {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Page-owned buttons are inside a Memory entity update. Freeze the
-        // supplied request here and only read that entity after the await.
+        // Freeze the request identity before asynchronous source lookup; the
+        // selected Memory snapshot may change while the lookup runs.
         let binding = request
             .evidence
             .iter()
@@ -3599,6 +3630,21 @@ mod menubar_tests {
             .next()
             .unwrap();
         assert!(presentation.contains("self.ai_request_epoch.cancel()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn deferred_memory_preflight_only_consumes_its_own_live_request() {
+        let memory = Destination::Memory;
+        let mut state = AiRequestEpoch::default();
+        let stale = state.begin().unwrap();
+        let current = state.begin().unwrap();
+        assert!(!state.take_current(stale, memory, memory));
+        assert!(!state.take_current(current, memory, Destination::Frame));
+        assert!(state.take_current(current, memory, memory));
+        assert!(!state.take_current(current, memory, memory));
+        let cancelled = state.begin().unwrap();
+        state.cancel();
+        assert!(!state.take_current(cancelled, memory, memory));
     }
 
     #[::core::prelude::v1::test]

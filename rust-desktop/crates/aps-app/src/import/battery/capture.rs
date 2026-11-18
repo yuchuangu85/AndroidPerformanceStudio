@@ -8,7 +8,7 @@ use aps_battery::{
 use gpui_kit::component::{checkbox::Checkbox, radio::Radio};
 
 #[derive(Default)]
-pub(in crate::import) struct BatteryCaptureUi {
+pub(super) struct BatteryCaptureUi {
     serial: Option<String>,
     pid: Option<u32>,
     target: Option<BatteryCaptureTarget>,
@@ -20,7 +20,7 @@ pub(in crate::import) struct BatteryCaptureUi {
     control: Option<BatteryCaptureControl>,
     pub(super) artifact: Option<Arc<BatteryCaptureArtifact>>,
     pub(super) export_cancel: Option<CancellationToken>,
-    pub(in crate::import) in_progress: bool,
+    pub(super) in_progress: bool,
 }
 impl Drop for BatteryCaptureUi {
     fn drop(&mut self) {
@@ -97,8 +97,11 @@ impl ImportWorkspace {
         pid: Option<u32>,
         cx: &mut Context<Self>,
     ) {
-        let running = self.battery_shell_ui.capture.in_progress;
-        if self.battery_shell_ui.capture.select(serial, pid) && running {
+        let Some(battery) = &mut self.battery else {
+            return;
+        };
+        let running = battery.shell.capture.in_progress;
+        if battery.shell.capture.select(serial, pid) && running {
             self.cancel_work(cx);
         }
         cx.notify();
@@ -109,13 +112,11 @@ impl ImportWorkspace {
         processes: &[AndroidApplicationProcess],
         cx: &mut Context<Self>,
     ) {
-        let running = self.battery_shell_ui.capture.in_progress;
-        if self
-            .battery_shell_ui
-            .capture
-            .apply_lists(devices, processes)
-            && running
-        {
+        let Some(battery) = &mut self.battery else {
+            return;
+        };
+        let running = battery.shell.capture.in_progress;
+        if battery.shell.capture.apply_lists(devices, processes) && running {
             self.cancel_work(cx);
         }
         cx.notify();
@@ -123,14 +124,14 @@ impl ImportWorkspace {
     /// Parent calls this when opening/closing/importing/cancelling the shared
     /// workspace. It also revokes any pending approval dialog's revision.
     pub(in crate::import) fn invalidate_battery_capture(&mut self) {
-        self.battery_shell_ui.capture.revoke();
+        self.battery_mut().shell.capture.revoke();
     }
     pub(in crate::import) fn battery_capture_ready(&self) -> bool {
         self.kind == Destination::Battery
             && !self.busy
             && !self.export_busy
-            && !self.battery_shell_ui.capture.in_progress
-            && self.battery_shell_ui.capture.target.is_some()
+            && !self.battery().shell.capture.in_progress
+            && self.battery().shell.capture.target.is_some()
     }
     fn battery_target_text(&self, target: &BatteryCaptureTarget) -> String {
         self.language.format(
@@ -144,7 +145,7 @@ impl ImportWorkspace {
         )
     }
     pub(super) fn battery_capture_tooltip(&self) -> String {
-        self.battery_shell_ui.capture.target.as_ref().map_or_else(
+        self.battery().shell.capture.target.as_ref().map_or_else(
             || {
                 self.language
                     .text(TextKey::BatteryCaptureSelectTarget)
@@ -154,7 +155,7 @@ impl ImportWorkspace {
         )
     }
     pub(super) fn battery_capture_status(&self) -> Option<String> {
-        let capture = &self.battery_shell_ui.capture;
+        let capture = &self.battery().shell.capture;
         if !capture.in_progress {
             return None;
         }
@@ -189,7 +190,7 @@ impl ImportWorkspace {
             cx.notify();
             return;
         }
-        let capture = &self.battery_shell_ui.capture;
+        let capture = &self.battery().shell.capture;
         let target = capture.target.clone().expect("checked Battery target");
         let target_text = self.battery_target_text(&target);
         let config = capture.config;
@@ -283,9 +284,9 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) {
         if !self.battery_capture_ready()
-            || self.battery_shell_ui.capture.revision != revision
-            || self.battery_shell_ui.capture.target.as_ref() != Some(&target)
-            || self.battery_shell_ui.capture.config != config
+            || self.battery().shell.capture.revision != revision
+            || self.battery().shell.capture.target.as_ref() != Some(&target)
+            || self.battery().shell.capture.config != config
         {
             self.notice =
                 Some(TextKey::ImportOperationCancelledPreviousPublishedPageRetained.into());
@@ -308,9 +309,9 @@ impl ImportWorkspace {
         let generation = self.generation;
         let cancel = self.cancel.clone();
         let control = BatteryCaptureControl::new(cancel.clone());
-        let workload = self.battery_shell_ui.capture.workload_id.clone();
-        self.battery_shell_ui.capture.control = Some(control.clone());
-        self.battery_shell_ui.capture.in_progress = true;
+        let workload = self.battery().shell.capture.workload_id.clone();
+        self.battery_mut().shell.capture.control = Some(control.clone());
+        self.battery_mut().shell.capture.in_progress = true;
         let task_target = target.clone();
         let task = cx.background_executor().spawn(async move {
             let location = AdbLocator::new()
@@ -336,15 +337,15 @@ impl ImportWorkspace {
             let result = task.await;
             this.update(cx, |this, cx| {
                 if this.generation != generation
-                    || this.battery_shell_ui.capture.revision != revision
-                    || !this.battery_shell_ui.capture.in_progress
-                    || this.battery_shell_ui.capture.target.as_ref() != Some(&target)
+                    || this.battery().shell.capture.revision != revision
+                    || !this.battery().shell.capture.in_progress
+                    || this.battery().shell.capture.target.as_ref() != Some(&target)
                 {
                     return;
                 }
                 this.busy = false;
-                this.battery_shell_ui.capture.in_progress = false;
-                this.battery_shell_ui.capture.control = None;
+                this.battery_mut().shell.capture.in_progress = false;
+                this.battery_mut().shell.capture.control = None;
                 match result {
                     Ok((session, page, metrics, runs, samples, artifact)) => {
                         this.path = None;
@@ -353,12 +354,9 @@ impl ImportWorkspace {
                             _ => None,
                         };
                         this.session = Some(session);
-                        this.battery_shell_ui.capture.artifact = Some(artifact);
+                        this.battery_mut().shell.capture.artifact = Some(artifact);
                         this.page = Some(page);
-                        this.battery_metrics = Some(metrics);
-                        this.battery_ui.reset();
-                        this.battery_workspace_ui = Default::default();
-                        this.battery_shell_ui.warnings_offset = 0;
+                        this.battery_mut().reset_report_view(Some(metrics));
                         this.publish_battery_run_page();
                         this.import_started = None;
                         this.import_duration = None;
@@ -384,7 +382,7 @@ impl ImportWorkspace {
                 let done = this
                     .update(cx, |this, cx| {
                         if this.generation != generation
-                            || !this.battery_shell_ui.capture.in_progress
+                            || !this.battery().shell.capture.in_progress
                         {
                             return true;
                         }
@@ -401,7 +399,7 @@ impl ImportWorkspace {
         cx.notify();
     }
     pub(crate) fn stop_battery_capture(&mut self, cx: &mut Context<Self>) {
-        if let Some(control) = &self.battery_shell_ui.capture.control {
+        if let Some(control) = &self.battery().shell.capture.control {
             control.stop_and_analyze();
             cx.notify();
         }
@@ -412,8 +410,8 @@ impl ImportWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.battery_shell_ui.capture.workload_input.is_none() {
-            let workload = self.battery_shell_ui.capture.workload_id.clone();
+        if self.battery().shell.capture.workload_input.is_none() {
+            let workload = self.battery().shell.capture.workload_id.clone();
             let language = self.language;
             let input = cx.new(|cx| {
                 InputState::new(window, cx)
@@ -421,24 +419,25 @@ impl ImportWorkspace {
                     .default_value(workload)
                     .validate(|value, _| value.len() <= 128 && !value.chars().any(char::is_control))
             });
-            self.battery_shell_ui.capture.workload_subscription =
+            self.battery_mut().shell.capture.workload_subscription =
                 Some(cx.subscribe(&input, |this, input, event, cx| {
                     if matches!(event, InputEvent::Change)
                         && !this.busy
-                        && !this.battery_shell_ui.capture.in_progress
+                        && !this.battery().shell.capture.in_progress
                     {
                         let workload = input.read(cx).value().to_string();
-                        if this.battery_shell_ui.capture.workload_id != workload {
-                            this.battery_shell_ui.capture.revoke();
-                            this.battery_shell_ui.capture.workload_id = workload;
+                        if this.battery().shell.capture.workload_id != workload {
+                            this.battery_mut().shell.capture.revoke();
+                            this.battery_mut().shell.capture.workload_id = workload;
                             cx.notify();
                         }
                     }
                 }));
-            self.battery_shell_ui.capture.workload_input = Some(input);
+            self.battery_mut().shell.capture.workload_input = Some(input);
         }
         let workload_input = self
-            .battery_shell_ui
+            .battery()
+            .shell
             .capture
             .workload_input
             .clone()
@@ -451,8 +450,8 @@ impl ImportWorkspace {
                 return dialog;
             };
             let this = entity.read(cx);
-            let config = this.battery_shell_ui.capture.config;
-            let enabled = !this.busy && !this.battery_shell_ui.capture.in_progress;
+            let config = this.battery().shell.capture.config;
+            let enabled = !this.busy && !this.battery().shell.capture.in_progress;
             let mut controls = div()
                 .flex()
                 .flex_col()
@@ -485,10 +484,10 @@ impl ImportWorkspace {
                                 if this.busy {
                                     return;
                                 }
-                                this.battery_shell_ui.capture.revoke();
-                                this.battery_shell_ui.capture.config.mode = mode;
+                                this.battery_mut().shell.capture.revoke();
+                                this.battery_mut().shell.capture.config.mode = mode;
                                 if mode == BatteryCaptureMode::Online {
-                                    let config = &mut this.battery_shell_ui.capture.config;
+                                    let config = &mut this.battery_mut().shell.capture.config;
                                     config.polling_seconds = config.polling_seconds.max(30);
                                     config.duration_seconds = config.duration_seconds.max(30);
                                 }
@@ -513,11 +512,12 @@ impl ImportWorkspace {
                                 .on_change(move |checked, _, cx| {
                                     let checked = *checked;
                                     entity.update(cx, |this, cx| {
-                                        if this.busy || this.battery_shell_ui.capture.in_progress {
+                                        if this.busy || this.battery().shell.capture.in_progress {
                                             return;
                                         }
-                                        this.battery_shell_ui.capture.revoke();
-                                        this.battery_shell_ui.capture.config.launch_app = checked;
+                                        this.battery_mut().shell.capture.revoke();
+                                        this.battery_mut().shell.capture.config.launch_app =
+                                            checked;
                                         cx.notify();
                                     });
                                 }),
@@ -576,14 +576,14 @@ impl ImportWorkspace {
                                 if this.busy {
                                     return;
                                 }
-                                let mode = this.battery_shell_ui.capture.config.mode;
+                                let mode = this.battery().shell.capture.config.mode;
                                 if row >= 2 && mode != BatteryCaptureMode::Repeated
                                     || mode == BatteryCaptureMode::Online && row < 2 && value < 30
                                 {
                                     return;
                                 }
-                                this.battery_shell_ui.capture.revoke();
-                                let config = &mut this.battery_shell_ui.capture.config;
+                                this.battery_mut().shell.capture.revoke();
+                                let config = &mut this.battery_mut().shell.capture.config;
                                 match row {
                                     0 => config.duration_seconds = value,
                                     1 => config.polling_seconds = value,
@@ -619,8 +619,9 @@ impl ImportWorkspace {
     }
 
     pub(in crate::import) fn battery_device_serial(&self) -> Option<String> {
-        self.battery_shell_ui.capture.serial.clone().or_else(|| {
-            self.battery_shell_ui
+        self.battery().shell.capture.serial.clone().or_else(|| {
+            self.battery()
+                .shell
                 .capture
                 .target
                 .as_ref()
@@ -632,7 +633,7 @@ impl ImportWorkspace {
         if self.kind != Destination::Battery
             || self.busy
             || self.export_busy
-            || self.battery_shell_ui.capture.in_progress
+            || self.battery().shell.capture.in_progress
         {
             return;
         }
@@ -650,7 +651,7 @@ impl ImportWorkspace {
             };
             let enabled = {
                 let this = entity.read(cx);
-                !this.busy && !this.battery_shell_ui.capture.in_progress
+                !this.busy && !this.battery().shell.capture.in_progress
             };
             let serial = serial.clone();
             dialog
@@ -706,7 +707,7 @@ impl ImportWorkspace {
     }
 
     fn begin_battery_reset(&mut self, serial: String, cx: &mut Context<Self>) {
-        if self.busy || self.battery_shell_ui.capture.in_progress {
+        if self.busy || self.battery().shell.capture.in_progress {
             return;
         }
         self.busy = true;
@@ -735,13 +736,13 @@ impl ImportWorkspace {
                         this.page = None;
                         this.session_id = None;
                         this.path = None;
-                        this.battery_metrics = None;
-                        this.battery_ui.reset();
-                        this.battery_workspace_ui = Default::default();
-                        this.battery_shell_ui.capture.artifact = None;
-                        this.battery_shell_ui.restored_artifact = None;
-                        this.battery_shell_ui.baseline = Default::default();
-                        this.battery_shell_ui.current_saved_key = None;
+                        this.battery_mut().metrics = None;
+                        this.battery_mut().ui.reset();
+                        this.battery_mut().workspace = Default::default();
+                        this.battery_mut().shell.capture.artifact = None;
+                        this.battery_mut().shell.restored_artifact = None;
+                        this.battery_mut().shell.baseline = Default::default();
+                        this.battery_mut().shell.current_saved_key = None;
                         this.notice = Some(TextKey::BatteryResetDone.into());
                     }
                     Err(error) => this.error = Some(error.into()),
@@ -914,5 +915,34 @@ fn mode_key(mode: BatteryCaptureMode) -> TextKey {
         BatteryCaptureMode::Timed => TextKey::BatteryModeTimed,
         BatteryCaptureMode::Repeated => TextKey::BatteryModeRepeated,
         BatteryCaptureMode::Online => TextKey::BatteryModeOnline,
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn replacing_battery_work_revokes_capture_and_export_but_retains_target_and_query() {
+        let mut workspace = ImportWorkspace::new(Destination::Battery, Language::English);
+        let capture = CancellationToken::new();
+        let export = CancellationToken::new();
+        workspace.battery_mut().ui.query = "selected evidence".into();
+        let state = &mut workspace.battery_mut().shell.capture;
+        state.select(Some("device-a".into()), Some(42));
+        state.control = Some(BatteryCaptureControl::new(capture.clone()));
+        state.export_cancel = Some(export.clone());
+        state.in_progress = true;
+        let revision = state.revision;
+
+        workspace.invalidate_battery_capture();
+        let state = &workspace.battery().shell.capture;
+        assert!(capture.is_cancelled());
+        assert!(export.is_cancelled());
+        assert!(!state.in_progress);
+        assert_ne!(state.revision, revision);
+        assert_eq!(state.serial.as_deref(), Some("device-a"));
+        assert_eq!(state.pid, Some(42));
+        assert_eq!(workspace.battery().ui.query, "selected evidence");
     }
 }

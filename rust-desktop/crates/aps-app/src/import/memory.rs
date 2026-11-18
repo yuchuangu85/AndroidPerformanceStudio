@@ -1023,7 +1023,7 @@ impl ImportWorkspace {
 
     // ---- AI context ----------------------------------------------------
 
-    pub(super) fn memory_analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
+    pub(crate) fn memory_analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
         self.memory_leak_analysis_request()
     }
 }

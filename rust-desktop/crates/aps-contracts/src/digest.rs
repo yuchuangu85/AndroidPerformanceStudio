@@ -36,7 +36,7 @@ impl SourceDigest {
     /// input at the EOF boundary; no prefix digest is returned on overflow.
     /// This is an input bound, not cancellation or a read-duration deadline.
     pub fn hash_reader(reader: impl Read, max_bytes: u64) -> Result<Self, String> {
-        let hex = aps_hprof_engine::cache::sha256_reader(reader, max_bytes)
+        let hex = aps_primitives::sha256::sha256_reader(reader, max_bytes)
             .map_err(|_| "cannot hash source within input byte limit")?;
         Self::from_hex(&hex)
     }

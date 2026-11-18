@@ -3,7 +3,7 @@ use super::*;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 #[derive(Default)]
-pub(in crate::import) struct BatteryWorkspaceUi {
+pub(super) struct BatteryWorkspaceUi {
     search: Option<Entity<InputState>>,
     search_subscription: Option<Subscription>,
     context: Option<(String, ResourceTab)>,
@@ -136,37 +136,38 @@ impl ImportWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        let identity = (run.id.clone(), self.battery_ui.tab);
-        if self.battery_workspace_ui.context.as_ref() != Some(&identity) {
-            self.battery_workspace_ui = BatteryWorkspaceUi::default();
-            self.battery_workspace_ui.context = Some(identity);
+        let identity = (run.id.clone(), self.battery().ui.tab);
+        if self.battery().workspace.context.as_ref() != Some(&identity) {
+            self.battery_mut().workspace = BatteryWorkspaceUi::default();
+            self.battery_mut().workspace.context = Some(identity);
         }
-        if self.battery_workspace_ui.search.is_none() {
+        if self.battery().workspace.search.is_none() {
             let language = self.language;
-            let query = self.battery_ui.query.clone();
+            let query = self.battery().ui.query.clone();
             let search = cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder(language.text(TextKey::BatteryWorkspaceSearch))
                     .default_value(query)
                     .validate(|value, _| value.len() <= QUERY_LIMIT)
             });
-            self.battery_workspace_ui.search_subscription =
+            self.battery_mut().workspace.search_subscription =
                 Some(cx.subscribe(&search, |this, search, event, cx| {
                     if matches!(event, InputEvent::Change) {
-                        this.battery_ui.query = search.read(cx).value().to_string();
-                        this.battery_ui.evidence_offset = 0;
-                        this.battery_ui.selected_evidence = None;
+                        this.battery_mut().ui.query = search.read(cx).value().to_string();
+                        this.battery_mut().ui.evidence_offset = 0;
+                        this.battery_mut().ui.selected_evidence = None;
                         cx.notify();
                     }
                 }));
-            self.battery_workspace_ui.search = Some(search);
+            self.battery_mut().workspace.search = Some(search);
         }
         let search = self
-            .battery_workspace_ui
+            .battery()
+            .workspace
             .search
             .clone()
             .expect("battery search initialized");
-        if self.battery_workspace_ui.language != Some(self.language) {
+        if self.battery().workspace.language != Some(self.language) {
             search.update(cx, |input, cx| {
                 input.set_placeholder(
                     self.language.text(TextKey::BatteryWorkspaceSearch),
@@ -174,7 +175,7 @@ impl ImportWorkspace {
                     cx,
                 )
             });
-            self.battery_workspace_ui.language = Some(self.language);
+            self.battery_mut().workspace.language = Some(self.language);
         }
         search
     }
@@ -214,20 +215,20 @@ impl ImportWorkspace {
                 studio::tab_button(
                     ("battery-resource-tab", index),
                     language.text(label(tab)),
-                    self.battery_ui.tab == tab,
+                    self.battery().ui.tab == tab,
                     &colors,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.battery_ui.select_tab(tab);
+                    this.battery_mut().ui.select_tab(tab);
                     cx.notify();
                 })),
             );
         }
         let page = evidence_page(
             run,
-            self.battery_ui.tab,
-            &self.battery_ui.query,
-            self.battery_ui.evidence_offset,
+            self.battery().ui.tab,
+            &self.battery().ui.query,
+            self.battery().ui.evidence_offset,
             EVIDENCE_PAGE_LIMIT,
         );
         let mut resources = studio::card(&colors)
@@ -255,7 +256,7 @@ impl ImportWorkspace {
                     ),
                     &colors,
                 ));
-                let selected = page.selected(self.battery_ui.selected_evidence);
+                let selected = page.selected(self.battery().ui.selected_evidence);
                 let table =
                     self.battery_evidence_table(&page, selected.map(EvidenceRow::id), &colors, cx);
                 let inspector = self.battery_evidence_inspector(selected, &colors, cx);
@@ -290,11 +291,12 @@ impl ImportWorkspace {
                                 &colors,
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.battery_ui.evidence_offset = this
-                                    .battery_ui
+                                this.battery_mut().ui.evidence_offset = this
+                                    .battery()
+                                    .ui
                                     .evidence_offset
                                     .saturating_sub(EVIDENCE_PAGE_LIMIT);
-                                this.battery_ui.selected_evidence = None;
+                                this.battery_mut().ui.selected_evidence = None;
                                 cx.notify();
                             })),
                         )
@@ -318,11 +320,12 @@ impl ImportWorkspace {
                                 &colors,
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.battery_ui.evidence_offset = this
-                                    .battery_ui
+                                this.battery_mut().ui.evidence_offset = this
+                                    .battery()
+                                    .ui
                                     .evidence_offset
                                     .saturating_add(EVIDENCE_PAGE_LIMIT);
-                                this.battery_ui.selected_evidence = None;
+                                this.battery_mut().ui.selected_evidence = None;
                                 cx.notify();
                             })),
                         ),
@@ -330,7 +333,7 @@ impl ImportWorkspace {
             }
         }
         let window_count = run.performance_windows.as_ref().map_or(0, Vec::len);
-        let offset = self.battery_workspace_ui.window_offset;
+        let offset = self.battery().workspace.window_offset;
         let mut thermal = thermal_summary(run, language, &colors, offset);
         if window_count > 100 {
             let end = offset.saturating_add(100).min(window_count);
@@ -349,8 +352,8 @@ impl ImportWorkspace {
                             &colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.battery_workspace_ui.window_offset =
-                                this.battery_workspace_ui.window_offset.saturating_sub(100);
+                            this.battery_mut().workspace.window_offset =
+                                this.battery().workspace.window_offset.saturating_sub(100);
                             cx.notify();
                         })),
                     )
@@ -374,8 +377,8 @@ impl ImportWorkspace {
                             &colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.battery_workspace_ui.window_offset =
-                                this.battery_workspace_ui.window_offset.saturating_add(100);
+                            this.battery_mut().workspace.window_offset =
+                                this.battery().workspace.window_offset.saturating_add(100);
                             cx.notify();
                         })),
                     ),
@@ -470,7 +473,7 @@ impl ImportWorkspace {
                             ),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.battery_ui.selected_evidence = Some(id);
+                        this.battery_mut().ui.selected_evidence = Some(id);
                         cx.notify();
                     })),
             );

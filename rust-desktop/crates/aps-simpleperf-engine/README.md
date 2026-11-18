@@ -3,9 +3,8 @@
 CPU parser, legacy analysis and independent query projection. Kotlin implementations are
 retained; this crate does not enable a default Rust engine or modify
 desktop-app UI. No complete CPU, Kotlin, SQLite or Firefox projection parity is
-claimed. There are no Cargo dependencies or external registry dependencies.
-The existing std-only HPROF `wire.rs` is referenced as a source module, without
-compiling or changing the unrelated heap engine. Formatting skips that module.
+claimed. Its only Cargo dependency is the local `aps-primitives` crate. The
+worker uses its wire codec without compiling or including any heap engine code.
 
 ## CLI For Kotlin Shadow Validation
 
@@ -110,7 +109,7 @@ wire: big-endian u32 frame length, then a typed Value. Max frame 32 MiB; strings
 4 MiB; integers signed i64. All counts/lengths inside the wire are big endian.
 Tags: null=0, false=1, true=2, i64=3, UTF-8 string=4, list=5, map=6.
 String/list/map lengths are u32; map keys are length-prefixed UTF-8 without a tag.
-See `../../memory-profiler/hprof-engine-rust/src/wire.rs` for the exact codec.
+See `../aps-primitives/src/wire.rs` for the exact codec.
 
 Logical values below are illustrative, NOT JSON transport:
 

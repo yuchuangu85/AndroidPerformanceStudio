@@ -4,9 +4,9 @@
 //! Rust-owned records; Trace also delegates to its feature-owned captured-session
 //! adapter. This module neither decodes Compose/private Trace catalogs nor wires UI.
 use crate::cpu::{
-    CPU_MEDIA_TYPE, CPU_SESSION_PREFIX, cpu_artifact, cpu_snapshot_path, validate_cpu_session,
+    CPU_MEDIA_TYPE, CPU_SESSION_PREFIX, CpuSnapshotRef, cpu_artifact, cpu_snapshot_path,
+    validate_cpu_session,
 };
-use aps_contracts::ArtifactId;
 use aps_json::{Limits, Value};
 use aps_storage::{PageRequest, QueryBinding, Storage};
 use std::{
@@ -44,6 +44,9 @@ pub struct RecentArtifactOpened {
     pub feature: HomeFeature,
     pub path: PathBuf,
 }
+
+/// A feature has already persisted its history; refresh without writing it again.
+pub(crate) struct RecentHistoryChanged;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordedFeature {
@@ -389,7 +392,7 @@ fn regular_artifact(path: &Path) -> bool {
 
 #[derive(Debug, Clone)]
 pub enum HomeRecentTarget {
-    Cpu(HomeRecentCpu),
+    Cpu(CpuSnapshotRef),
     Layout(PathBuf),
     Trace(PathBuf),
     Memory(PathBuf),
@@ -548,17 +551,10 @@ fn merge_trace_entries(
 }
 
 #[derive(Debug, Clone)]
-pub struct HomeRecentCpu {
-    pub binding: QueryBinding,
-    pub artifact_id: ArtifactId,
-    pub byte_length: u64,
-}
-
-#[derive(Debug, Clone)]
 pub struct HomeRecentItem {
     pub title: String,
     pub package_name: Option<String>,
-    pub cpu: HomeRecentCpu,
+    pub cpu: CpuSnapshotRef,
 }
 
 /// Inspect at most 200 recent session rows to publish at most six entries.
@@ -641,7 +637,7 @@ pub fn load_recent(
                 // CPU import metadata has no verified package/capture time.
                 // Import/index timestamps must not impersonate capture time.
                 package_name: None,
-                cpu: HomeRecentCpu {
+                cpu: CpuSnapshotRef {
                     binding,
                     artifact_id,
                     byte_length: artifact.byte_length,

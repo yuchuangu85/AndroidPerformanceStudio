@@ -7,8 +7,10 @@ use aps_ai::{AnalysisRequest, Evidence};
 use aps_contracts::SourceDigest;
 use aps_json::{Limits, Value};
 use aps_memory::{ActivityLeak, LeakSuspect, LifecycleLeakObject, MemorySnapshot, ObjectReference};
-use aps_ui_foundation::{Destination, TextKey};
-use gpui_kit::{Context, Window};
+use aps_ui_foundation::TextKey;
+use gpui_kit::EventEmitter;
+
+impl EventEmitter<crate::evidence::AnalysisRequested> for ImportWorkspace {}
 
 const MAX_ROWS_PER_KIND: usize = 32;
 const MAX_CHAIN_NODES: usize = 16;
@@ -178,15 +180,6 @@ impl ImportWorkspace {
             user_question: None,
             mcp: None,
         })
-    }
-
-    pub(super) fn memory_open_ai(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let request = self.memory_leak_analysis_request();
-        if let Some(studio) = self.studio.clone() {
-            let _ = studio.update(cx, |studio, cx| {
-                studio.present_ai_request(Destination::Memory, request, window, cx)
-            });
-        }
     }
 
     pub(crate) fn memory_ai_binding(&self) -> Option<(String, u64, String)> {
@@ -491,6 +484,7 @@ fn build_request_inner(
 mod tests {
     use super::*;
     use aps_memory::{BitmapInstance, ClassStats, FindingsPage, FindingsSnapshot};
+    use aps_ui_foundation::Destination;
 
     fn fixture() -> MemorySnapshot {
         MemorySnapshot {

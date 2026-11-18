@@ -6,4 +6,5 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
+aps-primitives = { path = "../aps-primitives" }
 aps-contracts = { path = "../aps-contracts" }

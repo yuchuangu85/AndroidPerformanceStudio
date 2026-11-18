@@ -18,7 +18,7 @@ use aps_frame::analysis::{AnalyzedFrame, DeadlineMissCluster, FrameAnalysisResul
 use aps_frame::{
     FrameDeadlineVerdict, FrameSource, FrameTimelineStatus, FrameViewFilter, JankSeverity,
 };
-use aps_ui_foundation::{Destination, Language, TextKey};
+use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     component::{
         WindowExt,
@@ -555,16 +555,7 @@ fn header(
                 colors,
             )
             .flex_shrink_0()
-            .on_click(cx.listener(|this, _, window, cx| {
-                let request = this.analysis_request();
-                if let Some(studio) = this.studio.clone() {
-                    studio
-                        .update(cx, |studio, cx| {
-                            studio.present_ai_request(Destination::Frame, request, window, cx)
-                        })
-                        .ok();
-                }
-            })),
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(crate::evidence::AnalysisRequested))),
         )
         .into_any_element()
 }

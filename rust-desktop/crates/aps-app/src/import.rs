@@ -277,7 +277,6 @@ pub struct ImportWorkspace {
     startup_capture: startup::StartupCaptureUi,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
-    studio: Option<WeakEntity<crate::shell::Studio>>,
     selected_network: Option<Vec<String>>,
     session_id: Option<String>,
     export_busy: bool,
@@ -296,10 +295,7 @@ pub struct ImportWorkspace {
     gpu_tab: GpuTab,
     gpu: gpu::GpuUi,
     network: network::NetworkUi,
-    battery_ui: battery::BatteryUi,
-    battery_workspace_ui: battery::workspace::BatteryWorkspaceUi,
-    battery_shell_ui: battery::BatteryShellUi,
-    battery_metrics: Option<battery::ReportMetrics>,
+    battery: Option<Box<battery::BatteryState>>,
     trace_detail_tab: TraceDetailTab,
     selected_trace_row: Option<usize>,
 }
@@ -325,7 +321,6 @@ impl ImportWorkspace {
             startup_capture: startup::StartupCaptureUi::default(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,
-            studio: None,
             selected_network: None,
             session_id: None,
             export_busy: false,
@@ -344,10 +339,7 @@ impl ImportWorkspace {
             gpu_tab: GpuTab::Overview,
             gpu: gpu::GpuUi::default(),
             network: network::NetworkUi::default(),
-            battery_ui: battery::BatteryUi::default(),
-            battery_workspace_ui: battery::workspace::BatteryWorkspaceUi::default(),
-            battery_shell_ui: battery::BatteryShellUi::default(),
-            battery_metrics: None,
+            battery: (kind == Destination::Battery).then(Box::default),
             trace_detail_tab: TraceDetailTab::Result,
             selected_trace_row: None,
         }
@@ -388,16 +380,21 @@ impl ImportWorkspace {
         self.language = language;
         cx.notify();
     }
-    pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
-        self.studio = Some(studio);
+    /// Only the active route owns approvals, capture controls and cleanup.
+    fn revoke_route_work(&mut self, cx: &mut Context<Self>) {
+        match self.kind {
+            Destination::Network => self.invalidate_network_live(cx),
+            Destination::Startup => self.startup_capture.cancel_pending(),
+            Destination::Battery => self.invalidate_battery_capture(),
+            _ => {}
+        }
     }
+
     pub fn pick(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
-        self.invalidate_network_live(cx);
-        self.startup_capture.cancel_pending();
-        self.invalidate_battery_capture();
+        self.revoke_route_work(cx);
         if self.kind == Destination::Gpu {
             self.gpu_pick(false, cx);
             return;
@@ -460,9 +457,7 @@ impl ImportWorkspace {
     }
 
     fn open(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.invalidate_network_live(cx);
-        self.startup_capture.cancel_pending();
-        self.invalidate_battery_capture();
+        self.revoke_route_work(cx);
         if self.kind == Destination::Memory
             && self.memory_snapshot_tabs().len() >= snapshots::MAX_OPEN_MEMORY_SNAPSHOTS
         {
@@ -475,7 +470,9 @@ impl ImportWorkspace {
         self.generation += 1;
         let started = Instant::now();
         self.import_started = Some(started);
-        self.memory_capture.in_progress = false;
+        if self.kind == Destination::Memory {
+            self.memory_capture.in_progress = false;
+        }
         let generation = self.generation;
         self.busy = true;
         self.error = None;
@@ -538,7 +535,9 @@ impl ImportWorkspace {
                 this.busy = false;
                 match result {
                     Ok((path, session, page, network, battery_metrics, memory)) => {
-                        this.startup_capture.clear_published();
+                        if this.kind == Destination::Startup {
+                            this.startup_capture.clear_published();
+                        }
                         let memory_snapshot_id = if this.kind == Destination::Memory {
                             match snapshots::new_memory_snapshot_id() {
                                 Some(id) => Some(id),
@@ -577,28 +576,33 @@ impl ImportWorkspace {
                                 this.memory_debug_seed(cx);
                             }
                         }
-                        this.selected_network = None;
-                        this.network.reset();
-                        this.battery_ui.reset();
-                        this.battery_workspace_ui = Default::default();
-                        this.battery_metrics = battery_metrics;
-                        this.battery_shell_ui.warnings_offset = 0;
-                        this.publish_battery_run_page();
+                        if this.kind == Destination::Network {
+                            this.selected_network = None;
+                            this.network.reset();
+                        }
+                        if let Some(battery) = &mut this.battery {
+                            battery.reset_report_view(battery_metrics);
+                            this.publish_battery_run_page();
+                        }
                         if let Some(network) = network {
                             this.publish_network(network, aps_network::EntryQuery::default());
                         }
                         this.notice = None;
-                        this.selected_frame_id = None;
-                        this.frame_hovered_id = None;
-                        this.frame_select_last_on_publish = false;
-                        this.frame_deadline_filter = None;
-                        this.frame_window_filter = None;
-                        this.frame_timeline_start = 0;
-                        this.frame_timeline_count = 100;
-                        this.startup_mode_filter = None;
-                        this.startup_page_offset = 0;
-                        this.selected_startup_run_id = None;
-                        this.publish_startup_selection();
+                        if this.kind == Destination::Frame {
+                            this.selected_frame_id = None;
+                            this.frame_hovered_id = None;
+                            this.frame_select_last_on_publish = false;
+                            this.frame_deadline_filter = None;
+                            this.frame_window_filter = None;
+                            this.frame_timeline_start = 0;
+                            this.frame_timeline_count = 100;
+                        }
+                        if this.kind == Destination::Startup {
+                            this.startup_mode_filter = None;
+                            this.startup_page_offset = 0;
+                            this.selected_startup_run_id = None;
+                            this.publish_startup_selection();
+                        }
                         // Include initial presentation materialization, not
                         // just background file decoding, in the wall time.
                         this.import_duration = Some(started.elapsed());
@@ -729,13 +733,14 @@ impl ImportWorkspace {
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_network_live(cx);
-        self.startup_capture.clear_published();
-        self.invalidate_battery_capture();
-        if self.memory_capture.in_progress {
-            self.cancel_work(cx);
+        self.revoke_route_work(cx);
+        if self.kind == Destination::Startup {
+            self.startup_capture.clear_published();
         }
         if self.kind == Destination::Memory {
+            if self.memory_capture.in_progress {
+                self.cancel_work(cx);
+            }
             if self.close_advanced_memory(cx) {
                 return;
             }
@@ -753,45 +758,53 @@ impl ImportWorkspace {
         self.import_duration = None;
         self.busy = false;
         self.error = None;
-        self.memory_state = MemoryState::new();
-        self.memory_snapshots.clear();
-        self.memory_advanced = Default::default();
-        self.memory_snapshot_id = None;
-        self.selected_network = None;
-        self.network.reset();
-        self.battery_ui.reset();
-        self.battery_workspace_ui = Default::default();
-        self.battery_metrics = None;
-        self.battery_shell_ui.warnings_offset = 0;
-        self.trace_detail_tab = TraceDetailTab::Result;
-        self.selected_trace_row = None;
+        match self.kind {
+            Destination::Memory => {
+                self.memory_state = MemoryState::new();
+                self.memory_snapshots.clear();
+                self.memory_advanced = Default::default();
+                self.memory_snapshot_id = None;
+            }
+            Destination::Network => {
+                self.selected_network = None;
+                self.network.reset();
+            }
+            Destination::Battery => self.battery_mut().reset_report_view(None),
+            Destination::Trace => {
+                self.trace_detail_tab = TraceDetailTab::Result;
+                self.selected_trace_row = None;
+            }
+            _ => {}
+        }
         self.session_id = None;
         self.export_generation += 1;
         self.export_busy = false;
         self.notice = None;
-        self.selected_frame_id = None;
-        self.frame_hovered_id = None;
-        self.frame_select_last_on_publish = false;
-        self.frame_deadline_filter = None;
-        self.frame_window_filter = None;
-        self.frame_timeline_start = 0;
-        self.frame_timeline_count = 100;
-        self.startup_mode_filter = None;
-        self.startup_page_offset = 0;
-        self.selected_startup_run_id = None;
+        if self.kind == Destination::Frame {
+            self.selected_frame_id = None;
+            self.frame_hovered_id = None;
+            self.frame_select_last_on_publish = false;
+            self.frame_deadline_filter = None;
+            self.frame_window_filter = None;
+            self.frame_timeline_start = 0;
+            self.frame_timeline_count = 100;
+        }
+        if self.kind == Destination::Startup {
+            self.startup_mode_filter = None;
+            self.startup_page_offset = 0;
+            self.selected_startup_run_id = None;
+        }
         cx.notify();
     }
 
     fn cancel_work(&mut self, cx: &mut Context<Self>) {
         self.import_started = None;
-        self.invalidate_network_live(cx);
-        self.startup_capture.cancel_pending();
-        self.invalidate_battery_capture();
+        self.revoke_route_work(cx);
         self.cancel.cancel();
         self.generation += 1;
         self.busy = false;
-        self.memory_capture.in_progress = false;
         if self.kind == Destination::Memory {
+            self.memory_capture.in_progress = false;
             self.cancel = CancellationToken::new();
             self.memory_state.load_generation += 1;
             self.memory_state.loading = false;
@@ -808,7 +821,9 @@ impl ImportWorkspace {
             self.frame_timeline_start = query.offset;
             self.frame_timeline_count = query.limit;
         }
-        self.network.query = self.network.published_query.clone();
+        if self.kind == Destination::Network {
+            self.network.query = self.network.published_query.clone();
+        }
         self.error = None;
         self.notice = Some(TextKey::ImportOperationCancelledPreviousPublishedPageRetained.into());
         cx.notify();

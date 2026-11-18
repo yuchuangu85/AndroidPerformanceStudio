@@ -7,7 +7,7 @@ pub mod native;
 pub mod parser;
 pub mod query;
 mod references;
-pub mod wire;
+pub use aps_primitives::wire;
 
 pub use query::Engine;
 use std::collections::BTreeMap;

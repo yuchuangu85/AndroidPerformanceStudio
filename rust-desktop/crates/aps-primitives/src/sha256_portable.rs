@@ -1,14 +1,14 @@
 // The existing std-only SHA-256 implementation remains the non-macOS backend
 // and an independent oracle for native-backend tests.
 #[derive(Clone)]
-pub(crate) struct Sha256 {
+pub struct Sha256 {
     state: [u32; 8],
     buffer: [u8; 64],
     buffered: usize,
     length: u64,
 }
 impl Sha256 {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             state: [
                 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
@@ -19,7 +19,7 @@ impl Sha256 {
             length: 0,
         }
     }
-    pub(crate) fn update(&mut self, bytes: &[u8]) {
+    pub fn update(&mut self, bytes: &[u8]) {
         self.length = self
             .length
             .checked_add(bytes.len() as u64)
@@ -45,7 +45,7 @@ impl Sha256 {
             self.buffered = bytes.len() - offset;
         }
     }
-    pub(crate) fn finish(mut self) -> [u8; 32] {
+    pub fn finish(mut self) -> [u8; 32] {
         let bit_length = self.length * 8;
         self.buffer[self.buffered] = 0x80;
         self.buffered += 1;

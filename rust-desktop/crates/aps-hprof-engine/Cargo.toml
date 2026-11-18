@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+aps-primitives = { path = "../aps-primitives" }
 
 [dev-dependencies]
 serde_json.workspace = true

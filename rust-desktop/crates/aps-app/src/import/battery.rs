@@ -5,31 +5,61 @@ mod capture;
 mod capture_export;
 mod model;
 pub(super) mod session_export;
-pub(super) mod workspace;
+mod workspace;
+use super::menus::ImportMenuCommand;
 use super::*;
+use crate::shell::menubar::MenuGroup;
 use gpui_kit::component::{
     WindowExt,
     input::{Input, InputEvent, InputState},
 };
 pub(super) use model::*;
 
+/// Exists only on the Battery route. Cancelling in-flight work preserves the
+/// published report; replacing/closing a report resets just its view, not history.
 #[derive(Default)]
-pub(super) struct BatteryShellUi {
+pub(super) struct BatteryState {
+    ui: BatteryUi,
+    workspace: workspace::BatteryWorkspaceUi,
+    shell: BatteryShellUi,
+    metrics: Option<ReportMetrics>,
+}
+
+impl BatteryState {
+    pub(super) fn reset_report_view(&mut self, metrics: Option<ReportMetrics>) {
+        self.metrics = metrics;
+        self.ui.reset();
+        self.workspace = Default::default();
+        self.shell.warnings_offset = 0;
+    }
+}
+
+impl ImportWorkspace {
+    fn battery(&self) -> &BatteryState {
+        self.battery.as_deref().expect("Battery route")
+    }
+    pub(super) fn battery_mut(&mut self) -> &mut BatteryState {
+        self.battery.as_deref_mut().expect("Battery route")
+    }
+}
+
+#[derive(Default)]
+struct BatteryShellUi {
     search: Option<Entity<InputState>>,
     subscription: Option<Subscription>,
     language: Option<Language>,
     query: String,
-    pub(super) warnings_offset: usize,
+    warnings_offset: usize,
     store: Option<aps_battery::BatterySessionStore>,
-    pub(super) sessions: Vec<aps_battery::StoredBatterySession>,
+    sessions: Vec<aps_battery::StoredBatterySession>,
     sessions_loaded: bool,
-    pub(super) sessions_loading: bool,
+    sessions_loading: bool,
     sessions_generation: u64,
     persisted_report: Option<Arc<BatteryReport>>,
     restored_artifact: Option<(Arc<BatteryReport>, Arc<aps_battery::BatteryCaptureArtifact>)>,
-    pub(super) current_saved_key: Option<String>,
-    pub(super) session_error: Option<String>,
-    pub(super) capture: capture::BatteryCaptureUi,
+    current_saved_key: Option<String>,
+    session_error: Option<String>,
+    capture: capture::BatteryCaptureUi,
     baseline: baseline::BatteryBaselineState,
 }
 
@@ -139,13 +169,86 @@ impl BatteryUi {
 }
 
 impl ImportWorkspace {
+    /// Battery follows Compose's BatteryProfilerMenu: Open…, Open Recent ▸,
+    /// Export ▸ and Tools > Reset Statistics. The reset remains unavailable;
+    /// capture bundles require matching owned or restored capture evidence.
+    pub(super) fn battery_menu_groups(&self) -> Vec<MenuGroup<ImportMenuCommand>> {
+        let ready = self.page_export_ready();
+        let file = Self::open_row(MenuGroup::new(TextKey::ShellMenuFile), !self.busy);
+        let file = file.submenu(TextKey::ShellMenuOpenRecent, true, |mut submenu| {
+            if self.battery().shell.sessions.is_empty() {
+                submenu = submenu.item_when(
+                    false,
+                    TextKey::ShellMenuNoRecent,
+                    ImportMenuCommand::Unavailable,
+                );
+            }
+            for saved in self.battery().shell.sessions.iter().take(20) {
+                let label = format!(
+                    "{} · {}",
+                    saved.package_name.as_deref().unwrap_or(&saved.session_id),
+                    saved.created_at.as_deref().unwrap_or(&saved.session_id)
+                );
+                submenu = submenu.item_when(
+                    !self.busy && !self.export_busy && !self.battery().shell.sessions_loading,
+                    label,
+                    ImportMenuCommand::BatteryOpenSaved(saved.key.clone()),
+                );
+            }
+            submenu.separator().item_when(
+                false,
+                TextKey::ShellMenuClearRecent,
+                ImportMenuCommand::Unavailable,
+            )
+        });
+        let file = file
+            .separator()
+            .submenu(TextKey::ShellMenuExport, true, |submenu| {
+                submenu
+                    .item_when(
+                        ready,
+                        TextKey::BatterySaveSessionJson,
+                        ImportMenuCommand::BatterySessionExport(
+                            session_export::BatterySessionFormat::Json,
+                        ),
+                    )
+                    .item_when(
+                        ready,
+                        TextKey::BatterySaveSessionCsv,
+                        ImportMenuCommand::BatterySessionExport(
+                            session_export::BatterySessionFormat::Csv,
+                        ),
+                    )
+                    .item_when(
+                        ready && self.battery_capture_artifact().is_some(),
+                        TextKey::BatteryCaptureBundle,
+                        ImportMenuCommand::BatteryCaptureBundle,
+                    )
+            });
+        let ready = !self.busy && !self.export_busy && !self.battery().shell.capture.in_progress;
+        let device = self.battery_device_serial().is_some();
+        let tools = MenuGroup::new(TextKey::ShellMenuTools)
+            .item_when(
+                ready && device,
+                TextKey::BatteryResetGlobal,
+                ImportMenuCommand::BatteryResetStatistics,
+            )
+            .item_when(
+                ready && device,
+                TextKey::BatteryHistorian,
+                ImportMenuCommand::BatteryHistorianInput,
+            );
+        vec![file, tools]
+    }
+
     fn battery_session_store(&mut self) -> Result<aps_battery::BatterySessionStore, String> {
-        if self.battery_shell_ui.store.is_none() {
-            self.battery_shell_ui.store =
+        if self.battery().shell.store.is_none() {
+            self.battery_mut().shell.store =
                 Some(aps_battery::BatterySessionStore::new(battery_store_root()?));
         }
         Ok(self
-            .battery_shell_ui
+            .battery()
+            .shell
             .store
             .as_ref()
             .expect("initialized store")
@@ -153,35 +256,35 @@ impl ImportWorkspace {
     }
 
     fn refresh_battery_sessions(&mut self, cx: &mut Context<Self>) {
-        if self.battery_shell_ui.sessions_loading {
+        if self.battery().shell.sessions_loading {
             return;
         }
-        self.battery_shell_ui.sessions_loaded = true;
+        self.battery_mut().shell.sessions_loaded = true;
         let store = match self.battery_session_store() {
             Ok(store) => store,
             Err(error) => {
-                self.battery_shell_ui.session_error = Some(error);
+                self.battery_mut().shell.session_error = Some(error);
                 return;
             }
         };
-        self.battery_shell_ui.sessions_loading = true;
-        self.battery_shell_ui.sessions_generation =
-            self.battery_shell_ui.sessions_generation.wrapping_add(1);
-        let revision = self.battery_shell_ui.sessions_generation;
+        self.battery_mut().shell.sessions_loading = true;
+        self.battery_mut().shell.sessions_generation =
+            self.battery().shell.sessions_generation.wrapping_add(1);
+        let revision = self.battery().shell.sessions_generation;
         let task = cx.background_executor().spawn(async move { store.list() });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if this.battery_shell_ui.sessions_generation != revision {
+                if this.battery().shell.sessions_generation != revision {
                     return;
                 }
-                this.battery_shell_ui.sessions_loading = false;
+                this.battery_mut().shell.sessions_loading = false;
                 match result {
                     Ok(sessions) => {
-                        this.battery_shell_ui.sessions = sessions;
-                        this.battery_shell_ui.session_error = None;
+                        this.battery_mut().shell.sessions = sessions;
+                        this.battery_mut().shell.session_error = None;
                     }
-                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                    Err(error) => this.battery_mut().shell.session_error = Some(error),
                 }
                 cx.notify();
             });
@@ -190,20 +293,22 @@ impl ImportWorkspace {
     }
 
     fn ensure_battery_session_saved(&mut self, report: Arc<BatteryReport>, cx: &mut Context<Self>) {
-        if self.battery_shell_ui.sessions_loading
+        if self.battery().shell.sessions_loading
             || self
-                .battery_shell_ui
+                .battery()
+                .shell
                 .persisted_report
                 .as_ref()
                 .is_some_and(|previous| Arc::ptr_eq(previous, &report))
         {
             return;
         }
-        self.battery_shell_ui.persisted_report = Some(report.clone());
-        self.battery_shell_ui.current_saved_key = None;
-        self.battery_shell_ui.restored_artifact = None;
+        self.battery_mut().shell.persisted_report = Some(report.clone());
+        self.battery_mut().shell.current_saved_key = None;
+        self.battery_mut().shell.restored_artifact = None;
         let artifact = self
-            .battery_shell_ui
+            .battery()
+            .shell
             .capture
             .artifact
             .as_ref()
@@ -212,14 +317,14 @@ impl ImportWorkspace {
         let store = match self.battery_session_store() {
             Ok(store) => store,
             Err(error) => {
-                self.battery_shell_ui.session_error = Some(error);
+                self.battery_mut().shell.session_error = Some(error);
                 return;
             }
         };
-        self.battery_shell_ui.sessions_loading = true;
-        self.battery_shell_ui.sessions_generation =
-            self.battery_shell_ui.sessions_generation.wrapping_add(1);
-        let revision = self.battery_shell_ui.sessions_generation;
+        self.battery_mut().shell.sessions_loading = true;
+        self.battery_mut().shell.sessions_generation =
+            self.battery().shell.sessions_generation.wrapping_add(1);
+        let revision = self.battery().shell.sessions_generation;
         let published = report.clone();
         let task = cx.background_executor().spawn(async move {
             let saved = store.save(&report, artifact.as_deref())?;
@@ -228,18 +333,18 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if this.battery_shell_ui.sessions_generation != revision { return; }
-                this.battery_shell_ui.sessions_loading = false;
+                if this.battery().shell.sessions_generation != revision { return; }
+                this.battery_mut().shell.sessions_loading = false;
                 match result {
                     Ok((saved, sessions)) => {
-                        this.battery_shell_ui.sessions = sessions;
-                        this.battery_shell_ui.sessions_loaded = true;
+                        this.battery_mut().shell.sessions = sessions;
+                        this.battery_mut().shell.sessions_loaded = true;
                         if matches!(&this.session, Some(Session::Battery(current)) if Arc::ptr_eq(current, &published)) {
-                            this.battery_shell_ui.current_saved_key = Some(saved.key);
+                            this.battery_mut().shell.current_saved_key = Some(saved.key);
                         }
-                        this.battery_shell_ui.session_error = None;
+                        this.battery_mut().shell.session_error = None;
                     }
-                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                    Err(error) => this.battery_mut().shell.session_error = Some(error),
                 }
                 cx.notify();
             });
@@ -247,11 +352,15 @@ impl ImportWorkspace {
     }
 
     pub(super) fn open_battery_saved_session(&mut self, key: String, cx: &mut Context<Self>) {
-        if self.busy || self.export_busy || self.battery_shell_ui.sessions_loading {
+        if self.battery.is_none()
+            || self.busy
+            || self.export_busy
+            || self.battery().shell.sessions_loading
+        {
             return;
         }
         let Ok(store) = self.battery_session_store() else {
-            self.battery_shell_ui.session_error =
+            self.battery_mut().shell.session_error =
                 Some("Battery session storage is unavailable".into());
             cx.notify();
             return;
@@ -286,20 +395,18 @@ impl ImportWorkspace {
                         this.session_id = Some(report.session_id.clone());
                         this.session = Some(Session::Battery(report.clone()));
                         this.page = Some(page);
-                        this.battery_metrics = Some(report_metrics(&report));
-                        this.battery_ui.reset();
-                        this.battery_workspace_ui = Default::default();
-                        this.battery_shell_ui.capture.artifact = None;
-                        this.battery_shell_ui.current_saved_key = Some(metadata.key);
-                        this.battery_shell_ui.persisted_report = Some(report.clone());
-                        this.battery_shell_ui.restored_artifact =
+                        this.battery_mut()
+                            .reset_report_view(Some(report_metrics(&report)));
+                        this.battery_mut().shell.capture.artifact = None;
+                        this.battery_mut().shell.current_saved_key = Some(metadata.key);
+                        this.battery_mut().shell.persisted_report = Some(report.clone());
+                        this.battery_mut().shell.restored_artifact =
                             artifact.map(|artifact| (report.clone(), artifact));
                         this.import_duration = None;
-                        this.battery_shell_ui.session_error = None;
-                        this.battery_shell_ui.warnings_offset = 0;
+                        this.battery_mut().shell.session_error = None;
                         this.publish_battery_run_page();
                     }
-                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                    Err(error) => this.battery_mut().shell.session_error = Some(error),
                 }
                 cx.notify();
             })
@@ -310,20 +417,24 @@ impl ImportWorkspace {
     }
 
     pub(super) fn remove_battery_saved_session(&mut self, key: String, cx: &mut Context<Self>) {
-        if self.busy || self.export_busy || self.battery_shell_ui.sessions_loading {
+        if self.battery.is_none()
+            || self.busy
+            || self.export_busy
+            || self.battery().shell.sessions_loading
+        {
             return;
         }
         let store = match self.battery_session_store() {
             Ok(store) => store,
             Err(error) => {
-                self.battery_shell_ui.session_error = Some(error);
+                self.battery_mut().shell.session_error = Some(error);
                 return;
             }
         };
-        self.battery_shell_ui.sessions_loading = true;
-        self.battery_shell_ui.sessions_generation =
-            self.battery_shell_ui.sessions_generation.wrapping_add(1);
-        let revision = self.battery_shell_ui.sessions_generation;
+        self.battery_mut().shell.sessions_loading = true;
+        self.battery_mut().shell.sessions_generation =
+            self.battery().shell.sessions_generation.wrapping_add(1);
+        let revision = self.battery().shell.sessions_generation;
         let task_key = key.clone();
         let task = cx.background_executor().spawn(async move {
             store.remove(&task_key)?;
@@ -332,20 +443,19 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if this.battery_shell_ui.sessions_generation != revision {
+                if this.battery().shell.sessions_generation != revision {
                     return;
                 }
-                this.battery_shell_ui.sessions_loading = false;
+                this.battery_mut().shell.sessions_loading = false;
                 match result {
                     Ok(sessions) => {
-                        this.battery_shell_ui.sessions = sessions;
-                        this.battery_shell_ui.session_error = None;
-                        if this.battery_shell_ui.current_saved_key.as_deref() == Some(key.as_str())
-                        {
+                        this.battery_mut().shell.sessions = sessions;
+                        this.battery_mut().shell.session_error = None;
+                        if this.battery().shell.current_saved_key.as_deref() == Some(key.as_str()) {
                             this.close(cx);
                         }
                     }
-                    Err(error) => this.battery_shell_ui.session_error = Some(error),
+                    Err(error) => this.battery_mut().shell.session_error = Some(error),
                 }
                 cx.notify();
             });
@@ -359,28 +469,29 @@ impl ImportWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if self.battery_shell_ui.search.is_none() {
+        if self.battery().shell.search.is_none() {
             let language = self.language;
             let search = cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder(language.text(TextKey::BatterySessionSearch))
                     .validate(|value, _| value.len() <= QUERY_LIMIT)
             });
-            self.battery_shell_ui.subscription =
+            self.battery_mut().shell.subscription =
                 Some(cx.subscribe(&search, |this, search, event, cx| {
                     if matches!(event, InputEvent::Change) {
-                        this.battery_shell_ui.query = search.read(cx).value().to_string();
+                        this.battery_mut().shell.query = search.read(cx).value().to_string();
                         cx.notify();
                     }
                 }));
-            self.battery_shell_ui.search = Some(search);
+            self.battery_mut().shell.search = Some(search);
         }
         let search = self
-            .battery_shell_ui
+            .battery()
+            .shell
             .search
             .clone()
             .expect("battery session search initialized");
-        if self.battery_shell_ui.language != Some(self.language) {
+        if self.battery().shell.language != Some(self.language) {
             search.update(cx, |input, cx| {
                 input.set_placeholder(
                     self.language.text(TextKey::BatterySessionSearch),
@@ -388,7 +499,7 @@ impl ImportWorkspace {
                     cx,
                 )
             });
-            self.battery_shell_ui.language = Some(self.language);
+            self.battery_mut().shell.language = Some(self.language);
         }
         search
     }
@@ -424,15 +535,15 @@ impl ImportWorkspace {
             Some(Session::Battery(report)) => Some(report.clone()),
             _ => None,
         };
-        if !self.battery_shell_ui.sessions_loaded {
+        if !self.battery().shell.sessions_loaded {
             self.refresh_battery_sessions(cx);
         }
         if let Some(report) = report.as_ref() {
             self.ensure_battery_session_saved(report.clone(), cx);
         } else {
-            self.battery_shell_ui.current_saved_key = None;
-            self.battery_shell_ui.persisted_report = None;
-            self.battery_shell_ui.restored_artifact = None;
+            self.battery_mut().shell.current_saved_key = None;
+            self.battery_mut().shell.persisted_report = None;
+            self.battery_mut().shell.restored_artifact = None;
         }
         let sessions = self.battery_sessions(search, &colors, cx);
         let mut content = studio::page(&colors)
@@ -441,7 +552,7 @@ impl ImportWorkspace {
             .flex_shrink_0()
             .line_height(px(18.));
         if let Some(report) = report {
-            if let Some(metrics) = &self.battery_metrics {
+            if let Some(metrics) = &self.battery().metrics {
                 content = content.child(self.battery_metrics_grid(metrics, content_width, &colors));
             }
             let unknown = self.language.text(TextKey::BatteryUnknown);
@@ -531,7 +642,7 @@ impl ImportWorkspace {
                 .child(provenance)
                 .child(self.battery_baseline_comparison(&colors))
                 .child(self.battery_run_table(&report, &colors, cx));
-            if let Some(run) = self.battery_ui.selected(&report) {
+            if let Some(run) = self.battery().ui.selected(&report) {
                 content =
                     content.child(self.render_battery_workspace(run, content_width, window, cx));
             }
@@ -630,12 +741,12 @@ impl ImportWorkspace {
                 .tooltip(self.battery_capture_tooltip())
                 .on_click(cx.listener(|this, _, window, cx| this.capture_battery(window, cx))),
             )
-            .when(self.battery_shell_ui.capture.in_progress, |toolbar| {
+            .when(self.battery().shell.capture.in_progress, |toolbar| {
                 toolbar.child(
                     studio::compact_text_button(
                         "battery-stop-analyze",
                         language.text(TextKey::BatteryStopAnalyze),
-                        !self.battery_shell_ui.capture.stopping(),
+                        !self.battery().shell.capture.stopping(),
                         false,
                         colors,
                     )
@@ -707,7 +818,7 @@ impl ImportWorkspace {
                     self.battery_device_serial().is_some()
                         && !self.busy
                         && !self.export_busy
-                        && !self.battery_shell_ui.capture.in_progress,
+                        && !self.battery().shell.capture.in_progress,
                     false,
                     colors,
                 )
@@ -726,7 +837,6 @@ impl ImportWorkspace {
                         colors,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.invalidate_battery_capture();
                         this.cancel_work(cx);
                     })),
                 )
@@ -767,7 +877,7 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
-        let stored = &self.battery_shell_ui.sessions;
+        let stored = &self.battery().shell.sessions;
         let mut pane = studio::card(colors)
             .size_full()
             .min_h_0()
@@ -811,15 +921,15 @@ impl ImportWorkspace {
                         studio::compact_text_button(
                             "battery-refresh-sessions",
                             language.text(TextKey::BatteryRefresh),
-                            !self.busy && !self.battery_shell_ui.sessions_loading,
+                            !self.busy && !self.battery().shell.sessions_loading,
                             false,
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            if this.battery_shell_ui.session_error.is_some()
-                                && this.battery_shell_ui.restored_artifact.is_none()
+                            if this.battery().shell.session_error.is_some()
+                                && this.battery().shell.restored_artifact.is_none()
                             {
-                                this.battery_shell_ui.persisted_report = None;
+                                this.battery_mut().shell.persisted_report = None;
                             }
                             this.refresh_battery_sessions(cx)
                         })),
@@ -836,12 +946,12 @@ impl ImportWorkspace {
         let mut rendered = 0usize;
         let visible = stored
             .iter()
-            .filter(|session| session.matches(&self.battery_shell_ui.query))
+            .filter(|session| session.matches(&self.battery().shell.query))
             .collect::<Vec<_>>();
         for (session_index, session) in visible.into_iter().enumerate() {
             rendered += 1;
             let selected =
-                self.battery_shell_ui.current_saved_key.as_deref() == Some(session.key.as_str());
+                self.battery().shell.current_saved_key.as_deref() == Some(session.key.as_str());
             let key = session.key.clone();
             let remove_key = key.clone();
             let package = session
@@ -895,7 +1005,7 @@ impl ImportWorkspace {
                         .h(px(24.))
                         .icon(gpui_kit::component::IconName::Close)
                         .disabled(
-                            self.busy || self.export_busy || self.battery_shell_ui.sessions_loading,
+                            self.busy || self.export_busy || self.battery().shell.sessions_loading,
                         )
                         .accessibility_label(language.text(TextKey::BatteryRemoveSession))
                         .tooltip(language.text(TextKey::BatteryRemoveSession))
@@ -907,7 +1017,7 @@ impl ImportWorkspace {
         }
         if rendered == 0 {
             entries = entries.child(note(
-                language.text(if self.battery_shell_ui.sessions_loading {
+                language.text(if self.battery().shell.sessions_loading {
                     TextKey::BatteryStatusLoading
                 } else if !stored.is_empty() {
                     TextKey::BatteryNoSessionMatches
@@ -917,7 +1027,7 @@ impl ImportWorkspace {
                 colors,
             ));
         }
-        if let Some(error) = &self.battery_shell_ui.session_error {
+        if let Some(error) = &self.battery().shell.session_error {
             pane = pane.child(note(error.clone(), colors));
         }
         pane = pane.child(entries);
@@ -1040,9 +1150,13 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let language = self.language;
         let offset = self.page.as_ref().map_or(0, |page| page.offset);
-        self.battery_ui.run_offset = offset;
+        self.battery_mut().ui.run_offset = offset;
         let page = run_page(report, offset, EVIDENCE_PAGE_LIMIT).expect("battery run page bounds");
-        let selected = self.battery_ui.selected(report).map(|run| run.id.as_str());
+        let selected = self
+            .battery()
+            .ui
+            .selected(report)
+            .map(|run| run.id.as_str());
         let mut rows = div()
             .flex()
             .flex_col()
@@ -1109,7 +1223,7 @@ impl ImportWorkspace {
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.busy {
-                            this.battery_ui.select_run(id.clone());
+                            this.battery_mut().ui.select_run(id.clone());
                             cx.notify();
                         }
                     })),
@@ -1144,7 +1258,7 @@ impl ImportWorkspace {
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.page(this.battery_ui.run_offset.saturating_sub(PAGE), cx)
+                            this.page(this.battery().ui.run_offset.saturating_sub(PAGE), cx)
                         })),
                     )
                     .child(note(
@@ -1167,7 +1281,7 @@ impl ImportWorkspace {
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.page(this.battery_ui.run_offset.saturating_add(PAGE), cx)
+                            this.page(this.battery().ui.run_offset.saturating_add(PAGE), cx)
                         })),
                     ),
             )
@@ -1176,9 +1290,11 @@ impl ImportWorkspace {
     }
 
     pub(super) fn publish_battery_run_page(&mut self) {
-        if let Some(Session::Battery(report)) = &self.session {
-            self.battery_shell_ui.baseline.publish(report.clone());
-            self.battery_ui
+        if let (Some(Session::Battery(report)), Some(battery)) = (&self.session, &mut self.battery)
+        {
+            battery.shell.baseline.publish(report.clone());
+            battery
+                .ui
                 .publish_run_page(report, self.page.as_ref().map_or(0, |page| page.offset));
         }
     }
@@ -1191,12 +1307,13 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let language = self.language;
         let offset = self
-            .battery_shell_ui
+            .battery()
+            .shell
             .warnings_offset
             .min(report.warnings.len().saturating_sub(1))
             / PAGE
             * PAGE;
-        self.battery_shell_ui.warnings_offset = offset;
+        self.battery_mut().shell.warnings_offset = offset;
         let end = offset.saturating_add(PAGE).min(report.warnings.len());
         let mut panel = studio::card(colors)
             .child(studio::section_title(
@@ -1230,8 +1347,8 @@ impl ImportWorkspace {
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.battery_shell_ui.warnings_offset =
-                                this.battery_shell_ui.warnings_offset.saturating_sub(PAGE);
+                            this.battery_mut().shell.warnings_offset =
+                                this.battery().shell.warnings_offset.saturating_sub(PAGE);
                             cx.notify();
                         })),
                     )
@@ -1255,8 +1372,8 @@ impl ImportWorkspace {
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.battery_shell_ui.warnings_offset =
-                                this.battery_shell_ui.warnings_offset.saturating_add(PAGE);
+                            this.battery_mut().shell.warnings_offset =
+                                this.battery().shell.warnings_offset.saturating_add(PAGE);
                             cx.notify();
                         })),
                     ),

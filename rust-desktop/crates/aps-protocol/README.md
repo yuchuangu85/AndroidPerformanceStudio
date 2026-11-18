@@ -1,9 +1,9 @@
 # aps-protocol
 
-使用 `aps-protocol/src/wire.rs` 内置的类型化值编解码器，
+使用 `aps-primitives` 提供的共享类型化值编解码器，
 提供有界的工作进程传输信封。它不引入 HPROF 分发逻辑，不把旧引擎请求重新解释为新协议，
 也不声称兼容旧的 `version/id/op` 信封。
-`aps-contracts` 当前存在传递性的 HPROF 依赖，唯一目的是复用摘要实现。
+编解码器和来源摘要都不依赖 HPROF 引擎。
 
 ## 结构定义
 

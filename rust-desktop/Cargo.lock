@@ -282,7 +282,7 @@ dependencies = [
 name = "aps-contracts"
 version = "0.1.0"
 dependencies = [
- "aps-hprof-engine",
+ "aps-primitives",
 ]
 
 [[package]]
@@ -317,6 +317,7 @@ version = "0.1.0"
 name = "aps-hprof-engine"
 version = "0.1.0"
 dependencies = [
+ "aps-primitives",
  "serde_json",
 ]
 
@@ -379,15 +380,23 @@ name = "aps-platform"
 version = "0.1.0"
 
 [[package]]
+name = "aps-primitives"
+version = "0.1.0"
+
+[[package]]
 name = "aps-protocol"
 version = "0.1.0"
 dependencies = [
  "aps-contracts",
+ "aps-primitives",
 ]
 
 [[package]]
 name = "aps-simpleperf-engine"
 version = "0.1.0"
+dependencies = [
+ "aps-primitives",
+]
 
 [[package]]
 name = "aps-source"
