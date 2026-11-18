@@ -287,6 +287,11 @@ impl fmt::Display for RuntimeError {
 }
 impl std::error::Error for RuntimeError {}
 
+struct ImportedSecret {
+    endpoint: String,
+    secret: Arc<AiSecret>,
+}
+
 /// The single facade used by the AI window and settings page.
 pub struct AiRuntime {
     data_dir: PathBuf,
@@ -297,7 +302,7 @@ pub struct AiRuntime {
     /// Secrets imported from local configuration and held until Save. `Arc`
     /// shares the one secret value with model discovery without making it cloneable.
     pending_imports:
-        Mutex<std::collections::BTreeMap<(ProviderKind, CredentialKind), Arc<AiSecret>>>,
+        Mutex<std::collections::BTreeMap<(ProviderKind, CredentialKind), ImportedSecret>>,
     client: Mutex<Option<Arc<dyn http_client::HttpClient>>>,
     prepared: Mutex<Option<PreparedSlot>>,
     next_token: std::sync::atomic::AtomicU64,
@@ -528,7 +533,13 @@ impl AiRuntime {
                 Some(secret) => {
                     pending.insert(
                         (kind, imported.credential_kind),
-                        std::sync::Arc::new(secret),
+                        ImportedSecret {
+                            endpoint: imported
+                                .endpoint
+                                .clone()
+                                .ok_or(ImportFailure::UnsupportedConfig)?,
+                            secret: Arc::new(secret),
+                        },
                     );
                     true
                 }
@@ -561,6 +572,9 @@ impl AiRuntime {
             model.trim().to_owned(),
         );
         let mut preferences = self.preferences();
+        let saved = preferences.connection(kind);
+        let matches_saved =
+            saved.endpoint.trim() == endpoint && saved.credential_kind == credential_kind;
         {
             let connection = preferences.connection_mut(kind);
             connection.endpoint = endpoint.clone();
@@ -574,19 +588,36 @@ impl AiRuntime {
         preferences
             .validate()
             .map_err(|_| RuntimeError::Configuration)?;
-        if let Some(api_key) = api_key {
-            self.set_credential(kind, credential_kind, api_key)?;
-            if let Ok(mut pending) = self.pending_imports.lock() {
-                pending.remove(&(kind, credential_kind));
-            }
-        } else if let Ok(mut pending) = self.pending_imports.lock() {
-            if let Some(secret) = pending.remove(&(kind, credential_kind)) {
+        {
+            let mut pending = self
+                .pending_imports
+                .lock()
+                .map_err(|_| RuntimeError::Unavailable)?;
+            let imported = pending.get(&(kind, credential_kind));
+            if let Some(api_key) = api_key {
+                self.set_credential(kind, credential_kind, api_key)?;
+            } else if let Some(imported) = imported.filter(|i| i.endpoint == endpoint) {
                 self.secrets
                     .lock()
                     .map_err(|_| RuntimeError::Unavailable)?
-                    .set(kind, credential_kind, secret.as_ref())
+                    .set(kind, credential_kind, &imported.secret)
                     .map_err(|_| RuntimeError::Credential)?;
+            } else if !matches_saved {
+                // Metadata-only saves are permitted, but cannot rebind an existing
+                // credential to a different endpoint without an explicit replacement.
+                if imported.is_some()
+                    || self
+                        .secrets
+                        .lock()
+                        .map_err(|_| RuntimeError::Unavailable)?
+                        .read(kind, credential_kind)
+                        .map_err(|_| RuntimeError::Credential)?
+                        .is_some()
+                {
+                    return Err(RuntimeError::Credential);
+                }
             }
+            pending.retain(|(provider, _), _| *provider != kind);
         }
         let revision = preferences.connection(kind).revision.clone();
         self.settings
@@ -668,9 +699,8 @@ impl AiRuntime {
 
     /// Discover models for the settings page's unsaved connection draft. The
     /// draft owns the endpoint pair, credential kind and any typed key, so this
-    /// never reads or writes the saved connection or its catalog cache. A typed
-    /// key wins, then the stored credential for the same provider and kind, then
-    /// the secret held by the last local-configuration import.
+    /// never writes the saved connection or its catalog cache. A typed key wins,
+    /// then a matching pending import, then the matching saved connection.
     pub async fn load_draft_models(
         &self,
         kind: ProviderKind,
@@ -688,34 +718,34 @@ impl AiRuntime {
                 .map_err(|_| "E_AI_MODEL_CATALOG_INVALID_ENDPOINT".to_owned())?;
         }
         // Resolve the credential before any await so no lock is held across I/O.
-        let typed = match api_key.map(str::trim).filter(|value| !value.is_empty()) {
-            Some(value) => {
-                Some(AiSecret::new(value).map_err(|_| "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned())?)
+        let credential_error = || "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned();
+        let credential = if let Some(key) = api_key.map(str::trim).filter(|key| !key.is_empty()) {
+            Arc::new(AiSecret::new(key).map_err(|_| credential_error())?)
+        } else {
+            let pending = self
+                .pending_imports
+                .lock()
+                .map_err(|_| credential_error())?
+                .get(&(kind, credential_kind))
+                .filter(|i| i.endpoint == endpoint)
+                .map(|i| i.secret.clone());
+            if let Some(imported) = pending {
+                imported
+            } else {
+                let preferences = self.preferences();
+                let saved = preferences.connection(kind);
+                if saved.endpoint.trim() != endpoint || saved.credential_kind != credential_kind {
+                    return Err(credential_error());
+                }
+                Arc::new(
+                    self.secrets
+                        .lock()
+                        .map_err(|_| credential_error())?
+                        .read(kind, credential_kind)
+                        .map_err(|_| credential_error())?
+                        .ok_or_else(credential_error)?,
+                )
             }
-            None => None,
-        };
-        let stored = if typed.is_some() {
-            None
-        } else {
-            self.secrets
-                .lock()
-                .map_err(|_| "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned())?
-                .read(kind, credential_kind)
-                .map_err(|_| "E_AI_MODEL_CATALOG_CREDENTIAL".to_owned())?
-        };
-        let pending = if typed.is_none() && stored.is_none() {
-            self.pending_imports
-                .lock()
-                .ok()
-                .and_then(|pending| pending.get(&(kind, credential_kind)).cloned())
-        } else {
-            None
-        };
-        let credential = match (&typed, &stored, &pending) {
-            (Some(typed), _, _) => typed,
-            (_, Some(stored), _) => stored,
-            (_, _, Some(pending)) => pending.as_ref(),
-            _ => return Err("E_AI_MODEL_CATALOG_CREDENTIAL".to_owned()),
         };
         let client = self
             .client
@@ -729,7 +759,7 @@ impl AiRuntime {
             endpoint,
             (!models_endpoint.is_empty()).then_some(models_endpoint),
             credential_kind,
-            credential,
+            &credential,
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -1890,8 +1920,71 @@ mod tests {
     }
 
     #[test]
+    fn draft_catalog_uses_typed_then_imported_then_saved_for_the_matching_endpoint() {
+        let (workspace, runtime) = workspace_runtime();
+        let kind = ProviderKind::Custom;
+        let bearer = CredentialKind::BearerToken;
+        let saved = "https://old.example/v1/responses";
+        let imported = "https://gateway.example/v1/responses";
+        runtime
+            .save_connection(
+                kind,
+                saved,
+                "",
+                "gpt-5",
+                bearer,
+                Some("sk-test-saved-key"),
+                None,
+            )
+            .unwrap();
+        runtime
+            .import_local_config_from(
+                kind,
+                &codex_home(&workspace, GATEWAY),
+                &std::collections::BTreeMap::new(),
+            )
+            .unwrap();
+
+        let client = CatalogClient::new(r#"{"data":[{"id":"test-model"}]}"#);
+        runtime.set_http_client(client.clone()).unwrap();
+        let load = |url, key| {
+            futures::executor::block_on(runtime.load_draft_models(kind, url, "", bearer, key))
+        };
+        assert!(load(imported, None).is_ok());
+        assert!(client.requests.lock().unwrap()[0].ends_with("Bearer sk-test-1234567890"));
+        assert!(load(imported, Some("sk-test-typed-key")).is_ok());
+        assert!(client.requests.lock().unwrap()[1].ends_with("Bearer sk-test-typed-key"));
+        assert!(load(saved, None).is_ok());
+        assert!(client.requests.lock().unwrap()[2].ends_with("Bearer sk-test-saved-key"));
+        let edited = "https://other.example/v1/responses";
+        assert_eq!(
+            load(edited, None).unwrap_err(),
+            "E_AI_MODEL_CATALOG_CREDENTIAL"
+        );
+        assert_eq!(client.requests.lock().unwrap().len(), 3);
+        assert!(
+            runtime
+                .save_connection(kind, edited, "", "gpt-5", bearer, None, None)
+                .is_err()
+        );
+        assert!(load(imported, None).is_ok()); // Failed Save did not consume the import.
+        assert!(client.requests.lock().unwrap()[3].ends_with("Bearer sk-test-1234567890"));
+    }
+
+    #[test]
     fn imported_secret_discovers_models_for_the_unsaved_draft() {
         let (workspace, runtime) = workspace_runtime();
+        runtime
+            .save_connection(
+                ProviderKind::Custom,
+                "https://gateway.example/v1/responses",
+                "",
+                "gpt-5",
+                CredentialKind::BearerToken,
+                Some("sk-test-old-key"),
+                None,
+            )
+            .unwrap();
         let home = codex_home(&workspace, GATEWAY);
         assert!(
             runtime

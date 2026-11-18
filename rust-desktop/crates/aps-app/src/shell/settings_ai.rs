@@ -65,7 +65,7 @@ struct ProviderDraft {
     import: Option<ImportStatus>,
     /// A secret imported from local configuration is held by the runtime until
     /// Save consumes it; the page never sees the value itself.
-    imported_secret: bool,
+    imported_credential: Option<(String, CredentialKind)>,
     generation: u64,
 }
 
@@ -159,7 +159,13 @@ impl AiSettingsUi {
             working: draft.working,
             save_error: draft.save_error.clone(),
             import: draft.import,
-            imported_secret: draft.imported_secret,
+            imported_secret: draft
+                .imported_credential
+                .as_ref()
+                .is_some_and(|(endpoint, kind)| {
+                    endpoint == draft.endpoint.read(cx).value().trim()
+                        && *kind == draft.credential_kind
+                }),
             api_key: draft.api_key.clone(),
             model: draft.model.clone(),
             endpoint: draft.endpoint.clone(),
@@ -202,7 +208,7 @@ impl ProviderDraft {
             working: false,
             save_error: None,
             import: None,
-            imported_secret: false,
+            imported_credential: None,
             generation: 0,
         };
         // Text edits change action enablement and stale-catalog detection.
@@ -1418,7 +1424,11 @@ impl Studio {
                     draft.models_error = None;
                     draft.models_endpoints = None;
                     draft.credential_kind = imported.credential_kind;
-                    draft.imported_secret = imported.has_secret;
+                    draft.imported_credential = imported
+                        .endpoint
+                        .as_ref()
+                        .filter(|_| imported.has_secret)
+                        .map(|endpoint| (endpoint.clone(), imported.credential_kind));
                     draft.import = Some(ImportStatus::Imported {
                         has_secret: imported.has_secret,
                     });
@@ -1658,7 +1668,7 @@ impl Studio {
             match result {
                 Ok(()) => {
                     draft.import = None;
-                    draft.imported_secret = false;
+                    draft.imported_credential = None;
                     draft.save_error = None;
                     Some(draft.api_key.clone())
                 }
