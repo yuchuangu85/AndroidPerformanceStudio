@@ -20,6 +20,9 @@ pub const MAX_RECORDING_BYTES: u64 = 64 * 1024 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30);
+const STOP_GRACE: Duration = Duration::from_secs(5);
+const STOP_RETRY_DELAY: Duration = Duration::from_millis(250);
+const STOP_PROBE_RETRIES: usize = 4;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
 static NEXT_RECORDING: AtomicU64 = AtomicU64::new(0);
 
@@ -202,7 +205,7 @@ fn record_with(
     validate_target().map_err(identity_failure)?;
     let config = format!(
         "duration_ms: {}\nwrite_into_file: true\nmax_file_size_bytes: {MAX_RECORDING_BYTES}\n{}\n",
-        request.duration.as_millis(),
+        request.duration.saturating_add(STOP_GRACE).as_millis(),
         request.config_body
     );
     let mut local = allocate_local(request.output_root)?;
@@ -467,22 +470,35 @@ fn confirm_stopped(
     start_acknowledged: bool,
     cancel: &CancellationToken,
 ) -> bool {
-    let stop = shell(
-        io,
-        request,
-        &["perfetto", &format!("--attach={key}"), "--stop"],
-        STOP_TIMEOUT,
-        cancel,
-    );
-    let stop_completed = stop.as_ref().ok().and_then(|output| output.status.code());
-    // An unacknowledged start can still detach later. Also, after a timed-out
-    // attach, is_detached=2 can mean an attached consumer is still flushing.
-    // Only an acknowledged completed stop, or a known completed start followed
-    // by explicit attach-not-found, can qualify the subsequent absent result.
-    let absent = matches!(
-        detached_state(io, request, key, cancel),
-        Ok(DetachedState::Absent)
-    );
+    let stop_args = ["perfetto", &format!("--attach={key}"), "--stop"];
+    let first_stop = shell(io, request, &stop_args, STOP_TIMEOUT, cancel);
+    let stop_completed = match first_stop {
+        Ok(output) => output.status.code(),
+        Err(_) => {
+            // Retry only this exact detached key. A transport timeout is not
+            // treated as success, but the bounded retry handles a shell/flush
+            // race without widening cleanup to a global stop.
+            thread::sleep(STOP_RETRY_DELAY);
+            shell(io, request, &stop_args, STOP_TIMEOUT, cancel)
+                .ok()
+                .and_then(|output| output.status.code())
+        }
+    };
+    // Perfetto may need a short flush interval before --is_detached reports 2.
+    // Probe errors remain unknown and never qualify as stopped.
+    let mut absent = false;
+    for attempt in 0..=STOP_PROBE_RETRIES {
+        match detached_state(io, request, key, cancel) {
+            Ok(DetachedState::Absent) => {
+                absent = true;
+                break;
+            }
+            Ok(DetachedState::Present) if attempt < STOP_PROBE_RETRIES => {
+                thread::sleep(STOP_RETRY_DELAY);
+            }
+            Ok(DetachedState::Present) | Err(_) => break,
+        }
+    }
     (stop_completed == Some(0) || start_acknowledged && stop_completed == Some(2)) && absent
 }
 
@@ -1132,7 +1148,7 @@ mod tests {
         let result = record(&io, &root, &CancellationToken::new()).unwrap();
         let paths = result.paths.clone();
         let config = fs::read_to_string(&paths.local_config).unwrap();
-        assert!(config.contains("duration_ms: 1\n"));
+        assert!(config.contains("duration_ms: 5001\n"));
         assert!(config.contains("write_into_file: true\n"));
         assert!(config.contains("max_file_size_bytes: 67108864\n"));
         assert_eq!(result.trace_bytes, 4);
