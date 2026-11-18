@@ -328,3 +328,58 @@ Window: Window B
 Flags,IntendedVsync,Vsync,FrameInterval,FrameCompleted,FutureStage
 0,200000000,200000000,16666667,210000000,7
 ---PROFILEDATA---";
+
+#[test]
+fn corrupted_gfxinfo_fences_do_not_become_durations_in_either_parser() {
+    // Reduced from a capture that displayed 4902086671279.75 ms. Keep a good
+    // slow frame and a row with a bad completion but usable present fence.
+    let rows = "\
+---PROFILEDATA---
+Flags,IntendedVsync,FrameInterval,SwapBuffers,FrameCompleted,GpuCompleted,DisplayPresentTime
+0,143095768522374,13600000,143095799543552,0,0,4902229767048270160
+0,143095415515627,13600000,143095421837824,50314768791126339,50325357602839792,143095431515627
+0,143096000000000,13600000,143096001000000,143099000000000,143099000000000,0
+---PROFILEDATA---";
+    for header in ["Uptime: 143275938 Realtime: 532849740\n", ""] {
+        let raw = format!("{header}{rows}");
+        let parsed = parse(&raw, "session");
+        let frames = &parsed.frames;
+        assert_eq!(frames.len(), 3);
+        assert_eq!(frames[0].resolved_duration_ns(), None);
+        assert_eq!(frames[0].present_ns, None);
+        assert_eq!(frames[1].resolved_duration_ns(), Some(16_000_000));
+        assert_eq!(frames[1].stages.swap_buffers_ns, None);
+        assert_eq!(frames[1].stages.gpu_ns, None);
+        assert_eq!(frames[2].resolved_duration_ns(), Some(3_000_000_000));
+        let analysis = aps_frame::FrameJankAnalyzer::new().analyze(frames);
+        assert_eq!(analysis.summary.worst_duration_ns, Some(3_000_000_000));
+        let legacy = aps_frame::FrameSession::parse_gfxinfo(&raw).unwrap();
+        let by_id = |id| legacy.frames().iter().find(|frame| frame.id == id).unwrap();
+        assert_eq!(by_id(0).duration_ns, None);
+        assert_eq!(by_id(1).duration_ns, Some(16_000_000));
+        assert_eq!(by_id(1).stages.gpu_ns, None);
+        assert_eq!(legacy.summary().worst_duration_ns, Some(3_000_000_000));
+    }
+}
+
+#[test]
+fn gfxinfo_fences_must_match_the_dump_clock_not_elapsed_realtime() {
+    // Uptime=100 s. The 270 s fence is within one day of vsync and before
+    // Realtime, but could not have completed by the time these rows were read.
+    let raw = "Uptime: 100000 Realtime: 300000\n---PROFILEDATA---
+Flags,IntendedVsync,FrameCompleted,DisplayPresentTime
+0,90000000000,270000000000,98000000000
+0,90000000000,89999999999,0
+0,90000000000,91000000000,9223372036854775807
+---PROFILEDATA---";
+    let frames = parse(raw, "clock").frames;
+    assert_eq!(frames[0].frame_completed_ns, None);
+    assert_eq!(frames[0].total_duration_ns, Some(8_000_000_000));
+    assert_eq!(frames[1].resolved_duration_ns(), None);
+    assert_eq!(frames[2].present_ns, None);
+    let legacy = aps_frame::FrameSession::parse_gfxinfo(raw).unwrap();
+    assert_eq!(legacy.frames()[0].duration_ns, Some(8_000_000_000));
+    assert_eq!(legacy.frames()[1].duration_ns, None);
+    assert_eq!(legacy.frames()[2].duration_ns, Some(1_000_000_000));
+    assert_eq!(legacy.frames()[2].present_ns, None);
+}

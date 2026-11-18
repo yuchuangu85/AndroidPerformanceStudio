@@ -684,7 +684,7 @@ fn parse_session(value: &Value) -> Option<FrameCaptureSession> {
 
 fn parse_sample(value: &Value) -> Option<FrameSample> {
     let object = value.as_object()?;
-    Some(FrameSample {
+    let mut sample = FrameSample {
         frame_id: object.get("frameId")?.as_u64()?,
         session_id: object.get("sessionId")?.as_str()?.to_owned(),
         source: parse_frame_source(object.get("source")?.as_str()?)?,
@@ -751,7 +751,9 @@ fn parse_sample(value: &Value) -> Option<FrameSample> {
             .collect(),
         jank_stats_rule_id: optional_string(object, "jankStatsRuleId", MAX_TEXT_BYTES),
         jank_stats_rule_version: optional_string(object, "jankStatsRuleVersion", MAX_TEXT_BYTES),
-    })
+    };
+    aps_frame::gfxinfo::sanitize_stored_timing(&mut sample);
+    Some(sample)
 }
 
 fn parse_stages(value: Option<&Value>) -> Option<FrameStages> {
@@ -965,6 +967,33 @@ mod tests {
             jank_stats_rule_id: Some("jankstats-default".into()),
             jank_stats_rule_version: Some("1.0.0".into()),
         }
+    }
+
+    #[test]
+    fn reading_an_old_gfxinfo_session_rejects_the_corrupt_present_and_cached_total() {
+        let directory = TestDirectory::new("bad-present");
+        let store = FrameSessionStore::new(directory.path().to_path_buf());
+        let session = session("session-1");
+        let mut bad = sample(92, &session.id);
+        bad.source = FrameSource::Gfxinfo;
+        bad.intended_vsync_ns = Some(143_095_768_522_374);
+        bad.frame_completed_ns = None;
+        bad.present_ns = Some(4_902_229_767_048_270_160);
+        bad.total_duration_ns = Some(4_902_086_671_279_747_786);
+        bad.stages.gpu_ns = Some(i64::MAX);
+        let mut other_source = bad.clone();
+        other_source.frame_id = 93;
+        other_source.source = FrameSource::FrameMetrics;
+        store.save(&session, &[bad, other_source.clone()]).unwrap();
+
+        let (_, frames) = store.load(&session.id).unwrap().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].frame_id, 92);
+        assert_eq!(frames[0].resolved_duration_ns(), None);
+        assert_eq!(frames[0].present_ns, None);
+        assert_eq!(frames[0].stages.gpu_ns, None);
+        assert_eq!(frames[0].stages.draw_ns, Some(8));
+        assert_eq!(frames[1], other_source);
     }
 
     #[test]

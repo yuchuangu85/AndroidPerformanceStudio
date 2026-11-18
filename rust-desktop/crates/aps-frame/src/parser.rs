@@ -1,3 +1,4 @@
+use crate::gfxinfo::{dump_fence_limit, fence_stage_duration, valid_fence};
 use crate::{
     AnalyzedFrame, BudgetSource, DeadlineVerdict, FrameStages, MAX_FRAMES, MAX_INPUT_BYTES,
 };
@@ -43,12 +44,15 @@ pub fn parse(text: &str) -> Result<(Vec<AnalyzedFrame>, Vec<String>), String> {
     let mut in_profile = false;
     let mut found_header = false;
     let mut malformed = 0usize;
+    let mut fence_limit = None;
     for raw in text.lines() {
         if raw.len() > 64 * 1024 {
             return Err("FrameStats line exceeds 64 KiB".into());
         }
         let line = raw.trim();
-        if let Some(name) = line.strip_prefix("Window:") {
+        if !in_profile && line.starts_with("Uptime:") {
+            fence_limit = dump_fence_limit(line);
+        } else if let Some(name) = line.strip_prefix("Window:") {
             window = Some(name.trim().to_owned()).filter(|value| !value.is_empty());
         } else if line == "---PROFILEDATA---" {
             in_profile = !in_profile;
@@ -87,7 +91,13 @@ pub fn parse(text: &str) -> Result<(Vec<AnalyzedFrame>, Vec<String>), String> {
                 malformed += 1;
                 continue;
             }
-            match parse_row(header, &values, frames.len() as u64, window.clone()) {
+            match parse_row(
+                header,
+                &values,
+                frames.len() as u64,
+                window.clone(),
+                fence_limit,
+            ) {
                 Some(frame) => frames.push(frame),
                 None => malformed += 1,
             }
@@ -136,6 +146,7 @@ fn parse_row(
     values: &[&str],
     id: u64,
     window: Option<String>,
+    fence_limit: Option<i64>,
 ) -> Option<AnalyzedFrame> {
     let columns: BTreeMap<_, _> = header
         .iter()
@@ -143,17 +154,19 @@ fn parse_row(
         .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
         .collect();
     let flags = columns.get("Flags")?.parse().ok()?;
-    let number = |key: &str| {
+    let timestamp = |key: &str| {
         columns
             .get(key)?
             .parse::<i64>()
             .ok()
             .filter(|value| *value > 0)
-            .map(|value| value as u64)
     };
-    let start = number("IntendedVsync");
-    let completed = number("FrameCompleted");
-    let present = number("DisplayPresentTime");
+    let number = |key| timestamp(key).map(|ns| ns as u64);
+    let vsync = timestamp("IntendedVsync");
+    let start = vsync.map(|ns| ns as u64);
+    let fence = |key| valid_fence(timestamp(key), vsync, fence_limit);
+    let completed = fence("FrameCompleted");
+    let present = fence("DisplayPresentTime");
     let deadline_budget = difference(number("FrameDeadline"), start).filter(|value| *value > 0);
     let (budget_ns, budget_source) = if let Some(budget) = deadline_budget {
         (Some(budget), BudgetSource::PlatformDeadline)
@@ -169,18 +182,20 @@ fn parse_row(
         draw_ns: difference(number("SyncQueued"), number("DrawStart")),
         sync_ns: difference(number("IssueDrawCommandsStart"), number("SyncStart")),
         command_issue_ns: difference(number("SwapBuffers"), number("IssueDrawCommandsStart")),
-        swap_buffers_ns: difference(completed, number("SwapBuffers")),
-        gpu_ns: difference(number("GpuCompleted"), number("SwapBuffers")),
+        swap_buffers_ns: fence_stage_duration(completed, timestamp("SwapBuffers"))
+            .map(|ns| ns as u64),
+        gpu_ns: fence_stage_duration(fence("GpuCompleted"), timestamp("SwapBuffers"))
+            .map(|ns| ns as u64),
     };
     Some(AnalyzedFrame {
         id,
         window,
         intended_vsync_ns: start,
         actual_vsync_ns: number("Vsync"),
-        completed_ns: completed,
-        present_ns: present,
+        completed_ns: completed.map(|ns| ns as u64),
+        present_ns: present.map(|ns| ns as u64),
         vsync_id: number("FrameTimelineVsyncId"),
-        duration_ns: difference(completed.or(present), start),
+        duration_ns: difference(completed.or(present).map(|ns| ns as u64), start),
         budget_ns,
         budget_source,
         flags,

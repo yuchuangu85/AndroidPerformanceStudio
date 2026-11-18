@@ -83,7 +83,7 @@ pub(in crate::frame) fn parse_export(
 
 fn parse_frame(value: &Value, session_id: &str) -> Option<FrameSample> {
     let object = value.as_object()?;
-    Some(FrameSample {
+    let mut sample = FrameSample {
         frame_id: object.get("frameId")?.as_u64()?,
         session_id: clipped(session_id, MAX_ID_BYTES),
         source: parse_frame_source(object.get("source")?.as_str()?)?,
@@ -152,7 +152,9 @@ fn parse_frame(value: &Value, session_id: &str) -> Option<FrameSample> {
             .collect(),
         jank_stats_rule_id: optional_string(object, "jankStatsRuleId", MAX_TEXT_BYTES),
         jank_stats_rule_version: optional_string(object, "jankStatsRuleVersion", MAX_TEXT_BYTES),
-    })
+    };
+    aps_frame::gfxinfo::sanitize_stored_timing(&mut sample);
+    Some(sample)
 }
 
 /// The exporter writes stages under their Compose display labels.
@@ -271,6 +273,19 @@ mod tests {
         let imported = analyzer.analyze(&samples);
         assert_eq!(samples.len(), 2);
         assert_eq!(imported, original);
+    }
+
+    #[test]
+    fn old_gfxinfo_report_uses_valid_present_instead_of_corrupt_cached_total() {
+        let raw = r#"{"schemaVersion":3,"frames":[{"frameId":54,"source":"GFXINFO",
+            "intendedVsyncNs":143095415515627,"frameCompletedNs":50314768791126339,
+            "presentNs":143095431515627,"totalDurationNs":50171673375610712,
+            "stagesNs":{"Swap":50171673369288515,"GPU":50182926181001988}}]}"#;
+        let frames = parse_export(raw, "reopened").unwrap();
+        assert_eq!(frames[0].resolved_duration_ns(), Some(16_000_000));
+        assert_eq!(frames[0].frame_completed_ns, None);
+        assert_eq!(frames[0].stages.swap_buffers_ns, None);
+        assert_eq!(frames[0].stages.gpu_ns, None);
     }
 
     #[test]

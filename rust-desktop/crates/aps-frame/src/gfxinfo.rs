@@ -14,6 +14,63 @@ const MIN_REFRESH_INTERVAL_NS: i64 = 4_000_000;
 const MAX_REFRESH_INTERVAL_NS: i64 = 50_000_000;
 const REFRESH_INTERVAL_TOLERANCE_DIVISOR: i64 = 20;
 
+// A corruption guard, not a jank threshold. Headerless imports and old sessions
+// have no dump clock; even a multi-hour stall is distinct from a years-long fence.
+const MAX_FRAME_SPAN_NS: i64 = 24 * 60 * 60 * 1_000_000_000;
+
+/// dumpsys prints device monotonic uptime in ms *before* collecting the rows.
+/// Allow collection skew (the live command has a 10 s timeout). Realtime includes
+/// suspend time and host wall clock is unrelated; neither is a fence clock.
+pub(crate) fn dump_fence_limit(line: &str) -> Option<i64> {
+    let ms: i64 = line
+        .strip_prefix("Uptime:")?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    (ms > 0)
+        .then_some(ms)?
+        .checked_mul(1_000_000)?
+        .checked_add(10_000_000_000)
+}
+
+pub(crate) fn valid_fence(end: Option<i64>, start: Option<i64>, limit: Option<i64>) -> Option<i64> {
+    end.filter(|&ns| {
+        ns > 0
+            && ns < i64::MAX
+            && limit.is_none_or(|latest| ns <= latest)
+            && start.is_none_or(|vsync| ns.checked_sub(vsync).is_some_and(valid_span))
+    })
+}
+
+fn valid_span(span: i64) -> bool {
+    (0..=MAX_FRAME_SPAN_NS).contains(&span)
+}
+
+/// Older gfxinfo sessions and reports cached durations before validating the
+/// fences. Repair only the in-memory sample, never reinterpret other sources.
+pub fn sanitize_stored_timing(sample: &mut FrameSample) {
+    if sample.source != FrameSource::Gfxinfo {
+        return;
+    }
+    let start = sample.intended_vsync_ns.filter(|&ns| ns > 0);
+    sample.intended_vsync_ns = start;
+    let completed = valid_fence(sample.frame_completed_ns, start, None);
+    let present = valid_fence(sample.present_ns, start, None);
+    if completed != sample.frame_completed_ns {
+        sample.stages.swap_buffers_ns = None;
+    }
+    if start.is_some() && (sample.frame_completed_ns.is_some() || sample.present_ns.is_some()) {
+        sample.total_duration_ns = positive_difference(completed.or(present), start);
+    } else {
+        sample.total_duration_ns = sample.total_duration_ns.filter(|&ns| valid_span(ns));
+    }
+    sample.frame_completed_ns = completed;
+    sample.present_ns = present;
+    sample.stages.swap_buffers_ns = sample.stages.swap_buffers_ns.filter(|&ns| valid_span(ns));
+    sample.stages.gpu_ns = sample.stages.gpu_ns.filter(|&ns| valid_span(ns));
+}
+
 const METADATA_COLUMNS: &[&str] = &[
     "FrameTimelineVsyncId",
     "InputEventId",
@@ -79,9 +136,12 @@ pub fn parse_gfxinfo(
     let mut malformed_rows = 0usize;
     let mut unknown_columns: Vec<String> = Vec::new();
 
+    let mut fence_limit = None;
     for raw_line in text.lines() {
         let line = raw_line.trim();
-        if let Some(name) = line.strip_prefix("Window:") {
+        if !in_profile_data && line.starts_with("Uptime:") {
+            fence_limit = dump_fence_limit(line);
+        } else if let Some(name) = line.strip_prefix("Window:") {
             window_id = Some(name.trim().to_owned()).filter(|value| !value.is_empty());
         } else if line == "---PROFILEDATA---" {
             in_profile_data = !in_profile_data;
@@ -114,6 +174,7 @@ pub fn parse_gfxinfo(
                     session_id,
                     package_name,
                     window_id.as_deref(),
+                    fence_limit,
                 ) {
                     Some(mut frame) => {
                         frame.frame_id = frames.len() as u64;
@@ -164,6 +225,7 @@ fn parse_row(
     session_id: &str,
     package_name: Option<&str>,
     window_id: Option<&str>,
+    fence_limit: Option<i64>,
 ) -> Option<FrameSample> {
     let values: BTreeMap<&str, Option<i64>> = header
         .iter()
@@ -180,8 +242,9 @@ fn parse_row(
     };
     let intended_vsync = number("IntendedVsync");
     let actual_vsync = number("Vsync");
-    let completed = number("FrameCompleted");
-    let present = number("DisplayPresentTime");
+    let fence = |key| valid_fence(number(key), intended_vsync, fence_limit);
+    let completed = fence("FrameCompleted");
+    let present = fence("DisplayPresentTime");
     let deadline = number("FrameDeadline");
     let interval = number("FrameInterval");
     let expected = positive_difference(deadline, intended_vsync)
@@ -235,8 +298,8 @@ fn parse_row(
                 number("SwapBuffers"),
                 number("IssueDrawCommandsStart"),
             ),
-            swap_buffers_ns: positive_difference(completed, number("SwapBuffers")),
-            gpu_ns: positive_difference(number("GpuCompleted"), number("SwapBuffers")),
+            swap_buffers_ns: fence_stage_duration(completed, number("SwapBuffers")),
+            gpu_ns: fence_stage_duration(fence("GpuCompleted"), number("SwapBuffers")),
         },
         platform_jank: None,
         platform_jank_types: Default::default(),
@@ -328,6 +391,10 @@ fn is_frame_data_row(line: &str) -> bool {
     line.split(',')
         .next()
         .is_some_and(|value| value.parse::<i64>().is_ok())
+}
+
+pub(crate) fn fence_stage_duration(end: Option<i64>, start: Option<i64>) -> Option<i64> {
+    positive_difference(end, start).filter(|&ns| valid_span(ns))
 }
 
 fn positive_difference(end: Option<i64>, start: Option<i64>) -> Option<i64> {
