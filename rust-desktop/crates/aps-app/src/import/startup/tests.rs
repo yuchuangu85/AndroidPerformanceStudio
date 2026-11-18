@@ -208,7 +208,8 @@ fn empty_workspace_has_no_implicit_import_selection_or_ai_authority() {
         .split("pub(in crate::import) fn save_startup_page(")
         .next()
         .unwrap();
-    assert!(confirm.contains("review.take()"));
+    assert!(confirm.contains("review.clone()"));
+    assert!(confirm.contains("review = None"));
     assert!(confirm.contains("target.as_ref() != Some(&experiment.target)"));
     assert!(confirm.contains("config != experiment.config"));
     assert!(confirm.contains("load_capture(&experiment"));
