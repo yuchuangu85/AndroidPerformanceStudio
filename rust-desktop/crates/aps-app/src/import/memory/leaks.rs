@@ -72,16 +72,6 @@ impl ImportWorkspace {
                         .whitespace_nowrap()
                         .text_ellipsis(),
                 ),
-            )
-            .child(
-                toolbar_button(
-                    "memory-leak-analyze",
-                    language.text(TextKey::FoundationAiAnalysis),
-                    self.memory_ai_available(),
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.memory_open_ai(window, cx))),
             );
 
         let notes = div()

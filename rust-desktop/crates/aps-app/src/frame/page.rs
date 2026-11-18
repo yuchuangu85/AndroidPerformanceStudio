@@ -21,11 +21,11 @@ use aps_frame::{
 use aps_ui_foundation::{Destination, Language, TextKey};
 use gpui_kit::{
     component::{
+        WindowExt,
         button::Button,
         menu::{DropdownMenu, PopupMenuItem},
         scroll::ScrollableElement,
         spinner::Spinner,
-        WindowExt,
     },
     prelude::*,
     *,

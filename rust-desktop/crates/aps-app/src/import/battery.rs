@@ -657,18 +657,6 @@ impl ImportWorkspace {
             )
             .child(
                 studio::compact_text_button(
-                    "battery-ai",
-                    language.text(TextKey::ShellPrepareAiAnalysis),
-                    loaded && !self.busy,
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|_, _, window, cx| {
-                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
-                })),
-            )
-            .child(
-                studio::compact_text_button(
                     "battery-import",
                     language.text(TextKey::BatteryImportAnalysis),
                     !self.busy,
@@ -756,6 +744,18 @@ impl ImportWorkspace {
                 .on_click(
                     cx.listener(|this, _, window, cx| this.battery_historian_input(window, cx)),
                 ),
+            )
+            .child(
+                studio::compact_text_button(
+                    "battery-ai",
+                    language.text(TextKey::FoundationAiAnalysis),
+                    loaded && !self.busy,
+                    false,
+                    colors,
+                )
+                .on_click(cx.listener(|_, _, window, cx| {
+                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
+                })),
             )
             .into_any_element()
     }

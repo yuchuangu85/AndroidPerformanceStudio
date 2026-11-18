@@ -229,12 +229,6 @@ impl ImportWorkspace {
                 self.language,
                 &colors,
             ));
-        if let Some(error) = &self.error {
-            main = main.child(note(error.render(self.language), colors.error));
-        }
-        if let Some(notice) = &self.notice {
-            main = main.child(note(notice.render(self.language), colors.info));
-        }
         if self.busy {
             main = main.child(note(
                 self.language.text(TextKey::ImportLoadingQuerying),
@@ -394,18 +388,6 @@ impl ImportWorkspace {
                     cx.listener(|this, _, _, cx| this.save_startup_page(export::Format::Csv, cx)),
                 ),
             )
-            .child(
-                studio::compact_text_button(
-                    "startup-ai",
-                    language.text(TextKey::ShellPrepareAiAnalysis),
-                    ready,
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|_, _, window, cx| {
-                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
-                })),
-            )
             .child(div().flex_1())
             .when(self.busy, |bar| {
                 bar.child(
@@ -429,7 +411,29 @@ impl ImportWorkspace {
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
             )
+            .child(
+                studio::compact_text_button(
+                    "startup-ai",
+                    language.text(TextKey::FoundationAiAnalysis),
+                    ready,
+                    false,
+                    colors,
+                )
+                .on_click(cx.listener(|_, _, window, cx| {
+                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
+                })),
+            )
             .into_any_element()
+    }
+
+    fn startup_select_mode(&mut self, mode: StartupMode, cx: &mut Context<Self>) {
+        if self.session.is_some() {
+            self.query_startup(Some(mode), 0, cx);
+        } else if self.startup_capture.has_target() && !self.busy && !self.export_busy {
+            self.startup_capture.select_mode(mode);
+            self.notice = None;
+            cx.notify();
+        }
     }
 
     fn startup_modes(&self, colors: &studio::StudioColors, cx: &mut Context<Self>) -> AnyElement {
@@ -463,7 +467,11 @@ impl ImportWorkspace {
                     .into_iter()
                     .enumerate()
                     .map(|(index, (mode, title, description, tone))| {
-                        let selected = self.startup_mode_filter == Some(mode);
+                        let selected = if self.session.is_some() {
+                            self.startup_mode_filter == Some(mode)
+                        } else {
+                            self.startup_capture.selected_mode() == mode
+                        };
                         Button::new(("startup-mode", index))
                             .ghost()
                             .flex_1()
@@ -483,7 +491,11 @@ impl ImportWorkspace {
                                 colors.panel
                             })
                             .selected(selected)
-                            .disabled(self.busy || self.session.is_none())
+                            .disabled(
+                                self.busy
+                                    || (self.session.is_none()
+                                        && !self.startup_capture.has_target()),
+                            )
                             .accessibility_label(language.text(title))
                             .child(
                                 div()
@@ -496,9 +508,11 @@ impl ImportWorkspace {
                                     )
                                     .child(studio::supporting(language.text(description), colors)),
                             )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.query_startup(Some(mode), 0, cx)
-                            }))
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.startup_select_mode(mode, cx)
+                                }),
+                            )
                     }),
                 ),
             )

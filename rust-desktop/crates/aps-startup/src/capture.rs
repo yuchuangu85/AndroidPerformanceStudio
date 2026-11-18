@@ -512,6 +512,10 @@ impl AndroidRunner<'_> {
 
     fn package_pids(&self, identity: &InstallationIdentity) -> Result<Vec<u32>, String> {
         let output = self.shell(&["ps", "-A", "-o", "PID,UID,NAME"], COMMAND_TIMEOUT)?;
+        Self::parse_package_pids(&output, &self.target.package_name, identity.uid)
+    }
+
+    fn parse_package_pids(output: &str, package_name: &str, uid: u32) -> Result<Vec<u32>, String> {
         let mut lines = output.lines();
         if lines
             .next()
@@ -522,29 +526,42 @@ impl AndroidRunner<'_> {
         }
         let mut pids = Vec::new();
         for line in lines.filter(|line| !line.trim().is_empty()) {
-            let fields: Vec<_> = line.split_whitespace().collect();
-            if fields.len() != 3 {
+            let (pid_text, remainder) = Self::next_process_field(line)
+                .ok_or("Cannot verify the startup process table format.")?;
+            let (uid_text, remainder) = Self::next_process_field(remainder)
+                .ok_or("Cannot verify the startup process table format.")?;
+            let name = remainder.trim();
+            if name.is_empty() {
                 return Err("Cannot verify the startup process table format.".into());
             }
-            let package = fields[2] == self.target.package_name
-                || fields[2]
-                    .strip_prefix(&self.target.package_name)
-                    .is_some_and(|s| s.starts_with(':'));
-            if package {
-                let uid = fields[1]
+            let package = name == package_name
+                || name
+                    .strip_prefix(package_name)
+                    .is_some_and(|suffix| suffix.starts_with(':'));
+            if package
+                && uid_text
                     .parse::<u32>()
-                    .map_err(|_| "Process table did not report numeric UIDs")?;
-                if uid == identity.uid {
-                    pids.push(
-                        fields[0]
-                            .parse::<u32>()
-                            .map_err(|_| "Invalid startup process PID")?,
-                    );
-                }
+                    .map_err(|_| "Process table did not report numeric UIDs")?
+                    == uid
+            {
+                pids.push(
+                    pid_text
+                        .parse::<u32>()
+                        .map_err(|_| "Invalid startup process PID")?,
+                );
             }
         }
         pids.sort_unstable();
         Ok(pids)
+    }
+
+    fn next_process_field(input: &str) -> Option<(&str, &str)> {
+        let input = input.trim_start();
+        if input.is_empty() {
+            return None;
+        }
+        let end = input.find(char::is_whitespace).unwrap_or(input.len());
+        Some((&input[..end], &input[end..]))
     }
 
     fn resolve_component(&self, user: u32) -> Result<String, String> {
@@ -564,15 +581,9 @@ impl AndroidRunner<'_> {
             ],
             COMMAND_TIMEOUT,
         )?;
-        let components: BTreeSet<_> = output
-            .lines()
-            .map(str::trim)
-            .filter(|s| valid_component(s, &self.target.package_name))
-            .collect();
-        if components.len() != 1 {
-            return Err("The approved package has no unambiguous launcher Activity for the current Android user.".into());
-        }
-        Ok(components.into_iter().next().expect("one component").into())
+        launcher_component(&output, &self.target.package_name).ok_or_else(|| {
+            "The approved package has no unambiguous launcher Activity for the current Android user.".into()
+        })
     }
 
     fn launch(
@@ -852,6 +863,34 @@ fn active_package_lines<'a>(dump: &'a str, package: &str) -> Result<Vec<&'a str>
     Ok(lines[start + 1..end].to_vec())
 }
 
+fn launcher_component(output: &str, package: &str) -> Option<String> {
+    let mut all = BTreeSet::new();
+    let mut defaults = BTreeSet::new();
+    let mut default_metadata = false;
+    for line in output.lines() {
+        if line.contains("isDefault=true") {
+            default_metadata = true;
+        }
+        for token in line
+            .split_whitespace()
+            .filter(|token| valid_component(token, package))
+        {
+            all.insert(token.to_owned());
+            if default_metadata {
+                defaults.insert(token.to_owned());
+            }
+            default_metadata = false;
+        }
+    }
+    if defaults.len() == 1 {
+        defaults.into_iter().next()
+    } else if all.len() == 1 {
+        all.into_iter().next()
+    } else {
+        None
+    }
+}
+
 fn valid_component(component: &str, package: &str) -> bool {
     component.split_once('/').is_some_and(|(owner, activity)| {
         owner == package
@@ -969,6 +1008,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn process_table_accepts_spaces_in_the_name_column() {
+        let output = "PID UID NAME\n123 10001 com.example:worker with-space\n124 10002 other.app\n";
+        assert_eq!(
+            AndroidRunner::parse_package_pids(output, "com.example", 10001).unwrap(),
+            vec![123]
+        );
+    }
+
+    #[test]
     fn warm_launch_uses_supported_intent_flags_without_killing_the_process() {
         let args = launch_arguments("dev.sample/.MainActivity", "10", StartupMode::Warm);
         assert!(args.windows(2).any(|pair| pair == ["-f", "0x10008000"]));
@@ -1048,6 +1096,24 @@ mod tests {
             assert_eq!(run.ttid.milliseconds, None);
             assert_eq!(run.ttfd.milliseconds, None);
         }
+    }
+
+    #[test]
+    fn launcher_resolution_prefers_the_unique_default_candidate() {
+        let output = "priority=0 isDefault=false\ncom.example/.Other\npriority=0 isDefault=true\ncom.example/.MainActivity\n";
+        assert_eq!(
+            launcher_component(output, "com.example").as_deref(),
+            Some("com.example/.MainActivity")
+        );
+    }
+
+    #[test]
+    fn launcher_resolution_accepts_brief_metadata_tokens() {
+        let output = "priority=0 preferredOrder=0 match=0x108000\ncom.example/.MainActivity\n";
+        assert_eq!(
+            launcher_component(output, "com.example").as_deref(),
+            Some("com.example/.MainActivity")
+        );
     }
 
     #[test]

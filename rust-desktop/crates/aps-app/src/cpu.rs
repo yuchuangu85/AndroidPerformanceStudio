@@ -307,6 +307,7 @@ pub struct CpuWorkspace {
     /// Scroll state of the flame/stack chart surface; the facts card uses its
     /// viewport bounds to choose the visible side of the pointer.
     chart_scroll: ScrollHandle,
+    chart_reset_scroll: bool,
     /// Open chart context menu: (x, y, block id).
     chart_menu: Option<(f32, f32, String)>,
     /// Keyboard navigation state for the call-tree table.
@@ -507,6 +508,7 @@ impl CpuWorkspace {
             chart_drag: None,
             chart_hover_position: None,
             chart_scroll: ScrollHandle::new(),
+            chart_reset_scroll: false,
             chart_menu: None,
             tree: None,
             tree_generation: 0,
@@ -1183,6 +1185,12 @@ impl CpuWorkspace {
         self.chart = None;
         self.chart_selected = None;
         self.error = None;
+        self.chart_reset_scroll = matches!(tab, CpuTab::FlameGraph | CpuTab::StackChart);
+        if self.chart_reset_scroll {
+            // Keep the handle identity; initialize the new projection against
+            // its actual viewport during prepaint.
+            self.chart_scroll.set_offset(point(px(0.), px(0.)));
+        }
         if !tab.needs_query() {
             // Cancel any in-flight projection publication; the new tab owns
             // the current generation.
@@ -1310,11 +1318,6 @@ impl CpuWorkspace {
                             CpuResult::Top(page) => this.top = Some(page),
                             CpuResult::Chart(frame) => {
                                 this.chart = Some(frame);
-                                if this.tab == CpuTab::FlameGraph {
-                                    // Official flame graphs start with the root row (the
-                                    // bottom) visible; shorter graphs are bottom-aligned.
-                                    this.chart_scroll.scroll_to_bottom();
-                                }
                                 this.resolve_pending_focus();
                             }
                             CpuResult::Empty => {}
@@ -2987,14 +2990,40 @@ fn workspace_toolbar(
                 colors.secondary_text,
             ));
     }
-    row.child(div().flex_1()).child(studio::dense_label(
-        if busy {
-            lang.text(TextKey::CpuWorking)
-        } else {
-            lang.text(TextKey::CpuOfflineNoCloudAccess)
-        },
-        colors.secondary_text,
-    ))
+    let ai = if ws.studio.is_some() {
+        studio::text_button(
+            "cpu-run-ai",
+            lang.text(TextKey::FoundationAiAnalysis),
+            ws.catalog.is_some() && !ws.busy,
+            false,
+            colors,
+        )
+        .on_click(|_, window, cx| {
+            // Dispatching defers the shell action until this CPU entity update
+            // has returned; prepare_ai reads the current CPU snapshot.
+            window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx);
+        })
+        .into_any_element()
+    } else {
+        studio::text_button(
+            "cpu-run-ai",
+            lang.text(TextKey::FoundationAiAnalysis),
+            false,
+            false,
+            colors,
+        )
+        .into_any_element()
+    };
+    row.child(div().flex_1())
+        .child(studio::dense_label(
+            if busy {
+                lang.text(TextKey::CpuWorking)
+            } else {
+                lang.text(TextKey::CpuOfflineNoCloudAccess)
+            },
+            colors.secondary_text,
+        ))
+        .child(ai)
 }
 
 fn empty_state(
@@ -4248,30 +4277,6 @@ fn tab_row(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>)
             )),
         );
     }
-    let ai = if let Some(studio) = ws.studio.clone() {
-        studio::text_button(
-            "cpu-run-ai",
-            lang.text(TextKey::CpuWorkspaceRunAiAnalysis),
-            !ws.busy,
-            false,
-            colors,
-        )
-        .on_click(move |_, window, cx| {
-            studio
-                .update(cx, |studio, cx| studio.prepare_ai(window, cx))
-                .ok();
-        })
-        .into_any_element()
-    } else {
-        studio::text_button(
-            "cpu-run-ai",
-            lang.text(TextKey::CpuWorkspaceRunAiAnalysis),
-            false,
-            false,
-            colors,
-        )
-        .into_any_element()
-    };
     let details_label = if ws.details_visible {
         lang.text(TextKey::CpuWorkspaceHideDetails)
     } else {
@@ -4299,7 +4304,6 @@ fn tab_row(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>)
                 .child(tabs),
         )
         .child(export_button(ws, colors, cx))
-        .child(ai)
         .child(
             studio::text_button("cpu-details-toggle", details_label, true, false, colors).on_click(
                 cx.listener(|this, _, _, cx| this.set_details_visible(!this.details_visible, cx)),
@@ -5492,14 +5496,7 @@ fn selected_chart_block<'a>(ws: &'a CpuWorkspace) -> Option<&'a ChartBlock> {
 
 fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>) -> AnyElement {
     let lang = ws.language;
-    let Some(frame) = &ws.chart else {
-        let message = if ws.busy {
-            lang.text(TextKey::CpuKpiPendingLoading)
-        } else {
-            lang.text(TextKey::CpuKpiUnavailable)
-        };
-        return panel_message(ws, colors, message);
-    };
+    let frame = ws.chart.clone();
     let mut note = div().flex().items_center().gap(px(6.)).child(
         div()
             .text_size(px(studio::FONT_SUPPORTING))
@@ -5527,7 +5524,7 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
         column = column.child(transform_bar(ws, colors, cx));
     }
     column = column.child(note);
-    if frame.truncated {
+    if let Some(frame) = frame.as_ref().filter(|frame| frame.truncated) {
         column = column.child(div().text_size(px(studio::FONT_SUPPORTING)).child(
             crate::studio::selectable(format!(
                 "{} {}",
@@ -5538,40 +5535,41 @@ fn chart_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspa
     }
     column = column.child(chart_scroll(
         ws,
-        frame.clone(),
+        frame,
         ChartMode::Flame,
         colors,
         cx,
+        if ws.busy {
+            Some(lang.text(TextKey::CpuKpiPendingLoading))
+        } else if ws.chart.is_none() {
+            Some(lang.text(TextKey::CpuKpiUnavailable))
+        } else {
+            None
+        },
     ));
     column.into_any_element()
 }
 
 fn stack_panel(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>) -> AnyElement {
     let lang = ws.language;
-    let Some(frame) = &ws.chart else {
-        let message = if ws.busy {
-            lang.text(TextKey::CpuKpiPendingLoading)
-        } else {
-            lang.text(TextKey::CpuStackNoSamples)
-        };
-        return panel_message(ws, colors, message);
-    };
+    let frame = ws.chart.clone();
     let mut column = div().size_full().flex().flex_col().gap(px(4.));
-    if frame.blocks.is_empty() {
-        return column
-            .child(panel_message(
-                ws,
-                colors,
-                lang.text(TextKey::CpuStackNoBlocks),
-            ))
-            .into_any_element();
-    }
+    let message = if ws.busy {
+        Some(lang.text(TextKey::CpuKpiPendingLoading))
+    } else if frame.is_none() {
+        Some(lang.text(TextKey::CpuStackNoSamples))
+    } else if frame.as_ref().is_some_and(|frame| frame.blocks.is_empty()) {
+        Some(lang.text(TextKey::CpuStackNoBlocks))
+    } else {
+        None
+    };
     column = column.child(chart_scroll(
         ws,
-        frame.clone(),
+        frame,
         ChartMode::Stack,
         colors,
         cx,
+        message,
     ));
     if let Some(block) = selected_chart_block(ws) {
         column = column.child(
@@ -5744,35 +5742,75 @@ fn transform_bar(
 
 fn chart_scroll(
     ws: &CpuWorkspace,
-    frame: ChartFrame,
+    frame: Option<ChartFrame>,
     mode: ChartMode,
     colors: &StudioColors,
     cx: &Context<CpuWorkspace>,
+    message: Option<&str>,
 ) -> AnyElement {
     let viewport = chart_viewport_size(ws);
     let background = firefox_chart_background(colors.dark);
     let tooltip = ws
         .chart_hover
         .as_deref()
-        .and_then(|id| frame.selected(id))
+        .and_then(|id| frame.as_ref().and_then(|frame| frame.selected(id)))
         .map(|block| chart_tooltip(ws, block, colors, ws.chart_hover_position, viewport));
     let menu = ws.chart_menu.as_ref().and_then(|(x, y, id)| {
         frame
-            .selected(id)
+            .as_ref()
+            .and_then(|frame| frame.selected(id))
             .map(|block| chart_context_menu(ws, block, (*x, *y), colors, cx))
     });
-    let scroller = div()
-        .id("cpu-chart-scroll")
-        .size_full()
-        .overflow_scroll()
-        .track_scroll(&ws.chart_scroll)
-        .bg(background);
-    let mut root = div()
-        .relative()
-        .flex_1()
-        .min_h_0()
-        .w_full()
-        .child(scroller.child(chart_canvas(ws, frame, mode, colors, cx)));
+    let workspace = cx.entity();
+    let colors = *colors;
+    let message = message
+        .unwrap_or(ws.language.text(TextKey::CpuKpiUnavailable))
+        .to_owned();
+    // Build the scroll content only once its current viewport is known. Paint,
+    // labels and hit testing then share the same geometry from the first frame.
+    let scroller = canvas(
+        move |bounds, window, cx| {
+            let mut scroller = workspace.update(cx, |ws, cx| {
+                let content = match frame {
+                    Some(frame) if mode == ChartMode::Flame || !frame.blocks.is_empty() => {
+                        let dimensions = chart_content_size(bounds.size, frame.height_px);
+                        if std::mem::take(&mut ws.chart_reset_scroll) {
+                            ws.chart_scroll.set_offset(chart_initial_offset(
+                                mode,
+                                dimensions,
+                                bounds.size,
+                            ));
+                        }
+                        chart_canvas(ws, frame, mode, dimensions, &colors, cx)
+                    }
+                    _ => div()
+                        .id("cpu-chart")
+                        .size_full()
+                        .child(panel_message(ws, &colors, &message))
+                        .into_any_element(),
+                };
+                div()
+                    .id("cpu-chart-scroll")
+                    .w(bounds.size.width)
+                    .h(bounds.size.height)
+                    .overflow_scroll()
+                    .track_scroll(&ws.chart_scroll)
+                    .bg(background)
+                    .child(content)
+                    .into_any_element()
+            });
+            scroller.prepaint_as_root(
+                bounds.origin,
+                bounds.size.map(AvailableSpace::Definite),
+                window,
+                cx,
+            );
+            scroller
+        },
+        |_, mut scroller, window, cx| scroller.paint(window, cx),
+    )
+    .size_full();
+    let mut root = div().relative().flex_1().min_h_0().w_full().child(scroller);
     if let Some(tooltip) = tooltip {
         root = root.child(tooltip);
     }
@@ -5780,6 +5818,28 @@ fn chart_scroll(
         root = root.child(menu);
     }
     root.into_any_element()
+}
+
+fn chart_content_size(viewport: Size<Pixels>, graph_height: f32) -> Size<Pixels> {
+    size(
+        viewport.width.max(px(1.)),
+        px(f32::from(viewport.height)
+            .max(graph_height)
+            .clamp(48.0, 4000.0)),
+    )
+}
+
+fn chart_initial_offset(
+    mode: ChartMode,
+    content: Size<Pixels>,
+    viewport: Size<Pixels>,
+) -> Point<Pixels> {
+    let y = if mode == ChartMode::Flame {
+        -(content.height - viewport.height).max(px(0.))
+    } else {
+        px(0.)
+    };
+    point(px(0.), y)
 }
 
 /// Official Firefox Profiler foreground and background values.
@@ -5904,6 +5964,7 @@ fn chart_canvas(
     ws: &CpuWorkspace,
     frame: ChartFrame,
     mode: ChartMode,
+    dimensions: Size<Pixels>,
     colors: &StudioColors,
     cx: &Context<CpuWorkspace>,
 ) -> AnyElement {
@@ -5914,9 +5975,8 @@ fn chart_canvas(
     let move_origin = origin.clone();
     let up_origin = origin.clone();
     let menu_origin = origin.clone();
-    let (pane_width, pane_height) = chart_viewport_size(ws);
-    let display_width = pane_width.max(1.0);
-    let display_height = pane_height.max(frame.height_px).max(48.0).min(4000.0);
+    let display_width = f32::from(dimensions.width).max(1.0);
+    let display_height = f32::from(dimensions.height).max(1.0);
     let frame_width = frame.width_px.max(1.0);
     let graph_height = frame.height_px;
     let flame = mode == ChartMode::Flame;
@@ -8589,6 +8649,31 @@ mod metadata_tests {
     }
 
     #[::core::prelude::v1::test]
+    fn cpu_ai_action_lives_in_the_workspace_toolbar_not_the_analysis_tabs() {
+        let source = include_str!("cpu.rs");
+        let toolbar = source
+            .split("fn workspace_toolbar(")
+            .nth(1)
+            .unwrap()
+            .split("fn empty_state(")
+            .next()
+            .unwrap();
+        let tabs = source
+            .split("fn tab_row(")
+            .nth(1)
+            .unwrap()
+            .split("fn selected_chart_block(")
+            .next()
+            .unwrap();
+        assert!(toolbar.contains("cpu-run-ai"));
+        assert!(!tabs.contains("cpu-run-ai"));
+        assert!(toolbar.find(".child(ai)").unwrap() > toolbar.rfind("flex_1").unwrap());
+        assert!(toolbar.contains("PrepareCurrentAi"));
+        assert!(!toolbar.contains("studio.prepare_ai"));
+        assert!(toolbar.contains("ws.catalog.is_some() && !ws.busy"));
+    }
+
+    #[::core::prelude::v1::test]
     fn flame_selection_summary_follows_scrollable_function_details_not_chart() {
         let source = include_str!("cpu.rs");
         let chart = source
@@ -9505,6 +9590,111 @@ mod metadata_tests {
     }
 
     #[test]
+    fn chart_reload_resets_shared_scroll_before_first_stack_projection() {
+        let source = include_str!("cpu.rs");
+        let reload = source
+            .split("fn reload(")
+            .nth(1)
+            .unwrap()
+            .split("fn cycle_tab(")
+            .next()
+            .unwrap();
+        let reset = reload
+            .find("self.chart_scroll.set_offset(point(px(0.), px(0.)));")
+            .expect("chart reload must reset the shared scroll offset in place");
+        let tab_guard = reload
+            .find("matches!(tab, CpuTab::FlameGraph | CpuTab::StackChart)")
+            .expect("the reset must cover both chart tabs");
+        assert!(tab_guard < reset);
+        assert!(reload.contains("self.chart = None;"));
+    }
+
+    #[test]
+    fn chart_loading_keeps_the_scroll_element_mounted() {
+        let source = include_str!("cpu.rs");
+        let chart = source
+            .split("fn chart_panel(")
+            .nth(1)
+            .unwrap()
+            .split("fn stack_panel(")
+            .next()
+            .unwrap();
+        assert!(chart.contains("chart_scroll("));
+        assert!(!chart.contains("return panel_message(ws, colors"));
+        let scroll = source
+            .split("fn chart_scroll(")
+            .nth(1)
+            .unwrap()
+            .split("/// Official Firefox Profiler foreground")
+            .next()
+            .unwrap();
+        assert!(scroll.contains("frame: Option<ChartFrame>"));
+        assert!(scroll.contains("let content = match frame"));
+        assert!(scroll.contains(".id(\"cpu-chart\")"));
+        assert!(scroll.contains(".child(content)"));
+        assert!(scroll.contains("scroller.prepaint_as_root("));
+        assert!(scroll.contains("chart_content_size(bounds.size, frame.height_px)"));
+        assert!(scroll.contains("std::mem::take(&mut ws.chart_reset_scroll)"));
+        assert!(scroll.contains("mode == ChartMode::Flame || !frame.blocks.is_empty()"));
+        let canvas = source
+            .split("fn chart_canvas(")
+            .nth(1)
+            .unwrap()
+            .split("fn sample_range_fractions(")
+            .next()
+            .unwrap();
+        assert!(!canvas.contains("chart_viewport_size("));
+        assert!(!canvas.contains("scroll_to_bottom("));
+    }
+
+    #[test]
+    fn chart_initial_layout_uses_current_viewport_for_both_modes() {
+        use super::{ChartMode, chart_content_size, chart_initial_offset};
+        use gpui_kit::{point, size};
+
+        for (width, height) in [(360., 240.), (1000., 500.), (1280., 720.)] {
+            let viewport = size(px(width), px(height));
+            for graph_height in [48., 1024.] {
+                let content = chart_content_size(viewport, graph_height);
+                assert_eq!(content.width, viewport.width);
+                assert_eq!(content.height, px(height.max(graph_height)));
+                let flame = chart_initial_offset(ChartMode::Flame, content, viewport);
+                assert_eq!(content.height + flame.y, viewport.height);
+                assert_eq!(
+                    chart_initial_offset(ChartMode::Stack, content, viewport),
+                    point(px(0.), px(0.))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn chart_scroll_initialization_is_once_per_projection_not_per_render() {
+        let source = include_str!("cpu.rs");
+        let reload = source
+            .split("fn reload(")
+            .nth(1)
+            .unwrap()
+            .split("fn resolve_pending_focus(")
+            .next()
+            .unwrap();
+        assert!(reload.contains("self.chart_reset_scroll = matches!"));
+        assert!(!reload.contains("scroll_to_bottom("));
+        let scroll = source
+            .split("fn chart_scroll(")
+            .nth(1)
+            .unwrap()
+            .split("fn chart_content_size(")
+            .next()
+            .unwrap();
+        let once = scroll
+            .find("std::mem::take(&mut ws.chart_reset_scroll)")
+            .unwrap();
+        let reset = scroll.find("ws.chart_scroll.set_offset(").unwrap();
+        assert!(once < reset);
+    }
+
+    #[test]
     fn flame_text_uses_the_official_category_foreground() {
         assert_eq!(
             firefox_chart_text_color(false, "leaf", "/lib/a.so", true),
@@ -9554,7 +9744,35 @@ mod metadata_tests {
         assert!((height - 15.5).abs() < 0.01);
         assert!(top + height <= 500.);
         assert_eq!(FLAME_ROW_HEIGHT_PX, 16.);
-        assert!(include_str!("cpu.rs").contains("this.chart_scroll.scroll_to_bottom()"));
+        for viewport in [(360., 240.), (1000., 500.)] {
+            for graph_height in [48., 1024.] {
+                let size = gpui_kit::size(px(viewport.0), px(viewport.1));
+                let content = super::chart_content_size(size, graph_height);
+                let offset = super::chart_initial_offset(super::ChartMode::Flame, content, size);
+                let (left, top, width, height) = flame_box_rect(
+                    &block,
+                    1024.,
+                    viewport.0,
+                    f32::from(content.height),
+                    graph_height,
+                    2.,
+                );
+                assert_eq!(left, 0.);
+                assert!((width - (viewport.0 - 0.4)).abs() < 0.01);
+                assert!((top + f32::from(offset.y) - (viewport.1 - 16.)).abs() < 0.01);
+                assert!(top + height + f32::from(offset.y) <= viewport.1);
+                let (_, frame_y) = super::chart_frame_point(
+                    width / 2.,
+                    top + height / 2.,
+                    viewport.0,
+                    1024.,
+                    graph_height,
+                    (f32::from(content.height) - graph_height).max(0.),
+                    true,
+                );
+                assert!(frame_y >= block.y && frame_y < block.y + block.height);
+            }
+        }
     }
 
     #[test]

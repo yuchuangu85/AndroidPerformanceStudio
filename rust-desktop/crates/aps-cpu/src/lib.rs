@@ -10,8 +10,8 @@ mod charts;
 mod export;
 mod gecko;
 mod selection;
-mod top;
 mod timeline;
+mod top;
 mod transforms;
 
 pub use charts::{
@@ -24,8 +24,8 @@ pub use export::{
     MAX_REPORT_TOP_FUNCTIONS, MAX_SESSION_PACKAGE_BYTES,
 };
 pub use gecko::{is_gecko_profile_prefix, MAX_GECKO_PROFILE_BYTES};
-pub use top::{TopFunction, TopFunctionsPage, TopSort};
 pub use timeline::{SampleTimeline, TimelineSample, TimelineThread};
+pub use top::{TopFunction, TopFunctionsPage, TopSort};
 pub use transforms::{TransformSet, MAX_TRANSFORM_NAMES, MAX_TRANSFORM_NAME_BYTES};
 
 use aps_simpleperf_engine::{

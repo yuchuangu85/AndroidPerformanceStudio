@@ -671,19 +671,6 @@ impl ImportWorkspace {
             )
             .child(
                 studio::compact_text_button(
-                    "network-ai",
-                    language.text(TextKey::ShellPrepareAiAnalysis),
-                    loaded && !self.busy,
-                    false,
-                    colors,
-                )
-                .on_click(cx.listener(|_, _, window, cx| {
-                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
-                })),
-            )
-            .child(div().flex_1())
-            .child(
-                studio::compact_text_button(
                     "network-close",
                     language.text(TextKey::CommonClose),
                     loaded || self.busy || self.network_live_consent_visible(),
@@ -691,6 +678,18 @@ impl ImportWorkspace {
                     colors,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
+            )
+            .child(
+                studio::compact_text_button(
+                    "network-ai",
+                    language.text(TextKey::FoundationAiAnalysis),
+                    loaded && !self.busy,
+                    false,
+                    colors,
+                )
+                .on_click(cx.listener(|_, _, window, cx| {
+                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
+                })),
             )
             .into_any_element()
     }

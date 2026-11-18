@@ -1304,6 +1304,20 @@ impl InspectorWorkspace {
                 .flex_shrink_0()
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_details(cx))),
             )
+            .child(
+                toolbar_button(
+                    "inspector-run-ai",
+                    language.text(TextKey::FoundationAiAnalysis),
+                    self.archive.is_some() && !self.busy,
+                    false,
+                    colors,
+                )
+                .on_click(cx.listener(|_, _, window, cx| {
+                    // Route through the shell after this Inspector entity update
+                    // has returned; prepare_ai reads the Inspector snapshot.
+                    window.dispatch_action(Box::new(crate::shell::PrepareCurrentAi), cx)
+                })),
+            )
             .into_any_element()
     }
 
@@ -1320,15 +1334,6 @@ impl InspectorWorkspace {
         }
         self.hierarchy_cache.invalidate();
         cx.notify();
-    }
-
-    fn prepare_ai(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(studio) = self.studio.clone() else {
-            return;
-        };
-        studio
-            .update(cx, |studio, cx| studio.prepare_ai(window, cx))
-            .ok();
     }
 
     /// Visible hierarchy row indices: collapsed subtrees and unmatched search
@@ -4912,27 +4917,15 @@ fn findings_pane(
             })),
         );
     }
-    header = header
-        .child(div().flex_1())
-        .child(
-            div()
-                .text_size(px(studio::FONT_SUPPORTING))
-                .text_color(colors.muted_text)
-                .whitespace_nowrap()
-                .child(crate::studio::selectable(
-                    language.text(TextKey::InspectorTimelineLive),
-                )),
-        )
-        .child(
-            toolbar_button(
-                "inspector-run-ai",
-                language.text(TextKey::InspectorRunAi),
-                true,
-                false,
-                colors,
-            )
-            .on_click(cx.listener(|this, _, window, cx| this.prepare_ai(window, cx))),
-        );
+    header = header.child(div().flex_1()).child(
+        div()
+            .text_size(px(studio::FONT_SUPPORTING))
+            .text_color(colors.muted_text)
+            .whitespace_nowrap()
+            .child(crate::studio::selectable(
+                language.text(TextKey::InspectorTimelineLive),
+            )),
+    );
 
     div()
         .id("inspector-findings-pane")
@@ -5519,6 +5512,21 @@ mod tests {
         assert!(header.contains("inspector-toggle-hierarchy"));
         assert!(header.contains("inspector-toggle-findings"));
         assert!(header.contains("inspector-toggle-details"));
+        assert!(header.contains("inspector-run-ai"));
+        assert!(header.contains("self.archive.is_some() && !self.busy"));
+        assert!(header.contains("PrepareCurrentAi"));
+        assert!(!header.contains("studio.prepare_ai"));
+        let ai = header.find("inspector-run-ai").unwrap();
+        let details = header.find("inspector-toggle-details").unwrap();
+        assert!(details < ai);
+        let findings = source
+            .split("fn findings_pane(")
+            .nth(1)
+            .unwrap()
+            .split("fn ")
+            .next()
+            .unwrap();
+        assert!(!findings.contains("inspector-run-ai"));
         let source_label = header.find("TextKey::InspectorCompatibleView").unwrap();
         let capture_progress = header.find(".id(\"inspector-capture-progress\")").unwrap();
         let trailing_controls = header.find(".child(compose_agent_control(").unwrap();

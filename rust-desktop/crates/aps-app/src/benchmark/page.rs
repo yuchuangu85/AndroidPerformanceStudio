@@ -361,6 +361,7 @@ fn header(
             )
             .on_click(cx.listener(|this, _, _, cx| this.open_trace(cx))),
         )
+        .child(div().flex_1())
         .child(
             action_button(
                 "benchmark-ai-analysis",
@@ -381,7 +382,6 @@ fn header(
                 }
             })),
         )
-        .child(div().flex_1())
         .into_any_element()
 }
 

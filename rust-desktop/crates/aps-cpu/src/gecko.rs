@@ -14,8 +14,8 @@
 
 use aps_json::{Limits, Map, Value};
 use aps_simpleperf_engine::simpleperf::{
-    FileRecord, Frame, MAX_CALLCHAIN_FRAMES, MAX_RECORDS, MetaInfo, Record, Sample,
-    SimpleperfStream, ThreadRecord,
+    FileRecord, Frame, MetaInfo, Record, Sample, SimpleperfStream, ThreadRecord,
+    MAX_CALLCHAIN_FRAMES, MAX_RECORDS,
 };
 use std::collections::HashMap;
 
@@ -496,7 +496,7 @@ fn parse_location(location: &str) -> (&str, &str) {
 #[cfg(test)]
 mod tests {
     use super::{is_gecko_profile_prefix, parse_gecko_profile};
-    use aps_simpleperf_engine::simpleperf::{MAX_CALLCHAIN_FRAMES, Record};
+    use aps_simpleperf_engine::simpleperf::{Record, MAX_CALLCHAIN_FRAMES};
 
     fn thread(
         name: &str,

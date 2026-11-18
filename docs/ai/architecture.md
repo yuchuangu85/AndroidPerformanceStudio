@@ -82,7 +82,7 @@ Business UI / automatic hook
 - Simpleperf 有 `SimpleperfAiAnalysisClient`、evidence 提取和结果抽屉，但统一桌面目前传入空 client，不能算完成的产品能力。
 - Layout AI 请求当前将 `buildEvidenceBundleIds` 写为空列表，因此 Build Evidence 仍是待完成的可信链路。
 - AI 入口常量当前为可见状态，但总体设计要求内部 Feature Flag 默认隐藏；发布策略需要先统一。
-- Layout Inspector MCP server 提供设备、View hierarchy 和源码定位工具。它是独立的本地桥接能力，不等于 AI Gateway，也不提供任意代码读写。
+- 统一 `aps-mcp` Server 当前提供 Memory HPROF 摘要、泄漏候选、类直方图和对象详情 tools；Memory AI Host 在 prepare 阶段调用并冻结 `mcp-memory-*` evidence。未来 CPU、Frame、Trace、Source 等模块通过 provider/namespace 注册到同一 Server。它不提供任意代码读写、Shell、网络或任意文件访问。
 
 ## 5. 对话窗口的接口提案
 

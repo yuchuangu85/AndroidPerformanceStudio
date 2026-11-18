@@ -25,7 +25,7 @@
 - Layout、Simpleperf、Trace/Perfetto、Memory、Frame、Startup、Battery、Network、GPU、Benchmark Regression 均已有页面适配器及对应测试定义。Trace 是 artifact 绑定的数值诊断投影；GPU 当前仅 artifact 元数据。其余投影保留适用的单位、选择/摘要范围、缺失值、覆盖边界和省略计数，不能扩大为完整采集或全库分析。
 - Simpleperf 统一桌面已传入 `ProductionSimpleperfAiAnalysisClient`，不是空 client。Layout 的 `SourceAwareLayoutAiAnalysisClient` 和 Simpleperf 均走 `DesktopAiCoordinator`，由同一全局窗口显式批准，旧入口等待精确 run 的结果；旧调用者取消不会取消新会话。
 - Local/GitHub/AOSP 源码 provider、Snapshot、索引、确定性 resolver 与只读 Source Viewer 已存在。Source Workspace 的独立 AI 上下文已发布有界的可验证选择元信息，并经过本地回归；不发布路径/源码正文，也不冒充性能测量。
-- Layout Inspector MCP 仍是设备、View hierarchy 与源码定位桥接，不等同于主 Agent 已开放通用 MCP 工具。
+- 统一 `aps-mcp` 已作为本地只读 MCP Server 接入 Memory HPROF 分析；当前 Memory provider 已提供快照摘要、泄漏发现、类直方图和对象详情 tools。CPU、Frame、Trace、Source 等模块应继续以 provider/namespace 方式注册到同一 Server，不应各自新增无边界 MCP 进程。
 
 ## 2. P0：收口当前可信链与验收
 
@@ -71,7 +71,7 @@
 - 本地模型或更多 Provider；Claude 已有 adapter，不再笼统写成“尚无第二 Provider”。
 - 流式回答与更完整的阶段交互；当前已有执行时间线，不等于 token streaming。
 - 跨 Profiler 的证据关联与统一诊断会话。
-- 受限只读 MCP tools 与模型驱动的动态规划；当前通用 manifest 图编排不等于允许模型任意扩展执行图或主机工具。
+- 受限只读 MCP tools 与模型驱动的动态规划；当前统一 `aps-mcp` 采用 Host 在 prepare 阶段确定性调用并冻结 evidence，尚不允许模型任意扩展执行图或主机工具。
 - 显式脱敏的团队共享格式。
 
 这些能力继续复用 Evidence/Candidate allowlist、用户授权、固定版本身份与 Analysis Session，不退化成全项目自由聊天。

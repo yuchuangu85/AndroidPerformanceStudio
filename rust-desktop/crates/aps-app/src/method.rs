@@ -522,6 +522,7 @@ impl Render for MethodWorkspace {
                             .label(lang.text(TextKey::CommonClose))
                             .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
                     )
+                    .child(div().flex_1())
                     .child(
                         Button::new("method-ai")
                             .label(lang.text(TextKey::ShellPrepareAiAnalysis))

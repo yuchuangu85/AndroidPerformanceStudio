@@ -4,6 +4,8 @@
 
 ## 当前实现
 
+- [MCP 内存泄漏分析与使用](memory-mcp-leak-analysis.md)：统一 `aps-mcp` Server 当前注册 Memory tools，AI Host 在 Memory HPROF prepare 阶段冻结 MCP evidence。
+
 以下为 Kotlin AI Platform 的历史实现说明，不代表当前 Rust 能力或验收状态。Rust Provider 的当前边界见 [Rust Provider README](../../rust-desktop/crates/aps-ai/README.md)，跨平台和发布门禁见 [Rust AI 与 Agent TODO](../../rust-desktop/TODO.md)。
 
 - `ai-core` 提供 provider-neutral analysis contract、OpenAI Responses client/gateway、结构化输出校验、Credential Store 和 Analysis Session 持久化；不依赖平台层或 Compose。

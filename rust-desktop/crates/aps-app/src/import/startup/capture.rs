@@ -81,6 +81,19 @@ impl StartupCaptureUi {
         self.artifact = None;
     }
 
+    pub(super) fn has_target(&self) -> bool {
+        self.target.is_some()
+    }
+
+    pub(super) fn selected_mode(&self) -> StartupMode {
+        self.config.mode
+    }
+
+    pub(super) fn select_mode(&mut self, mode: StartupMode) {
+        self.config.mode = mode;
+        self.review = None;
+    }
+
     fn reconcile(&mut self) -> bool {
         let online = self.serial.as_ref().is_some_and(|serial| {
             self.devices
@@ -217,7 +230,7 @@ impl ImportWorkspace {
         if self.kind != Destination::Startup || self.busy || self.export_busy {
             return;
         }
-        let Some(experiment) = self.startup_capture.review.take() else {
+        let Some(experiment) = self.startup_capture.review.clone() else {
             return;
         };
         if self.startup_capture.target.as_ref() != Some(&experiment.target)
@@ -227,6 +240,7 @@ impl ImportWorkspace {
             cx.notify();
             return;
         }
+        self.startup_capture.review = None;
         let root = crate::settings_path()
             .ok()
             .and_then(|path| path.parent().map(|path| path.join("startup-captures")));
@@ -594,7 +608,9 @@ impl ImportWorkspace {
                 ))
                 .child(
                     div()
+                        .w_full()
                         .flex()
+                        .justify_end()
                         .flex_wrap()
                         .gap(px(4.))
                         .child(
@@ -625,14 +641,16 @@ impl ImportWorkspace {
                 );
         } else {
             panel = panel.child(
-                studio::compact_text_button(
-                    "startup-live-review",
-                    language.text(TextKey::StartupLivePrepare),
-                    editable && state.target.is_some(),
-                    true,
-                    colors,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.start_startup_capture(cx))),
+                div().w_full().flex().justify_end().child(
+                    studio::compact_text_button(
+                        "startup-live-review",
+                        language.text(TextKey::StartupStart),
+                        editable && state.target.is_some(),
+                        true,
+                        colors,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.start_startup_capture(cx))),
+                ),
             );
         }
         panel.into_any_element()

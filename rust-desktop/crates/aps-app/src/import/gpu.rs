@@ -747,7 +747,7 @@ impl ImportWorkspace {
             .child(
                 studio::compact_text_button(
                     "gpu-ai",
-                    language.text(TextKey::ShellPrepareAiAnalysis),
+                    language.text(TextKey::FoundationAiAnalysis),
                     !self.busy && selected.is_some(),
                     false,
                     colors,
