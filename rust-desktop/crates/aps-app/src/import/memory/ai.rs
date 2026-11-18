@@ -120,9 +120,9 @@ impl ImportWorkspace {
             "aps-memory-worker"
         });
         let command = app.with_file_name(if cfg!(target_os = "windows") {
-            "aps-memory-mcp.exe"
+            "aps-mcp.exe"
         } else {
-            "aps-memory-mcp"
+            "aps-mcp"
         });
         (worker.is_file() && command.is_file()).then(|| aps_ai::McpContext {
             command,

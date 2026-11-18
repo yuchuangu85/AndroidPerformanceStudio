@@ -15,5 +15,5 @@ name = "aps-memory-worker"
 path = "src/bin/worker.rs"
 
 [[bin]]
-name = "aps-memory-mcp"
-path = "src/bin/mcp.rs"
+name = "aps-mcp"
+path = "src/bin/aps_mcp.rs"

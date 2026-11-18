@@ -12,7 +12,7 @@ const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 
 fn main() {
     if let Err(error) = run() {
-        let _ = writeln!(io::stderr(), "aps-memory-mcp: {error}");
+        let _ = writeln!(io::stderr(), "aps-mcp: {error}");
         std::process::exit(1);
     }
 }
@@ -45,7 +45,7 @@ fn run() -> Result<(), String> {
 fn args() -> Result<(PathBuf, PathBuf), String> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() != 4 || args[0] != "--hprof" || args[2] != "--worker" {
-        return Err("usage: aps-memory-mcp --hprof <file> --worker <aps-memory-worker>".into());
+        return Err("usage: aps-mcp --hprof <file> --worker <aps-memory-worker>".into());
     }
     let hprof = PathBuf::from(&args[1]);
     let worker = PathBuf::from(&args[3]);
@@ -67,7 +67,7 @@ fn dispatch(
         "initialize" => Ok(json!({
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {"listChanged": false}},
-            "serverInfo": {"name": "aps-memory", "version": env!("CARGO_PKG_VERSION")}
+            "serverInfo": {"name": "aps-mcp", "version": env!("CARGO_PKG_VERSION")}
         })),
         "tools/list" => Ok(tools()),
         "tools/call" => call_tool(session, digest, cancel, request),

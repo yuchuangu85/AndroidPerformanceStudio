@@ -36,7 +36,7 @@ RSS；但它确实保证堆不会进入 UI 内存。
 
 ## MCP 内存工具
 
-`aps-memory-mcp` 是 APS 自有的只读 MCP Server。它只接受一个明确选定的 HPROF 和
+`aps-mcp` 是 APS 自有的只读 MCP Server。它只接受一个明确选定的 HPROF 和
 同目录下的 `aps-memory-worker`，通过 stdio 提供以下有界工具：
 
 - `memory_snapshot_summary`：快照元数据、摘要和来源摘要。
@@ -47,7 +47,7 @@ RSS；但它确实保证堆不会进入 UI 内存。
 构建：
 
 ```sh
-cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-memory-mcp
+cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
 ```
 
 Server 不接受任意文件读取、Shell、网络或写文件请求；响应不包含 HPROF 路径，源摘要变化

@@ -17,7 +17,7 @@ APS 采用以下架构：
 Memory HPROF
     |
     v
-aps-memory-mcp  <---- stdio / JSON-RPC ----  APS AI Host
+aps-mcp  <---- stdio / JSON-RPC ----  APS AI Host
     |                                      |
     v                                      v
 aps-memory-worker                    MCP evidence
@@ -33,20 +33,20 @@ APS 作为 MCP Server，AI Host 负责启动 MCP Server、调用工具、冻结 
 MCP Server 位于：
 
 ```text
-rust-desktop/crates/aps-memory/src/bin/mcp.rs
+rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs
 ```
 
 构建入口：
 
 ```sh
 cd rust-desktop
-cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-memory-mcp
+cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
 ```
 
 启动格式：
 
 ```sh
-aps-memory-mcp \
+aps-mcp \
   --hprof /absolute/path/to/selected.hprof \
   --worker /absolute/path/to/aps-memory-worker
 ```
@@ -115,7 +115,7 @@ rust-desktop/crates/aps-ai/src/mcp.rs
 
 Memory HPROF 请求会携带一个仅由 APS 生成的 MCP context，包含：
 
-- 应用自有 `aps-memory-mcp` 可执行文件；
+- 应用自有 `aps-mcp` 可执行文件；
 - 应用自有 `aps-memory-worker` 可执行文件；
 - 当前选中的 HPROF；
 - 当前 HPROF source digest。
@@ -188,7 +188,7 @@ AI 提示弹窗现在按分类显示：
 
 ### 使用 APS 内置 AI
 
-1. 构建 `aps-memory-worker` 和 `aps-memory-mcp`。
+1. 构建 `aps-memory-worker` 和 `aps-mcp`。
 2. 启动 APS Rust 桌面端。
 3. 在 Memory 页面导入 HPROF。
 4. 等待 HPROF snapshot 完成。
@@ -213,7 +213,7 @@ AI 提示弹窗现在按分类显示：
 {
   "mcpServers": {
     "aps-memory": {
-      "command": "/absolute/path/to/aps-memory-mcp",
+      "command": "/absolute/path/to/aps-mcp",
       "args": [
         "--hprof",
         "/absolute/path/to/selected.hprof",
@@ -247,8 +247,8 @@ MCP 只能让 AI 获取更多结构化内存证据，不能把启发式结果变
 - `aps-ai`：106 个单元测试；
 - `aps-ai` contract：16 个测试；
 - `aps-ai` runtime：4 个测试；
-- `aps-memory-mcp`：2 个协议和边界测试；
-- `aps-memory-worker` / `aps-memory-mcp` 构建；
+- `aps-mcp`：2 个协议和边界测试；
+- `aps-memory-worker` / `aps-mcp` 构建；
 - `aps-app` 编译检查；
 - `git diff --check`。
 
@@ -275,14 +275,14 @@ MCP 只能让 AI 获取更多结构化内存证据，不能把启发式结果变
 
 ```sh
 cd rust-desktop
-cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-memory-mcp
+cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
 ```
 
 Debug 构建完成后，默认可执行文件位于：
 
 ```text
 target/debug/aps-memory-worker
-target/debug/aps-memory-mcp
+target/debug/aps-mcp
 ```
 
 APS 内置 AI 会从当前 APS 可执行文件所在目录查找这两个文件。因此本地运行时应确保：
@@ -290,7 +290,7 @@ APS 内置 AI 会从当前 APS 可执行文件所在目录查找这两个文件�
 ```text
 target/debug/aps-app
 target/debug/aps-memory-worker
-target/debug/aps-memory-mcp
+target/debug/aps-mcp
 ```
 
 位于同一个 `target/debug` 目录中。
@@ -302,7 +302,7 @@ cd rust-desktop
 cargo run --locked -p aps-app
 ```
 
-如果只构建了 `aps-app`，没有构建 `aps-memory-mcp`，Memory AI 仍可以使用原有 HPROF evidence，但不会附加 MCP evidence。要启用 MCP，必须先构建两个 Memory binary。
+如果只构建了 `aps-app`，没有构建 `aps-mcp`，Memory AI 仍可以使用原有 HPROF evidence，但不会附加 MCP evidence。要启用 MCP，必须先构建两个 Memory binary。
 
 ### 3. 在 APS 内置 AI 中使用
 
@@ -313,7 +313,7 @@ cargo run --locked -p aps-app
 5. 在 AI 提示弹窗中选择 **内存泄漏** 分类下的提示。
 6. 修改输入框中的问题。
 7. 点击发送。
-8. AI prepare 阶段会自动启动 `aps-memory-mcp`，依次获取：
+8. AI prepare 阶段会自动启动 `aps-mcp`，依次获取：
    - snapshot summary；
    - leak findings；
    - class histogram。
@@ -334,7 +334,7 @@ cargo run --locked -p aps-app
 MCP Server 的命令格式：
 
 ```sh
-./target/debug/aps-memory-mcp \
+./target/debug/aps-mcp \
   --hprof /absolute/path/to/selected.hprof \
   --worker /absolute/path/to/aps-memory-worker
 ```
@@ -348,7 +348,7 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual-client","version":"0.1.0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-  | ./target/debug/aps-memory-mcp \
+  | ./target/debug/aps-mcp \
       --hprof /absolute/path/to/selected.hprof \
       --worker /absolute/path/to/aps-memory-worker
 ```
@@ -358,7 +358,7 @@ printf '%s\n' \
 ```sh
 printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_leak_findings","arguments":{}}}' \
-  | ./target/debug/aps-memory-mcp \
+  | ./target/debug/aps-mcp \
       --hprof /absolute/path/to/selected.hprof \
       --worker /absolute/path/to/aps-memory-worker
 ```
@@ -367,13 +367,13 @@ printf '%s\n' \
 
 ### 5. 外部 MCP Client 配置
 
-外部 MCP Client 需要将 `aps-memory-mcp` 配置为 stdio Server。例如：
+外部 MCP Client 需要将 `aps-mcp` 配置为 stdio Server。例如：
 
 ```json
 {
   "mcpServers": {
     "aps-memory": {
-      "command": "/absolute/path/to/target/debug/aps-memory-mcp",
+      "command": "/absolute/path/to/target/debug/aps-mcp",
       "args": [
         "--hprof",
         "/absolute/path/to/selected.hprof",
@@ -408,7 +408,7 @@ memory-lifecycle-candidate
 
 而没有 `mcp-memory-*` evidence，通常表示：
 
-- `aps-memory-mcp` 没有构建；
+- `aps-mcp` 没有构建；
 - `aps-memory-worker` 不在 APS 可执行文件同目录；
 - HPROF 文件无法读取或 source digest 校验失败；
 - MCP Server 启动超时；
@@ -423,7 +423,7 @@ MCP Server 不可用时，基础 HPROF-only AI 分析仍然可以使用已解析
 ```text
 target/debug/aps-app
 target/debug/aps-memory-worker
-target/debug/aps-memory-mcp
+target/debug/aps-mcp
 ```
 
 完成修复后重新导入 HPROF，并重新打开一次 Memory AI 分析请求。旧的审批请求不会自动重新绑定新的 MCP session。
