@@ -82,6 +82,24 @@ impl AdvancedMemoryUi {
             self.native.as_ref()
         }
     }
+
+    pub(in crate::import) fn native_phase3_input(
+        &self,
+    ) -> Option<(
+        String,
+        aps_perfetto::heap_profile::HeapProfilePage,
+        crate::import::memory::phase3::NativeHeapEvidenceCoverage,
+    )> {
+        let data = self.native.as_ref()?;
+        let page = data.page.clone();
+        let coverage = crate::import::memory::phase3::NativeHeapEvidenceCoverage {
+            rows_loaded: page.rows.len() as u64,
+            rows_included: page.rows.len() as u64,
+            has_more: page.has_more,
+            sampling_interval_bytes: None,
+        };
+        Some((page.source_digest.to_hex(), page, coverage))
+    }
 }
 
 fn root() -> Result<PathBuf, UiText> {

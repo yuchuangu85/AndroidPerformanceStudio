@@ -1245,6 +1245,7 @@ mod tests {
                         instance_count: 1,
                         retained_size: Some(2048),
                         activity_or_fragment_leak: false,
+                        reference_chain: Vec::new(),
                     }],
                 },
                 bitmaps: FindingsPage {
@@ -1268,6 +1269,7 @@ mod tests {
                         live_instance_count: 2,
                         destroyed_instance_count: 1,
                         retained_size: Some(100),
+                        reference_chain: Vec::new(),
                     }],
                 },
                 lifecycle: FindingsPage {

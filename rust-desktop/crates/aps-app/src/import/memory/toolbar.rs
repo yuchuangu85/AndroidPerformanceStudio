@@ -7,7 +7,7 @@ use super::ImportWorkspace;
 use super::state::MemoryViewMode;
 use super::widgets::{self, toolbar_button};
 use crate::studio::{self, StudioColors};
-use aps_ui_foundation::{Destination, TextKey, typography};
+use aps_ui_foundation::{TextKey, typography};
 use gpui_kit::{component::popover::Popover, prelude::*, *};
 
 impl ImportWorkspace {
@@ -142,20 +142,11 @@ impl ImportWorkspace {
                 toolbar_button(
                     "memory-run-ai-analysis",
                     language.text(TextKey::FoundationAiAnalysis),
-                    loaded,
+                    self.memory_ai_available(),
                     false,
                     colors,
                 )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    let request = this.memory_analysis_request();
-                    if let Some(studio) = this.studio.clone() {
-                        studio
-                            .update(cx, |studio, cx| {
-                                studio.present_ai_request(Destination::Memory, request, window, cx)
-                            })
-                            .ok();
-                    }
-                })),
+                .on_click(cx.listener(|this, _, window, cx| this.memory_open_ai(window, cx))),
             );
         row.into_any_element()
     }

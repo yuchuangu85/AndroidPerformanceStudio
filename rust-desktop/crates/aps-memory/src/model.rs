@@ -262,6 +262,7 @@ pub struct LeakSuspect {
     pub instance_count: u64,
     pub retained_size: Option<u64>,
     pub activity_or_fragment_leak: bool,
+    pub reference_chain: Vec<ObjectReference>,
 }
 
 impl LeakSuspect {
@@ -272,6 +273,10 @@ impl LeakSuspect {
             instance_count: required_u64(value, "instanceCount")?,
             retained_size: optional_u64(value, "retainedSize")?,
             activity_or_fragment_leak: required_bool(value, "activityOrFragmentLeak")?,
+            reference_chain: decode_list(
+                optional_list(value, "referenceChain")?,
+                ObjectReference::from_value,
+            )?,
         })
     }
 }
@@ -313,6 +318,8 @@ pub struct ActivityLeak {
     pub live_instance_count: u64,
     pub destroyed_instance_count: u64,
     pub retained_size: Option<u64>,
+    /// Path and retained size describe the engine-selected representative object.
+    pub reference_chain: Vec<ObjectReference>,
 }
 
 impl ActivityLeak {
@@ -322,6 +329,10 @@ impl ActivityLeak {
             live_instance_count: required_u64(value, "liveInstanceCount")?,
             destroyed_instance_count: required_u64(value, "destroyedInstanceCount")?,
             retained_size: optional_u64(value, "retainedSize")?,
+            reference_chain: decode_list(
+                optional_list(value, "referenceChain")?,
+                ObjectReference::from_value,
+            )?,
         })
     }
 }
@@ -367,7 +378,7 @@ pub(crate) fn decode_findings_page<T>(
 ) -> Result<FindingsPage<T>, MemoryError> {
     let total = required_u64(value, "total")?;
     let rows = decode_list(required_list(value, "rows")?, decode)?;
-    if rows.len() > crate::MAX_PAGE_SIZE {
+    if rows.len() > crate::MAX_PAGE_SIZE || rows.len() as u64 > total {
         return Err(invalid());
     }
     Ok(FindingsPage { total, rows })

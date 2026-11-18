@@ -3,6 +3,7 @@
 //! All heap analysis runs in the isolated `aps-memory` worker; this module owns
 //! the GPUI state machine, background queries and the Compose-shaped page.
 pub(super) mod advanced;
+pub(super) mod ai;
 pub(super) mod auxiliary;
 pub(super) mod capture;
 pub(super) mod classes;
@@ -14,6 +15,7 @@ pub(super) mod inspector;
 pub(super) mod leaks;
 pub(super) mod mapping;
 pub(crate) mod menus;
+pub(super) mod phase3;
 pub(super) mod state;
 pub(super) mod toolbar;
 pub(super) mod widgets;
@@ -101,14 +103,15 @@ impl ImportWorkspace {
 
     pub(super) fn memory_set_view_mode(&mut self, mode: MemoryViewMode, cx: &mut Context<Self>) {
         if self.memory_state.view_mode == mode {
+            if mode == MemoryViewMode::Dominators {
+                self.memory_resume_dominator_queries(cx);
+                cx.notify();
+            }
             return;
         }
         self.memory_state.view_mode = mode;
-        if mode == MemoryViewMode::Dominators
-            && self.memory_state.snapshot.is_some()
-            && self.memory_state.dominator_roots.is_none()
-        {
-            self.memory_load_dominators(None, cx);
+        if mode == MemoryViewMode::Dominators && self.memory_state.snapshot.is_some() {
+            self.memory_resume_dominator_queries(cx);
         }
         if mode == MemoryViewMode::Diff && !self.memory_state.comparison_loading {
             self.memory_compare_snapshots(cx);
@@ -625,18 +628,25 @@ impl ImportWorkspace {
 
     // ---- dominators ----------------------------------------------------
 
+    pub(super) fn memory_resume_dominator_queries(&mut self, cx: &mut Context<Self>) {
+        if self.memory_state.view_mode != MemoryViewMode::Dominators
+            || self.memory_state.snapshot.is_none()
+        {
+            return;
+        }
+        for parent in self.memory_state.missing_dominator_queries() {
+            self.memory_load_dominators(parent, cx);
+        }
+    }
+
     pub(super) fn memory_load_dominators(&mut self, parent: Option<u64>, cx: &mut Context<Self>) {
         let Some(Session::Memory(session)) = self.session.clone() else {
             return;
         };
-        self.memory_state.dominator_generation += 1;
-        let generation = self.memory_state.dominator_generation;
+        let Some(generation) = self.memory_state.begin_dominator_query(parent) else {
+            return;
+        };
         let snapshot_id = self.memory_snapshot_id;
-        if let Some(parent) = parent {
-            if !self.memory_state.dominator_loading.insert(parent) {
-                return;
-            }
-        }
         let cancel = CancellationToken::new();
         let task = cx.background_executor().spawn(async move {
             let mut session = session
@@ -655,25 +665,8 @@ impl ImportWorkspace {
                 {
                     return;
                 }
-                if let Some(parent) = parent {
-                    this.memory_state.dominator_loading.remove(&parent);
-                }
-                match result {
-                    Ok(page) => {
-                        let total = page.total;
-                        if let Some(parent) = parent {
-                            this.memory_state.dominator_children.insert(parent, page);
-                        } else {
-                            this.memory_state.dominator_roots = Some(page);
-                        }
-                        if let Some(parent) = parent {
-                            this.memory_state
-                                .dominator_child_totals
-                                .insert(parent, total);
-                        }
-                    }
-                    Err(error) => this.memory_state.dominator_error = Some(error),
-                }
+                this.memory_state
+                    .apply_dominator_query(generation, parent, result);
                 cx.notify();
             })
             .ok();
@@ -905,6 +898,7 @@ impl ImportWorkspace {
             .unwrap_or_else(|| "HPROF snapshot".to_owned());
         self.memory_state.load_generation += 1;
         let generation = self.memory_state.load_generation;
+        let snapshot_id = self.memory_snapshot_id;
         self.memory_state.loading = true;
         self.memory_state.loading_message = Some(
             self.language
@@ -925,7 +919,9 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                if this.memory_state.load_generation != generation {
+                if this.memory_snapshot_id != snapshot_id
+                    || this.memory_state.load_generation != generation
+                {
                     return;
                 }
                 this.memory_state.loading = false;
@@ -1028,98 +1024,7 @@ impl ImportWorkspace {
     // ---- AI context ----------------------------------------------------
 
     pub(super) fn memory_analysis_request(&self) -> Result<aps_ai::AnalysisRequest, String> {
-        if matches!(
-            self.memory_state.view_mode,
-            MemoryViewMode::NativeHeap | MemoryViewMode::SampledArt | MemoryViewMode::BitmapDump
-        ) {
-            // A retained Java tab is not evidence for the selected sampled
-            // heap/image workspace. Never silently send that other dataset.
-            return Err(self.language.text(TextKey::MemoryLiveAiUnavailable).into());
-        }
-        let Some(snapshot) = self.memory_state.snapshot.as_ref() else {
-            return Err(self
-                .language
-                .text(TextKey::ImportUiImportBeforeAi)
-                .to_owned());
-        };
-        let session = self.session_id.as_ref().ok_or_else(|| {
-            self.language
-                .text(TextKey::ImportUiImportBeforeAi)
-                .to_owned()
-        })?;
-        let mut lines = Vec::new();
-        lines.push(format!("Snapshot digest: {}", snapshot.source_digest));
-        lines.push(format!(
-            "Heap: {} objects, {} bytes shallow, {} classes; heaps: {}",
-            snapshot.summary.object_count,
-            snapshot.summary.shallow_size,
-            snapshot.summary.class_count,
-            snapshot.metadata.heaps.join(", ")
-        ));
-        lines.push(format!(
-            "Leak suspects: {}; activity leaks: {}; lifecycle objects: {}; bitmap instances: {}",
-            snapshot.findings.leak_suspects.total,
-            snapshot.findings.activities.total,
-            snapshot.findings.lifecycle.total,
-            snapshot.findings.bitmaps.total
-        ));
-        let mut rows = Vec::new();
-        for row in self
-            .memory_state
-            .classifier_rows
-            .iter()
-            .flat_map(flatten_classifier)
-            .filter_map(|row| row.class_name.clone().map(|name| (name, row)))
-            .take(16)
-        {
-            let (name, row) = row;
-            lines.push(format!(
-                "{}: count {}, shallow {}, retained {}",
-                name,
-                row.total_count,
-                row.shallow_size,
-                row.retained_size
-                    .map_or_else(|| "unavailable".to_owned(), |value| value.to_string())
-            ));
-            rows.push(name);
-        }
-        let payload = aps_json::Value::Object(
-            [
-                (
-                    "objectCount".to_owned(),
-                    aps_json::Value::from(snapshot.summary.object_count),
-                ),
-                (
-                    "shallowSize".to_owned(),
-                    aps_json::Value::from(snapshot.summary.shallow_size),
-                ),
-                (
-                    "classCount".to_owned(),
-                    aps_json::Value::from(snapshot.summary.class_count),
-                ),
-                (
-                    "classes".to_owned(),
-                    aps_json::Value::Array(rows.into_iter().map(aps_json::Value::from).collect()),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        );
-        Ok(aps_ai::AnalysisRequest {
-            session_id: session.clone(),
-            run_id: format!("{session}-memory-g{}", self.generation.max(1)),
-            generation: self.generation.max(1),
-            profiler: "memory".into(),
-            scope: "Offline HPROF snapshot, visible class aggregates only".into(),
-            evidence: vec![aps_ai::Evidence {
-                id: format!("memory-summary-{}", snapshot.source_digest),
-                kind: "memory-histogram".into(),
-                summary: lines.join("; "),
-                payload,
-            }],
-            candidates: Vec::new(),
-            user_question: None,
-        })
+        self.memory_leak_analysis_request()
     }
 }
 
@@ -1146,12 +1051,4 @@ pub(super) fn classifier_class_names(row: &ClassifierRow) -> Vec<String> {
     let mut names = Vec::new();
     collect(row, &mut names);
     names
-}
-
-fn flatten_classifier(row: &ClassifierRow) -> Vec<ClassifierRow> {
-    let mut out = vec![row.clone()];
-    for child in &row.children {
-        out.extend(flatten_classifier(child));
-    }
-    out
 }

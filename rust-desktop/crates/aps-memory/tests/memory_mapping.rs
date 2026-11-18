@@ -84,6 +84,27 @@ impl MinimalHprof {
         self.dump.extend(payload);
     }
 
+    fn static_holder(&mut self, class_id: u64, target: u64) {
+        let name_id = self.string("sample.Holder");
+        let field_id = self.string("screen");
+        let mut load = 1u32.to_be_bytes().to_vec();
+        load.extend(class_id.to_be_bytes());
+        load.extend(0u32.to_be_bytes());
+        load.extend(name_id.to_be_bytes());
+        self.record(2, &load);
+        self.dump.push(0x20);
+        self.dump.extend(class_id.to_be_bytes());
+        self.dump.extend(0u32.to_be_bytes());
+        self.dump.extend([0; 48]);
+        self.dump.extend(0u32.to_be_bytes());
+        self.dump.extend(0u16.to_be_bytes());
+        self.dump.extend(1u16.to_be_bytes());
+        self.dump.extend(field_id.to_be_bytes());
+        self.dump.push(2);
+        self.dump.extend(target.to_be_bytes());
+        self.dump.extend(0u16.to_be_bytes());
+    }
+
     fn class_root(&mut self, class_id: u64) {
         self.dump.push(0x05);
         self.dump.extend(class_id.to_be_bytes());
@@ -180,6 +201,53 @@ fn without_mapping_the_raw_class_name_is_evidence() {
     assert_eq!(names, vec!["a.b.C"]);
     let snapshot = session.snapshot(&cancel).unwrap();
     assert_eq!(snapshot.classes[0].obfuscated_class_name, None);
+}
+
+#[test]
+fn imported_hprof_keeps_the_same_leak_path_in_snapshot_and_paged_findings() {
+    let file = Fixture::obfuscated_class();
+    let mut hprof = MinimalHprof::new();
+    hprof.class(100, "a.b.C", 16);
+    hprof.instance(u64::MAX, 100, &[0; 16]);
+    hprof.static_holder(101, u64::MAX);
+    hprof.class_root(101);
+    fs::write(&file.0, hprof.finish()).unwrap();
+    let digest = sha256_file(&file.0).unwrap();
+    let cancel = CancellationToken::new();
+    let executable = Path::new(env!("CARGO_BIN_EXE_aps-memory-worker"));
+    let mut session = MemorySession::open_with_mapping(
+        executable,
+        &file.0,
+        &digest,
+        &[("a.b.C".into(), "sample.LeakingActivity".into())],
+        &cancel,
+    )
+    .unwrap();
+    let snapshot = session.snapshot(&cancel).unwrap();
+    let page = session.leak_suspects_page(0, 200, &cancel).unwrap();
+    assert_eq!(snapshot.source_digest, digest);
+    assert_eq!(snapshot.findings.leak_suspects, page);
+    assert_eq!(page.total, 1);
+    let suspect = &page.rows[0];
+    assert_eq!(suspect.class_name, "sample.LeakingActivity");
+    assert_eq!(suspect.instance_count, 1);
+    assert_eq!(suspect.retained_size, Some(16));
+    assert!(suspect.reason.contains("sample.Holder.screen"));
+    assert_eq!(suspect.reference_chain.len(), 2);
+    assert_eq!(suspect.reference_chain[0].object_id, 101);
+    assert_eq!(
+        suspect.reference_chain[0].root_kind.as_deref(),
+        Some("STICKY_CLASS")
+    );
+    assert_eq!(suspect.reference_chain[1].object_id, u64::MAX);
+    assert_eq!(
+        suspect.reference_chain[1].class_name,
+        "sample.LeakingActivity"
+    );
+    assert_eq!(
+        suspect.reference_chain[1].field_name.as_deref(),
+        Some("static screen")
+    );
 }
 
 #[test]

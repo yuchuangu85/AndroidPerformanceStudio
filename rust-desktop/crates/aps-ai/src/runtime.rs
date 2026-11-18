@@ -160,10 +160,18 @@ pub struct ApprovalEvidence {
     pub summary: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ApprovalSource {
     pub id: String,
     pub relative_path: String,
+    pub snapshot_id: Option<String>,
+    pub content_digest: Option<String>,
+    pub start_line: Option<u32>,
+    pub end_line: Option<u32>,
+    pub snippet: Option<String>,
+    pub resolution_confidence: Option<String>,
+    pub content_state: Option<String>,
+    pub snippet_truncated: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -920,12 +928,24 @@ impl AiRuntime {
         if crate::platform::agent(&agent_id).is_none() {
             return Err(RuntimeError::Configuration);
         }
-        let context = if options.direct_chat {
+        let mut effective_context = if options.direct_chat {
             None
         } else {
-            options.context.as_ref()
+            options.context.clone()
         };
-        let history = self.conversation_context(&options.conversation_id);
+        if !options.include_source {
+            if let Some(context) = &mut effective_context {
+                context.clear_source_context();
+            }
+        }
+        let context = effective_context.as_ref();
+        let history = if context.is_some_and(|context| {
+            context.is_memory_hprof() || context.memory_phase3_mode().is_some()
+        }) {
+            Vec::new()
+        } else {
+            self.conversation_context(&options.conversation_id)
+        };
         let prompt = crate::chat::build(
             context,
             options.question.as_deref(),
@@ -937,9 +957,6 @@ impl AiRuntime {
         let mut request = match context {
             Some(context) => {
                 let mut request = context.clone();
-                if !options.include_source {
-                    request.candidates.clear();
-                }
                 request.user_question = prompt.question.clone();
                 request
             }
@@ -1065,9 +1082,44 @@ impl AiRuntime {
             sources: request
                 .candidates
                 .iter()
-                .map(|candidate| ApprovalSource {
-                    id: candidate.id.clone(),
-                    relative_path: candidate.relative_path.clone(),
+                .map(|candidate| {
+                    let binding = if request.is_memory_hprof() {
+                        request
+                            .evidence
+                            .iter()
+                            .find(|evidence| {
+                                evidence.kind == "memory-source-binding"
+                                    && evidence
+                                        .payload
+                                        .get("candidateId")
+                                        .and_then(aps_json::Value::as_str)
+                                        == Some(candidate.id.as_str())
+                            })
+                            .map(|evidence| &evidence.payload)
+                    } else {
+                        None
+                    };
+                    ApprovalSource {
+                        id: candidate.id.clone(),
+                        relative_path: candidate.relative_path.clone(),
+                        snapshot_id: Some(candidate.snapshot_id.clone()),
+                        content_digest: Some(candidate.content_digest.to_hex()),
+                        start_line: candidate.start_line,
+                        end_line: candidate.end_line,
+                        snippet: candidate.snippet.clone(),
+                        resolution_confidence: binding
+                            .and_then(|value| value.get("resolutionConfidence"))
+                            .and_then(aps_json::Value::as_str)
+                            .map(str::to_owned),
+                        content_state: binding
+                            .and_then(|value| value.get("sourceContentState"))
+                            .and_then(aps_json::Value::as_str)
+                            .map(str::to_owned),
+                        snippet_truncated: binding
+                            .and_then(|value| value.get("snippetTruncated"))
+                            .and_then(aps_json::Value::as_bool)
+                            .unwrap_or(false),
+                    }
                 })
                 .collect(),
             history: history
@@ -1471,6 +1523,212 @@ mod tests {
             AiRuntime::open_with_secret_store(workspace.path().join("ai"), AiSecretStore::memory())
                 .unwrap();
         (workspace, runtime)
+    }
+
+    fn memory_options(context: AnalysisRequest, include_source: bool) -> PrepareOptions {
+        PrepareOptions {
+            conversation_id: "memory-conversation".into(),
+            context: Some(context),
+            question: Some("Explain current memory findings".into()),
+            include_source,
+            direct_chat: false,
+            parent_turn: None,
+            parent_conversation: None,
+            report_format: ReportFormat::Markdown,
+            report_language: ReportLanguage::English,
+            agent_id: "aps.main".into(),
+        }
+    }
+
+    fn configure_test_provider(runtime: &AiRuntime) {
+        runtime
+            .update_preferences(|preferences| {
+                preferences.active_provider = ProviderKind::Custom;
+                preferences.model = "test-model".into();
+                preferences.connection_mut(ProviderKind::Custom).model = "test-model".into();
+                preferences.connection_mut(ProviderKind::Custom).endpoint =
+                    "https://example.com/v1/responses".into();
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn memory_prepare_projects_invalid_sources_before_validation_and_freeze() {
+        let (_workspace, runtime) = workspace_runtime();
+        configure_test_provider(&runtime);
+        let mut context = crate::model::tests::source_request();
+        context.candidates[0].relative_path = "../PRIVATE_SOURCE".into();
+        context.evidence[2].payload = aps_json::Value::Null;
+        assert!(matches!(
+            runtime.prepare(memory_options(context.clone(), true)),
+            Err(RuntimeError::Context)
+        ));
+        let frozen = runtime.prepare(memory_options(context, false)).unwrap();
+        assert_eq!(frozen.view.candidate_count, 0);
+        assert_eq!(frozen.view.evidence_count, 2);
+        assert!(frozen.view.sources.is_empty());
+        assert!(frozen.view.history.is_empty());
+        assert!(
+            !frozen
+                .view
+                .permissions
+                .iter()
+                .any(|p| p == "SEND_SOURCE_SNIPPETS" || p == "READ_SOURCE_CANDIDATES")
+        );
+        let slot = runtime.prepared.lock().unwrap();
+        let slot = slot.as_ref().unwrap();
+        assert_eq!(slot.request.validate(), Ok(()));
+        assert!(slot.request.scope.starts_with("HPROF-only"));
+        assert!(
+            slot.prompt
+                .instructions
+                .contains(crate::model::MEMORY_HPROF_INSTRUCTIONS)
+        );
+        let encoded =
+            aps_json::to_vec(&slot.prompt.payload, crate::model::json_limits(1024 * 1024)).unwrap();
+        let encoded = String::from_utf8(encoded).unwrap();
+        assert!(!encoded.contains("memory-source-binding"));
+        assert!(!encoded.contains("PRIVATE_SOURCE"));
+        assert!(!encoded.contains("immutable source excerpts"));
+        assert!(encoded.contains("memory-leak-suspect"));
+    }
+
+    #[test]
+    fn memory_prepare_freezes_valid_sources_and_omits_actual_prior_history_from_preflight() {
+        let (_workspace, runtime) = workspace_runtime();
+        configure_test_provider(&runtime);
+        let context = crate::model::tests::source_request();
+        let first = runtime
+            .prepare(memory_options(context.clone(), true))
+            .unwrap();
+        assert_eq!(first.view.candidate_count, 1);
+        assert_eq!(first.view.evidence_count, 3);
+        assert_eq!(first.view.sources[0].id, "source");
+        let source = &first.view.sources[0];
+        assert_eq!(source.snapshot_id.as_deref(), Some("snapshot"));
+        assert_eq!(
+            source.content_digest,
+            Some(context.candidates[0].content_digest.to_hex())
+        );
+        assert_eq!(source.start_line, Some(10));
+        assert_eq!(source.end_line, Some(11));
+        assert_eq!(source.snippet, context.candidates[0].snippet);
+        assert_eq!(source.resolution_confidence.as_deref(), Some("PROBABLE"));
+        assert_eq!(source.content_state.as_deref(), Some("CURRENT"));
+        assert!(source.snippet_truncated);
+        assert!(
+            first
+                .view
+                .permissions
+                .iter()
+                .any(|p| p == "SEND_SOURCE_SNIPPETS")
+        );
+        // Seed a successful older turn without calling a provider.
+        {
+            let mut store = runtime.store_mut().unwrap();
+            let store = store.as_mut().unwrap();
+            let mut record = store.record("memory-conversation").unwrap().unwrap();
+            record.turns.last_mut().unwrap().status = RunStatus::Succeeded;
+            let result = AnalysisResult {
+                session_id: context.session_id.clone(),
+                run_id: first.view.run_id,
+                generation: 1,
+                model: "test-model".into(),
+                summary: "PRIVATE_HISTORY_SOURCE".into(),
+                findings: Vec::new(),
+            };
+            let result = StoredResult::from_analysis(
+                "memory-conversation",
+                1,
+                &result,
+                crate::platform::now_millis(),
+                Vec::new(),
+            )
+            .unwrap();
+            store.complete(&record, &result).unwrap();
+        }
+        assert_eq!(runtime.conversation_context("memory-conversation").len(), 1);
+        for include_source in [true, false] {
+            let frozen = runtime
+                .prepare(memory_options(context.clone(), include_source))
+                .unwrap();
+            assert!(frozen.view.history.is_empty());
+            assert_eq!(frozen.view.candidate_count, usize::from(include_source));
+            let slot = runtime.prepared.lock().unwrap();
+            let slot = slot.as_ref().unwrap();
+            assert_eq!(slot.request.candidates.len(), usize::from(include_source));
+            assert!(
+                slot.prompt
+                    .payload
+                    .get("untrustedConversationContext")
+                    .is_none()
+            );
+            let expected = if include_source {
+                crate::model::MEMORY_HPROF_SOURCE_INSTRUCTIONS
+            } else {
+                crate::model::MEMORY_HPROF_INSTRUCTIONS
+            };
+            assert!(slot.prompt.instructions.contains(expected));
+            let encoded =
+                aps_json::to_vec(&slot.prompt.payload, crate::model::json_limits(1024 * 1024))
+                    .unwrap();
+            assert!(
+                !String::from_utf8(encoded)
+                    .unwrap()
+                    .contains("PRIVATE_HISTORY_SOURCE")
+            );
+        }
+        let mut stale = context;
+        stale.evidence[2].payload["sourceContentState"] = "STALE".into();
+        stale.evidence[2].payload["snippetTruncated"] = false.into();
+        let frozen = runtime.prepare(memory_options(stale, true)).unwrap();
+        assert_eq!(
+            frozen.view.sources[0].content_state.as_deref(),
+            Some("STALE")
+        );
+        assert!(!frozen.view.sources[0].snippet_truncated);
+        assert_eq!(
+            first.view.sources[0].content_state.as_deref(),
+            Some("CURRENT")
+        );
+        assert!(first.view.sources[0].snippet_truncated);
+    }
+
+    #[test]
+    fn phase3_preflight_is_source_free_and_uses_native_heap_contract() {
+        let (_workspace, runtime) = workspace_runtime();
+        configure_test_provider(&runtime);
+        let context = AnalysisRequest {
+            session_id: "phase3-session".into(),
+            run_id: "phase3-run".into(),
+            generation: 1,
+            profiler: "memory".into(),
+            scope: "Native heap sampled evidence".into(),
+            evidence: vec![crate::Evidence {
+                id: "native".into(),
+                kind: "memory-native-heap".into(),
+                summary: "Sampled native heap delta".into(),
+                payload: crate::model::tests::native_heap_phase3_payload(),
+            }],
+            candidates: Vec::new(),
+            user_question: Some("Explain the sampled native delta".into()),
+        };
+        let frozen = runtime.prepare(memory_options(context, true)).unwrap();
+        assert_eq!(frozen.view.candidate_count, 0);
+        assert!(frozen.view.sources.is_empty());
+        assert!(frozen.view.history.is_empty());
+        let slot = runtime.prepared.lock().unwrap();
+        let slot = slot.as_ref().unwrap();
+        assert_eq!(
+            slot.request.memory_phase3_mode(),
+            Some("memory-native-heap")
+        );
+        assert!(slot.prompt.instructions.contains("not Java retained size"));
+        assert!(
+            slot.prompt
+                .instructions
+                .contains("not represent the exact live heap")
+        );
     }
 
     fn codex_home(workspace: &aps_platform::TempWorkspace, config: &str) -> PathBuf {

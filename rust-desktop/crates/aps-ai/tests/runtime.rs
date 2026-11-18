@@ -132,6 +132,18 @@ fn analysis_hides_sources_without_consent_and_requires_evidence() {
         })
         .unwrap();
     assert_eq!(frozen.view.candidate_count, 1);
+    let source = &frozen.view.sources[0];
+    assert_eq!(source.snapshot_id.as_deref(), Some("snapshot"));
+    assert_eq!(
+        source.content_digest,
+        Some(context().candidates[0].content_digest.to_hex())
+    );
+    assert_eq!(source.start_line, Some(12));
+    assert_eq!(source.end_line, Some(14));
+    assert!(source.snippet.is_none());
+    assert!(source.resolution_confidence.is_none());
+    assert!(source.content_state.is_none());
+    assert!(!source.snippet_truncated);
     assert!(
         frozen
             .view

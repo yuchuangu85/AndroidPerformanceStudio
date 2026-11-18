@@ -8,8 +8,9 @@ use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     assets::IconName,
     component::{
-        Disableable,
+        Disableable, Sizable,
         button::{Button, ButtonVariants},
+        checkbox::Checkbox,
         input::Textarea,
         menu::{DropdownMenu, PopupMenuItem},
     },
@@ -137,6 +138,44 @@ pub fn render(
                         .child(crate::studio::selectable(title)),
                 ),
         );
+    }
+
+    if let Some(request) = workspace
+        .bound_context
+        .as_ref()
+        .filter(|request| request.is_memory_hprof())
+    {
+        let count = request.candidates.len();
+        let status = memory_source_status(language, count, include_source);
+        let mut row = div()
+            .w_full()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(8.))
+            .px(px(16.))
+            .child(
+                div()
+                    .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                    .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                    .text_color(colors.muted)
+                    .child(crate::studio::selectable(status)),
+            );
+        if count > 0 {
+            row = row.child(
+                Checkbox::new("memory-ai-include-source")
+                    .with_size(px(14.))
+                    .checked(include_source)
+                    .disabled(busy || pending || !can_include_source)
+                    .label(language.text(TextKey::AiChatIncludeAuthorizedSource))
+                    .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                    .text_color(colors.text)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.toggle_include_source(*checked, cx)
+                    })),
+            );
+        }
+        column = column.child(row);
     }
 
     if !can_send && (!busy || pending) {
@@ -391,6 +430,21 @@ enum SendAction {
     Stop,
 }
 
+fn memory_source_status(language: Language, count: usize, include: bool) -> String {
+    if count == 0 {
+        language.text(TextKey::MemoryAiHprofOnly).into()
+    } else {
+        language.format(
+            if include {
+                TextKey::MemoryAiSourceAttached
+            } else {
+                TextKey::MemoryAiSourceNotAttached
+            },
+            &[("count", &count)],
+        )
+    }
+}
+
 fn model_picker(
     workspace: &mut AiWorkspace,
     colors: &DshChatColors,
@@ -633,6 +687,24 @@ fn model_status_row(label: &str, color: Rgba) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn memory_source_status_distinguishes_available_selected_and_absent_context() {
+        for language in [Language::English, Language::SimplifiedChinese] {
+            assert_eq!(
+                memory_source_status(language, 0, false),
+                language.text(TextKey::MemoryAiHprofOnly)
+            );
+            assert_eq!(
+                memory_source_status(language, 2, false),
+                language.format(TextKey::MemoryAiSourceNotAttached, &[("count", &2)])
+            );
+            assert_eq!(
+                memory_source_status(language, 2, true),
+                language.format(TextKey::MemoryAiSourceAttached, &[("count", &2)])
+            );
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn model_menu_errors_name_the_settings_fix() {

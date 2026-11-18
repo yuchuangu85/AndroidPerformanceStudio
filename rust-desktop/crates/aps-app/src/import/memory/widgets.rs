@@ -50,7 +50,9 @@ pub(super) fn disclosure_button(
         .line_height(px(TABLE_ROW_HEIGHT))
         .text_color(color)
         .cursor_pointer()
-        .child(if expanded { "▾" } else { "▸" })
+        // Full-size triangles remain legible at the shared 16 px icon size;
+        // the small-triangle glyphs occupy only a fraction of the same em.
+        .child(if expanded { "▼" } else { "▶" })
         // Row selection runs on MouseDown; stopping Click alone is too late
         // to prevent a heap/group row from toggling a second time.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

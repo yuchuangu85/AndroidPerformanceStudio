@@ -3,12 +3,13 @@
 //! Compose (desktop-viewer/desktop-app/.../SourceWorkspacesPage.kt and the
 //! source-workspace module) is the behavior oracle. The page keeps one explicit
 //! local source root per workspace, an immutable cached snapshot, a directory
-//! tree and a verified read-only viewer. Source text never leaves the machine.
+//! tree and a verified read-only viewer. AI snippets require workspace and run consent.
 
 mod ai_context;
 mod code_viewer;
 mod layout;
 mod lsp;
+pub(crate) mod memory_ai;
 mod page;
 mod permissions;
 mod service;
@@ -134,6 +135,29 @@ impl SourceWorkspace {
 
     pub fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
         self.studio = Some(studio);
+    }
+
+    pub(crate) fn memory_source_plan(&self) -> Option<memory_ai::MemorySourcePlan> {
+        if !self.list_loaded || self.permissions_error.is_some() || self.paths.database.is_none() {
+            return None;
+        }
+        let mut workspaces: Vec<_> = self
+            .workspaces
+            .iter()
+            .filter(|workspace| {
+                workspace.config.kind() == aps_source::SourceProviderKind::Local
+                    && workspace.phase == SourceWorkspacePhase::Ready
+                    && workspace.active_snapshot_id.is_some()
+                    && self.permissions.allowed(&workspace.id.to_hex())
+                    && !self.sync_in_flight.contains_key(&workspace.id.to_hex())
+            })
+            .cloned()
+            .collect();
+        workspaces
+            .sort_by_key(|workspace| (Some(workspace.id) != self.selected_workspace, workspace.id));
+        workspaces.truncate(4);
+        (!workspaces.is_empty())
+            .then(|| memory_ai::MemorySourcePlan::new(self.paths.clone(), workspaces))
     }
 
     pub fn set_lsp_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {

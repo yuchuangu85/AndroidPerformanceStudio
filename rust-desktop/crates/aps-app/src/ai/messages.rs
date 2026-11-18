@@ -6,7 +6,7 @@ use super::state;
 use super::style::{self, DshChatColors, tokens};
 use super::widgets;
 use aps_ui_foundation::{Language, TextKey};
-use gpui_kit::{assets::IconName, prelude::*, *};
+use gpui_kit::{assets::IconName, component::scroll::ScrollableElement, prelude::*, *};
 use std::collections::BTreeSet;
 
 pub fn render_conversation(
@@ -719,6 +719,79 @@ fn approval_card(
                     source.id, source.relative_path
                 ))),
         );
+        if let (Some(start), Some(end), Some(confidence), Some(state)) = (
+            source.start_line,
+            source.end_line,
+            source.resolution_confidence.as_deref(),
+            source.content_state.as_deref(),
+        ) {
+            let confidence = language.text(if confidence == "EXACT" {
+                TextKey::SourceConfidenceExact
+            } else {
+                TextKey::SourceConfidenceProbable
+            });
+            let state = language.text(if state == "STALE" {
+                TextKey::MemoryAiSourceStale
+            } else {
+                TextKey::MemoryAiSourceCurrent
+            });
+            column = column.child(
+                div()
+                    .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                    .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                    .text_color(colors.muted)
+                    .child(crate::studio::selectable(language.format(
+                        TextKey::MemoryAiSourceExcerpt,
+                        &[
+                            ("start", &start),
+                            ("end", &end),
+                            ("confidence", &confidence),
+                            ("state", &state),
+                        ],
+                    ))),
+            );
+        }
+        if let (Some(snapshot), Some(hash)) = (&source.snapshot_id, &source.content_digest) {
+            column = column.child(
+                div()
+                    .min_w_0()
+                    .w_full()
+                    .text_size(px(tokens::CODE_FONT_SIZE))
+                    .line_height(px(tokens::CODE_LINE_HEIGHT))
+                    .text_color(colors.muted)
+                    .overflow_x_scrollbar()
+                    .id(ElementId::Name(
+                        format!("memory-source-identity-{}", source.id).into(),
+                    ))
+                    .child(crate::studio::selectable(format!(
+                        "snapshot: {snapshot}\nSHA-256: {hash}"
+                    ))),
+            );
+        }
+        if source.snippet_truncated {
+            column = column.child(
+                div()
+                    .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                    .text_color(colors.muted)
+                    .child(language.text(TextKey::MemoryAiSourceTruncated)),
+            );
+        }
+        if let Some(snippet) = &source.snippet {
+            column = column.child(
+                div()
+                    .min_w_0()
+                    .w_full()
+                    .max_h(px(160.))
+                    .overflow_scrollbar()
+                    .id(ElementId::Name(
+                        format!("memory-source-snippet-{}", source.id).into(),
+                    ))
+                    .font_family(super::widgets::MONOSPACE)
+                    .text_size(px(tokens::CODE_FONT_SIZE))
+                    .line_height(px(tokens::CODE_LINE_HEIGHT))
+                    .child(crate::studio::selectable(snippet.clone())),
+            );
+        }
     }
     if !approval.history.is_empty() {
         column = column.child(widgets::command_button(

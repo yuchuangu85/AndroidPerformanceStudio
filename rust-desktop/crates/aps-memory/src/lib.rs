@@ -7,7 +7,7 @@ use aps_hprof_engine::wire::{self, Value};
 use aps_platform::CancellationToken;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, SyncSender};
@@ -434,8 +434,17 @@ impl MemorySession {
                     MAX_SNAPSHOT_BYTES,
                 ) {
                     Ok(payload) => payload,
-                    Err(MemoryError::EngineRejected | MemoryError::ResponseLimit) => {
+                    Err(MemoryError::EngineRejected) => {
+                        // A size-based omission is recoverable, but a changed
+                        // source/graph must not publish a partial stale snapshot.
+                        self.request("checkSource", Value::map([]), cancel, SNAPSHOT_TIMEOUT)?;
                         snapshot.per_heap_classes.clear();
+                        snapshot.per_heap_summaries.clear();
+                        break;
+                    }
+                    Err(MemoryError::ResponseLimit) => {
+                        snapshot.per_heap_classes.clear();
+                        snapshot.per_heap_summaries.clear();
                         break;
                     }
                     Err(error) => return Err(error),
@@ -447,6 +456,7 @@ impl MemorySession {
                 );
                 if total_bytes > 2 * MAX_SNAPSHOT_BYTES {
                     snapshot.per_heap_classes.clear();
+                    snapshot.per_heap_summaries.clear();
                     break;
                 }
                 let classes = payload
@@ -808,16 +818,12 @@ fn read_response(reader: &mut impl Read, max_response: usize) -> Result<Value, M
 /// query API. UI callers use the bounded methods on MemorySession. `max_response`
 /// mirrors the budget the parent applies when reading, so the combined snapshot
 /// response may use its larger snapshot allowance instead of the page ceiling.
-pub(crate) fn write_response(
-    writer: &mut impl Write,
-    response: &Value,
-    max_response: usize,
-) -> io::Result<()> {
+pub(crate) fn encode_response(response: &Value, max_response: usize) -> io::Result<Vec<u8>> {
     let bytes = wire::encode(response).map_err(|_| io::ErrorKind::InvalidData)?;
     if bytes.is_empty() || bytes.len() > max_response {
         return Err(io::ErrorKind::InvalidData.into());
     }
-    wire::write_encoded(writer, &bytes).map_err(|_| io::ErrorKind::BrokenPipe.into())
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -896,6 +902,14 @@ mod tests {
                         ("instanceCount", 2i64.into()),
                         ("retainedSize", 4096i64.into()),
                         ("activityOrFragmentLeak", false.into()),
+                        (
+                            "referenceChain",
+                            Value::List(vec![Value::map([
+                                ("fieldName", "GC Root (JNI Global)".into()),
+                                ("targetObjectId", (-1i64).into()),
+                                ("targetClassName", "sample.LeakingActivity".into()),
+                            ])]),
+                        ),
                     ])],
                 ),
             ),
@@ -925,6 +939,14 @@ mod tests {
                         ("liveInstanceCount", 3i64.into()),
                         ("destroyedInstanceCount", 2i64.into()),
                         ("retainedSize", Value::Null),
+                        (
+                            "referenceChain",
+                            Value::List(vec![Value::map([
+                                ("fieldName", "screen".into()),
+                                ("targetObjectId", 42i64.into()),
+                                ("targetClassName", "sample.Screen".into()),
+                            ])]),
+                        ),
                     ])],
                 ),
             ),
@@ -990,6 +1012,10 @@ mod tests {
         assert_eq!(findings.leak_suspects.total, 5);
         assert_eq!(findings.leak_suspects.rows.len(), 1);
         assert!(!findings.leak_suspects.rows[0].activity_or_fragment_leak);
+        let root = &findings.leak_suspects.rows[0].reference_chain[0];
+        assert_eq!(root.object_id, u64::MAX);
+        assert_eq!(root.root_kind.as_deref(), Some("JNI Global"));
+        assert_eq!(root.field_name, None);
         assert_eq!(findings.bitmaps.total, 3);
         assert_eq!(
             findings.bitmaps.rows[0].bitmap_source_id.as_deref(),
@@ -998,6 +1024,13 @@ mod tests {
         assert_eq!(findings.bitmaps.rows[0].width, Some(100));
         assert_eq!(findings.activities.rows[0].destroyed_instance_count, 2);
         assert_eq!(findings.activities.total, 1);
+        assert_eq!(findings.activities.rows[0].reference_chain[0].object_id, 42);
+        assert_eq!(
+            findings.activities.rows[0].reference_chain[0]
+                .field_name
+                .as_deref(),
+            Some("screen")
+        );
         assert_eq!(findings.lifecycle.total, 2);
         assert_eq!(findings.lifecycle.rows[0].object_id, 42);
         assert_eq!(findings.lifecycle.rows[0].heap_name.as_deref(), Some("App"));
@@ -1011,6 +1044,28 @@ mod tests {
         assert!(snapshot.per_heap_classes.is_empty());
         assert_eq!(snapshot.classes.len(), 2);
         assert_eq!(snapshot.metadata.id_size, 8);
+    }
+
+    #[test]
+    fn invalid_findings_counts_or_malformed_chains_are_rejected() {
+        let value = page_value(
+            0,
+            vec![Value::map([
+                ("className", "sample.Screen".into()),
+                ("reason", "candidate".into()),
+                ("instanceCount", 1i64.into()),
+                ("activityOrFragmentLeak", false.into()),
+            ])],
+        );
+        assert!(model::decode_findings_page(&value, LeakSuspect::from_value).is_err());
+        let malformed = Value::map([
+            ("className", "sample.Screen".into()),
+            ("reason", "candidate".into()),
+            ("instanceCount", 1i64.into()),
+            ("activityOrFragmentLeak", false.into()),
+            ("referenceChain", Value::List(vec![Value::Null])),
+        ]);
+        assert!(LeakSuspect::from_value(&malformed).is_err());
     }
 
     #[test]
@@ -1043,15 +1098,87 @@ mod tests {
         // use the snapshot allowance the reader also applies, otherwise the
         // worker aborts the session and the page reports a worker failure.
         let payload = Value::String("x".repeat(3 * 1024 * 1024));
-        let mut page = Vec::new();
-        assert!(write_response(&mut page, &payload, MAX_RESPONSE_BYTES).is_err());
+        assert!(encode_response(&payload, MAX_RESPONSE_BYTES).is_err());
         let mut snapshot = Vec::new();
-        write_response(&mut snapshot, &payload, MAX_SNAPSHOT_BYTES).unwrap();
+        wire::write_encoded(
+            &mut snapshot,
+            &encode_response(&payload, MAX_SNAPSHOT_BYTES).unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             u32::from_be_bytes(snapshot[..4].try_into().unwrap()) as usize,
             snapshot.len() - 4
         );
         assert_eq!(wire::decode(&snapshot[4..]).unwrap(), payload);
+    }
+
+    #[test]
+    fn rejected_fallback_requires_source_validation_and_discards_partial_heap_data() {
+        for source_valid in [false, true] {
+            let (request_tx, request_rx) = mpsc::sync_channel::<(Vec<u8>, usize)>(1);
+            let (response_tx, response_rx) = mpsc::sync_channel(1);
+            let io_thread = thread::spawn(move || {
+                for (index, expected) in
+                    ["snapshot", "heapHistogram", "heapHistogram", "checkSource"]
+                        .into_iter()
+                        .enumerate()
+                {
+                    let (bytes, _) = request_rx.recv().unwrap();
+                    let request = wire::decode(&bytes).unwrap();
+                    assert_eq!(request.get("op").unwrap().as_str().unwrap(), expected);
+                    let ok = index < 2 || (index == 3 && source_valid);
+                    let payload = match index {
+                        0 => snapshot_payload(None, true),
+                        1 => Value::map([
+                            (
+                                "classes",
+                                Value::List(vec![class_value("sample.Alpha", 2, 200, Some(800))]),
+                            ),
+                            ("summary", summary_value()),
+                        ]),
+                        _ => Value::Null,
+                    };
+                    response_tx
+                        .send(Ok(Value::map([
+                            ("version", wire::VERSION.into()),
+                            ("id", request.get("id").unwrap().clone()),
+                            ("sourceDigest", request.get("sourceDigest").unwrap().clone()),
+                            ("status", if ok { "ok" } else { "error" }.into()),
+                            ("payload", payload),
+                        ])))
+                        .unwrap();
+                }
+            });
+            // The protocol is mocked above; use a short-lived, owned child so
+            // normal session cleanup and liveness guards remain exercised.
+            let child = Command::new(std::env::current_exe().unwrap())
+                .arg("--help")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut session = MemorySession {
+                child: Some(child),
+                requests: Some(request_tx),
+                responses: response_rx,
+                io_thread: Some(io_thread),
+                source_digest: "d".repeat(64),
+                request_id: 0,
+                metadata: metadata_value(4),
+                query_cache: Vec::new(),
+            };
+            let result = session.snapshot(&CancellationToken::new());
+            if source_valid {
+                let snapshot = result.unwrap();
+                assert!(snapshot.per_heap_classes.is_empty());
+                assert!(snapshot.per_heap_summaries.is_empty());
+                assert_eq!(snapshot.findings.leak_suspects.total, 5);
+                assert_eq!(snapshot.findings.activities.total, 1);
+                assert_eq!(snapshot.classes.len(), 2);
+            } else {
+                assert_eq!(result, Err(MemoryError::EngineRejected));
+            }
+        }
     }
 }
 

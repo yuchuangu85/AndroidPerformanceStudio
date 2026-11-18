@@ -86,6 +86,7 @@ fn leak_aliases_cover_mapped_class_names() {
                     instance_count: 1,
                     retained_size: Some(100),
                     activity_or_fragment_leak: true,
+                    reference_chain: Vec::new(),
                 }],
             },
             ..FindingsSnapshot::default()
@@ -200,6 +201,7 @@ fn leak_filter_keeps_activity_fragment_candidates() {
                     instance_count: 1,
                     retained_size: None,
                     activity_or_fragment_leak: true,
+                    reference_chain: Vec::new(),
                 }],
             },
             ..FindingsSnapshot::default()

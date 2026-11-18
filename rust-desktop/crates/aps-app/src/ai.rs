@@ -65,6 +65,7 @@ pub struct AiWorkspace {
     epoch: u64,
     frozen: Option<FrozenRun>,
     bound_context: Option<AnalysisRequest>,
+    memory_source_guard: Option<crate::source::memory_ai::MemorySourceGuard>,
     bound_title: Option<String>,
     open_settings: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
     open_source: Option<Rc<dyn Fn(String, &mut Window, &mut App)>>,
@@ -80,6 +81,10 @@ pub struct AiWorkspace {
     subscriptions: Vec<Subscription>,
     #[cfg(debug_assertions)]
     debug_demo: bool,
+}
+
+fn source_context_available(context: Option<&AnalysisRequest>) -> bool {
+    context.is_some_and(|request| !request.candidates.is_empty())
 }
 
 impl AiWorkspace {
@@ -125,6 +130,7 @@ impl AiWorkspace {
             epoch: 0,
             frozen: None,
             bound_context: None,
+            memory_source_guard: None,
             bound_title: None,
             open_settings: None,
             open_source: None,
@@ -205,15 +211,17 @@ impl AiWorkspace {
         cx: &mut Context<Self>,
     ) {
         self.cancel_active_run(cx);
-        self.bound_title = Some(format!("{} · {}", request.profiler, request.scope));
+        self.memory_source_guard = None;
+        self.bound_title = Some(if request.is_memory_hprof() {
+            self.language.text(TextKey::MemoryAiContextTitle).into()
+        } else {
+            format!("{} · {}", request.profiler, request.scope)
+        });
         self.bound_context = Some(request);
         self.state.pending_approval = None;
         self.state.status = None;
         self.state.error = None;
-        self.state.can_include_source = self
-            .bound_context
-            .as_ref()
-            .is_some_and(|request| !request.candidates.is_empty());
+        self.state.can_include_source = source_context_available(self.bound_context.as_ref());
         self.state.include_source = false;
         self.state.context_title = self.bound_title.clone();
         if self.state.selected_conversation_id.is_none() {
@@ -222,11 +230,19 @@ impl AiWorkspace {
         cx.notify();
     }
 
+    pub(crate) fn bind_memory_source_guard(
+        &mut self,
+        guard: Option<crate::source::memory_ai::MemorySourceGuard>,
+    ) {
+        self.memory_source_guard = guard;
+    }
+
     /// Profiler evidence changed: invalidate any prepared/resulting run but do
     /// not create a new conversation or touch unrelated history.
     pub fn invalidate_origin(&mut self, cx: &mut Context<Self>) {
         self.cancel_active_run(cx);
         self.bound_context = None;
+        self.memory_source_guard = None;
         self.bound_title = None;
         self.state.context_title = None;
         self.state.include_source = false;
@@ -663,7 +679,7 @@ impl AiWorkspace {
     /// Open the one-use preflight approval card. Rendering the frozen view is
     /// the only thing that can lead to execution.
     pub(crate) fn present_approval(&mut self, frozen: FrozenRun) {
-        self.state.can_include_source = !frozen.view.sources.is_empty() && !self.state.busy;
+        self.state.can_include_source = source_context_available(self.bound_context.as_ref());
         self.state.pending_approval = Some(frozen.view.clone());
         self.frozen = Some(frozen);
     }
@@ -746,8 +762,17 @@ impl AiWorkspace {
         let mut frozen_context = context.clone();
         if let Some(request) = frozen_context.as_mut() {
             if !include_source {
-                request.candidates.clear();
+                request.clear_source_context();
             }
+        }
+        let needs_guard = frozen_context
+            .as_ref()
+            .is_some_and(|request| request.is_memory_hprof() && !request.candidates.is_empty());
+        let source_guard = self.memory_source_guard.clone().filter(|_| needs_guard);
+        if needs_guard && source_guard.is_none() {
+            self.state.error = Some("E_MEMORY_SOURCE_GUARD".into());
+            cx.notify();
+            return;
         }
         let options = aps_ai::runtime::PrepareOptions {
             conversation_id: self
@@ -793,9 +818,14 @@ impl AiWorkspace {
         );
         self.set_draft("", window, cx);
         cx.notify();
-        let task = cx
-            .background_executor()
-            .spawn(async move { runtime.prepare(options) });
+        let task = cx.background_executor().spawn(async move {
+            if let Some(guard) = source_guard {
+                guard
+                    .validate()
+                    .map_err(|_| aps_ai::runtime::RuntimeError::Context)?;
+            }
+            runtime.prepare(options)
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -842,6 +872,20 @@ impl AiWorkspace {
             return;
         };
         let run_id = frozen.view.run_id.clone();
+        let needs_guard = frozen.view.candidate_count > 0
+            && self
+                .bound_context
+                .as_ref()
+                .is_some_and(AnalysisRequest::is_memory_hprof);
+        let source_guard = self.memory_source_guard.clone().filter(|_| needs_guard);
+        if needs_guard && source_guard.is_none() {
+            runtime.cancel();
+            self.state.pending_approval = None;
+            self.state.busy = false;
+            self.state.error = Some("E_MEMORY_SOURCE_GUARD".into());
+            cx.notify();
+            return;
+        }
         let conversation_id = self.state.selected_conversation_id.clone();
         let epoch = self.epoch.wrapping_add(1);
         self.epoch = epoch;
@@ -851,9 +895,15 @@ impl AiWorkspace {
         self.state.error = None;
         self.state.add_activity(run_id.clone(), "run", "started");
         cx.notify();
-        let task = cx
-            .background_executor()
-            .spawn(async move { runtime.execute(frozen).await });
+        let task = cx.background_executor().spawn(async move {
+            if let Some(guard) = source_guard {
+                if guard.validate().is_err() {
+                    runtime.cancel();
+                    return Err(aps_ai::runtime::RuntimeError::Context);
+                }
+            }
+            runtime.execute(frozen).await
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -1186,6 +1236,7 @@ impl AiWorkspace {
 
     pub(crate) fn start_ordinary_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.bound_context = None;
+        self.memory_source_guard = None;
         self.bound_title = None;
         self.state.context_title = None;
         self.state.can_include_source = false;
@@ -1477,6 +1528,7 @@ fn demo_approval() -> aps_ai::runtime::ApprovalView {
         sources: vec![aps_ai::runtime::ApprovalSource {
             id: "candidate-render-frame".to_owned(),
             relative_path: "app/src/main/kotlin/RenderFrame.kt".to_owned(),
+            ..Default::default()
         }],
         history: vec![aps_ai::runtime::ApprovalHistoryTurn {
             question: Some("Any earlier findings?".to_owned()),
@@ -1572,5 +1624,82 @@ impl NoticeSource for AiWorkspace {
         notices.retain(|notice| !notice.message.trim().is_empty());
         notices.truncate(8);
         notices
+    }
+}
+
+#[cfg(test)]
+mod memory_source_tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn source_availability_survives_a_source_off_preflight_projection() {
+        let context = AnalysisRequest {
+            session_id: "session".into(),
+            run_id: "run".into(),
+            generation: 1,
+            profiler: "memory".into(),
+            scope: "context".into(),
+            user_question: None,
+            evidence: vec![aps_ai::Evidence {
+                id: "header".into(),
+                kind: "memory-hprof-leak-findings".into(),
+                summary: "coverage".into(),
+                payload: aps_json::Value::Null,
+            }],
+            candidates: vec![aps_ai::SourceCandidate {
+                id: "candidate".into(),
+                workspace_id: "workspace".into(),
+                snapshot_id: "snapshot".into(),
+                content_digest: aps_contracts::SourceDigest::from_bytes([1; 32]),
+                relative_path: "Widget.kt".into(),
+                start_line: Some(1),
+                end_line: Some(1),
+                snippet: Some("class Widget".into()),
+            }],
+        };
+        assert!(!source_context_available(None));
+        assert!(source_context_available(Some(&context)));
+        let mut projected = context.clone();
+        projected.clear_source_context();
+        assert!(!source_context_available(Some(&projected)));
+        assert!(source_context_available(Some(&context)));
+        let implementation = include_str!("ai.rs").split("#[cfg(test)]").next().unwrap();
+        let approval = implementation
+            .split("fn present_approval(")
+            .nth(1)
+            .unwrap()
+            .split("fn clear_approval(")
+            .next()
+            .unwrap();
+        assert!(approval.contains("source_context_available(self.bound_context.as_ref())"));
+        assert!(!approval.contains("!self.state.busy"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn memory_source_guard_precedes_prepare_and_execution() {
+        let implementation = include_str!("ai.rs").split("#[cfg(test)]").next().unwrap();
+        let prepare = implementation
+            .split("fn prepare_question(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn approve(")
+            .next()
+            .unwrap();
+        assert!(prepare.contains("request.clear_source_context()"));
+        assert!(
+            prepare.find(".validate()").unwrap()
+                < prepare.find("runtime.prepare(options)").unwrap()
+        );
+        let execute = implementation
+            .split("pub(crate) fn approve(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn stop(")
+            .next()
+            .unwrap();
+        assert!(
+            execute.find(".validate()").unwrap() < execute.find("runtime.execute(frozen)").unwrap()
+        );
+        assert!(execute.contains("runtime.cancel()"));
     }
 }

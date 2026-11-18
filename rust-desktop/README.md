@@ -66,6 +66,13 @@ let version = Language::English.format(
 Memory 和 Frame 现在使用专用的 GPUI 工作区，而不是通用导入表。Memory 遵循 Compose Memory Profiler 页面：包含命令工具栏（导入、捕获操作、Overview/Classes/Dominators/Diff、辅助视图、Mapping、AI 分析）、快照标签页、证据/警告条和状态栏。
 Classes 具有主筛选栏、八张 KPI 卡片、堆分布、可调整大小的分类器树（堆/包分组、排序、展开、泄漏和重复项着色）、实例列表分页，以及内嵌对象检查器（Fields/References、最近 GC 根、深入导航和数组分页）。
 Dominators 具有 KPI、分布、筛选器、延迟加载的支配树和检查器；Diff 比较两个 dump 之间的类数量、浅层大小和保留大小，不建立跨 dump 的身份关系；Leak Analysis 展示 HPROF 启发式发现。
+Memory 的 AI 默认仅发送当前 HPROF 已解析的泄漏候选和必要的覆盖信息，不发送类直方图、原始堆、Bitmap 或历史对话。顶部与 Leak Analysis 页的 AI 按钮共用显式审批和会话流程，没有候选或仍在加载时不可用。
+泄漏证据 JSON 总量最多 16 KiB，每类最多 32 条，单条最多 4 KiB；已有 GC Root 引用链保留最多 16 个节点，长链分别保留根侧和目标侧并明确标记中间缺口。原始候选总数、加载数量、实际发送数量和省略数量分开记录；超限的候选不会被改写或伪造。对象 ID 使用十六进制字符串保留 64 位身份，数值和未知状态沿用解析结果，retained size 是代表对象值，不汇总重叠保留范围。
+源码辅助分析只使用已注册、索引完成且允许 AI 上传的 Local 源码工作区，优先当前选中的工作区，最多检查 4 个。后台按已发送泄漏候选和引用链中的类型名做确定性定位，沿用 mapping 导入后的名称；不扫描整个工程，不让 AI 创建路径或行号，也不自动获取 GitHub/AOSP 源码。
+源码上下文最多包含 6 个片段，每个片段最多 80 行、3072 字节，候选和绑定元数据合计最多 16 KiB，独立于泄漏证据预算。片段只来自内容哈希校验通过的不可变缓存，绑定 workspace/snapshot、相对路径、行范围、全文和片段哈希、索引覆盖及工作区变化状态。未验证运行时构建身份时，定位最多为 Probable；片段截断不能作为“缺少释放代码”的证明。
+“包含已授权源码”默认关闭。开启后预检显示实际片段、快照、哈希和行范围，逐次确认才发送；关闭时源码候选和绑定元数据一起移除，保持 HPROF-only。工作区授权、活动快照、缓存内容和片段状态会在预检与发送前重新验证；撤销、同步或堆快照切换会失效旧请求。预检失败不会静默发送旧源码。
+每条 AI Finding 必须引用已发送的具体泄漏候选，不能只引用覆盖信息；源码引用还必须与该 Finding 的泄漏证据有绑定关系，并可跳转到持久化的精确快照片段。候选仍是启发式保留证据，不是已证实泄漏。Provider 真实执行、原生 GUI 和发布资格需要分别验收。
+Phase 3 增强诊断使用独立证据通道：比较两个 HPROF 时发送类级数量/浅层/保留大小变化，不使用跨 dump 对象身份；没有比较对时可发送确定性的 Activity/Fragment/静态 Context/Handler 生命周期规则结果。Native Heap AI 只在 Native heapprofd 页面发送采样 accounting 和覆盖信息，不发送 Java retained size；ART sampled 页面仍保持独立不可用。LeakCanary/Shark 使用独立外部 artifact 状态/摘要/有界引用链接口，未采集时保持 unavailable，不由 HPROF 候选伪造 Shark 结论。
 Native Heap 和 ART Samples 在专用页面中使用有边界的 heapprofd 跟踪投影；Bitmap image dump 使用隔离的提取流程、ARGB 内容/唯一内容/重复组摘要、与上一份 dump 的 SHA-256 内容比较，以及图像预览/导出。
 这些产物仍与普通 Java HPROF 发现保持独立，缺少样本/不支持的图像 dump 仍会明确显示。类型化的 `aps-memory` 领域层移植了 Compose presenter（包括有边界的无依赖 regex 子集），并通过隔离的 HPROF worker 执行一次有边界的快照读取以及类型化的实例/详情/支配树页面。
 Mapping 导入（ProGuard/R8）和 HPROF 导出（raw/standard、类直方图、实例、对象调查、Diff、快照 JSON、调查报告、Bitmap dump/比较）已通过 File 菜单接入，并使用有边界、经过摘要校验的写入；standard HPROF 只复制宿主 `hprof-conv` 的真实输出，缺失时保留 raw 分析并提示。Frame 提供离线 gfxinfo FrameStats 摘要卡片、截止时间筛选、分页、窗口筛选、帧选择、使用 Canvas 渲染的有边界分页/缩放/悬停时长时间线、问题帧导航、可信的预算来源、阶段分解详情、警告、证据复制以及相同的有边界导出生命周期。
@@ -77,6 +84,11 @@ Native/ART 和 FrameTimeline 录制使用共享的、有时长/大小边界的 P
 Native/ART 还会重新检查启动 ID/进程身份，并在数据集打开期间保留其本地录制文件。Bitmap 捕获请求 Android 支持的 bitmap heap-dump 扩展，然后在有边界的 memory worker 中提取 PNG；主机端取消不会声称已经终止 Android 的 heap-dump 操作。
 本次开发跟进不构成 FrameMetrics/JankStats、LeakCanary/Shark 或多数据源完整运行时验收。不支持的操作会保持为明确不可用。
 快照比较只使用两个独立 dump 的类聚合数据；相同的对象 ID 绝不表示共享身份。不会从离线 HPROF 推断实时时间线/GC 标记以及 native/bitmap 指标。
+
+HPROF 引用图使用专用批量扫描器：缓存继承字段的引用偏移和原始 slot，只读取引用 ID，不为建图创建完整字段 `Value`；沿原始已打开句柄复用固定读取缓冲，小跨度前移直接消费缓冲。
+扫描开始、每 4096 个对象或 1 MiB 扫描跨度、扫描结束都会检查路径和原句柄的文件身份，失败不发布图；长数组也会触发批次检查。这不是原子不可变字节快照，worker 导入前后的 SHA-256 校验及对象详情的独立校验仍然保留。
+
+NativeAllocationRegistry 归属也使用缓存布局的批量字段读取；macOS SHA-256 使用系统 CommonCrypto，其他平台保留可移植实现。首次 snapshot 共享全堆/按堆聚合、直接汇总可见支配树根，并在响应预算内复用按堆回退结果；完整 findings 发布、三次内容校验和响应上限不变。真实 `launcher.hprof` 的交错 Release 采样中，数据与展示模型就绪中位数从 6.436 秒降至 3.155 秒；这不是首帧上屏耗时。实现、结果一致性证据、复测命令和验证边界见 [HPROF 导入性能](HPROF_IMPORT_PERFORMANCE.md)。
 
 ## 网络工作区
 

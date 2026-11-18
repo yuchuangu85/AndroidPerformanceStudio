@@ -76,23 +76,13 @@ impl ImportWorkspace {
             .child(
                 toolbar_button(
                     "memory-leak-analyze",
-                    language.text(TextKey::MemoryPageLeakAnalyze),
-                    false,
+                    language.text(TextKey::FoundationAiAnalysis),
+                    self.memory_ai_available(),
                     false,
                     colors,
                 )
-                .tooltip(language.text(TextKey::MemoryPageLeakcanaryUnavailable)),
-            )
-            .child(studio::supporting(
-                language.format(
-                    TextKey::MemoryPageLeakAnalysisStatus,
-                    &[(
-                        "arg_1",
-                        &language.text(TextKey::MemoryPageLeakAnalysisNotRun),
-                    )],
-                ),
-                colors,
-            ));
+                .on_click(cx.listener(|this, _, window, cx| this.memory_open_ai(window, cx))),
+            );
 
         let notes = div()
             .w_full()

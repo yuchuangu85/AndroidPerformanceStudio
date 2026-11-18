@@ -910,6 +910,7 @@ impl Studio {
                 this.refresh_route_menus(cx);
             }),
             cx.observe(&source, |this, _, cx| {
+                this.ai_request_epoch.cancel();
                 if this.ai_origin.is_some() {
                     this.ai.update(cx, |ai, cx| ai.invalidate_origin(cx));
                     this.ai_origin = None;
@@ -1469,6 +1470,9 @@ impl Studio {
     }
 
     fn invalidate_ai(&mut self, origin: Destination, cx: &mut Context<Self>) {
+        if origin == Destination::Memory && self.destination == Destination::Memory {
+            self.ai_request_epoch.cancel();
+        }
         if self.ai_origin == Some(origin) {
             self.ai.update(cx, |ai, cx| ai.invalidate_origin(cx));
             self.ai_origin = None;
@@ -1565,6 +1569,99 @@ impl Studio {
         cx: &mut Context<Self>,
     ) {
         self.ai_request_epoch.cancel();
+        let result = match (origin, result) {
+            (Destination::Memory, Ok(request)) if request.is_memory_hprof() => {
+                let plan = self.source.read(cx).memory_source_plan();
+                if let Some(plan) = plan {
+                    self.prepare_memory_source_request(request, plan, window, cx);
+                    return;
+                }
+                Ok(request)
+            }
+            (_, result) => result,
+        };
+        self.bind_ai_request(origin, result, None, window, cx);
+    }
+
+    fn prepare_memory_source_request(
+        &mut self,
+        request: aps_ai::AnalysisRequest,
+        plan: crate::source::memory_ai::MemorySourcePlan,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Page-owned buttons are inside a Memory entity update. Freeze the
+        // supplied request here and only read that entity after the await.
+        let binding = request
+            .evidence
+            .iter()
+            .find(|evidence| evidence.kind == "memory-hprof-leak-findings")
+            .and_then(|evidence| evidence.payload.get("sourceDigest"))
+            .and_then(aps_json::Value::as_str)
+            .map(|digest| {
+                (
+                    request.session_id.clone(),
+                    request.generation,
+                    digest.to_owned(),
+                )
+            });
+        let epoch = match self.ai_request_epoch.begin() {
+            Ok(epoch) => epoch,
+            Err(error) => {
+                self.bind_ai_request(Destination::Memory, Err(error), None, window, cx);
+                return;
+            }
+        };
+        self.ai.update(cx, |ai, cx| ai.invalidate_origin(cx));
+        self.ai_origin = None;
+        self.notice = Some(
+            self.settings
+                .language
+                .text(TextKey::MemoryAiResolvingSource)
+                .into(),
+        );
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { plan.enrich(request) })
+                .await;
+            let _ = this.update_in(cx, |studio, window, cx| {
+                if !studio
+                    .ai_request_epoch
+                    .accepts(epoch, Destination::Memory, studio.destination)
+                {
+                    return;
+                }
+                studio.ai_request_epoch.cancel();
+                let current = studio
+                    .imports
+                    .get(&Destination::Memory)
+                    .and_then(|memory| memory.read(cx).memory_ai_binding());
+                if current != binding || current.is_none() {
+                    return;
+                }
+                match result {
+                    Ok((request, guard)) => {
+                        studio.bind_ai_request(Destination::Memory, Ok(request), guard, window, cx)
+                    }
+                    Err(error) => {
+                        studio.bind_ai_request(Destination::Memory, Err(error), None, window, cx)
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn bind_ai_request(
+        &mut self,
+        origin: Destination,
+        result: Result<aps_ai::AnalysisRequest, String>,
+        source_guard: Option<crate::source::memory_ai::MemorySourceGuard>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match result {
             Ok(mut request) => {
                 let Some(generation) = self.ai_generation.checked_add(1) else {
@@ -1580,8 +1677,10 @@ impl Studio {
                 self.ai_generation = generation;
                 request.generation = generation;
                 request.run_id = format!("ai-run-{generation}");
-                self.ai
-                    .update(cx, |ai, cx| ai.bind_context(request, window, cx));
+                self.ai.update(cx, |ai, cx| {
+                    ai.bind_context(request, window, cx);
+                    ai.bind_memory_source_guard(source_guard);
+                });
                 self.ai_origin = Some(origin);
                 self.set_destination(Destination::Ai);
                 self.notice = None;
@@ -3399,6 +3498,45 @@ impl Render for Studio {
 #[cfg(test)]
 mod menubar_tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn memory_source_epoch_rejects_source_changes_and_navigation_round_trips() {
+        let mut epoch = AiRequestEpoch::default();
+        let first = epoch.begin().unwrap();
+        assert!(epoch.accepts(first, Destination::Memory, Destination::Memory));
+        epoch.cancel();
+        assert!(!epoch.accepts(first, Destination::Memory, Destination::Memory));
+        let second = epoch.begin().unwrap();
+        assert!(!epoch.accepts(first, Destination::Memory, Destination::Memory));
+        assert!(!epoch.accepts(second, Destination::Memory, Destination::SourceWorkspaces));
+        let implementation = include_str!("shell.rs")
+            .split("mod menubar_tests {")
+            .next()
+            .unwrap();
+        let job = implementation
+            .split("fn prepare_memory_source_request(")
+            .nth(1)
+            .unwrap()
+            .split("fn bind_ai_request(")
+            .next()
+            .unwrap();
+        assert!(
+            !job.split("cx.spawn_in(")
+                .next()
+                .unwrap()
+                .contains("memory.read(cx)")
+        );
+        assert!(job.contains("current != binding"));
+        assert!(job.contains(".accepts("));
+        let observer = implementation
+            .split("cx.observe(&source,")
+            .nth(1)
+            .unwrap()
+            .split("cx.observe(&trace,")
+            .next()
+            .unwrap();
+        assert!(observer.contains("this.ai_request_epoch.cancel()"));
+    }
 
     #[::core::prelude::v1::test]
     fn firefox_ai_request_epoch_rejects_older_requests_and_navigation_round_trips() {
