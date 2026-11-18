@@ -82,6 +82,7 @@ pub(in crate::frame) fn analysis_request(
         }],
         candidates: Vec::new(),
         user_question: None,
+            mcp: None,
     })
 }
 

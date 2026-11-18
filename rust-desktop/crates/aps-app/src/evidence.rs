@@ -44,6 +44,7 @@ pub fn request(
         }],
         candidates: Vec::new(),
         user_question: None,
+            mcp: None,
     })
 }
 

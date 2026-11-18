@@ -51,6 +51,13 @@ pub struct SourceCandidate {
 
 /// Deliberately not Debug or Serialize: arbitrary evidence/question text is not audit data.
 #[derive(Clone)]
+pub struct McpContext {
+    pub command: std::path::PathBuf,
+    pub arguments: Vec<String>,
+    pub source_digest: String,
+}
+
+#[derive(Clone)]
 pub struct AnalysisRequest {
     pub session_id: String,
     pub run_id: String,
@@ -60,6 +67,7 @@ pub struct AnalysisRequest {
     pub evidence: Vec<Evidence>,
     pub candidates: Vec<SourceCandidate>,
     pub user_question: Option<String>,
+    pub mcp: Option<McpContext>,
 }
 
 impl AnalysisRequest {
@@ -879,7 +887,8 @@ impl AnalysisResult {
         request: &AnalysisRequest,
         model: &str,
     ) -> Result<Self, AiError> {
-        let root = aps_json::parse_slice(bytes, json_limits(256 * 1024))
+        let bytes = normalized_json_bytes(bytes).ok_or(AiError::InvalidResponse)?;
+        let root = aps_json::parse_slice(&bytes, json_limits(256 * 1024))
             .map_err(|_| AiError::InvalidResponse)?;
         exact_keys(&root, &["summary", "findings"])?;
         let summary = text(&root, "summary", 16_384)?;
@@ -1018,6 +1027,23 @@ impl AnalysisResult {
             summary,
             findings,
         })
+    }
+}
+
+/// Some OpenAI-compatible gateways preserve fenced JSON even when the request
+/// asks for a strict JSON schema. Remove only a complete JSON code fence;
+/// arbitrary prose remains invalid and is never treated as data.
+fn normalized_json_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
+    let trimmed = std::str::from_utf8(bytes).ok()?.trim();
+    if !trimmed.starts_with("```") {
+        return Some(trimmed.as_bytes().to_vec());
+    }
+    let first_newline = trimmed.find(char::from(10))?;
+    let body = trimmed[first_newline + 1..].strip_suffix("```")?.trim();
+    if body.is_empty() {
+        None
+    } else {
+        Some(body.as_bytes().to_vec())
     }
 }
 
@@ -1520,6 +1546,7 @@ pub(crate) mod tests {
             evidence: vec![evidence("coverage", "memory-hprof-leak-findings")],
             candidates: Vec::new(),
             user_question: None,
+            mcp: None,
         }
     }
 
@@ -1646,6 +1673,18 @@ pub(crate) mod tests {
             .evidence
             .insert(0, evidence("other", "memory-summary"));
         assert!(request.is_memory_hprof());
+    }
+
+    #[test]
+    fn validate_accepts_a_complete_json_code_fence_without_relaxing_references() {
+        let mut request = request();
+        request.evidence[0].id = "candidate".into();
+        request.evidence[0].kind = "memory-leak-suspect".into();
+        let raw = response(&["candidate"], &[]);
+        let fenced = format!("```json\n{}\n```", String::from_utf8(raw).unwrap());
+        let result = AnalysisResult::validate(fenced.as_bytes(), &request, "model").unwrap();
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].evidence_ids, vec!["candidate"]);
     }
 
     #[test]

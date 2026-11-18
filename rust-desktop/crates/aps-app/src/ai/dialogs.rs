@@ -9,6 +9,7 @@ use gpui_kit::{
     prelude::*,
     *,
 };
+use std::collections::BTreeMap;
 
 pub fn render(
     workspace: &mut AiWorkspace,
@@ -73,50 +74,63 @@ fn prompt_dialog(
     entity: &WeakEntity<AiWorkspace>,
     _cx: &mut Context<AiWorkspace>,
 ) -> AnyElement {
-    let suggestions = super::prompts::for_context(workspace.bound_context.as_ref(), language);
+    let mut grouped = BTreeMap::new();
+    for suggestion in super::prompts::for_context(workspace.bound_context.as_ref(), language) {
+        grouped
+            .entry(suggestion.category)
+            .or_insert_with(Vec::new)
+            .push(suggestion);
+    }
     let mut list = div()
         .w_full()
         .flex()
         .flex_col()
-        .gap(px(6.))
+        .gap(px(8.))
         .overflow_y_scrollbar();
-    for (index, suggestion) in suggestions.into_iter().enumerate() {
-        let use_entity = entity.clone();
-        let prompt = suggestion.prompt.clone();
-        list = list.child(
-            div()
-                .id(ElementId::Name(
-                    format!("ai-prompt-suggestion-{index}").into(),
-                ))
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .p(px(10.))
-                .border_1()
-                .border_color(colors.border)
-                .rounded(px(tokens::SMALL_RADIUS))
-                .cursor_pointer()
-                .on_click(move |_, window, cx| {
-                    let _ = use_entity
-                        .update(cx, |this, cx| this.use_prompt(prompt.clone(), window, cx));
-                })
-                .child(
-                    div()
-                        .text_size(px(tokens::BODY_FONT_SIZE))
-                        .line_height(px(tokens::BODY_LINE_HEIGHT))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(colors.text)
-                        .child(crate::studio::selectable(suggestion.title)),
-                )
-                .child(
-                    div()
-                        .text_size(px(tokens::SECONDARY_FONT_SIZE))
-                        .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
-                        .text_color(colors.muted)
-                        .child(crate::studio::selectable(suggestion.prompt)),
-                ),
-        );
+    let mut index = 0usize;
+    for (category, suggestions) in grouped {
+        let category_label = category.label(language);
+        list = list.child(title(&category_label, colors));
+        for suggestion in suggestions {
+            let use_entity = entity.clone();
+            let prompt = suggestion.prompt.clone();
+            let item_id = index;
+            index += 1;
+            list = list.child(
+                div()
+                    .id(ElementId::Name(
+                        format!("ai-prompt-suggestion-{item_id}").into(),
+                    ))
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .p(px(10.))
+                    .border_1()
+                    .border_color(colors.border)
+                    .rounded(px(tokens::SMALL_RADIUS))
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| {
+                        let _ = use_entity
+                            .update(cx, |this, cx| this.use_prompt(prompt.clone(), window, cx));
+                    })
+                    .child(
+                        div()
+                            .text_size(px(tokens::BODY_FONT_SIZE))
+                            .line_height(px(tokens::BODY_LINE_HEIGHT))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(colors.text)
+                            .child(crate::studio::selectable(suggestion.title)),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                            .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                            .text_color(colors.muted)
+                            .child(crate::studio::selectable(suggestion.prompt)),
+                    ),
+            );
+        }
     }
     let close_entity = entity.clone();
     card(colors)
@@ -350,7 +364,7 @@ fn evidence_dialog(
     let mut card = card(colors)
         .child(title(language.text(TextKey::AiChatEvidenceSources), colors))
         .max_h(relative(0.82))
-        .overflow_y_scroll();
+        .overflow_y_scrollbar();
     match evidence {
         None => {
             card = card

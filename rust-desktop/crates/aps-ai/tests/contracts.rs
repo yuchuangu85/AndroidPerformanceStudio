@@ -42,6 +42,7 @@ fn request() -> AnalysisRequest {
         }],
         candidates: Vec::new(),
         user_question: None,
+        mcp: None,
     }
 }
 fn prepared(stream: bool) -> PreparedRun {

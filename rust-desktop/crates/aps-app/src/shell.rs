@@ -1580,7 +1580,20 @@ impl Studio {
             }
             (_, result) => result,
         };
-        self.bind_ai_request(origin, result, None, window, cx);
+        if origin == Destination::Memory {
+            // Memory page buttons invoke this while the Memory entity is still
+            // being updated. Defer the binding until that update completes so
+            // the shell observer does not mistake the handoff itself for a
+            // changed HPROF snapshot and immediately invalidate the context.
+            let studio = cx.entity();
+            window.defer(cx, move |window, cx| {
+                let _ = studio.update(cx, |studio, cx| {
+                    studio.bind_ai_request(origin, result, None, window, cx);
+                });
+            });
+        } else {
+            self.bind_ai_request(origin, result, None, window, cx);
+        }
     }
 
     fn prepare_memory_source_request(
@@ -3586,6 +3599,25 @@ mod menubar_tests {
             .next()
             .unwrap();
         assert!(presentation.contains("self.ai_request_epoch.cancel()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn memory_ai_handoff_defers_binding_until_after_the_memory_entity_update() {
+        let source = include_str!("shell.rs");
+        let presentation = source
+            .split("pub(crate) fn present_ai_request(")
+            .nth(1)
+            .unwrap()
+            .split("fn prepare_memory_source_request(")
+            .next()
+            .unwrap();
+        let memory_branch = presentation
+            .split("if origin == Destination::Memory {")
+            .nth(1)
+            .unwrap();
+        assert!(memory_branch.contains("window.defer(cx"));
+        assert!(memory_branch.contains("studio.bind_ai_request(origin, result, None, window, cx)"));
+        assert!(memory_branch.contains("self.bind_ai_request(origin, result, None, window, cx)"));
     }
 
     #[cfg(debug_assertions)]

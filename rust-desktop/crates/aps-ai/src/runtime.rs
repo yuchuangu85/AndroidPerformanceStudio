@@ -938,6 +938,9 @@ impl AiRuntime {
                 context.clear_source_context();
             }
         }
+        if let Some(context) = &mut effective_context {
+            crate::mcp::hydrate(context).map_err(|_| RuntimeError::Context)?;
+        }
         let context = effective_context.as_ref();
         let history = if context.is_some_and(|context| {
             context.is_memory_hprof() || context.memory_phase3_mode().is_some()
@@ -969,6 +972,7 @@ impl AiRuntime {
                 evidence: Vec::new(),
                 candidates: Vec::new(),
                 user_question: prompt.question.clone(),
+                mcp: None,
             },
         };
         let mut permissions = vec!["PROVIDER_NETWORK".to_owned()];
@@ -1712,6 +1716,7 @@ mod tests {
             }],
             candidates: Vec::new(),
             user_question: Some("Explain the sampled native delta".into()),
+            mcp: None,
         };
         let frozen = runtime.prepare(memory_options(context, true)).unwrap();
         assert_eq!(frozen.view.candidate_count, 0);

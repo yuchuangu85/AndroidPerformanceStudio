@@ -92,6 +92,8 @@
   ,"ai_chat_prompt_suggestions_hint": "Choose a prompt to fill the composer, then edit it before sending."
   ,"ai_chat_prompt_hprof_root_cause_title": "Find the likely leak cause"
   ,"ai_chat_prompt_hprof_root_cause": "Based on the current HPROF leak candidates and GC-root reference chains, rank the most likely leak causes. Separate direct evidence, inference, and what still needs verification."
+  ,"ai_chat_prompt_hprof_risk_ranking_title": "Rank HPROF leak candidates by risk"
+  ,"ai_chat_prompt_hprof_risk_ranking": "Based on the current HPROF leak candidates, GC-root reference chains, and coverage, rank the risks. Explain the most likely holders, the objects that need further verification, and what the current evidence cannot prove."
   ,"ai_chat_prompt_hprof_confidence_title": "Assess leak evidence confidence"
   ,"ai_chat_prompt_hprof_confidence": "Assess the confidence of each current HPROF leak candidate. Explain which signals support a leak and which could be normal retention or a false positive."
   ,"ai_chat_prompt_hprof_next_steps_title": "Plan the next investigation steps"
@@ -124,4 +126,8 @@
   ,"ai_chat_prompt_general_summary": "Summarize the current analysis, listing the key findings, evidence, and uncertainties in order of importance."
   ,"ai_chat_prompt_general_next_steps_title": "Suggest next actions"
   ,"ai_chat_prompt_general_next_steps": "Based on the current analysis, give the smallest actionable next steps and state the validation goal for each step."
+  ,"ai_chat_prompt_category_memory_leak": "Memory leaks"
+  ,"ai_chat_prompt_category_memory": "Memory diagnostics"
+  ,"ai_chat_prompt_category_source": "Source-assisted analysis"
+  ,"ai_chat_prompt_category_general": "General analysis"
 }

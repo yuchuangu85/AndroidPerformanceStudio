@@ -107,7 +107,33 @@ impl ImportWorkspace {
             request.scope =
                 "HPROF deterministic lifecycle retention rule; not proof of a leak".into();
         }
+        request.mcp = self.memory_mcp_context(&snapshot.source_digest);
         Ok(request)
+    }
+
+    fn memory_mcp_context(&self, digest: &str) -> Option<aps_ai::McpContext> {
+        let hprof = self.path.as_ref()?.canonicalize().ok()?;
+        let app = std::env::current_exe().ok()?;
+        let worker = app.with_file_name(if cfg!(target_os = "windows") {
+            "aps-memory-worker.exe"
+        } else {
+            "aps-memory-worker"
+        });
+        let command = app.with_file_name(if cfg!(target_os = "windows") {
+            "aps-memory-mcp.exe"
+        } else {
+            "aps-memory-mcp"
+        });
+        (worker.is_file() && command.is_file()).then(|| aps_ai::McpContext {
+            command,
+            arguments: vec![
+                "--hprof".into(),
+                hprof.to_string_lossy().into_owned(),
+                "--worker".into(),
+                worker.to_string_lossy().into_owned(),
+            ],
+            source_digest: digest.to_owned(),
+        })
     }
 
     fn memory_native_analysis_request(&self) -> Result<AnalysisRequest, String> {
@@ -150,6 +176,7 @@ impl ImportWorkspace {
             evidence: vec![evidence],
             candidates: Vec::new(),
             user_question: None,
+            mcp: None,
         })
     }
 
@@ -456,6 +483,7 @@ fn build_request_inner(
         evidence,
         candidates: Vec::new(),
         user_question: None,
+        mcp: None,
     })
 }
 

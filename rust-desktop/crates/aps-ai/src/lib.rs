@@ -5,6 +5,7 @@ mod catalog;
 mod chat;
 mod claude;
 pub mod conversation;
+pub(crate) mod mcp;
 mod model;
 mod persistence;
 pub mod platform;
@@ -21,7 +22,8 @@ pub use conversation::{
     StoredChatTurn, StoredFinding, StoredResult, TranscriptTurn,
 };
 pub use model::{
-    AnalysisFinding, AnalysisRequest, AnalysisResult, Evidence, FindingSeverity, SourceCandidate,
+    AnalysisFinding, AnalysisRequest, AnalysisResult, Evidence, FindingSeverity, McpContext,
+    SourceCandidate,
 };
 pub use persistence::{AUDIT_FILE_NAME, AuditRecord, AuditState, SessionStore};
 pub use platform::catalog::{

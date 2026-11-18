@@ -910,6 +910,7 @@ mod tests {
             ],
             candidates: Vec::new(),
             user_question: Some("Explain retention".into()),
+            mcp: None,
         }
     }
     fn request_bytes(request: &AnalysisRequest) -> Vec<u8> {

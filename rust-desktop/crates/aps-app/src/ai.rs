@@ -1662,6 +1662,7 @@ mod memory_source_tests {
             profiler: "memory".into(),
             scope: "context".into(),
             user_question: None,
+            mcp: None,
             evidence: vec![aps_ai::Evidence {
                 id: "header".into(),
                 kind: "memory-hprof-leak-findings".into(),

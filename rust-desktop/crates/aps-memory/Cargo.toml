@@ -8,7 +8,12 @@ publish.workspace = true
 [dependencies]
 aps-platform = { path = "../aps-platform" }
 aps-hprof-engine = { path = "../aps-hprof-engine" }
+serde_json.workspace = true
 
 [[bin]]
 name = "aps-memory-worker"
 path = "src/bin/worker.rs"
+
+[[bin]]
+name = "aps-memory-mcp"
+path = "src/bin/mcp.rs"

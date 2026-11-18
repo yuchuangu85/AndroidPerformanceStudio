@@ -5,12 +5,56 @@ use aps_ui_foundation::{Language, TextKey};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PromptSuggestion {
+    pub category: PromptCategory,
     pub title: String,
     pub prompt: String,
 }
 
+#[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub(crate) enum PromptCategory {
+    MemoryLeak,
+    MemoryDiagnostics,
+    Source,
+    General,
+}
+
+impl PromptCategory {
+    pub(crate) fn label(self, language: Language) -> String {
+        let key = match self {
+            Self::MemoryLeak => TextKey::AiChatPromptCategoryMemoryLeak,
+            Self::MemoryDiagnostics => TextKey::AiChatPromptCategoryMemory,
+            Self::Source => TextKey::AiChatPromptCategorySource,
+            Self::General => TextKey::AiChatPromptCategoryGeneral,
+        };
+        language.text(key).to_owned()
+    }
+}
+
+fn category_for_title(title: TextKey) -> PromptCategory {
+    match title {
+        TextKey::AiChatPromptHprofRootCauseTitle
+        | TextKey::AiChatPromptHprofRiskRankingTitle
+        | TextKey::AiChatPromptHprofConfidenceTitle
+        | TextKey::AiChatPromptHprofNextStepsTitle
+        | TextKey::AiChatPromptLifecycleTitle
+        | TextKey::AiChatPromptLifecycleFixTitle
+        | TextKey::AiChatPromptSharkTitle
+        | TextKey::AiChatPromptSharkValidationTitle => PromptCategory::MemoryLeak,
+        TextKey::AiChatPromptGrowthTitle
+        | TextKey::AiChatPromptGrowthValidationTitle
+        | TextKey::AiChatPromptNativeTitle
+        | TextKey::AiChatPromptNativeNextStepsTitle
+        | TextKey::AiChatPromptEvidenceLimitsTitle => PromptCategory::MemoryDiagnostics,
+        TextKey::AiChatPromptSourceExplainTitle
+        | TextKey::AiChatPromptSourceRiskTitle
+        | TextKey::AiChatPromptSourceNextStepsTitle => PromptCategory::Source,
+        _ => PromptCategory::General,
+    }
+}
+
 fn suggestion(language: Language, title: TextKey, prompt: TextKey) -> PromptSuggestion {
     PromptSuggestion {
+        category: category_for_title(title),
         title: language.text(title).to_owned(),
         prompt: language.text(prompt).to_owned(),
     }
@@ -43,37 +87,40 @@ pub(crate) fn for_context(
                 "memory-hprof-growth" => (
                     (
                         TextKey::AiChatPromptGrowthTitle,
-                        TextKey::AiChatPromptGrowth,
+                        TextKey::AiChatPromptGrowthValidationTitle,
                     ),
                     (
-                        TextKey::AiChatPromptGrowthValidationTitle,
+                        TextKey::AiChatPromptGrowth,
                         TextKey::AiChatPromptGrowthValidation,
                     ),
                 ),
                 "memory-lifecycle-rule" => (
                     (
                         TextKey::AiChatPromptLifecycleTitle,
-                        TextKey::AiChatPromptLifecycle,
+                        TextKey::AiChatPromptLifecycleFixTitle,
                     ),
                     (
-                        TextKey::AiChatPromptLifecycleFixTitle,
+                        TextKey::AiChatPromptLifecycle,
                         TextKey::AiChatPromptLifecycleFix,
                     ),
                 ),
                 "memory-native-heap" => (
                     (
                         TextKey::AiChatPromptNativeTitle,
-                        TextKey::AiChatPromptNative,
+                        TextKey::AiChatPromptNativeNextStepsTitle,
                     ),
                     (
-                        TextKey::AiChatPromptNativeNextStepsTitle,
+                        TextKey::AiChatPromptNative,
                         TextKey::AiChatPromptNativeNextSteps,
                     ),
                 ),
                 "memory-leakcanary-shark" => (
-                    (TextKey::AiChatPromptSharkTitle, TextKey::AiChatPromptShark),
                     (
+                        TextKey::AiChatPromptSharkTitle,
                         TextKey::AiChatPromptSharkValidationTitle,
+                    ),
+                    (
+                        TextKey::AiChatPromptShark,
                         TextKey::AiChatPromptSharkValidation,
                     ),
                 ),
@@ -94,6 +141,11 @@ pub(crate) fn for_context(
                 language,
                 TextKey::AiChatPromptHprofRootCauseTitle,
                 TextKey::AiChatPromptHprofRootCause,
+            ),
+            suggestion(
+                language,
+                TextKey::AiChatPromptHprofRiskRankingTitle,
+                TextKey::AiChatPromptHprofRiskRanking,
             ),
             suggestion(
                 language,
@@ -169,6 +221,7 @@ mod tests {
                 .collect(),
             candidates: Vec::new(),
             user_question: None,
+            mcp: None,
         }
     }
 
@@ -180,6 +233,25 @@ mod tests {
         );
         assert!(prompts.len() >= 3);
         assert!(prompts.iter().any(|item| item.prompt.contains("HPROF")));
+        assert!(prompts.iter().any(|item| {
+            item.title.contains("risk")
+                && item.prompt.contains("GC-root")
+                && item.category == PromptCategory::MemoryLeak
+        }));
+        assert!(
+            prompts
+                .iter()
+                .any(|item| item.category == PromptCategory::MemoryLeak)
+        );
+        assert!(
+            prompts.iter().all(|item| {
+                matches!(
+                    item.category,
+                    PromptCategory::MemoryLeak | PromptCategory::MemoryDiagnostics
+                )
+            }),
+            "unexpected categories: {prompts:?}"
+        );
     }
 
     #[test]
@@ -189,8 +261,14 @@ mod tests {
             Language::SimplifiedChinese,
         );
         assert!(prompts.iter().any(|item| item.prompt.contains("Native")));
+        assert!(prompts.iter().all(|item| {
+            matches!(
+                item.category,
+                PromptCategory::MemoryLeak | PromptCategory::MemoryDiagnostics
+            )
+        }));
         assert!(
-            !prompts
+            prompts
                 .iter()
                 .any(|item| item.prompt.contains("Java retained"))
         );
@@ -200,6 +278,11 @@ mod tests {
     fn ordinary_context_has_safe_fallback_prompts() {
         let prompts = for_context(Some(&request("cpu", None)), Language::English);
         assert_eq!(prompts.len(), 2);
+        assert!(
+            prompts
+                .iter()
+                .all(|item| item.category == PromptCategory::General)
+        );
         assert!(prompts.iter().all(|item| !item.prompt.trim().is_empty()));
     }
 }

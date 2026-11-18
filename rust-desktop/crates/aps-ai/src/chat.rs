@@ -462,6 +462,7 @@ mod tests {
             }],
             candidates: Vec::new(),
             user_question: None,
+            mcp: None,
         }
     }
 

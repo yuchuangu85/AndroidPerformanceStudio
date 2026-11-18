@@ -92,6 +92,8 @@
   ,"ai_chat_prompt_suggestions_hint": "选择一个提示填入输入框，可继续修改后发送。"
   ,"ai_chat_prompt_hprof_root_cause_title": "定位最可能的泄漏原因"
   ,"ai_chat_prompt_hprof_root_cause": "请基于当前 HPROF 泄漏候选和 GC Root 引用链，按可能性排序解释最可能的泄漏原因。请区分直接证据、推断和仍需验证的部分。"
+  ,"ai_chat_prompt_hprof_risk_ranking_title": "按风险排序 HPROF 泄漏候选"
+  ,"ai_chat_prompt_hprof_risk_ranking": "请基于当前 HPROF 泄漏候选、GC Root 引用链和覆盖率，按风险排序，说明最可能的持有者、需要进一步验证的对象，以及当前证据无法证明的部分。"
   ,"ai_chat_prompt_hprof_confidence_title": "评估泄漏证据可信度"
   ,"ai_chat_prompt_hprof_confidence": "请逐项评估当前 HPROF 泄漏候选的可信度，说明哪些信号支持泄漏、哪些情况可能只是正常保留或候选误报。"
   ,"ai_chat_prompt_hprof_next_steps_title": "给出下一步排查方案"
@@ -124,4 +126,8 @@
   ,"ai_chat_prompt_general_summary": "请总结当前分析结果，按重要性列出关键发现、证据和不确定性。"
   ,"ai_chat_prompt_general_next_steps_title": "给出下一步行动"
   ,"ai_chat_prompt_general_next_steps": "请根据当前分析结果给出最小化、可执行的下一步行动，并说明每一步的验证目标。"
+  ,"ai_chat_prompt_category_memory_leak": "内存泄漏"
+  ,"ai_chat_prompt_category_memory": "内存诊断"
+  ,"ai_chat_prompt_category_source": "源码辅助分析"
+  ,"ai_chat_prompt_category_general": "通用分析"
 }

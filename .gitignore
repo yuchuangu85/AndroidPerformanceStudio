@@ -52,3 +52,6 @@ google-services.json
 .claude/
 .omx/
 .omc/
+
+!rust-desktop/crates/aps-memory/src/bin/
+!rust-desktop/crates/aps-memory/src/bin/mcp.rs

@@ -55,6 +55,7 @@ fn context() -> AnalysisRequest {
             snippet: None,
         }],
         user_question: None,
+        mcp: None,
     }
 }
 

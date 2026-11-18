@@ -205,6 +205,7 @@ dependencies = [
  "futures",
  "gpui-pre-http-client",
  "rusqlite",
+ "serde_json",
 ]
 
 [[package]]
@@ -348,6 +349,7 @@ version = "0.1.0"
 dependencies = [
  "aps-hprof-engine",
  "aps-platform",
+ "serde_json",
 ]
 
 [[package]]

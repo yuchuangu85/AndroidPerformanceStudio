@@ -33,3 +33,24 @@ RSS；但它确实保证堆不会进入 UI 内存。
 现有 engine fixture 对齐、相同输入的 Kotlin 对比、worker 崩溃和取消压力测试、RSS
 测量、打包以及跨平台资格验证都是独立的验证门禁；编译此适配器并不意味着这些门禁
 已经通过。
+
+## MCP 内存工具
+
+`aps-memory-mcp` 是 APS 自有的只读 MCP Server。它只接受一个明确选定的 HPROF 和
+同目录下的 `aps-memory-worker`，通过 stdio 提供以下有界工具：
+
+- `memory_snapshot_summary`：快照元数据、摘要和来源摘要。
+- `memory_leak_findings`：HPROF 启发式泄漏候选、生命周期候选和引用链。
+- `memory_class_histogram`：可按 heap/class 搜索的有界类直方图。
+- `memory_object_detail`：单个对象的字段、引用和 GC Root 证据。
+
+构建：
+
+```sh
+cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-memory-mcp
+```
+
+Server 不接受任意文件读取、Shell、网络或写文件请求；响应不包含 HPROF 路径，源摘要变化
+会使当前 session 失效。APS 内置 AI 在 Memory HPROF 分析的 prepare 阶段启动该 Server，
+预取摘要、泄漏发现和类直方图，把结果冻结为 `mcp-memory-*` evidence 后再进入现有
+审批和 Provider 请求流程。MCP 查询失败会 fail closed，不会回退到未经绑定的旧结果。

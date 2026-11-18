@@ -6,6 +6,7 @@ rust-version = "1.99"
 publish = false
 
 [dependencies]
+serde_json.workspace = true
 aps-json = { path = "../aps-json" }
 aps-platform = { path = "../aps-platform" }
 aps-contracts = { path = "../aps-contracts" }
