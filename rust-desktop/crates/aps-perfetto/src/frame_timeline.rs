@@ -68,7 +68,7 @@ pub(crate) fn sql(process_id: Option<i32>) -> String {
           AND a.surface_frame_token IS e.surface_frame_token \
          LEFT JOIN process AS p ON p.upid = e.upid \
          WHERE e.display_frame_token IS NOT NULL {predicate} \
-         ORDER BY e.ts"
+         ORDER BY e.ts, e.id, a.id"
     )
 }
 

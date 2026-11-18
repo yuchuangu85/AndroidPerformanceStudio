@@ -6,7 +6,7 @@
 
 use crate::analysis::{FRAME_TIMELINE_JANK_TAG, FRAME_TIMELINE_PRESENT_TYPE};
 use crate::model::{ExpectedDurationSource, FrameSample, FrameSource, JankType};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// One Android 12+ Expected/Actual FrameTimeline row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,13 +68,30 @@ pub fn map_timeline_rows(rows: Vec<FrameTimelineRow>) -> FrameTimelineResult {
     {
         capabilities.surface_correlation = false;
     }
+    // A display token can be shared by multiple layer/process rows. Preserve
+    // it as platform evidence, but selection and session storage need a unique
+    // key per sample. Keep historical IDs for traces that have no collisions.
+    let mut tokens = HashSet::new();
+    let use_row_ids = rows.iter().any(|row| !tokens.insert(row.frame_id));
+    let frames = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let id = if use_row_ids {
+                index as u64 + 1
+            } else {
+                row.frame_id
+            };
+            map_row(row, id)
+        })
+        .collect();
     FrameTimelineResult {
-        frames: rows.iter().map(map_row).collect(),
+        frames,
         capabilities,
     }
 }
 
-fn map_row(row: &FrameTimelineRow) -> FrameSample {
+fn map_row(row: &FrameTimelineRow, frame_id: u64) -> FrameSample {
     let jank = row.jank_type.as_deref().filter(|jank_type| {
         !matches!(
             *jank_type,
@@ -104,7 +121,7 @@ fn map_row(row: &FrameTimelineRow) -> FrameSample {
         Default::default()
     };
     FrameSample {
-        frame_id: row.frame_id,
+        frame_id,
         session_id: "perfetto".to_owned(),
         source: FrameSource::Perfetto,
         package_name: None,

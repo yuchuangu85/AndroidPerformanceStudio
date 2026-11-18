@@ -426,7 +426,7 @@ fn header(
 ) -> AnyElement {
     let language = this.language;
     let busy = this.is_capturing || this.is_loading;
-    let process_ready = this.selected_process_pid.is_some();
+    let process_ready = this.selected_process().is_some();
     let device_ready = this.selected_device_serial.as_ref().is_some_and(|serial| {
         this.devices
             .iter()
@@ -518,7 +518,7 @@ fn header(
             header_button(
                 "frame-toggle-capture",
                 capture_label,
-                process_ready && (this.is_capturing || (device_ready && !this.is_loading)),
+                this.is_capturing || (process_ready && device_ready && !this.is_loading),
                 this.is_capturing,
                 colors,
             )

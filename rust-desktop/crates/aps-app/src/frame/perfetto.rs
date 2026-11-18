@@ -11,7 +11,7 @@ use aps_frame::{
     FrameSample, FrameTimelineCapabilities, FrameTimelineResult, FrameTimelineRow,
     map_timeline_rows,
 };
-use aps_perfetto::TraceSession;
+use aps_perfetto::{TraceProcessor, TraceSession};
 use aps_platform::CancellationToken;
 use std::path::Path;
 
@@ -25,7 +25,14 @@ pub(in crate::frame) fn analyze_trace(
     trace: &Path,
     cancel: &CancellationToken,
 ) -> Result<PerfettoTimeline, String> {
-    let tool = crate::perfetto_tool::locate(cancel)?;
+    analyze_with_tool(crate::perfetto_tool::locate(cancel)?, trace, cancel)
+}
+
+pub(in crate::frame) fn analyze_with_tool(
+    tool: TraceProcessor,
+    trace: &Path,
+    cancel: &CancellationToken,
+) -> Result<PerfettoTimeline, String> {
     let tool_version = tool.version().to_owned();
     let session = TraceSession::open(tool, trace, cancel)
         .map_err(|error| format!("Cannot open the Perfetto FrameTimeline trace: {error}"))?;

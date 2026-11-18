@@ -178,11 +178,18 @@ impl RecordingIo for AdbIo {
     }
 }
 
+/// Bounded FrameTimeline recording on Android 12+: traced exclusively creates the output.
 pub fn record_bounded(
     request: &RecordingRequest<'_>,
     cancel: &CancellationToken,
 ) -> Result<RecordingResult, RecordingFailure> {
-    record_bounded_checked(request, cancel, &mut || Ok(()))
+    record_with_action(
+        &AdbIo,
+        request,
+        cancel,
+        &mut || Ok(()),
+        StartMode::DetachedServiceOutput,
+    )
 }
 
 /// Optional process/boot/install identity guard for target-bound Native/ART
@@ -201,7 +208,13 @@ fn record_with(
     cancel: &CancellationToken,
     validate_target: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<RecordingResult, RecordingFailure> {
-    record_with_action(io, request, cancel, validate_target, None)
+    record_with_action(
+        io,
+        request,
+        cancel,
+        validate_target,
+        StartMode::DetachedCliOutput,
+    )
 }
 
 /// Starts a uniquely named bounded session and waits for Perfetto's
@@ -214,7 +227,20 @@ pub fn record_around_action(
     cancel: &CancellationToken,
     action: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<RecordingResult, RecordingFailure> {
-    record_with_action(&AdbIo, request, cancel, &mut || Ok(()), Some(action))
+    record_with_action(
+        &AdbIo,
+        request,
+        cancel,
+        &mut || Ok(()),
+        StartMode::ReadyAction(action),
+    )
+}
+
+enum StartMode<'a> {
+    DetachedServiceOutput,
+    // Preserve the existing Native/ART transport, including its Android Q gate.
+    DetachedCliOutput,
+    ReadyAction(&'a mut dyn FnMut() -> Result<(), String>),
 }
 
 fn record_with_action(
@@ -222,14 +248,15 @@ fn record_with_action(
     request: &RecordingRequest<'_>,
     cancel: &CancellationToken,
     validate_target: &mut dyn FnMut() -> Result<(), String>,
-    mut action: Option<&mut dyn FnMut() -> Result<(), String>>,
+    mut mode: StartMode<'_>,
 ) -> Result<RecordingResult, RecordingFailure> {
     validate_request(request)?;
     check_cancel(cancel)?;
     validate_target().map_err(identity_failure)?;
     let mut local = allocate_local(request.output_root)?;
     let key = local.paths.session_key.as_str();
-    let named = action.is_some();
+    let named = matches!(mode, StartMode::ReadyAction(_));
+    let service_output = !matches!(mode, StartMode::DetachedCliOutput);
     if named && request.duration > Duration::from_secs(15) {
         return Err(failure(
             RecordingFailureKind::InvalidRequest,
@@ -240,17 +267,19 @@ fn record_with_action(
     // older CLI open --out itself, a racing pre-existing file is never clobbered.
     let (extra, duration) = if named {
         (
-            format!(
-                "unique_session_name: \"{key}\"\nflush_period_ms: 1000\noutput_path: \"{}\"\n",
-                local.paths.remote_trace
-            ),
+            format!("unique_session_name: \"{key}\"\nflush_period_ms: 1000\n"),
             request.duration,
         )
     } else {
         (String::new(), request.duration.saturating_add(STOP_GRACE))
     };
+    let output = if service_output {
+        format!("output_path: \"{}\"\n", local.paths.remote_trace)
+    } else {
+        String::new()
+    };
     let config = format!(
-        "duration_ms: {}\nwrite_into_file: true\nmax_file_size_bytes: {MAX_RECORDING_BYTES}\n{extra}{}\n",
+        "duration_ms: {}\nwrite_into_file: true\nmax_file_size_bytes: {MAX_RECORDING_BYTES}\n{extra}{output}{}\n",
         duration.as_millis(),
         request.config_body
     );
@@ -320,6 +349,14 @@ fn record_with_action(
             quoted(&["cat", &paths.remote_config]),
             if named {
                 quoted(&["perfetto", "--txt", "-c", "-", "--background-wait"])
+            } else if service_output {
+                quoted(&[
+                    "perfetto",
+                    "--txt",
+                    "-c",
+                    "-",
+                    &format!("--detach={}", paths.session_key),
+                ])
             } else {
                 quoted(&[
                     "perfetto",
@@ -363,7 +400,7 @@ fn record_with_action(
                 "Cannot verify the exclusively created remote trace identity.",
             ));
         }
-        if let Some(action) = &mut action {
+        if let StartMode::ReadyAction(action) = &mut mode {
             if named_session_state(io, request, &paths.session_key, cancel)?.as_deref()
                 != Some("STARTED")
             {
@@ -1280,16 +1317,18 @@ mod tests {
                 }
                 if script.contains("--detach=") || script.contains("--background-wait") {
                     let named = script.contains("--background-wait");
-                    assert_eq!(script.contains("'--no-clobber'"), !named);
+                    assert_eq!(
+                        script.contains("'--no-clobber'"),
+                        script.contains("'--out'")
+                    );
                     assert!(script.contains("| 'perfetto' '--txt' '-c' '-'"));
                     assert!(script.contains("'cat' '/data/local/tmp/"));
-                    let path = if named {
-                        assert!(!script.contains("'--out'"));
+                    let path = if !script.contains("'--out'") {
                         let files = self.files.lock().unwrap();
                         let config =
                             std::str::from_utf8(&files.values().next().unwrap().1).unwrap();
-                        assert!(config.contains("unique_session_name:"));
-                        assert!(config.contains("flush_period_ms: 1000"));
+                        assert_eq!(config.contains("unique_session_name:"), named);
+                        assert_eq!(config.contains("flush_period_ms: 1000"), named);
                         config
                             .split_once("output_path: \"")
                             .unwrap()
@@ -1404,7 +1443,13 @@ mod tests {
         root: &Path,
         cancel: &CancellationToken,
     ) -> Result<RecordingResult, RecordingFailure> {
-        record_with(io, &request(root), cancel, &mut || Ok(()))
+        record_with_action(
+            io,
+            &request(root),
+            cancel,
+            &mut || Ok(()),
+            StartMode::DetachedServiceOutput,
+        )
     }
 
     #[test]
@@ -1442,7 +1487,7 @@ mod tests {
                 &request(&root),
                 &cancel,
                 &mut || Ok(()),
-                Some(&mut || {
+                StartMode::ReadyAction(&mut || {
                     calls += 1;
                     assert_eq!(io.named_queries.load(Ordering::Relaxed), 1);
                     Ok(())
@@ -1476,7 +1521,7 @@ mod tests {
             &request(&root),
             &CancellationToken::new(),
             &mut || Ok(()),
-            Some(&mut || {
+            StartMode::ReadyAction(&mut || {
                 calls += 1;
                 Err("launch timed out".into())
             }),
@@ -1533,6 +1578,23 @@ mod tests {
         assert!(!paths.local_trace.exists());
         assert_eq!(fs::read(sibling).unwrap(), b"keep");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn frame_recorder_uses_exclusive_service_output_without_newer_cli_flags() {
+        let root = root();
+        let io = FakeIo::default();
+        let result = record(&io, &root, &CancellationToken::new()).unwrap();
+        let config = fs::read_to_string(&result.paths.local_config).unwrap();
+        assert!(config.contains(&format!("output_path: \"{}\"", result.paths.remote_trace)));
+        let calls = io.calls.lock().unwrap();
+        let start = calls
+            .iter()
+            .find(|args| args[3].contains("--detach="))
+            .unwrap();
+        assert!(!start[3].contains("--no-clobber") && !start[3].contains("--out"));
+        drop(result);
+        fs::remove_dir(root).unwrap();
     }
 
     #[test]

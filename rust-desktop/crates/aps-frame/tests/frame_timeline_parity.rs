@@ -182,3 +182,31 @@ fn joins_process_and_layer_like_the_compose_adapter() {
         ]
     );
 }
+
+#[test]
+fn shared_display_tokens_keep_all_surfaces_selectable_without_changing_vsync_evidence() {
+    let rows = vec![
+        row(42),
+        FrameTimelineRow {
+            layer_name: Some("Overlay".into()),
+            ..row(42)
+        },
+        row(1),
+    ];
+    let frames = map_timeline_rows(rows).frames;
+    assert_eq!(
+        frames.iter().map(|f| f.frame_id).collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(
+        frames
+            .iter()
+            .map(|f| f.frame_timeline_vsync_id)
+            .collect::<Vec<_>>(),
+        [Some(42), Some(42), Some(1)]
+    );
+    assert_eq!(
+        frames[1].activity_name.as_deref(),
+        Some("com.example: Overlay")
+    );
+}

@@ -14,6 +14,12 @@ cd rust-desktop
 cargo run --locked -p aps-app
 ```
 
+FrameTimeline 捕获会在录制前检查固定版本的 Trace Processor。本地 Release 可执行文件和分发包一样，只从其同级的 `resources/perfetto-tools/` 加载工具，不搜索 PATH。在仓库根目录执行以下命令可为默认 Cargo Release 输出安装经过校验的工具（自定义 `CARGO_TARGET_DIR` 时请调整路径）：
+
+```sh
+PERFETTO_TOOLS_DIR="$PWD/rust-desktop/target/release/resources/perfetto-tools" bash scripts/install-trace-processor.sh
+```
+
 Rust settings and storage use their own application-data root and do not migrate or overwrite settings from older application versions.
 
 ## 验证策略

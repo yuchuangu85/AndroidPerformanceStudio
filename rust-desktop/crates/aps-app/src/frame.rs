@@ -208,7 +208,7 @@ impl FrameWorkspace {
         self.selected_process_pid = selected_pid.map(|pid| pid as i32);
         self.pending_process_pid = None;
         self.is_refreshing_devices = false;
-        self.error = None;
+        // A target list update is not a successful retry of a failed capture.
         self.reconcile_frame_timeline_target(cx);
         cx.notify();
     }
@@ -866,6 +866,8 @@ impl FrameWorkspace {
         cx.notify();
         let data_dir = self.data_dir.clone();
         let task = cx.background_executor().spawn(async move {
+            // Fail before starting a device recording if this installation cannot analyze it.
+            let tool = crate::perfetto_tool::locate(&cancel)?;
             let captured = capture::capture_frame_timeline(
                 &serial,
                 &process,
@@ -880,7 +882,7 @@ impl FrameWorkspace {
                 process.pid,
                 &process.package_name,
             )?;
-            let processed = perfetto::analyze_trace(&captured.trace_file, &cancel)?;
+            let processed = perfetto::analyze_with_tool(tool, &captured.trace_file, &cancel)?;
             if cancel.is_cancelled() {
                 return Err(
                     "FrameTimeline capture cancelled; the previous report is retained.".to_owned(),
@@ -1456,7 +1458,7 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
         // is built when it opens, so they always describe the current workspace.
         let busy = self.is_capturing || self.is_loading;
         let has_analysis = self.analysis.is_some();
-        let process_ready = self.selected_process_pid.is_some();
+        let process_ready = self.selected_process().is_some();
         let device_ready = self.selected_device_serial.as_ref().is_some_and(|serial| {
             self.devices
                 .iter()
@@ -1517,7 +1519,7 @@ impl crate::shell::menubar::MenuHost for FrameWorkspace {
             )
             .separator()
             .item_when(
-                !busy && process_ready,
+                !busy && process_ready && device_ready,
                 TextKey::FrameCaptureFrametimeline,
                 FrameMenuCommand::CaptureFrameTimeline,
             );
@@ -1696,7 +1698,13 @@ mod tests {
             .unwrap();
         assert!(!capture.contains("self.analysis = None"));
         assert!(!capture.contains("self.perfetto_trace_file = None"));
-        assert!(capture.contains("perfetto::analyze_trace(&captured.trace_file, &cancel)"));
+        assert!(
+            capture.find("perfetto_tool::locate(&cancel)").unwrap()
+                < capture.find("capture::capture_frame_timeline(").unwrap()
+        );
+        assert!(
+            capture.contains("perfetto::analyze_with_tool(tool, &captured.trace_file, &cancel)")
+        );
         assert!(capture.contains("operation.can_publish(this.import_generation)"));
         assert!(
             capture
