@@ -36,6 +36,7 @@
 
 ### 性能验证与发布门禁
 
+- [`records/memory/hprof-reconstruction-comparison-2026-11-18.html`](records/memory/hprof-reconstruction-comparison-2026-11-18.html) — 2026-11-18 同文件 HPROF 三方实测、Rust 重构收益、正确性证据与验收边界；离线暗色 HTML 报告。
 - [`../rust-desktop/FUNCTIONAL_PARITY.md`](../rust-desktop/FUNCTIONAL_PARITY.md) — 仍开放的 Compose 对等、真实数据、原生交互和发布验收门禁。
 - [`../rust-desktop/TODO.md`](../rust-desktop/TODO.md) — Rust 性能 Agent 工作流的未完成需求。
 
