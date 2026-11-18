@@ -113,6 +113,24 @@ impl ImportWorkspace {
             && !self.memory_state.loading
     }
 
+    fn memory_mapping_is_current(
+        &self,
+        generation: u64,
+        load_generation: u64,
+        snapshot_id: u64,
+    ) -> bool {
+        self.generation == generation
+            && self.memory_state.load_generation == load_generation
+            && self.memory_snapshot_id == Some(snapshot_id)
+    }
+
+    fn discard_stale_memory_mapping(&mut self, generation: u64) {
+        // Tab suspension owns per-tab invalidation; retire only this operation's busy flag.
+        if self.generation == generation {
+            self.busy = false;
+        }
+    }
+
     /// Opens the mapping picker, then applies the selected mapping. Compose's
     /// File > Import mapping.txt row and the toolbar Mapping button share it.
     pub(crate) fn memory_pick_mapping(&mut self, cx: &mut Context<Self>) {
@@ -156,6 +174,9 @@ impl ImportWorkspace {
         if !self.memory_mapping_enabled() {
             return;
         }
+        let Some(snapshot_id) = self.memory_snapshot_id else {
+            return;
+        };
         let started = Instant::now();
         let Some(Session::Memory(session)) = self.session.clone() else {
             return;
@@ -186,12 +207,8 @@ impl ImportWorkspace {
         self.busy = true;
         self.export_generation += 1;
         self.export_busy = false;
-        self.memory_state.load_generation += 1;
+        self.memory_state.invalidate_pending_queries();
         let load_generation = self.memory_state.load_generation;
-        self.memory_state.selection_generation += 1;
-        self.memory_state.detail_generation += 1;
-        self.memory_state.dominator_generation += 1;
-        self.memory_state.comparison_generation += 1;
         self.memory_state.loading = true;
         self.memory_state.loading_message = Some(language.format(
             TextKey::MemoryAppImportingMapping,
@@ -222,11 +239,11 @@ impl ImportWorkspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
-                if this.generation != generation
-                    || this.memory_state.load_generation != load_generation
-                {
-                    // Stale result (cancel/other import): dropping the fresh
+                if !this.memory_mapping_is_current(generation, load_generation, snapshot_id) {
+                    // Stale result (cancel/other import/tab switch): dropping the fresh
                     // session here kills and reaps its worker.
+                    this.discard_stale_memory_mapping(generation);
+                    cx.notify();
                     return;
                 }
                 this.busy = false;
@@ -254,7 +271,10 @@ impl ImportWorkspace {
                             this.memory_load_dominators(None, cx);
                         }
                     }
-                    Err(error) => this.memory_state.error = Some(mapping_message(language, error)),
+                    Err(error) => {
+                        this.memory_state.error = Some(mapping_message(language, error));
+                        this.memory_resume_dominator_queries(cx);
+                    }
                 }
                 cx.notify();
             })
@@ -268,6 +288,181 @@ impl ImportWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mapping_completion_rejects_a_to_b_switch_with_matching_generations_and_path() {
+        let mut workspace = ImportWorkspace::new(Destination::Memory, Language::English);
+        workspace.generation = 17;
+        workspace.memory_snapshot_id = Some(41);
+        workspace.path = Some(PathBuf::from("/same/snapshot.hprof"));
+        workspace.memory_state.load_generation = 3;
+        let generation = workspace.generation;
+        let load_generation = workspace.memory_state.load_generation;
+        let snapshot_id = workspace.memory_snapshot_id.unwrap();
+        let path = workspace.path.clone();
+        assert!(workspace.memory_mapping_is_current(generation, load_generation, snapshot_id));
+
+        // Switching tabs restores B's per-tab state but not the workspace generation.
+        workspace.memory_state = super::super::state::MemoryState::new();
+        workspace.memory_state.load_generation = load_generation;
+        workspace.memory_snapshot_id = Some(42);
+        assert_eq!(workspace.path, path);
+        assert_eq!(workspace.generation, generation);
+        assert_eq!(workspace.memory_state.load_generation, load_generation);
+        assert!(
+            !workspace.memory_mapping_is_current(generation, load_generation, snapshot_id),
+            "A's mapping completion must not publish into B even when both generations and paths match"
+        );
+    }
+
+    #[test]
+    fn mapping_completion_requires_the_origin_snapshot_and_both_generations() {
+        let mut workspace = ImportWorkspace::new(Destination::Memory, Language::English);
+        let snapshot_id = 41;
+        let generation = 17;
+        let load_generation = 3;
+        for (active_id, current_generation, current_load_generation, expected) in [
+            (Some(snapshot_id), generation, load_generation, true),
+            (Some(42), generation, load_generation, false),
+            (None, generation, load_generation, false),
+            (Some(snapshot_id), generation + 1, load_generation, false),
+            (Some(snapshot_id), generation, load_generation + 1, false),
+        ] {
+            workspace.memory_snapshot_id = active_id;
+            workspace.generation = current_generation;
+            workspace.memory_state.load_generation = current_load_generation;
+            assert_eq!(
+                workspace.memory_mapping_is_current(generation, load_generation, snapshot_id),
+                expected,
+                "active={active_id:?}, generation={current_generation}, load={current_load_generation}"
+            );
+        }
+    }
+
+    #[test]
+    fn discarded_mapping_clears_only_its_owned_busy_state_without_touching_b() {
+        let mut workspace = ImportWorkspace::new(Destination::Memory, Language::English);
+        workspace.generation = 17;
+        workspace.memory_snapshot_id = Some(42);
+        workspace.path = Some(PathBuf::from("/B.hprof"));
+        workspace.busy = true;
+        workspace.memory_state.load_generation = 3;
+        workspace.memory_state.notice = Some("B notice".into());
+        workspace.memory_state.error = Some("B error".into());
+        let snapshot = Arc::new(aps_memory::MemorySnapshot::default());
+        workspace.memory_state.snapshot = Some(snapshot.clone());
+        let cancel = workspace.cancel.clone();
+
+        workspace.discard_stale_memory_mapping(17);
+        assert!(!workspace.busy);
+        assert_eq!(workspace.memory_snapshot_id, Some(42));
+        assert_eq!(workspace.path, Some(PathBuf::from("/B.hprof")));
+        assert_eq!(workspace.memory_state.load_generation, 3);
+        assert_eq!(workspace.memory_state.notice.as_deref(), Some("B notice"));
+        assert_eq!(workspace.memory_state.error.as_deref(), Some("B error"));
+        assert!(Arc::ptr_eq(
+            workspace.memory_state.snapshot.as_ref().unwrap(),
+            &snapshot
+        ));
+        assert!(!cancel.is_cancelled());
+
+        workspace.busy = true;
+        workspace.generation += 1;
+        workspace.discard_stale_memory_mapping(17);
+        assert!(
+            workspace.busy,
+            "old completion must not clear a newer operation's busy flag"
+        );
+        workspace.memory_snapshot_id = Some(41);
+        workspace.memory_state.load_generation += 1;
+        workspace.discard_stale_memory_mapping(18);
+        assert!(
+            !workspace.busy,
+            "returning to A must not leave the finished mapping busy"
+        );
+    }
+
+    #[test]
+    fn mapping_checks_identity_before_publishing_success_failure_or_loading_state() {
+        let source = include_str!("mapping.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let import = source
+            .split("pub(crate) fn memory_import_mapping(")
+            .nth(1)
+            .unwrap();
+        let compact: String = import
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .flat_map(|line| line.chars().filter(|c| !c.is_whitespace()))
+            .collect();
+        let (preparation, publication) = compact.split_once("cx.spawn(").unwrap();
+        assert!(preparation.contains("letSome(snapshot_id)=self.memory_snapshot_idelse{return;};"));
+        let (_, callback) = publication.split_once("this.update(cx,|this,cx|{").unwrap();
+        let guarded = callback
+            .strip_prefix(
+                "if!this.memory_mapping_is_current(generation,load_generation,snapshot_id){",
+            )
+            .expect("mapping must validate the frozen request identity at callback entry");
+        let (rejection, publication) = guarded.split_once("return;}").unwrap();
+        assert_eq!(
+            rejection,
+            "this.discard_stale_memory_mapping(generation);cx.notify();"
+        );
+        assert!(publication.starts_with("this.busy=false;this.memory_state.loading=false;"));
+        assert!(
+            publication
+                .contains("this.session=Some(Session::Memory(Arc::new(Mutex::new(session))));")
+        );
+        assert!(publication.contains(
+            "Err(error)=>{this.memory_state.error=Some(mapping_message(language,error));this.memory_resume_dominator_queries(cx);}"
+        ));
+        assert!(!publication.contains("this.session=None"));
+        assert!(!publication.contains("this.memory_snapshot_id="));
+        assert!(!publication.contains("this.path="));
+    }
+
+    #[test]
+    fn mapping_start_invalidates_pending_queries_and_failure_preserves_published_pages() {
+        let source = include_str!("mapping.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let import = source
+            .split("pub(crate) fn memory_import_mapping(")
+            .nth(1)
+            .unwrap();
+        let compact: String = import
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .flat_map(|line| line.chars().filter(|c| !c.is_whitespace()))
+            .collect();
+        let preparation = compact
+            .split("letcancel=self.cancel.clone();")
+            .next()
+            .unwrap();
+        assert!(
+            preparation.contains("self.memory_state.invalidate_pending_queries();letload_generation=self.memory_state.load_generation;self.memory_state.loading=true;"),
+            "invalidate all pending queries before freezing the mapping load epoch and setting loading"
+        );
+        assert!(!preparation.contains("reset_for_snapshot("));
+        assert!(!preparation.contains("self.memory_state="));
+        assert!(!preparation.contains("self.session="));
+        assert!(compact.contains("this.busy=false;this.memory_state.loading=false;this.memory_state.loading_message=None;matchresult{"));
+        let failure = compact
+            .split_once("Err(error)=>{")
+            .expect("mapping failure must have an explicit recovery block")
+            .1
+            .split_once("}}cx.notify();")
+            .expect("notify only after mapping failure recovery")
+            .0;
+        assert_eq!(
+            failure,
+            "this.memory_state.error=Some(mapping_message(language,error));this.memory_resume_dominator_queries(cx);",
+            "failed mapping must only publish its error and resume missing queries without replacing published data"
+        );
+    }
 
     #[test]
     fn mapping_import_time_is_published_only_after_the_new_snapshot_is_ready() {

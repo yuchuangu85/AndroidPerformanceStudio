@@ -190,14 +190,18 @@ impl Source {
     }
 
     pub(crate) fn check(&self, path: &Path) -> Result<(), String> {
-        let current = std::fs::metadata(path)
-            .map_err(|e| format!("HPROF source changed or is unavailable: {e}"))?;
         let reader = self
             .reader
             .try_borrow()
             .map_err(|_| "HPROF source reader is busy")?;
-        let opened = reader
-            .get_ref()
+        self.check_file(path, reader.get_ref())
+    }
+
+    /// Also usable while a batch scanner exclusively borrows the original reader.
+    pub(crate) fn check_file(&self, path: &Path, file: &File) -> Result<(), String> {
+        let current = std::fs::metadata(path)
+            .map_err(|e| format!("HPROF source changed or is unavailable: {e}"))?;
+        let opened = file
             .metadata()
             .map_err(|e| format!("Cannot stat open HPROF source: {e}"))?;
         if !same_metadata(&self.identity, &current) || !same_metadata(&self.identity, &opened) {

@@ -6,6 +6,7 @@ pub mod model;
 pub mod native;
 pub mod parser;
 pub mod query;
+mod references;
 pub mod wire;
 
 pub use query::Engine;
@@ -151,6 +152,27 @@ impl Session {
         engine.heap.check_source()?;
         engine.analysis.graph.check_storage()?;
         let payload = match op {
+            "checkSource" => Value::Null,
+            "retainedSummary" => {
+                engine.retained_summary(argument(args, "heapName")?.nullable_str()?)?
+            }
+            "histogramBundle" => {
+                let heaps = argument(args, "heapNames")?.as_list()?;
+                if heaps.len() > 64 {
+                    return Err("HPROF histogram heap list exceeds bounds".into());
+                }
+                let names = heaps
+                    .iter()
+                    .map(|value| {
+                        let name = value.as_str()?;
+                        if name.len() > 4096 {
+                            return Err("HPROF histogram heap name exceeds bounds".to_owned());
+                        }
+                        Ok(name.to_owned())
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                engine.histogram_bundle(&names)?
+            }
             "histogram" => engine.histogram(argument(args, "heapName")?.nullable_str()?)?,
             "rawHistogram" => engine.raw_histogram(argument(args, "heapName")?.nullable_str()?)?,
             "instances" => {

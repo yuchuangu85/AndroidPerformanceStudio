@@ -3,8 +3,8 @@
 
 use crate::{
     MAX_HISTOGRAM_SEARCH_BYTES, MAX_INPUT_BYTES, MAX_MAPPING_BYTES, MAX_MAPPING_ENTRIES,
-    MAX_PAGE_SIZE, MAX_RESPONSE_BYTES, MAX_SNAPSHOT_BYTES, MAX_UI_PAGE_SIZE, page, page_with,
-    write_response,
+    MAX_PAGE_SIZE, MAX_RESPONSE_BYTES, MAX_SNAPSHOT_BYTES, MAX_UI_PAGE_SIZE, encode_response, page,
+    page_with,
 };
 use aps_hprof_engine::{
     Session, cache,
@@ -14,8 +14,67 @@ use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
+const MAX_HISTOGRAM_CACHE_BYTES: usize = 2 * MAX_SNAPSHOT_BYTES;
+
+#[derive(Default)]
+struct HistogramCache {
+    source_digest: String,
+    entries: BTreeMap<String, Box<[u8]>>,
+    bytes: usize,
+}
+
+impl HistogramCache {
+    fn new(digest: &str) -> Self {
+        Self {
+            source_digest: digest.to_owned(),
+            ..Self::default()
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.source_digest.clear();
+        self.bytes = 0;
+    }
+
+    fn insert(&mut self, heap: &str, payload: &Value) {
+        if let Some(previous) = self.entries.remove(heap) {
+            self.bytes -= previous.len() + heap.len() + 128;
+        }
+        let Ok(bytes) = wire::encode(payload) else {
+            return;
+        };
+        // Encoded projections bound retained allocation, including entry/key
+        // overhead. Reserve room for the response envelope on later fallback.
+        let allocation = bytes.len().saturating_add(heap.len()).saturating_add(128);
+        if bytes.len() > MAX_SNAPSHOT_BYTES - 1024
+            || allocation > MAX_HISTOGRAM_CACHE_BYTES.saturating_sub(self.bytes)
+            || self.entries.len() >= 64
+        {
+            return;
+        }
+        self.bytes += allocation;
+        self.entries
+            .insert(heap.to_owned(), bytes.into_boxed_slice());
+    }
+
+    fn get(&self, digest: &str, heap: &str) -> Result<Option<Value>, ()> {
+        if self.entries.is_empty() {
+            return Ok(None);
+        }
+        if self.source_digest != digest {
+            return Err(());
+        }
+        self.entries
+            .get(heap)
+            .map(|bytes| wire::decode(bytes).map_err(|_| ()))
+            .transpose()
+    }
+}
+
 pub fn serve(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<()> {
     let mut session = Session::default();
+    let mut histogram_cache = HistogramCache::default();
     let mut digest = String::new();
     while let Some(bytes) = wire::read_frame(reader).map_err(|_| invalid())? {
         let request = wire::decode(&bytes).map_err(|_| invalid())?;
@@ -36,7 +95,7 @@ pub fn serve(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<()> 
                 .map_err(|_| invalid())?
                 .to_owned();
         }
-        let result = respond(&mut session, &request);
+        let result = respond(&mut session, &mut histogram_cache, &request);
         let response = match result {
             Ok(value) => value,
             Err(()) => error(id, &digest),
@@ -48,13 +107,21 @@ pub fn serve(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<()> 
         } else {
             MAX_RESPONSE_BYTES
         };
-        let response = match wire::encode(&response) {
-            Ok(bytes) if bytes.len() <= max_response => response,
-            _ => error(id, &digest),
-        };
-        write_response(writer, &response, max_response)?;
+        write_worker_response(writer, &response, id, &digest, max_response)?;
     }
     Ok(())
+}
+
+fn write_worker_response(
+    writer: &mut impl Write,
+    response: &Value,
+    id: i64,
+    digest: &str,
+    max_response: usize,
+) -> io::Result<()> {
+    let bytes = encode_response(response, max_response)
+        .or_else(|_| encode_response(&error(id, digest), max_response))?;
+    wire::write_encoded(writer, &bytes).map_err(|_| io::ErrorKind::BrokenPipe.into())
 }
 
 fn invalid() -> io::Error {
@@ -70,7 +137,23 @@ fn error(id: i64, digest: &str) -> Value {
     ])
 }
 
-fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
+fn respond(
+    session: &mut Session,
+    cache: &mut HistogramCache,
+    request: &Value,
+) -> Result<Value, ()> {
+    let result = respond_inner(session, cache, request);
+    if result.is_err() {
+        cache.clear();
+    }
+    result
+}
+
+fn respond_inner(
+    session: &mut Session,
+    cache: &mut HistogramCache,
+    request: &Value,
+) -> Result<Value, ()> {
     if request
         .get("version")
         .and_then(Value::as_int)
@@ -85,14 +168,29 @@ fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
         .and_then(Value::as_map)
         .map_err(|_| ())?;
     if operation == "snapshot" {
-        return snapshot_response(session, request, args);
+        cache.clear();
+        return snapshot_response(session, cache, request, args);
     }
-    if operation == "retainedSummary" {
-        return retained_summary_response(session, request, None);
-    }
-    if operation == "heapRetainedSummary" {
-        let heap = args.get("heapName").ok_or(())?.as_str().map_err(|_| ())?;
-        return retained_summary_response(session, request, Some(heap));
+    if matches!(
+        operation,
+        "retainedSummary" | "heapRetainedSummary" | "checkSource"
+    ) {
+        let id = request.get("id").and_then(Value::as_int).map_err(|_| ())?;
+        let digest = request
+            .get("sourceDigest")
+            .and_then(Value::as_str)
+            .map_err(|_| ())?;
+        let payload = if operation == "checkSource" {
+            engine_call(session, id, digest, "checkSource", Value::map([]))?
+        } else {
+            let heap = if operation == "heapRetainedSummary" {
+                Some(args.get("heapName").ok_or(())?.as_str().map_err(|_| ())?)
+            } else {
+                None
+            };
+            retained_summary_response(session, request, heap)?
+        };
+        return Ok(ok_response(id, digest, payload));
     }
     if operation == "heapHistogram" {
         let id = request.get("id").and_then(Value::as_int).map_err(|_| ())?;
@@ -104,16 +202,22 @@ fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
         if heap.is_empty() || heap.len() > 4096 {
             return Err(());
         }
-        let payload = engine_call(
-            session,
-            id,
-            digest,
-            "histogram",
-            Value::map([("heapName", heap.into())]),
-        )?;
+        let payload = if let Some(payload) = cache.get(digest, heap)? {
+            engine_call(session, id, digest, "checkSource", Value::map([]))?;
+            payload
+        } else {
+            engine_call(
+                session,
+                id,
+                digest,
+                "histogram",
+                Value::map([("heapName", heap.into())]),
+            )?
+        };
         return Ok(ok_response(id, digest, payload));
     }
     if operation == "open" {
+        cache.clear();
         let path = args.get("path").ok_or(())?.as_str().map_err(|_| ())?;
         let digest = args
             .get("sourceDigest")
@@ -354,6 +458,7 @@ fn respond(session: &mut Session, request: &Value) -> Result<Value, ()> {
 /// before the response can exceed the presentation budget.
 fn snapshot_response(
     session: &mut Session,
+    cache: &mut HistogramCache,
     request: &Value,
     args: &BTreeMap<String, Value>,
 ) -> Result<Value, ()> {
@@ -377,13 +482,25 @@ fn snapshot_response(
         }
         heap_names.push(name.to_owned());
     }
-    let histogram = engine_call(
+    heap_names.sort();
+    heap_names.dedup();
+    let bundle = engine_call(
         session,
         id,
         digest,
-        "histogram",
-        Value::map([("heapName", Value::Null)]),
+        "histogramBundle",
+        Value::map([(
+            "heapNames",
+            Value::List(heap_names.iter().cloned().map(Value::from).collect()),
+        )]),
     )?;
+    let Value::Map(mut bundle) = bundle else {
+        return Err(());
+    };
+    let histogram = bundle.remove("all").ok_or(())?;
+    let Value::Map(mut heap_histograms) = bundle.remove("perHeap").ok_or(())? else {
+        return Err(());
+    };
     let findings = engine_call(session, id, digest, "findings", Value::map([]))?;
     let Value::Map(mut histogram) = histogram else {
         return Err(());
@@ -403,51 +520,50 @@ fn snapshot_response(
             Value::map([("exceeded", true.into())]),
         ));
     }
-    let mut per_heap = BTreeMap::new();
-    let mut per_heap_summaries = BTreeMap::new();
     let mut per_heap_size = 0usize;
     for name in &heap_names {
-        let payload = engine_call(
-            session,
-            id,
-            digest,
-            "histogram",
-            Value::map([("heapName", name.as_str().into())]),
-        )?;
-        let Value::Map(mut payload) = payload else {
-            return Err(());
-        };
-        let heap_summary = payload.remove("summary").ok_or(())?;
-        let heap_classes = payload.remove("classes").ok_or(())?;
+        let payload = heap_histograms.get(name).ok_or(())?;
+        let heap_summary = payload.get("summary").map_err(|_| ())?;
+        let heap_classes = payload.get("classes").map_err(|_| ())?;
         per_heap_size = per_heap_size
-            .checked_add(encoded_len(&heap_summary)?)
+            .checked_add(encoded_len(heap_summary)?)
             .ok_or(())?
-            .checked_add(encoded_len(&heap_classes)?)
+            .checked_add(encoded_len(heap_classes)?)
             .ok_or(())?
-            .checked_add(name.len() + 64)
+            .checked_add(2 * name.len() + 64)
             .ok_or(())?;
-        per_heap_summaries.insert(name.clone(), heap_summary);
-        per_heap.insert(name.clone(), heap_classes);
     }
     let per_heap_omitted = base_size.saturating_add(per_heap_size) > budget;
     let mut payload = BTreeMap::new();
     let retained = retained_summary_response(session, request, None)?;
     let mut summary = summary;
-    if let Value::Map(retained) = retained {
-        if let Some(value) = retained.get("retainedSize") {
-            if let Value::Map(summary_map) = &mut summary {
-                summary_map.insert("retainedSize".into(), value.clone());
-            }
-        }
-    }
+    as_map_mut(&mut summary)?.insert(
+        "retainedSize".into(),
+        retained.get("retainedSize").map_err(|_| ())?.clone(),
+    );
     payload.insert("summary".into(), summary);
     payload.insert("classes".into(), classes);
     payload.insert("perHeapOmitted".into(), per_heap_omitted.into());
-    if !per_heap_omitted {
+    if per_heap_omitted {
+        *cache = HistogramCache::new(digest);
+        for name in &heap_names {
+            cache.insert(name, heap_histograms.get(name).ok_or(())?);
+        }
+    } else {
+        let mut per_heap = BTreeMap::new();
+        let mut per_heap_summaries = BTreeMap::new();
+        for name in heap_names {
+            let Value::Map(mut heap) = heap_histograms.remove(&name).ok_or(())? else {
+                return Err(());
+            };
+            per_heap.insert(name.clone(), heap.remove("classes").ok_or(())?);
+            per_heap_summaries.insert(name, heap.remove("summary").ok_or(())?);
+        }
         payload.insert("perHeap".into(), Value::Map(per_heap));
         payload.insert("perHeapSummaries".into(), Value::Map(per_heap_summaries));
     }
     payload.insert("findings".into(), findings);
+    engine_call(session, id, digest, "checkSource", Value::map([]))?;
     Ok(ok_response(id, digest, Value::Map(payload)))
 }
 
@@ -461,75 +577,13 @@ fn retained_summary_response(
         .get("sourceDigest")
         .and_then(Value::as_str)
         .map_err(|_| ())?;
-    let mut retained = 0u64;
-    let mut saw_row = false;
-    let mut offset = 0usize;
-    loop {
-        let page = engine_call(
-            session,
-            id,
-            digest,
-            "dominators",
-            Value::map([
-                ("parentObjectId", Value::Null),
-                ("offset", (offset as i64).into()),
-                ("limit", 500i64.into()),
-            ]),
-        )?;
-        let Value::Map(page) = page else {
-            return Err(());
-        };
-        let rows = page.get("rows").ok_or(())?.as_list().map_err(|_| ())?;
-        for row in rows {
-            let belongs = if let Some(expected_heap) = heap_name {
-                let object_id = row
-                    .get("objectId")
-                    .and_then(Value::as_int)
-                    .map_err(|_| ())?;
-                let identity = engine_call(
-                    session,
-                    id,
-                    digest,
-                    "identity",
-                    Value::map([("objectId", object_id.into())]),
-                )?;
-                identity
-                    .get("heapName")
-                    .ok()
-                    .and_then(|value| value.as_str().ok())
-                    .is_some_and(|actual| actual == expected_heap)
-            } else {
-                true
-            };
-            if belongs {
-                saw_row = true;
-                let value = row
-                    .get("retainedSize")
-                    .and_then(Value::as_int)
-                    .map_err(|_| ())?;
-                if value < 0 {
-                    return Err(());
-                }
-                retained = retained.checked_add(value as u64).ok_or(())?;
-            }
-        }
-        let total = page.get("total").ok_or(())?.as_int().map_err(|_| ())?;
-        if total < 0 {
-            return Err(());
-        }
-        offset = offset.checked_add(rows.len()).ok_or(())?;
-        if offset >= total as usize {
-            break;
-        }
-    }
-    Ok(Value::map([(
-        "retainedSize",
-        if saw_row {
-            (retained as i64).into()
-        } else {
-            Value::Null
-        },
-    )]))
+    engine_call(
+        session,
+        id,
+        digest,
+        "retainedSummary",
+        Value::map([("heapName", heap_name.into())]),
+    )
 }
 
 /// Runs one engine operation through the shared session dispatcher. The
@@ -682,6 +736,69 @@ fn histogram_rows(
     ))
 }
 
+fn as_map_mut(value: &mut Value) -> Result<&mut BTreeMap<String, Value>, ()> {
+    match value {
+        Value::Map(map) => Ok(map),
+        _ => Err(()),
+    }
+}
+fn index(args: &BTreeMap<String, Value>, key: &str) -> Result<usize, ()> {
+    usize::try_from(args.get(key).ok_or(())?.as_int().map_err(|_| ())?).map_err(|_| ())
+}
+
+fn bounded(
+    value: &mut Value,
+    path: &str,
+    omissions: &mut Vec<Value>,
+    depth: usize,
+) -> Result<(), ()> {
+    if depth > 32 || omissions.len() > 4096 {
+        return Err(());
+    }
+    match value {
+        Value::List(values) => {
+            // The top-level rows list is already bounded by the requested UI
+            // page; nested row lists keep the 200-entry presentation cap.
+            let visible_limit = if path == "payload.rows" {
+                MAX_UI_PAGE_SIZE
+            } else {
+                MAX_PAGE_SIZE
+            };
+            if values.len() > visible_limit {
+                omissions.push(Value::map([
+                    ("path", path.into()),
+                    ("originalCount", (values.len() as i64).into()),
+                    ("visibleCount", (visible_limit as i64).into()),
+                ]));
+                values.truncate(visible_limit);
+            }
+            for (index, value) in values.iter_mut().enumerate() {
+                bounded(value, &format!("{path}[{index}]"), omissions, depth + 1)?;
+            }
+        }
+        Value::Map(values) => {
+            for (key, value) in values.iter_mut() {
+                bounded(value, &format!("{path}.{key}"), omissions, depth + 1)?;
+            }
+        }
+        Value::String(text) if text.len() > 4096 => {
+            let original = text.len();
+            let mut end = 4096;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+            omissions.push(Value::map([
+                ("path", path.into()),
+                ("originalBytes", (original as i64).into()),
+                ("visibleBytes", (end as i64).into()),
+            ]));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -765,6 +882,214 @@ mod tests {
     }
 
     #[test]
+    fn omitted_histogram_cache_is_bounded_and_source_scoped() {
+        let mut cache = HistogramCache::new("source-a");
+        let payload = Value::map([("classes", Value::List(Vec::new()))]);
+        cache.insert("App", &payload);
+        assert_eq!(cache.get("source-a", "App").unwrap(), Some(payload.clone()));
+        assert!(cache.get("source-b", "App").is_err());
+
+        // Valid wire values can still exceed the presentation/cache budgets.
+        let large = Value::List(vec!["x".repeat(wire::MAX_STRING).into(); 4]);
+        cache.insert("App", &large);
+        assert_eq!(cache.get("source-a", "App").unwrap(), None);
+        for index in 0..10 {
+            cache.insert(&format!("heap-{index}"), &large);
+        }
+        assert!(cache.bytes <= MAX_HISTOGRAM_CACHE_BYTES);
+        assert!(cache.entries.len() <= 64);
+        cache.clear();
+        assert_eq!(cache.bytes, 0);
+        assert!(cache.entries.is_empty());
+    }
+
+    #[test]
+    fn cached_histogram_payloads_do_not_exceed_the_aggregate_budget() {
+        let mut cache = HistogramCache::new("source");
+        let payload = Value::List(vec!["x".repeat(wire::MAX_STRING).into(); 3]);
+        for index in 0..6 {
+            cache.insert(&format!("heap-{index}"), &payload);
+        }
+        assert!(cache.bytes <= MAX_HISTOGRAM_CACHE_BYTES);
+        assert_eq!(cache.entries.len(), 2);
+        assert_eq!(cache.get("source", "heap-0").unwrap(), Some(payload));
+        assert_eq!(cache.get("source", "heap-5").unwrap(), None);
+    }
+
+    struct SourceFixture(std::path::PathBuf);
+
+    impl SourceFixture {
+        fn open() -> (Self, Session, String) {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "aps-worker-cache-{}-{}.hprof",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let mut bytes = b"JAVA PROFILE 1.0.3\0".to_vec();
+            bytes.extend(4u32.to_be_bytes());
+            bytes.extend(1u64.to_be_bytes());
+            std::fs::write(&path, bytes).unwrap();
+            let digest = cache::sha256_file(&path).unwrap();
+            let mut session = Session::default();
+            engine_call(
+                &mut session,
+                1,
+                &digest,
+                "open",
+                Value::map([
+                    ("path", path.to_str().unwrap().into()),
+                    ("sourceDigest", digest.as_str().into()),
+                    ("mapping", Value::map([])),
+                    ("cacheDir", Value::Null),
+                    ("graphStorage", "memory".into()),
+                ]),
+            )
+            .unwrap();
+            (Self(path), session, digest)
+        }
+    }
+
+    impl Drop for SourceFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn heap_request(digest: &str) -> Value {
+        Value::map([
+            ("version", wire::VERSION.into()),
+            ("id", 2i64.into()),
+            ("op", "heapHistogram".into()),
+            ("sourceDigest", digest.into()),
+            ("args", Value::map([("heapName", "App".into())])),
+        ])
+    }
+
+    #[test]
+    fn cached_fallback_matches_engine_and_rejects_changed_source() {
+        for replace in [false, true] {
+            let (file, mut session, digest) = SourceFixture::open();
+            let mut cache = HistogramCache::new(&digest);
+            let request = heap_request(&digest);
+            let expected = respond(&mut session, &mut cache, &request).unwrap();
+            cache.insert("App", expected.get("payload").unwrap());
+            assert_eq!(
+                respond(&mut session, &mut cache, &request).unwrap(),
+                expected
+            );
+            assert!(!cache.entries.is_empty());
+            let mut marked = expected.get("payload").unwrap().as_map().unwrap().clone();
+            marked.insert("cacheHitMarker".into(), true.into());
+            cache.insert("App", &Value::Map(marked));
+            assert_eq!(
+                respond(&mut session, &mut cache, &request)
+                    .unwrap()
+                    .get("payload")
+                    .unwrap()
+                    .get("cacheHitMarker")
+                    .unwrap(),
+                &Value::Bool(true)
+            );
+            if replace {
+                let replacement = file.0.with_extension("replacement");
+                std::fs::copy(&file.0, &replacement).unwrap();
+                std::fs::rename(replacement, &file.0).unwrap();
+            } else {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&file.0)
+                    .unwrap()
+                    .set_len(0)
+                    .unwrap();
+            }
+            assert!(respond(&mut session, &mut cache, &request).is_err());
+            assert!(cache.entries.is_empty());
+            assert_eq!(cache.bytes, 0);
+        }
+    }
+
+    #[test]
+    fn corrupt_or_wrong_source_cache_entries_fail_closed() {
+        let (_file, mut session, digest) = SourceFixture::open();
+        let mut cache = HistogramCache::new(&digest);
+        let request = heap_request(&digest);
+        let expected = respond(&mut session, &mut cache, &request).unwrap();
+        cache.insert("App", expected.get("payload").unwrap());
+        cache.entries.get_mut("App").unwrap()[0] = 255;
+        assert!(respond(&mut session, &mut cache, &request).is_err());
+        assert!(cache.entries.is_empty());
+        cache = HistogramCache::new("wrong-source");
+        cache.insert("App", expected.get("payload").unwrap());
+        assert!(respond(&mut session, &mut cache, &request).is_err());
+        assert!(cache.entries.is_empty());
+    }
+
+    fn decoded_frame(bytes: Vec<u8>) -> Value {
+        let mut reader = io::Cursor::new(bytes);
+        let frame = wire::read_frame(&mut reader).unwrap().unwrap();
+        assert!(wire::read_frame(&mut reader).unwrap().is_none());
+        wire::decode(&frame).unwrap()
+    }
+
+    #[test]
+    fn worker_response_encodes_once_and_preserves_limit_errors() {
+        let response = ok_response(17, "digest", Value::List(vec![42i64.into()]));
+        let expected = wire::encode(&response).unwrap();
+        let mut output = Vec::new();
+        write_worker_response(&mut output, &response, 17, "digest", expected.len()).unwrap();
+        assert_eq!(&output[4..], expected);
+
+        let large = ok_response(17, "digest", "x".repeat(MAX_RESPONSE_BYTES).into());
+        let unencodable = ok_response(17, "digest", "x".repeat(wire::MAX_STRING + 1).into());
+        for value in [large, unencodable] {
+            let mut output = Vec::new();
+            write_worker_response(&mut output, &value, 17, "digest", MAX_RESPONSE_BYTES).unwrap();
+            assert_eq!(decoded_frame(output), error(17, "digest"));
+        }
+        let mut output = Vec::new();
+        assert_eq!(
+            write_worker_response(&mut output, &response, 17, "digest", 1)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn worker_response_propagates_write_and_flush_failures() {
+        struct FailingWriter(bool);
+        impl Write for FailingWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if self.0 {
+                    Ok(bytes.len())
+                } else {
+                    Err(io::ErrorKind::Other.into())
+                }
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::ErrorKind::Other.into())
+            }
+        }
+        for fail_on_flush in [false, true] {
+            assert_eq!(
+                write_worker_response(
+                    &mut FailingWriter(fail_on_flush),
+                    &error(1, "digest"),
+                    1,
+                    "digest",
+                    MAX_RESPONSE_BYTES,
+                )
+                .unwrap_err()
+                .kind(),
+                io::ErrorKind::BrokenPipe
+            );
+        }
+    }
+
+    #[test]
     fn presentation_bound_allows_five_hundred_top_level_rows() {
         let mut omissions = Vec::new();
         let mut payload = Value::map([(
@@ -818,67 +1143,4 @@ mod tests {
             Vec::<String>::new()
         );
     }
-}
-
-fn as_map_mut(value: &mut Value) -> Result<&mut BTreeMap<String, Value>, ()> {
-    match value {
-        Value::Map(map) => Ok(map),
-        _ => Err(()),
-    }
-}
-fn index(args: &BTreeMap<String, Value>, key: &str) -> Result<usize, ()> {
-    usize::try_from(args.get(key).ok_or(())?.as_int().map_err(|_| ())?).map_err(|_| ())
-}
-
-fn bounded(
-    value: &mut Value,
-    path: &str,
-    omissions: &mut Vec<Value>,
-    depth: usize,
-) -> Result<(), ()> {
-    if depth > 32 || omissions.len() > 4096 {
-        return Err(());
-    }
-    match value {
-        Value::List(values) => {
-            // The top-level rows list is already bounded by the requested UI
-            // page; nested row lists keep the 200-entry presentation cap.
-            let visible_limit = if path == "payload.rows" {
-                MAX_UI_PAGE_SIZE
-            } else {
-                MAX_PAGE_SIZE
-            };
-            if values.len() > visible_limit {
-                omissions.push(Value::map([
-                    ("path", path.into()),
-                    ("originalCount", (values.len() as i64).into()),
-                    ("visibleCount", (visible_limit as i64).into()),
-                ]));
-                values.truncate(visible_limit);
-            }
-            for (index, value) in values.iter_mut().enumerate() {
-                bounded(value, &format!("{path}[{index}]"), omissions, depth + 1)?;
-            }
-        }
-        Value::Map(values) => {
-            for (key, value) in values.iter_mut() {
-                bounded(value, &format!("{path}.{key}"), omissions, depth + 1)?;
-            }
-        }
-        Value::String(text) if text.len() > 4096 => {
-            let original = text.len();
-            let mut end = 4096;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            text.truncate(end);
-            omissions.push(Value::map([
-                ("path", path.into()),
-                ("originalBytes", (original as i64).into()),
-                ("visibleBytes", (end as i64).into()),
-            ]));
-        }
-        _ => {}
-    }
-    Ok(())
 }

@@ -592,18 +592,221 @@ mod tests {
                 "memory.apply_memory_capture_targets(&event.devices, &event.processes, cx)"
             )
         );
-        let capture = include_str!("capture.rs")
+    }
+
+    fn compact(source: &str) -> String {
+        source.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    fn runtime_method(source: &str, name: &str) -> String {
+        let runtime = source.split("#[cfg(test)]").next().unwrap();
+        let signature = format!("fn {name}(");
+        let (_, method) = runtime
+            .split_once(&signature)
+            .unwrap_or_else(|| panic!("missing runtime method {name}"));
+        // Workspace methods end at this indentation; nested callbacks do not.
+        let (method, _) = method
+            .split_once("\n    }\n")
+            .unwrap_or_else(|| panic!("missing end of runtime method {name}"));
+        compact(method)
+    }
+
+    fn publication_after_guard<'a>(method: &'a str, condition: &str) -> Option<&'a str> {
+        let (_, callback) = method.split_once("this.update(cx,|this,cx|{")?;
+        callback.strip_prefix(&format!("if{condition}{{return;}}"))
+    }
+
+    #[::core::prelude::v1::test]
+    fn snapshot_queries_guard_each_publication_before_success_error_or_loading_updates() {
+        let source = include_str!("../memory.rs");
+        for (name, generation, publications) in [
+            (
+                "memory_query_instances",
+                "selection_generation",
+                &[
+                    "this.memory_state.instances=Some(page);",
+                    "this.memory_state.instances_loading=false;",
+                ][..],
+            ),
+            (
+                "memory_load_inspector_object",
+                "detail_generation",
+                &[
+                    "this.memory_state.detail=detail",
+                    "this.memory_state.detail_loading=false;",
+                ][..],
+            ),
+            (
+                "memory_load_inspector_child",
+                "inspector_reference_generation",
+                &[
+                    "this.memory_state.inspector_reference_details.insert(key,detail);",
+                    "this.memory_state.inspector_reference_loading.remove(&key);",
+                ][..],
+            ),
+            (
+                "memory_load_dominators",
+                "dominator_generation",
+                &["this.memory_state.apply_dominator_query(generation,parent,result);"][..],
+            ),
+            (
+                "memory_begin_load",
+                "load_generation",
+                &[
+                    "this.memory_state.reset_for_snapshot(snapshot,label);",
+                    "this.memory_state.loading=false;",
+                ][..],
+            ),
+            (
+                "memory_compare_snapshots",
+                "comparison_generation",
+                &[
+                    "this.memory_state.comparison=Some(Arc::new(report));",
+                    "this.memory_state.comparison_loading=false;",
+                ][..],
+            ),
+        ] {
+            let method = runtime_method(source, name);
+            let preparation = method.split("cx.spawn(").next().unwrap();
+            assert!(
+                preparation.contains("letsnapshot_id=self.memory_snapshot_id;"),
+                "{name}: freeze snapshot identity"
+            );
+            if name == "memory_load_dominators" {
+                assert!(preparation.contains("letSome(generation)=self.memory_state.begin_dominator_query(parent)else{return;};"));
+                assert!(!preparation.contains("dominator_generation+="));
+            } else {
+                assert!(
+                    preparation.contains(&format!("letgeneration=self.memory_state.{generation};")),
+                    "{name}: freeze the matching generation"
+                );
+            }
+            let condition = format!(
+                "this.memory_snapshot_id!=snapshot_id||this.memory_state.{generation}!=generation"
+            );
+            let publication = publication_after_guard(&method, &condition)
+                .unwrap_or_else(|| panic!("{name}: reject stale results at callback entry"));
+            for required in publications {
+                assert!(
+                    publication.contains(required),
+                    "{name}: unguarded or missing {required}"
+                );
+            }
+            if name != "memory_compare_snapshots" {
+                assert!(
+                    preparation.contains("&cancel"),
+                    "{name}: pass cancellation to the worker query"
+                );
+                if name != "memory_load_dominators" {
+                    assert!(
+                        publication.contains("Err(error)=>this.memory_state."),
+                        "{name}: errors must use the same guarded publication"
+                    );
+                }
+            }
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn publication_contract_rejects_missing_wrong_nonreturning_or_late_guards() {
+        let method = runtime_method(include_str!("../memory.rs"), "memory_query_instances");
+        let condition = "this.memory_snapshot_id!=snapshot_id||this.memory_state.selection_generation!=generation";
+        let guard = format!("if{condition}{{return;}}");
+        assert!(publication_after_guard(&method, condition).is_some());
+        for broken in [
+            method.replacen("this.memory_snapshot_id!=snapshot_id||", "", 1),
+            method.replacen(
+                "||this.memory_state.selection_generation!=generation",
+                "",
+                1,
+            ),
+            method.replacen(
+                "this.memory_state.selection_generation!=generation",
+                "this.memory_state.detail_generation!=generation",
+                1,
+            ),
+            method.replacen("!=snapshot_id||", "!=snapshot_id&&", 1),
+            method.replacen(&guard, &format!("if{condition}{{}}"), 1),
+            method.replacen(
+                &guard,
+                &format!("this.memory_state.instances_loading=false;{guard}"),
+                1,
+            ),
+        ] {
+            // A correct guard elsewhere cannot compensate for this unsafe callback.
+            let decoy = format!("{broken}fn unrelated(){{{guard}}}");
+            assert!(publication_after_guard(&decoy, condition).is_none());
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn capture_publication_and_cancellation_are_bound_to_the_frozen_target() {
+        let source = include_str!("capture.rs");
+        let capture = runtime_method(source, "capture_memory_heap");
+        let preparation = capture.split("cx.spawn(").next().unwrap();
+        assert!(preparation.contains("self.cancel.cancel();self.cancel=CancellationToken::new();self.generation+=1;letgeneration=self.generation;letcancel=self.cancel.clone();"));
+        assert!(preparation.contains("load_capture(&task_target,&root,&cancel)"));
+        let publication = publication_after_guard(&capture, "this.generation!=generation||!this.memory_capture.in_progress||this.memory_capture.target.as_ref()!=Some(&target)")
+            .expect("capture must reject cancellation and changed targets before any state update");
+        assert!(publication.contains("this.memory_snapshot_id=Some(id);"));
+        assert!(publication.contains("this.memory_state.capture_artifact=Some(loaded.artifact);"));
+        assert!(publication.contains("Err(error)=>"));
+        for name in ["set_memory_capture_target", "apply_memory_capture_targets"] {
+            let target_update = runtime_method(source, name);
+            assert!(
+                target_update.contains("&&self.memory_capture.in_progress{self.cancel_work(cx);}"),
+                "{name}: revoke in-flight capture on target changes"
+            );
+        }
+        let cancel = runtime_method(include_str!("../../import.rs"), "cancel_work");
+        assert!(cancel.contains("self.cancel.cancel();self.generation+=1;"));
+        assert!(cancel.contains("self.memory_capture.in_progress=false;"));
+        assert!(cancel.contains("self.memory_state.load_generation+=1;"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn phase3_source_completion_checks_epoch_and_current_binding_before_publication() {
+        let method = runtime_method(
+            include_str!("../../shell.rs"),
+            "prepare_memory_source_request",
+        );
+        let (_, callback) = method
+            .split_once("this.update_in(cx,|studio,window,cx|{")
+            .unwrap();
+        let after_epoch = callback.strip_prefix("if!studio.ai_request_epoch.accepts(epoch,Destination::Memory,studio.destination){return;}")
+            .expect("cancelled, superseded, or navigated-away source requests must not publish");
+        let (_, publication) = after_epoch
+            .split_once("ifcurrent!=binding||current.is_none(){return;}")
+            .expect("source completion must recheck the active session, generation, and digest");
+        let binding_check = after_epoch.split("ifcurrent!=binding").next().unwrap();
+        assert!(binding_check.contains("memory.read(cx).memory_ai_binding()"));
+        assert!(!binding_check.contains("bind_ai_request("));
+        assert!(publication.starts_with("matchresult{Ok((request,guard))=>"));
+        assert!(publication.contains("Err(error)=>"));
+        let binding = runtime_method(include_str!("ai.rs"), "memory_ai_binding");
+        assert!(binding.contains("self.session_id.clone()?"));
+        assert!(binding.contains("self.generation.max(1)"));
+        assert!(binding.contains("self.memory_state.snapshot.as_ref()?.source_digest.clone()"));
+        let adapters = include_str!("phase3.rs")
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        assert!(capture.contains("this.generation != generation"));
-        assert!(capture.contains("this.memory_capture.target.as_ref() != Some(&target)"));
-        assert!(capture.contains("this.memory_state.capture_artifact = Some(loaded.artifact)"));
-        assert_eq!(
-            include_str!("../memory.rs")
-                .matches("this.memory_snapshot_id != snapshot_id")
-                .count(),
-            4
+        assert!(!adapters.contains("async "));
+        assert!(!adapters.contains(".spawn("));
+    }
+
+    #[::core::prelude::v1::test]
+    fn snapshot_reset_invalidates_pending_reference_pages_even_at_generation_wrap() {
+        let mut state = MemoryState::new();
+        state.inspector_reference_generation = u64::MAX;
+        let pending = state.inspector_reference_generation;
+        state.inspector_reference_loading.insert((42, 0));
+        state.reset_for_snapshot(
+            Arc::new(aps_memory::MemorySnapshot::default()),
+            "new".into(),
         );
+        assert_ne!(state.inspector_reference_generation, pending);
+        assert_eq!(state.inspector_reference_generation, 0);
+        assert!(state.inspector_reference_loading.is_empty());
     }
 }

@@ -1,88 +1,100 @@
 //! Android Studio/perflib-compatible NativeAllocationRegistry attribution.
 use crate::analysis::{self, NONE};
-use crate::model::{Heap, Object, ObjectKind, Value};
+use crate::model::{Heap, ObjectKind};
+use scanner::{NativeScanner, Role};
+use std::collections::HashMap;
 
-fn values(heap: &Heap, object: &Object) -> Result<Vec<Value>, String> {
-    let fields = heap.fields_for(object.class_id);
-    let count = analysis::observed_fields(heap, object, &fields);
-    heap.values(
-        object,
-        0,
-        u32::try_from(count).map_err(|_| "too many fields")?,
-    )
-}
-
-fn reference(values: &[Value], name: &str) -> Option<u64> {
-    values
-        .iter()
-        .find(|value| value.name == name && value.ty == 2)
-        .map(|value| value.bits)
-}
-
-fn exact_class(heap: &Heap, object: &Object, name: &str) -> bool {
-    heap.class_by_id
-        .get(&object.class_id)
-        .is_some_and(|&index| crate::model::class_name_matches(&heap.classes[index].name, name))
-}
+mod scanner;
 
 /// Maps registered native bytes to the Cleaner referent, matching perflib's
 /// NativeRegistryPostProcessor. Missing/incomplete registry records are not
 /// converted into zero evidence.
 pub fn map_native_sizes(heap: &Heap) -> Result<Option<Vec<u64>>, String> {
-    let mut sizes = vec![0u64; heap.objects.len() + heap.classes.len()];
-    let mut found = false;
-    for cleaner in &heap.objects {
-        if cleaner.kind != ObjectKind::Instance || !exact_class(heap, cleaner, "sun.misc.Cleaner") {
-            continue;
+    let mut scanner = NativeScanner::new(heap)?;
+    let result = scan_native_sizes(heap, &mut scanner);
+    // Check even on a read/callback failure; never publish a partially read map.
+    scanner.finish()?;
+    result
+}
+
+fn sort_records(heap: &Heap, records: &mut Vec<usize>) {
+    records.sort_unstable_by_key(|&index| (heap.objects[index].payload_offset, index));
+    records.dedup();
+}
+
+fn scan_native_sizes(
+    heap: &Heap,
+    scanner: &mut NativeScanner<'_>,
+) -> Result<Option<Vec<u64>>, String> {
+    let mut cleaners = Vec::new();
+    for (index, object) in heap.objects.iter().enumerate() {
+        // Skipped primitive/unrelated records still contribute to identity batches.
+        scanner.observe(index)?;
+        if object.kind == ObjectKind::Instance && scanner.role(index) == Role::Cleaner {
+            cleaners.push(index);
         }
-        let cleaner_values = values(heap, cleaner)?;
-        let Some(referent_id) = reference(&cleaner_values, "referent").filter(|id| *id != 0) else {
-            continue;
-        };
-        let Some(thunk_id) = reference(&cleaner_values, "thunk").filter(|id| *id != 0) else {
-            continue;
-        };
-        let Some(&thunk_index) = heap.object_by_id.get(&thunk_id) else {
-            continue;
-        };
-        let thunk = &heap.objects[thunk_index];
-        if !exact_class(
-            heap,
-            thunk,
-            "libcore.util.NativeAllocationRegistry$CleanerThunk",
-        ) {
-            continue;
-        }
-        let registry_id = values(heap, thunk)?
-            .into_iter()
-            .find(|value| value.ty == 2 && value.bits != 0)
-            .map(|value| value.bits);
-        let Some(registry_id) = registry_id else {
-            continue;
-        };
-        let Some(&registry_index) = heap.object_by_id.get(&registry_id) else {
-            continue;
-        };
-        let registry = &heap.objects[registry_index];
-        if !exact_class(heap, registry, "libcore.util.NativeAllocationRegistry") {
-            continue;
-        }
-        let Some(size) = values(heap, registry)?
-            .into_iter()
-            .find(|value| value.name == "size" && value.ty == 11)
-            .map(|value| value.bits)
-        else {
-            continue;
-        };
-        let Some(&owner_index) = heap.object_by_id.get(&referent_id) else {
-            continue;
-        };
-        // Perflib assigns the registry size to the owner; it does not sum
-        // multiple Cleaner records for the same owner.
-        sizes[owner_index] = size;
-        found = true;
     }
-    heap.check_source()?;
+    sort_records(heap, &mut cleaners);
+    let mut chains = Vec::with_capacity(cleaners.len());
+    let mut thunks = Vec::new();
+    for index in cleaners {
+        scanner.scan(index, |scanner, fields| {
+            if let (Some(owner), Some(thunk)) = (fields.referent, fields.thunk)
+                && owner != 0
+                && thunk != 0
+                && let Some(&thunk) = heap.object_by_id.get(&thunk)
+                && scanner.role(thunk) == Role::Thunk
+            {
+                chains.push((index, owner, thunk));
+                thunks.push(thunk);
+            }
+            Ok(())
+        })?;
+    }
+    sort_records(heap, &mut thunks);
+    let mut thunk_registries = HashMap::with_capacity(thunks.len());
+    let mut registries = Vec::new();
+    for index in thunks {
+        scanner.scan(index, |scanner, fields| {
+            if let Some(registry) = fields.first_reference
+                && let Some(&registry) = heap.object_by_id.get(&registry)
+                && scanner.role(registry) == Role::Registry
+            {
+                thunk_registries.insert(index, registry);
+                registries.push(registry);
+            }
+            Ok(())
+        })?;
+    }
+    sort_records(heap, &mut registries);
+    let mut registry_sizes = HashMap::with_capacity(registries.len());
+    for index in registries {
+        scanner.scan(index, |_, fields| {
+            if let Some(size) = fields.size {
+                registry_sizes.insert(index, size);
+            }
+            Ok(())
+        })?;
+    }
+
+    let count = heap
+        .objects
+        .len()
+        .checked_add(heap.classes.len())
+        .ok_or("native graph length overflow")?;
+    let mut sizes = analysis::filled(count, 0u64)?;
+    let mut found = false;
+    // Physical read order is independent of perflib's last-Cleaner-wins order.
+    chains.sort_unstable_by_key(|&(index, _, _)| index);
+    for (_, owner, thunk) in chains {
+        if let Some(registry) = thunk_registries.get(&thunk)
+            && let Some(&size) = registry_sizes.get(registry)
+            && let Some(&owner) = heap.object_by_id.get(&owner)
+        {
+            sizes[owner] = size;
+            found = true;
+        }
+    }
     Ok(found.then_some(sizes))
 }
 

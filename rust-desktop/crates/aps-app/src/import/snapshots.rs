@@ -81,6 +81,7 @@ impl ImportWorkspace {
         let Session::Memory(session) = self.session.take()? else {
             unreachable!("prechecked Memory session");
         };
+        self.memory_state.invalidate_pending_queries();
         Some(MemorySnapshot {
             id: self.memory_snapshot_id.take()?,
             path: self.path.take()?,
@@ -122,6 +123,7 @@ impl ImportWorkspace {
         self.memory_state.error = None;
         self.memory_state.notice = None;
         self.restore_memory_snapshot(selected);
+        self.memory_resume_dominator_queries(cx);
         self.memory_invalidate_comparison(cx);
         cx.notify();
     }
@@ -170,6 +172,7 @@ impl ImportWorkspace {
         self.import_started = None;
         if let Some(previous) = self.memory_snapshots.pop() {
             self.restore_memory_snapshot(previous);
+            self.memory_resume_dominator_queries(cx);
         }
         self.memory_invalidate_comparison(cx);
         cx.notify();

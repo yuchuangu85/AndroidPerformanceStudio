@@ -1,6 +1,7 @@
 //! Compact strong graph, shortest-root traversal and reachable-first Lengauer-Tarjan.
 use crate::edges::{EdgeStore, EdgeWriter, GraphStorage};
 use crate::model::{Field, Heap, Object, ObjectKind};
+use crate::references::ReferenceScanner;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub const NONE: u32 = u32::MAX;
@@ -50,12 +51,16 @@ pub fn class_shallow_sizes(heap: &Heap, names: &[String]) -> Result<Option<Vec<u
     let Some(base) = class_shallow_size(heap, names) else {
         return Ok(None);
     };
-    heap.classes.iter().map(|class| {
-        class.static_fields.iter().try_fold(base, |size, field| {
-            size.checked_add(crate::parser::width(field.ty, heap.id_size)?)
-                .ok_or_else(|| "class shallow size overflow".to_string())
+    heap.classes
+        .iter()
+        .map(|class| {
+            class.static_fields.iter().try_fold(base, |size, field| {
+                size.checked_add(crate::parser::width(field.ty, heap.id_size)?)
+                    .ok_or_else(|| "class shallow size overflow".to_string())
+            })
         })
-    }).collect::<Result<Vec<_>, _>>().map(Some)
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 pub fn node_of(heap: &Heap, id: u64) -> Option<u32> {
@@ -138,7 +143,8 @@ impl Graph {
             .try_reserve_exact(count + 1)
             .map_err(|_| "cannot allocate graph offsets")?;
         offsets.push(0);
-        for object in &heap.objects {
+        let mut scanner = ReferenceScanner::new(heap, &layouts)?;
+        for (index, object) in heap.objects.iter().enumerate() {
             let class_index = heap.class_by_id.get(&object.class_id).copied();
             let is_instance = matches!(object.kind, ObjectKind::Instance);
             let weak_holder = is_instance
@@ -160,62 +166,40 @@ impl Graph {
                             )
                         })
                 });
-            if !matches!(object.kind, ObjectKind::PrimitiveArray { .. }) {
-                let count = if is_instance {
-                    class_index
-                        .map(|i| observed_fields(heap, object, &layouts[i]))
-                        .unwrap_or(0)
-                } else {
-                    object.count as usize
-                };
-                // Only instances need field-name sorting; large arrays stream directly.
-                let mut instance_edges = Vec::new();
-                let mut start = 0;
-                while start < count {
-                    let limit = (count - start).min(READ_CHUNK as usize) as u32;
-                    let values = heap.values(object, start as u32, limit)?;
-                    if values.len() != limit as usize {
-                        return Err(format!("incomplete object values for 0x{:x}", object.id));
-                    }
-                    for (local, value) in values.iter().enumerate() {
-                        if value.ty != 2
-                            || value.bits == 0
-                            || (weak_holder && value.name == "referent")
-                        {
-                            continue;
-                        }
-                        if let Some(target) = node_of(heap, value.bits) {
-                            let slot = (start + local) as u32;
-                            if is_instance {
-                                instance_edges
-                                    .try_reserve(1)
-                                    .map_err(|_| "cannot allocate instance edges")?;
-                                instance_edges.push((target, slot));
-                            } else {
-                                edges.push(target, slot)?;
-                            }
-                        }
-                    }
-                    start += limit as usize;
+            // Only instances need field-name sorting; arrays stream directly.
+            let mut instance_edges = Vec::new();
+            scanner.scan_object(index, |slot, id| {
+                if weak_holder
+                    && class_index.is_some_and(|i| layouts[i][slot as usize].name == "referent")
+                {
+                    return Ok(());
                 }
-                if is_instance {
-                    if let Some(ci) = class_index {
-                        instance_edges.sort_by(|a, b| {
-                            layouts[ci][a.1 as usize]
-                                .name
-                                .cmp(&layouts[ci][b.1 as usize].name)
-                                .then_with(|| {
-                                    (id_of(heap, a.0) as i64).cmp(&(id_of(heap, b.0) as i64))
-                                })
-                        });
-                        for (target, slot) in instance_edges {
-                            edges.push(target, slot)?;
-                        }
+                if let Some(target) = node_of(heap, id) {
+                    if is_instance {
+                        instance_edges
+                            .try_reserve(1)
+                            .map_err(|_| "cannot allocate instance edges")?;
+                        instance_edges.push((target, slot));
+                    } else {
+                        edges.push(target, slot)?;
                     }
+                }
+                Ok(())
+            })?;
+            if is_instance && let Some(ci) = class_index {
+                instance_edges.sort_by(|a, b| {
+                    layouts[ci][a.1 as usize]
+                        .name
+                        .cmp(&layouts[ci][b.1 as usize].name)
+                        .then_with(|| (id_of(heap, a.0) as i64).cmp(&(id_of(heap, b.0) as i64)))
+                });
+                for (target, slot) in instance_edges {
+                    edges.push(target, slot)?;
                 }
             }
             offsets.push(edges.len() as u32);
         }
+        scanner.finish()?;
         for class in &heap.classes {
             let mut slots: Vec<_> = class
                 .static_fields
@@ -409,10 +393,20 @@ impl Analysis {
         names: &[String],
         storage: GraphStorage<'_>,
     ) -> Result<Self, String> {
+        Self::build_named_with_native_sizes(heap, names, storage).map(|(analysis, _)| analysis)
+    }
+
+    /// Returns the attribution already used for retention so Engine can reuse
+    /// it without rescanning registry records or copying the per-node sizes.
+    pub(crate) fn build_named_with_native_sizes(
+        heap: &Heap,
+        names: &[String],
+        storage: GraphStorage<'_>,
+    ) -> Result<(Self, Option<Vec<u64>>), String> {
         let graph = Graph::build_named_with_storage(heap, names, storage)?;
         let traversal = Traversal::build(heap, &graph, false)?;
-        let class_shallow = class_shallow_sizes(heap, names)?
-            .unwrap_or_else(|| vec![0; heap.classes.len()]);
+        let class_shallow =
+            class_shallow_sizes(heap, names)?.unwrap_or_else(|| vec![0; heap.classes.len()]);
         let mut shallow: Vec<_> = heap
             .objects
             .iter()
@@ -421,18 +415,24 @@ impl Analysis {
             .collect();
         // Perflib Instance.resetRetainedSize includes attributed native bytes;
         // retainedNativeSize remains a separately reported subset of this total.
-        if let Some(native) = crate::native::map_native_sizes(heap)? {
+        let native_sizes = crate::native::map_native_sizes(heap)?;
+        if let Some(native) = &native_sizes {
             for (size, native_size) in shallow.iter_mut().zip(native) {
-                *size = size.checked_add(native_size).ok_or("retained size overflow")?;
+                *size = size
+                    .checked_add(*native_size)
+                    .ok_or("retained size overflow")?;
             }
         }
         let (retained, immediate) = dominators(&graph, &traversal, &shallow)?;
-        Ok(Self {
-            graph,
-            traversal,
-            retained,
-            immediate,
-        })
+        Ok((
+            Self {
+                graph,
+                traversal,
+                retained,
+                immediate,
+            },
+            native_sizes,
+        ))
     }
 }
 

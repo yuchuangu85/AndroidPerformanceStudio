@@ -8,7 +8,7 @@
 //! instance area horizontally to host the object inspector. Every number is
 //! presenter output; unavailable metrics stay "—"/"Unavailable".
 use super::ImportWorkspace;
-use super::state::{MemoryState, MemoryTable};
+use super::state::{ClassifierRenderRows, MemoryState, MemoryTable};
 use super::widgets::{
     DISCLOSURE_WIDTH, TABLE_FONT, TABLE_HEADER_HEIGHT, TABLE_LINE, TABLE_ROW_HEIGHT, WARNING_WIDTH,
     checkbox, disclosure_button, header_cell, kpi_card, metric_cell, resizable_header,
@@ -29,7 +29,6 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use std::collections::BTreeSet;
 use std::rc::Rc;
 
 /// Compose primary filter bar: one 36 dp row, 8 dp insets and gaps.
@@ -697,13 +696,7 @@ impl ImportWorkspace {
             .as_ref()
             .is_some_and(|snapshot| snapshot.per_heap_classes.is_empty())
             && self.memory_state.filter.heap.is_none();
-        let rows: Rc<Vec<ClassifierRow>> = Rc::new(self.memory_state.visible_classifier_rows());
-        let expanded = Rc::new(classifier_expanded_ids(&self.memory_state));
-        let leak_rows = Rc::new(classifier_leak_ids(
-            &self.memory_state.classifier_rows,
-            &self.memory_state.leak_classes,
-        ));
-        let duplicates = Rc::new(self.memory_state.duplicate_classes.clone());
+        let rows = self.memory_state.visible_classifier_rows();
         let selected = self.memory_state.selected_classifier_id.clone();
         let entity = cx.entity();
         let colors_copy = *colors;
@@ -746,9 +739,6 @@ impl ImportWorkspace {
         let row_height = TABLE_ROW_HEIGHT;
         let list = uniform_list("memory-classifier-rows", rows.len(), {
             let rows = rows.clone();
-            let expanded = expanded.clone();
-            let leak_rows = leak_rows.clone();
-            let duplicates = duplicates.clone();
             let selected = selected.clone();
             let entity = entity.clone();
             move |range, _, _| {
@@ -760,12 +750,11 @@ impl ImportWorkspace {
                     items.push(classifier_row(
                         index,
                         row,
+                        &rows,
                         selected.as_deref(),
-                        expanded.contains(&row.id),
-                        leak_rows.contains(&row.id),
-                        row.class_name
-                            .as_deref()
-                            .is_some_and(|name| duplicates.contains(name)),
+                        rows.expanded(index),
+                        rows.is_leak(row),
+                        rows.is_duplicate(row),
                         show_heap,
                         row_height,
                         &entity,
@@ -1207,6 +1196,7 @@ fn classifier_name(label: SharedString, is_heap: bool, colors: &StudioColors) ->
 fn classifier_row(
     index: usize,
     row: &ClassifierRow,
+    rows: &Rc<ClassifierRenderRows>,
     selected_id: Option<&str>,
     expanded: bool,
     is_leak: bool,
@@ -1235,14 +1225,15 @@ fn classifier_row(
     let indent = 8. + row.depth as f32 * 16.;
     let has_children = !row.children.is_empty();
     let toggle = if has_children {
-        let toggle_row = row.clone();
+        let toggle_rows = rows.clone();
         let toggle_entity = entity.clone();
         disclosure_button(("memory-classifier-toggle", index), expanded, colors.accent)
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
-                let toggle_row = toggle_row.clone();
-                let _ = toggle_entity.update(cx, move |this, cx| {
-                    this.memory_toggle_classifier(&toggle_row, cx)
+                let _ = toggle_entity.update(cx, |this, cx| {
+                    if let Some(row) = toggle_rows.get(index) {
+                        this.memory_toggle_classifier(row, cx)
+                    }
                 });
             })
             .into_any_element()
@@ -1323,13 +1314,14 @@ fn classifier_row(
         };
         element = element.child(metric_cell(Some(widths[6]), heaps, colors));
     }
-    let click_row = row.clone();
+    let click_rows = rows.clone();
     let click_entity = entity.clone();
     element
         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-            let click_row = click_row.clone();
-            let _ = click_entity.update(cx, move |this, cx| {
-                this.memory_select_classifier(click_row, cx)
+            let _ = click_entity.update(cx, |this, cx| {
+                if let Some(row) = click_rows.get(index) {
+                    this.memory_select_classifier(row.clone(), cx)
+                }
             });
         })
         .into_any_element()
@@ -1580,50 +1572,6 @@ fn arrange_label(arrange: ArrangeBy, language: Language) -> &'static str {
         ArrangeBy::Class => language.text(TextKey::MemoryPageClassOption),
         ArrangeBy::Package => language.text(TextKey::MemoryPagePackageOption),
     }
-}
-
-fn classifier_expanded_ids(state: &MemoryState) -> BTreeSet<String> {
-    fn walk(rows: &[ClassifierRow], state: &MemoryState, out: &mut BTreeSet<String>) {
-        for row in rows {
-            if !row.children.is_empty() && state.classifier_expanded(row) {
-                out.insert(row.id.clone());
-            }
-            walk(&row.children, state, out);
-        }
-    }
-    let mut out = BTreeSet::new();
-    walk(&state.classifier_rows, state, &mut out);
-    out
-}
-
-/// Compose containsLeakClass: a group row is a leak row when it or any
-/// descendant leaf class is reported by the leak findings.
-fn classifier_leak_ids(
-    rows: &[ClassifierRow],
-    leak_classes: &BTreeSet<String>,
-) -> BTreeSet<String> {
-    fn walk(
-        row: &ClassifierRow,
-        leak_classes: &BTreeSet<String>,
-        out: &mut BTreeSet<String>,
-    ) -> bool {
-        let mut leak = row
-            .class_name
-            .as_deref()
-            .is_some_and(|name| leak_classes.contains(name));
-        for child in &row.children {
-            leak |= walk(child, leak_classes, out);
-        }
-        if leak {
-            out.insert(row.id.clone());
-        }
-        leak
-    }
-    let mut out = BTreeSet::new();
-    for row in rows {
-        walk(row, leak_classes, &mut out);
-    }
-    out
 }
 
 /// Compose instanceTableLabel.

@@ -5,6 +5,9 @@ use crate::wire::{Value, number};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 
+#[path = "histogram.rs"]
+mod histogram;
+
 // Buckets are ordered by signed object ID and partitioned by heap and kind.
 type InstanceIndex = HashMap<String, HashMap<(usize, bool), Vec<u32>>>;
 
@@ -109,7 +112,8 @@ impl Engine {
                 .and_modify(|d: &mut u32| *d = (*d).max(depth))
                 .or_insert(depth);
         }
-        let analysis = Analysis::build_named_with_storage(&heap, &class_names, storage)?;
+        let (analysis, native_size) =
+            Analysis::build_named_with_native_sizes(&heap, &class_names, storage)?;
         let n = analysis.retained.len();
         let mut sorted: Vec<_> = (0..n as u32).collect();
         sorted.sort_unstable_by_key(|node| id_of(&heap, *node) as i64);
@@ -159,7 +163,6 @@ impl Engine {
             dom_children[cursor[p] as usize] = node as u32;
             cursor[p] += 1;
         }
-        let native_size = crate::native::map_native_sizes(&heap)?;
         let retained_native_size = native_size
             .as_ref()
             .map(|sizes| {
@@ -305,9 +308,15 @@ impl Engine {
             .get(node as usize)
             .map(|o| o.shallow_size)
             .unwrap_or_else(|| {
-                self.class_shallow.as_ref()
-                    .and_then(|sizes| (node as usize).checked_sub(self.heap.objects.len()).and_then(|i| sizes.get(i)))
-                    .copied().unwrap_or(0)
+                self.class_shallow
+                    .as_ref()
+                    .and_then(|sizes| {
+                        (node as usize)
+                            .checked_sub(self.heap.objects.len())
+                            .and_then(|i| sizes.get(i))
+                    })
+                    .copied()
+                    .unwrap_or(0)
             })
     }
     pub fn shallow_known(&self, node: u32) -> bool {
@@ -369,207 +378,9 @@ impl Engine {
         self.histogram_named(heap_name, true)
     }
     fn histogram_named(&self, heap_name: Option<&str>, raw: bool) -> Result<Value, String> {
-        #[derive(Default)]
-        struct Total {
-            count: u64,
-            shallow: u64,
-            reachable_shallow: u64,
-            reachable_shallow_unknown: bool,
-            native: u64,
-            reachable_native: u64,
-            retained_native: u64,
-            retained: u64,
-            heaps: Vec<String>,
-        }
-        let n = self.analysis.retained.len();
-        let mut groups: HashMap<&str, u32> = HashMap::new();
-        let mut names = Vec::new();
-        let mut totals: Vec<Total> = Vec::new();
-        let mut group_of = analysis::filled(n, NONE)?;
-        let mut heap_totals: BTreeMap<&str, (u64, u64)> = BTreeMap::new();
-        let mut count = 0u64;
-        let mut shallow = 0u64;
-        for node in 0..n as u32 {
-            let name = self.heap_name(node);
-            if heap_name.is_some() && name != heap_name {
-                continue;
-            }
-            let class_name = self.group_name_for(node, raw);
-            let group = *groups.entry(class_name).or_insert_with(|| {
-                names.push(class_name);
-                totals.push(Total::default());
-                (totals.len() - 1) as u32
-            });
-            group_of[node as usize] = group;
-            let size = self.shallow(node);
-            let total = &mut totals[group as usize];
-            total.count += 1;
-            add(&mut total.shallow, size)?;
-            if self.analysis.traversal.depth[node as usize] != NONE {
-                if self.shallow_known(node) {
-                    add(&mut total.reachable_shallow, size)?;
-                } else {
-                    total.reachable_shallow_unknown = true;
-                }
-            }
-            if let Some(native) = &self.native_size {
-                add(&mut total.native, native[node as usize])?;
-                if self.analysis.traversal.depth[node as usize] != NONE {
-                    add(&mut total.reachable_native, native[node as usize])?;
-                }
-            }
-            count += 1;
-            add(&mut shallow, size)?;
-            if let Some(name) = name {
-                if !total.heaps.iter().any(|h| h == name) {
-                    total.heaps.push(name.to_owned());
-                }
-                let (heap_count, heap_size) = heap_totals.entry(name).or_default();
-                *heap_count += 1;
-                add(heap_size, size)?;
-            }
-        }
-        // Only selected same-class ancestors suppress retained totals (also under heap filters).
-        let mut active = vec![0u32; totals.len()];
-        let mut stack = Vec::new();
-        stack
-            .try_reserve(n)
-            .map_err(|_| "cannot allocate retained aggregation traversal")?;
-        for &root in self.children(NONE).iter().rev() {
-            stack.push((root, false));
-        }
-        while let Some((node, exit)) = stack.pop() {
-            let group = group_of[node as usize];
-            if exit {
-                if group != NONE {
-                    active[group as usize] -= 1;
-                }
-                continue;
-            }
-            if group != NONE {
-                if active[group as usize] == 0 {
-                    add(
-                        &mut totals[group as usize].retained,
-                        self.analysis.retained[node as usize],
-                    )?;
-                    if let Some(native) = &self.retained_native_size {
-                        add(
-                            &mut totals[group as usize].retained_native,
-                            native[node as usize],
-                        )?;
-                    }
-                }
-                active[group as usize] += 1;
-            }
-            stack
-                .try_reserve(self.children(node).len() + 1)
-                .map_err(|_| "cannot grow retained aggregation traversal")?;
-            stack.push((node, true));
-            for &child in self.children(node).iter().rev() {
-                stack.push((child, false));
-            }
-        }
-        let mut order: Vec<_> = (0..totals.len()).collect();
-        order.sort_by(|a, b| {
-            totals[*b]
-                .count
-                .cmp(&totals[*a].count)
-                .then_with(|| names[*a].cmp(names[*b]))
-        });
-        let classes = order
-            .into_iter()
-            .map(|i| {
-                let total = &totals[i];
-                let name = names[i];
-                Ok(Value::map([
-                    ("className", name.into()),
-                    ("instanceCount", number(total.count)?),
-                    ("shallowSize", number(total.shallow)?),
-                    (
-                        "reachableShallowSize",
-                        if total.reachable_shallow_unknown {
-                            Value::Null
-                        } else {
-                            number(total.reachable_shallow)?
-                        },
-                    ),
-                    ("retainedSize", number(total.retained)?),
-                    (
-                        "obfuscatedClassName",
-                        if raw {
-                            Value::Null
-                        } else {
-                            self.reverse_mapping
-                                .get(name)
-                                .and_then(|v| v.as_deref())
-                                .filter(|v| *v != name)
-                                .into()
-                        },
-                    ),
-                    (
-                        "hierarchyDepth",
-                        if raw {
-                            self.raw_hierarchy.get(name)
-                        } else {
-                            self.hierarchy.get(name)
-                        }
-                        .copied()
-                        .into(),
-                    ),
-                    (
-                        "nativeSize",
-                        if self.native_size.is_some() {
-                            number(total.native)?
-                        } else {
-                            Value::Null
-                        },
-                    ),
-                    (
-                        "retainedNativeSize",
-                        if self.retained_native_size.is_some() {
-                            number(total.retained_native)?
-                        } else {
-                            Value::Null
-                        },
-                    ),
-                    (
-                        "reachableNativeSize",
-                        if self.native_size.is_some() {
-                            number(total.reachable_native)?
-                        } else {
-                            Value::Null
-                        },
-                    ),
-                    ("totalCount", number(total.count)?),
-                    (
-                        "heapNames",
-                        Value::List(total.heaps.iter().map(|h| h.as_str().into()).collect()),
-                    ),
-                ]))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let mut segments = Vec::new();
-        for heap in &self.heap.heaps {
-            if let Some((count, size)) = heap_totals.remove(heap.as_str()) {
-                segments.push(Value::map([
-                    ("name", heap.as_str().into()),
-                    ("sizeBytes", number(size)?),
-                    ("objectCount", number(count)?),
-                ]));
-            }
-        }
-        Ok(Value::map([
-            (
-                "summary",
-                Value::map([
-                    ("objectCount", number(count)?),
-                    ("shallowSize", number(shallow)?),
-                    ("classCount", number(classes.len() as u64)?),
-                    ("heapSegments", Value::List(segments)),
-                ]),
-            ),
-            ("classes", Value::List(classes)),
-        ]))
+        histogram::histograms(self, &[heap_name], raw)?
+            .pop()
+            .ok_or_else(|| "missing HPROF histogram".into())
     }
 
     pub fn instances(
@@ -608,7 +419,9 @@ impl Engine {
             for (_, nodes) in &buckets {
                 let before = nodes.partition_point(|&node| (id_of(&self.heap, node) as i64) < key);
                 position += before;
-                found |= nodes.get(before).is_some_and(|&node| id_of(&self.heap, node) == id);
+                found |= nodes
+                    .get(before)
+                    .is_some_and(|&node| id_of(&self.heap, node) == id);
             }
             found.then_some(position)
         });
@@ -632,11 +445,7 @@ impl Engine {
         let mut index = 0usize;
         let mut class_ordinals: HashMap<&str, usize> = HashMap::new();
         let mut next = BinaryHeap::new();
-        for (bucket, (_, nodes)) in buckets
-            .iter()
-            .enumerate()
-            .filter(|_| offset < total)
-        {
+        for (bucket, (_, nodes)) in buckets.iter().enumerate().filter(|_| offset < total) {
             if let Some(&node) = nodes.first() {
                 next.push(Reverse((id_of(&self.heap, node) as i64, bucket, 0usize)));
             }
