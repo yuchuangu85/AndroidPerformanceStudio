@@ -170,6 +170,14 @@ fn mapping_deobfuscates_class_and_instance_names() {
     let (_file, mut session, cancel) = open_fixture(&mapping);
 
     let snapshot = session.snapshot(&cancel).unwrap();
+    let mapping_digest = snapshot
+        .mapping_digest
+        .as_deref()
+        .expect("mapping identity");
+    assert_eq!(mapping_digest.len(), 64);
+    assert!(mapping_digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert_eq!(Some(mapping_digest), session.mapping_digest());
+    assert_eq!(session.snapshot(&cancel).unwrap(), snapshot);
     assert_eq!(snapshot.metadata.class_count, 1);
     let class = snapshot
         .classes
@@ -200,6 +208,8 @@ fn without_mapping_the_raw_class_name_is_evidence() {
     let names = histogram_names(&mut session, &cancel);
     assert_eq!(names, vec!["a.b.C"]);
     let snapshot = session.snapshot(&cancel).unwrap();
+    assert_eq!(session.mapping_digest(), None);
+    assert_eq!(snapshot.mapping_digest, None);
     assert_eq!(snapshot.classes[0].obfuscated_class_name, None);
 }
 

@@ -54,6 +54,7 @@ fn snapshot_decodes_metadata_summary_classes_and_empty_findings() {
     let snapshot = session.snapshot(&cancel).unwrap();
 
     assert_eq!(snapshot.source_digest, session.source_digest());
+    assert_eq!(snapshot.mapping_digest, None);
     assert_eq!(snapshot.metadata.format, "JAVA PROFILE 1.0.3");
     assert_eq!(snapshot.metadata.id_size, 4);
     assert_eq!(snapshot.metadata.class_count, 0);

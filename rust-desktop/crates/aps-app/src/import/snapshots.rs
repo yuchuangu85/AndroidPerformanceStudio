@@ -116,6 +116,7 @@ impl ImportWorkspace {
         else {
             return;
         };
+        let comparison_pair = self.memory_state.comparison_pair;
         let selected = self.memory_snapshots.remove(index);
         if let Some(previous) = self.take_active_memory_snapshot() {
             self.memory_snapshots.push(previous);
@@ -123,21 +124,19 @@ impl ImportWorkspace {
         self.memory_state.error = None;
         self.memory_state.notice = None;
         self.restore_memory_snapshot(selected);
+        self.memory_state.comparison_pair = comparison_pair;
         self.memory_resume_dominator_queries(cx);
         self.memory_invalidate_comparison(cx);
         cx.notify();
     }
 
-    /// A different active snapshot invalidates an already-published class-level
-    /// comparison; recompute it when the Diff view is visible.
+    /// Revalidate against live tabs without replacing an explicit A/B selection.
+    /// Missing endpoints stay unavailable until the user selects another pair.
     fn memory_invalidate_comparison(&mut self, cx: &mut Context<Self>) {
-        if self.memory_state.view_mode != MemoryViewMode::Diff {
-            return;
+        self.memory_state.invalidate_comparison();
+        if self.memory_state.view_mode == MemoryViewMode::Diff {
+            self.memory_compare_snapshots(cx);
         }
-        self.memory_state.comparison = None;
-        self.memory_state.comparison_pair = None;
-        self.memory_state.comparison_error = None;
-        self.memory_compare_snapshots(cx);
     }
 
     pub(super) fn close_memory_snapshot(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -160,6 +159,7 @@ impl ImportWorkspace {
             }
             return;
         }
+        let comparison_pair = self.memory_state.comparison_pair;
         drop(self.take_active_memory_snapshot());
         self.memory_state = MemoryState::new();
         self.memory_state.error = None;
@@ -174,6 +174,7 @@ impl ImportWorkspace {
             self.restore_memory_snapshot(previous);
             self.memory_resume_dominator_queries(cx);
         }
+        self.memory_state.comparison_pair = comparison_pair;
         self.memory_invalidate_comparison(cx);
         cx.notify();
     }
@@ -219,6 +220,47 @@ mod tests {
         let workspace = ImportWorkspace::new(Destination::Memory, Language::English);
         assert!(workspace.memory_snapshot_tabs().is_empty());
         assert!(workspace.memory_comparison_pair().is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn tab_lifecycle_invalidates_reports_without_resetting_explicit_pairs() {
+        let source = include_str!("snapshots.rs");
+        let invalidate = source
+            .split("fn memory_invalidate_comparison(")
+            .nth(1)
+            .unwrap()
+            .split("pub(super) fn close_memory_snapshot(")
+            .next()
+            .unwrap();
+        assert!(invalidate.contains("self.memory_state.invalidate_comparison()"));
+        assert!(!invalidate.contains("comparison_pair ="));
+        let close = source
+            .split("pub(super) fn close_memory_snapshot(")
+            .nth(1)
+            .unwrap()
+            .split("pub(super) fn memory_comparison_pair(")
+            .next()
+            .unwrap();
+        assert!(close.contains("self.memory_snapshots.remove(index)"));
+        assert_eq!(
+            close
+                .matches("self.memory_invalidate_comparison(cx)")
+                .count(),
+            2
+        );
+        for transition in [
+            close,
+            source
+                .split("pub(super) fn select_memory_snapshot(")
+                .nth(1)
+                .unwrap()
+                .split("fn memory_invalidate_comparison(")
+                .next()
+                .unwrap(),
+        ] {
+            assert!(transition.contains("let comparison_pair = self.memory_state.comparison_pair"));
+            assert!(transition.contains("self.memory_state.comparison_pair = comparison_pair"));
+        }
     }
 
     #[::core::prelude::v1::test]

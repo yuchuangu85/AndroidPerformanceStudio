@@ -421,6 +421,8 @@ fn decode_page<T>(
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MemorySnapshot {
     pub source_digest: String,
+    /// Parent-owned SHA-256 of the normalized mapping, or None for no mapping.
+    pub mapping_digest: Option<String>,
     pub metadata: SnapshotMetadata,
     pub summary: HeapSummary,
     pub classes: Vec<ClassStats>,
@@ -436,6 +438,7 @@ impl MemorySnapshot {
         payload: &Value,
         metadata: &SnapshotMetadata,
         source_digest: &str,
+        mapping_digest: Option<&str>,
     ) -> Result<Self, MemoryError> {
         let summary = HeapSummary::from_value(required(payload, "summary")?)?;
         let classes = decode_classes(required(payload, "classes")?)?;
@@ -455,6 +458,7 @@ impl MemorySnapshot {
         }
         Ok(Self {
             source_digest: source_digest.to_owned(),
+            mapping_digest: mapping_digest.map(str::to_owned),
             metadata: metadata.clone(),
             summary,
             classes,

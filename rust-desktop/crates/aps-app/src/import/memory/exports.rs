@@ -7,7 +7,7 @@
 //! capture; it is never synthesized. Native heap, ART sample and bitmap ZIP
 //! exports live in the advanced adapter.
 use super::ImportWorkspace;
-use super::state::ComparisonReport;
+use super::state::{ComparisonReport, MemoryViewMode};
 use crate::import::{Session, export};
 use aps_contracts::SourceDigest;
 use aps_json::{Limits, Map, Value};
@@ -39,6 +39,10 @@ pub(crate) enum MemoryExportKind {
 }
 
 impl MemoryExportKind {
+    fn requires_comparison(self, view: MemoryViewMode) -> bool {
+        self == Self::DiffCsv || (self == Self::InvestigationReport && view == MemoryViewMode::Diff)
+    }
+
     pub(crate) fn default_filename(self) -> &'static str {
         match self {
             Self::RawHprof => "heap-raw.hprof",
@@ -460,8 +464,13 @@ pub(super) fn diff_csv(report: &ComparisonReport) -> Result<Vec<u8>, String> {
     push_line(
         &mut output,
         &format!(
-            "# class-level diff; A={}; A digest={}; B={}; B digest={}; analysisVersion={EXPORT_ANALYSIS_VERSION}; limitation=class-name matching only; no cross-dump object identity",
-            report.a_label, report.a_digest, report.b_label, report.b_digest
+            "# class-level diff; A={}; A digest={}; A mapping={}; B={}; B digest={}; B mapping={}; analysisVersion={EXPORT_ANALYSIS_VERSION}; limitation=class-name matching only; build identity unverified; no cross-dump object identity",
+            report.a_label,
+            report.a_digest,
+            report.a_mapping_digest.as_deref().unwrap_or("unmapped"),
+            report.b_label,
+            report.b_digest,
+            report.b_mapping_digest.as_deref().unwrap_or("unmapped")
         ),
     )?;
     push_csv_row(
@@ -916,14 +925,16 @@ impl ImportWorkspace {
                 .bitmap
                 .as_ref()
                 .is_some_and(|bitmap| bitmap.comparison.is_some()),
-            MemoryExportKind::HistogramCsv
-            | MemoryExportKind::SnapshotJson
-            | MemoryExportKind::InvestigationReport => loaded,
+            MemoryExportKind::HistogramCsv | MemoryExportKind::SnapshotJson => loaded,
             MemoryExportKind::ClassInstancesCsv => loaded && self.memory_state.instances.is_some(),
             MemoryExportKind::ObjectInvestigationJson => {
                 loaded && self.memory_state.detail.is_some()
             }
-            MemoryExportKind::DiffCsv => loaded && self.memory_state.comparison.is_some(),
+            MemoryExportKind::DiffCsv | MemoryExportKind::InvestigationReport => {
+                loaded
+                    && (!kind.requires_comparison(self.memory_state.view_mode)
+                        || self.memory_current_comparison().is_ok())
+            }
         }
     }
 
@@ -952,7 +963,15 @@ impl ImportWorkspace {
         let snapshot = self.memory_state.snapshot.clone();
         let instances = self.memory_state.instances.clone();
         let detail = self.memory_state.detail.clone();
-        let comparison = self.memory_state.comparison.clone();
+        let comparison = match self.memory_current_comparison() {
+            Ok(report) => Some(report),
+            Err(error) if kind.requires_comparison(self.memory_state.view_mode) => {
+                self.memory_state.error = Some(error);
+                cx.notify();
+                return;
+            }
+            Err(_) => None,
+        };
         let bitmap_comparison = self
             .memory_advanced
             .bitmap
@@ -1190,9 +1209,36 @@ mod tests {
         HeapSummary, LeakSuspect, LifecycleLeakObject, MemorySnapshot, SnapshotMetadata,
     };
 
+    #[test]
+    fn diff_report_export_never_falls_back_to_active_snapshot_findings() {
+        let mut workspace =
+            ImportWorkspace::new(Destination::Memory, aps_ui_foundation::Language::English);
+        workspace.session_id = Some("active-C".into());
+        workspace.memory_state.snapshot = Some(std::sync::Arc::new(snapshot()));
+        workspace.memory_state.comparison_pair = Some((1, 2));
+        for (loading, error, unbound_report) in [
+            (false, None, false),
+            (true, None, false),
+            (false, Some("mapping mismatch"), false),
+            (false, None, true),
+        ] {
+            workspace.memory_state.comparison_loading = loading;
+            workspace.memory_state.comparison_error = error.map(str::to_owned);
+            workspace.memory_state.comparison =
+                unbound_report.then(|| std::sync::Arc::new(ComparisonReport::default()));
+            workspace.memory_state.view_mode = MemoryViewMode::Diff;
+            assert!(!workspace.memory_export_enabled(MemoryExportKind::DiffCsv));
+            assert!(!workspace.memory_export_enabled(MemoryExportKind::InvestigationReport));
+            workspace.memory_state.view_mode = MemoryViewMode::Classes;
+            assert!(workspace.memory_export_enabled(MemoryExportKind::InvestigationReport));
+            assert!(!workspace.memory_export_enabled(MemoryExportKind::DiffCsv));
+        }
+    }
+
     fn snapshot() -> MemorySnapshot {
         MemorySnapshot {
             source_digest: "a".repeat(64),
+            mapping_digest: None,
             metadata: SnapshotMetadata {
                 format: "JAVA PROFILE 1.0.3".into(),
                 id_size: 8,
@@ -1423,6 +1469,8 @@ mod tests {
             b_label: "after.hprof".into(),
             a_digest: "a".repeat(64),
             b_digest: "b".repeat(64),
+            a_mapping_digest: Some("c".repeat(64)),
+            b_mapping_digest: Some("c".repeat(64)),
             rows: vec![super::super::state::ClassifierDelta {
                 class_name: "com.example.C".into(),
                 a_count: 2,
@@ -1432,12 +1480,16 @@ mod tests {
                 a_retained: Some(10),
                 b_retained: Some(25),
             }],
+            ..ComparisonReport::default()
         };
         let csv = String::from_utf8(diff_csv(&report).unwrap()).unwrap();
         let mut lines = csv.lines();
         let identity = lines.next().unwrap();
         assert!(identity.contains("A=before.hprof"));
         assert!(identity.contains("B=after.hprof"));
+        assert!(identity.contains(&format!("A mapping={}", "c".repeat(64))));
+        assert!(identity.contains(&format!("B mapping={}", "c".repeat(64))));
+        assert!(identity.contains("build identity unverified"));
         assert!(lines.next().unwrap().starts_with("\"className\""));
         let row = lines.next().unwrap();
         assert!(row.contains("\"countDelta\",\"3\"") || row.contains("\"3\""));
@@ -1453,6 +1505,7 @@ mod tests {
             a_digest: "a".repeat(64),
             b_digest: "b".repeat(64),
             rows: Vec::new(),
+            ..ComparisonReport::default()
         };
         let markdown = String::from_utf8(
             investigation_report_markdown(&snapshot, Some(&report), true, 3).unwrap(),

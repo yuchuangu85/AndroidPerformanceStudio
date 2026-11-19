@@ -25,7 +25,6 @@ use gpui_kit::{
     prelude::*,
     *,
 };
-use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // Shared dense-memory formatters (Compose MemoryFormatters.kt).
@@ -125,60 +124,23 @@ pub(super) fn compare(
     b: &MemorySnapshot,
     a_label: String,
     b_label: String,
-) -> ComparisonReport {
-    #[derive(Default)]
-    struct Metrics {
-        a_count: u64,
-        b_count: u64,
-        a_shallow: u64,
-        b_shallow: u64,
-        a_retained: Option<u64>,
-        b_retained: Option<u64>,
-    }
-    let mut merged: BTreeMap<String, Metrics> = BTreeMap::new();
-    for class in &a.classes {
-        let entry = merged.entry(class.class_name.clone()).or_default();
-        entry.a_count = class.instance_count;
-        entry.a_shallow = class.shallow_size;
-        entry.a_retained = class.retained_size;
-    }
-    for class in &b.classes {
-        let entry = merged.entry(class.class_name.clone()).or_default();
-        entry.b_count = class.instance_count;
-        entry.b_shallow = class.shallow_size;
-        entry.b_retained = class.retained_size;
-    }
-    let mut rows = merged
-        .into_iter()
-        .map(|(class_name, metrics)| ClassifierDelta {
-            class_name,
-            a_count: metrics.a_count,
-            b_count: metrics.b_count,
-            a_shallow: metrics.a_shallow,
-            b_shallow: metrics.b_shallow,
-            a_retained: metrics.a_retained,
-            b_retained: metrics.b_retained,
+) -> Result<ComparisonReport, aps_memory::SnapshotComparisonError> {
+    aps_memory::compare_snapshots(a, b, a_label, b_label)
+}
+
+pub(super) fn comparison_error_text(
+    language: Language,
+    error: aps_memory::SnapshotComparisonError,
+) -> String {
+    use aps_memory::SnapshotComparisonError;
+    language
+        .text(match error {
+            SnapshotComparisonError::SameSnapshot => TextKey::MemoryDiffSameSnapshot,
+            SnapshotComparisonError::MappingMismatch => TextKey::MemoryDiffMappingMismatch,
+            SnapshotComparisonError::InvalidIdentity => TextKey::MemoryDiffInvalidIdentity,
+            SnapshotComparisonError::InvalidCoverage => TextKey::MemoryDiffQueryFailed,
         })
-        .collect::<Vec<_>>();
-    rows.sort_by(|left, right| {
-        retained_delta(left)
-            .map(i128::unsigned_abs)
-            .is_none()
-            .cmp(&retained_delta(right).map(i128::unsigned_abs).is_none())
-            .then_with(|| {
-                let left_delta = retained_delta(left).map(i128::unsigned_abs).unwrap_or(0);
-                let right_delta = retained_delta(right).map(i128::unsigned_abs).unwrap_or(0);
-                right_delta.cmp(&left_delta)
-            })
-            .then_with(|| left.class_name.cmp(&right.class_name))
-    });
-    ComparisonReport {
-        a_label,
-        b_label,
-        a_digest: a.source_digest.clone(),
-        b_digest: b.source_digest.clone(),
-        rows,
-    }
+        .to_owned()
 }
 
 // ---------------------------------------------------------------------------
@@ -434,8 +396,7 @@ fn snapshot_selector(
                 };
                 menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
                     let _ = workspace.update(cx, |this, cx| {
-                        this.memory_state.comparison_pair = Some(new_pair);
-                        cx.notify();
+                        this.memory_select_comparison_pair(new_pair.0, new_pair.1, cx);
                     });
                 }));
             }
@@ -469,7 +430,7 @@ impl ImportWorkspace {
             .memory_state
             .comparison_pair
             .or_else(|| default_pair(&tabs));
-        let report = self.memory_state.comparison.clone();
+        let report = self.memory_current_comparison().ok();
         let loading = self.memory_state.comparison_loading;
         let error = self.memory_state.comparison_error.clone();
         let entity = cx.entity();
@@ -647,7 +608,13 @@ impl ImportWorkspace {
             }
         } else {
             body = body.child(hint(
-                language.text(TextKey::MemoryPageDiffUnavailable).to_owned(),
+                language
+                    .text(if pair.is_some() {
+                        TextKey::MemoryDiffNotPublished
+                    } else {
+                        TextKey::MemoryPageDiffUnavailable
+                    })
+                    .to_owned(),
                 colors.secondary_text,
             ));
         }
@@ -722,7 +689,7 @@ mod tests {
     #[::core::prelude::v1::test]
     fn compare_merges_by_name_sorts_by_absolute_retained_delta_and_keeps_unknown() {
         let a = MemorySnapshot {
-            source_digest: "a".into(),
+            source_digest: "a".repeat(64),
             classes: vec![
                 class("example.Same", 2, Some(100)),
                 class("example.Grown", 1, Some(10)),
@@ -731,7 +698,7 @@ mod tests {
             ..MemorySnapshot::default()
         };
         let b = MemorySnapshot {
-            source_digest: "b".into(),
+            source_digest: "b".repeat(64),
             classes: vec![
                 class("example.Same", 2, Some(100)),
                 class("example.Grown", 1, Some(1000)),
@@ -739,7 +706,11 @@ mod tests {
             ],
             ..MemorySnapshot::default()
         };
-        let report = compare(&a, &b, "a.hprof".into(), "b.hprof".into());
+        let mut a = a;
+        let mut b = b;
+        a.metadata.class_count = a.classes.len() as u64;
+        b.metadata.class_count = b.classes.len() as u64;
+        let report = compare(&a, &b, "a.hprof".into(), "b.hprof".into()).unwrap();
         assert_eq!(report.rows.len(), 3);
         assert_eq!(report.rows[0].class_name, "example.Grown");
         assert_eq!(retained_delta(&report.rows[0]), Some(990));

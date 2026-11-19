@@ -552,6 +552,8 @@ mod tests {
             Some(std::sync::Arc::new(aps_memory::InstancesPage::default()));
         workspace.memory_state.detail =
             Some(std::sync::Arc::new(aps_memory::InstanceDetail::default()));
+        // A report-shaped value without the selected endpoint identities is
+        // not a published comparison and must not enable the Diff export.
         workspace.memory_state.comparison = Some(std::sync::Arc::new(
             crate::import::memory::state::ComparisonReport::default(),
         ));
@@ -570,7 +572,7 @@ mod tests {
             state(TextKey::MemoryAppExportObjectInvestigation),
             Some(true)
         );
-        assert_eq!(state(TextKey::MemoryAppExportDiff), Some(true));
+        assert_eq!(state(TextKey::MemoryAppExportDiff), Some(false));
     }
 
     #[::core::prelude::v1::test]

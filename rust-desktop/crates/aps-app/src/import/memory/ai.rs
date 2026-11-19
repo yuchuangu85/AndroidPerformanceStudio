@@ -33,6 +33,9 @@ impl ImportWorkspace {
         if self.memory_state.loading || self.session_id.is_none() {
             return false;
         }
+        if self.memory_state.view_mode == MemoryViewMode::Diff {
+            return self.memory_current_comparison().is_ok();
+        }
         if self.memory_state.view_mode == MemoryViewMode::NativeHeap {
             return self.memory_advanced.native_phase3_input().is_some();
         }
@@ -46,11 +49,6 @@ impl ImportWorkspace {
             !snapshot.findings.leak_suspects.rows.is_empty()
                 || !snapshot.findings.activities.rows.is_empty()
                 || !snapshot.findings.lifecycle.rows.is_empty()
-                || self
-                    .memory_state
-                    .comparison_pair
-                    .and_then(|(a, b)| self.memory_snapshot_pair(a, b))
-                    .is_some()
         })
     }
 
@@ -63,6 +61,18 @@ impl ImportWorkspace {
         }
         if self.memory_state.loading {
             return Err(self.language.text(TextKey::MemoryAiNotReady).into());
+        }
+        if self.memory_state.view_mode == MemoryViewMode::Diff {
+            let report = self.memory_current_comparison()?;
+            let session = self.session_id.as_deref().ok_or_else(|| {
+                self.language
+                    .text(TextKey::ImportUiImportBeforeAi)
+                    .to_owned()
+            })?;
+            return build_comparison_request(session, self.generation, &report).map_err(|error| {
+                self.language
+                    .format(TextKey::MemoryDiffAiEvidenceFailed, &[("error", &error)])
+            });
         }
         if self.memory_state.view_mode == MemoryViewMode::NativeHeap {
             if self.memory_advanced.native_phase3_input().is_none() {
@@ -80,29 +90,9 @@ impl ImportWorkspace {
                 .text(TextKey::ImportUiImportBeforeAi)
                 .to_owned()
         })?;
-        let growth_pair = self
-            .memory_state
-            .comparison_pair
-            .and_then(|(a, b)| self.memory_snapshot_pair(a, b));
-        let mut request = if growth_pair.is_some() {
-            build_request_allow_empty(session, self.generation, snapshot)
-        } else {
-            build_request(session, self.generation, snapshot)
-        }
-        .map_err(|key| self.language.text(key).to_owned())?;
-        // Phase 3 keeps one independent channel per run. When a valid A/B
-        // pair exists, growth is the most specific question; otherwise the
-        // deterministic lifecycle rule is available from the current dump.
-        if let Some((before, after, before_label, after_label)) = growth_pair {
-            if let Ok(mut evidence) =
-                super::phase3::build_growth_evidence(&before, &after, &before_label, &after_label)
-            {
-                request.evidence.append(&mut evidence);
-                request.scope =
-                    "HPROF class growth between two snapshots; no cross-dump object identity"
-                        .into();
-            }
-        } else if let Some(evidence) = super::phase3::build_lifecycle_rule_evidence(snapshot)
+        let mut request = build_request(session, self.generation, snapshot)
+            .map_err(|key| self.language.text(key).to_owned())?;
+        if let Some(evidence) = super::phase3::build_lifecycle_rule_evidence(snapshot)
             .map_err(|error| error.to_string())?
         {
             request.evidence.push(evidence);
@@ -189,6 +179,25 @@ impl ImportWorkspace {
             self.memory_state.snapshot.as_ref()?.source_digest.clone(),
         ))
     }
+}
+
+fn build_comparison_request(
+    session: &str,
+    generation: u64,
+    report: &aps_memory::SnapshotComparison,
+) -> Result<AnalysisRequest, String> {
+    let evidence = super::phase3::build_comparison_growth_evidence(report)?;
+    Ok(AnalysisRequest {
+        session_id: session.into(),
+        run_id: format!("{session}-memory-diff-g{}", generation.max(1)),
+        generation: generation.max(1),
+        profiler: "memory".into(),
+        scope: "Published A/B HPROF class growth only; mapping identities matched; build identity unverified; no cross-dump object identity".into(),
+        evidence,
+        candidates: Vec::new(),
+        user_question: None,
+        mcp: None,
+    })
 }
 
 fn coverage(snapshot: &MemorySnapshot, included: [usize; 3]) -> Value {
@@ -365,23 +374,6 @@ fn build_request(
     generation: u64,
     snapshot: &MemorySnapshot,
 ) -> Result<AnalysisRequest, TextKey> {
-    build_request_inner(session, generation, snapshot, false)
-}
-
-fn build_request_allow_empty(
-    session: &str,
-    generation: u64,
-    snapshot: &MemorySnapshot,
-) -> Result<AnalysisRequest, TextKey> {
-    build_request_inner(session, generation, snapshot, true)
-}
-
-fn build_request_inner(
-    session: &str,
-    generation: u64,
-    snapshot: &MemorySnapshot,
-    allow_empty: bool,
-) -> Result<AnalysisRequest, TextKey> {
     SourceDigest::from_hex(&snapshot.source_digest)
         .map_err(|_| TextKey::MemoryAiInvalidEvidence)?;
     let findings = &snapshot.findings;
@@ -455,7 +447,7 @@ fn build_request_inner(
             }
         }
     }
-    if evidence.len() == 1 && !allow_empty {
+    if evidence.len() == 1 {
         return Err(
             if findings.leak_suspects.total == 0
                 && findings.activities.total == 0
@@ -775,7 +767,6 @@ mod tests {
             MemoryViewMode::Classes,
             MemoryViewMode::Dashboard,
             MemoryViewMode::Dominators,
-            MemoryViewMode::Diff,
             MemoryViewMode::LeakAnalysis,
         ] {
             workspace.memory_state.view_mode = view;
@@ -795,6 +786,94 @@ mod tests {
             assert!(!workspace.memory_ai_available());
             assert!(workspace.memory_analysis_request().is_err());
         }
+    }
+
+    #[test]
+    fn diff_requires_a_published_comparison_even_when_active_snapshot_has_findings() {
+        use aps_ui_foundation::Language;
+        let mut workspace =
+            ImportWorkspace::new(aps_ui_foundation::Destination::Memory, Language::English);
+        workspace.session_id = Some("active-C".into());
+        workspace.memory_state.snapshot = Some(std::sync::Arc::new(fixture()));
+        workspace.memory_state.view_mode = MemoryViewMode::Diff;
+        for pair in [None, Some((1, 2)), Some((1, 1))] {
+            workspace.memory_state.comparison_pair = pair;
+            assert!(!workspace.memory_ai_available());
+            assert!(workspace.memory_analysis_request().is_err());
+        }
+    }
+
+    fn diff_report() -> aps_memory::SnapshotComparison {
+        let mut before = fixture();
+        before.source_digest = "1".repeat(64);
+        before.metadata.class_count = 1;
+        before.classes = vec![aps_memory::ClassStats {
+            class_name: "example.DiffOnly".into(),
+            instance_count: 1,
+            shallow_size: 8,
+            retained_size: Some(16),
+            ..aps_memory::ClassStats::default()
+        }];
+        let mut after = before.clone();
+        after.source_digest = "2".repeat(64);
+        after.classes[0].instance_count = 3;
+        after.classes[0].shallow_size = 24;
+        after.classes[0].retained_size = Some(48);
+        aps_memory::compare_snapshots(&before, &after, "A.hprof".into(), "B.hprof".into()).unwrap()
+    }
+
+    #[test]
+    fn diff_provider_body_uses_only_published_pair_and_does_not_enrich_active_c() {
+        let report = diff_report();
+        let request = build_comparison_request("active-C", 5, &report).unwrap();
+        assert!(request.mcp.is_none());
+        assert!(!request.is_memory_hprof());
+        assert_eq!(request.memory_phase3_mode(), Some("memory-hprof-growth"));
+        assert_eq!(request.evidence.len(), 1);
+        assert_eq!(
+            request.evidence[0].payload["beforeSnapshotId"],
+            report.a_digest
+        );
+        assert_eq!(
+            request.evidence[0].payload["afterSnapshotId"],
+            report.b_digest
+        );
+        let provider = aps_ai::ProviderConfig::new(
+            "test",
+            "http://127.0.0.1:12345/v1",
+            "test-model",
+            aps_ai::CredentialReference::new("keychain:test").unwrap(),
+        )
+        .unwrap();
+        let prepared = aps_ai::PreparedRun::new(request, provider, false).unwrap();
+        let body: Value = serde_json::from_str(prepared.review_body()).unwrap();
+        let payload: Value =
+            serde_json::from_str(body["messages"][1]["content"].as_str().unwrap()).unwrap();
+        let evidence = payload["performanceEvidence"].as_array().unwrap();
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0]["kind"], "memory-hprof-growth");
+        assert_eq!(
+            evidence[0]["payload"]["classDeltas"][0]["className"],
+            "example.DiffOnly"
+        );
+        assert_eq!(
+            evidence[0]["payload"]["classDeltas"][0]["instanceCountDelta"],
+            2
+        );
+        assert!(payload["sourceCandidates"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn diff_evidence_errors_propagate_without_a_leak_only_fallback() {
+        let mut report = diff_report();
+        report.a_digest = report.b_digest.clone();
+        assert!(build_comparison_request("session", 1, &report).is_err());
+        let mut report = diff_report();
+        report.b_mapping_digest = Some("a".repeat(64));
+        assert!(build_comparison_request("session", 1, &report).is_err());
+        let mut report = diff_report();
+        report.rows[0].class_name = "x".repeat(2049);
+        assert!(build_comparison_request("session", 1, &report).is_err());
     }
 
     #[test]

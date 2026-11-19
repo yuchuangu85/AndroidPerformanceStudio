@@ -698,20 +698,20 @@ impl ImportWorkspace {
 
     // ---- comparison ----------------------------------------------------
 
+    pub(super) fn memory_select_comparison_pair(&mut self, a: u64, b: u64, cx: &mut Context<Self>) {
+        self.memory_state.select_comparison_pair((a, b));
+        cx.notify();
+    }
+
     pub(super) fn memory_set_comparison_pair(&mut self, a: u64, b: u64, cx: &mut Context<Self>) {
-        self.memory_state.comparison_pair = Some((a, b));
+        self.memory_state.select_comparison_pair((a, b));
         self.memory_compare_snapshots(cx);
     }
 
     pub(super) fn memory_compare_snapshots(&mut self, cx: &mut Context<Self>) {
-        // An explicit pair is authoritative only while both tabs exist. The
-        // default is the newest inactive snapshot as A against the active
-        // snapshot as B; stale ids from a closed tab fall back to that default.
-        let stored = self
-            .memory_state
-            .comparison_pair
-            .filter(|(a, b)| self.memory_snapshot_pair(*a, *b).is_some());
-        let pair = stored.or_else(|| {
+        self.memory_state.invalidate_comparison();
+        // Never silently substitute another pair for an explicit selection.
+        let pair = self.memory_state.comparison_pair.or_else(|| {
             let tabs = self.memory_snapshot_tabs();
             let active = self.memory_snapshot_id?;
             menus::default_comparison_pair(&tabs, active)
@@ -747,7 +747,6 @@ impl ImportWorkspace {
             cx.notify();
             return;
         }
-        self.memory_state.comparison_generation += 1;
         let generation = self.memory_state.comparison_generation;
         let snapshot_id = self.memory_snapshot_id;
         self.memory_state.comparison_loading = true;
@@ -763,14 +762,43 @@ impl ImportWorkspace {
                 {
                     return;
                 }
-                this.memory_state.comparison_loading = false;
-                this.memory_state.comparison = Some(Arc::new(report));
+                let report = match report {
+                    Ok(report) => {
+                        let current = this
+                            .memory_snapshot_pair(a_id, b_id)
+                            .is_some_and(|(a, b, _, _)| report.matches_snapshots(&a, &b));
+                        if current {
+                            Ok(report)
+                        } else {
+                            Err(this
+                                .language
+                                .text(TextKey::MemoryDiffNotPublished)
+                                .to_owned())
+                        }
+                    }
+                    Err(error) => Err(comparison::comparison_error_text(this.language, error)),
+                };
+                this.memory_state
+                    .apply_comparison_result(generation, (a_id, b_id), report);
                 cx.notify();
             })
             .ok();
         })
         .detach();
         cx.notify();
+    }
+
+    pub(super) fn memory_current_comparison(&self) -> Result<Arc<state::ComparisonReport>, String> {
+        let unavailable = || {
+            self.language
+                .text(TextKey::MemoryDiffNotPublished)
+                .to_owned()
+        };
+        let (a, b) = self.memory_state.comparison_pair.ok_or_else(unavailable)?;
+        let (before, after, _, _) = self.memory_snapshot_pair(a, b).ok_or_else(unavailable)?;
+        self.memory_state
+            .current_comparison(&before, &after)
+            .ok_or_else(unavailable)
     }
 
     fn memory_snapshot_pair(

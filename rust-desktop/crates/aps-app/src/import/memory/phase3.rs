@@ -6,9 +6,9 @@
 use aps_ai::Evidence;
 use aps_contracts::SourceDigest;
 use aps_json::{Limits, Map, Value};
-use aps_memory::MemorySnapshot;
+use aps_memory::{MemorySnapshot, SnapshotComparison};
 use aps_perfetto::heap_profile::HeapProfileKind;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 const MAX_BYTES: u64 = 16 * 1024;
 const MAX_ROWS: usize = 32;
@@ -82,92 +82,118 @@ pub(crate) fn build_growth_evidence(
     before_label: &str,
     after_label: &str,
 ) -> Result<Vec<Evidence>, String> {
-    let before_digest = digest(&before.source_digest, "before source digest")?;
-    let after_digest = digest(&after.source_digest, "after source digest")?;
+    let report = aps_memory::compare_snapshots(
+        before,
+        after,
+        before_label.to_owned(),
+        after_label.to_owned(),
+    )
+    .map_err(|error| error.to_string())?;
+    build_comparison_growth_evidence(&report)
+}
+
+/// Projects the frozen comparison's published order without consulting snapshots.
+pub(crate) fn build_comparison_growth_evidence(
+    report: &SnapshotComparison,
+) -> Result<Vec<Evidence>, String> {
+    let before_digest = digest(&report.a_digest, "before source digest")?;
+    let after_digest = digest(&report.b_digest, "after source digest")?;
     if before_digest == after_digest {
         return Err("growth evidence requires two different snapshot digests".into());
     }
-    text(before_label, "before label")?;
-    text(after_label, "after label")?;
-    let mut merged = BTreeMap::<String, (Option<usize>, Option<usize>)>::new();
-    for (index, row) in before.classes.iter().enumerate() {
-        text(&row.class_name, "class name")?;
-        merged.entry(row.class_name.clone()).or_default().0 = Some(index);
+    text(&report.a_label, "before label")?;
+    text(&report.b_label, "after label")?;
+    if report.a_label.trim().is_empty() || report.b_label.trim().is_empty() {
+        return Err("comparison labels must not be blank".into());
     }
-    for (index, row) in after.classes.iter().enumerate() {
-        text(&row.class_name, "class name")?;
-        merged.entry(row.class_name.clone()).or_default().1 = Some(index);
+    let before_mapping = report
+        .a_mapping_digest
+        .as_deref()
+        .map(|value| digest(value, "before mapping digest"))
+        .transpose()?;
+    let after_mapping = report
+        .b_mapping_digest
+        .as_deref()
+        .map(|value| digest(value, "after mapping digest"))
+        .transpose()?;
+    if before_mapping != after_mapping {
+        return Err("growth evidence requires matching snapshot mapping digests".into());
     }
-    let mut rows = Vec::with_capacity(merged.len());
-    for (class_name, (before_index, after_index)) in merged {
-        let before = before_index.map(|index| &before.classes[index]);
-        let after = after_index.map(|index| &after.classes[index]);
-        let before_count = before.map_or(0, |row| row.instance_count);
-        let after_count = after.map_or(0, |row| row.instance_count);
-        let before_shallow = before.map_or(0, |row| row.shallow_size);
-        let after_shallow = after.map_or(0, |row| row.shallow_size);
-        let before_retained = before.and_then(|row| row.retained_size);
-        let after_retained = after.and_then(|row| row.retained_size);
-        let retained_delta = before_retained
-            .zip(after_retained)
+    let total_rows = u64::try_from(report.rows.len())
+        .map_err(|_| "comparison row count exceeds the coverage range".to_owned())?;
+    let loaded_sum = report
+        .a_loaded_classes
+        .checked_add(report.b_loaded_classes)
+        .ok_or_else(|| "comparison loaded class coverage overflows".to_owned())?;
+    if report.a_loaded_classes > report.a_class_count
+        || report.b_loaded_classes > report.b_class_count
+        || total_rows < report.a_loaded_classes.max(report.b_loaded_classes)
+        || total_rows > loaded_sum
+    {
+        return Err("comparison class coverage is inconsistent".into());
+    }
+    let mut names = BTreeSet::new();
+    let mut before_present = 0_u64;
+    let mut after_present = 0_u64;
+    let mut both_present = 0_u64;
+    let mut class_deltas = Vec::with_capacity(report.rows.len().min(MAX_ROWS));
+    // Validate omitted rows too: truncation must not hide malformed evidence.
+    for row in &report.rows {
+        text(&row.class_name, "class name")?;
+        if row.class_name.trim().is_empty() {
+            return Err("comparison class name must not be blank".into());
+        }
+        if !names.insert(row.class_name.as_str()) {
+            return Err("comparison contains duplicate class names".into());
+        }
+        let in_before = row.a_count != 0 || row.a_shallow != 0 || row.a_retained.is_some();
+        let in_after = row.b_count != 0 || row.b_shallow != 0 || row.b_retained.is_some();
+        before_present += u64::from(in_before);
+        after_present += u64::from(in_after);
+        both_present += u64::from(in_before && in_after);
+        let count_delta = delta(row.b_count, row.a_count, "count delta")?;
+        delta(row.b_shallow, row.a_shallow, "shallow delta")?;
+        let retained_delta = row
+            .a_retained
+            .zip(row.b_retained)
             .map(|(b, a)| delta(a, b, "retained delta"))
             .transpose()?;
-        rows.push((
-            class_name,
-            before_count,
-            after_count,
-            delta(after_count, before_count, "count delta")?,
-            before_shallow,
-            after_shallow,
-            delta(after_shallow, before_shallow, "shallow delta")?,
-            before_retained,
-            after_retained,
-            retained_delta,
-        ));
-    }
-    let total_rows = rows.len();
-    rows.sort_by(|left, right| {
-        right
-            .9
-            .map(i64::unsigned_abs)
-            .cmp(&left.9.map(i64::unsigned_abs))
-            .then_with(|| right.3.unsigned_abs().cmp(&left.3.unsigned_abs()))
-            .then_with(|| left.0.cmp(&right.0))
-    });
-    rows.truncate(MAX_ROWS);
-    let before_loaded = before.classes.len() as u64;
-    let after_loaded = after.classes.len() as u64;
-    if before.metadata.class_count < before_loaded || after.metadata.class_count < after_loaded {
-        return Err("snapshot class coverage is inconsistent".into());
-    }
-    let class_deltas = rows
-        .iter()
-        .map(|row| {
-            object([
-                ("className", row.0.clone().into()),
-                ("instanceCountDelta", row.3.into()),
+        if class_deltas.len() < MAX_ROWS {
+            class_deltas.push(object([
+                ("className", row.class_name.clone().into()),
+                ("instanceCountDelta", count_delta.into()),
                 (
                     "retainedBytesDelta",
-                    row.9.map(Value::from).unwrap_or(Value::Null),
+                    retained_delta.map(Value::from).unwrap_or(Value::Null),
                 ),
-            ])
-        })
-        .collect::<Vec<_>>();
-    let _ = (before_label, after_label, before_loaded, after_loaded);
+            ]));
+        }
+    }
+    if before_present > report.a_loaded_classes
+        || after_present > report.b_loaded_classes
+        || both_present > loaded_sum - total_rows
+    {
+        return Err("comparison rows exceed endpoint class coverage".into());
+    }
+    // aps-ai's growth validator uses exact keys; labels, mapping identities and
+    // endpoint coverage need a contract expansion before becoming payload fields.
+    let included = class_deltas.len();
     let payload = object([
         ("policyVersion", "aps-memory-growth-v1".into()),
         ("beforeSnapshotId", before_digest.clone().into()),
         ("afterSnapshotId", after_digest.clone().into()),
         ("classDeltas", class_deltas.into()),
-        (
-            "coverage",
-            coverage(total_rows as u64, total_rows.min(MAX_ROWS)),
-        ),
+        ("coverage", coverage(total_rows, included)),
     ]);
+    let identity = format!(
+        "{before_digest}:{after_digest}:{}",
+        before_mapping.as_deref().unwrap_or("none")
+    );
+    let evidence_digest = SourceDigest::hash_reader(identity.as_bytes(), identity.len() as u64)?;
     Ok(vec![finish(
-        format!("memory-hprof-growth:{before_digest}:{after_digest}"),
+        format!("memory-hprof-growth:{evidence_digest}"),
         "memory-hprof-growth",
-        "Class-level HPROF growth comparison; retained deltas may be unknown.",
+        "Class-level HPROF growth comparison over loaded classes; retained deltas may be unknown.",
         payload,
     )?])
 }

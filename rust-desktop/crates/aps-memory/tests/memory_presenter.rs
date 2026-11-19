@@ -25,6 +25,7 @@ fn snapshot_data(
 ) -> MemorySnapshot {
     MemorySnapshot {
         source_digest: "digest".into(),
+        mapping_digest: None,
         metadata: SnapshotMetadata::default(),
         summary: HeapSummary::default(),
         classes,

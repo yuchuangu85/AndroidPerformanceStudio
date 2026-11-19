@@ -656,10 +656,7 @@ mod tests {
             (
                 "memory_compare_snapshots",
                 "comparison_generation",
-                &[
-                    "this.memory_state.comparison=Some(Arc::new(report));",
-                    "this.memory_state.comparison_loading=false;",
-                ][..],
+                &["this.memory_state.apply_comparison_result(generation,(a_id,b_id),report);"][..],
             ),
         ] {
             let method = runtime_method(source, name);

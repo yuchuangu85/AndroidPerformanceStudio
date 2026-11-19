@@ -3,6 +3,9 @@
 //! The UI renders from one published aps-memory snapshot plus bounded query
 //! results from the isolated HPROF worker. No heap graph or raw object value
 //! enters this state.
+pub(crate) use aps_memory::{
+    ClassDelta as ClassifierDelta, SnapshotComparison as ComparisonReport,
+};
 use aps_memory::{
     ClassListSummary, ClassifierColumn, ClassifierRow, DominatorsPage, InstanceDetail, InstanceRow,
     InstancesPage, MemoryFilter, MemorySnapshot, SortDirection,
@@ -91,26 +94,6 @@ impl LeakTab {
             Self::Lifecycle => TextKey::MemoryPageLifecycleLeaks,
         }
     }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ClassifierDelta {
-    pub class_name: String,
-    pub a_count: u64,
-    pub b_count: u64,
-    pub a_shallow: u64,
-    pub b_shallow: u64,
-    pub a_retained: Option<u64>,
-    pub b_retained: Option<u64>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ComparisonReport {
-    pub a_label: String,
-    pub b_label: String,
-    pub a_digest: String,
-    pub b_digest: String,
-    pub rows: Vec<ClassifierDelta>,
 }
 
 /// Which File > Export rows have live evidence for the published state.
@@ -421,6 +404,61 @@ impl MemoryState {
     pub(super) fn select_inspector_row(&mut self, path: String) {
         self.inspector_selected_path = Some(path);
         self.inspector_nearest_auto_expand = false;
+    }
+
+    pub(in crate::import) fn invalidate_comparison(&mut self) {
+        self.comparison_generation = self.comparison_generation.wrapping_add(1);
+        self.comparison = None;
+        self.comparison_loading = false;
+        self.comparison_error = None;
+        self.refresh_export_availability();
+    }
+
+    pub(super) fn select_comparison_pair(&mut self, pair: (u64, u64)) {
+        if self.comparison_pair != Some(pair) {
+            self.invalidate_comparison();
+            self.comparison_pair = Some(pair);
+        }
+    }
+
+    pub(super) fn apply_comparison_result(
+        &mut self,
+        generation: u64,
+        pair: (u64, u64),
+        result: Result<ComparisonReport, String>,
+    ) -> bool {
+        if self.comparison_generation != generation
+            || self.comparison_pair != Some(pair)
+            || !self.comparison_loading
+        {
+            return false;
+        }
+        self.comparison_loading = false;
+        match result {
+            Ok(report) => {
+                self.comparison = Some(Arc::new(report));
+                self.comparison_error = None;
+            }
+            Err(error) => {
+                self.comparison = None;
+                self.comparison_error = Some(error);
+            }
+        }
+        self.refresh_export_availability();
+        true
+    }
+
+    pub(super) fn current_comparison(
+        &self,
+        before: &MemorySnapshot,
+        after: &MemorySnapshot,
+    ) -> Option<Arc<ComparisonReport>> {
+        if self.loading || self.comparison_loading || self.comparison_error.is_some() {
+            return None;
+        }
+        let (a, b) = self.comparison_pair?;
+        let report = self.comparison.as_ref()?;
+        (a != b && report.matches_snapshots(before, after)).then(|| report.clone())
     }
 
     /// Recomputes the export-capability mirror after the snapshot or a
@@ -785,6 +823,95 @@ mod tests {
         assert!(state.apply_dominator_query(retry, Some(10), Ok(dominator_page(10))));
         assert!(state.apply_dominator_query(second, Some(20), Ok(dominator_page(20))));
         assert!(state.dominator_loading.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn comparison_selection_invalidates_reports_exports_and_late_results() {
+        let before = comparison_snapshot('a', 1);
+        let after = comparison_snapshot('b', 2);
+        let report =
+            aps_memory::compare_snapshots(&before, &after, "A".into(), "B".into()).unwrap();
+        let mut state = MemoryState::new();
+        state.snapshot = Some(Arc::new(after.clone()));
+        state.select_comparison_pair((1, 2));
+        state.comparison_loading = true;
+        let generation = state.comparison_generation;
+        assert!(state.apply_comparison_result(generation, (1, 2), Ok(report.clone())));
+        assert!(state.current_comparison(&before, &after).is_some());
+        assert!(state.export_availability.diff_csv);
+
+        state.select_comparison_pair((1, 3));
+        assert!(state.comparison.is_none());
+        assert!(!state.export_availability.diff_csv);
+        assert!(!state.apply_comparison_result(generation, (1, 2), Ok(report)));
+        assert!(state.current_comparison(&before, &after).is_none());
+
+        state.comparison_loading = true;
+        let current = state.comparison_generation;
+        assert!(state.apply_comparison_result(current, (1, 3), Err("mapping mismatch".into())));
+        assert_eq!(state.comparison_error.as_deref(), Some("mapping mismatch"));
+        assert!(!state.export_availability.diff_csv);
+    }
+
+    fn comparison_snapshot(digest: char, count: u64) -> MemorySnapshot {
+        let mut snapshot = MemorySnapshot {
+            source_digest: digest.to_string().repeat(64),
+            classes: vec![aps_memory::ClassStats {
+                class_name: "example.C".into(),
+                instance_count: count,
+                shallow_size: count * 8,
+                retained_size: Some(count * 16),
+                ..aps_memory::ClassStats::default()
+            }],
+            ..MemorySnapshot::default()
+        };
+        snapshot.metadata.class_count = 1;
+        snapshot
+    }
+
+    #[::core::prelude::v1::test]
+    fn comparison_revalidates_endpoint_identity_and_rerun_generation() {
+        let before = comparison_snapshot('a', 1);
+        let after = comparison_snapshot('b', 2);
+        let report =
+            aps_memory::compare_snapshots(&before, &after, "A".into(), "B".into()).unwrap();
+        let mut state = MemoryState::new();
+        state.select_comparison_pair((1, 2));
+        state.comparison_loading = true;
+        let generation = state.comparison_generation;
+        assert!(state.apply_comparison_result(generation, (1, 2), Ok(report.clone())));
+        let mut remapped = after.clone();
+        remapped.mapping_digest = Some("c".repeat(64));
+        assert!(state.current_comparison(&before, &remapped).is_none());
+        assert!(state.current_comparison(&after, &before).is_none());
+        state.invalidate_comparison();
+        assert_ne!(state.comparison_generation, generation);
+        assert!(state.comparison.is_none());
+        assert!(!state.apply_comparison_result(generation, (1, 2), Ok(report)));
+    }
+
+    #[::core::prelude::v1::test]
+    fn invalidating_a_report_preserves_explicit_pair_and_delta_direction() {
+        let a = comparison_snapshot('a', 1);
+        let b = comparison_snapshot('b', 3);
+        let report = aps_memory::compare_snapshots(&b, &a, "B".into(), "A".into()).unwrap();
+        let mut state = MemoryState::new();
+        state.select_comparison_pair((2, 1));
+        for mode in [MemoryViewMode::Classes, MemoryViewMode::Diff] {
+            state.view_mode = mode;
+            state.comparison_loading = true;
+            let generation = state.comparison_generation;
+            assert!(state.apply_comparison_result(generation, (2, 1), Ok(report.clone())));
+            let current = state.current_comparison(&b, &a).unwrap();
+            assert_eq!(
+                i128::from(current.rows[0].b_count) - i128::from(current.rows[0].a_count),
+                -2
+            );
+            state.invalidate_comparison();
+            assert_eq!(state.comparison_pair, Some((2, 1)));
+            assert!(state.current_comparison(&b, &a).is_none());
+            assert!(!state.apply_comparison_result(generation, (2, 1), Ok(report.clone())));
+        }
     }
 
     #[::core::prelude::v1::test]
@@ -1404,14 +1531,19 @@ mod tests {
         ] {
             workspace.memory_state.view_mode = mode;
             workspace.generation += 1;
-            assert!(workspace.memory_ai_available());
-            let request = workspace.memory_analysis_request().unwrap();
-            assert!(
-                request
-                    .evidence
-                    .iter()
-                    .any(|row| row.kind == "memory-lifecycle-rule")
-            );
+            if mode == MemoryViewMode::Diff {
+                assert!(!workspace.memory_ai_available());
+                assert!(workspace.memory_analysis_request().is_err());
+            } else {
+                assert!(workspace.memory_ai_available());
+                let request = workspace.memory_analysis_request().unwrap();
+                assert!(
+                    request
+                        .evidence
+                        .iter()
+                        .any(|row| row.kind == "memory-lifecycle-rule")
+                );
+            }
             assert!(Rc::ptr_eq(
                 &original,
                 &workspace.memory_state.visible_classifier_rows()

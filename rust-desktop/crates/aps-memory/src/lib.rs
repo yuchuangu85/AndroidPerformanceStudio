@@ -15,11 +15,13 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 pub mod bitmap;
+pub mod comparison;
 pub mod model;
 pub mod presenter;
 mod regex_lite;
 pub mod worker;
 pub use aps_hprof_engine::wire::Value as MemoryValue;
+pub use comparison::{ClassDelta, SnapshotComparison, SnapshotComparisonError, compare_snapshots};
 pub use model::{
     ActivityLeak, BitmapInstance, ClassStats, DominatorRow, DominatorsPage, FindingsPage,
     FindingsSnapshot, HeapSegment, HeapSummary, HeapValueKind, InstanceDetail, InstanceField,
@@ -139,6 +141,7 @@ pub struct MemorySession {
     responses: Receiver<Result<Value, MemoryError>>,
     io_thread: Option<JoinHandle<()>>,
     source_digest: String,
+    mapping_digest: Option<String>,
     request_id: i64,
     metadata: Value,
     query_cache: Vec<QueryCacheEntry>,
@@ -185,6 +188,7 @@ impl MemorySession {
             return Err(MemoryError::InvalidInput);
         }
         let mapping = mapping_value(mapping)?;
+        let mapping_digest = mapping_digest(&mapping)?;
         let selected = selected_hprof
             .canonicalize()
             .map_err(|_| MemoryError::InvalidInput)?;
@@ -243,6 +247,7 @@ impl MemorySession {
             responses: response_rx,
             io_thread: Some(io_thread),
             source_digest: source_digest.to_ascii_lowercase(),
+            mapping_digest,
             request_id: 0,
             metadata: Value::Null,
             query_cache: Vec::new(),
@@ -269,6 +274,11 @@ impl MemorySession {
     /// Identity of the exact selected HPROF bytes verified when the worker opened.
     pub fn source_digest(&self) -> &str {
         &self.source_digest
+    }
+
+    /// Identity of the canonical class mapping sent to this session's worker.
+    pub fn mapping_digest(&self) -> Option<&str> {
+        self.mapping_digest.as_deref()
     }
 
     pub fn histogram(
@@ -422,7 +432,12 @@ impl MemorySession {
         if value.get("exceeded").and_then(Value::as_bool) == Ok(true) {
             return Err(MemoryError::ResponseLimit);
         }
-        let mut snapshot = MemorySnapshot::decode(&value, &metadata, &self.source_digest)?;
+        let mut snapshot = MemorySnapshot::decode(
+            &value,
+            &metadata,
+            &self.source_digest,
+            self.mapping_digest.as_deref(),
+        )?;
         if value.get("perHeapOmitted").and_then(Value::as_bool) == Ok(true) {
             let mut total_bytes = 0usize;
             for heap in &metadata.heaps {
@@ -783,6 +798,22 @@ pub(crate) fn mapping_value(mapping: &[(String, String)]) -> Result<Value, Memor
     Ok(Value::Map(encoded))
 }
 
+fn mapping_digest(mapping: &Value) -> Result<Option<String>, MemoryError> {
+    if mapping
+        .as_map()
+        .map_err(|_| MemoryError::InvalidInput)?
+        .is_empty()
+    {
+        return Ok(None);
+    }
+    // Hash the sorted, length-framed payload actually sent to the worker, not
+    // the input pair order or any caller-supplied mapping identity.
+    let bytes = wire::encode(mapping).map_err(|_| MemoryError::InvalidInput)?;
+    aps_hprof_engine::cache::sha256_reader(bytes.as_slice(), wire::MAX_FRAME as u64)
+        .map(Some)
+        .map_err(|_| MemoryError::InvalidInput)
+}
+
 pub(crate) fn page(offset: usize, limit: usize) -> Result<(), MemoryError> {
     page_with(offset, limit, MAX_PAGE_SIZE)
 }
@@ -996,7 +1027,7 @@ mod tests {
             Value::List(vec![class_value("sample.Alpha", 2, 200, Some(800))]),
         )]));
         let payload = snapshot_payload(Some(per_heap), false);
-        let snapshot = MemorySnapshot::decode(&payload, &metadata, "digest").unwrap();
+        let snapshot = MemorySnapshot::decode(&payload, &metadata, "digest", None).unwrap();
 
         assert_eq!(snapshot.source_digest, "digest");
         assert_eq!(snapshot.summary.object_count, 7);
@@ -1040,7 +1071,7 @@ mod tests {
     fn per_heap_fallback_omits_heap_rows_without_failing() {
         let metadata = SnapshotMetadata::from_value(&metadata_value(8)).unwrap();
         let payload = snapshot_payload(None, true);
-        let snapshot = MemorySnapshot::decode(&payload, &metadata, "digest").unwrap();
+        let snapshot = MemorySnapshot::decode(&payload, &metadata, "digest", None).unwrap();
         assert!(snapshot.per_heap_classes.is_empty());
         assert_eq!(snapshot.classes.len(), 2);
         assert_eq!(snapshot.metadata.id_size, 8);
@@ -1163,6 +1194,7 @@ mod tests {
                 responses: response_rx,
                 io_thread: Some(io_thread),
                 source_digest: "d".repeat(64),
+                mapping_digest: Some("e".repeat(64)),
                 request_id: 0,
                 metadata: metadata_value(4),
                 query_cache: Vec::new(),
@@ -1170,6 +1202,7 @@ mod tests {
             let result = session.snapshot(&CancellationToken::new());
             if source_valid {
                 let snapshot = result.unwrap();
+                assert_eq!(snapshot.mapping_digest, session.mapping_digest);
                 assert!(snapshot.per_heap_classes.is_empty());
                 assert!(snapshot.per_heap_summaries.is_empty());
                 assert_eq!(snapshot.findings.leak_suspects.total, 5);
@@ -1185,6 +1218,51 @@ mod tests {
 #[cfg(test)]
 mod mapping_tests {
     use super::*;
+
+    #[test]
+    fn mapping_identity_uses_the_canonical_payload_not_pair_order() {
+        let pairs = vec![
+            ("a.b.C".to_owned(), "com.example.C".to_owned()),
+            ("a.b.D$Inner".to_owned(), "com.example.D$Inner".to_owned()),
+        ];
+        let canonical = mapping_value(&pairs).unwrap();
+        let digest = mapping_digest(&canonical).unwrap().unwrap();
+        assert_eq!(digest.len(), 64);
+        assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+        let mut reversed = pairs.clone();
+        reversed.reverse();
+        assert_eq!(
+            mapping_digest(&mapping_value(&reversed).unwrap()).unwrap(),
+            Some(digest.clone())
+        );
+
+        let mut overwritten = vec![("a.b.C".into(), "old.Name".into())];
+        overwritten.extend(pairs.clone());
+        assert_eq!(mapping_value(&overwritten).unwrap(), canonical);
+        assert_eq!(
+            mapping_digest(&mapping_value(&overwritten).unwrap()).unwrap(),
+            Some(digest.clone())
+        );
+
+        let mut changed = pairs;
+        changed[0].1 = "com.example.Other".into();
+        assert_ne!(
+            mapping_digest(&mapping_value(&changed).unwrap()).unwrap(),
+            Some(digest)
+        );
+        assert_eq!(mapping_digest(&mapping_value(&[]).unwrap()).unwrap(), None);
+    }
+
+    #[test]
+    fn mapping_identity_keeps_key_and_value_boundaries() {
+        let left = mapping_value(&[("ab".into(), "c".into())]).unwrap();
+        let right = mapping_value(&[("a".into(), "bc".into())]).unwrap();
+        assert_ne!(
+            mapping_digest(&left).unwrap(),
+            mapping_digest(&right).unwrap()
+        );
+    }
 
     #[test]
     fn mapping_encodes_raw_to_original_pairs() {
