@@ -57,6 +57,22 @@ fn producer_reported_count_is_not_the_lost_sample_count() {
 }
 
 #[test]
+fn byte_bound_session_matches_file_queries_without_reopening_source() {
+    let bytes = encoded(&profile());
+    let fixture = Fixture::bytes(&bytes);
+    let mut from_file = CpuSession::open(&fixture.0).unwrap();
+    let mut from_bytes = CpuSession::from_bytes(&bytes).unwrap();
+    std::fs::remove_file(&fixture.0).unwrap();
+    assert!(from_bytes.path().as_os_str().is_empty());
+    assert_eq!(from_bytes.summary(), from_file.summary());
+    assert_eq!(
+        from_bytes.query(&Query::default()).unwrap(),
+        from_file.query(&Query::default()).unwrap()
+    );
+    assert!(CpuSession::from_bytes(b"PERFILE2").is_err());
+}
+
+#[test]
 fn actual_recording_style_loss_receipt_does_not_report_false_loss() {
     let mut source = profile();
     source.records.push(Record::Lost {

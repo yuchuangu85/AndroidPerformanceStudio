@@ -2,6 +2,34 @@
 
 围绕现有 `aps-simpleperf-engine` 的与 UI 无关的只读会话适配器。
 
+## CPU MCP
+
+`aps-cpu-mcp` 是绑定当前 profile 及可选基线的只读 stdio MCP server。它注册：
+
+- `cpu_session_summary`
+- `cpu_top_functions`
+- `cpu_call_tree`
+- `cpu_timeline_summary`：时间桶样本数与按线程统计的峰值桶。
+- `cpu_compare_top_functions`：加 `--baseline-cpu <before-profile>` 后查询当前减基线的热点权重、样本数差异。
+- `cpu_flame_blocks` 和 `cpu_stack_blocks`：分别在归一化权重范围、单线程采样时间范围内返回有界块。
+- `cpu_export_report`：返回可校验的内联 JSON/CSV 报告，不写宿主文件。
+
+参数与示例见 [CPU MCP 文档](../../../docs/ai/mcp/cpu.md)。
+
+构建：
+
+```sh
+cargo build --locked -p aps-cpu --bin aps-cpu-mcp
+```
+
+启动：
+
+```sh
+./target/debug/aps-cpu-mcp --cpu /absolute/path/to/profile.simpleperf.pb
+```
+
+原始 `perf.data` 需要先由 host 导入流程转换；MCP 不执行 simpleperf、ADB、Shell 或任意路径读取。工具查询带有事件/时间/方向/权重过滤和分页上限，输出绑定 source digest 并在每次调用重新校验源文件未改变。
+
 - 输入：`SIMPLEPERF` protobuf 导出（`report_sample.py --protobuf`），而不是 `perf.data`。
 - 以只读方式打开常规文件，检查元数据并强制执行流式输入字节预算（默认 128 MiB，
   但不超过引擎的 256 MiB 上限）。

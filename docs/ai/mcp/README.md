@@ -9,9 +9,10 @@
 
 ## 当前实现
 
-当前有两个独立的只读 stdio MCP Server：
+当前有三个独立的只读 stdio MCP Server：
 
 - `aps-mcp`：离线 Memory HPROF 查询，启动时绑定 HPROF B、worker 和可选基线 HPROF A。
+- `aps-cpu-mcp`：离线 CPU 查询，绑定当前 SIMPLEPERF/Gecko profile 和可选基线。
 - `aps-frame-mcp`：离线帧查询。默认读取一份 FrameStats 或 v3 报告；显式绑定 APS 采集凭据
   与原始 Trace 后可查探针重叠，可另选一组基线输入做前后对比。
 
@@ -36,7 +37,7 @@ Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输�
 范围对应桌面业务导航；Home、AI 对话窗口和 Settings 不是额外的业务 MCP provider。
 
 - [Memory](memory.md)：已实现 5 个工具，内置 AI 仍只预取原有 3 个。
-- [CPU](cpu.md)：尚未注册 MCP 接口。
+- [CPU](cpu.md)：已实现 8 个只读工具（含时间线、热点差异、火焰图与栈图块、内联 JSON/CSV 报告），由独立 `aps-cpu-mcp` 提供。
 - [Frame](frame.md)：普通模式 5 个只读工具（[摘要](frame.md#frame_session_summary)、
   [列表](frame.md#frame_list)、[详情](frame.md#frame_detail)、
   [卡顿簇](frame.md#frame_problem_clusters)、[分组](frame.md#frame_attributions)）。
@@ -68,6 +69,7 @@ Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输�
 
 ```text
 外部 MCP Client -> aps-mcp -> aps-memory-worker -> 目标 HPROF B / 可选基线 A
+外部 MCP Client -> aps-cpu-mcp -> 当前 CPU profile B / 可选基线 A
 外部 MCP Client -> aps-frame-mcp -> 选定的 FrameStats 或帧分析报告
                                 -> 可选的本地采集凭据、原始 Trace 与基线三件套
 
@@ -86,11 +88,12 @@ MCP 查询和 AI Provider 请求是两件事。外部 Client 可以只读取本�
 ```sh
 cd rust-desktop
 cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
+cargo build --locked -p aps-cpu --bin aps-cpu-mcp
 cargo build --locked -p aps-frame-mcp
 ```
 
 Debug 产物位于 `rust-desktop/target/debug/`，Windows 文件名带 `.exe`。
-Frame 的启动与调用见 [Frame MCP](frame.md)。
+CPU 和 Frame 的启动与调用见 [CPU MCP](cpu.md) 和 [Frame MCP](frame.md)。
 以下为 Memory 的连接示例，在 `rust-desktop/` 内执行，路径需替换为用户选定的文件：
 
 ```sh

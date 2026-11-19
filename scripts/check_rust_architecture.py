@@ -12,7 +12,7 @@ NORMAL = {
            'method-recording network perfetto platform source startup storage ui-foundation',
     'adb': 'platform', 'ai': 'contracts json platform', 'battery': 'adb json platform',
     'benchmark': 'contracts json', 'capture': 'adb contracts platform', 'contracts': 'primitives',
-    'cpu': 'simpleperf-engine json', 'frame': '', 'frame-mcp': 'contracts frame json',
+    'cpu': 'simpleperf-engine json contracts', 'frame': '', 'frame-mcp': 'contracts frame json',
     'gpu': 'adb contracts json perfetto platform',
     'har-engine': '', 'hprof-engine': 'primitives', 'json': '',
     'layout-inspector': 'adb contracts json platform protocol', 'memory': 'hprof-engine platform',

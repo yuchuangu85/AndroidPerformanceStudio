@@ -290,9 +290,11 @@ dependencies = [
 name = "aps-cpu"
 version = "0.1.0"
 dependencies = [
+ "aps-contracts",
  "aps-json",
  "aps-simpleperf-engine",
  "flate2",
+ "serde_json",
 ]
 
 [[package]]

@@ -24,7 +24,10 @@ pub use export::{
     MAX_REPORT_TOP_FUNCTIONS, MAX_SESSION_PACKAGE_BYTES,
 };
 pub use gecko::{is_gecko_profile_prefix, MAX_GECKO_PROFILE_BYTES};
-pub use timeline::{SampleTimeline, TimelineSample, TimelineThread};
+pub use timeline::{
+    SampleCountBucket, SampleTimeline, ThreadSampleCounts, TimelineSample, TimelineSummary,
+    TimelineThread, MAX_TIMELINE_BUCKETS, MAX_TIMELINE_THREADS,
+};
 pub use top::{TopFunction, TopFunctionsPage, TopSort};
 pub use transforms::{TransformSet, MAX_TRANSFORM_NAMES, MAX_TRANSFORM_NAME_BYTES};
 
@@ -102,6 +105,17 @@ impl CpuSession {
         Self::from_stream(stream, path.to_path_buf(), limit)
     }
 
+    /// Parses the selected bytes without a second filesystem read. Callers can
+    /// hash this same slice to bind evidence to the bytes actually analyzed.
+    /// File-backed exports require an explicit `rebind_path` afterwards.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() > DEFAULT_INPUT_LIMIT {
+            return Err("CPU profile exceeds input byte limit".into());
+        }
+        let stream = Self::read_profile(bytes, DEFAULT_INPUT_LIMIT)?;
+        Self::from_stream(stream, PathBuf::new(), DEFAULT_INPUT_LIMIT)
+    }
+
     /// Build a session from an already parsed stream. The native protobuf parser
     /// and the Gecko JSON reader share this constructor, so both transports
     /// expose exactly one session model, projection and export surface.
@@ -123,8 +137,8 @@ impl CpuSession {
         })
     }
 
-    fn read_profile(file: File, limit: usize) -> Result<SimpleperfStream, String> {
-        let mut reader = BufReader::new(file);
+    fn read_profile(input: impl Read, limit: usize) -> Result<SimpleperfStream, String> {
+        let mut reader = BufReader::new(input);
         // A bounded prefix decides between the two accepted transports without
         // reading the whole file twice: a JSON object is a Gecko profile, anything
         // else goes through the streaming SIMPLEPERF parser.
