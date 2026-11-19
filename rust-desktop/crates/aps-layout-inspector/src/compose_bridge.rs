@@ -1,5 +1,6 @@
 //! Blocking Compose helper adapter. UI callers schedule every operation off-thread.
 mod foreground;
+mod runtime;
 
 use crate::{InspectorArchive, InspectorProtocolFrame};
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner};
@@ -14,8 +15,7 @@ use std::{
 };
 
 pub struct ComposeBridge {
-    helper: PathBuf,
-    bundle: PathBuf,
+    runtime: runtime::Runtime,
     adb: PathBuf,
     directory: PathBuf,
     cache: PathBuf,
@@ -47,21 +47,7 @@ impl ComposeBridge {
         pid: u32,
         cancel: &CancellationToken,
     ) -> Result<Self, String> {
-        let checkout = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let helper = std::env::var_os("APS_COMPOSE_HELPER").map(PathBuf::from).unwrap_or_else(|| checkout.join(
-            "desktop-viewer/layout-inspector/compose-inspection-host/build/install/aps-compose-inspection/bin/aps-compose-inspection"));
-        let bundle = std::env::var_os("APS_COMPOSE_AGENT_BUNDLE")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                checkout.join(
-            "desktop-viewer/layout-inspector/compose-agent-build/build/compose-agent-bundle")
-            });
-        if !helper.is_file() {
-            return Err("Compose helper missing. Build desktop-viewer with ./gradlew :layout-inspector:compose-inspection-host:installDist, or configure APS_COMPOSE_HELPER to its distribution launcher (requires Java 17+).".into());
-        }
-        if !bundle.join("manifest.properties").is_file() {
-            return Err("Compose agent bundle missing. Run :layout-inspector:compose-agent-build:composeAgentBundle or set APS_COMPOSE_AGENT_BUNDLE to a verified bundle.".into());
-        }
+        let runtime = runtime::Runtime::discover()?;
         let directory = std::env::temp_dir().join(format!(
             "aps-compose-{}-{}",
             std::process::id(),
@@ -80,8 +66,7 @@ impl ComposeBridge {
             .join("compose-inspector");
         std::fs::create_dir_all(&cache).map_err(|error| error.to_string())?;
         let mut bridge = Self {
-            helper,
-            bundle,
+            runtime,
             adb,
             directory,
             cache,
@@ -108,7 +93,9 @@ impl ComposeBridge {
     }
 
     fn request(&self, operation: &str, serial: &str, package: &str, pid: u32) -> ProcessRequest {
-        let mut request = ProcessRequest::new(&self.helper)
+        let mut request = self
+            .runtime
+            .command()
             .args([
                 operation,
                 "--serial",
@@ -121,7 +108,7 @@ impl ComposeBridge {
             .arg("--adb")
             .arg(&self.adb)
             .arg("--bundle")
-            .arg(&self.bundle)
+            .arg(&self.runtime.bundle)
             .arg("--receipt")
             .arg(self.directory.join("receipt.json"))
             .arg("--cache")

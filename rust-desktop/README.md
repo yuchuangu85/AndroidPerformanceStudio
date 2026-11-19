@@ -22,6 +22,45 @@ PERFETTO_TOOLS_DIR="$PWD/rust-desktop/target/release/resources/perfetto-tools" b
 
 Rust settings and storage use their own application-data root and do not migrate or overwrite settings from older application versions.
 
+### Full Compose Inspection Runtime
+
+Full Compose inspection requires the headless JVM helper, its complete `lib/`
+distribution, a verified Compose agent bundle, and Java 17+. Release builds load
+these from the executable's sibling `resources/` directory, not a deleted
+`desktop-viewer` checkout. Packaged helpers run via the bundled Java executable
+with an explicit classpath, without relying on shell tools, `PATH`, or the GUI
+process's `JAVA_HOME`.
+
+The last committed helper source before the Compose desktop tree was removed is
+`3c53d9616af8bd11a8f4c4487b871890d63b7830`. It can be built in an isolated,
+ignored directory using JDK 21:
+
+```sh
+mkdir -p build/compose-helper-source
+git archive 3c53d9616af8bd11a8f4c4487b871890d63b7830 desktop-viewer | tar -x -C build/compose-helper-source
+cd build/compose-helper-source/desktop-viewer
+./gradlew :layout-inspector:compose-inspection-host:installDist
+```
+
+From the repository root, stage a prepared distribution, a checksum-verified
+agent bundle, and a Java home before packaging the app:
+
+```sh
+python3 scripts/prepare-compose-runtime.py \
+  --helper-dist build/compose-helper-source/desktop-viewer/layout-inspector/compose-inspection-host/build/install/aps-compose-inspection \
+  --agent-bundle /absolute/path/to/compose-agent-bundle \
+  --java-home "$JAVA_HOME" \
+  --resources rust-desktop/target/release/resources
+```
+
+Copy the resulting resources along with the Release executable into the app
+bundle. Preparation validates the helper entry point, agent hashes, and Java
+version before replacing existing resources. `APS_COMPOSE_HELPER` and
+`APS_COMPOSE_AGENT_BUNDLE` remain explicit development overrides. Preflight is
+read-only; attaching an inspector still requires the target-bound confirmation
+in the application. A successful runtime preparation or preflight does not
+constitute on-device injection, capture, or cross-platform acceptance.
+
 ## 帧分析器：用 Trace 验证慢帧假设
 
 1. 选中有可信耗时的超时帧或平台卡顿帧，在帧详情点 **AI 建议在哪里加 Trace**。审批页仅包含帧指标、已报告的阶段以及有界的探针测量，不上传工程。阶段耗时不是方法归因。
