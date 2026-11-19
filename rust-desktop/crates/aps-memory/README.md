@@ -51,13 +51,16 @@ Diff 请求不附带活动快照的泄漏结果、源码候选或单端 MCP 查�
 
 ## MCP 内存工具
 
-`aps-mcp` 是 APS 自有的只读 MCP Server。它只接受一个明确选定的 HPROF 和
-同目录下的 `aps-memory-worker`，通过 stdio 提供以下有界工具：
+`aps-mcp` 是 APS 自有的只读 MCP Server。它接受明确选定的目标 HPROF B、可选基线
+HPROF A 和 `aps-memory-worker`，通过 stdio 始终注册以下 5 个有界工具：
 
 - `memory_snapshot_summary`：快照元数据、摘要和来源摘要。
 - `memory_leak_findings`：HPROF 启发式泄漏候选、生命周期候选和引用链。
 - `memory_class_histogram`：可按 heap/class 搜索的有界类直方图。
 - `memory_object_detail`：单个对象的字段、引用和 GC Root 证据。
+- `memory_snapshot_diff`：复用 `aps_memory::compare_snapshots` 的类级 B-A 分页比较。
+
+原有四个工具只读取 B。没有基线时第五个工具仍可发现，但调用返回 `-32001`。
 
 构建：
 
@@ -65,7 +68,62 @@ Diff 请求不附带活动快照的泄漏结果、源码候选或单端 MCP 查�
 cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
 ```
 
-Server 不接受任意文件读取、Shell、网络或写文件请求；响应不包含 HPROF 路径，源摘要变化
-会使当前 session 失效。APS 内置 AI 在 Memory HPROF 分析的 prepare 阶段启动该 Server，
+从 Rust 工作区启动，原有 `--hprof <B> --worker <worker>` 保持兼容；已知 flag 的
+排列顺序可变，双快照增加可选参数 `--baseline-hprof <A>`：
+
+```sh
+./target/debug/aps-mcp \
+  --hprof /absolute/path/to/after-B.hprof \
+  --worker ./target/debug/aps-memory-worker \
+  --baseline-hprof /absolute/path/to/before-A.hprof
+```
+
+Diff 参数只有 `offset?: uint`（默认 0）和 `limit?: uint`（默认 50，1–100），不接受
+任意路径、mapping、方向或排序参数。输出 policy 为 `aps-memory-snapshot-diff-v1`，
+固定 `direction: "B-A"`，以 `beforeSnapshotId`/`afterSnapshotId` 携带两端完整 SHA-256，
+两端 mapping digest 均为 `null`；行保留 count、shallow、可空 retained 的两端值和增量。
+先按已知 retained 增量绝对值降序、再按类名全局排序后分页，并报告总行数、`hasMore`
+和输入/本页 coverage。缺失 retained 不补零，不建立跨 dump 对象身份，不验证不同构建。
+
+Diff 对不支持或格式错误的参数返回 `-32602`；缺少基线、相同来源哈希、任一来源变化
+或无效比较返回 `-32001`；超过既有 512 KiB payload 预算返回 `-32002`。每页返回前
+均校验 A/B 两端来源，缓存页也不例外。完整字段、分页和 coverage 语义见
+[Memory MCP 接口](../../../docs/ai/mcp/memory.md#memory_snapshot_diff)。
+
+在完成初始化的同一会话中，第一页请求示例为：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "diff-page-1",
+  "method": "tools/call",
+  "params": {
+    "name": "memory_snapshot_diff",
+    "arguments": {"offset": 0, "limit": 50}
+  }
+}
+```
+
+外部 Client 的双快照配置、完整成功结果及缺少基线的错误示例，也在上述接口文档中维护。
+
+Server 不接受任意文件读取、Shell、网络或写文件请求；响应不包含 HPROF 路径，打开时由
+worker 校验文件来源摘要，禁用缓存的解析路径也对解析器实际持有的文件句柄再次校验摘要，
+避免校验与重新打开之间的文件替换沿用旧身份。APS 内置 AI 在 Memory HPROF 分析的 prepare 阶段启动该 Server，
 预取摘要、泄漏发现和类直方图，把结果冻结为 `mcp-memory-*` evidence 后再进入现有
 审批和 Provider 请求流程。MCP 查询失败会 fail closed，不会回退到未经绑定的旧结果。
+
+这三个预取工具均返回完整 `sourceDigest`。Host 校验上下文和每条响应的 SHA-256，要求
+响应属于预期工具且各出现一次；错误、缺失、重复、歧义 JSON 或子进程非零退出均拒绝
+整批结果，不发布部分 evidence。每条 evidence 使用 AI 契约的 32 KiB 预算，Host stdout
+仍限制为 768 KiB，子进程超时为 45 秒。
+
+MCP 不提供 mapping CLI 或工具参数。已应用 mapping 的快照不会启动这条未映射的补充
+查询，仍可使用已解析且已映射的 HPROF evidence 进行普通 AI 分析。新增外部 diff 不
+改变上述 3 项内置预取；Diff AI 仍只使用当前已发布并冻结的比较报告，`mcp: None`，
+既不进入单快照 MCP 路径，也不调用外部 diff。
+
+外部 diff 集成验证入口（在 Rust 工作区执行；不是已通过的运行或发布声明）：
+
+```sh
+cargo test --locked --offline -p aps-memory --test mcp_snapshot_diff
+```

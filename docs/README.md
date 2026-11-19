@@ -12,6 +12,7 @@
 
 - [`TODO.md`](TODO.md) — 当前未完成的规划、延期能力、开放决策与发布门禁。
 - [`ai/README.md`](ai/README.md) — AI 分析、源码工作区和 AI 对话窗口的统一规划入口。
+- [`ai/mcp/README.md`](ai/mcp/README.md) — MCP 总览、业务模块索引和已实现接口的使用与输入输出契约。
 - [`ai/roadmap.md`](ai/roadmap.md) — AI 能力缺口和分阶段验收顺序。
 - [`../rust-desktop/TODO.md`](../rust-desktop/TODO.md) — Rust 桌面重写的 Agent 化性能工作流待办。
 

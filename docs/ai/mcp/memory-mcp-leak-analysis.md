@@ -1,5 +1,11 @@
 # MCP 内存泄漏分析
 
+> 历史专题说明。当前总览和模块索引见 [MCP 总览](README.md)，接口名称、使用方式、
+> 输入、输出和已知限制以 [Memory MCP 接口](memory.md) 为准。下文保留早期设计、
+> 使用记录与当时的验证快照，不作为当前参数编码、错误行为或发布状态的依据。
+> 新增的第五个工具及双快照配置见 [memory_snapshot_diff](memory.md#memory_snapshot_diff)，
+> 不沿用下文单快照流程来调用快照对比。
+
 ## 目标
 
 为 Memory Profiler 的 HPROF 内存泄漏分析提供 MCP 能力，使 AI 可以通过受控的 MCP 工具获取：

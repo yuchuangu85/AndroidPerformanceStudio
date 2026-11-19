@@ -36,6 +36,16 @@ impl Status {
     }
 }
 
+/// Verify the exact source handle retained by a cache-disabled parsed heap.
+pub(crate) fn open_verified(path: &Path, digest: &str) -> Result<Heap, String> {
+    validate_digest(digest)?;
+    let heap = Heap::open(path)?;
+    if !digest_source(&heap.source, &heap.path)?.eq_ignore_ascii_case(digest) {
+        return Err("HPROF source digest does not match the requested sourceDigest".into());
+    }
+    Ok(heap)
+}
+
 /// Opens a source using a discardable cache. Cache failures never prevent the
 /// source from being parsed, but a source digest/identity change is explicit.
 pub fn open_or_parse(
@@ -877,6 +887,57 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn cache_disabled_session_rejects_replaced_content_before_publishing_metadata() {
+        let fixture = Fixture::new();
+        let path = fixture.source();
+        let original_digest = sha256_file(&path).unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        fs::write(&path, bytes).unwrap();
+        let current_digest = sha256_file(&path).unwrap();
+        assert_ne!(current_digest, original_digest);
+        for (digest, status) in [
+            (original_digest, "error"),
+            (current_digest.clone(), "ok"),
+            (current_digest.to_ascii_uppercase(), "ok"),
+        ] {
+            let mut session = crate::Session::default();
+            let request = crate::wire::Value::map([
+                ("version", crate::wire::VERSION.into()),
+                ("id", 1_i64.into()),
+                ("op", "open".into()),
+                ("sourceDigest", digest.as_str().into()),
+                (
+                    "args",
+                    crate::wire::Value::map([
+                        ("path", path.to_str().unwrap().into()),
+                        ("sourceDigest", digest.as_str().into()),
+                        ("mapping", crate::wire::Value::map([])),
+                        ("cacheDir", crate::wire::Value::Null),
+                        ("graphStorage", "memory".into()),
+                    ]),
+                ),
+            ]);
+            let (response, _) = session.respond(&request);
+            assert_eq!(response.get("status").unwrap().as_str().unwrap(), status);
+            if status == "ok" {
+                assert_eq!(
+                    response
+                        .get("payload")
+                        .unwrap()
+                        .get("cacheStatus")
+                        .unwrap()
+                        .as_str()
+                        .unwrap(),
+                    "disabled"
+                );
+            } else {
+                assert!(response.get("payload").is_err());
+            }
         }
     }
 

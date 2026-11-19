@@ -4,7 +4,9 @@
 
 ## 当前实现
 
-- [MCP 内存泄漏分析与使用](memory-mcp-leak-analysis.md)：统一 `aps-mcp` Server 当前注册 Memory tools，AI Host 在 Memory HPROF prepare 阶段冻结 MCP evidence。
+- [MCP 总览与模块索引](mcp/README.md)：统一入口、连接方式、已实现接口和各业务模块的接入状态。
+- [Memory MCP 接口](mcp/memory.md)：5 个已实现工具的使用方式、输入、输出与错误；包含外部 A/B 类级 diff，内置 AI 仍只预取原有 3 个工具。
+- [快照对比 MCP](mcp/memory.md#memory_snapshot_diff)：双快照启动与 Client 配置、`offset`/`limit` 分页，以及完整结果和缺少基线时的错误示例。
 
 以下为 Kotlin AI Platform 的历史实现说明，不代表当前 Rust 能力或验收状态。Rust Provider 的当前边界见 [Rust Provider README](../../rust-desktop/crates/aps-ai/README.md)，跨平台和发布门禁见 [Rust AI 与 Agent TODO](../../rust-desktop/TODO.md)。
 

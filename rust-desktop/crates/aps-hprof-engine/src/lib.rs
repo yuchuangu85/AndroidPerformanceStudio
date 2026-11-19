@@ -115,7 +115,10 @@ impl Session {
                 if let Some(cache_dir) = cache_dir.filter(|value| !value.is_empty()) {
                     cache::open_or_parse(Path::new(path), digest, Path::new(cache_dir))?
                 } else {
-                    (model::Heap::open(Path::new(path))?, cache::Status::Disabled)
+                    (
+                        cache::open_verified(Path::new(path), digest)?,
+                        cache::Status::Disabled,
+                    )
                 };
             let engine = Engine::new_with_storage(heap, mapping, graph_storage)?;
             let mut metadata = engine.metadata()?.as_map()?.clone();

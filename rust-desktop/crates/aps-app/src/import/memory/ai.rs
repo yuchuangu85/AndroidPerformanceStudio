@@ -99,33 +99,13 @@ impl ImportWorkspace {
             request.scope =
                 "HPROF deterministic lifecycle retention rule; not proof of a leak".into();
         }
-        request.mcp = self.memory_mcp_context(&snapshot.source_digest);
+        request.mcp = self.memory_mcp_context(snapshot);
         Ok(request)
     }
 
-    fn memory_mcp_context(&self, digest: &str) -> Option<aps_ai::McpContext> {
-        let hprof = self.path.as_ref()?.canonicalize().ok()?;
+    fn memory_mcp_context(&self, snapshot: &MemorySnapshot) -> Option<aps_ai::McpContext> {
         let app = std::env::current_exe().ok()?;
-        let worker = app.with_file_name(if cfg!(target_os = "windows") {
-            "aps-memory-worker.exe"
-        } else {
-            "aps-memory-worker"
-        });
-        let command = app.with_file_name(if cfg!(target_os = "windows") {
-            "aps-mcp.exe"
-        } else {
-            "aps-mcp"
-        });
-        (worker.is_file() && command.is_file()).then(|| aps_ai::McpContext {
-            command,
-            arguments: vec![
-                "--hprof".into(),
-                hprof.to_string_lossy().into_owned(),
-                "--worker".into(),
-                worker.to_string_lossy().into_owned(),
-            ],
-            source_digest: digest.to_owned(),
-        })
+        build_mcp_context(self.path.as_ref()?, &app, snapshot)
     }
 
     fn memory_native_analysis_request(&self) -> Result<AnalysisRequest, String> {
@@ -179,6 +159,40 @@ impl ImportWorkspace {
             self.memory_state.snapshot.as_ref()?.source_digest.clone(),
         ))
     }
+}
+
+fn build_mcp_context(
+    hprof: &std::path::Path,
+    app: &std::path::Path,
+    snapshot: &MemorySnapshot,
+) -> Option<aps_ai::McpContext> {
+    // The MCP server currently reopens without mapping. Do not combine its raw
+    // class names with a snapshot published by a mapped worker session.
+    if snapshot.mapping_digest.is_some() {
+        return None;
+    }
+    let digest = SourceDigest::from_hex(&snapshot.source_digest).ok()?;
+    let hprof = hprof.canonicalize().ok()?;
+    let worker = app.with_file_name(if cfg!(target_os = "windows") {
+        "aps-memory-worker.exe"
+    } else {
+        "aps-memory-worker"
+    });
+    let command = app.with_file_name(if cfg!(target_os = "windows") {
+        "aps-mcp.exe"
+    } else {
+        "aps-mcp"
+    });
+    (worker.is_file() && command.is_file()).then(|| aps_ai::McpContext {
+        command,
+        arguments: vec![
+            "--hprof".into(),
+            hprof.to_string_lossy().into_owned(),
+            "--worker".into(),
+            worker.to_string_lossy().into_owned(),
+        ],
+        source_digest: digest.to_hex(),
+    })
 }
 
 fn build_comparison_request(
@@ -623,6 +637,39 @@ mod tests {
             other.evidence[1].id,
             build_request("session", 1, &snapshot).unwrap().evidence[1].id
         );
+    }
+
+    #[test]
+    fn mcp_context_requires_an_unmapped_snapshot_and_available_companions() {
+        let workspace = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let app = workspace.path().join("aps-app");
+        let hprof = workspace.path().join("snapshot.hprof");
+        let worker = workspace.path().join(if cfg!(target_os = "windows") {
+            "aps-memory-worker.exe"
+        } else {
+            "aps-memory-worker"
+        });
+        let server = workspace.path().join(if cfg!(target_os = "windows") {
+            "aps-mcp.exe"
+        } else {
+            "aps-mcp"
+        });
+        std::fs::write(&hprof, b"local test input; never executed").unwrap();
+        std::fs::write(&worker, b"").unwrap();
+        let mut snapshot = fixture();
+        assert!(build_mcp_context(&hprof, &app, &snapshot).is_none());
+        std::fs::write(&server, b"").unwrap();
+        let context = build_mcp_context(&hprof, &app, &snapshot).unwrap();
+        assert_eq!(context.source_digest, snapshot.source_digest);
+        assert_eq!(
+            context.arguments[1],
+            hprof.canonicalize().unwrap().to_string_lossy()
+        );
+        snapshot.mapping_digest = Some("c".repeat(64));
+        assert!(build_mcp_context(&hprof, &app, &snapshot).is_none());
+        snapshot.mapping_digest = None;
+        snapshot.source_digest = "invalid".into();
+        assert!(build_mcp_context(&hprof, &app, &snapshot).is_none());
     }
 
     #[test]

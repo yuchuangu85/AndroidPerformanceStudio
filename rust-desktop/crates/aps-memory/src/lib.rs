@@ -281,6 +281,17 @@ impl MemorySession {
         self.mapping_digest.as_deref()
     }
 
+    /// Revalidates the retained source without a cached query; failure closes it.
+    pub fn check_source(&mut self, cancel: &CancellationToken) -> Result<(), MemoryError> {
+        let result = self
+            .request("checkSource", Value::map([]), cancel, QUERY_TIMEOUT)
+            .map(|_| ());
+        if result.is_err() {
+            self.stop();
+        }
+        result
+    }
+
     pub fn histogram(
         &mut self,
         heap: Option<&str>,
