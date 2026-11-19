@@ -692,6 +692,32 @@ impl CpuWorkspace {
             ]),
         )
     }
+
+    /// Stable identity for the profiler evidence bound to an AI conversation.
+    /// Projection rows arrive asynchronously and are not part of the evidence
+    /// identity, so a late row update must not invalidate an already-bound AI
+    /// context.
+    pub(crate) fn ai_context_identity(&self) -> Option<String> {
+        let catalog = self.catalog.as_ref()?;
+        let start = self
+            .query
+            .start
+            .map_or_else(|| "null".to_owned(), |value| value.to_string());
+        let end = self
+            .query
+            .end
+            .map_or_else(|| "null".to_owned(), |value| value.to_string());
+        Some(format!(
+            "cpu|{}|{}|{:?}|{}|{}|{}|{}",
+            catalog.source_digest,
+            self.generation,
+            self.tab,
+            self.query.direction.as_str(),
+            self.query.weight_type.as_str(),
+            start,
+            end
+        ))
+    }
     fn pick_converter(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;

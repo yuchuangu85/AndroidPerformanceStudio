@@ -711,6 +711,10 @@ pub struct Studio {
     settings_save: Option<Task<()>>,
     targets: Entity<TargetsWorkspace>,
     ai_origin: Option<Destination>,
+    /// Identity of the profiler evidence currently bound to AI. Profiler
+    /// entities notify for ordinary rendering/async progress as well as for
+    /// evidence changes, so invalidation must compare the bounded request.
+    ai_origin_identity: Option<String>,
     ai_generation: u64,
     ai_request_epoch: AiRequestEpoch,
     captured: Option<aps_capture::CapturedArtifact>,
@@ -930,15 +934,16 @@ impl Studio {
                 },
             ),
             cx.observe(&cpu, |this, _, cx| {
-                this.invalidate_ai(Destination::Cpu, cx);
+                let identity = this.cpu.read(cx).ai_context_identity();
+                this.invalidate_ai(Destination::Cpu, identity, cx);
                 this.refresh_route_menus(cx);
             }),
             cx.observe(&method, |this, _, cx| {
-                this.invalidate_ai(Destination::MethodRecording, cx);
+                this.invalidate_ai(Destination::MethodRecording, None, cx);
                 this.refresh_route_menus(cx);
             }),
             cx.observe(&inspector, |this, _, cx| {
-                this.invalidate_ai(Destination::LayoutInspector, cx);
+                this.invalidate_ai(Destination::LayoutInspector, None, cx);
                 this.refresh_route_menus(cx);
             }),
             cx.observe(&source, |this, _, cx| {
@@ -946,15 +951,16 @@ impl Studio {
                 if this.ai_origin.is_some() {
                     this.ai.update(cx, |ai, cx| ai.invalidate_origin(cx));
                     this.ai_origin = None;
+                    this.ai_origin_identity = None;
                 }
                 this.refresh_route_menus(cx);
             }),
             cx.observe(&trace, |this, _, cx| {
-                this.invalidate_ai(Destination::Trace, cx);
+                this.invalidate_ai(Destination::Trace, None, cx);
                 this.refresh_route_menus(cx);
             }),
             cx.observe(&frame, |this, _, cx| {
-                this.invalidate_ai(Destination::Frame, cx);
+                this.invalidate_ai(Destination::Frame, None, cx);
                 this.refresh_route_menus(cx);
             }),
             cx.subscribe(&capture, |this, _, completed: &CaptureCompleted, cx| {
@@ -1006,7 +1012,7 @@ impl Studio {
         for (kind, import) in &imports {
             let kind = *kind;
             subscriptions.push(cx.observe(import, move |this, _, cx| {
-                this.invalidate_ai(kind, cx);
+                this.invalidate_ai(kind, None, cx);
                 this.refresh_route_menus(cx);
             }));
         }
@@ -1024,7 +1030,7 @@ impl Studio {
             ));
         }
         subscriptions.push(cx.observe(&benchmark, |this, _, cx| {
-            this.invalidate_ai(Destination::Benchmark, cx);
+            this.invalidate_ai(Destination::Benchmark, None, cx);
             this.refresh_route_menus(cx);
         }));
         // A benchmark case may record trace artifacts; opening one goes through the
@@ -1335,6 +1341,7 @@ impl Studio {
             settings_save: None,
             targets,
             ai_origin: None,
+            ai_origin_identity: None,
             ai_generation: 0,
             ai_request_epoch: AiRequestEpoch::default(),
             captured: None,
@@ -1511,15 +1518,48 @@ impl Studio {
         self.navigate(Destination::LayoutInspector, cx);
     }
 
-    fn invalidate_ai(&mut self, origin: Destination, cx: &mut Context<Self>) {
+    fn invalidate_ai(
+        &mut self,
+        origin: Destination,
+        current_identity: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if origin == Destination::Memory && self.destination == Destination::Memory {
             self.ai_request_epoch.cancel();
         }
-        if self.ai_origin == Some(origin) {
+        let changed = origin != Destination::Cpu || self.ai_origin_identity != current_identity;
+        if self.ai_origin == Some(origin) && changed {
             self.ai.update(cx, |ai, cx| ai.invalidate_origin(cx));
             self.ai_origin = None;
+            self.ai_origin_identity = None;
             cx.notify();
         }
+    }
+
+    /// Build a stable identity from profiler-owned evidence only. The shell
+    /// rewrites request run metadata while binding, so those fields must not
+    /// participate in later profiler notification comparisons.
+    fn ai_request_identity(request: &aps_ai::AnalysisRequest) -> Option<String> {
+        if request.profiler != "cpu" {
+            return None;
+        }
+        let payload = request
+            .evidence
+            .iter()
+            .find(|evidence| evidence.kind == "profiler-selection")?
+            .payload
+            .as_object()?;
+        let source_digest = payload.get("sourceDigest")?.as_str()?;
+        let query_generation = payload.get("queryGeneration")?.as_u64()?;
+        let view = payload.get("view")?.as_str()?;
+        let direction = payload.get("direction")?.as_str()?;
+        let weight_type = payload.get("weightType")?.as_str()?;
+        let start = payload.get("startNanos")?.to_string();
+        let end = payload.get("endNanos")?.to_string();
+        Some(format!(
+            "cpu|{}|{}|{}|{}|{}|{}|{}",
+            source_digest, query_generation, view, direction, weight_type, start, end
+        ))
     }
     pub(crate) fn open_source_symbol(
         &mut self,
@@ -1727,6 +1767,14 @@ impl Studio {
     ) {
         match result {
             Ok(mut request) => {
+                let origin_identity = (origin == Destination::Cpu)
+                    .then(|| self.cpu.read(cx).ai_context_identity())
+                    .flatten()
+                    .or_else(|| {
+                        (origin == Destination::Cpu)
+                            .then(|| Self::ai_request_identity(&request))
+                            .flatten()
+                    });
                 let Some(generation) = self.ai_generation.checked_add(1) else {
                     self.notice = Some(
                         self.settings
@@ -1745,6 +1793,7 @@ impl Studio {
                     ai.bind_memory_source_guard(source_guard);
                 });
                 self.ai_origin = Some(origin);
+                self.ai_origin_identity = origin_identity;
                 self.set_destination(Destination::Ai);
                 self.notice = None;
             }
@@ -3561,6 +3610,43 @@ impl Render for Studio {
 #[cfg(test)]
 mod menubar_tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn cpu_ai_identity_ignores_shell_run_metadata_but_tracks_evidence_changes() {
+        let mut request = crate::evidence::request(
+            "cpu",
+            "Current CPU query",
+            "summary",
+            crate::evidence::object([
+                (
+                    "sourceDigest",
+                    "0000000000000000000000000000000000000000000000000000000000000000".into(),
+                ),
+                ("queryGeneration", 1u64.into()),
+                ("view", "Overview".into()),
+                ("direction", "forward".into()),
+                ("weightType", "samples".into()),
+                ("startNanos", aps_json::Value::Null),
+                ("endNanos", aps_json::Value::Null),
+            ]),
+        )
+        .unwrap();
+        let initial = Studio::ai_request_identity(&request).expect("CPU identity");
+
+        request.run_id = "new-run-id".into();
+        request.generation = 42;
+        assert_eq!(Studio::ai_request_identity(&request), Some(initial.clone()));
+
+        request.evidence[0].payload = crate::evidence::object([("queryGeneration", 2u64.into())]);
+        assert_ne!(Studio::ai_request_identity(&request), Some(initial));
+        assert!(
+            Studio::ai_request_identity(&aps_ai::AnalysisRequest {
+                profiler: "frame".into(),
+                ..request
+            })
+            .is_none()
+        );
+    }
 
     #[::core::prelude::v1::test]
     fn memory_source_epoch_rejects_source_changes_and_navigation_round_trips() {
