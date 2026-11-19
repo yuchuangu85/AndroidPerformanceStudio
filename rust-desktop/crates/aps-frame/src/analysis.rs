@@ -165,7 +165,11 @@ impl FrameJankAnalyzer {
     /// Sort by intended vsync (frame id fallback), analyze, summarize and cluster.
     pub fn analyze(&self, samples: &[FrameSample]) -> FrameAnalysisResult {
         let mut sorted = samples.to_vec();
-        sorted.sort_by_key(|sample| sample.intended_vsync_ns.unwrap_or(sample.frame_id as i64));
+        sorted.sort_by_key(|sample| {
+            sample
+                .intended_vsync_ns
+                .map_or(i128::from(sample.frame_id), i128::from)
+        });
         let frames: Vec<AnalyzedFrame> = sorted
             .into_iter()
             .map(|sample| self.analyze_frame(sample))
@@ -226,6 +230,7 @@ impl FrameJankAnalyzer {
             };
             let first = &frames[first_index];
             let mut jank_frames: Vec<&AnalyzedFrame> = vec![first];
+            let mut last_index = first_index;
             let mut scan = first_index + 1;
             let mut smooth_gap = 0usize;
             while scan < frames.len() {
@@ -237,6 +242,7 @@ impl FrameJankAnalyzer {
                 }
                 if candidate.deadline_verdict == FrameDeadlineVerdict::Missed {
                     jank_frames.push(candidate);
+                    last_index = scan;
                     smooth_gap = 0;
                 } else {
                     smooth_gap += 1;
@@ -246,13 +252,7 @@ impl FrameJankAnalyzer {
                 }
                 scan += 1;
             }
-            let last = *jank_frames
-                .last()
-                .expect("cluster contains the first frame");
-            let last_index = frames
-                .iter()
-                .rposition(|frame| frame == last)
-                .expect("cluster frame belongs to the analyzed slice");
+            let last = &frames[last_index];
             let mut worst_severity = jank_frames[0].severity;
             for frame in &jank_frames[1..] {
                 if frame.severity > worst_severity {
@@ -299,7 +299,10 @@ impl FrameJankAnalyzer {
 }
 
 fn same_context(first: &AnalyzedFrame, other: &AnalyzedFrame) -> bool {
-    first.sample.window_id == other.sample.window_id
+    first.sample.source == other.sample.source
+        && first.sample.process_id == other.sample.process_id
+        && first.sample.package_name == other.sample.package_name
+        && first.sample.window_id == other.sample.window_id
         && first.sample.activity_name == other.sample.activity_name
 }
 

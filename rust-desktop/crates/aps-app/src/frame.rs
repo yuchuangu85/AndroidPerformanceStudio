@@ -12,6 +12,7 @@ mod artifact;
 mod capture;
 mod detail_data;
 mod export;
+mod mcp_receipt;
 mod model;
 mod optimize;
 mod page;
@@ -35,12 +36,13 @@ use aps_contracts::SourceDigest;
 use aps_frame::analysis::AnalyzedFrame;
 use aps_frame::{
     FrameAnalysisResult, FrameCaptureSession, FrameJankAnalyzer, FrameSample, FrameSource,
-    FrameSourceCapabilities, FrameTimelineCapabilities, FrameViewFilter,
+    FrameSourceCapabilities, FrameViewFilter,
 };
 use aps_platform::CancellationToken;
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{prelude::*, *};
 use std::{
+    io::Read,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -111,6 +113,9 @@ pub struct FrameWorkspace {
     pub(in crate::frame) observed_refresh_rates_hz: Vec<f64>,
     pub(in crate::frame) selected_frame_id: Option<u64>,
     pub(in crate::frame) perfetto_trace_file: Option<PathBuf>,
+    // Viewer links are navigation hints; only an analyzed source may supply a
+    // frame timestamp. The linked path never changes session provenance.
+    viewer_only_trace: bool,
     pub(in crate::frame) artifact: Option<artifact::FrameArtifact>,
     pub(in crate::frame) is_loading: bool,
     pub(in crate::frame) is_capturing: bool,
@@ -128,6 +133,7 @@ pub struct FrameWorkspace {
     pub(in crate::frame) import_generation: u64,
     pub(in crate::frame) capture_generation: u64,
     timeline_operation: Option<FrameTimelineOperation>,
+    mcp_publication: Option<mcp_receipt::Publication>,
     comparison: probe_compare::Comparison,
     probe_labels: std::collections::BTreeMap<String, String>,
 }
@@ -161,6 +167,7 @@ impl FrameWorkspace {
             observed_refresh_rates_hz: Vec::new(),
             selected_frame_id: None,
             perfetto_trace_file: None,
+            viewer_only_trace: false,
             artifact: None,
             is_loading: false,
             is_capturing: false,
@@ -178,6 +185,7 @@ impl FrameWorkspace {
             import_generation: 0,
             capture_generation: 0,
             timeline_operation: None,
+            mcp_publication: None,
             comparison: Default::default(),
             probe_labels: Default::default(),
         };
@@ -451,6 +459,7 @@ impl FrameWorkspace {
                     Ok(loaded) => {
                         this.imported_file_name = Some(loaded.file_name);
                         this.perfetto_trace_file = None;
+                        this.viewer_only_trace = false;
                         this.artifact = None;
                         this.current_session = Some(loaded.session.clone());
                         this.apply_analysis(loaded.analysis, cx);
@@ -463,7 +472,7 @@ impl FrameWorkspace {
                         });
                         this.warnings = loaded.warnings;
                         this.error = None;
-                        this.persist_session(loaded.session, loaded.frames, cx);
+                        this.persist_session(loaded.session, loaded.frames, None, cx);
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -500,6 +509,7 @@ impl FrameWorkspace {
                     Ok(loaded) => {
                         this.imported_file_name = Some(loaded.file_name);
                         this.perfetto_trace_file = loaded.trace_path.clone();
+                        this.viewer_only_trace = false;
                         this.probe_labels.clear();
                         this.artifact = loaded.artifact.clone();
                         this.current_session = Some(loaded.session.clone());
@@ -513,7 +523,12 @@ impl FrameWorkspace {
                         });
                         this.warnings = loaded.warnings;
                         this.error = None;
-                        this.persist_session(loaded.session, loaded.frames, cx);
+                        this.persist_session(
+                            loaded.session,
+                            loaded.frames,
+                            loaded.trace_digest,
+                            cx,
+                        );
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -525,21 +540,17 @@ impl FrameWorkspace {
     }
 
     fn associate_perfetto_trace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let (Some(analysis), Some(mut session)) =
-            (self.analysis.clone(), self.current_session.clone())
-        else {
+        if self.is_loading
+            || self.is_capturing
+            || self.analysis.is_none()
+            || self.current_session.is_none()
+        {
             return;
-        };
-        session.perfetto_trace_file = Some(path.display().to_string());
-        self.current_session = Some(session.clone());
+        }
+        self.mcp_publication = None; // A viewer association is not capture provenance.
         self.perfetto_trace_file = Some(path);
+        self.viewer_only_trace = true;
         self.error = None;
-        let frames: Vec<FrameSample> = analysis
-            .frames
-            .iter()
-            .map(|frame| frame.sample.clone())
-            .collect();
-        self.persist_session(session, frames, cx);
         cx.notify();
     }
 
@@ -548,6 +559,7 @@ impl FrameWorkspace {
     fn apply_analysis(&mut self, analysis: FrameAnalysisResult, cx: &mut Context<Self>) {
         // Captured/replaced analysis must never inherit an older file-import
         // cost. Import callers record their own duration after publication.
+        self.mcp_publication = None;
         self.import_timing.clear();
         self.selected_frame_id = analysis.frames.first().map(|frame| frame.sample.frame_id);
         self.observed_refresh_rates_hz = observed_refresh_rates(&analysis);
@@ -693,6 +705,8 @@ impl FrameWorkspace {
                         this.filtered_analysis = None;
                         this.selected_frame_id = None;
                         this.perfetto_trace_file = None;
+                        this.viewer_only_trace = false;
+                        this.mcp_publication = None;
                         this.artifact = None;
                         this.online_frames.clear();
                         this.observed_refresh_rates_hz = metadata.observed_refresh_rates_hz.clone();
@@ -847,7 +861,7 @@ impl FrameWorkspace {
                         session.observed_refresh_rates_hz.extend(observed);
                         sort_dedup_rates(&mut session.observed_refresh_rates_hz);
                         this.current_session = Some(session.clone());
-                        this.persist_session(session, frames, cx);
+                        this.persist_session(session, frames, None, cx);
                     }
                     cx.notify();
                 })
@@ -916,6 +930,7 @@ impl FrameWorkspace {
                     "FrameTimeline capture cancelled; the previous report is retained.".to_owned(),
                 );
             }
+            raw_artifact.verify_analysis(processed.source_digest)?;
             if processed.frames.is_empty() {
                 return Err(format!("No FrameTimeline rows for selected process {} (pid {}). Reproduce a visible frame or reselect the process after reinstalling.",process.package_name,process.pid));
             }
@@ -958,16 +973,19 @@ impl FrameWorkspace {
                 imported_at_unix_ms: None,
                 provenance_complete: true,
                 provenance_warnings: Vec::new(),
-                perfetto_trace_file: Some(captured.trace_file.display().to_string()),
+                perfetto_trace_file: final_artifact.trace_path.as_ref().map(|p| p.display().to_string()),
                 artifact: Some(final_artifact.id.clone()),
             };
+            let receipt = mcp_receipt::Receipt::for_capture(
+                &session, &frames, &final_artifact, &process, processed.measured_process.as_deref(), processed.probe_query_complete,
+            );
             let labels = data_dir.as_deref().map(|d| probe_receipt::labels(d,&process.package_name)).transpose();
             Ok::<_, String>((
-                labels, processed.probe_warning,
+                receipt, labels, processed.probe_warning,
                 frames,
                 session,
                 final_artifact,
-                captured.trace_file,
+                processed.source_digest,
                 captured.recording,
             ))
         });
@@ -999,12 +1017,13 @@ impl FrameWorkspace {
                 }
                 match result {
                     Ok((
+                        receipt,
                         labels,
                         probe_warning,
                         frames,
                         session,
                         final_artifact,
-                        trace_file,
+                        trace_digest,
                         mut recording,
                     )) => {
                         if let Some(dir) = this.data_dir.as_deref() {
@@ -1019,11 +1038,15 @@ impl FrameWorkspace {
                             }
                         }
                         this.imported_file_name = None;
-                        this.perfetto_trace_file = Some(trace_file);
+                        this.perfetto_trace_file = final_artifact.trace_path.clone();
+                        this.viewer_only_trace = false;
                         this.artifact = Some(final_artifact);
                         this.current_session = Some(session.clone());
                         let analysis = FrameJankAnalyzer::default().analyze(&frames);
                         this.apply_analysis(analysis, cx);
+                        this.mcp_publication = receipt
+                            .zip(this.analysis.as_ref())
+                            .map(|(r, full)| r.bind(full));
                         this.operation_status = Some(model::FrameOperationStatus::CaptureStopped {
                             frame_count: frames.len(),
                         });
@@ -1038,7 +1061,7 @@ impl FrameWorkspace {
                         // Only a successful, current publication becomes a
                         // persistent Frame session. Stale/error tasks stay RAII.
                         recording.retain_local_artifacts();
-                        this.persist_session(session, frames, cx);
+                        this.persist_session(session, frames, Some(trace_digest), cx);
                     }
                     Err(error) => {
                         this.operation_status =
@@ -1087,12 +1110,17 @@ impl FrameWorkspace {
         &mut self,
         session: FrameCaptureSession,
         frames: Vec<FrameSample>,
+        trace_digest: Option<SourceDigest>,
         cx: &mut Context<Self>,
     ) {
         let store = self.session_store.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { store.save(&session, &frames) });
+        let task = cx.background_executor().spawn(async move {
+            if trace_digest.is_some() {
+                store.save_with_trace(&session, &frames, trace_digest)
+            } else {
+                store.save(&session, &frames)
+            }
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -1148,46 +1176,124 @@ impl FrameWorkspace {
         let Some(analysis) = self.analysis.clone() else {
             return;
         };
-        let directory = export_directory(self.data_dir.as_deref());
+        let data_dir = self.data_dir.clone();
+        let directory = export_directory(data_dir.as_deref());
         let dialog = cx.prompt_for_new_path(&directory, Some("frame-analysis.json"));
         cx.spawn(async move |this, cx| {
-            let result = dialog.await;
-            this.update(cx, |this, cx| match result {
-                Ok(Ok(Some(path))) => match export::export_json(&analysis, &path) {
-                    Ok(()) => {
+            let path = match dialog.await {
+                Ok(Ok(Some(path))) => path,
+                Ok(Err(err)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.error = Some(err.to_string());
+                        cx.notify();
+                    });
+                    return;
+                }
+                _ => return,
+            };
+            // Resolve authority after the dialog, against the exact report selected
+            // at invocation. Reassociation/import in the meantime cannot add trust.
+            let Ok(receipt) = this.update(cx, |this, _| {
+                this.mcp_publication
+                    .as_ref()
+                    .and_then(|p| p.for_export(&analysis))
+            }) else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    mcp_receipt::export_report(
+                        &analysis,
+                        &path,
+                        receipt.as_ref(),
+                        data_dir.as_deref(),
+                    )?;
+                    Ok::<_, String>(path)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(path) => {
                         this.operation_status = Some(model::FrameOperationStatus::Exported {
                             file_name: path
                                 .file_name()
-                                .and_then(|name| name.to_str())
+                                .and_then(|n| n.to_str())
                                 .unwrap_or("frame-analysis.json")
                                 .to_owned(),
                         });
                         this.error = None;
                     }
                     Err(error) => this.error = Some(error),
-                },
-                Ok(Err(error)) => this.error = Some(format!("{error}")),
-                _ => {}
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(in crate::frame) fn open_trace(&mut self, cx: &mut Context<Self>) {
+        if self.is_loading || self.is_capturing {
+            return;
+        }
+        let Some(trace) = self.perfetto_trace_file.clone() else {
+            return;
+        };
+        if self.viewer_only_trace {
+            // An arbitrary viewer link has no proven time alignment with the
+            // selected frame. Do not turn a comparable-looking clock into a jump.
+            self.show_trace(&trace, None, cx);
+            return;
+        }
+        let Some(artifact) = self.artifact.clone().filter(|artifact| {
+            artifact.trace_path.as_ref() == Some(&trace)
+                && self
+                    .current_session
+                    .as_ref()
+                    .and_then(|s| s.artifact.as_ref())
+                    == Some(&artifact.id)
+        }) else {
+            return;
+        };
+        let selection = self.frame_binding();
+        let task = cx
+            .background_executor()
+            .spawn(async move { artifact.verify_current_trace() });
+        cx.spawn(async move |this, cx| {
+            let verified = task.await;
+            this.update(cx, |this, cx| {
+                if this.viewer_only_trace
+                    || this.perfetto_trace_file.as_ref() != Some(&trace)
+                    || this.frame_binding() != selection
+                {
+                    return;
+                }
+                match verified {
+                    Ok(()) => {
+                        let timestamp = this.selected_frame().and_then(|frame| {
+                            frame
+                                .sample
+                                .intended_vsync_ns
+                                .or(frame.sample.actual_vsync_ns)
+                        });
+                        this.show_trace(&trace, timestamp, cx);
+                    }
+                    Err(error) => {
+                        this.error = Some(error);
+                        cx.notify();
+                    }
+                }
             })
             .ok();
         })
         .detach();
     }
 
-    pub(in crate::frame) fn open_trace(&mut self, cx: &mut Context<Self>) {
-        let Some(trace) = self.perfetto_trace_file.clone() else {
-            return;
-        };
-        let timestamp = self.selected_frame().and_then(|frame| {
-            frame
-                .sample
-                .intended_vsync_ns
-                .or(frame.sample.actual_vsync_ns)
-        });
+    fn show_trace(&mut self, trace: &Path, timestamp: Option<i64>, cx: &mut Context<Self>) {
         let assets = crate::perfetto_tool::viewer_assets_dir();
         if let Err(error) = self
             .viewer
-            .open(&trace, timestamp, assets.as_deref(), None, None)
+            .open(trace, timestamp, assets.as_deref(), None, None)
         {
             self.error = Some(error);
             cx.notify();
@@ -1297,12 +1403,6 @@ fn observed_refresh_rates(analysis: &FrameAnalysisResult) -> Vec<f64> {
     rates
 }
 
-fn sha256_hex(path: &Path) -> Result<String, String> {
-    SourceDigest::hash_file(path, MAX_IMPORT_BYTES)
-        .map(|digest| digest.to_hex())
-        .map_err(|_| "Frame input could not be hashed".to_owned())
-}
-
 struct LoadedFrameStats {
     analysis: FrameAnalysisResult,
     session: FrameCaptureSession,
@@ -1311,29 +1411,77 @@ struct LoadedFrameStats {
     file_name: String,
     trace_path: Option<PathBuf>,
     artifact: Option<artifact::FrameArtifact>,
+    trace_digest: Option<SourceDigest>,
+}
+
+fn read_frame_stats(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let check = |metadata: std::fs::Metadata| metadata.is_file() && metadata.len() <= max_bytes;
+    if !check(std::fs::metadata(path).map_err(|_| "FrameStats input does not exist")?) {
+        return Err("FrameStats input must be a bounded regular file".to_owned());
+    }
+    let file = std::fs::File::open(path).map_err(|_| "Cannot open FrameStats input")?;
+    if !check(
+        file.metadata()
+            .map_err(|_| "Cannot inspect open FrameStats input")?,
+    ) {
+        return Err("FrameStats input must be a bounded regular file".to_owned());
+    }
+    read_frame_stats_bytes(file, max_bytes)
+}
+
+fn read_frame_stats_bytes(input: impl Read, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    input
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Cannot read FrameStats input")?;
+    if bytes.len() as u64 > max_bytes {
+        return Err("FrameStats input exceeds the byte limit".into());
+    }
+    Ok(bytes)
 }
 
 fn import_frame_stats_blocking(
     path: PathBuf,
     session_id: String,
 ) -> Result<LoadedFrameStats, String> {
-    let metadata =
-        std::fs::metadata(&path).map_err(|_| "FrameStats input does not exist".to_owned())?;
-    if !metadata.is_file() || metadata.len() > MAX_IMPORT_BYTES {
-        return Err("FrameStats input must be a bounded regular file".to_owned());
+    let bytes = read_frame_stats(&path, MAX_IMPORT_BYTES)?;
+    import_frame_stats_snapshot(&path, &bytes, session_id)
+}
+
+fn import_frame_stats_snapshot(
+    path: &Path,
+    bytes: &[u8],
+    session_id: String,
+) -> Result<LoadedFrameStats, String> {
+    // Hash the immutable buffer that is actually parsed, not a second open of
+    // the path (which may already refer to a replacement file).
+    let digest = SourceDigest::hash_reader(bytes, MAX_IMPORT_BYTES)?;
+    let text =
+        std::str::from_utf8(bytes).map_err(|_| "FrameStats input must be bounded UTF-8 text")?;
+    let loaded = decode_frame_stats(path, text, session_id, digest)?;
+    if !path.is_file() || SourceDigest::hash_file(path, MAX_IMPORT_BYTES).ok() != Some(digest) {
+        return Err("FrameStats input changed during import".into());
     }
-    let text = std::fs::read_to_string(&path)
-        .map_err(|_| "FrameStats input must be bounded UTF-8 text".to_owned())?;
+    Ok(loaded)
+}
+
+fn decode_frame_stats(
+    path: &Path,
+    text: &str,
+    session_id: String,
+    digest: SourceDigest,
+) -> Result<LoadedFrameStats, String> {
     // File > Open accepts both a gfxinfo FrameStats capture and this app's own
     // exported frame-analysis.json report (Compose schemaVersion 3).
-    let exported = analysis_json::looks_like_export(&text);
+    let exported = analysis_json::looks_like_export(text);
     let (frames, parse_warnings, package_name) = if exported {
-        let frames = analysis_json::parse_export(&text, &session_id)?;
+        let frames = analysis_json::parse_export(text, &session_id)?;
         let package = frames.iter().find_map(|frame| frame.package_name.clone());
         (frames, Vec::new(), package)
     } else {
         let package = Some("imported".to_owned());
-        let parsed = aps_frame::parse_gfxinfo(&text, &session_id, package.as_deref(), true)?;
+        let parsed = aps_frame::parse_gfxinfo(text, &session_id, package.as_deref(), true)?;
         (parsed.frames, parsed.warnings, package)
     };
     if frames.is_empty() {
@@ -1349,7 +1497,6 @@ fn import_frame_stats_blocking(
         .and_then(|name| name.to_str())
         .unwrap_or("framestats.txt")
         .to_owned();
-    let sha256 = sha256_hex(&path)?;
     let started_at_unix_ms = now_unix_ms();
     let session_source = if exported {
         frames
@@ -1386,7 +1533,7 @@ fn import_frame_stats_blocking(
             .filter_map(|frame| frame.refresh_rate_hz)
             .collect(),
         imported_file: Some(path.display().to_string()),
-        imported_file_sha256: Some(sha256),
+        imported_file_sha256: Some(digest.to_hex()),
         imported_at_unix_ms: Some(started_at_unix_ms),
         provenance_complete: false,
         provenance_warnings: if exported {
@@ -1418,6 +1565,7 @@ fn import_frame_stats_blocking(
         file_name,
         trace_path: None,
         artifact: None,
+        trace_digest: None,
     })
 }
 
@@ -1434,14 +1582,12 @@ fn import_perfetto_blocking(
         .unwrap_or("trace.pftrace")
         .to_owned();
     let raw_artifact = artifact::FrameArtifact::imported(&path)?;
-    if let Some(dir) = data_dir.as_deref() {
-        raw_artifact.save(Some(dir))?;
-    }
     let cancel = CancellationToken::new();
     let processed = perfetto::analyze_trace(&path, &cancel)?;
     if processed.frames.is_empty() {
         return Err(format!("No FrameTimeline rows were found in {file_name}."));
     }
+    raw_artifact.verify_analysis(processed.source_digest)?;
     let final_artifact = raw_artifact
         .clone()
         .analyzed(&processed.tool_version, processed.capabilities.clone());
@@ -1482,7 +1628,10 @@ fn import_perfetto_blocking(
         imported_at_unix_ms: Some(started_at_unix_ms),
         provenance_complete: true,
         provenance_warnings: Vec::new(),
-        perfetto_trace_file: Some(path.display().to_string()),
+        perfetto_trace_file: final_artifact
+            .trace_path
+            .as_ref()
+            .map(|p| p.display().to_string()),
         artifact: Some(final_artifact.id.clone()),
     };
     let analysis = FrameJankAnalyzer::default().analyze(&frames);
@@ -1492,8 +1641,9 @@ fn import_perfetto_blocking(
         frames,
         warnings: processed.probe_warning.into_iter().collect(),
         file_name,
-        trace_path: Some(path),
+        trace_path: final_artifact.trace_path.clone(),
         artifact: Some(final_artifact),
+        trace_digest: Some(processed.source_digest),
     })
 }
 
@@ -1874,6 +2024,9 @@ mod tests {
         // therefore must preserve the meaningful data-import measurement.
         assert!(!association.contains("Instant::now"));
         assert!(!association.contains("self.import_timing"));
+        assert!(association.contains("self.viewer_only_trace = true"));
+        assert!(!association.contains("persist_session"));
+        assert!(!association.contains("session.perfetto_trace_file ="));
         let apply = source
             .split("fn apply_analysis(")
             .nth(1)
@@ -2020,5 +2173,68 @@ Flags,IntendedVsync,Vsync,HandleInputStart,AnimationStart,PerformTraversalsStart
         assert_eq!(loaded.session.source, FrameSource::Gfxinfo);
         assert_eq!(loaded.warnings.len(), 1);
         assert!(loaded.warnings[0].contains("framestats file"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn imported_framestats_identity_is_the_decoded_bytes_not_a_replacement_path() {
+        let directory = TestDirectory::new();
+        let path = directory.path().join("framestats.txt");
+        std::fs::write(&path, FRAMESTATS).unwrap();
+        let parsed_bytes = read_frame_stats(&path, MAX_IMPORT_BYTES).unwrap();
+        let expected =
+            SourceDigest::hash_reader(parsed_bytes.as_slice(), MAX_IMPORT_BYTES).unwrap();
+        let loaded =
+            import_frame_stats_snapshot(&path, &parsed_bytes, "bound-session".into()).unwrap();
+        assert_eq!(loaded.session.imported_file_sha256, Some(expected.to_hex()));
+        assert_eq!(loaded.frames[0].session_id, "bound-session");
+        let replacement = FRAMESTATS.replace("100000000", "100000001");
+        assert_eq!(FRAMESTATS.len(), replacement.len());
+        std::fs::write(&path, replacement).unwrap();
+        let result = import_frame_stats_snapshot(&path, &parsed_bytes, "bound-session".into());
+        assert!(matches!(result, Err(error) if error == "FrameStats input changed during import"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn framestats_reader_rejects_growth_beyond_its_hard_byte_boundary() {
+        assert_eq!(read_frame_stats_bytes(&b"abc"[..], 3).unwrap(), b"abc");
+        assert!(read_frame_stats_bytes(&b"abcd"[..], 3).is_err());
+    }
+
+    #[::core::prelude::v1::test]
+    fn imported_perfetto_history_accepts_only_the_original_analyzed_bytes() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        if !root
+            .join("build/perfetto-tools")
+            .join(if cfg!(windows) {
+                "trace_processor_shell.exe"
+            } else {
+                "trace_processor_shell"
+            })
+            .is_file()
+        {
+            return;
+        }
+        let directory = TestDirectory::new();
+        let trace = directory.path().join("original.pftrace");
+        std::fs::write(
+            &trace,
+            include_bytes!("../../aps-perfetto/tests/fixtures/frame-probes.pftrace"),
+        )
+        .unwrap();
+        let loaded =
+            import_perfetto_blocking(trace.clone(), Some(directory.path().to_owned())).unwrap();
+        let digest = loaded.trace_digest.unwrap();
+        assert_eq!(loaded.session.imported_file_sha256, Some(digest.to_hex()));
+        assert!(loaded.artifact.unwrap().verify_current_trace().is_ok());
+        let store = sessions::FrameSessionStore::new(directory.path().join("sessions"));
+        store
+            .save_with_trace(&loaded.session, &loaded.frames, Some(digest))
+            .unwrap();
+        assert_eq!(
+            store.verify_trace(&loaded.session.id, &trace).unwrap(),
+            digest
+        );
+        std::fs::write(&trace, b"replacement bytes").unwrap();
+        assert!(store.verify_trace(&loaded.session.id, &trace).is_err());
     }
 }

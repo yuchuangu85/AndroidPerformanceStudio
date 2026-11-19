@@ -36,6 +36,14 @@ python3 -B scripts/check_rust_architecture.py
   may consume the Simpleperf engine, and storage may implement source repository
   contracts. These directed edges do not entitle the reverse direction. Shared
   hash/encoding primitives belong to `aps-primitives`, not an analyzer.
+* **Read-only Frame MCP adapter.** `aps-frame-mcp` consumes the public Frame
+  domain model, bounded JSON parser and source-digest contract. It owns its
+  selected-input stdio executable; it does not depend on the application shell
+  or Memory. The desktop owns capture/export and records report/trace identities
+  separately in its data directory; the adapter checks a locally trusted receipt
+  and both selected files. It never derives file paths or capture authority from
+  report contents. Only desktop tests depend on the adapter, to exercise both ends
+  of this file contract. The existing Memory MCP executable stays compatible.
 
 To add a module or edge, review the *reason and direction*, classify it and
 adjust the named rule only if an existing contract cannot satisfy it. Never

@@ -73,6 +73,42 @@ impl FrameArtifact {
         })
     }
 
+    /// Compare the processor's opened bytes with both the original capture
+    /// identity and the current artifact. Viewer associations are not evidence.
+    pub(super) fn verify_analysis(&self, analyzed: SourceDigest) -> Result<(), String> {
+        if analyzed.to_hex() != self.sha256 {
+            return Err("Trace bytes did not match the FrameTimeline analysis source".into());
+        }
+        self.verify_current_trace()
+    }
+
+    pub(super) fn verify_current_trace(&self) -> Result<(), String> {
+        let expected = SourceDigest::from_hex(&self.sha256)?;
+        let path = self
+            .trace_path
+            .as_deref()
+            .ok_or("Missing FrameTimeline trace")?;
+        if !path.is_file() || SourceDigest::hash_file(path, MAX_TRACE_BYTES).ok() != Some(expected)
+        {
+            return Err("FrameTimeline trace changed or is unavailable".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn matches_capture_target(&self, serial: &str, pid: i32, package: &str) -> bool {
+        self.sha256.len() == 64
+            && self
+                .sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && self.id
+                == format!(
+                    "frame-{}-{:016x}",
+                    &self.sha256[..32],
+                    capture_context(serial, pid, package)
+                )
+    }
+
     /// Records the analyzer tool and the capabilities the trace exposed.
     /// Missing capabilities become explicit limitation warnings, mirroring
     /// Compose FrameCaptureArtifactFactory.analyzed.
@@ -188,7 +224,7 @@ fn trace_evidence(trace: &Path) -> Result<TraceEvidence, String> {
     })
 }
 
-fn capture_context(serial: &str, pid: i32, package: &str) -> u64 {
+pub(super) fn capture_context(serial: &str, pid: i32, package: &str) -> u64 {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(serial.as_bytes());
     bytes.push(0);

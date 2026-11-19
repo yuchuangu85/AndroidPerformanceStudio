@@ -7,6 +7,7 @@
 //! stream to a sibling temporary file and rename, so a failed export never
 //! leaves a truncated destination.
 
+use aps_contracts::{SourceDigest, SourceDigestBuilder};
 use aps_frame::{FrameAnalysisResult, FrameAttribution, FrameSample};
 use std::{
     fs::{self, File, OpenOptions},
@@ -70,145 +71,187 @@ pub(in crate::frame) fn export_json(
     result: &FrameAnalysisResult,
     output: &Path,
 ) -> Result<(), String> {
-    write_output(output, |writer| {
-        let mut out = JsonWriter { writer };
-        out.line("{")?;
-        out.line("  \"schemaVersion\": 3,")?;
-        out.line("  \"summary\": {")?;
-        let summary = &result.summary;
-        out.line(&format!("    \"totalFrames\": {},", summary.total_frames))?;
-        out.line(&format!(
-            "    \"deadlineClassifiedFrames\": {},",
-            summary.deadline_classified_frames
-        ))?;
-        out.line(&format!(
-            "    \"deadlineMissFrames\": {},",
-            summary.deadline_miss_frames
-        ))?;
-        out.line(&format!(
-            "    \"deadlineUnknownFrames\": {},",
-            summary.deadline_unknown_frames
-        ))?;
-        out.line(&format!(
-            "    \"deadlineMissRate\": {},",
-            json_f64(summary.deadline_miss_rate)
-        ))?;
-        out.line(&format!(
-            "    \"platformClassifiedFrames\": {},",
-            summary.platform_classified_frames
-        ))?;
-        out.line(&format!(
-            "    \"platformJankFrames\": {},",
-            summary.platform_jank_frames
-        ))?;
-        out.line(&format!(
-            "    \"platformUnknownFrames\": {},",
-            summary.platform_unknown_frames
-        ))?;
-        out.line(&format!(
-            "    \"platformJankRate\": {},",
-            json_f64(summary.platform_jank_rate)
-        ))?;
-        out.line(&format!(
-            "    \"jankStatsClassifiedFrames\": {},",
-            summary.jank_stats_classified_frames
-        ))?;
-        out.line(&format!(
-            "    \"jankStatsJankFrames\": {},",
-            summary.jank_stats_jank_frames
-        ))?;
-        out.line(&format!(
-            "    \"jankStatsJankRate\": {},",
-            json_f64(summary.jank_stats_jank_rate)
-        ))?;
-        out.line(&format!(
-            "    \"p50DurationNs\": {},",
-            json_i64(summary.p50_duration_ns)
-        ))?;
-        out.line(&format!(
-            "    \"p95DurationNs\": {},",
-            json_i64(summary.p95_duration_ns)
-        ))?;
-        out.line(&format!(
-            "    \"p99DurationNs\": {},",
-            json_i64(summary.p99_duration_ns)
-        ))?;
-        out.line(&format!(
-            "    \"worstDurationNs\": {}",
-            json_i64(summary.worst_duration_ns)
-        ))?;
-        out.line("  },")?;
-        out.line("  \"frames\": [")?;
-        for (index, frame) in result.frames.iter().enumerate() {
-            write_frame(&mut out, frame)?;
-            out.line(if index == result.frames.len().saturating_sub(1) {
-                ""
+    write_output(output, |writer| write_json(result, writer))
+}
+
+// Hash only the bytes accepted by this export, never a later pathname read.
+// Retire the incremental hash on overflow; large reports still export normally.
+pub(super) fn export_bound_json(
+    result: &FrameAnalysisResult,
+    output: &Path,
+) -> Result<Option<SourceDigest>, String> {
+    let mut digest = Some(SourceDigestBuilder::default());
+    write_output(output, |output| {
+        let mut writer = HashingWriter {
+            output,
+            digest: &mut digest,
+            remaining: 64 * 1024 * 1024,
+        };
+        write_json(result, &mut writer)
+    })?;
+    Ok(digest.map(SourceDigestBuilder::finish))
+}
+
+struct HashingWriter<'a> {
+    output: &'a mut dyn Write,
+    digest: &'a mut Option<SourceDigestBuilder>,
+    remaining: usize,
+}
+impl Write for HashingWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let n = self.output.write(bytes)?;
+        if let Some(hash) = self.digest {
+            if n <= self.remaining {
+                hash.update(&bytes[..n]);
+                self.remaining -= n;
             } else {
-                ","
-            })?;
+                *self.digest = None;
+            }
         }
-        out.line("  ],")?;
-        out.line("  \"clusters\": [")?;
-        for (index, cluster) in result.clusters.iter().enumerate() {
-            out.line("    {")?;
-            out.line(&format!("      \"id\": {},", cluster.id))?;
-            out.line(&format!(
-                "      \"firstFrameId\": {},",
-                cluster.first_frame_id
-            ))?;
-            out.line(&format!(
-                "      \"lastFrameId\": {},",
-                cluster.last_frame_id
-            ))?;
-            let frame_ids = cluster
-                .deadline_miss_frame_ids
-                .iter()
-                .map(u64::to_string)
-                .collect::<Vec<_>>()
-                .join(", ");
-            out.line(&format!("      \"deadlineMissFrameIds\": [{frame_ids}],"))?;
-            out.line(&format!("      \"durationNs\": {},", cluster.duration_ns))?;
-            out.line(&format!(
-                "      \"worstSeverity\": {},",
-                json_string(cluster.worst_severity.as_name())
-            ))?;
-            out.line(&format!(
-                "      \"windowId\": {},",
-                json_str(cluster.window_id.as_deref())
-            ))?;
-            out.line(&format!(
-                "      \"activityName\": {},",
-                json_str(cluster.activity_name.as_deref())
-            ))?;
-            out.line(&format!(
-                "      \"dominantReportedStage\": {}",
-                json_str(cluster.dominant_reported_stage.as_deref())
-            ))?;
-            out.line("    }")?;
-            out.line(if index == result.clusters.len().saturating_sub(1) {
-                ""
-            } else {
-                ","
-            })?;
-        }
-        out.line("  ],")?;
-        out.line("  \"attributions\": [")?;
-        for (index, attribution) in result.attributions.iter().enumerate() {
-            write_attribution(&mut out, attribution)?;
-            out.line(if index == result.attributions.len().saturating_sub(1) {
-                ""
-            } else {
-                ","
-            })?;
-        }
-        out.line("  ]")?;
-        out.line("}")?;
-        Ok(())
-    })
+        Ok(n)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.output.flush()
+    }
+}
+
+fn write_json(result: &FrameAnalysisResult, writer: &mut dyn Write) -> io::Result<()> {
+    let mut out = JsonWriter { writer };
+    out.line("{")?;
+    out.line("  \"schemaVersion\": 3,")?;
+    out.line("  \"summary\": {")?;
+    let summary = &result.summary;
+    out.line(&format!("    \"totalFrames\": {},", summary.total_frames))?;
+    out.line(&format!(
+        "    \"deadlineClassifiedFrames\": {},",
+        summary.deadline_classified_frames
+    ))?;
+    out.line(&format!(
+        "    \"deadlineMissFrames\": {},",
+        summary.deadline_miss_frames
+    ))?;
+    out.line(&format!(
+        "    \"deadlineUnknownFrames\": {},",
+        summary.deadline_unknown_frames
+    ))?;
+    out.line(&format!(
+        "    \"deadlineMissRate\": {},",
+        json_f64(summary.deadline_miss_rate)
+    ))?;
+    out.line(&format!(
+        "    \"platformClassifiedFrames\": {},",
+        summary.platform_classified_frames
+    ))?;
+    out.line(&format!(
+        "    \"platformJankFrames\": {},",
+        summary.platform_jank_frames
+    ))?;
+    out.line(&format!(
+        "    \"platformUnknownFrames\": {},",
+        summary.platform_unknown_frames
+    ))?;
+    out.line(&format!(
+        "    \"platformJankRate\": {},",
+        json_f64(summary.platform_jank_rate)
+    ))?;
+    out.line(&format!(
+        "    \"jankStatsClassifiedFrames\": {},",
+        summary.jank_stats_classified_frames
+    ))?;
+    out.line(&format!(
+        "    \"jankStatsJankFrames\": {},",
+        summary.jank_stats_jank_frames
+    ))?;
+    out.line(&format!(
+        "    \"jankStatsJankRate\": {},",
+        json_f64(summary.jank_stats_jank_rate)
+    ))?;
+    out.line(&format!(
+        "    \"p50DurationNs\": {},",
+        json_i64(summary.p50_duration_ns)
+    ))?;
+    out.line(&format!(
+        "    \"p95DurationNs\": {},",
+        json_i64(summary.p95_duration_ns)
+    ))?;
+    out.line(&format!(
+        "    \"p99DurationNs\": {},",
+        json_i64(summary.p99_duration_ns)
+    ))?;
+    out.line(&format!(
+        "    \"worstDurationNs\": {}",
+        json_i64(summary.worst_duration_ns)
+    ))?;
+    out.line("  },")?;
+    out.line("  \"frames\": [")?;
+    for (index, frame) in result.frames.iter().enumerate() {
+        write_frame(&mut out, frame)?;
+        out.line(if index == result.frames.len().saturating_sub(1) {
+            ""
+        } else {
+            ","
+        })?;
+    }
+    out.line("  ],")?;
+    out.line("  \"clusters\": [")?;
+    for (index, cluster) in result.clusters.iter().enumerate() {
+        out.line("    {")?;
+        out.line(&format!("      \"id\": {},", cluster.id))?;
+        out.line(&format!(
+            "      \"firstFrameId\": {},",
+            cluster.first_frame_id
+        ))?;
+        out.line(&format!(
+            "      \"lastFrameId\": {},",
+            cluster.last_frame_id
+        ))?;
+        let frame_ids = cluster
+            .deadline_miss_frame_ids
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.line(&format!("      \"deadlineMissFrameIds\": [{frame_ids}],"))?;
+        out.line(&format!("      \"durationNs\": {},", cluster.duration_ns))?;
+        out.line(&format!(
+            "      \"worstSeverity\": {},",
+            json_string(cluster.worst_severity.as_name())
+        ))?;
+        out.line(&format!(
+            "      \"windowId\": {},",
+            json_str(cluster.window_id.as_deref())
+        ))?;
+        out.line(&format!(
+            "      \"activityName\": {},",
+            json_str(cluster.activity_name.as_deref())
+        ))?;
+        out.line(&format!(
+            "      \"dominantReportedStage\": {}",
+            json_str(cluster.dominant_reported_stage.as_deref())
+        ))?;
+        out.line("    }")?;
+        out.line(if index == result.clusters.len().saturating_sub(1) {
+            ""
+        } else {
+            ","
+        })?;
+    }
+    out.line("  ],")?;
+    out.line("  \"attributions\": [")?;
+    for (index, attribution) in result.attributions.iter().enumerate() {
+        write_attribution(&mut out, attribution)?;
+        out.line(if index == result.attributions.len().saturating_sub(1) {
+            ""
+        } else {
+            ","
+        })?;
+    }
+    out.line("  ]")?;
+    out.line("}")
 }
 
 struct JsonWriter<'a> {
-    writer: &'a mut BufWriter<File>,
+    writer: &'a mut dyn Write,
 }
 
 impl JsonWriter<'_> {

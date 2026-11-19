@@ -13,6 +13,7 @@ use super::sessions::{
 use aps_frame::FrameSample;
 use aps_frame::model::{ExpectedDurationSource, FrameStages};
 use aps_json::{Limits, Value};
+use std::collections::HashSet;
 
 const SCHEMA_VERSION: u64 = 3;
 const MAX_BYTES: u64 = 512 * 1024 * 1024;
@@ -73,10 +74,15 @@ pub(in crate::frame) fn parse_export(
         ));
     }
     let mut samples = Vec::with_capacity(frames.len());
+    let mut ids = HashSet::with_capacity(frames.len());
     for frame in frames {
-        samples.push(parse_frame(frame, session_id).ok_or_else(|| {
+        let sample = parse_frame(frame, session_id).ok_or_else(|| {
             "The selected frame-analysis.json has an unusable frame row.".to_owned()
-        })?);
+        })?;
+        if !ids.insert(sample.frame_id) {
+            return Err("The selected frame-analysis.json contains duplicate frame IDs.".into());
+        }
+        samples.push(sample);
     }
     Ok(samples)
 }
@@ -320,5 +326,20 @@ mod tests {
             "The selected frame-analysis.json has an unusable frame row."
         );
         assert!(parse_export("not json", "session-1").is_err());
+    }
+
+    #[test]
+    fn duplicate_frame_ids_fail_but_repeated_vsync_tokens_remain_evidence() {
+        let duplicate = r#"{"schemaVersion":3,"frames":[
+            {"frameId":7,"source":"PERFETTO","frameTimelineVsyncId":99},
+            {"frameId":7,"source":"PERFETTO","frameTimelineVsyncId":99}]}"#;
+        assert!(parse_export(duplicate, "session").is_err());
+        let unique = duplicate.replacen(r#""frameId":7"#, r#""frameId":8"#, 1);
+        let frames = parse_export(&unique, "session").unwrap();
+        assert_eq!(
+            frames[0].frame_timeline_vsync_id,
+            frames[1].frame_timeline_vsync_id
+        );
+        assert_ne!(frames[0].frame_id, frames[1].frame_id);
     }
 }

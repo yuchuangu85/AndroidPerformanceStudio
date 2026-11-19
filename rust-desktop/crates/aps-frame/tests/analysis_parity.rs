@@ -63,6 +63,32 @@ fn jank_frame(frame_id: u64, duration_ns: i64) -> FrameSample {
 // ---- FrameJankAnalyzerTest ----
 
 #[test]
+fn deadline_clusters_do_not_bridge_sources_or_processes() {
+    let first = edited(jank_frame(1, 20_000_000), |frame| {
+        frame.process_id = Some(1)
+    });
+    let second = edited(jank_frame(2, 20_000_000), |frame| {
+        frame.process_id = Some(2)
+    });
+    let third = edited(jank_frame(3, 20_000_000), |frame| {
+        frame.process_id = Some(2);
+        frame.source = FrameSource::Perfetto;
+    });
+    let fourth = edited(jank_frame(4, 20_000_000), |frame| {
+        frame.process_id = Some(2);
+        frame.source = FrameSource::Perfetto;
+    });
+
+    let result = FrameJankAnalyzer::new().analyze(&[first, second, third, fourth]);
+    let members: Vec<_> = result
+        .clusters
+        .iter()
+        .map(|c| c.deadline_miss_frame_ids.as_slice())
+        .collect();
+    assert_eq!(members, [&[1][..], &[2], &[3, 4]]);
+}
+
+#[test]
 fn unknown_budget_provenance_cannot_classify_a_deadline_miss() {
     let sample = edited(jank_frame(1, 20_000_000), |sample| {
         sample.expected_duration_source = ExpectedDurationSource::Unknown;

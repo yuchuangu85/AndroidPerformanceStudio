@@ -44,6 +44,10 @@ flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
 [build-dependencies]
 embed-resource = "=3.0.12"
 
+[dev-dependencies]
+# Verify that the desktop export producer and the offline reader agree.
+aps-frame-mcp = { path = "../aps-frame-mcp" }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 image = { version = "=0.25.9", default-features = false, features = ["png"] }
 

@@ -18,6 +18,9 @@ use std::path::Path;
 pub(in crate::frame) struct PerfettoTimeline {
     pub(in crate::frame) frames: Vec<FrameSample>,
     pub(super) probe_warning: Option<String>,
+    pub(super) probe_query_complete: bool,
+    pub(super) measured_process: Option<String>,
+    pub(super) source_digest: aps_contracts::SourceDigest,
     pub(in crate::frame) tool_version: String,
     pub(in crate::frame) capabilities: FrameTimelineCapabilities,
 }
@@ -41,12 +44,26 @@ pub(in crate::frame) fn analyze_with_tool(
     let rows = session
         .frame_timeline_rows(pid, cancel)
         .map_err(|error| format!("Cannot read Perfetto FrameTimeline rows: {error}"))?;
+    // PID is scoped by the fixed query. Do not certify a capture on PID alone:
+    // require an independent matching process name on every returned trace row.
+    let measured_process = pid.and_then(|_| {
+        let name = rows.first()?.process_name.as_ref()?;
+        (!name.is_empty()
+            && rows
+                .iter()
+                .all(|row| row.process_name.as_ref() == Some(name)))
+        .then(|| name.clone())
+    });
     let keys: Vec<_> = rows.iter().map(|r| r.actual_slice_id).collect();
     let mut result = map_rows(rows)?;
     let mut probe_warning = None;
+    let mut probe_query_complete = false;
     if keys.iter().any(Option::is_some) {
         match session.frame_probes(pid, cancel) {
-            Ok(hits) => attach_probes(&mut result.frames, keys, hits),
+            Ok(hits) => {
+                attach_probes(&mut result.frames, keys, hits);
+                probe_query_complete = true;
+            }
             Err(
                 aps_perfetto::PerfettoError::Cancelled | aps_perfetto::PerfettoError::SourceChanged,
             ) => return Err("Frame trace changed or was cancelled.".into()),
@@ -56,6 +73,9 @@ pub(in crate::frame) fn analyze_with_tool(
     Ok(PerfettoTimeline {
         frames: result.frames,
         probe_warning,
+        probe_query_complete,
+        measured_process,
+        source_digest: session.source_digest(),
         tool_version,
         capabilities: result.capabilities,
     })

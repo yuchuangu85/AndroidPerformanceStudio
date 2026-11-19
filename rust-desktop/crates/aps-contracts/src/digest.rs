@@ -4,6 +4,22 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourceDigest([u8; 32]);
+
+/// Incremental identity for the actual bytes produced by a streaming exporter.
+/// The caller owns byte budgets, write errors and successful publication.
+#[derive(Default)]
+pub struct SourceDigestBuilder(aps_primitives::sha256::Sha256);
+
+impl SourceDigestBuilder {
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    pub fn finish(self) -> SourceDigest {
+        SourceDigest::from_bytes(self.0.finish())
+    }
+}
+
 impl SourceDigest {
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)

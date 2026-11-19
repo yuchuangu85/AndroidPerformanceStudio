@@ -220,6 +220,7 @@ dependencies = [
  "aps-contracts",
  "aps-cpu",
  "aps-frame",
+ "aps-frame-mcp",
  "aps-gpu",
  "aps-json",
  "aps-layout-inspector",
@@ -297,6 +298,16 @@ dependencies = [
 [[package]]
 name = "aps-frame"
 version = "0.1.0"
+
+[[package]]
+name = "aps-frame-mcp"
+version = "0.1.0"
+dependencies = [
+ "aps-contracts",
+ "aps-frame",
+ "aps-json",
+ "serde_json",
+]
 
 [[package]]
 name = "aps-gpu"

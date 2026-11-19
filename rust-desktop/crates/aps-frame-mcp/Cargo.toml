@@ -1,0 +1,12 @@
+[package]
+name = "aps-frame-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+aps-contracts = { path = "../aps-contracts" }
+aps-frame = { path = "../aps-frame" }
+aps-json = { path = "../aps-json" }
+serde_json.workspace = true

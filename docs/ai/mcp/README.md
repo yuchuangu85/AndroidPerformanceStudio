@@ -9,11 +9,17 @@
 
 ## 当前实现
 
-当前只有一个 MCP Server：`aps-mcp`。它通过 stdio 提供离线 Memory HPROF 查询，
-启动时必须指定目标 HPROF B 和一个 `aps-memory-worker`，可选指定基线 HPROF A。
-目前没有通用模块选择、动态 provider 注册、HTTP/SSE 服务地址或远程监听端口。
+当前有两个独立的只读 stdio MCP Server：
 
-以下 5 个工具始终注册在 `tools/list` 中，完整输入输出见 [Memory MCP](memory.md)：
+- `aps-mcp`：离线 Memory HPROF 查询，启动时绑定 HPROF B、worker 和可选基线 HPROF A。
+- `aps-frame-mcp`：离线帧查询。默认读取一份 FrameStats 或 v3 报告；显式绑定 APS 采集凭据
+  与原始 Trace 后可查探针重叠，可另选一组基线输入做前后对比。
+
+这些 Server 都不接受工具调用中的任意本地路径、Shell 命令或远程监听地址；
+目前没有通用模块选择、动态 provider 注册或 HTTP/SSE 服务。
+
+Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输出见
+[Memory MCP](memory.md)：
 
 - `memory_snapshot_summary`：HPROF 元数据与快照摘要。
 - `memory_leak_findings`：启发式泄漏和生命周期候选。
@@ -31,7 +37,11 @@
 
 - [Memory](memory.md)：已实现 5 个工具，内置 AI 仍只预取原有 3 个。
 - [CPU](cpu.md)：尚未注册 MCP 接口。
-- [Frame](frame.md)：尚未注册 MCP 接口。
+- [Frame](frame.md)：普通模式 5 个只读工具（[摘要](frame.md#frame_session_summary)、
+  [列表](frame.md#frame_list)、[详情](frame.md#frame_detail)、
+  [卡顿簇](frame.md#frame_problem_clusters)、[分组](frame.md#frame_attributions)）。
+  采集凭据模式增加[探针重叠](frame.md#frame_trace_overlaps)与
+  [前后对比](frame.md#frame_session_compare)，对比需独立的可比基线。
 - [Startup](startup.md)：尚未注册 MCP 接口。
 - [Battery](battery.md)：尚未注册 MCP 接口。
 - [Network](network.md)：尚未注册 MCP 接口。
@@ -48,7 +58,9 @@
 
 ## 入口与数据流
 
-- [Server 入口与工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)。
+- [Memory Server 入口与工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)。
+- [Frame Server 入口](../../../rust-desktop/crates/aps-frame-mcp/src/main.rs)及
+  [工具注册](../../../rust-desktop/crates/aps-frame-mcp/src/query.rs)。
 - [HPROF worker 及分页边界](../../../rust-desktop/crates/aps-memory/src/worker.rs)。
 - [共享类级比较](../../../rust-desktop/crates/aps-memory/src/comparison.rs)：`aps_memory::compare_snapshots`。
 - [AI Host 固定预取与校验](../../../rust-desktop/crates/aps-ai/src/mcp.rs)。
@@ -56,14 +68,16 @@
 
 ```text
 外部 MCP Client -> aps-mcp -> aps-memory-worker -> 目标 HPROF B / 可选基线 A
+外部 MCP Client -> aps-frame-mcp -> 选定的 FrameStats 或帧分析报告
+                                -> 可选的本地采集凭据、原始 Trace 与基线三件套
 
 APS Memory 页面 -> MCP context -> AI prepare 固定预取
                 -> 来源与预算校验 -> 冻结 evidence -> 用户批准 -> AI Provider
 ```
 
 MCP 查询和 AI Provider 请求是两件事。外部 Client 可以只读取本地工具结果，不请求
-模型；内置 AI 在 prepare 阶段读取 MCP，冻结结果后才进入既有 Provider 审批流程。
-模型不获得这些工具的自由调用权限，也不获得 MCP 启动命令和宿主文件路径。
+模型；内置 Memory AI 在 prepare 阶段读取 MCP，冻结结果后才进入既有 Provider
+审批流程。模型不获得这些工具的自由调用权限，也不获得 MCP 启动命令和宿主文件路径。
 
 ## 构建与连接
 
@@ -72,10 +86,12 @@ MCP 查询和 AI Provider 请求是两件事。外部 Client 可以只读取本�
 ```sh
 cd rust-desktop
 cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
+cargo build --locked -p aps-frame-mcp
 ```
 
-Debug 产物位于 `rust-desktop/target/debug/`，Windows 文件名带 `.exe`。下面的命令在
-`rust-desktop/` 内执行，示例路径需要替换为用户选定的文件：
+Debug 产物位于 `rust-desktop/target/debug/`，Windows 文件名带 `.exe`。
+Frame 的启动与调用见 [Frame MCP](frame.md)。
+以下为 Memory 的连接示例，在 `rust-desktop/` 内执行，路径需替换为用户选定的文件：
 
 ```sh
 ./target/debug/aps-mcp \
@@ -118,9 +134,9 @@ HPROF 时增加 `--baseline-hprof`：
 }
 ```
 
-内置 AI 从当前 APS 可执行文件的同目录寻找 Server 和 worker，不要求用户配置外部
-Client。缺少伴随程序时不创建 MCP context；已经创建 context 后查询失败则拒绝本次
-prepare，不会静默退回旧 evidence。
+内置 Memory AI 从当前 APS 可执行文件的同目录寻找 Memory Server 和 worker，不要求
+用户配置外部 Client。缺少伴随程序时不创建 MCP context；已经创建 context 后查询
+失败则拒绝本次 prepare，不会静默退回旧 evidence。
 
 ## 结果与证据边界
 
@@ -128,9 +144,14 @@ prepare，不会静默退回旧 evidence。
 `content[0].text` 是相同工具 payload 的 JSON 文本，`structuredContent` 用于结构化读取。
 空数组、缺失对象的 `null`、未知指标和省略记录必须按各接口语义处理，不能补成实测值。
 
-三个预取工具的 payload 包含完整 `sourceDigest`；对象详情没有该字段，需要绑定同一
-Server 进程的 B 快照身份使用。Diff 使用 `beforeSnapshotId` 和 `afterSnapshotId`
-分别携带 A/B 的完整 SHA-256，不使用单一 `sourceDigest` 字段。
+Frame 工具绑定所选输入的 SHA-256、会话与分析策略版本。只有显式绑定可信的 APS 本地
+采集凭据才将帧报告关联到校验过的 Trace 字节；不提供设备或源码操作。详见 [Frame MCP](frame.md)。
+
+### Memory 的结果与内置 AI
+
+Memory 的三个预取工具 payload 包含完整 `sourceDigest`；对象详情没有该字段，
+需要绑定同一 Server 进程的 B 快照身份使用。Diff 使用 `beforeSnapshotId` 和
+`afterSnapshotId` 分别携带 A/B 的完整 SHA-256，不使用单一 `sourceDigest` 字段。
 
 - Server 只读取明确选定的 HPROF，不提供 Shell、ADB、网络、采集或写文件工具。
 - 启动路径属于宿主配置，不是模型工具参数；不向模型附带 HPROF 路径或启动命令。

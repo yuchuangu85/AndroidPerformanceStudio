@@ -7,6 +7,8 @@
 - 当前 `aps-mcp` 服务端只注册 `memory_*` 工具，不提供 Trace 查询。
 - 统一 `aps-mcp` provider/namespace 是架构方向，不代表 Trace 已完成模块注册。
 - Trace Processor、Perfetto UI 与 AI 证据分析均不等于 MCP 支持。
+- [Frame 的探针重叠查询](frame.md#frame_trace_overlaps)由 `aps-frame-mcp` 提供，
+  仅返回凭据绑定的帧报告中已计算的观测；它不属于 Trace Analyzer 工具，也不执行 Trace 查询。
 
 ## 使用方式与 MCP 输入输出
 - 目前没有可调用的 Trace MCP 接口，也没有本模块的 MCP 启动模式。

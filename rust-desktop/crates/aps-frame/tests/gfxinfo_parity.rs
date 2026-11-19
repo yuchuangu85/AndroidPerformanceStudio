@@ -1,5 +1,6 @@
 //! Port of `parser-frame/src/test/.../GfxInfoFrameStatsParserTest.kt`.
 
+use aps_frame::gfxinfo::parse_gfxinfo_for_query;
 use aps_frame::{ExpectedDurationSource, FrameSource, parse_gfxinfo};
 
 fn parse(text: &str, session_id: &str) -> aps_frame::GfxInfoParse {
@@ -8,6 +9,19 @@ fn parse(text: &str, session_id: &str) -> aps_frame::GfxInfoParse {
 
 fn parse_with_package(text: &str, session_id: &str, package_name: &str) -> aps_frame::GfxInfoParse {
     parse_gfxinfo(text, session_id, Some(package_name), true).expect("gfxinfo text parses")
+}
+
+#[test]
+fn query_import_bounds_rows_without_changing_timing_or_retaining_raw_columns() {
+    let input = FRAMESTATS_WITH_DEADLINE.replacen("0,100000000", "1,100000000", 1);
+    assert!(parse_gfxinfo_for_query(&input, "query", 1).is_err());
+    let mut normal = parse(&input, "query").frames;
+    assert!(!normal[0].states.is_empty());
+    for frame in &mut normal {
+        frame.states.clear();
+    }
+    let query = parse_gfxinfo_for_query(&input, "query", 2).unwrap();
+    assert_eq!(query.frames, normal);
 }
 
 #[test]

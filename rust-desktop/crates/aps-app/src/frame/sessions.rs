@@ -3,23 +3,27 @@
 //! Compose parity with SqliteFrameSessionStore.save(): one bounded JSON index
 //! (newest first) plus one bounded JSON file per session's frames. The SQLite
 //! format is an internal Compose choice; the Rust app keeps JSON so no SQLite
-//! dependency is added. Writes are atomic, unknown keys are tolerated and a
-//! malformed top-level document fails closed. Trace bytes are never stored.
+//! dependency is added. The index publishes a specific generation of frames
+//! with its byte digest. Legacy entries without that digest support only
+//! local read-back; the store never resolves a trace path from its metadata.
 
+use aps_contracts::SourceDigest;
 use aps_frame::model::FrameStages;
 use aps_frame::{ExpectedDurationSource, FrameCaptureSession, FrameSample, FrameSource, JankType};
 use aps_json::{Limits, Map, Value};
 use aps_platform::atomic_write;
 use std::{
-    collections::BTreeMap,
-    fs,
-    path::PathBuf,
+    collections::{BTreeMap, BTreeSet},
+    fs::{self, File},
+    io::Read as _,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
 };
 
 const SESSIONS_FILE: &str = "sessions.json";
 const FRAMES_DIR: &str = "frames";
-const INDEX_VERSION: u64 = 1;
+const INDEX_VERSION: u64 = 2;
+const LEGACY_INDEX_VERSION: u64 = 1;
 const FRAMES_VERSION: u64 = 1;
 const MAX_SESSIONS: usize = 100;
 const MAX_FRAMES_PER_SESSION: usize = 20_000;
@@ -81,6 +85,44 @@ fn frames_file_name(session_id: &str) -> String {
     format!("{:016x}.json", fnv1a64(session_id.as_bytes()))
 }
 
+fn bound_frames_file_name(session_id: &str, digest: SourceDigest) -> String {
+    format!("{:016x}-{digest}.json", fnv1a64(session_id.as_bytes()))
+}
+
+fn directory_if_present(path: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        _ => Err("Frame history directory is invalid".into()),
+    }
+}
+
+// Reject existing storage symlinks before opening files. The store belongs to
+// the local desktop, not an adversarial shared directory. Bound bytes from the
+// opened regular handle; verified digest comparisons use those exact bytes.
+fn read_history_file(path: &Path, budget: u64) -> Result<Option<Vec<u8>>, String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && metadata.len() <= budget => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        _ => return Err("Frame history input is not a bounded regular file".into()),
+    }
+    let file = File::open(path).map_err(|_| "Cannot open frame history input")?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "Cannot inspect frame history input")?;
+    if !metadata.is_file() || metadata.len() > budget {
+        return Err("Frame history input is not a bounded regular file".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(budget + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Cannot read frame history input")?;
+    if bytes.len() as u64 > budget {
+        return Err("Frame history input exceeds the byte budget".into());
+    }
+    Ok(Some(bytes))
+}
+
 /// Bounded, atomic Frame Analyzer session index.
 #[derive(Clone)]
 pub(in crate::frame) struct FrameSessionStore {
@@ -110,13 +152,23 @@ impl FrameSessionStore {
         self.root.join(FRAMES_DIR)
     }
 
-    /// Upserts the session and replaces its frames. Mirrors Compose save():
-    /// every frame must belong to the saved session and a transaction replaces
-    /// old frames atomically.
+    /// Saves frames without claiming a verified relation to any trace file.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::frame) fn save(
         &self,
         session: &FrameCaptureSession,
         frames: &[FrameSample],
+    ) -> Result<(), String> {
+        self.save_with_trace(session, frames, None)
+    }
+
+    /// Only the producer that has verified the original analyzed trace may
+    /// pass its digest. A viewer path or an old stored claim is not proof.
+    pub(in crate::frame) fn save_with_trace(
+        &self,
+        session: &FrameCaptureSession,
+        frames: &[FrameSample],
+        trace_digest: Option<SourceDigest>,
     ) -> Result<(), String> {
         let _guard = self.lock_guard()?;
         let session = bounded_session(session)?;
@@ -126,59 +178,102 @@ impl FrameSessionStore {
         if frames.iter().any(|frame| frame.session_id != session.id) {
             return Err("Every frame must belong to the saved session".to_owned());
         }
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = BTreeSet::new();
         if frames.iter().any(|frame| !seen.insert(frame.frame_id)) {
             return Err("Frame session contains duplicate frame ids".to_owned());
         }
+        if let Some(digest) = trace_digest {
+            check_trace_binding(&session, frames, digest)?;
+        }
         let mut entries = self.read_index()?;
         let bounded_frames: Vec<Value> = frames.iter().map(sample_to_value).collect();
-        let frames_file = frames_file_name(&session.id);
         let frames_json = frames_document(&session.id, bounded_frames)?;
+        let frames_digest =
+            SourceDigest::hash_reader(frames_json.as_slice(), MAX_FRAMES_JSON_BYTES)?;
+        let frames_file = bound_frames_file_name(&session.id, frames_digest);
+        directory_if_present(&self.frames_dir())?;
         atomic_write(&self.frames_dir().join(&frames_file), &frames_json)
             .map_err(|_| "Cannot write the frame session frames".to_owned())?;
-        entries.retain(|entry| entry.session_id != session.id);
+        let mut retired = Vec::new();
+        entries.retain(|entry| {
+            if entry.session_id != session.id {
+                return true;
+            }
+            if entry.frames_file != frames_file {
+                retired.push(entry.frames_file.clone());
+            }
+            false
+        });
         entries.insert(
             0,
             IndexEntry {
                 session_id: session.id.clone(),
                 frames_file,
                 frame_count: frames.len(),
+                frames_digest: Some(frames_digest),
+                trace_digest,
                 session,
             },
         );
-        let dropped = if entries.len() > MAX_SESSIONS {
-            entries.split_off(MAX_SESSIONS)
-        } else {
-            Vec::new()
-        };
+        if entries.len() > MAX_SESSIONS {
+            retired.extend(
+                entries
+                    .split_off(MAX_SESSIONS)
+                    .into_iter()
+                    .map(|entry| entry.frames_file),
+            );
+        }
         self.write_index(&entries)?;
-        for entry in dropped {
-            let _ = fs::remove_file(self.frames_dir().join(entry.frames_file));
+        for name in retired {
+            let _ = fs::remove_file(self.frames_dir().join(name));
         }
         Ok(())
     }
 
     fn read_index(&self) -> Result<Vec<IndexEntry>, String> {
-        let path = self.index_path();
-        match fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() => {}
-            Ok(_) => return Err("Frame session index is not a regular file".to_owned()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(_) => return Err("Cannot inspect the frame session index".to_owned()),
+        if !directory_if_present(&self.root)? {
+            return Ok(Vec::new());
         }
-        let value = aps_json::read(&path, index_limits()).map_err(|_| {
+        let Some(bytes) = read_history_file(&self.index_path(), MAX_INDEX_BYTES)? else {
+            return Ok(Vec::new());
+        };
+        let value = aps_json::parse_slice(&bytes, index_limits()).map_err(|_| {
             "Frame session index is malformed or exceeds the storage budget".to_owned()
         })?;
-        let entries = match &value {
-            Value::Array(entries) => entries,
-            Value::Object(object) => match object.get("sessions") {
-                Some(Value::Array(entries)) => entries,
-                _ => return Err("Frame session index has no sessions array".to_owned()),
-            },
+        let (version, entries) = match &value {
+            Value::Array(entries) => (LEGACY_INDEX_VERSION, entries),
+            Value::Object(object) => {
+                let version = object
+                    .get("version")
+                    .and_then(Value::as_u64)
+                    .filter(|&v| matches!(v, INDEX_VERSION | LEGACY_INDEX_VERSION))
+                    .ok_or("Unsupported frame session index version")?;
+                let entries = object
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .ok_or("Frame session index has no sessions array")?;
+                (version, entries)
+            }
             _ => return Err("Frame session index has an unexpected root".to_owned()),
         };
-        let mut parsed: Vec<IndexEntry> = entries.iter().filter_map(parse_index_entry).collect();
-        parsed.truncate(MAX_SESSIONS);
+        if entries.len() > MAX_SESSIONS {
+            return Err("Frame session index exceeds the count budget".into());
+        }
+        let mut ids = BTreeSet::new();
+        let mut row_files = BTreeSet::new();
+        let parsed = entries
+            .iter()
+            .map(|entry| {
+                let entry =
+                    parse_index_entry(entry, version).ok_or("Invalid frame history index entry")?;
+                if !ids.insert(entry.session_id.clone())
+                    || !row_files.insert(entry.frames_file.clone())
+                {
+                    return Err("Duplicate frame history identity");
+                }
+                Ok(entry)
+            })
+            .collect::<Result<_, _>>()?;
         Ok(parsed)
     }
 
@@ -197,6 +292,15 @@ impl FrameSessionStore {
                             Value::String(entry.frames_file.clone()),
                         );
                         object.insert("frameCount".into(), Value::from(entry.frame_count as u64));
+                        if let Some(digest) = entry.frames_digest {
+                            object.insert("framesDigest".into(), Value::String(digest.to_hex()));
+                        }
+                        if let Some(digest) = entry.trace_digest {
+                            object.insert(
+                                "originalTraceDigest".into(),
+                                Value::String(digest.to_hex()),
+                            );
+                        }
                         object.insert("session".into(), session_to_value(&entry.session));
                         Value::Object(object)
                     })
@@ -209,7 +313,8 @@ impl FrameSessionStore {
             .map_err(|_| "Cannot write the frame session index".to_owned())
     }
 
-    /// Internal read-back used by tests and future recent-session UI.
+    /// Internal read-back for local display. This does not open or verify any
+    /// stored source path. Legacy rows carry an explicit provenance downgrade.
     #[cfg_attr(not(test), allow(dead_code))]
     fn load(
         &self,
@@ -220,19 +325,91 @@ impl FrameSessionStore {
         let Some(entry) = entries.iter().find(|entry| entry.session_id == session_id) else {
             return Ok(None);
         };
-        let frames_path = self.frames_dir().join(&entry.frames_file);
-        let value = aps_json::read(&frames_path, frames_limits()).map_err(|_| {
+        let frames = self.read_frames(entry)?;
+        let mut session = entry.session.clone();
+        // Do not let a cached viewer/import path become evidence. Read-back is
+        // not a performed verification even when we recorded the original hash.
+        session.perfetto_trace_file = None;
+        if entry.frames_digest.is_none() {
+            session.provenance_complete = false;
+            session.provenance_warnings.push(
+                "Legacy Frame history has no row digest; available for local display only.".into(),
+            );
+        }
+        Ok(Some((session, frames)))
+    }
+
+    fn read_frames(&self, entry: &IndexEntry) -> Result<Vec<FrameSample>, String> {
+        if !directory_if_present(&self.frames_dir())? {
+            return Err("Frame history rows are missing".into());
+        }
+        let bytes = read_history_file(
+            &self.frames_dir().join(&entry.frames_file),
+            MAX_FRAMES_JSON_BYTES,
+        )?
+        .ok_or("Frame history rows are missing")?;
+        if let Some(expected) = entry.frames_digest
+            && SourceDigest::hash_reader(bytes.as_slice(), MAX_FRAMES_JSON_BYTES)? != expected
+        {
+            return Err("Frame history rows do not match their recorded digest".into());
+        }
+        let value = aps_json::parse_slice(&bytes, frames_limits()).map_err(|_| {
             "Frame session frames are malformed or exceed the storage budget".to_owned()
         })?;
-        let frames = match value {
-            Value::Object(object) => object
-                .get("frames")
-                .and_then(Value::as_array)
-                .map(|values| values.iter().filter_map(parse_sample).collect())
-                .unwrap_or_default(),
-            _ => return Err("Frame session frames have an unexpected root".to_owned()),
-        };
-        Ok(Some((entry.session.clone(), frames)))
+        if value["version"].as_u64() != Some(FRAMES_VERSION)
+            || value["sessionId"].as_str() != Some(&entry.session_id)
+        {
+            return Err("Frame history document version or identity does not match".into());
+        }
+        let rows = value["frames"]
+            .as_array()
+            .ok_or("Frame history document has no frame rows")?;
+        if rows.len() != entry.frame_count {
+            return Err("Frame history row count does not match its index".into());
+        }
+        let mut ids = BTreeSet::new();
+        rows.iter()
+            .map(|value| {
+                let frame = parse_sample(value).ok_or("Malformed frame history row")?;
+                if frame.session_id != entry.session_id || !ids.insert(frame.frame_id) {
+                    return Err("Foreign or duplicate frame history row".into());
+                }
+                Ok(frame)
+            })
+            .collect()
+    }
+
+    /// Verify explicitly selected bytes against the original analyzed artifact.
+    /// Never obtains a path from persisted history or opens Trace Processor.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(in crate::frame) fn verify_trace(
+        &self,
+        session_id: &str,
+        selected_path: &Path,
+    ) -> Result<SourceDigest, String> {
+        let _guard = self.lock_guard()?;
+        let entry = self
+            .read_index()?
+            .into_iter()
+            .find(|entry| entry.session_id == session_id)
+            .ok_or("Frame history session is unavailable")?;
+        let expected = entry
+            .trace_digest
+            .ok_or("Frame history has no analyzed trace binding")?;
+        let frames = self.read_frames(&entry)?;
+        check_trace_binding(&entry.session, &frames, expected)?;
+        let metadata =
+            fs::symlink_metadata(selected_path).map_err(|_| "Cannot inspect selected trace")?;
+        if !metadata.is_file()
+            || metadata.len() == 0
+            || metadata.len() > aps_perfetto::MAX_TRACE_BYTES
+        {
+            return Err("Selected trace must be a nonempty bounded regular file".into());
+        }
+        if SourceDigest::hash_file(selected_path, aps_perfetto::MAX_TRACE_BYTES)? != expected {
+            return Err("Selected trace does not match the analyzed source".into());
+        }
+        Ok(expected)
     }
 }
 
@@ -240,7 +417,67 @@ struct IndexEntry {
     session_id: String,
     frames_file: String,
     frame_count: usize,
+    frames_digest: Option<SourceDigest>,
+    trace_digest: Option<SourceDigest>,
     session: FrameCaptureSession,
+}
+
+fn check_trace_binding(
+    session: &FrameCaptureSession,
+    frames: &[FrameSample],
+    digest: SourceDigest,
+) -> Result<(), String> {
+    let err = || "Frame history does not describe the original analyzed trace".to_owned();
+    if !session.provenance_complete
+        || session.source != FrameSource::Perfetto
+        || frames.is_empty()
+        || frames
+            .iter()
+            .any(|frame| frame.source != FrameSource::Perfetto)
+    {
+        return Err(err());
+    }
+    let digest = digest.to_hex();
+    let prefix = &digest[..32];
+    let suffix = if session.imported_file.is_some() {
+        if session.imported_file_sha256.as_deref() != Some(&digest) {
+            return Err(err());
+        }
+        prefix.to_owned()
+    } else {
+        let serial = session
+            .device_serial
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(err)?;
+        let package = session
+            .package_name
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(err)?;
+        let pid = frames[0]
+            .process_id
+            .filter(|&pid| pid > 0)
+            .ok_or_else(err)?;
+        if session.imported_file_sha256.is_some()
+            || session.imported_at_unix_ms.is_some()
+            || frames.iter().any(|frame| {
+                frame.process_id != Some(pid) || frame.package_name.as_deref() != Some(package)
+            })
+        {
+            return Err(err());
+        }
+        format!(
+            "{prefix}-{:016x}",
+            super::artifact::capture_context(serial, pid, package)
+        )
+    };
+    if session.artifact.as_deref() != Some(&format!("frame-{suffix}"))
+        || session.id != format!("perfetto-{suffix}")
+    {
+        return Err(err());
+    }
+    Ok(())
 }
 
 fn frames_document(session_id: &str, frames: Vec<Value>) -> Result<Vec<u8>, String> {
@@ -619,20 +856,36 @@ fn states_value(states: &BTreeMap<String, String>) -> Value {
     Value::Object(object)
 }
 
-fn parse_index_entry(value: &Value) -> Option<IndexEntry> {
+fn parse_index_entry(value: &Value, index_version: u64) -> Option<IndexEntry> {
     let object = value.as_object()?;
     let session = parse_session(object.get("session")?)?;
     let frames_file = object.get("framesFile")?.as_str()?.to_owned();
-    if frames_file.is_empty() || frames_file.contains('/') || frames_file.contains('\\') {
+    let parse_digest = |key| match object.get(key) {
+        Some(value) => SourceDigest::from_hex(value.as_str()?).ok().map(Some),
+        None => Some(None),
+    };
+    let frames_digest = parse_digest("framesDigest")?;
+    let trace_digest = parse_digest("originalTraceDigest")?;
+    if (index_version == LEGACY_INDEX_VERSION && frames_digest.is_some())
+        || (trace_digest.is_some() && frames_digest.is_none())
+        || frames_file
+            != frames_digest.map_or_else(
+                || frames_file_name(&session.id),
+                |digest| bound_frames_file_name(&session.id, digest),
+            )
+    {
+        return None;
+    }
+    let frame_count = usize::try_from(object.get("frameCount")?.as_u64()?).ok()?;
+    if frame_count > MAX_FRAMES_PER_SESSION {
         return None;
     }
     Some(IndexEntry {
         session_id: session.id.clone(),
         frames_file,
-        frame_count: object
-            .get("frameCount")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize,
+        frame_count,
+        frames_digest,
+        trace_digest,
         session,
     })
 }
@@ -652,7 +905,7 @@ fn parse_session(value: &Value) -> Option<FrameCaptureSession> {
         device_api_level: object
             .get("deviceApiLevel")
             .and_then(Value::as_u64)
-            .map(|value| value as u32),
+            .and_then(|value| u32::try_from(value).ok()),
         agent_protocol: optional_string(object, "agentProtocol", MAX_ID_BYTES),
         source_capabilities: object
             .get("sourceCapabilities")
@@ -675,7 +928,7 @@ fn parse_session(value: &Value) -> Option<FrameCaptureSession> {
         provenance_complete: object
             .get("provenanceComplete")
             .and_then(Value::as_bool)
-            .unwrap_or(true),
+            .unwrap_or(false),
         provenance_warnings: string_list(object.get("provenanceWarnings"), MAX_WARNINGS),
         perfetto_trace_file: optional_string(object, "perfettoTraceFile", MAX_PATH_BYTES),
         artifact: optional_string(object, "artifact", MAX_ID_BYTES),
@@ -692,7 +945,7 @@ fn parse_sample(value: &Value) -> Option<FrameSample> {
         process_id: object
             .get("processId")
             .and_then(Value::as_i64)
-            .map(|value| value as i32),
+            .and_then(|value| i32::try_from(value).ok()),
         activity_name: optional_string(object, "activityName", MAX_TEXT_BYTES),
         window_id: optional_string(object, "windowId", MAX_TEXT_BYTES),
         intended_vsync_ns: object.get("intendedVsyncNs").and_then(Value::as_i64),
@@ -1005,7 +1258,13 @@ mod tests {
         store.save(&session, &frames).unwrap();
 
         let (loaded_session, loaded_frames) = store.load("session-1").unwrap().unwrap();
-        assert_eq!(loaded_session, session);
+        assert_eq!(
+            loaded_session,
+            FrameCaptureSession {
+                perfetto_trace_file: None,
+                ..session
+            }
+        );
         assert_eq!(loaded_frames, frames);
         assert!(store.load("missing").unwrap().is_none());
         let index_text = fs::read_to_string(directory.path().join(SESSIONS_FILE)).unwrap();
@@ -1115,10 +1374,9 @@ mod tests {
         .unwrap();
         assert!(store.load("session-1").unwrap().is_some());
 
-        let frames_path = directory
-            .path()
-            .join(FRAMES_DIR)
-            .join(frames_file_name("session-1"));
+        let frames_path = store
+            .frames_dir()
+            .join(&store.read_index().unwrap()[0].frames_file);
         fs::write(&frames_path, vec![b' '; MAX_FRAMES_JSON_BYTES as usize + 1]).unwrap();
         assert!(store.load("session-1").is_err());
 
@@ -1127,5 +1385,239 @@ mod tests {
         assert!(store.save(&session("session-2"), &[]).is_err());
         fs::write(&index_path, vec![b' '; MAX_INDEX_BYTES as usize + 1]).unwrap();
         assert!(store.load("session-1").is_err());
+    }
+
+    fn write_json(path: &Path, value: &Value) {
+        fs::write(path, aps_json::to_vec(value, frames_limits()).unwrap()).unwrap();
+    }
+
+    fn write_legacy(
+        store: &FrameSessionStore,
+        session: &FrameCaptureSession,
+        frames: &[FrameSample],
+    ) -> PathBuf {
+        fs::create_dir_all(store.frames_dir()).unwrap();
+        let name = frames_file_name(&session.id);
+        let path = store.frames_dir().join(&name);
+        fs::write(
+            &path,
+            frames_document(&session.id, frames.iter().map(sample_to_value).collect()).unwrap(),
+        )
+        .unwrap();
+        write_json(
+            &store.index_path(),
+            &serde_json::json!({
+                "version": LEGACY_INDEX_VERSION,
+                "sessions": [{
+                    "framesFile": name,
+                    "frameCount": frames.len(),
+                    "session": session_to_value(session),
+                }],
+            }),
+        );
+        path
+    }
+
+    #[test]
+    fn legacy_load_checks_document_identity_counts_and_all_row_ids() {
+        let dir = TestDirectory::new("legacy-identity");
+        let store = FrameSessionStore::new(dir.path().to_path_buf());
+        let local = session("local");
+        let path = write_legacy(&store, &local, &[sample(1, "local"), sample(2, "local")]);
+        let original = aps_json::read(&path, frames_limits()).unwrap();
+        let (restored, _) = store.load("local").unwrap().unwrap();
+        assert!(!restored.provenance_complete);
+        assert!(
+            restored
+                .provenance_warnings
+                .iter()
+                .any(|w| w.contains("local display only"))
+        );
+        assert!(restored.perfetto_trace_file.is_none());
+
+        for (field, value) in [
+            ("version", Value::from(99)),
+            ("sessionId", Value::from("other")),
+            ("frames", Value::Array(vec![original["frames"][0].clone()])),
+        ] {
+            let mut altered = original.clone();
+            altered[field] = value;
+            write_json(&path, &altered);
+            assert!(store.load("local").is_err(), "accepted invalid {field}");
+        }
+        for (field, value) in [
+            ("frameId", Value::from(1)),
+            ("sessionId", Value::from("other")),
+            ("source", Value::from("bad source")),
+        ] {
+            let mut altered = original.clone();
+            altered["frames"][1][field] = value;
+            write_json(&path, &altered);
+            assert!(store.load("local").is_err(), "accepted invalid row {field}");
+        }
+        write_json(&path, &original);
+        store
+            .save(&session("newer"), &[sample(1, "newer")])
+            .unwrap();
+        assert_eq!(store.read_index().unwrap()[1].frames_digest, None);
+        assert!(!store.load("local").unwrap().unwrap().0.provenance_complete);
+    }
+
+    #[test]
+    fn index_rejects_noncanonical_files_duplicate_ids_and_invalid_counts() {
+        let dir = TestDirectory::new("index-identity");
+        let store = FrameSessionStore::new(dir.path().to_path_buf());
+        write_legacy(&store, &session("local"), &[sample(1, "local")]);
+        let original = aps_json::read(&store.index_path(), index_limits()).unwrap();
+        for (field, value) in [
+            ("framesFile", Value::from("../other.json")),
+            ("framesFile", Value::from(frames_file_name("other"))),
+            ("frameCount", Value::from(MAX_FRAMES_PER_SESSION as u64 + 1)),
+            ("frameCount", Value::from(2)),
+        ] {
+            let mut altered = original.clone();
+            altered["sessions"][0][field] = value;
+            write_json(&store.index_path(), &altered);
+            assert!(store.load("local").is_err(), "accepted invalid {field}");
+        }
+        let mut invalid_version = original.clone();
+        invalid_version["version"] = Value::from(99);
+        write_json(&store.index_path(), &invalid_version);
+        assert!(store.load("local").is_err());
+        let mut duplicate = original.clone();
+        duplicate["sessions"]
+            .as_array_mut()
+            .unwrap()
+            .push(original["sessions"][0].clone());
+        write_json(&store.index_path(), &duplicate);
+        assert!(store.load("local").is_err());
+    }
+
+    #[test]
+    fn row_digest_rejects_in_place_same_size_edits_and_replayed_generation() {
+        let dir = TestDirectory::new("row-digest");
+        let store = FrameSessionStore::new(dir.path().to_path_buf());
+        let session = session("local");
+        store.save(&session, &[sample(1, "local")]).unwrap();
+        let old_path = store
+            .frames_dir()
+            .join(&store.read_index().unwrap()[0].frames_file);
+        let old = fs::read(&old_path).unwrap();
+        // An unpublished next-generation file must not disturb the index's
+        // previous coherent view if publication is interrupted before commit.
+        let newer = frames_document("local", vec![sample_to_value(&sample(2, "local"))]).unwrap();
+        let next = bound_frames_file_name(
+            "local",
+            SourceDigest::hash_reader(newer.as_slice(), MAX_FRAMES_JSON_BYTES).unwrap(),
+        );
+        fs::write(store.frames_dir().join(&next), &newer).unwrap();
+        assert_eq!(store.load("local").unwrap().unwrap().1[0].frame_id, 1);
+        assert_eq!(old.len(), newer.len());
+        store.save(&session, &[sample(2, "local")]).unwrap();
+        assert!(!old_path.exists());
+        let path = store
+            .frames_dir()
+            .join(&store.read_index().unwrap()[0].frames_file);
+        fs::write(&path, old).unwrap();
+        assert!(store.load("local").unwrap_err().contains("recorded digest"));
+    }
+
+    #[test]
+    fn explicit_trace_selection_requires_analyzed_identity_and_bound_rows() {
+        let dir = TestDirectory::new("trace-binding");
+        let store = FrameSessionStore::new(dir.path().join("store"));
+        let trace = dir.path().join("trace.pftrace");
+        let other = dir.path().join("viewer.pftrace");
+        fs::write(&trace, b"original").unwrap();
+        fs::write(&other, b"not same").unwrap();
+        let digest = SourceDigest::hash_file(&trace, 1000).unwrap();
+        let text = digest.to_hex();
+        let id = format!("perfetto-{}", &text[..32]);
+        let mut session = session(&id);
+        session.source = FrameSource::Perfetto;
+        session.provenance_complete = true;
+        session.imported_file_sha256 = Some(text.clone());
+        session.artifact = Some(format!("frame-{}", &text[..32]));
+        session.perfetto_trace_file = Some(other.display().to_string());
+        let mut frame = sample(1, &id);
+        frame.source = FrameSource::Perfetto;
+        write_legacy(&store, &session, &[frame.clone()]);
+        assert!(store.verify_trace(&id, &trace).is_err());
+        store
+            .save_with_trace(&session, &[frame.clone()], Some(digest))
+            .unwrap();
+        assert_eq!(store.verify_trace(&id, &trace), Ok(digest));
+        assert!(store.verify_trace(&id, &other).is_err());
+        fs::write(&trace, b"replaced").unwrap();
+        assert!(store.verify_trace(&id, &trace).is_err());
+        fs::write(&trace, b"original").unwrap();
+        let path = store
+            .frames_dir()
+            .join(&store.read_index().unwrap()[0].frames_file);
+        let mut rows = aps_json::read(&path, frames_limits()).unwrap();
+        rows["frames"][0]["frameId"] = Value::from(2);
+        write_json(&path, &rows);
+        assert!(store.verify_trace(&id, &trace).is_err());
+        store.save(&session, &[frame.clone()]).unwrap();
+        assert!(store.verify_trace(&id, &trace).is_err());
+        session.artifact = Some("unrelated".into());
+        assert!(
+            store
+                .save_with_trace(&session, &[frame], Some(digest))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn captured_trace_requires_matching_package_serial_and_pid_context() {
+        let dir = TestDirectory::new("captured-scope");
+        let store = FrameSessionStore::new(dir.path().join("store"));
+        let trace = dir.path().join("capture.pftrace");
+        fs::write(&trace, b"capture").unwrap();
+        let digest = SourceDigest::hash_file(&trace, 1000).unwrap();
+        let text = digest.to_hex();
+        let suffix = format!(
+            "{}-{:016x}",
+            &text[..32],
+            super::super::artifact::capture_context("device", 42, "com.example")
+        );
+        let id = format!("perfetto-{suffix}");
+        let mut session = session(&id);
+        session.source = FrameSource::Perfetto;
+        session.provenance_complete = true;
+        session.imported_file = None;
+        session.imported_file_sha256 = None;
+        session.imported_at_unix_ms = None;
+        session.artifact = Some(format!("frame-{suffix}"));
+        let mut frame = sample(1, &id);
+        frame.source = FrameSource::Perfetto;
+        store
+            .save_with_trace(&session, &[frame.clone()], Some(digest))
+            .unwrap();
+        assert_eq!(store.verify_trace(&id, &trace), Ok(digest));
+        frame.process_id = Some(43);
+        assert!(
+            store
+                .save_with_trace(&session, &[frame], Some(digest))
+                .is_err()
+        );
+        assert_eq!(store.verify_trace(&id, &trace), Ok(digest));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn history_never_follows_a_symlink_to_external_rows() {
+        let dir = TestDirectory::new("symlink");
+        let store = FrameSessionStore::new(dir.path().join("store"));
+        store
+            .save(&session("local"), &[sample(1, "local")])
+            .unwrap();
+        let frames = store
+            .frames_dir()
+            .join(&store.read_index().unwrap()[0].frames_file);
+        let outside = dir.path().join("outside.json");
+        fs::rename(&frames, &outside).unwrap();
+        std::os::unix::fs::symlink(outside, frames).unwrap();
+        assert!(store.load("local").is_err());
     }
 }

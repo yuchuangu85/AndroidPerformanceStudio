@@ -8,7 +8,7 @@
 
 use crate::MAX_INPUT_BYTES;
 use crate::model::{ExpectedDurationSource, FrameSample, FrameSource, FrameStages};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MIN_REFRESH_INTERVAL_NS: i64 = 4_000_000;
 const MAX_REFRESH_INTERVAL_NS: i64 = 50_000_000;
@@ -123,9 +123,30 @@ pub fn parse_gfxinfo(
     package_name: Option<&str>,
     warn_on_empty_frames: bool,
 ) -> Result<GfxInfoParse, String> {
+    parse(text, session_id, package_name, warn_on_empty_frames, None)
+}
+
+/// Query projection: limit materialized rows and do not copy raw columns into
+/// each sample. Timing, inferred budgets and deadline eligibility are unchanged.
+pub fn parse_gfxinfo_for_query(
+    text: &str,
+    session_id: &str,
+    max_frames: usize,
+) -> Result<GfxInfoParse, String> {
+    parse(text, session_id, None, true, Some(max_frames))
+}
+
+fn parse(
+    text: &str,
+    session_id: &str,
+    package_name: Option<&str>,
+    warn_on_empty_frames: bool,
+    query_frame_limit: Option<usize>,
+) -> Result<GfxInfoParse, String> {
     if text.len() as u64 > MAX_INPUT_BYTES {
         return Err("FrameStats text exceeds 256 MiB".into());
     }
+    let retain_columns = query_frame_limit.is_none();
 
     let mut frames: Vec<FrameSample> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
@@ -134,7 +155,8 @@ pub fn parse_gfxinfo(
     let mut in_profile_data = false;
     let mut found_header = false;
     let mut malformed_rows = 0usize;
-    let mut unknown_columns: Vec<String> = Vec::new();
+    let mut unknown_columns: Vec<&str> = Vec::new();
+    let mut seen_unknown_columns = BTreeSet::new();
 
     let mut fence_limit = None;
     for raw_line in text.lines() {
@@ -142,13 +164,20 @@ pub fn parse_gfxinfo(
         if !in_profile_data && line.starts_with("Uptime:") {
             fence_limit = dump_fence_limit(line);
         } else if let Some(name) = line.strip_prefix("Window:") {
-            window_id = Some(name.trim().to_owned()).filter(|value| !value.is_empty());
+            let name = name.trim();
+            if !retain_columns && (name.len() > 512 || name.chars().any(char::is_control)) {
+                return Err("FrameStats window label exceeds query input bounds".into());
+            }
+            window_id = (!name.is_empty()).then(|| name.to_owned());
         } else if line == "---PROFILEDATA---" {
             in_profile_data = !in_profile_data;
             if !in_profile_data {
                 header = None;
             }
         } else if in_profile_data && line.starts_with("Flags,") {
+            if !retain_columns && line.len() > 16 * 1024 {
+                return Err("FrameStats header exceeds query input limit".into());
+            }
             let mut columns: Vec<&str> = line.split(',').map(str::trim).collect();
             while columns.last() == Some(&"") {
                 columns.pop();
@@ -159,13 +188,18 @@ pub fn parse_gfxinfo(
             && let Some(header) = &header
             && is_frame_data_row(line)
         {
+            if !retain_columns && line.len() > 16 * 1024 {
+                return Err("FrameStats row exceeds query input limit".into());
+            }
             let columns = frame_columns(line, header.len());
             if columns.len() != header.len() {
                 malformed_rows += 1;
             } else {
                 for name in header.iter().filter(|name| !KNOWN_COLUMNS.contains(name)) {
-                    if !unknown_columns.iter().any(|existing| existing == name) {
-                        unknown_columns.push((*name).to_owned());
+                    if (retain_columns && seen_unknown_columns.insert(*name))
+                        || (!retain_columns && unknown_columns.is_empty())
+                    {
+                        unknown_columns.push(*name);
                     }
                 }
                 match parse_row(
@@ -175,8 +209,12 @@ pub fn parse_gfxinfo(
                     package_name,
                     window_id.as_deref(),
                     fence_limit,
+                    retain_columns,
                 ) {
                     Some(mut frame) => {
+                        if query_frame_limit.is_some_and(|limit| frames.len() >= limit) {
+                            return Err("FrameStats exceeds the frame query input limit".into());
+                        }
                         frame.frame_id = frames.len() as u64;
                         frames.push(frame);
                     }
@@ -198,10 +236,14 @@ pub fn parse_gfxinfo(
         warnings.push("The framestats section did not contain usable frames.".into());
     }
     if !unknown_columns.is_empty() {
-        warnings.push(format!(
-            "Preserved unsupported framestats column(s): {}.",
-            unknown_columns.join(", ")
-        ));
+        warnings.push(if retain_columns {
+            format!(
+                "Preserved unsupported framestats column(s): {}.",
+                unknown_columns.join(", ")
+            )
+        } else {
+            "Unsupported framestats columns were omitted.".into()
+        });
     }
 
     let frames = fill_inferred_expected_durations(frames);
@@ -226,6 +268,7 @@ fn parse_row(
     package_name: Option<&str>,
     window_id: Option<&str>,
     fence_limit: Option<i64>,
+    retain_columns: bool,
 ) -> Option<FrameSample> {
     let values: BTreeMap<&str, Option<i64>> = header
         .iter()
@@ -252,16 +295,18 @@ fn parse_row(
         .or_else(|| interval.map(|duration| (duration, ExpectedDurationSource::FrameInterval)));
 
     let mut states: BTreeMap<String, String> = BTreeMap::new();
-    for name in header
-        .iter()
-        .filter(|name| !KNOWN_COLUMNS.contains(name) || METADATA_COLUMNS.contains(name))
-    {
-        if let Some(value) = values.get(name).copied().flatten() {
-            states.insert(format!("gfxinfo.column.{name}"), value.to_string());
+    if retain_columns {
+        for name in header
+            .iter()
+            .filter(|name| !KNOWN_COLUMNS.contains(name) || METADATA_COLUMNS.contains(name))
+        {
+            if let Some(value) = values.get(name).copied().flatten() {
+                states.insert(format!("gfxinfo.column.{name}"), value.to_string());
+            }
         }
-    }
-    if flags != 0 {
-        states.insert("gfxinfo.flags".into(), flags.to_string());
+        if flags != 0 {
+            states.insert("gfxinfo.flags".into(), flags.to_string());
+        }
     }
 
     Some(FrameSample {
