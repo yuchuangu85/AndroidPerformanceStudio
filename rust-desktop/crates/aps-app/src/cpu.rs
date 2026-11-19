@@ -718,10 +718,13 @@ impl CpuWorkspace {
             end
         ))
     }
-    fn pick_converter(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
+    fn pick_converter_for_import(
+        &mut self,
+        path: PathBuf,
+        recent: Option<RecentCpu>,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
         let language = self.language;
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -730,25 +733,37 @@ impl CpuWorkspace {
             prompt: Some(language.text(TextKey::CpuSelectSimpleperf).into()),
         });
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = picker.await {
-                if let Some(path) = paths.into_iter().next() {
-                    this.update(cx, |this, cx| {
-                        if executable_file(&path) {
-                            this.converter = Some(path);
+            let result = picker.await;
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(Ok(Some(paths))) if paths.len() == 1 => {
+                        let converter = paths.into_iter().next().expect("one converter path");
+                        if executable_file(&converter) {
+                            this.converter = Some(converter);
                             this.error = None;
+                            this.busy = false;
+                            this.open_path(path, recent, None, cx);
                         } else {
+                            this.busy = false;
                             this.error = Some(CpuError::Diagnostic(
                                 "Selected simpleperf must be an executable file".into(),
                             ));
                         }
-                        cx.notify();
-                    })
-                    .ok();
+                    }
+                    Ok(Err(error)) => {
+                        this.busy = false;
+                        this.error = Some(error.to_string().into());
+                    }
+                    _ => this.busy = false,
                 }
-            }
+                cx.notify();
+            })
+            .ok();
         })
         .detach();
-        cx.notify();
     }
 
     pub fn pick_file(&mut self, cx: &mut Context<Self>) {
@@ -783,7 +798,22 @@ impl CpuWorkspace {
                 this.busy = false;
                 match result {
                     Ok(Ok(Some(paths))) if paths.len() == 1 => {
-                        this.open_path(paths[0].clone(), recent, None, cx)
+                        let path = paths[0].clone();
+                        match classify_cpu_source(&path) {
+                            Ok(class) if class.rejection().is_none() => {
+                                if class.kind == CpuSourceKind::PerfData {
+                                    this.busy = true;
+                                    this.pick_converter_for_import(path, recent, generation, cx);
+                                } else {
+                                    this.busy = false;
+                                    this.open_path(path, recent, None, cx);
+                                }
+                            }
+                            Ok(class) => {
+                                this.error = class.rejection();
+                            }
+                            Err(error) => this.error = Some(error),
+                        }
                     }
                     Ok(Err(error)) => this.error = Some(error.to_string().into()),
                     _ => {}
@@ -2963,16 +2993,6 @@ fn workspace_toolbar(
                 colors,
             )
             .on_click(cx.listener(|this, _, _, cx| this.refresh_recent(0, cx))),
-        )
-        .child(
-            studio::compact_text_button(
-                "cpu-select-simpleperf",
-                lang.text(TextKey::CpuSelectSimpleperf),
-                !busy,
-                false,
-                colors,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.pick_converter(cx))),
         );
     if let Some(recent) = &ws.recent {
         let offset = recent.offset;
@@ -3144,30 +3164,16 @@ fn empty_state(
                     colors.secondary_text,
                 ))
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .child(
-                            studio::text_button(
-                                "cpu-empty-import",
-                                lang.text(TextKey::CpuImportProfile),
-                                !ws.busy,
-                                true,
-                                colors,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.pick_file(cx))),
+                    div().flex().items_center().gap(px(6.)).child(
+                        studio::text_button(
+                            "cpu-empty-import",
+                            lang.text(TextKey::CpuImportProfile),
+                            !ws.busy,
+                            true,
+                            colors,
                         )
-                        .child(
-                            studio::compact_text_button(
-                                "cpu-empty-select-simpleperf",
-                                lang.text(TextKey::CpuSelectSimpleperf),
-                                !ws.busy,
-                                false,
-                                colors,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.pick_converter(cx))),
-                        ),
+                        .on_click(cx.listener(|this, _, _, cx| this.pick_file(cx))),
+                    ),
                 ),
         )
         .into_any_element()
@@ -7749,7 +7755,7 @@ fn resolve_simpleperf(explicit: Option<&Path>) -> Result<PathBuf, CpuError> {
     }
     discover_simpleperf().ok_or_else(|| {
         CpuError::Diagnostic(
-            "perf.data needs a compatible host simpleperf. Pick one in the CPU import toolbar, or set APS_SIMPLEPERF / ANDROID_NDK_HOME.".into(),
+            "perf.data needs a compatible host simpleperf. Select it when importing the file, or set APS_SIMPLEPERF / ANDROID_NDK_HOME.".into(),
         )
     })
 }
@@ -8626,6 +8632,38 @@ mod metadata_tests {
         assert!(toolbar.contains("PrepareCurrentAi"));
         assert!(!toolbar.contains("studio.prepare_ai"));
         assert!(toolbar.contains("ws.catalog.is_some() && !ws.busy"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn simpleperf_picker_is_only_reached_from_perf_data_import() {
+        let source = include_str!("cpu.rs");
+        let toolbar = source
+            .split("fn workspace_toolbar(")
+            .nth(1)
+            .unwrap()
+            .split("fn empty_state(")
+            .next()
+            .unwrap();
+        let empty_state = source
+            .split("fn empty_state(")
+            .nth(1)
+            .unwrap()
+            .split("fn converter_caption(")
+            .next()
+            .unwrap();
+        let tools = source.rsplit("fn cpu_tools_menu(").next().unwrap();
+        assert!(!toolbar.contains("cpu-select-simpleperf"));
+        assert!(!empty_state.contains("cpu-empty-select-simpleperf"));
+        assert!(!tools.contains("CpuMenuCommand::SelectSimpleperf"));
+        let import = source
+            .split("fn pick_source(")
+            .nth(1)
+            .unwrap()
+            .split("fn open_path(")
+            .next()
+            .unwrap();
+        assert!(import.contains("class.kind == CpuSourceKind::PerfData"));
+        assert!(import.contains("pick_converter_for_import"));
     }
 
     #[::core::prelude::v1::test]
@@ -10284,8 +10322,6 @@ pub(crate) enum CpuMenuCommand {
     Unavailable,
     /// Reload the bounded saved-session catalog page.
     RefreshRecentMetadata,
-    /// Pick the host simpleperf used to convert perf.data.
-    SelectSimpleperf,
     /// Copy the active call-tree / top-functions page as CSV.
     CopyCsv,
     /// Copy the selected row or chart block's symbol.
@@ -10388,7 +10424,6 @@ impl crate::shell::menubar::MenuHost for CpuWorkspace {
             }
             CpuMenuCommand::Unavailable => {}
             CpuMenuCommand::RefreshRecentMetadata => self.refresh_recent(0, cx),
-            CpuMenuCommand::SelectSimpleperf => self.pick_converter(cx),
             CpuMenuCommand::CopyCsv => self.copy_csv(cx),
             CpuMenuCommand::CopySymbol => {
                 if let Some((symbol, _)) = cpu_selected_function(self) {
@@ -10601,7 +10636,7 @@ fn cpu_view_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
 
 /// Tools menu of the CPU page: Compose's capture Configuration submenu plus the
 /// page tools this screen can really perform (source/disassembly/binary folder
-/// and the clipboard/converter actions the toolbar already offers).
+/// and clipboard actions).
 fn cpu_tools_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
     let busy = ws.busy;
     let has_symbol = cpu_selected_function(ws).is_some_and(|(symbol, _)| !symbol.trim().is_empty());
@@ -10666,11 +10701,6 @@ fn cpu_tools_menu(ws: &CpuWorkspace) -> MenuGroup<CpuMenuCommand> {
             !busy && has_symbol,
             TextKey::CpuWorkspaceCopySymbol,
             CpuMenuCommand::CopySymbol,
-        )
-        .item_when(
-            !busy,
-            TextKey::CpuSelectSimpleperf,
-            CpuMenuCommand::SelectSimpleperf,
         )
         .item_when(
             !busy && !ws.recent_busy && ws.metadata_path.is_some(),
