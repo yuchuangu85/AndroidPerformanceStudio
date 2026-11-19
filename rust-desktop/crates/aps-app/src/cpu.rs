@@ -32,7 +32,7 @@ use gpui_kit::{
     *,
 };
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::File,
     hash::{Hash, Hasher},
     io::{BufReader, Cursor, Read, Write},
@@ -208,6 +208,7 @@ impl ExportKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CpuTab {
     Overview,
+    Comparison,
     FlameGraph,
     CallTree,
     TopFunctions,
@@ -217,8 +218,9 @@ enum CpuTab {
 }
 
 impl CpuTab {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Overview,
+        Self::Comparison,
         Self::FlameGraph,
         Self::CallTree,
         Self::TopFunctions,
@@ -230,6 +232,7 @@ impl CpuTab {
     fn label(self, language: Language) -> &'static str {
         match self {
             Self::Overview => language.text(TextKey::CpuTabOverview),
+            Self::Comparison => language.text(TextKey::CpuComparison),
             Self::FlameGraph => language.text(TextKey::CpuFlameGraph),
             Self::CallTree => language.text(TextKey::CpuCallTree),
             Self::TopFunctions => language.text(TextKey::CpuTopFunctions),
@@ -261,6 +264,21 @@ struct Catalog {
     byte_length: u64,
 }
 
+#[derive(Clone)]
+struct CpuComparisonRow {
+    name: String,
+    resource: String,
+    baseline: u64,
+    current: u64,
+}
+
+#[derive(Clone)]
+struct CpuComparison {
+    baseline_label: String,
+    current_label: String,
+    rows: Vec<CpuComparisonRow>,
+}
+
 pub struct CpuWorkspace {
     follow_tooltip: bool,
     viewer_engine: u8,
@@ -282,6 +300,9 @@ pub struct CpuWorkspace {
     pending_import_started: Option<Instant>,
     session: Option<Arc<Mutex<CpuSession>>>,
     catalog: Option<Catalog>,
+    comparison: Option<CpuComparison>,
+    comparison_busy: bool,
+    comparison_generation: u64,
     tab: CpuTab,
     top: Option<TopFunctionsPage>,
     /// Top functions for the KPI card and Overview list, refreshed with the
@@ -492,6 +513,9 @@ impl CpuWorkspace {
             pending_import_started: None,
             session: None,
             catalog: None,
+            comparison: None,
+            comparison_busy: false,
+            comparison_generation: 0,
             tab: CpuTab::Overview,
             top: None,
             overview_top: None,
@@ -768,6 +792,191 @@ impl CpuWorkspace {
 
     pub fn pick_file(&mut self, cx: &mut Context<Self>) {
         self.pick_source(None, cx);
+    }
+
+    fn pick_comparison(&mut self, cx: &mut Context<Self>) {
+        if self.busy || self.comparison_busy {
+            return;
+        }
+        self.comparison_generation = self.comparison_generation.wrapping_add(1);
+        let generation = self.comparison_generation;
+        self.comparison_busy = true;
+        self.error = None;
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some(self.language.text(TextKey::CpuCompareProfiles).into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let result = picker.await;
+            this.update(cx, |this, cx| {
+                if this.comparison_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(Ok(Some(paths))) if paths.len() == 2 => {
+                        let mut classes = Vec::with_capacity(2);
+                        let mut failure = None;
+                        for path in &paths {
+                            match classify_cpu_source(path) {
+                                Ok(class) if class.rejection().is_none() => classes.push(class),
+                                Ok(class) => failure = class.rejection(),
+                                Err(error) => failure = Some(error),
+                            }
+                            if failure.is_some() {
+                                break;
+                            }
+                        }
+                        if let Some(error) = failure {
+                            this.comparison_busy = false;
+                            this.error = Some(error);
+                        } else if classes
+                            .iter()
+                            .any(|class| class.kind == CpuSourceKind::PerfData)
+                        {
+                            this.pick_comparison_converter(paths, classes, generation, cx);
+                        } else {
+                            this.start_comparison(paths, classes, None, generation, cx);
+                        }
+                    }
+                    Ok(Ok(_)) => {
+                        this.comparison_busy = false;
+                        this.error = Some(CpuError::Diagnostic(
+                            "Select exactly two CPU profile files to compare".into(),
+                        ));
+                    }
+                    Ok(Err(error)) => {
+                        this.comparison_busy = false;
+                        this.error = Some(error.to_string().into());
+                    }
+                    _ => this.comparison_busy = false,
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn pick_comparison_converter(
+        &mut self,
+        comparison_paths: Vec<PathBuf>,
+        classes: Vec<CpuSourceClass>,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(self.language.text(TextKey::CpuSelectSimpleperf).into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let result = picker.await;
+            this.update(cx, |this, cx| {
+                if this.comparison_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(Ok(Some(paths))) if paths.len() == 1 => {
+                        let converter = paths.into_iter().next().expect("one converter path");
+                        if executable_file(&converter) {
+                            this.start_comparison(
+                                comparison_paths,
+                                classes,
+                                Some(converter),
+                                generation,
+                                cx,
+                            );
+                        } else {
+                            this.comparison_busy = false;
+                            this.error = Some(CpuError::Diagnostic(
+                                "Selected simpleperf must be an executable file".into(),
+                            ));
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        this.comparison_busy = false;
+                        this.error = Some(error.to_string().into());
+                    }
+                    _ => this.comparison_busy = false,
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn start_comparison(
+        &mut self,
+        paths: Vec<PathBuf>,
+        classes: Vec<CpuSourceClass>,
+        converter: Option<PathBuf>,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(snapshot_root) = self.snapshot_root.clone() else {
+            self.comparison_busy = false;
+            self.error = Some(CpuError::Local(
+                TextKey::ProfilerCpuSnapshotLocationUnavailable,
+            ));
+            return;
+        };
+        self.import_cancel.store(true, Ordering::Release);
+        self.import_cancel = Arc::new(AtomicBool::new(false));
+        self.error = None;
+        let cancel = self.import_cancel.clone();
+        let task = cx.background_executor().spawn(async move {
+            let converter_ref = converter.as_deref();
+            let mut first = load_cpu_import(
+                &paths[0],
+                classes[0],
+                converter_ref,
+                None,
+                Some(&snapshot_root),
+                || cancel.load(Ordering::Acquire),
+            )?;
+            let mut second = load_cpu_import(
+                &paths[1],
+                classes[1],
+                converter_ref,
+                None,
+                Some(&snapshot_root),
+                || cancel.load(Ordering::Acquire),
+            )?;
+            let query = Query {
+                limit: PAGE_SIZE,
+                ..Default::default()
+            };
+            let baseline = comparison_rows(&mut first.session, &mut second.session, &query)?;
+            Ok::<_, CpuError>(CpuComparison {
+                baseline_label: first.display_label,
+                current_label: second.display_label,
+                rows: baseline,
+            })
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                if this.comparison_generation != generation {
+                    return;
+                }
+                this.comparison_busy = false;
+                match result {
+                    Ok(comparison) => {
+                        this.comparison = Some(comparison);
+                        this.tab = CpuTab::Comparison;
+                    }
+                    Err(error) => this.error = Some(error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
     fn pick_source(&mut self, recent: Option<RecentCpu>, cx: &mut Context<Self>) {
         if self.busy {
@@ -1323,9 +1532,10 @@ impl CpuWorkspace {
                         },
                     )
                     .map(CpuResult::Chart),
-                CpuTab::Overview | CpuTab::MarkerChart | CpuTab::MarkerTable => {
-                    Ok(CpuResult::Empty)
-                }
+                CpuTab::Overview
+                | CpuTab::Comparison
+                | CpuTab::MarkerChart
+                | CpuTab::MarkerTable => Ok(CpuResult::Empty),
             }?;
             let highlights = selected_sample
                 .zip(timeline.as_ref())
@@ -2946,6 +3156,16 @@ fn workspace_toolbar(
         )
         .child(
             studio::text_button(
+                "cpu-compare",
+                lang.text(TextKey::CpuCompareProfiles),
+                !busy && !ws.comparison_busy,
+                false,
+                colors,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.pick_comparison(cx))),
+        )
+        .child(
+            studio::text_button(
                 "cpu-capture",
                 lang.text(TextKey::CaptureCpuCapture),
                 !busy,
@@ -4290,6 +4510,7 @@ fn tab_row(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>)
     for tab in CpuTab::ALL {
         let id = match tab {
             CpuTab::Overview => "cpu-tab-overview",
+            CpuTab::Comparison => "cpu-tab-comparison",
             CpuTab::FlameGraph => "cpu-tab-flame",
             CpuTab::CallTree => "cpu-tab-call-tree",
             CpuTab::TopFunctions => "cpu-tab-top",
@@ -4698,9 +4919,12 @@ fn analysis_content(
         .flex()
         .flex_col()
         .gap(px(studio::metrics::CARD_GAP))
-        .child(tab_row(ws, colors, cx))
-        .child(filter_toolbar(ws, colors, cx))
-        .child(studio::divider(colors));
+        .child(tab_row(ws, colors, cx));
+    if ws.tab != CpuTab::Comparison {
+        column = column
+            .child(filter_toolbar(ws, colors, cx))
+            .child(studio::divider(colors));
+    }
     if ws.tab.is_call_stack() {
         column = column.child(breadcrumb(ws, colors, cx));
     }
@@ -4720,11 +4944,116 @@ fn analysis_content(
 fn tab_content(ws: &CpuWorkspace, colors: &StudioColors, cx: &Context<CpuWorkspace>) -> AnyElement {
     match ws.tab {
         CpuTab::Overview => overview_panel(ws, colors, cx),
+        CpuTab::Comparison => comparison_panel(ws, colors),
         CpuTab::FlameGraph => chart_panel(ws, colors, cx),
         CpuTab::CallTree => call_tree_panel(ws, colors, cx),
         CpuTab::TopFunctions => top_functions_panel(ws, colors, cx),
         CpuTab::StackChart => stack_panel(ws, colors, cx),
         CpuTab::MarkerChart | CpuTab::MarkerTable => marker_panel(ws, colors),
+    }
+}
+
+fn comparison_panel(ws: &CpuWorkspace, colors: &StudioColors) -> AnyElement {
+    let lang = ws.language;
+    if ws.comparison_busy {
+        return panel_message(ws, colors, lang.text(TextKey::CpuComparisonLoading));
+    }
+    let Some(comparison) = &ws.comparison else {
+        return panel_message(ws, colors, lang.text(TextKey::CpuComparisonEmpty));
+    };
+    let mut column = div()
+        .id("cpu-comparison")
+        .size_full()
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .p(px(8.));
+    column = column.child(
+        studio::section_title(lang.text(TextKey::CpuComparison), colors).child(
+            crate::studio::selectable(format!(
+                "{}  →  {}",
+                comparison.baseline_label, comparison.current_label
+            )),
+        ),
+    );
+    let header = div()
+        .w_full()
+        .flex()
+        .gap(px(8.))
+        .text_size(px(studio::FONT_SUPPORTING))
+        .text_color(colors.secondary_text)
+        .child(div().flex_1().child(crate::studio::selectable("Function")))
+        .child(div().w(px(88.)).child(crate::studio::selectable(
+            lang.text(TextKey::CpuComparisonBaseline),
+        )))
+        .child(div().w(px(88.)).child(crate::studio::selectable(
+            lang.text(TextKey::CpuComparisonCurrent),
+        )))
+        .child(div().w(px(88.)).child(crate::studio::selectable(
+            lang.text(TextKey::CpuComparisonDelta),
+        )));
+    column = column.child(header).child(studio::divider(colors));
+    if comparison.rows.is_empty() {
+        return column
+            .child(studio::supporting(
+                lang.text(TextKey::CpuComparisonNoRows),
+                colors,
+            ))
+            .into_any_element();
+    }
+    for row in &comparison.rows {
+        let delta = i128::from(row.current) - i128::from(row.baseline);
+        let delta_color = if delta > 0 {
+            colors.accent
+        } else if delta < 0 {
+            colors.secondary_text
+        } else {
+            colors.text
+        };
+        column = column.child(
+            div()
+                .w_full()
+                .flex()
+                .gap(px(8.))
+                .py(px(3.))
+                .border_b_1()
+                .border_color(colors.border)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(crate::studio::selectable(format!(
+                            "{} · {}",
+                            row.name, row.resource
+                        ))),
+                )
+                .child(
+                    div()
+                        .w(px(88.))
+                        .child(crate::studio::selectable(row.baseline.to_string())),
+                )
+                .child(
+                    div()
+                        .w(px(88.))
+                        .child(crate::studio::selectable(row.current.to_string())),
+                )
+                .child(
+                    div()
+                        .w(px(88.))
+                        .text_color(delta_color)
+                        .child(crate::studio::selectable(format_signed_i128(delta))),
+                ),
+        );
+    }
+    column.into_any_element()
+}
+
+fn format_signed_i128(value: i128) -> String {
+    if value > 0 {
+        format!("+{value}")
+    } else {
+        value.to_string()
     }
 }
 
@@ -6689,7 +7018,7 @@ fn details_pane(
         .border_color(colors.border)
         .rounded(px(studio::metrics::PANEL_RADIUS))
         .child(div().min_w_0().flex_shrink_0().child(match ws.tab {
-            CpuTab::Overview => details_overview(ws, colors),
+            CpuTab::Overview | CpuTab::Comparison => details_overview(ws, colors),
             CpuTab::TopFunctions => details_function(ws, colors, cx),
             CpuTab::CallTree | CpuTab::FlameGraph => details_frame(ws, colors, cx),
             CpuTab::StackChart => details_stack(ws, colors),
@@ -7526,6 +7855,61 @@ struct LoadedCpu {
     display_label: String,
     digest: SourceDigest,
     byte_length: u64,
+}
+
+fn comparison_rows(
+    baseline: &mut CpuSession,
+    current: &mut CpuSession,
+    query: &Query,
+) -> Result<Vec<CpuComparisonRow>, CpuError> {
+    let baseline_rows = baseline
+        .top_functions_sorted(
+            query,
+            TopSort::InclusiveWeight,
+            true,
+            0,
+            aps_cpu::MAX_PAGE_SIZE,
+        )
+        .map_err(CpuError::Diagnostic)?
+        .rows;
+    let current_rows = current
+        .top_functions_sorted(
+            query,
+            TopSort::InclusiveWeight,
+            true,
+            0,
+            aps_cpu::MAX_PAGE_SIZE,
+        )
+        .map_err(CpuError::Diagnostic)?
+        .rows;
+    let mut merged: BTreeMap<(String, String), (u64, u64)> = BTreeMap::new();
+    for row in baseline_rows {
+        let key = (row.name, row.resource);
+        merged.entry(key).or_default().0 = row.inclusive_weight;
+    }
+    for row in current_rows {
+        let key = (row.name, row.resource);
+        merged.entry(key).or_default().1 = row.inclusive_weight;
+    }
+    let mut rows = merged
+        .into_iter()
+        .map(|((name, resource), (baseline, current))| CpuComparisonRow {
+            name,
+            resource,
+            baseline,
+            current,
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        let left_delta = (i128::from(left.current) - i128::from(left.baseline)).abs();
+        let right_delta = (i128::from(right.current) - i128::from(right.baseline)).abs();
+        right_delta
+            .cmp(&left_delta)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.resource.cmp(&right.resource))
+    });
+    rows.truncate(200);
+    Ok(rows)
 }
 
 type CpuOpenResult = (
@@ -8664,6 +9048,17 @@ mod metadata_tests {
             .unwrap();
         assert!(import.contains("class.kind == CpuSourceKind::PerfData"));
         assert!(import.contains("pick_converter_for_import"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn cpu_comparison_imports_two_profiles_and_publishes_a_delta_table() {
+        let source = include_str!("cpu.rs");
+        assert!(source.contains("multiple: true"));
+        assert!(source.contains("Select exactly two CPU profile files to compare"));
+        assert!(source.contains("comparison_rows(&mut first.session, &mut second.session"));
+        assert!(source.contains("CpuTab::Comparison"));
+        assert!(source.contains("format_signed_i128"));
+        assert!(source.contains("CpuComparisonDelta"));
     }
 
     #[::core::prelude::v1::test]

@@ -233,7 +233,6 @@ enum ShellMenu {
     NextInspectorWindow,
     ToggleLayout(LayoutMenuToggle),
     PrepareAi,
-    OpenAiWorkspace,
     OpenSettings,
     SettingsTab(SettingsPage),
 }
@@ -609,16 +608,15 @@ fn analyze_menu_group() -> MenuGroup<ShellMenu> {
     )
 }
 
-/// The Help menu is the same on every route: AI and settings are application
-/// level, so they stay reachable without a mode-specific menu.
+/// All routes share the guide and, outside macOS, a Settings entry.
 fn help_menu_group(language: Language) -> MenuGroup<ShellMenu> {
-    // Compose publishes Help > User guide and Help > AI analysis. The bundled
-    // documentation site is opened in the browser; the row stays disabled when
-    // the documentation is not shipped next to the executable.
+    // Keep the guide disabled when the bundled documentation is unavailable.
     let guide = user_guide_path(language).is_some();
-    let group = MenuGroup::new(TextKey::ShellMenuHelp)
-        .item_when(guide, TextKey::SettingsUiGuide, ShellMenu::OpenUserGuide)
-        .item(TextKey::FoundationAiAnalysis, ShellMenu::OpenAiWorkspace);
+    let group = MenuGroup::new(TextKey::ShellMenuHelp).item_when(
+        guide,
+        TextKey::SettingsUiGuide,
+        ShellMenu::OpenUserGuide,
+    );
     // macOS reaches Settings through the application menu.
     #[cfg(not(target_os = "macos"))]
     let group = group
@@ -2338,7 +2336,6 @@ impl Studio {
             }
             ShellMenu::ToggleLayout(toggle) => self.toggle_layout_menu(toggle, window, cx),
             ShellMenu::PrepareAi => self.prepare_ai(window, cx),
-            ShellMenu::OpenAiWorkspace => self.open_ai_workspace(&OpenAiWorkspace, window, cx),
             ShellMenu::OpenSettings => self.open_settings(&OpenSettings, window, cx),
             ShellMenu::SettingsTab(page) => {
                 self.select_settings_page(page);
@@ -4226,15 +4223,34 @@ mod menubar_tests {
     }
 
     #[::core::prelude::v1::test]
-    fn help_menu_is_shared_by_every_route() {
-        let help = help_menu_group(Language::English);
-        assert_eq!(help.title(), TextKey::ShellMenuHelp);
-        // Compose Help publishes the user guide and AI analysis; macOS reaches
-        // Settings through the application menu.
-        #[cfg(target_os = "macos")]
-        assert_eq!(help.len(), 2);
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(help.len(), 3);
+    fn shared_help_menu_only_offers_the_guide_and_platform_settings() {
+        for language in [Language::English, Language::SimplifiedChinese] {
+            let mut build = menubar::RouteMenuBuild::default();
+            build.push(help_menu_group(language), language, |_, _, _| {});
+            let expected = [
+                language.text(TextKey::SettingsUiGuide),
+                #[cfg(not(target_os = "macos"))]
+                language.text(TextKey::ShellMenuSettings),
+            ];
+            let native: Vec<&str> = build.menus[0]
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    MenuItem::Action { name, .. } => Some(name.as_ref()),
+                    _ => None,
+                })
+                .collect();
+            let strip: Vec<&str> = build.strip[0]
+                .rows
+                .iter()
+                .filter_map(|row| match row {
+                    menubar::StripRow::Item { label, .. } => Some(label.as_ref()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(native, expected);
+            assert_eq!(strip, expected);
+        }
     }
 
     /// Entering the Layout Inspector (or receiving a device selection while it is
