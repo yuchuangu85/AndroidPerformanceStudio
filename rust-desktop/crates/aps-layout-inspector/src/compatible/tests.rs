@@ -60,6 +60,233 @@ fn compatible_projection_preserves_evidence_without_compose_claims() {
     assert!(nodes[0].attributes.visibility.is_none());
 }
 
+const ALL_WINDOWS_XML: &str = r#"<?xml version="1.0"?><hierarchy rotation="0"><node package="com.android.systemui" class="StatusBar" bounds="[0,0][2,1]"/><node package="example.app" class="MainActivity" bounds="[0,1][2,3]"><node package="example.app" class="TextView" bounds="[0,1][2,2]"/></node><node class="TctStylusWindow" bounds="[0,0][2,3]"/></hierarchy>"#;
+
+#[test]
+fn system_accessibility_cannot_claim_window_manager_type_evidence() {
+    let error = parse_capture(
+        ALL_WINDOWS_XML.as_bytes(),
+        &screenshot(2, 3),
+        SIZE,
+        DENSITY,
+        CompatibleTarget::SystemUi,
+        8,
+        43,
+        &CancellationToken::new(),
+    )
+    .unwrap_err();
+    assert!(error.contains("WindowManager types"));
+}
+
+#[test]
+fn system_capture_fails_closed_without_window_manager_types_and_never_uses_xml() {
+    let cancel = CancellationToken::new();
+    let calls = std::cell::Cell::new(0);
+    let run = |args: &[&str], _limit| match args {
+        ["shell", "dumpsys", "window", "windows"] => {
+            calls.set(calls.get() + 1);
+            Err("permission denied".into())
+        }
+        _ => panic!("unexpected capture command"),
+    };
+    let error = capture_hierarchy(
+        &run,
+        SYSTEM_CAPTURE_SCOPE,
+        CompatibleTarget::SystemUi,
+        SIZE,
+        &cancel,
+    )
+    .err()
+    .unwrap();
+    assert_eq!(calls.get(), WINDOW_DUMP_ATTEMPTS);
+    assert!(error.contains("WindowManager type >= 2000"));
+    assert!(error.contains("Accessibility fallback cannot verify"));
+}
+
+const WINDOW_TYPES: &str = "  Window #0 Window{a3db2af u0 StatusBar}:\n    mAttrs={ty=STATUS_BAR}\n  Window #1 Window{b473c9d u0 Taskbar}:\n    mAttrs={ty=NAVIGATION_BAR}\n";
+
+fn capture_system_fixture(after: &str) -> (Result<Capture, String>, Vec<Vec<String>>) {
+    let calls = std::cell::RefCell::new(Vec::new());
+    let snapshots = std::cell::Cell::new(0);
+    let zip = visible_window::tests::system_ui_bare_taskbar_zip();
+    let run = |args: &[&str], _limit| {
+        calls
+            .borrow_mut()
+            .push(args.iter().map(|value| (*value).to_owned()).collect());
+        match args {
+            ["shell", "dumpsys", "window", "windows"] => {
+                let index = snapshots.get();
+                snapshots.set(index + 1);
+                Ok(if index % 2 == 0 { WINDOW_TYPES } else { after }
+                    .as_bytes()
+                    .to_vec())
+            }
+            ["exec-out", "cmd", "window", "dump-visible-window-views"] => Ok(zip.clone()),
+            _ => panic!("unexpected capture command"),
+        }
+    };
+    let result = capture_hierarchy(
+        &run,
+        SYSTEM_CAPTURE_SCOPE,
+        CompatibleTarget::SystemUi,
+        SIZE,
+        &CancellationToken::new(),
+    );
+    (result, calls.into_inner())
+}
+
+#[test]
+fn system_capture_binds_window_types_to_source_evidence_and_archive() {
+    let (capture, calls) = capture_system_fixture(WINDOW_TYPES);
+    let capture = capture.unwrap();
+    assert_eq!(
+        calls,
+        vec![
+            vec!["shell", "dumpsys", "window", "windows"],
+            vec!["exec-out", "cmd", "window", "dump-visible-window-views"],
+            vec!["shell", "dumpsys", "window", "windows"],
+        ]
+    );
+    let frame = parse_frame(
+        &capture.hierarchy,
+        &capture.evidence,
+        SYSTEM_CAPTURE_SCOPE,
+        &screenshot(2, 3),
+        SIZE,
+        DENSITY,
+        8,
+        43,
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(frame.archive.frame.package_name, "system-windows");
+    assert_eq!(frame.archive.windows.len(), 2);
+    assert_eq!(
+        frame.archive.windows[0].nodes[0].attributes.raw_properties["WindowManager.LayoutParams.type"],
+        "2000"
+    );
+    assert_eq!(
+        frame.archive.windows[1].nodes[0].attributes.raw_properties["WindowManager.LayoutParams.type"],
+        "2019"
+    );
+    let temp = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+    let path = temp.path().join("system-types.zip");
+    frame
+        .archive
+        .export_archive(&path, &CancellationToken::new())
+        .unwrap();
+    let imported = crate::InspectorArchive::open(&path, &CancellationToken::new()).unwrap();
+    assert_eq!(
+        imported.windows[1].nodes[0].attributes.raw_properties["WindowManager.LayoutParams.type"],
+        "2019"
+    );
+
+    let changed_types = WINDOW_TYPES.replace("STATUS_BAR", "2003");
+    let zip = visible_window::tests::system_ui_bare_taskbar_zip();
+    let run = |args: &[&str], _limit| match args {
+        ["shell", "dumpsys", "window", "windows"] => Ok(changed_types.as_bytes().to_vec()),
+        ["exec-out", "cmd", "window", "dump-visible-window-views"] => Ok(zip.clone()),
+        _ => panic!("unexpected command"),
+    };
+    let changed = capture_system_windows(&run, &CancellationToken::new()).unwrap();
+    let changed = parse_frame(
+        &changed.hierarchy,
+        &changed.evidence,
+        SYSTEM_CAPTURE_SCOPE,
+        &screenshot(2, 3),
+        SIZE,
+        DENSITY,
+        8,
+        43,
+        &CancellationToken::new(),
+    )
+    .unwrap();
+    assert_ne!(
+        frame.archive.frame.source_digest,
+        changed.archive.frame.source_digest
+    );
+}
+
+#[test]
+fn system_capture_rejects_changed_types_and_has_no_accessibility_escape() {
+    let changed = WINDOW_TYPES
+        .replace("STATUS_BAR", "BASE_APPLICATION")
+        .replace("NAVIGATION_BAR", "APPLICATION_PANEL");
+    let (capture, calls) = capture_system_fixture(&changed);
+    assert!(
+        capture
+            .err()
+            .unwrap()
+            .contains("WindowManager type >= 2000")
+    );
+    assert_eq!(calls.len(), WINDOW_DUMP_ATTEMPTS * 3);
+    assert!(
+        !calls
+            .iter()
+            .any(|args| args.iter().any(|value| value == "uiautomator"))
+    );
+
+    let partially_changed = WINDOW_TYPES.replace("STATUS_BAR", "BASE_APPLICATION");
+    let (capture, _) = capture_system_fixture(&partially_changed);
+    let capture = capture.unwrap();
+    let CapturedHierarchy::VisibleWindows(windows) = capture.hierarchy else {
+        panic!("expected runtime windows")
+    };
+    assert_eq!(windows.len(), 1);
+    assert_eq!(windows[0].title, "Taskbar");
+}
+
+#[test]
+fn system_runtime_windows_are_not_replaced_by_a_narrower_compose_projection() {
+    let calls = std::cell::Cell::new(0);
+    let run = |_args: &[&str], _limit| {
+        calls.set(calls.get() + 1);
+        Ok(XML.as_bytes().to_vec())
+    };
+    let cancel = CancellationToken::new();
+    let expanded = expand_compose_windows(
+        &run,
+        SYSTEM_CAPTURE_SCOPE,
+        CompatibleTarget::SystemUi,
+        SIZE,
+        &cancel,
+    )
+    .unwrap();
+    assert!(expanded.is_none());
+    assert_eq!(calls.get(), 0);
+    assert!(
+        expand_compose_windows(
+            &run,
+            "example.app",
+            CompatibleTarget::ForegroundApp,
+            SIZE,
+            &cancel
+        )
+        .unwrap()
+        .is_some()
+    );
+    assert_eq!(calls.get(), 1);
+}
+
+#[test]
+fn foreground_accessibility_retains_archive_window_limits() {
+    let roots = r#"<node package="example.app" class="Window" bounds="[0,0][2,3]"/>"#.repeat(65);
+    let xml = format!("<hierarchy rotation=\"0\">{roots}</hierarchy>");
+    assert!(
+        parse_capture(
+            xml.as_bytes(),
+            &screenshot(2, 3),
+            SIZE,
+            DENSITY,
+            CompatibleTarget::ForegroundApp,
+            8,
+            43,
+            &CancellationToken::new()
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn live_accessibility_frame_exports_without_an_input_archive_path() {
     let png = screenshot(2, 3);
@@ -114,7 +341,7 @@ fn rejects_bad_xml_dtd_rotation_packages_and_png() {
             43,
             &CancellationToken::new()
         )
-        .is_ok()
+        .is_err()
     );
     // Kotlin's UIAutomator parser does not clamp node bounds to the display:
     // offscreen and inverted sides stay representable (inverted extents coerce

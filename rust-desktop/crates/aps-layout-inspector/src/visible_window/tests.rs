@@ -7,6 +7,7 @@ use std::io::{Cursor, Write};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 const PACKAGE: &str = "com.codemx.anrdemo";
+const SYSTEM_UI_PACKAGE: &str = "com.android.systemui";
 const MAIN_ENTRY: &str = "42177c9 com.codemx.anrdemo/com.codemx.anrdemo.MainActivity";
 
 // ---------------------------------------------------------------------------
@@ -345,7 +346,7 @@ fn system_ui_launcher_taskbar_zip() -> Vec<u8> {
     ])
 }
 
-fn system_ui_bare_taskbar_zip() -> Vec<u8> {
+pub(crate) fn system_ui_bare_taskbar_zip() -> Vec<u8> {
     let status_bar = hierarchy();
     let taskbar = hierarchy();
     zip_bytes(&[
@@ -354,8 +355,20 @@ fn system_ui_bare_taskbar_zip() -> Vec<u8> {
     ])
 }
 
-fn parse(zip_bytes: &[u8], package: &str, target: WindowTarget) -> Vec<WindowDump> {
+fn parse(zip_bytes: &[u8], package: &str, target: WindowTarget<'_>) -> Vec<WindowDump> {
     parse_windows(zip_bytes, package, target, &CancellationToken::new()).expect("decoded windows")
+}
+
+fn window_types(entries: &[(&str, u32)]) -> WindowTypes {
+    let dump = entries
+        .iter()
+        .enumerate()
+        .map(|(index, (name, value))| {
+            let (token, title) = name.split_once(' ').unwrap();
+            format!("  Window #{index} Window{{{token} u0 {title}}}:\n    mAttrs={{ty={value}}}\n")
+        })
+        .collect::<String>();
+    WindowTypes::parse(dump.as_bytes(), &CancellationToken::new()).unwrap()
 }
 
 fn attr<'a>(node: &'a DumpNode, key: &str) -> &'a Value {
@@ -567,7 +580,87 @@ fn children_are_sorted_by_encoded_child_index() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn filters_windows_by_package_and_system_ui_titles() {
+fn system_capture_keeps_only_verified_types_and_preserves_them_in_archives() {
+    let payload = hierarchy();
+    let zip = zip_bytes(&[
+        (
+            "aaa111 com.tcl.android.launcher/.TclQuickstepLauncher",
+            &payload,
+        ),
+        (MAIN_ENTRY, &payload),
+        ("bbb222 TctStylusWindow", &payload),
+        ("ccc333 StatusBar", &payload),
+        ("ddd444 Taskbar", &payload),
+    ]);
+    let types = window_types(&[
+        ("aaa111 com.tcl.android.launcher/.TclQuickstepLauncher", 1),
+        (MAIN_ENTRY, 1),
+        ("bbb222 TctStylusWindow", 2045),
+        ("ccc333 StatusBar", 2000),
+        ("ddd444 Taskbar", 2019),
+    ]);
+    let windows = parse(&zip, "system-windows", WindowTarget::SystemUi(&types));
+    assert_eq!(
+        windows
+            .iter()
+            .map(|window| window.title.as_str())
+            .collect::<Vec<_>>(),
+        ["TctStylusWindow", "StatusBar", "Taskbar"]
+    );
+    let ids: BTreeSet<_> = windows.iter().map(|window| &window.id).collect();
+    assert_eq!(ids.len(), 3);
+    for (window, expected_type) in windows.iter().zip([2045, 2000, 2019]) {
+        assert_eq!(window.kind, "OTHER");
+        assert_eq!(
+            window.root.attributes["rawProperties"]["WindowManager.LayoutParams.type"],
+            expected_type.to_string()
+        );
+    }
+
+    let foreground = parse(&zip, PACKAGE, WindowTarget::ForegroundApp);
+    assert_eq!(foreground.len(), 1);
+    assert_eq!(foreground[0].title, "MainActivity");
+
+    let windows_json = snapshot_windows(&windows);
+    let snapshot = json!({
+        "protocolVersion": {"major": 1, "minor": 0},
+        "packageName": "system-windows",
+        "capturedAtEpochMillis": 42,
+        "display": {"widthPx": 1080, "heightPx": 2400, "density": 2.0},
+        "capabilities": {"viewHierarchy": true},
+        "root": windows_json[0]["root"],
+        "windows": windows_json,
+    });
+    let frame = FrameIdentity {
+        source_digest: SourceDigest::hash_reader(Cursor::new(&zip), zip.len() as u64).unwrap(),
+        package_name: "system-windows".into(),
+        captured_at_epoch_millis: 42,
+        protocol_major: 1,
+        protocol_minor: 0,
+    };
+    let archive = parse_snapshot(&snapshot, frame, 1).unwrap();
+    let temp = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+    let path = temp.path().join("all-runtime-windows.zip");
+    archive
+        .export_archive(&path, &CancellationToken::new())
+        .unwrap();
+    let reopened = crate::InspectorArchive::open(&path, &CancellationToken::new()).unwrap();
+    assert_eq!(reopened.frame.package_name, "system-windows");
+    assert_eq!(reopened.windows.len(), 3);
+    for (actual, expected) in reopened.windows.iter().zip(&windows) {
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.title.as_deref(), Some(expected.title.as_str()));
+        assert_eq!(
+            actual.nodes[0].attributes.raw_properties["WindowManager.LayoutParams.type"],
+            expected.root.attributes["rawProperties"]["WindowManager.LayoutParams.type"]
+                .as_str()
+                .unwrap()
+        );
+    }
+}
+
+#[test]
+fn foreground_package_and_system_type_selection_are_independent() {
     let app_windows = parse(&two_app_windows_zip(), PACKAGE, WindowTarget::ForegroundApp);
     assert_eq!(
         app_windows
@@ -577,7 +670,16 @@ fn filters_windows_by_package_and_system_ui_titles() {
         ["MainActivity", "ConfirmDialog"]
     );
 
-    let system_ui = parse(&system_ui_zip(), SYSTEM_UI_PACKAGE, WindowTarget::SystemUi);
+    let types = window_types(&[
+        ("a3db2af StatusBar", 2000),
+        ("b473c9d NavigationBar", 2019),
+        (MAIN_ENTRY, 1),
+    ]);
+    let system_ui = parse(
+        &system_ui_zip(),
+        SYSTEM_UI_PACKAGE,
+        WindowTarget::SystemUi(&types),
+    );
     assert_eq!(
         system_ui
             .iter()
@@ -586,10 +688,18 @@ fn filters_windows_by_package_and_system_ui_titles() {
         ["StatusBar", "NavigationBar"]
     );
 
+    let types = window_types(&[
+        ("a3db2af StatusBar", 2000),
+        (
+            "b473c9d com.google.android.apps.nexuslauncher/com.android.launcher3.taskbar.Taskbar",
+            2019,
+        ),
+        (MAIN_ENTRY, 1),
+    ]);
     let launcher_taskbar = parse(
         &system_ui_launcher_taskbar_zip(),
         SYSTEM_UI_PACKAGE,
-        WindowTarget::SystemUi,
+        WindowTarget::SystemUi(&types),
     );
     assert_eq!(
         launcher_taskbar
@@ -599,10 +709,11 @@ fn filters_windows_by_package_and_system_ui_titles() {
         ["StatusBar", "Taskbar"]
     );
 
+    let types = window_types(&[("a3db2af StatusBar", 2000), ("b473c9d Taskbar", 2019)]);
     let bare_taskbar = parse(
         &system_ui_bare_taskbar_zip(),
         SYSTEM_UI_PACKAGE,
-        WindowTarget::SystemUi,
+        WindowTarget::SystemUi(&types),
     );
     assert_eq!(
         bare_taskbar
@@ -616,6 +727,21 @@ fn filters_windows_by_package_and_system_ui_titles() {
     let app = parse(&system_ui_zip(), PACKAGE, WindowTarget::ForegroundApp);
     assert_eq!(app.len(), 1);
     assert_eq!(app[0].title, "MainActivity");
+}
+
+#[test]
+fn system_type_selection_does_not_guess_from_title_and_skips_unverified_entries() {
+    let payload = hierarchy();
+    let zip = zip_bytes(&[
+        ("aaa111 StatusBar", &payload),
+        ("bbb222 VendorActivity", &payload),
+        ("ccc333 UnknownOverlay", &payload),
+    ]);
+    let types = window_types(&[("aaa111 StatusBar", 1), ("bbb222 VendorActivity", 2045)]);
+    let windows = parse(&zip, "system-windows", WindowTarget::SystemUi(&types));
+    assert_eq!(windows.len(), 1);
+    assert_eq!(windows[0].title, "VendorActivity");
+    assert_eq!(windows[0].kind, "OTHER");
 }
 
 #[test]
@@ -859,10 +985,11 @@ fn snapshot_windows_ingest_into_the_layout_archive() {
 
 #[test]
 fn system_ui_snapshot_keeps_taskbar_and_statusbar_names_through_archive_projection() {
+    let types = window_types(&[("a3db2af StatusBar", 2000), ("b473c9d Taskbar", 2019)]);
     let windows = parse(
         &system_ui_bare_taskbar_zip(),
         "com.android.systemui",
-        WindowTarget::SystemUi,
+        WindowTarget::SystemUi(&types),
     );
     let projected = snapshot_windows(&windows);
     let snapshot = json!({

@@ -53,11 +53,23 @@ ADB 回退捕获优先使用 WindowManager 运行时 View 转储：设备返回�
 可见窗口包含一个编码后的层级（Android `ViewHierarchyEncoder` 线格式），并按照
 Compose 版本的 `VisibleWindowHierarchyParser` 解码为相同形态：真实的每窗口 View
 类、布局/绘制/交互属性和原始运行时属性，绝对边界由窗口偏移、滚动和绘制平移合成。
-窗口身份、标题/类型、包过滤以及 System UI 标题/启动器任务栏匹配遵循 Kotlin
-基准实现。当窗口包含 `ComposeView`/`AndroidComposeView` 时，会像 Kotlin
+窗口身份、标题/类型遵循 Kotlin 基准实现；前台应用模式仍按目标包过滤。
+**系统界面模式只保留 WindowManager 实际类型 `type >= 2000` 的窗口**。
+采集会在 View 转储前后读取 `dumpsys window windows`，按窗口标识和完整标题关联
+`mAttrs.ty`，只有前后类型一致且达到阈值才解码。支持 AOSP 类型符号和 OEM 数值类型，
+不按窗口标题或包名猜测；类型缺失、未知或发生变化的窗口不纳入结果。
+普通应用和 Launcher 的应用窗口会被排除，但它们承载的系统类型窗口仍可保留。
+根节点原始属性 `WindowManager.LayoutParams.type` 保留经过核对的类型值，导出后可复核。
+聚合帧的 `packageName` 标记为 `system-windows`，表示采集范围，不冒充窗口所属包。
+窗口选择器只切换本次已保留的窗口，不能抓取设备未导出的隐藏窗口。
+当前台应用窗口包含 `ComposeView`/`AndroidComposeView` 时，会像 Kotlin
 `expandShallowComposeHierarchy` 一样比较无障碍投影，只有在其携带 Compose 语义且
 节点更多时才采用；随后将宿主的后代提升为带有 Kotlin 语义类/角色/属性的有界
-Compose 节点。否则使用 `uiautomator dump` 作为回退投影。两条 ADB 路径都不会
+Compose 节点。系统模式不使用这条替换路径，避免用单个应用的投影丢弃其他窗口。
+前台应用的运行时转储不可用时使用 `uiautomator dump` 回退；系统模式不使用该回退，
+因为无障碍 XML 无法证明 WindowManager 类型。无法读取或核对类型时明确报错，
+不会静默扩大窗口范围。系统类型窗口的协议分类标为 `OTHER`，实际数值以上述原始属性
+为准。两条 ADB 路径都不会
 注入 Compose 检查（独立的 `ComposeBridge` 辅助程序负责该可选功能）。
 
 检查器捕获使用所选设备的**前台应用**，与其他分析器选定的进程相互独立。Compose

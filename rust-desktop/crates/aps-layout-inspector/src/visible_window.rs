@@ -5,7 +5,7 @@
 //! Android's encoded View hierarchy (\`ViewHierarchyEncoder\` wire format): typed
 //! values, maps keyed by property ids and a trailing property-name index. The
 //! Kotlin oracle is \`VisibleWindowHierarchyParser.kt\`; this module keeps the same
-//! window filtering, window identity/title/type derivation, absolute-bounds
+//! foreground-app filtering, window identity/title/type derivation, absolute-bounds
 //! composition (parent + scroll + translation) and protocol \`ViewAttributes\`
 //! projection.
 //!
@@ -16,6 +16,7 @@
 //! ingestion contract (\`parse_snapshot\` in \`lib.rs\`):
 //! - ZIP input bytes, per-entry bytes, decoded bytes and entry count are all
 //!   bounded (Kotlin only bounds one entry).
+//! - System capture selects verified WindowManager types rather than window titles.
 //! - Decoded node depth is capped at 63 while projecting (Kotlin is unbounded);
 //!   children deeper than that are dropped so the emitted frame stays valid
 //!   (the archive ingestion limit is 64).
@@ -30,8 +31,9 @@
 //!   >32767 bytes) and invalid UTF-8 is replaced, matching Kotlin's decoder.
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
+use crate::window_manager::WindowTypes;
 use aps_platform::CancellationToken;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -61,30 +63,13 @@ const MAX_WIRE_VALUES: usize = 1_000_000;
 const MAX_ABS_COORD: i64 = 1_000_000;
 const CANCEL_MESSAGE: &str = "Visible-window hierarchy capture cancelled";
 const NODE_LIMIT_MESSAGE: &str = "Visible-window hierarchy has too many nodes";
-const SYSTEM_UI_PACKAGE: &str = "com.android.systemui";
-const SYSTEM_UI_WINDOW_TITLES: [&str; 14] = [
-    "BackPanel",
-    "Bouncer",
-    "GlobalActions",
-    "HeadsUp",
-    "Keyguard",
-    "NavigationBar",
-    "NotificationShade",
-    "PipMenu",
-    "ScreenDecor",
-    "Screenshot",
-    "Shell",
-    "StatusBar",
-    "Taskbar",
-    "VolumeDialog",
-];
 const COMPOSE_HOST_SUFFIXES: [&str; 2] = [".ComposeView", ".AndroidComposeView"];
 const CHILD_PREFIX: &str = "meta:__child__";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WindowTarget {
+pub enum WindowTarget<'a> {
     ForegroundApp,
-    SystemUi,
+    SystemUi(&'a WindowTypes),
 }
 
 /// One decoded window, before it is projected into protocol snapshot JSON.
@@ -120,15 +105,14 @@ pub struct Promotion {
     pub compose_host: bool,
 }
 
-/// Decode one \`dump-visible-window-views\` ZIP into the target package's windows.
+/// Decode a View dump into package-bound or verified system-type windows.
 ///
-/// Kotlin parity: entries are selected by package name (or System UI window
-/// titles / launcher taskbar), non-decodable entries are skipped, and the
-/// command fails when no window decodes. Window order follows the ZIP.
+/// Non-decodable entries are skipped and an empty result is rejected. Window
+/// order follows the ZIP; system selection never infers type from its title.
 pub fn parse_windows(
     zip: &[u8],
     package: &str,
-    target: WindowTarget,
+    target: WindowTarget<'_>,
     cancel: &CancellationToken,
 ) -> Result<Vec<WindowDump>, String> {
     check_cancel(cancel)?;
@@ -161,10 +145,14 @@ pub fn parse_windows(
         if name.len() > MAX_ENTRY_NAME_BYTES {
             return Err("Visible-window hierarchy entry name is too large".into());
         }
-        // Kotlin skips non-matching entries without decoding their payload.
-        if !matches_target(&name, package, target) {
-            continue;
-        }
+        let system_type = match target {
+            WindowTarget::ForegroundApp if !name.contains(package) => continue,
+            WindowTarget::ForegroundApp => None,
+            WindowTarget::SystemUi(types) => match types.system_type(&name) {
+                Some(value) => Some(value),
+                None => continue,
+            },
+        };
         if entry.size() > MAX_ENTRY_BYTES as u64 {
             return Err("Visible-window hierarchy entry is too large".into());
         }
@@ -188,11 +176,19 @@ pub fn parse_windows(
         }
         // Kotlin wraps decode+projection in runCatching: a corrupt window is
         // skipped instead of failing the whole capture.
-        if let Ok(root) = decode_window(&payload, &mut node_budget) {
+        if let Ok(mut root) = decode_window(&payload, &mut node_budget) {
+            if let Some(value) = system_type {
+                root.attributes["rawProperties"]["WindowManager.LayoutParams.type"] =
+                    Value::String(value.to_string());
+            }
             windows.push(WindowDump {
                 id: window_id(&name),
                 title: window_title(&name, package),
-                kind: window_kind(&name),
+                kind: if system_type.is_some() {
+                    "OTHER"
+                } else {
+                    window_kind(&name)
+                },
                 root,
             });
         }
@@ -321,43 +317,6 @@ fn check_cancel(cancel: &CancellationToken) -> Result<(), String> {
     } else {
         Ok(())
     }
-}
-
-fn matches_target(entry_name: &str, package: &str, target: WindowTarget) -> bool {
-    if entry_name.contains(package) {
-        return true;
-    }
-    // Kotlin gates the title fallback on `packageName == com.android.systemui`;
-    // this API makes the target explicit, so accept either signal.
-    if target != WindowTarget::SystemUi && package != SYSTEM_UI_PACKAGE {
-        return false;
-    }
-    let title = entry_title(entry_name);
-    if SYSTEM_UI_WINDOW_TITLES
-        .iter()
-        .any(|candidate| title.starts_with(candidate))
-    {
-        return true;
-    }
-    is_launcher_taskbar(entry_name)
-}
-
-/// Kotlin \`ZipEntry.entryTitle\`: text after the first space, then after the last
-/// \`/\`, falling back to the whole name when a delimiter is absent.
-fn entry_title(entry_name: &str) -> &str {
-    let after_space = entry_name
-        .split_once(' ')
-        .map(|(_, rest)| rest)
-        .unwrap_or(entry_name);
-    after_space.rsplit('/').next().unwrap_or(after_space)
-}
-
-/// Android 16 dumps the launcher taskbar without the System UI package name.
-fn is_launcher_taskbar(entry_name: &str) -> bool {
-    let lower = entry_name.to_lowercase();
-    lower.contains("launcher")
-        && lower.contains("taskbar")
-        && !lower.contains("com.android.systemui")
 }
 
 fn window_id(entry_name: &str) -> String {

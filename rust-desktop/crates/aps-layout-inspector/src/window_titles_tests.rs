@@ -273,8 +273,16 @@ fn real_system_ui_capture_retains_window_titles() {
             .as_deref()
             .filter(|title| !title.trim().is_empty())
             .expect("captured window title");
+        let window_type = window.nodes[0]
+            .attributes
+            .raw_properties
+            .get("WindowManager.LayoutParams.type")
+            .expect("WindowManager type evidence")
+            .parse::<u32>()
+            .unwrap();
+        assert!(window_type >= 2000);
         eprintln!(
-            "System UI window: {} | {title} | nodes={}",
+            "System UI window: {} | {title} | type={window_type} | nodes={}",
             window.id,
             window.nodes.len()
         );
@@ -283,6 +291,16 @@ fn real_system_ui_capture_retains_window_titles() {
     for (actual, expected) in reopened.windows.iter().zip(&captured.archive.windows) {
         assert_eq!(actual.id, expected.id);
         assert_eq!(actual.title, expected.title);
+        assert_eq!(
+            actual.nodes[0]
+                .attributes
+                .raw_properties
+                .get("WindowManager.LayoutParams.type"),
+            expected.nodes[0]
+                .attributes
+                .raw_properties
+                .get("WindowManager.LayoutParams.type")
+        );
     }
     if let Some(path) = std::env::var_os("APS_INSPECTOR_SYSTEM_UI_ARCHIVE") {
         captured

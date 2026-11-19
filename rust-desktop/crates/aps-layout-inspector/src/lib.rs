@@ -21,6 +21,7 @@ mod compose_bridge;
 mod export;
 mod protocol;
 mod visible_window;
+mod window_manager;
 #[cfg(test)]
 mod window_titles_tests;
 pub use agent_bridge::{AgentCapture, capture_agent};

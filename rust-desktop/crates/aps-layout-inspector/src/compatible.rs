@@ -12,6 +12,7 @@
 mod tests;
 
 use crate::visible_window::{self, WindowDump, WindowTarget};
+use crate::window_manager::{self, WindowTypes};
 use crate::{FrameIdentity, InspectorProtocolFrame, ScreenshotEvidence, parse_snapshot};
 use aps_adb::{AdbLocation, validate_serial};
 use aps_contracts::SourceDigest;
@@ -25,6 +26,9 @@ const MAX_PNG: usize = 32 * 1024 * 1024;
 const MAX_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_WINDOW_DUMP: usize = visible_window::MAX_VIEW_DUMP_BYTES;
 const SYSTEM_UI_PACKAGE: &str = "com.android.systemui";
+// Aggregate capture scope, not the owner package of any individual window.
+const SYSTEM_CAPTURE_SCOPE: &str = "system-windows";
+const MAX_CAPTURE_EVIDENCE: usize = MAX_WINDOW_DUMP + 2 * window_manager::MAX_DUMP_BYTES + 64;
 const WINDOW_DUMP_ATTEMPTS: usize = 3;
 const WINDOW_DUMP_RETRY_DELAY: Duration = Duration::from_millis(75);
 
@@ -85,8 +89,7 @@ pub fn capture_compatible(
         }
         Ok(output.stdout)
     };
-    // Compose resolves the target package before capture: the foreground app for
-    // app capture, the fixed System UI package otherwise.
+    // App capture is package-bound; system capture is WindowManager-type-bound.
     let expected = match target {
         CompatibleTarget::ForegroundApp => {
             let before = run(
@@ -95,7 +98,7 @@ pub fn capture_compatible(
             )?;
             foreground_package(&before)?
         }
-        CompatibleTarget::SystemUi => SYSTEM_UI_PACKAGE.to_owned(),
+        CompatibleTarget::SystemUi => SYSTEM_CAPTURE_SCOPE.to_owned(),
     };
     // Compose `LiveDeviceClient.connectWithFallback`: an agent-enabled foreground
     // app is captured through the in-app agent first. A non-agent app (and the
@@ -169,10 +172,9 @@ fn capture_hierarchy<F>(
 where
     F: Fn(&[&str], usize) -> Result<Vec<u8>, String>,
 {
-    let window_target = match target {
-        CompatibleTarget::ForegroundApp => WindowTarget::ForegroundApp,
-        CompatibleTarget::SystemUi => WindowTarget::SystemUi,
-    };
+    if matches!(target, CompatibleTarget::SystemUi) {
+        return capture_system_windows(run, cancel);
+    }
     let mut last_error = String::new();
     for attempt in 0..WINDOW_DUMP_ATTEMPTS {
         check_cancel(cancel)?;
@@ -181,8 +183,12 @@ where
             MAX_WINDOW_DUMP,
         ) {
             Ok(bytes) => {
-                match visible_window::parse_windows(&bytes, expected_package, window_target, cancel)
-                {
+                match visible_window::parse_windows(
+                    &bytes,
+                    expected_package,
+                    WindowTarget::ForegroundApp,
+                    cancel,
+                ) {
                     Ok(windows) if !windows.is_empty() => {
                         if visible_window::contains_compose_host(&windows)
                             && let Some((accessibility, xml)) =
@@ -224,6 +230,60 @@ where
     })
 }
 
+fn capture_system_windows<F>(run: &F, cancel: &CancellationToken) -> Result<Capture, String>
+where
+    F: Fn(&[&str], usize) -> Result<Vec<u8>, String>,
+{
+    let mut last_error = String::new();
+    for attempt in 0..WINDOW_DUMP_ATTEMPTS {
+        check_cancel(cancel)?;
+        let result = (|| {
+            let before = run(
+                &["shell", "dumpsys", "window", "windows"],
+                window_manager::MAX_DUMP_BYTES,
+            )?;
+            let before_types = WindowTypes::parse(&before, cancel)?;
+            let bytes = run(
+                &["exec-out", "cmd", "window", "dump-visible-window-views"],
+                MAX_WINDOW_DUMP,
+            )?;
+            let after = run(
+                &["shell", "dumpsys", "window", "windows"],
+                window_manager::MAX_DUMP_BYTES,
+            )?;
+            let after_types = WindowTypes::parse(&after, cancel)?;
+            let types = before_types.stable_system_windows(&after_types);
+            let windows = visible_window::parse_windows(
+                &bytes,
+                SYSTEM_CAPTURE_SCOPE,
+                WindowTarget::SystemUi(&types),
+                cancel,
+            )?;
+            let mut evidence = Vec::with_capacity(before.len() + bytes.len() + after.len() + 64);
+            evidence.extend_from_slice(b"aps-system-window-v1\0");
+            for source in [&before, &bytes, &after] {
+                evidence.extend_from_slice(&(source.len() as u64).to_le_bytes());
+                evidence.extend_from_slice(source);
+            }
+            Ok(Capture {
+                hierarchy: CapturedHierarchy::VisibleWindows(windows),
+                evidence,
+            })
+        })();
+        match result {
+            Ok(capture) => return Ok(capture),
+            Err(error) => last_error = error,
+        }
+        check_cancel(cancel)?;
+        if attempt + 1 < WINDOW_DUMP_ATTEMPTS {
+            std::thread::sleep(WINDOW_DUMP_RETRY_DELAY);
+        }
+    }
+    Err(format!(
+        "Cannot capture verified system windows (WindowManager type >= 2000): {last_error}. Accessibility fallback cannot verify window types."
+    ))
+}
+
 /// Runs the accessibility projection used to expand a Compose-host window.
 /// Failure keeps the runtime View tree, as in Compose's `runCatching`.
 fn expand_compose_windows<F>(
@@ -236,6 +296,11 @@ fn expand_compose_windows<F>(
 where
     F: Fn(&[&str], usize) -> Result<Vec<u8>, String>,
 {
+    if matches!(target, CompatibleTarget::SystemUi) {
+        // Replacing an aggregate dump with one app's accessibility projection
+        // would silently discard the other windows.
+        return Ok(None);
+    }
     let Ok(xml) = run(&["exec-out", "uiautomator", "dump", "/dev/tty"], MAX_XML) else {
         return Ok(None);
     };
@@ -447,8 +512,9 @@ fn parse_frame(
         .chain(Cursor::new(png))
         .chain(Cursor::new(size))
         .chain(Cursor::new(density));
-    let source_digest = SourceDigest::hash_reader(input, (MAX_WINDOW_DUMP + MAX_PNG + 8192) as u64)
-        .map_err(|_| "Cannot hash captured evidence")?;
+    let source_digest =
+        SourceDigest::hash_reader(input, (MAX_CAPTURE_EVIDENCE + MAX_PNG + 8192) as u64)
+            .map_err(|_| "Cannot hash captured evidence")?;
     let frame = FrameIdentity {
         source_digest,
         package_name: package,
@@ -500,7 +566,7 @@ fn parse_capture(
     )
 }
 
-/// Parse the UIAutomator hierarchy into the target package's windows. Bounds are
+/// Parse the UIAutomator hierarchy into the selected capture scope. Bounds are
 /// validated against the rotated display because XML and screenshot are
 /// sequential and non-atomic.
 fn parse_accessibility(
@@ -511,6 +577,11 @@ fn parse_accessibility(
     cancel: &CancellationToken,
 ) -> Result<AccessibilityCapture, String> {
     check_cancel(cancel)?;
+    if matches!(target, CompatibleTarget::SystemUi) {
+        return Err(
+            "Accessibility XML cannot verify WindowManager types for system-window capture".into(),
+        );
+    }
     if xml.len() > MAX_XML {
         return Err("Capture exceeds input limit".into());
     }
@@ -563,10 +634,7 @@ fn parse_accessibility(
         .iter()
         .filter_map(|node| node.attribute("package"))
         .filter(|package| !package.is_empty())
-        .filter(|package| match target {
-            CompatibleTarget::ForegroundApp => *package != SYSTEM_UI_PACKAGE,
-            CompatibleTarget::SystemUi => *package == SYSTEM_UI_PACKAGE,
-        })
+        .filter(|package| *package != SYSTEM_UI_PACKAGE)
         .collect();
     if let Some(expected) = expected_package {
         // Kotlin parity: the expected package node is the first descendant that
@@ -586,7 +654,7 @@ fn parse_accessibility(
             ));
         };
         let (windows, node_count, compose) =
-            parse_package_windows(std::slice::from_ref(&candidate), expected, cancel)?;
+            parse_accessibility_windows(std::slice::from_ref(&candidate), cancel)?;
         return Ok(AccessibilityCapture {
             package: expected.to_owned(),
             dimensions,
@@ -602,7 +670,11 @@ fn parse_accessibility(
         .first()
         .map(|package| (*package).to_owned())
         .ok_or("Missing target package")?;
-    let (windows, node_count, compose) = parse_package_windows(&roots, &package, cancel)?;
+    let selected: Vec<_> = roots
+        .into_iter()
+        .filter(|node| node.attribute("package") == Some(package.as_str()))
+        .collect();
+    let (windows, node_count, compose) = parse_accessibility_windows(&selected, cancel)?;
     Ok(AccessibilityCapture {
         package,
         dimensions,
@@ -612,45 +684,42 @@ fn parse_accessibility(
     })
 }
 
-fn parse_package_windows(
+fn parse_accessibility_windows(
     roots: &[roxmltree::Node<'_, '_>],
-    package: &str,
     cancel: &CancellationToken,
 ) -> Result<(Vec<Value>, usize, bool), String> {
-    let selected: Vec<&roxmltree::Node<'_, '_>> = roots
-        .iter()
-        .filter(|node| node.attribute("package") == Some(package))
-        .collect();
     let mut count = 0;
     let mut windows = Vec::new();
     let mut node_count = 0;
     let mut compose = false;
-    for (index, root) in selected.iter().enumerate() {
-        let root_path = if selected.len() == 1 {
+    for (index, root) in roots.iter().enumerate() {
+        let root_path = if roots.len() == 1 {
             "root".to_owned()
         } else {
             format!("w{index}")
         };
-        let mut node = parse_node(**root, &root_path, 0, &mut count, cancel)?;
+        let mut node = parse_node(*root, &root_path, 0, &mut count, cancel)?;
         compose |= visible_window::promote_compose_semantics(&mut node).compose_host;
         node_count += visible_window::count_json_nodes(&node);
-        // Kotlin's accessibility fallback keeps one `window:uiautomator` window;
-        // extra same-package roots (legacy caller only) stay unique.
-        let window_id = if selected.len() == 1 {
+        let window_id = if roots.len() == 1 {
             "window:uiautomator".to_owned()
         } else {
             format!("window:uiautomator:{index}")
         };
         windows.push(json!({
             "id": window_id,
-            "title": package.rsplit('.').next().unwrap_or(package),
+            "title": root.attribute("package")
+                .filter(|value| !value.is_empty())
+                .or_else(|| root.attribute("class").filter(|value| !value.is_empty()))
+                .unwrap_or("Window")
+                .rsplit('.').next().unwrap_or("Window"),
             "type": "ACTIVITY",
             "bounds": node["bounds"],
             "root": node,
         }));
     }
     if windows.is_empty() {
-        return Err("UIAutomator hierarchy has no window for the target package".into());
+        return Err("UIAutomator hierarchy has no window for the capture scope".into());
     }
     Ok((windows, node_count, compose))
 }
