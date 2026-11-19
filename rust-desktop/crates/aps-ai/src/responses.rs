@@ -37,6 +37,7 @@ pub struct ResponsesAnswer {
 pub enum ResponsesError {
     Credential,
     Configuration,
+    Cancelled,
     Transport,
     Timeout,
     HttpStatus(u16),
@@ -56,6 +57,7 @@ impl fmt::Display for ResponsesError {
         f.write_str(match self {
             Self::Credential => "E_AI_CREDENTIAL_UNAVAILABLE",
             Self::Configuration => "E_AI_CONFIGURATION",
+            Self::Cancelled => "E_AI_CANCELLED",
             Self::Transport => "E_AI_TRANSPORT",
             Self::Timeout => "E_PROVIDER_TIMEOUT",
             Self::HttpStatus(_) => "E_AI_HTTP_STATUS",
@@ -107,6 +109,9 @@ pub async fn execute(
     request: &ResponsesRequest<'_>,
     token: &CancellationToken,
 ) -> Result<ResponsesAnswer, ResponsesError> {
+    if token.is_cancelled() {
+        return Err(ResponsesError::Cancelled);
+    }
     if credential.is_empty() {
         return Err(ResponsesError::Credential);
     }
@@ -125,7 +130,7 @@ pub async fn execute(
         .timeout(TOTAL_TIMEOUT)
         .body(AsyncBody::from(body))
         .map_err(|_| ResponsesError::Configuration)?;
-    let response = select_or_timeout(client.send(request), token).await?;
+    let response = select_or_cancel(client.send(request), token).await?;
     let response = response.map_err(|_| ResponsesError::Transport)?;
     let status = response.status().as_u16();
     if status != 200 {
@@ -153,12 +158,8 @@ pub async fn execute(
     let mut stream = response.into_body();
     let mut buffer = [0u8; 8192];
     loop {
-        if token.is_cancelled() {
-            return Err(ResponsesError::Transport);
-        }
-        let read = stream
-            .read(&mut buffer)
-            .await
+        let read = select_or_cancel(stream.read(&mut buffer), token)
+            .await?
             .map_err(|_| ResponsesError::Transport)?;
         if read == 0 {
             break;
@@ -198,12 +199,15 @@ fn credential_appears(credential: &AiSecret, haystack: &[u8]) -> bool {
             .any(|window| window == needle)
 }
 
-async fn select_or_timeout<T>(
+async fn select_or_cancel<T>(
     operation: impl std::future::Future<Output = T>,
     token: &CancellationToken,
 ) -> Result<T, ResponsesError> {
     use futures::future::{Either, select};
     use futures::pin_mut;
+    if token.is_cancelled() {
+        return Err(ResponsesError::Cancelled);
+    }
     let monitor = async {
         loop {
             if token.is_cancelled() {
@@ -214,8 +218,9 @@ async fn select_or_timeout<T>(
     };
     pin_mut!(operation, monitor);
     match select(operation, monitor).await {
+        Either::Left((_, _)) if token.is_cancelled() => Err(ResponsesError::Cancelled),
         Either::Left((value, _)) => Ok(value),
-        Either::Right(((), _)) => Err(ResponsesError::Transport),
+        Either::Right(((), _)) => Err(ResponsesError::Cancelled),
     }
 }
 

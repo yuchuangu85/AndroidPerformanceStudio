@@ -210,6 +210,7 @@ pub struct FrozenRun {
     pub view: ApprovalView,
     pub(crate) token: u64,
     pub(crate) conversation_id: String,
+    cancellation: aps_platform::CancellationToken,
 }
 
 impl fmt::Debug for FrozenRun {
@@ -304,14 +305,44 @@ pub struct AiRuntime {
     pending_imports:
         Mutex<std::collections::BTreeMap<(ProviderKind, CredentialKind), ImportedSecret>>,
     client: Mutex<Option<Arc<dyn http_client::HttpClient>>>,
-    prepared: Mutex<Option<PreparedSlot>>,
+    runs: Mutex<RunState>,
     next_token: std::sync::atomic::AtomicU64,
-    cancelled_tokens: Mutex<std::collections::BTreeSet<u64>>,
     artifacts_dir: PathBuf,
+}
+
+#[derive(Default)]
+struct RunState {
+    prepared: Option<PreparedSlot>,
+    executing: Option<ExecutingRun>,
+}
+
+struct ExecutingRun {
+    token: u64,
+    cancellation: aps_platform::CancellationToken,
+}
+
+struct ExecutingRunGuard<'a> {
+    runtime: &'a AiRuntime,
+    run: ExecutingRun,
+}
+
+impl Drop for ExecutingRunGuard<'_> {
+    fn drop(&mut self) {
+        self.run.cancellation.cancel();
+        if let Ok(mut runs) = self.runtime.runs.lock()
+            && runs
+                .executing
+                .as_ref()
+                .is_some_and(|run| run.token == self.run.token)
+        {
+            runs.executing = None;
+        }
+    }
 }
 
 struct PreparedSlot {
     token: u64,
+    cancellation: aps_platform::CancellationToken,
     conversation_id: String,
     generation: u64,
     view: ApprovalView,
@@ -397,9 +428,8 @@ impl AiRuntime {
             conversations: Mutex::new(Some(conversations)),
             pending_imports: Mutex::new(std::collections::BTreeMap::new()),
             client: Mutex::new(None),
-            prepared: Mutex::new(None),
+            runs: Mutex::new(RunState::default()),
             next_token: std::sync::atomic::AtomicU64::new(1),
-            cancelled_tokens: Mutex::new(std::collections::BTreeSet::new()),
             artifacts_dir,
         }))
     }
@@ -1060,6 +1090,8 @@ impl AiRuntime {
             .iter()
             .map(|item| item.id.clone())
             .collect();
+        // Supersession and publication share this lock, including persistence.
+        let mut runs = self.runs.lock().map_err(|_| RuntimeError::Unavailable)?;
         let generation = match self.persist_prepared(
             &options.conversation_id,
             &prompt.session_id,
@@ -1168,27 +1200,32 @@ impl AiRuntime {
         let token = self
             .next_token
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.prepared
-            .lock()
-            .map_err(|_| RuntimeError::Unavailable)?
-            .replace(PreparedSlot {
-                token,
-                conversation_id: options.conversation_id.clone(),
-                generation,
-                view: view.clone(),
-                prompt,
-                provider,
-                endpoint: connection.endpoint.clone(),
-                model,
-                report_format: options.report_format,
-                report_language: options.report_language,
-                allow_artifacts,
-                request,
-            });
+        let cancellation = aps_platform::CancellationToken::new();
+        if let Some(run) = runs.executing.take() {
+            run.cancellation.cancel();
+        }
+        if let Some(previous) = runs.prepared.replace(PreparedSlot {
+            token,
+            cancellation: cancellation.clone(),
+            conversation_id: options.conversation_id.clone(),
+            generation,
+            view: view.clone(),
+            prompt,
+            provider,
+            endpoint: connection.endpoint.clone(),
+            model,
+            report_format: options.report_format,
+            report_language: options.report_language,
+            allow_artifacts,
+            request,
+        }) {
+            previous.cancellation.cancel();
+        }
         Ok(FrozenRun {
             view,
             token,
             conversation_id: options.conversation_id,
+            cancellation,
         })
     }
 
@@ -1271,26 +1308,46 @@ impl AiRuntime {
     }
 
     async fn execute_inner(&self, frozen: FrozenRun) -> Result<AnalysisResult, RuntimeError> {
-        let conversation_id = frozen.conversation_id.clone();
-        let run_id = frozen.view.run_id.clone();
         let token = frozen.token;
+        let cancellation = frozen.cancellation;
         let slot = {
-            let mut prepared = self
-                .prepared
-                .lock()
-                .map_err(|_| RuntimeError::Unavailable)?;
-            match prepared.as_ref() {
-                Some(slot) if slot.token == token => prepared.take(),
+            let mut runs = self.runs.lock().map_err(|_| RuntimeError::Unavailable)?;
+            if cancellation.is_cancelled() {
+                return Err(RuntimeError::Cancelled);
+            }
+            let slot = match runs.prepared.as_ref() {
+                Some(slot) if slot.token == token => runs.prepared.take(),
                 _ => None,
             }
+            .ok_or(RuntimeError::Run)?;
+            runs.executing = Some(ExecutingRun {
+                token,
+                cancellation: cancellation.clone(),
+            });
+            slot
         };
-        let Some(slot) = slot else {
-            return Err(RuntimeError::Run);
+        let guard = ExecutingRunGuard {
+            runtime: self,
+            run: ExecutingRun {
+                token,
+                cancellation,
+            },
         };
-        if self.is_cancelled(token) {
-            self.forget_token(token);
-            return Err(RuntimeError::Cancelled);
+        let result = self.execute_prepared(slot, &guard.run.cancellation).await;
+        match result {
+            Err(_) if guard.run.cancellation.is_cancelled() => Err(RuntimeError::Cancelled),
+            result => result,
         }
+    }
+
+    async fn execute_prepared(
+        &self,
+        slot: PreparedSlot,
+        cancellation: &aps_platform::CancellationToken,
+    ) -> Result<AnalysisResult, RuntimeError> {
+        let token = slot.token;
+        let conversation_id = slot.conversation_id.clone();
+        let run_id = slot.view.run_id.clone();
         let generation = slot.generation;
         let material = slot.take_material();
         let client = self
@@ -1313,12 +1370,6 @@ impl AiRuntime {
             crate::model::json_limits(1024 * 1024),
         )
         .map_err(|_| RuntimeError::Context)?;
-        let cancellation = aps_platform::CancellationToken::new();
-        if let Ok(cancelled) = self.cancelled_tokens.lock() {
-            if cancelled.contains(&token) {
-                cancellation.cancel();
-            }
-        }
         let result = if provider_kind == ProviderKind::Claude {
             let executable = crate::claude::find_executable()
                 .ok_or_else(|| RuntimeError::Provider("E_PROVIDER_MISSING_RUNTIME".into()))?;
@@ -1342,7 +1393,7 @@ impl AiRuntime {
                 &material.endpoint,
                 credential_kind,
                 &credential,
-                &cancellation,
+                cancellation,
             )
             .map_err(map_claude_error)?;
             AnalysisResult::validate(structured.as_bytes(), &material.request, &material.model)
@@ -1357,14 +1408,21 @@ impl AiRuntime {
                 schema_name: material.prompt.schema_name,
                 schema: &material.prompt.schema,
             };
-            let response = crate::responses::execute(&client, &credential, &request, &cancellation)
+            let response = crate::responses::execute(&client, &credential, &request, cancellation)
                 .await
                 .map_err(map_responses_error)?;
             AnalysisResult::validate(response.text.as_bytes(), &material.request, &response.model)
                 .map_err(|error| RuntimeError::Provider(error.to_string()))?
         };
-        if self.is_cancelled(token) {
-            self.forget_token(token);
+        // Linearize success with cancellation and newer approvals before writing
+        // either an artifact or the conversation result. No I/O await holds this lock.
+        let mut runs = self.runs.lock().map_err(|_| RuntimeError::Unavailable)?;
+        if cancellation.is_cancelled()
+            || !runs
+                .executing
+                .as_ref()
+                .is_some_and(|run| run.token == token)
+        {
             return Err(RuntimeError::Cancelled);
         }
         let artifact_hashes = if material.allow_artifacts {
@@ -1382,35 +1440,24 @@ impl AiRuntime {
             &result,
             artifact_hashes,
         );
-        self.forget_token(token);
+        runs.executing = None;
         Ok(result)
     }
 
     pub fn cancel(&self) {
-        if let Ok(mut cancelled) = self.cancelled_tokens.lock() {
-            if let Ok(mut prepared) = self.prepared.lock() {
-                if let Some(slot) = prepared.take() {
-                    cancelled.insert(slot.token);
-                    let _ = self.record_failure(
-                        &slot.conversation_id,
-                        &slot.view.run_id,
-                        RunStatus::Cancelled,
-                        "E_AI_CANCELLED",
-                    );
-                }
+        if let Ok(mut runs) = self.runs.lock() {
+            if let Some(run) = runs.executing.take() {
+                run.cancellation.cancel();
             }
-        }
-    }
-
-    fn is_cancelled(&self, token: u64) -> bool {
-        self.cancelled_tokens
-            .lock()
-            .is_ok_and(|cancelled| cancelled.contains(&token))
-    }
-
-    fn forget_token(&self, token: u64) {
-        if let Ok(mut cancelled) = self.cancelled_tokens.lock() {
-            cancelled.remove(&token);
+            if let Some(slot) = runs.prepared.take() {
+                slot.cancellation.cancel();
+                let _ = self.record_failure(
+                    &slot.conversation_id,
+                    &slot.view.run_id,
+                    RunStatus::Cancelled,
+                    "E_AI_CANCELLED",
+                );
+            }
         }
     }
 
@@ -1515,6 +1562,7 @@ fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError 
     match error {
         ResponsesError::Credential => RuntimeError::Credential,
         ResponsesError::Configuration => RuntimeError::Configuration,
+        ResponsesError::Cancelled => RuntimeError::Cancelled,
         ResponsesError::Transport => RuntimeError::Transport,
         ResponsesError::Timeout => RuntimeError::Timeout,
         ResponsesError::HttpStatus(status) => RuntimeError::HttpStatus(status),
@@ -1607,8 +1655,8 @@ mod tests {
                 .iter()
                 .any(|p| p == "SEND_SOURCE_SNIPPETS" || p == "READ_SOURCE_CANDIDATES")
         );
-        let slot = runtime.prepared.lock().unwrap();
-        let slot = slot.as_ref().unwrap();
+        let runs = runtime.runs.lock().unwrap();
+        let slot = runs.prepared.as_ref().unwrap();
         assert_eq!(slot.request.validate(), Ok(()));
         assert!(slot.request.scope.starts_with("HPROF-only"));
         assert!(
@@ -1686,8 +1734,8 @@ mod tests {
                 .unwrap();
             assert!(frozen.view.history.is_empty());
             assert_eq!(frozen.view.candidate_count, usize::from(include_source));
-            let slot = runtime.prepared.lock().unwrap();
-            let slot = slot.as_ref().unwrap();
+            let runs = runtime.runs.lock().unwrap();
+            let slot = runs.prepared.as_ref().unwrap();
             assert_eq!(slot.request.candidates.len(), usize::from(include_source));
             assert!(
                 slot.prompt
@@ -1750,8 +1798,8 @@ mod tests {
         assert_eq!(frozen.view.candidate_count, 0);
         assert!(frozen.view.sources.is_empty());
         assert!(frozen.view.history.is_empty());
-        let slot = runtime.prepared.lock().unwrap();
-        let slot = slot.as_ref().unwrap();
+        let runs = runtime.runs.lock().unwrap();
+        let slot = runs.prepared.as_ref().unwrap();
         assert_eq!(
             slot.request.memory_phase3_mode(),
             Some("memory-native-heap")
@@ -1915,6 +1963,101 @@ mod tests {
                     .unwrap())
             })
         }
+    }
+
+    #[test]
+    fn execution_cleans_owned_state_on_every_exit_and_cannot_replay_approval() {
+        let (_workspace, runtime) = workspace_runtime();
+        configure_test_provider(&runtime);
+        let success =
+            r#"{"model":"test-model","output_text":"{\"summary\":\"ok\",\"findings\":[]}"}"#;
+        for (body, credential, expected) in [
+            (None, false, Err(RuntimeError::Unavailable)),
+            (Some("{}"), false, Err(RuntimeError::Credential)),
+            (
+                Some("{}"),
+                true,
+                Err(RuntimeError::Provider("E_AI_RESPONSE_SCHEMA".into())),
+            ),
+            (Some(success), true, Ok(())),
+        ] {
+            let client = body.map(CatalogClient::new);
+            if let Some(client) = &client {
+                runtime.set_http_client(client.clone()).unwrap();
+            }
+            if credential {
+                runtime
+                    .set_credential(ProviderKind::Custom, CredentialKind::ApiKey, "fake-secret")
+                    .unwrap();
+            }
+            let frozen = runtime
+                .prepare(PrepareOptions {
+                    conversation_id: "cleanup-conversation".into(),
+                    context: None,
+                    question: Some("Explain".into()),
+                    include_source: false,
+                    direct_chat: true,
+                    parent_turn: None,
+                    parent_conversation: None,
+                    report_format: ReportFormat::Markdown,
+                    report_language: ReportLanguage::English,
+                    agent_id: "aps.chat".into(),
+                })
+                .unwrap();
+            // Public FrozenRun is deliberately not Clone; simulate a replay here.
+            let replay = FrozenRun {
+                view: frozen.view.clone(),
+                token: frozen.token,
+                conversation_id: frozen.conversation_id.clone(),
+                cancellation: frozen.cancellation.clone(),
+            };
+            let result = futures::executor::block_on(runtime.execute(frozen));
+            assert_eq!(result.map(|_| ()), expected);
+            assert!(replay.cancellation.is_cancelled());
+            {
+                let runs = runtime.runs.lock().unwrap();
+                assert!(runs.prepared.is_none());
+                assert!(runs.executing.is_none());
+            }
+            let requests = client
+                .as_ref()
+                .map(|client| client.requests.lock().unwrap().len());
+            assert!(matches!(
+                futures::executor::block_on(runtime.execute_inner(replay)),
+                Err(RuntimeError::Cancelled)
+            ));
+            assert_eq!(
+                client
+                    .as_ref()
+                    .map(|client| client.requests.lock().unwrap().len()),
+                requests
+            );
+        }
+    }
+
+    #[test]
+    fn execution_releases_token_when_result_persistence_is_unavailable() {
+        let (_workspace, runtime) = workspace_runtime();
+        configure_test_provider(&runtime);
+        runtime
+            .set_http_client(CatalogClient::new(
+                r#"{"model":"test-model","output_text":"{\"summary\":\"ok\",\"findings\":[]}"}"#,
+            ))
+            .unwrap();
+        runtime
+            .set_credential(ProviderKind::Custom, CredentialKind::ApiKey, "fake-secret")
+            .unwrap();
+        let frozen = runtime
+            .prepare(memory_options(crate::model::tests::source_request(), false))
+            .unwrap();
+        let cancellation = frozen.cancellation.clone();
+        runtime.conversations.lock().unwrap().take();
+        // Persistence remains best-effort; unavailable storage must not retain a token.
+        assert!(futures::executor::block_on(runtime.execute(frozen)).is_ok());
+        assert!(cancellation.is_cancelled());
+        let runs = runtime.runs.lock().unwrap();
+        assert!(runs.prepared.is_none());
+        assert!(runs.executing.is_none());
     }
 
     #[test]

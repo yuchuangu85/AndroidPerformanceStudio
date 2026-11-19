@@ -181,6 +181,9 @@ pub fn execute(
     credential: &crate::platform::AiSecret,
     token: &CancellationToken,
 ) -> Result<String, ClaudeError> {
+    if token.is_cancelled() {
+        return Err(ClaudeError::Cancelled);
+    }
     let environment = claude_environment(endpoint, credential_kind, credential)?;
     discover(executable, work_root, token)?;
     let work = aps_platform::TempWorkspace::create(work_root).map_err(|_| ClaudeError::Spawn)?;
@@ -223,6 +226,9 @@ pub fn execute(
     let output = ProcessRunner
         .run(&request, token)
         .map_err(|error| map_process_error(&error))?;
+    if token.is_cancelled() {
+        return Err(ClaudeError::Cancelled);
+    }
     if !output.status.success() {
         return Err(ClaudeError::ProcessExit);
     }
@@ -285,6 +291,69 @@ fn parse_envelope(stdout: &[u8]) -> Result<String, ClaudeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn cancellation_stops_the_dispatched_fake_cli_and_cleans_its_workspace() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::Instant;
+
+        let root = std::env::temp_dir().canonicalize().unwrap();
+        let workspace = aps_platform::TempWorkspace::create(&root).unwrap();
+        let executable = workspace.path().join("fake-claude");
+        let script = format!(
+            "#!/bin/sh\ncase \"$1\" in\n--version) printf '%s\\n' '2.1.286 (Claude Code)'; exit 0;;\n--help) printf '%s\\n' '{}'; exit 0;;\nesac\n/bin/cat >/dev/null\n: > provider-started\nwhile :; do /bin/sleep 1; done\n",
+            REQUIRED_FLAGS.join(" ")
+        );
+        std::fs::write(&executable, script).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let work_root = workspace.path().join("work");
+        aps_platform::create_private_directory(&work_root).unwrap();
+        let token = CancellationToken::new();
+        let worker_token = token.clone();
+        let worker_root = work_root.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let credential = crate::platform::AiSecret::new("fake-test-secret").unwrap();
+            let result = execute(
+                &executable,
+                &worker_root,
+                "test-model",
+                "test instructions",
+                "{}",
+                "{}",
+                "https://example.com",
+                crate::platform::CredentialKind::ApiKey,
+                &credential,
+                &worker_token,
+            );
+            sender.send(result).unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let dispatched = loop {
+            if std::fs::read_dir(&work_root)
+                .unwrap()
+                .any(|entry| entry.unwrap().path().join("provider-started").is_file())
+            {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        token.cancel();
+        let result = receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("prompt process cancellation");
+        worker.join().unwrap();
+        assert!(
+            dispatched,
+            "fake CLI must reach the actual provider operation"
+        );
+        assert_eq!(result.unwrap_err(), ClaudeError::Cancelled);
+        assert_eq!(std::fs::read_dir(work_root).unwrap().count(), 0);
+    }
 
     #[test]
     fn parses_a_success_envelope_only() {
