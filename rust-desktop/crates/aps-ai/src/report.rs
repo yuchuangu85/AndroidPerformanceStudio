@@ -30,9 +30,10 @@ impl fmt::Display for ReportError {
 }
 impl std::error::Error for ReportError {}
 
-/// Render and catalog one report. Returns the lowercase SHA-256 hex digest.
-pub fn write_artifact(
-    directory: &Path,
+/// Render a validated result, enforcing the same size limit for internal
+/// artifacts and user-selected destinations. Publication itself is owned by
+/// the caller (for example, the CLI's no-clobber output boundary).
+pub fn render_checked(
     result: &AnalysisResult,
     format: ReportFormat,
 ) -> Result<String, ReportError> {
@@ -40,13 +41,22 @@ pub fn write_artifact(
         ReportFormat::Html => render_html(result),
         ReportFormat::Markdown => render_markdown(result),
     };
-    if body.is_empty() || body.len() as u64 > MAX_REPORT_BYTES {
-        return Err(if body.is_empty() {
-            ReportError::Render
-        } else {
-            ReportError::Limit
-        });
+    if body.is_empty() {
+        return Err(ReportError::Render);
     }
+    if body.len() as u64 > MAX_REPORT_BYTES {
+        return Err(ReportError::Limit);
+    }
+    Ok(body)
+}
+
+/// Render and catalog one report. Returns the lowercase SHA-256 hex digest.
+pub fn write_artifact(
+    directory: &Path,
+    result: &AnalysisResult,
+    format: ReportFormat,
+) -> Result<String, ReportError> {
+    let body = render_checked(result, format)?;
     let digest = SourceDigest::hash_reader(body.as_bytes(), MAX_REPORT_BYTES)
         .map_err(|_| ReportError::Limit)?;
     let hash = digest.to_hex();
@@ -252,5 +262,15 @@ mod tests {
         );
         assert!(artifact_path(&directory, "../../etc/passwd").is_none());
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn render_checked_limits_host_exports_too() {
+        let mut result = result();
+        result.summary = "x".repeat(MAX_REPORT_BYTES as usize);
+        assert_eq!(
+            render_checked(&result, ReportFormat::Markdown),
+            Err(ReportError::Limit)
+        );
     }
 }

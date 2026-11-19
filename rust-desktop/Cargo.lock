@@ -280,6 +280,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "aps-cli"
+version = "0.1.0"
+dependencies = [
+ "aps-adb",
+ "aps-ai",
+ "aps-battery",
+ "aps-benchmark",
+ "aps-capture",
+ "aps-contracts",
+ "aps-cpu",
+ "aps-frame-mcp",
+ "aps-har-engine",
+ "aps-json",
+ "aps-layout-inspector",
+ "aps-memory",
+ "aps-method-recording",
+ "aps-perfetto",
+ "aps-platform",
+ "aps-startup",
+ "futures",
+ "gpui-pre-reqwest",
+ "serde_json",
+ "tempfile",
+ "zip",
+]
+
+[[package]]
 name = "aps-contracts"
 version = "0.1.0"
 dependencies = [
@@ -2680,6 +2707,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",

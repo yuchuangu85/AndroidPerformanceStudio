@@ -9,15 +9,16 @@
 
 ## 当前实现
 
-当前有三个独立的只读 stdio MCP Server：
+当前有一个统一摘要入口和三个专用的只读 stdio MCP Server：
 
+- [编排 MCP](orchestrator.md)：`aps mcp` 或 `aps-orchestrator-mcp`，可查询能力、预览计划；启动时由宿主绑定工件后，使用与 CLI 相同的解析器读取证据。这个入口不执行设备操作。
 - `aps-mcp`：离线 Memory HPROF 查询，启动时绑定 HPROF B、worker 和可选基线 HPROF A。
 - `aps-cpu-mcp`：离线 CPU 查询，绑定当前 SIMPLEPERF/Gecko profile 和可选基线。
 - `aps-frame-mcp`：离线帧查询。默认读取一份 FrameStats 或 v3 报告；显式绑定 APS 采集凭据
   与原始 Trace 后可查探针重叠，可另选一组基线输入做前后对比。
 
 这些 Server 都不接受工具调用中的任意本地路径、Shell 命令或远程监听地址；
-目前没有通用模块选择、动态 provider 注册或 HTTP/SSE 服务。
+编排入口可自动判别其支持的工件；它不代理或替换专用 Server 的全部细粒度工具，也不提供动态 provider 注册或 HTTP/SSE 服务。
 
 Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输出见
 [Memory MCP](memory.md)：
@@ -43,18 +44,18 @@ Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输�
   [卡顿簇](frame.md#frame_problem_clusters)、[分组](frame.md#frame_attributions)）。
   采集凭据模式增加[探针重叠](frame.md#frame_trace_overlaps)与
   [前后对比](frame.md#frame_session_compare)，对比需独立的可比基线。
-- [Startup](startup.md)：尚未注册 MCP 接口。
-- [Battery](battery.md)：尚未注册 MCP 接口。
-- [Network](network.md)：尚未注册 MCP 接口。
-- [GPU](gpu.md)：尚未注册 MCP 接口。
-- [Layout Inspector](layout-inspector.md)：尚未注册 MCP 接口。
-- [Capture](capture.md)：尚未注册 MCP 接口。
-- [Trace](trace.md)：尚未注册 MCP 接口。
-- [Benchmark](benchmark.md)：尚未注册 MCP 接口。
-- [Method Recording](method-recording.md)：尚未注册 MCP 接口。
-- [Source Workspaces](source-workspaces.md)：尚未注册 MCP 接口。
+- [Startup](startup.md)：尚无模块专用工具。
+- [Battery](battery.md)：尚无模块专用工具。
+- [Network](network.md)：尚无模块专用工具。
+- [GPU](gpu.md)：尚无模块专用工具。
+- [Layout Inspector](layout-inspector.md)：尚无模块专用工具。
+- [Capture](capture.md)：尚无模块专用工具。
+- [Trace](trace.md)：尚无模块专用工具。
+- [Benchmark](benchmark.md)：尚无模块专用工具。
+- [Method Recording](method-recording.md)：尚无模块专用工具。
+- [Source Workspaces](source-workspaces.md)：尚无模块专用工具。
 
-“尚未注册”表示当前没有该模块的 MCP 使用命令、输入参数或输出契约，不表示该模块
+“尚无模块专用工具”指没有模块专用工具；支持的工件仍可通过[统一编排入口](orchestrator.md)查询摘要，不表示该模块
 没有本地分析、GUI、采集或 AI 能力。模块文档分别说明这些区别，不提供虚构调用。
 
 ## 入口与数据流
@@ -68,6 +69,7 @@ Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输�
 - [Memory 页面创建 MCP context](../../../rust-desktop/crates/aps-app/src/import/memory/ai.rs)。
 
 ```text
+外部 MCP Client -> aps mcp --input FILE -> 统一证据摘要（无设备、下载、发模型或写报告工具）
 外部 MCP Client -> aps-mcp -> aps-memory-worker -> 目标 HPROF B / 可选基线 A
 外部 MCP Client -> aps-cpu-mcp -> 当前 CPU profile B / 可选基线 A
 外部 MCP Client -> aps-frame-mcp -> 选定的 FrameStats 或帧分析报告
@@ -90,6 +92,7 @@ cd rust-desktop
 cargo build --locked -p aps-memory --bin aps-memory-worker --bin aps-mcp
 cargo build --locked -p aps-cpu --bin aps-cpu-mcp
 cargo build --locked -p aps-frame-mcp
+cargo build --locked -p aps-cli --bins
 ```
 
 Debug 产物位于 `rust-desktop/target/debug/`，Windows 文件名带 `.exe`。

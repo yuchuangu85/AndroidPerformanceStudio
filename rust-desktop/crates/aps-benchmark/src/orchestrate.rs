@@ -294,6 +294,7 @@ pub fn run_macrobenchmark(
         .args(&command.arguments)
         .current_dir(&command.working_directory)
         .envs(&command.environment)
+        .env_remove("APS_CLI_AI_KEY") // Gradle never needs the host analysis credential.
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -75,3 +75,13 @@ a green workspace graph does **not** prove independent UI page state. Use
 module visibility, typed action/transfer contracts and focused behavior tests
 there. A CI pass also does not replace building the product, running its tests
 or validating the application with a real device.
+
+## Headless host
+
+`aps-cli` is a second composition root, not a dependency of the desktop or
+the profiler libraries. It selects existing analyzers and emits citeable,
+bounded sections. The CLI owns retrieval, scenario/target confirmation and
+explicit output destinations. Its stdio adapter binds one host-selected
+source and cannot execute those operations. The two hosts share the APS AI
+gateway and its curl transport; the CLI has separate, explicit provider
+configuration and cannot consume a desktop approval.

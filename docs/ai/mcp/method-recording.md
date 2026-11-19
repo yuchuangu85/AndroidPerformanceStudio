@@ -2,6 +2,8 @@
 
 [总览](README.md) | [Memory](memory.md)
 
+> **统一入口：** 对已绑定的ART 方法记录，可以用 [`aps_analyze_file`](orchestrator.md) 读取有界证据。下文的“未暴露”仅指模块专用工具；统一入口不做设备采集。
+
 ## 当前状态
 - 当前已实现 MCP 接口：**0**，Method Recording 没有注册 MCP 工具。
 - 当前 `aps-mcp` 服务端只注册 `memory_*` 工具，不提供方法事件访问。

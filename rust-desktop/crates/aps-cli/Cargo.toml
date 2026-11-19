@@ -1,0 +1,40 @@
+[package]
+name = "aps-cli"
+default-run = "aps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aps-adb.workspace = true
+aps-ai = { path = "../aps-ai" }
+aps-battery = { path = "../aps-battery" }
+aps-benchmark = { path = "../aps-benchmark" }
+aps-capture = { path = "../aps-capture" }
+aps-contracts = { path = "../aps-contracts" }
+aps-cpu = { path = "../aps-cpu" }
+aps-frame-mcp = { path = "../aps-frame-mcp" }
+aps-har-engine = { path = "../aps-har-engine" }
+aps-json = { path = "../aps-json" }
+aps-layout-inspector = { path = "../aps-layout-inspector" }
+aps-memory = { path = "../aps-memory" }
+aps-method-recording = { path = "../aps-method-recording" }
+aps-perfetto = { path = "../aps-perfetto" }
+aps-platform = { path = "../aps-platform" }
+aps-startup = { path = "../aps-startup" }
+futures = "=0.3.34"
+reqwest = { package = "gpui-pre-reqwest", version = "=0.12.15", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
+serde_json.workspace = true
+tempfile = "=3.27.0"
+
+[[bin]]
+name = "aps"
+path = "src/main.rs"
+
+[[bin]]
+name = "aps-orchestrator-mcp"
+path = "src/bin/aps_orchestrator_mcp.rs"
+
+[dev-dependencies]
+zip = { version = "=9.4.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }

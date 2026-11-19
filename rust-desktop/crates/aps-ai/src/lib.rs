@@ -5,12 +5,18 @@ mod catalog;
 mod chat;
 mod claude;
 pub mod conversation;
+pub mod curl_client;
 pub mod frame_edit;
 pub(crate) mod mcp;
 mod model;
 mod persistence;
 pub mod platform;
-mod report;
+/// Report rendering for validated analysis results.
+///
+/// The desktop runtime still uses the content-addressed artifact store.  The
+/// public module is also used by a headless host, which must verify the write
+/// itself instead of treating a successful model response as a report.
+pub mod report;
 mod responses;
 pub mod runtime;
 mod sse;

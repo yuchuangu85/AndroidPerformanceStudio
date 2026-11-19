@@ -349,7 +349,7 @@ impl ConfirmedCapture {
                 {
                     return Err("selected converter changed since capture planning".into());
                 }
-                let bytes = convert_bounded(converter, &raw.path, &self.handle.cancel)?;
+                let bytes = convert_bounded(converter, &raw.path, &self.handle.cancel, false)?;
                 atomic_write(&output, &bytes)
                     .map_err(|_| "cannot write bounded protobuf artifact")?;
                 Some(artifact(
@@ -506,16 +506,40 @@ impl Drop for SessionCleanup {
         }
     }
 }
+/// Validate the header, sections, and record boundaries, not semantic sample
+/// quality. A well-formed raw recording may have no observed samples.
+pub fn validate_offline_perf_data(bytes: &[u8]) -> Result<(), String> {
+    perf_data::validate(bytes).map(|_| ())
+}
+
+/// Reuse capture's fixed, timed converter invocation for explicit host-owned
+/// offline analysis. The host selects/trusts the executable, owns the private
+/// input directory, validates its bytes, and must parse the returned protobuf.
+pub fn convert_offline_perf_data(
+    converter: &Path,
+    snapshot: &Path,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, String> {
+    if !converter.is_absolute() || !snapshot.is_absolute() {
+        return Err("offline conversion requires absolute host-selected paths".into());
+    }
+    convert_bounded(converter, snapshot, cancel, true)
+}
 #[cfg(unix)]
 fn convert_bounded(
     converter: &Path,
     input: &Path,
     cancel: &CancellationToken,
+    offline: bool,
 ) -> Result<Vec<u8>, String> {
     let mut process = ProcessRequest::new(converter)
         .args(["report-sample", "--protobuf", "--show-callchain", "-i"])
         .arg(input)
         .args(["-o", "/dev/stdout"]);
+    if offline {
+        process.env_clear = true;
+        process.cwd = input.parent().map(Path::to_path_buf);
+    }
     process.timeout = Duration::from_secs(180);
     process.stdout_limit = MAX_ARTIFACT as usize;
     process.stderr_limit = 1024 * 1024;
@@ -529,7 +553,7 @@ fn convert_bounded(
     Ok(result.stdout)
 }
 #[cfg(not(unix))]
-fn convert_bounded(_: &Path, _: &Path, _: &CancellationToken) -> Result<Vec<u8>, String> {
+fn convert_bounded(_: &Path, _: &Path, _: &CancellationToken, _: bool) -> Result<Vec<u8>, String> {
     Err("bounded converter output is not supported on this host; capture raw perf.data without conversion".into())
 }
 fn validate_protobuf_prefix(bytes: &[u8]) -> Result<(), String> {

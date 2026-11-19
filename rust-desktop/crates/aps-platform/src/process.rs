@@ -193,7 +193,11 @@ impl ProcessRunner {
         if request.env_clear {
             command.env_clear();
         }
-        command.envs(&request.environment);
+        // The headless provider credential belongs only to its approved HTTP
+        // request. ADB, profilers and other tool subprocesses never need it.
+        command
+            .envs(&request.environment)
+            .env_remove("APS_CLI_AI_KEY");
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;

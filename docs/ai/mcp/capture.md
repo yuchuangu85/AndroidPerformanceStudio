@@ -2,6 +2,8 @@
 
 [总览](README.md) | [Memory](memory.md)
 
+> [CLI 采集](../headless-cli.md) 支持受审的定时 CPU 录制和已有 Macrobenchmark 场景。统一 MCP 的 `aps_run_plan` 只提供步骤预览，不执行这些操作。
+
 ## 当前状态
 - 当前已实现 MCP 接口：**0**，Capture 模块没有注册 MCP 工具。
 - 当前 `aps-mcp` 服务端只注册 `memory_*` 工具，不提供采集控制。

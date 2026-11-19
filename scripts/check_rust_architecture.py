@@ -10,6 +10,8 @@ import sys
 NORMAL = {
     'app': 'adb ai battery benchmark capture contracts cpu frame gpu json layout-inspector memory '
            'method-recording network perfetto platform source startup storage ui-foundation',
+    'cli': 'adb ai battery benchmark capture contracts cpu frame-mcp har-engine json layout-inspector '
+           'memory method-recording perfetto platform startup',
     'adb': 'platform', 'ai': 'contracts json platform', 'battery': 'adb json platform',
     'benchmark': 'contracts json', 'capture': 'adb contracts platform', 'contracts': 'primitives',
     'cpu': 'simpleperf-engine json contracts', 'frame': '', 'frame-mcp': 'contracts frame json',

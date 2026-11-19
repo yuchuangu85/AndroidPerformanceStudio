@@ -38,7 +38,7 @@ cargo build --locked -p aps-cpu --bin aps-cpu-mcp
 只有对比调用返回 `-32001`。其余 7 个工具始终读取当前 B。两个输入均支持
 SIMPLEPERF protobuf 或 Gecko / Firefox Profiler v24 JSON。
 原始 `perf.data`、gzip 和会话包不是此入口的直接输入，须先通过桌面导入流程转换或
-解压成支持的 profile；server 不启动 converter。Windows 产物后缀为 `.exe`。
+解压成支持的 profile；这个专用 server 不启动 converter。另有[编排 MCP](orchestrator.md) 可以在 Unix 宿主显式配置可信 `APS_SIMPLEPERF` 时对原始 perf.data 做有界离线转换并返回摘要，但不改变此处 8 个工具的输入合同。Windows 产物后缀为 `.exe`。
 
 外部 Client 的配置示意（路径替换为实际构建产物与所选 profile）：
 
