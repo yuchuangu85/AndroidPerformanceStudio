@@ -13,6 +13,7 @@ pub mod frame_timeline;
 pub mod gfxinfo;
 pub mod model;
 mod parser;
+pub mod probe;
 
 use std::fs::File;
 use std::io::Read;

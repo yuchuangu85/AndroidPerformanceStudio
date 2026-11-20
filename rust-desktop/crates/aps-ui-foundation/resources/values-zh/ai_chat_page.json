@@ -33,6 +33,7 @@
   "ai_chat_copied": "已复制",
   "ai_chat_edit_question": "编辑问题",
   "ai_chat_branch_from_here": "从此处分支",
+  "ai_chat_report_not_published": "分析已完成，但报告未保存。没有重新请求模型。",
   "ai_chat_open_verified_report": "打开已验证报告",
   "ai_chat_no_references": "无引用",
   "ai_chat_retry": "重试",

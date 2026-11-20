@@ -60,7 +60,7 @@ fn fetch(client: &Client, url: Url, limit: u64) -> Result<SelectedInput, String>
     // Do not propagate a reqwest error (it can contain a signed URL).
     // Preserve only the two known trace type hints. Never reuse host-provided
     // names/content-disposition, credentials or arbitrary URL path components.
-    let trace_suffix = if crate::trace::has_trace_extension(Path::new(url.path())) {
+    let trace_suffix = if crate::analysis::has_trace_extension(Path::new(url.path())) {
         ".pftrace"
     } else {
         ""

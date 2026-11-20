@@ -39,7 +39,7 @@ APS 作为 MCP Server，AI Host 负责启动 MCP Server、调用工具、冻结 
 MCP Server 位于：
 
 ```text
-rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs
+rust-desktop/crates/aps-memory/src/mcp/main.rs
 ```
 
 构建入口：
@@ -116,7 +116,7 @@ Server 只接受一个明确选择的 HPROF 和一个明确的 `aps-memory-worke
 内置 AI 的 MCP Host 位于：
 
 ```text
-rust-desktop/crates/aps-ai/src/mcp.rs
+rust-desktop/crates/aps-ai/src/mcp/mod.rs
 ```
 
 Memory HPROF 请求会携带一个仅由 APS 生成的 MCP context，包含：

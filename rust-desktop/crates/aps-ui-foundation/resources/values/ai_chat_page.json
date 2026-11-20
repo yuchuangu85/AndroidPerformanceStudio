@@ -33,6 +33,7 @@
   "ai_chat_copied": "Copied",
   "ai_chat_edit_question": "Edit question",
   "ai_chat_branch_from_here": "Branch from here",
+  "ai_chat_report_not_published": "Analysis succeeded, but the report was not saved. The model request was not retried.",
   "ai_chat_open_verified_report": "Open verified report",
   "ai_chat_no_references": "No references",
   "ai_chat_retry": "Retry",

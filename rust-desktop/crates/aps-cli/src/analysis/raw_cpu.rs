@@ -51,7 +51,7 @@ pub fn analyze(raw: &[u8], raw_sha: &str) -> Result<serde_json::Value, String> {
         return Err("E_RAW_CPU_CHANGED: converter or input snapshot changed".into());
     }
     let pb_sha = SourceDigest::hash_reader(&protobuf[..], aps_capture::MAX_ARTIFACT)?.to_hex();
-    let mut projection = crate::cpu_evidence(&protobuf, "perf-data-converted")?;
+    let mut projection = super::cpu_evidence(&protobuf, "perf-data-converted")?;
     projection["conversion"] = serde_json::json!({
         "rawSha256":raw_sha,"protobufSha256":pb_sha,"converterSha256":tool_sha.to_hex(),
         "rawBytes":raw.len(),"protobufBytes":protobuf.len(),"conversion":"host-simpleperf-report-sample-v1",

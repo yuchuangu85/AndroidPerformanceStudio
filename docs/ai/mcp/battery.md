@@ -37,4 +37,4 @@
 - [电池快照与差异 API](../../../rust-desktop/crates/aps-battery/src/lib.rs)
 - [实时采集边界](../../../rust-desktop/crates/aps-battery/src/capture.rs)
 - [电池模块说明](../../../rust-desktop/crates/aps-battery/README.md)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

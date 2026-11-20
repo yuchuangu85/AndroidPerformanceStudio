@@ -1,8 +1,8 @@
 //! Verified HTML/Markdown report artifacts for validated AI results.
 //!
 //! Only the schema-validated AnalysisResult is written; raw provider output is
-//! never persisted or replayed. Files are SHA-256 addressed under the Rust-owned
-//! artifact directory, written atomically and only reopened by catalogued hash.
+//! never persisted or replayed. Desktop archives by SHA-256 under its own
+//! directory; a terminal host publishes only to its user-selected destination.
 
 use crate::AnalysisResult;
 use crate::platform::ReportFormat;
@@ -50,20 +50,48 @@ pub fn render_checked(
     Ok(body)
 }
 
-/// Render and catalog one report. Returns the lowercase SHA-256 hex digest.
+/// Receipt for the exact bytes a host has successfully published. Contains no path
+/// and carries no permission to write or reopen an artifact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportReceipt {
+    pub sha256: String,
+    pub format: ReportFormat,
+}
+
+/// One bounded rendering and one host-owned write. A receipt is returned only
+/// if the sink commits the bytes; the sink owns destination and overwrite policy.
+pub fn publish(
+    result: &AnalysisResult,
+    format: ReportFormat,
+    write: impl FnOnce(&str, &[u8]) -> Result<(), ReportError>,
+) -> Result<ReportReceipt, ReportError> {
+    let body = render_checked(result, format)?;
+    let digest = SourceDigest::hash_reader(body.as_bytes(), MAX_REPORT_BYTES)
+        .map_err(|_| ReportError::Limit)?;
+    let sha256 = digest.to_hex();
+    write(&sha256, body.as_bytes())?;
+    Ok(ReportReceipt { sha256, format })
+}
+
+pub(crate) fn archive(
+    directory: &Path,
+    result: &AnalysisResult,
+    format: ReportFormat,
+) -> Result<ReportReceipt, ReportError> {
+    publish(result, format, |sha256, bytes| {
+        aps_platform::create_private_directory(directory).map_err(|_| ReportError::Write)?;
+        let path = directory.join(format!("{sha256}.{}", format.extension()));
+        aps_platform::atomic_write(&path, bytes).map_err(|_| ReportError::Write)
+    })
+}
+
+/// Compatibility entry point for the content-addressed archive.
 pub fn write_artifact(
     directory: &Path,
     result: &AnalysisResult,
     format: ReportFormat,
 ) -> Result<String, ReportError> {
-    let body = render_checked(result, format)?;
-    let digest = SourceDigest::hash_reader(body.as_bytes(), MAX_REPORT_BYTES)
-        .map_err(|_| ReportError::Limit)?;
-    let hash = digest.to_hex();
-    aps_platform::create_private_directory(directory).map_err(|_| ReportError::Write)?;
-    let path = directory.join(format!("{hash}.{}", format.extension()));
-    aps_platform::atomic_write(&path, body.as_bytes()).map_err(|_| ReportError::Write)?;
-    Ok(hash)
+    archive(directory, result, format).map(|receipt| receipt.sha256)
 }
 
 pub fn artifact_path(directory: &Path, hash: &str) -> Option<PathBuf> {
@@ -266,11 +294,27 @@ mod tests {
 
     #[test]
     fn render_checked_limits_host_exports_too() {
+        use crate::task::{AnalysisOutcome, ReportOutcome};
         let mut result = result();
         result.summary = "x".repeat(MAX_REPORT_BYTES as usize);
         assert_eq!(
             render_checked(&result, ReportFormat::Markdown),
             Err(ReportError::Limit)
         );
+        let format = ReportFormat::Markdown;
+        let publication = publish(&result, format, |_, _| {
+            panic!("render failure precedes write")
+        });
+        let mut outcome = AnalysisOutcome {
+            result,
+            report: ReportOutcome::from_publication(format, publication),
+        };
+        for original in [outcome.report.clone(), ReportOutcome::NotRequested] {
+            outcome.report = original.clone();
+            assert_eq!(
+                *outcome.retry_report_write(|_, _| panic!("no approved write to retry")),
+                original
+            );
+        }
     }
 }

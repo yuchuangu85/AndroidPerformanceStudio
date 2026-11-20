@@ -38,4 +38,4 @@
 - [采集确认与资源边界说明](../../../rust-desktop/crates/aps-capture/README.md)
 - [桌面 CPU 采集工作区](../../../rust-desktop/crates/aps-app/src/capture.rs)
 - [Destination 状态定义](../../../rust-desktop/crates/aps-ui-foundation/src/lib.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

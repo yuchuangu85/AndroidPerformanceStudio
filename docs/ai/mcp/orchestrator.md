@@ -13,7 +13,14 @@ cargo build --locked -p aps-cli --bins
 # 等价的专用入口：./target/debug/aps-orchestrator-mcp --input /absolute/path/to/capture.har
 ```
 
-客户端配置示例（替换成本机路径；Windows 可执行文件带 `.exe`）：
+按所用客户端任选一条注册命令（替换为本机绝对路径，只绑定愿意交给该客户端分析的文件）：
+
+```sh
+codex mcp add aps-analysis -- /absolute/path/to/aps mcp --input /absolute/path/to/capture.har
+claude mcp add --scope local --transport stdio aps-analysis -- /absolute/path/to/aps mcp --input /absolute/path/to/capture.har
+```
+
+其他支持 stdio 的客户端可使用等价配置（Windows 可执行文件带 `.exe`）：
 
 ```json
 {
@@ -42,7 +49,31 @@ Unix 宿主若要读取原始 `perf.data`，须在启动前显式配置 `APS_SIM
 
 - **`aps_capabilities`**：参数 `{}`。返回本会话是否绑定输入、可用分析类型与只读权限；不联系设备或网络。
 - **`aps_run_plan`**：必须给 `intent: "analyze" | "macrobenchmark" | "cpu-capture"`，可加 `question`。返回 `status: "preview"`、`executed: false` 和建议步骤；不是批准、采集或执行回执。
-- **`aps_analyze_file`**：仅在启动时成功绑定了可解析的本地文件或宿主下载副本时可发现。参数 `{}` 或 `{"question":"…"}`。返回与 CLI 共享的证据，包括 `input.sourceDigest` 和可引用的 `evidence.items[].id`、`label`、`value`。问题不会改变输入、筛选条件或测量结果。更细的热点、对象或帧分页查询仍用专用 Server。
+- **`aps_analyze_file`**：仅在启动时成功绑定了可解析的本地文件或宿主下载副本时可发现。参数 `{}` 或 `{"question":"…"}`。返回与 CLI 共享的证据，包括 `input.sourceDigest` 和可引用的 `evidence.items[].id`、`label`、`value`。问题文本不改变输入或测量结果。绑定 Frame 输入时，还可给 `{"scope":"report"}` 或 `{"frameId":"17"}`（可加 `question`，两种选择互斥）；分别等价于 CLI 的 `--scope report` 和 `--frame-id 17`。帧证据中的 `frameId` 为十进制字符串，可原样回传；安全整数范围内也接受数字输入。省略选择器仍返回原聚合摘要；非法或不存在的 ID 不会退回摘要。显式范围的证据含 `analysisPolicyVersion`；报告最多包含 8 行，缺失值不会冒充实测零。更细的热点、对象、帧归因和对比仍用专用 Server。
+
+- **`aps_follow_up`**：只在绑定工件时注册。先从 `aps_analyze_file` 的响应取出 `input.sourceDigest`，每次原样传回。可用的 `query` 以当前 `tools/list` 中的枚举为准。摘要是调用前置条件，不是授权其他文件的句柄。
+
+### 在同一工件内追加取证
+
+外部客户端根据上一步结果决定下一次工具调用，APS 不运行调查循环。可以直接问：
+
+> 找出最慢的三个请求，再看整份记录的等待阶段有没有足够样本。分别引用证据 ID，不要把整份 HAR 的统计归因到某个请求。
+
+1. 调用 `aps_analyze_file({})` 取得摘要与 `input.sourceDigest`。
+2. 对同一份 HAR 调用 `aps_follow_up`，参数为 `{"sourceDigest":"<上一步64位摘要>","query":"har_slowest","limit":3}`。只返回耗时已知的前十个慢请求中的一页；`entryIndex` 从 0 开始，`status` 和 `durationMs` 不包含 URL、headers 或 body。`total` 是保留的排名条数，不是全部请求数。
+3. 如仍需证据，以同一摘要调用 `{"sourceDigest":"<同上>","query":"har_phases"}`，查看固定七阶段的样本数、缺失数、无效数和毫秒统计。SSL 属于 connect 的一部分，不应重复相加。
+
+Frame 可问：「找出错过截止时间的帧，再看其中一帧的阶段耗时。」先用 `query:"frame_rows", view:"deadline_misses"`（默认视图为 `all`），再把某行 `value.frameId` 的十进制字符串原样传给已有的 `aps_analyze_file({"frameId":"…"})`。错过截止时间不等于平台已判定卡顿。
+
+对所有支持的工件，`query:"evidence_item"` 配合 `evidenceId` 可精确取回**无范围摘要中的一项**，保留原引用 ID；它不会产生额外测量，不能按任意键或 JSON 路径遍历。报告中应同时引用 `sourceDigest` 与 `items[].id`。
+
+**追问边界：**
+- 每个服务进程绑定单一工件，最多 **8 次追问**。结果包含 `remainingQueries`；也可通过 `aps_capabilities.followUpRemaining` 查看。查询参数合法且摘要匹配后即扣除一次配额，即使随后页越界、证据 ID 不存在或结果超限。错误摘要、未知操作或非法参数不会消耗次数。配额不改变已有工具的行为。
+- 分页默认 8 条，每页 1–16 条。`offset` 按匹配行计，从 0 开始；等于 `total` 返回空末页，超过则报错。`nextOffset:null` 表示该查询无下一页；证据充分或预算用尽时应停止，不应自动重启进程来绕过配额。
+- 每次取证复核绑定文件；检测到移除或变更后，本进程不再发布该工件的证据。新工具单次正文不超过 **32 KiB**。非法查询或页码返回 `-32602`，有效格式但不匹配的来源或失效绑定返回 `-32001`，预算用尽或响应超限返回 `-32002`。
+- 追问不接收自然语言指令、SQL、文件路径、URL、设备命令或报告路径；只查绑定时冻结的数据，不重新解析、下载或调用模型。没有任务存储或常驻服务，关闭 stdin 即结束。
+
+**其他工具的协议示例：**
 
 ```jsonl
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"aps_capabilities","arguments":{}}}

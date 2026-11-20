@@ -9,9 +9,9 @@
 
 ## 当前实现
 
-当前有一个统一摘要入口和三个专用的只读 stdio MCP Server：
+当前有一个统一分析入口和三个专用的只读 stdio MCP Server：
 
-- [编排 MCP](orchestrator.md)：`aps mcp` 或 `aps-orchestrator-mcp`，可查询能力、预览计划；启动时由宿主绑定工件后，使用与 CLI 相同的解析器读取证据。这个入口不执行设备操作。
+- [编排 MCP](orchestrator.md)：`aps mcp` 或 `aps-orchestrator-mcp`，可查询能力、预览计划；启动时由宿主绑定工件后，使用与 CLI 相同的解析器读取证据，并可通过 `aps_follow_up` 在该工件内按限额追问。这个入口不执行设备操作。
 - `aps-mcp`：离线 Memory HPROF 查询，启动时绑定 HPROF B、worker 和可选基线 HPROF A。
 - `aps-cpu-mcp`：离线 CPU 查询，绑定当前 SIMPLEPERF/Gecko profile 和可选基线。
 - `aps-frame-mcp`：离线帧查询。默认读取一份 FrameStats 或 v3 报告；显式绑定 APS 采集凭据
@@ -60,12 +60,12 @@ Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输�
 
 ## 入口与数据流
 
-- [Memory Server 入口与工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)。
+- [Memory Server 入口](../../../rust-desktop/crates/aps-memory/src/mcp/main.rs)与[工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)。
 - [Frame Server 入口](../../../rust-desktop/crates/aps-frame-mcp/src/main.rs)及
   [工具注册](../../../rust-desktop/crates/aps-frame-mcp/src/query.rs)。
 - [HPROF worker 及分页边界](../../../rust-desktop/crates/aps-memory/src/worker.rs)。
 - [共享类级比较](../../../rust-desktop/crates/aps-memory/src/comparison.rs)：`aps_memory::compare_snapshots`。
-- [AI Host 固定预取与校验](../../../rust-desktop/crates/aps-ai/src/mcp.rs)。
+- [AI Host 固定预取与校验](../../../rust-desktop/crates/aps-ai/src/mcp/mod.rs)。
 - [Memory 页面创建 MCP context](../../../rust-desktop/crates/aps-app/src/import/memory/ai.rs)。
 
 ```text

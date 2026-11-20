@@ -38,4 +38,4 @@
 - [二进制格式解析](../../../rust-desktop/crates/aps-method-recording/src/parser.rs)
 - [标准文本首部格式解析](../../../rust-desktop/crates/aps-method-recording/src/parser/standard.rs)
 - [调用栈重放与时长分析](../../../rust-desktop/crates/aps-method-recording/src/replay.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

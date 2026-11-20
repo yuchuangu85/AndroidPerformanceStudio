@@ -1,9 +1,7 @@
 use crate::ANALYSIS_POLICY_VERSION;
-use crate::input::parse_source;
-use crate::labels;
+use aps_analysis::frame::{IMPORT_WARNING, coverage, labels, parse_source, summary};
 use aps_frame::analysis::{
-    AnalyzedFrame, FrameAnalysisResult, FrameDeadlineVerdict, FrameJankAnalyzer, FrameSummary,
-    is_problem_frame,
+    AnalyzedFrame, FrameAnalysisResult, FrameDeadlineVerdict, FrameJankAnalyzer, is_problem_frame,
 };
 use aps_frame::model::{FrameSample, FrameSource};
 use serde_json::{Map, Value, json};
@@ -136,12 +134,7 @@ impl Arguments {
         let (session_id, frame_id) = if matches!(name, "frame_detail" | "frame_trace_overlaps") {
             let session = text(object, "sessionId", 128)?.ok_or("Missing sessionId")?;
             let frame = text(object, "frameId", 20)?.ok_or("Missing frameId")?;
-            if !frame.bytes().all(|byte| byte.is_ascii_digit())
-                || (frame.len() > 1 && frame.starts_with('0'))
-            {
-                return Err("frameId must be a canonical unsigned decimal string".into());
-            }
-            let frame_id = frame.parse().map_err(|_| "frameId exceeds u64")?;
+            let frame_id = aps_analysis::frame::parse_frame_id(frame)?;
             (Some(session.to_owned()), Some(frame_id))
         } else {
             (None, None)
@@ -344,14 +337,9 @@ pub(crate) fn project(
         "analysisPolicyVersion":ANALYSIS_POLICY_VERSION,
         "inputFormat":input_format,
         "provenanceComplete":false,
-        "provenanceWarnings":["Imported input; source labels and context are producer-provided evidence, not independently verified device provenance."],
+        "provenanceWarnings":[IMPORT_WARNING],
         "filter":args.filter.json(),
-        "coverage":{
-            "inputFrames":input_frames,
-            "matchedFrames":analysis.frames.len(),
-            "framesWithoutIntendedVsync":analysis.frames.iter().filter(|frame| frame.sample.intended_vsync_ns.is_none()).count(),
-            "framesWithoutDuration":analysis.frames.iter().filter(|frame| frame.sample.resolved_duration_ns().is_none()).count()
-        }
+        "coverage":coverage(analysis,input_frames)
     });
     match name {
         "frame_session_summary" => {
@@ -569,26 +557,4 @@ fn frame_detail(frame: &AnalyzedFrame) -> Value {
         .expect("frame projection is an object")
         .extend(extra.as_object().expect("extra is an object").clone());
     output
-}
-
-fn summary(summary: &FrameSummary) -> Value {
-    json!({
-        "totalFrames":summary.total_frames,
-        "deadlineClassifiedFrames":summary.deadline_classified_frames,
-        "deadlineMissFrames":summary.deadline_miss_frames,
-        "deadlineUnknownFrames":summary.deadline_unknown_frames,
-        "deadlineMissRate":summary.deadline_miss_rate,
-        "platformClassifiedFrames":summary.platform_classified_frames,
-        "platformJankFrames":summary.platform_jank_frames,
-        "platformUnknownFrames":summary.platform_unknown_frames,
-        "platformJankRate":summary.platform_jank_rate,
-        "jankStatsClassifiedFrames":summary.jank_stats_classified_frames,
-        "jankStatsJankFrames":summary.jank_stats_jank_frames,
-        "jankStatsUnknownFrames":summary.total_frames - summary.jank_stats_classified_frames,
-        "jankStatsJankRate":summary.jank_stats_jank_rate,
-        "p50DurationNs":summary.p50_duration_ns,
-        "p95DurationNs":summary.p95_duration_ns,
-        "p99DurationNs":summary.p99_duration_ns,
-        "worstDurationNs":summary.worst_duration_ns
-    })
 }

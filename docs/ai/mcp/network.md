@@ -2,7 +2,7 @@
 
 [总览](README.md) | [Memory](memory.md)
 
-> **统一入口：** 对已绑定的HAR，可以用 [`aps_analyze_file`](orchestrator.md) 读取有界证据。下文的“未暴露”仅指模块专用工具；统一入口不做设备采集。
+> **统一入口：** 对已绑定的HAR，可以用 [`aps_analyze_file`](orchestrator.md) 读取摘要，再用 `aps_follow_up` 的 `har_slowest` / `har_phases` 读取有限排名和阶段统计。下文的“未暴露”仅指模块专用工具；统一入口不做设备采集。
 
 ## 当前状态
 - 当前已实现 MCP 接口：**0**，Network 模块没有注册 MCP 工具。
@@ -37,4 +37,4 @@
 - [网络会话与查询 API](../../../rust-desktop/crates/aps-network/src/lib.rs)
 - [Agent 观测模型](../../../rust-desktop/crates/aps-network/src/observed.rs)
 - [脱敏与覆盖说明](../../../rust-desktop/crates/aps-network/README.md)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

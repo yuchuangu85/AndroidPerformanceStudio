@@ -100,7 +100,10 @@ impl CaptureMeta {
         let android_api = u32::try_from(doc["androidApi"].as_u64()?).ok()?;
         let pid = i32::try_from(doc["pid"].as_u64()?).ok()?;
         let frame_count = usize::try_from(doc["frameCount"].as_u64()?).ok()?;
-        if android_api < 31 || pid == 0 || !(1..=crate::input::MAX_FRAMES).contains(&frame_count) {
+        if android_api < 31
+            || pid == 0
+            || !(1..=aps_analysis::frame::MAX_FRAMES).contains(&frame_count)
+        {
             return None;
         }
         let refresh_rates_hz = doc["refreshRatesHz"]

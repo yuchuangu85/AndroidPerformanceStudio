@@ -37,4 +37,4 @@
 - [启动会话与指标模型](../../../rust-desktop/crates/aps-startup/src/lib.rs)
 - [平台实验与确认边界](../../../rust-desktop/crates/aps-startup/src/capture.rs)
 - [启动模块说明](../../../rust-desktop/crates/aps-startup/README.md)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

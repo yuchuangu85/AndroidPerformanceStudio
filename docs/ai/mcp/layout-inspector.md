@@ -38,4 +38,4 @@
 - [Agent 优先与 ADB 回退](../../../rust-desktop/crates/aps-layout-inspector/src/compatible.rs)
 - [编译器报告解析](../../../rust-desktop/crates/aps-layout-inspector/src/compiler_report.rs)
 - [主机导入协议](../../../rust-desktop/crates/aps-layout-inspector/src/protocol.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

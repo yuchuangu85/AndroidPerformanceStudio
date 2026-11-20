@@ -8,18 +8,19 @@ import sys
 
 # Short names omit the common aps- prefix. The shell composes features, not engines.
 NORMAL = {
-    'app': 'adb ai battery benchmark capture contracts cpu frame gpu json layout-inspector memory '
+    'app': 'adb ai analysis battery benchmark capture contracts cpu frame gpu json layout-inspector memory '
            'method-recording network perfetto platform source startup storage ui-foundation',
-    'cli': 'adb ai battery benchmark capture contracts cpu frame-mcp har-engine json layout-inspector '
+    'cli': 'adb ai analysis battery benchmark capture contracts cpu har-engine json layout-inspector '
            'memory method-recording perfetto platform startup',
+    'analysis': 'contracts frame json',
     'adb': 'platform', 'ai': 'contracts json platform', 'battery': 'adb json platform',
     'benchmark': 'contracts json', 'capture': 'adb contracts platform', 'contracts': 'primitives',
-    'cpu': 'simpleperf-engine json contracts', 'frame': '', 'frame-mcp': 'contracts frame json',
+    'cpu': 'simpleperf-engine json contracts', 'frame': '', 'frame-mcp': 'analysis contracts frame json',
     'gpu': 'adb contracts json perfetto platform',
     'har-engine': '', 'hprof-engine': 'primitives', 'json': '',
     'layout-inspector': 'adb contracts json platform protocol', 'memory': 'hprof-engine platform',
     'method-recording': '', 'network': 'contracts har-engine json platform',
-    'perfetto': 'contracts platform', 'platform': '', 'primitives': '',
+    'perfetto': 'contracts frame platform', 'platform': '', 'primitives': '',
     'protocol': 'contracts primitives', 'simpleperf-engine': 'primitives',
     'source': 'contracts platform', 'startup': 'adb perfetto platform', 'storage': 'contracts json source',
     'ui-foundation': '',

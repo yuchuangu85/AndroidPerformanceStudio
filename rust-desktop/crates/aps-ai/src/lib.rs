@@ -20,6 +20,7 @@ pub mod report;
 mod responses;
 pub mod runtime;
 mod sse;
+pub mod task;
 mod transport;
 
 pub use approval::{Approval, ApprovalScope, AuthorizedRun, PreparedRun, RunCoordinator};

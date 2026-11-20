@@ -36,4 +36,4 @@
 - [本地提供方](../../../rust-desktop/crates/aps-source/src/provider.rs)
 - [基于索引的定位](../../../rust-desktop/crates/aps-source/src/resolver.rs)
 - [桌面工作区 service](../../../rust-desktop/crates/aps-app/src/source/service.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

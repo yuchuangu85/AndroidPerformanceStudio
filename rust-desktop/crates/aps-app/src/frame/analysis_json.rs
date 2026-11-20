@@ -282,6 +282,91 @@ mod tests {
     }
 
     #[test]
+    fn gui_export_and_headless_projection_agree_for_report_and_selection() {
+        use aps_analysis::frame::FrameScope;
+        let directory = TestDirectory::new("cross-surface");
+        let output = directory.path().join("frame-analysis.json");
+        let analyzer = FrameJankAnalyzer::default();
+        let mut samples: Vec<_> = (1..=12).map(sample).collect();
+        samples[10].source = FrameSource::Perfetto;
+        samples[10].states.insert(
+            aps_frame::FRAME_TIMELINE_JANK_TAG.into(),
+            "Self Jank".into(),
+        );
+        let live = analyzer.analyze(&samples);
+        export_json(&live, &output).unwrap();
+        let bytes = std::fs::read(output).unwrap();
+        let offline = aps_analysis::frame::FrameReport::from_bytes(&bytes).unwrap();
+        let reopened = analyzer.analyze(
+            &parse_export(std::str::from_utf8(&bytes).unwrap(), "import-local-session").unwrap(),
+        );
+
+        // The exact same source binding gives identical IDs. A live GUI session
+        // retains its own identity, even if it exports the same measured facts.
+        for selection in [None, Some(11)] {
+            let gui = super::super::ai::analysis_request(&live, selection)
+                .unwrap()
+                .evidence
+                .remove(0);
+            let same_source =
+                super::super::ai::analysis_request_for_file(&reopened, selection, offline.digest())
+                    .unwrap()
+                    .evidence
+                    .remove(0);
+            let scope = selection.map_or(FrameScope::Report, FrameScope::Selected);
+            let headless = offline.analysis_evidence(scope).unwrap();
+            assert_eq!(headless.kind, gui.kind);
+            assert_eq!(headless.summary, gui.summary);
+            assert_eq!(headless.payload, same_source.payload);
+            assert_eq!(
+                headless.payload["deadlineMissFrames"],
+                gui.payload["deadlineMissFrames"]
+            );
+            assert_ne!(headless.id, gui.id);
+            assert_eq!(headless.id, same_source.id);
+            if selection.is_some() {
+                assert_eq!(gui.payload["frames"][0]["timelineStatus"], "SELF_JANK");
+            } else {
+                assert_eq!(gui.payload["includedFrames"], 8);
+                assert_eq!(gui.payload["omittedFrames"], 4);
+            }
+        }
+        assert!(offline.analysis_evidence(FrameScope::Selected(13)).is_err());
+    }
+
+    #[test]
+    fn unbound_export_cannot_attest_gui_probe_measurements() {
+        use aps_analysis::frame::FrameScope;
+        let mut frame = sample(1);
+        frame.source = FrameSource::Perfetto;
+        frame.states.insert(
+            "aps.trace.0".into(),
+            "APS.Frame/1111111111111111 4242 900 -1 Main".into(),
+        );
+        let live = FrameJankAnalyzer::default().analyze(&[frame]);
+        let gui = super::super::ai::analysis_request(&live, Some(1)).unwrap();
+        assert_eq!(
+            gui.evidence[0].payload["frames"][0]["appTraceOverlaps"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let directory = TestDirectory::new("probe-boundary");
+        let output = directory.path().join("frame-analysis.json");
+        export_json(&live, &output).unwrap();
+        let offline =
+            aps_analysis::frame::FrameReport::from_bytes(&std::fs::read(output).unwrap()).unwrap();
+        let projection = offline.analysis_evidence(FrameScope::Selected(1)).unwrap();
+        assert!(projection.payload["frames"][0]["appTraceOverlaps"].is_null());
+        let imported =
+            super::super::ai::analysis_request_for_file(&live, Some(1), offline.digest()).unwrap();
+        assert_eq!(imported.evidence[0].id, projection.id);
+        assert_eq!(imported.evidence[0].payload, projection.payload);
+    }
+
+    #[test]
     fn old_gfxinfo_report_uses_valid_present_instead_of_corrupt_cached_total() {
         let raw = r#"{"schemaVersion":3,"frames":[{"frameId":54,"source":"GFXINFO",
             "intendedVsyncNs":143095415515627,"frameCompletedNs":50314768791126339,

@@ -1,90 +1,44 @@
-//! Frame Analyzer metadata-only AI context.
-//!
-//! Port of Compose FrameAiContext.kt plus the shared boundedAiContext policy:
-//! reports contain at most eight frame rows. A selected frame can also include
-//! fixed stage metrics and up to eight validated probe overlaps. Raw
-//! per-frame states, rule versions, arbitrary strings and SQL never do. The
-//! payload is bounded JSON and the evidence id is a SHA-256 binding of the
-//! analysis session id and the serialized payload.
-
+//! Frame Analyzer GUI request adapter. Evidence selection, bounds, and
+//! projection are shared with offline analysis; probe planning stays here.
 use aps_ai::{AnalysisRequest, Evidence};
+use aps_analysis::frame::{FrameEvidence, FrameScope, project, project_file};
 use aps_contracts::SourceDigest;
 use aps_frame::FrameAnalysisResult;
-use aps_json::{Limits, Map, Value};
 
-const MAX_INCLUDED_FRAMES: usize = 8;
-const MAX_PAYLOAD_BYTES: u64 = 8 * 1024;
-const EVIDENCE_SUMMARY: &str = "Deadline misses and platform Jank are distinct signals";
-
-fn payload_limits() -> Limits {
-    Limits {
-        max_bytes: MAX_PAYLOAD_BYTES,
-        max_depth: 8,
-        max_nodes: 4_000,
-        max_string_bytes: 2_048,
-        max_collection_items: 256,
-    }
-}
-
-/// Compose frameAiContext: a stale selected id fails closed instead of
-/// silently falling back to a summary context.
 pub(in crate::frame) fn analysis_request(
     analysis: &FrameAnalysisResult,
     selected_frame_id: Option<u64>,
 ) -> Result<AnalysisRequest, String> {
-    if analysis.frames.is_empty() {
-        return Err("Import or capture frames before AI analysis".to_owned());
-    }
-    let selected = match selected_frame_id {
-        Some(frame_id) => Some(
-            analysis
-                .frames
-                .iter()
-                .find(|frame| frame.sample.frame_id == frame_id)
-                .ok_or_else(|| "The selected frame is no longer available".to_owned())?,
-        ),
-        None => None,
-    };
-    let rows: Vec<&aps_frame::analysis::AnalyzedFrame> = match selected {
-        Some(frame) => vec![frame],
-        None => analysis.frames.iter().take(MAX_INCLUDED_FRAMES).collect(),
-    };
-    let payload = payload(analysis, &rows, selected.is_some());
-    let payload_bytes = aps_json::to_vec(&payload, payload_limits())
-        .map_err(|_| "Selected frame evidence exceeds the AI context budget")?;
-    let session_identity = analysis
-        .frames
-        .first()
-        .map(|frame| frame.sample.session_id.as_str())
-        .unwrap_or_default();
-    let mut identity = Vec::with_capacity(session_identity.len() + payload_bytes.len() + 2);
-    identity.extend_from_slice(session_identity.as_bytes());
-    identity.push(0);
-    identity.extend_from_slice(&payload_bytes);
-    let digest =
-        SourceDigest::hash_reader(identity.as_slice(), MAX_PAYLOAD_BYTES.saturating_add(4_096))
-            .map_err(|_| "Cannot bind the selected frame evidence".to_owned())?;
-    let kind = if selected.is_some() {
-        "frame-selection"
-    } else {
-        "frame-summary"
-    };
-    Ok(AnalysisRequest {
+    let scope = selected_frame_id.map_or(FrameScope::Report, FrameScope::Selected);
+    Ok(request(project(analysis, scope)?))
+}
+
+pub(in crate::frame) fn analysis_request_for_file(
+    analysis: &FrameAnalysisResult,
+    selected_frame_id: Option<u64>,
+    digest: SourceDigest,
+) -> Result<AnalysisRequest, String> {
+    let scope = selected_frame_id.map_or(FrameScope::Report, FrameScope::Selected);
+    Ok(request(project_file(analysis, scope, digest)?))
+}
+
+fn request(projection: FrameEvidence) -> AnalysisRequest {
+    AnalysisRequest {
         session_id: "frame-view".to_owned(),
         run_id: "frame-selection".to_owned(),
         generation: 1,
         profiler: "frame".to_owned(),
         scope: "Frame evidence".to_owned(),
         evidence: vec![Evidence {
-            id: format!("{kind}:{}", digest.to_hex()),
-            kind: kind.to_owned(),
-            summary: EVIDENCE_SUMMARY.to_owned(),
-            payload,
+            id: projection.id,
+            kind: projection.kind.to_owned(),
+            summary: projection.summary.to_owned(),
+            payload: projection.payload,
         }],
         candidates: Vec::new(),
         user_question: None,
         mcp: None,
-    })
+    }
 }
 
 /// No model output is executed. The measurement question, not arbitrary
@@ -121,131 +75,6 @@ pub(super) fn probe_plan(
     Ok(r)
 }
 
-fn payload(
-    analysis: &FrameAnalysisResult,
-    rows: &[&aps_frame::analysis::AnalyzedFrame],
-    selected: bool,
-) -> Value {
-    let summary = &analysis.summary;
-    let mut object = Map::new();
-    object.insert("timeUnit".into(), Value::String("nanoseconds".into()));
-    object.insert(
-        "totalFrames".into(),
-        Value::from(summary.total_frames as u64),
-    );
-    object.insert(
-        "deadlineMissFrames".into(),
-        Value::from(summary.deadline_miss_frames as u64),
-    );
-    object.insert(
-        "deadlineUnknownFrames".into(),
-        Value::from(summary.deadline_unknown_frames as u64),
-    );
-    object.insert(
-        "platformJankFrames".into(),
-        Value::from(summary.platform_jank_frames as u64),
-    );
-    object.insert(
-        "platformUnknownFrames".into(),
-        Value::from(summary.platform_unknown_frames as u64),
-    );
-    object.insert(
-        "p95DurationNs".into(),
-        summary.p95_duration_ns.map_or(Value::Null, Value::from),
-    );
-    object.insert("includedFrames".into(), Value::from(rows.len() as u64));
-    object.insert(
-        "omittedFrames".into(),
-        Value::from(if selected {
-            0
-        } else {
-            analysis.frames.len().saturating_sub(rows.len()) as u64
-        }),
-    );
-    object.insert(
-        "frames".into(),
-        Value::Array(
-            rows.iter()
-                .map(|frame| {
-                    let sample = &frame.sample;
-                    let mut value = Map::new();
-                    value.insert("frameId".into(), Value::from(sample.frame_id));
-                    if selected {
-                        value.insert(
-                            "timelineStatus".into(),
-                            Value::from(aps_frame::frame_timeline_status(sample).as_name()),
-                        );
-                        let stages: Map<String, Value> = sample
-                            .stages
-                            .values()
-                            .into_iter()
-                            .filter(|(_, ns)| *ns >= 0)
-                            .map(|(label, ns)| (label.to_owned(), Value::from(ns)))
-                            .collect();
-                        value.insert("reportedStageNs".into(), Value::Object(stages));
-                        value.insert(
-                            "appTraceOverlaps".into(),
-                            Value::Array(
-                                super::perfetto::probes(sample)
-                                    .into_iter()
-                                    .map(|p| {
-                                        let mut item = Map::new();
-                                        item.insert("marker".into(), Value::from(p.marker));
-                                        item.insert("tid".into(), Value::from(p.tid));
-                                        item.insert(
-                                            "threadRole".into(),
-                                            Value::from(p.role.label()),
-                                        );
-                                        item.insert(
-                                            "windowOverlapNs".into(),
-                                            Value::from(p.overlap_ns),
-                                        );
-                                        item.insert(
-                                            "observedScheduledNs".into(),
-                                            p.scheduled_ns.map_or(Value::Null, Value::from),
-                                        );
-                                        Value::Object(item)
-                                    })
-                                    .collect(),
-                            ),
-                        );
-                    }
-                    value.insert(
-                        "durationNs".into(),
-                        sample
-                            .resolved_duration_ns()
-                            .map_or(Value::Null, Value::from),
-                    );
-                    value.insert(
-                        "expectedDurationNs".into(),
-                        sample
-                            .known_expected_duration_ns()
-                            .map_or(Value::Null, Value::from),
-                    );
-                    value.insert(
-                        "deadlineVerdict".into(),
-                        Value::String(frame.deadline_verdict.as_name().to_owned()),
-                    );
-                    value.insert(
-                        "platformJank".into(),
-                        sample.platform_jank.map_or(Value::Null, Value::Bool),
-                    );
-                    value.insert(
-                        "droppedBeforeSample".into(),
-                        Value::from(sample.dropped_before_sample),
-                    );
-                    value.insert(
-                        "source".into(),
-                        Value::String(sample.source.as_name().to_owned()),
-                    );
-                    Value::Object(value)
-                })
-                .collect(),
-        ),
-    );
-    Value::Object(object)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +83,7 @@ mod tests {
     use aps_frame::{
         ExpectedDurationSource, FrameDeadlineVerdict, FrameSample, FrameSource, JankSeverity,
     };
+    use aps_json::Limits;
     use std::collections::{BTreeMap, BTreeSet};
 
     fn sample(frame_id: u64, total_duration_ns: Option<i64>) -> FrameSample {
@@ -405,11 +235,32 @@ mod tests {
         ] {
             assert!(!text.contains(forbidden), "{forbidden} leaked");
         }
-        assert_eq!(request.evidence[0].summary, EVIDENCE_SUMMARY);
+        assert_eq!(
+            request.evidence[0].summary,
+            "Deadline misses and platform Jank are distinct signals"
+        );
         assert!(request.candidates.is_empty());
         assert_eq!(request.generation, 1);
         assert_eq!(request.session_id, "frame-view");
         assert_eq!(request.profiler, "frame");
+    }
+
+    #[test]
+    fn measured_probe_is_bounded_and_evidence_remains_session_bound() {
+        let mut frame = analyzed(3, Some(20_000));
+        frame.sample.source = FrameSource::Perfetto;
+        frame.sample.states.insert(
+            "aps.trace.0".into(),
+            "APS.Frame/1111111111111111 7 9500 -1 Other".into(),
+        );
+        let first = analysis_request(&analysis(vec![frame.clone()]), Some(3)).unwrap();
+        let overlap = &first.evidence[0].payload["frames"][0]["appTraceOverlaps"][0];
+        assert_eq!(overlap["windowOverlapNs"], 9500);
+        assert!(overlap["observedScheduledNs"].is_null());
+        frame.sample.session_id = "another-session".into();
+        let second = analysis_request(&analysis(vec![frame]), Some(3)).unwrap();
+        assert_eq!(first.evidence[0].payload, second.evidence[0].payload);
+        assert_ne!(first.evidence[0].id, second.evidence[0].id);
     }
 
     #[test]

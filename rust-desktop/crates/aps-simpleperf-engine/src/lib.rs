@@ -1,5 +1,6 @@
 //! Experimental independent Simpleperf parser/projection; Kotlin remains unchanged.
 mod analysis;
+mod cli;
 mod protocol;
 mod query;
 pub mod simpleperf;

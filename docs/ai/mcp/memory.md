@@ -3,10 +3,10 @@
 [返回 MCP 总览](README.md)
 
 本页记录当前已注册的 5 个 Memory 工具，依据为
-[Server](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)、
+[Server](../../../rust-desktop/crates/aps-memory/src/mcp/main.rs)、
 [worker](../../../rust-desktop/crates/aps-memory/src/worker.rs) 和
 [共享类级比较](../../../rust-desktop/crates/aps-memory/src/comparison.rs)；
-[AI Host](../../../rust-desktop/crates/aps-ai/src/mcp.rs) 仍只预取原有 3 个工具。
+[AI Host](../../../rust-desktop/crates/aps-ai/src/mcp/mod.rs) 仍只预取原有 3 个工具。
 
 ## 数据输入与启动方式
 

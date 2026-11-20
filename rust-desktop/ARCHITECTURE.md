@@ -36,13 +36,13 @@ python3 -B scripts/check_rust_architecture.py
   may consume the Simpleperf engine, and storage may implement source repository
   contracts. These directed edges do not entitle the reverse direction. Shared
   hash/encoding primitives belong to `aps-primitives`, not an analyzer.
-* **Read-only Frame MCP adapter.** `aps-frame-mcp` consumes the public Frame
-  domain model, bounded JSON parser and source-digest contract. It owns its
+* **Read-only Frame MCP adapter.** `aps-frame-mcp` consumes the shared Frame
+  report reader and evidence projections from `aps-analysis`. It owns its
   selected-input stdio executable; it does not depend on the application shell
   or Memory. The desktop owns capture/export and records report/trace identities
   separately in its data directory; the adapter checks a locally trusted receipt
   and both selected files. It never derives file paths or capture authority from
-  report contents. Only desktop tests depend on the adapter, to exercise both ends
+  report contents. Only desktop tests depend on the MCP adapter, to exercise both ends
   of this file contract. The existing Memory MCP executable stays compatible.
 
 To add a module or edge, review the *reason and direction*, classify it and
@@ -85,3 +85,46 @@ explicit output destinations. Its stdio adapter binds one host-selected
 source and cannot execute those operations. The two hosts share the APS AI
 gateway and its curl transport; the CLI has separate, explicit provider
 configuration and cannot consume a desktop approval.
+
+### Where CLI and MCP code lives
+
+* `aps-cli/src/cli/` is the terminal host: command dispatch, CPU capture,
+  benchmark scenarios, model confirmation and no-clobber output. The two
+  executable targets point to `cli/main.rs` and `mcp/main.rs`.
+* `aps-cli/src/mcp/` owns only the source-bound stdio server. Startup binds
+  the host-selected input; `stdio.rs` frames messages, `protocol.rs` dispatches
+  JSON-RPC, `tools.rs` describes and handles the read-only tools, and
+  `source.rs` guards access to the frozen result. `follow_up.rs` validates
+  fixed, analyzer-specific selectors. The binding owns the per-process query
+  budget and revalidates its source; projections never get the selected path.
+  The external client owns the investigation loop. Both MCP entry points
+  invoke this same implementation.
+* Put a new offline analyzer adapter in `aps-cli/src/analysis/`, not in either
+  frontend. Input acquisition and capability discovery are shared host modules;
+  the neutral evidence contract itself belongs in `aps-analysis`.
+  `aps-cli/src/lib.rs` keeps existing library import paths via re-exports.
+* Dedicated servers stay with their domain:
+  `aps-memory/src/mcp/`, `aps-cpu/src/cpu_mcp/`, or the existing
+  `aps-frame-mcp` crate. `aps-ai/src/mcp/` is a **client**, not another
+  implementation of the Memory server. The Benchmark command is in
+  `aps-benchmark/src/cli/`; the HAR and Simpleperf engine commands likewise
+  live under their own `src/cli/`. Their reusable parsers, validation and
+  the benchmark runner are not CLI code.
+
+### Shared analysis and AI task contracts
+
+* `aps-analysis` accepts data, not paths or commands. Its Frame reader hashes
+  the exact bytes being parsed. Both MCP hosts and the CLI use this reader;
+  the CLI does not depend on an MCP server crate. The desktop retains its
+  rich import model and passes its analysis, verified file digest and
+  `FrameScope` to the same bounded evidence projector. Plain files cannot
+  attest trace-probe overlaps. Live desktop reviews keep their session binding.
+  Other profilers still use their existing projections; this is not a rewrite
+  of every GUI page. The common v1 evidence envelope retains the original
+  unscoped section IDs for scripts.
+* `aps-ai::task` defines run states, failure classification and report outcomes.
+  A validated analysis can coexist with a failed report write. Both hosts use
+  the same bounded renderer and receipt for the committed bytes. Only the
+  desktop archives by hash; only the CLI chooses a no-clobber output path.
+  A retained answer can retry a failed local write without calling a model;
+  there is no cross-process resume or shared approval token.

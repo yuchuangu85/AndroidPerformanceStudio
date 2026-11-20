@@ -119,38 +119,7 @@ fn attach_probes(
     }
 }
 
-pub(super) fn probes(frame: &FrameSample) -> Vec<aps_perfetto::frame_probes::Probe> {
-    use aps_perfetto::frame_probes::{PER_FRAME, Probe, valid_marker};
-    if frame.source != aps_frame::FrameSource::Perfetto {
-        return Vec::new();
-    }
-    (0..PER_FRAME)
-        .filter_map(|i| {
-            let raw = frame.states.get(&format!("aps.trace.{i}"))?;
-            let mut fields = raw.split(' ');
-            let marker = fields.next()?;
-            let tid = fields.next()?.parse().ok()?;
-            let overlap_ns = fields.next()?.parse().ok()?;
-            let running: i64 = fields.next()?.parse().ok()?;
-            let role = aps_perfetto::frame_probes::ThreadRole::parse(fields.next()?)?;
-            if fields.next().is_some()
-                || !valid_marker(marker)
-                || tid <= 0
-                || !(1..=frame.resolved_duration_ns()?).contains(&overlap_ns)
-                || !(-1..=overlap_ns).contains(&running)
-            {
-                return None;
-            }
-            Some(Probe {
-                marker: marker.to_owned(),
-                role,
-                tid,
-                overlap_ns,
-                scheduled_ns: (running >= 0).then_some(running),
-            })
-        })
-        .collect()
-}
+pub(super) use aps_frame::probe::probes;
 
 fn map_rows(
     rows: Vec<aps_perfetto::frame_timeline::FrameTimelineRow>,

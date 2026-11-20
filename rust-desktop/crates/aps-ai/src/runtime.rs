@@ -19,64 +19,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-/// Compose RunStatus projection used by both the window and settings history.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RunStatus {
-    Queued,
-    Preparing,
-    AwaitingApproval,
-    Running,
-    Succeeded,
-    Cancelled,
-    RetryableFailure,
-    PermanentFailure,
-    Interrupted,
-}
-
-impl RunStatus {
-    pub fn terminal(self) -> bool {
-        matches!(
-            self,
-            Self::Succeeded
-                | Self::Cancelled
-                | Self::RetryableFailure
-                | Self::PermanentFailure
-                | Self::Interrupted
-        )
-    }
-    pub fn allows_chat_retry(self) -> bool {
-        matches!(
-            self,
-            Self::RetryableFailure | Self::PermanentFailure | Self::Interrupted
-        )
-    }
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Preparing => "preparing",
-            Self::AwaitingApproval => "awaiting_approval",
-            Self::Running => "running",
-            Self::Succeeded => "succeeded",
-            Self::Cancelled => "cancelled",
-            Self::RetryableFailure => "retryable_failure",
-            Self::PermanentFailure => "permanent_failure",
-            Self::Interrupted => "interrupted",
-        }
-    }
-    pub fn from_id(value: &str) -> Self {
-        match value {
-            "queued" => Self::Queued,
-            "preparing" => Self::Preparing,
-            "awaiting_approval" => Self::AwaitingApproval,
-            "running" => Self::Running,
-            "succeeded" => Self::Succeeded,
-            "cancelled" => Self::Cancelled,
-            "retryable_failure" => Self::RetryableFailure,
-            "interrupted" => Self::Interrupted,
-            _ => Self::PermanentFailure,
-        }
-    }
-}
+pub use crate::task::RunStatus;
+use crate::task::{AnalysisOutcome, ReportOutcome};
 
 /// Sidebar row for one persisted conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,11 +203,18 @@ impl RuntimeError {
     /// Retryable failures are network/timeout/rate-limit cases; schema,
     /// credential, approval and configuration failures are permanent.
     pub fn retryable(&self) -> bool {
+        self.run_status() == RunStatus::RetryableFailure
+    }
+
+    pub fn run_status(&self) -> RunStatus {
         match self {
-            Self::Transport | Self::Timeout => true,
-            Self::HttpStatus(status) => *status == 408 || *status == 429 || *status >= 500,
-            _ => false,
+            Self::Cancelled => crate::AiError::Cancelled,
+            Self::Transport => crate::AiError::Transport,
+            Self::Timeout => crate::AiError::Timeout,
+            Self::HttpStatus(status) => crate::AiError::HttpStatus(*status),
+            _ => return RunStatus::PermanentFailure,
         }
+        .run_status()
     }
 }
 
@@ -1291,23 +1242,32 @@ impl AiRuntime {
     /// Execute a frozen run. The approval is consumed exactly once; cancellation
     /// or a newer generation prevents publication of a late response.
     pub async fn execute(&self, frozen: FrozenRun) -> Result<AnalysisResult, RuntimeError> {
+        self.execute_with_outcome(frozen)
+            .await
+            .map(|outcome| outcome.result)
+    }
+
+    /// As execute, additionally distinguishing a disabled report, committed
+    /// report and report failure without changing the approved model outcome.
+    pub async fn execute_with_outcome(
+        &self,
+        frozen: FrozenRun,
+    ) -> Result<AnalysisOutcome, RuntimeError> {
         let conversation_id = frozen.conversation_id.clone();
         let run_id = frozen.view.run_id.clone();
         let result = self.execute_inner(frozen).await;
         if let Err(error) = &result {
-            let status = if *error == RuntimeError::Cancelled {
-                RunStatus::Cancelled
-            } else if error.retryable() {
-                RunStatus::RetryableFailure
-            } else {
-                RunStatus::PermanentFailure
-            };
-            let _ = self.record_failure(&conversation_id, &run_id, status, &error.to_string());
+            let _ = self.record_failure(
+                &conversation_id,
+                &run_id,
+                error.run_status(),
+                &error.to_string(),
+            );
         }
         result
     }
 
-    async fn execute_inner(&self, frozen: FrozenRun) -> Result<AnalysisResult, RuntimeError> {
+    async fn execute_inner(&self, frozen: FrozenRun) -> Result<AnalysisOutcome, RuntimeError> {
         let token = frozen.token;
         let cancellation = frozen.cancellation;
         let slot = {
@@ -1344,7 +1304,7 @@ impl AiRuntime {
         &self,
         slot: PreparedSlot,
         cancellation: &aps_platform::CancellationToken,
-    ) -> Result<AnalysisResult, RuntimeError> {
+    ) -> Result<AnalysisOutcome, RuntimeError> {
         let token = slot.token;
         let conversation_id = slot.conversation_id.clone();
         let run_id = slot.view.run_id.clone();
@@ -1425,12 +1385,17 @@ impl AiRuntime {
         {
             return Err(RuntimeError::Cancelled);
         }
-        let artifact_hashes = if material.allow_artifacts {
-            crate::report::write_artifact(&self.artifacts_dir, &result, material.report_format)
-                .map(|hash| vec![hash])
-                .unwrap_or_default()
+        let report = if material.allow_artifacts {
+            ReportOutcome::from_publication(
+                material.report_format,
+                crate::report::archive(&self.artifacts_dir, &result, material.report_format),
+            )
         } else {
-            Vec::new()
+            ReportOutcome::NotRequested
+        };
+        let artifact_hashes = match &report {
+            ReportOutcome::Written(receipt) => vec![receipt.sha256.clone()],
+            _ => Vec::new(),
         };
         let _ = material.report_language;
         let _ = self.persist_success(
@@ -1441,7 +1406,7 @@ impl AiRuntime {
             artifact_hashes,
         );
         runs.executing = None;
-        Ok(result)
+        Ok(AnalysisOutcome { result, report })
     }
 
     pub fn cancel(&self) {

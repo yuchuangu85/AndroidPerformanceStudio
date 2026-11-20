@@ -3,47 +3,10 @@
 use crate::{PerfettoError, TraceSession};
 use aps_platform::CancellationToken;
 
-pub const PER_FRAME: usize = 8;
-const MAX_MATCHES: usize = 4096;
-pub fn valid_marker(name: &str) -> bool {
-    name.strip_prefix("APS.Frame/").is_some_and(|id| {
-        id.len() == 16 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-    })
-}
+// Retain the Perfetto-facing API; the pure encoding also belongs to offline reports.
+pub use aps_frame::probe::{PER_FRAME, Probe, ThreadRole, valid_marker};
 
-/// Only fixed roles may leave the trace; never attach arbitrary thread names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ThreadRole {
-    Main,
-    RenderThread,
-    Other,
-}
-impl ThreadRole {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Main => "Main",
-            Self::RenderThread => "RenderThread",
-            Self::Other => "Other",
-        }
-    }
-    pub fn parse(role: &str) -> Option<Self> {
-        match role {
-            "Main" => Some(Self::Main),
-            "RenderThread" => Some(Self::RenderThread),
-            "Other" => Some(Self::Other),
-            _ => None,
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Probe {
-    pub marker: String,
-    pub tid: i64,
-    pub role: ThreadRole,
-    pub overlap_ns: i64,
-    /// Observed scheduled time only; no scheduling evidence is not zero.
-    pub scheduled_ns: Option<i64>,
-}
+const MAX_MATCHES: usize = 4096;
 
 impl TraceSession {
     pub fn frame_probes(

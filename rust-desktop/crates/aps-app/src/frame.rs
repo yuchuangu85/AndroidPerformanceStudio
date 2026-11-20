@@ -107,6 +107,9 @@ pub struct FrameWorkspace {
     pub(in crate::frame) selected_process_pid: Option<i32>,
     pub(in crate::frame) pending_process_pid: Option<i32>,
     pub(in crate::frame) analysis: Option<Arc<FrameAnalysisResult>>,
+    // Set only when File > Open parsed and verified these exact Frame report bytes.
+    // A live capture, associated trace, or history label cannot supply this identity.
+    review_file_digest: Option<SourceDigest>,
     pub(in crate::frame) filtered_analysis: Option<Arc<FrameAnalysisResult>>,
     pub(in crate::frame) imported_file_name: Option<String>,
     pub(in crate::frame) import_timing: ImportTiming,
@@ -162,6 +165,7 @@ impl FrameWorkspace {
             pending_process_pid: None,
             analysis: None,
             filtered_analysis: None,
+            review_file_digest: None,
             imported_file_name: None,
             import_timing: ImportTiming::default(),
             observed_refresh_rates_hz: Vec::new(),
@@ -463,6 +467,7 @@ impl FrameWorkspace {
                         this.artifact = None;
                         this.current_session = Some(loaded.session.clone());
                         this.apply_analysis(loaded.analysis, cx);
+                        this.review_file_digest = loaded.review_file_digest;
                         this.import_timing = ImportTiming::completed(started);
                         this.operation_status = Some(model::FrameOperationStatus::ImportedFrames {
                             frame_count: this
@@ -561,6 +566,7 @@ impl FrameWorkspace {
         // cost. Import callers record their own duration after publication.
         self.mcp_publication = None;
         self.import_timing.clear();
+        self.review_file_digest = None;
         self.selected_frame_id = analysis.frames.first().map(|frame| frame.sample.frame_id);
         self.observed_refresh_rates_hz = observed_refresh_rates(&analysis);
         self.analysis = Some(Arc::new(analysis));
@@ -702,6 +708,7 @@ impl FrameWorkspace {
                         this.imported_file_name = None;
                         this.import_timing.clear();
                         this.analysis = None;
+                        this.review_file_digest = None;
                         this.filtered_analysis = None;
                         this.selected_frame_id = None;
                         this.perfetto_trace_file = None;
@@ -1361,7 +1368,10 @@ impl FrameWorkspace {
             .analysis
             .as_deref()
             .ok_or_else(|| "Import or capture frames before AI analysis".to_owned())?;
-        ai::analysis_request(analysis, self.selected_frame_id)
+        match self.review_file_digest {
+            Some(digest) => ai::analysis_request_for_file(analysis, self.selected_frame_id, digest),
+            None => ai::analysis_request(analysis, self.selected_frame_id),
+        }
     }
 
     pub(crate) fn can_analyze(&self) -> bool {
@@ -1404,6 +1414,7 @@ fn observed_refresh_rates(analysis: &FrameAnalysisResult) -> Vec<f64> {
 }
 
 struct LoadedFrameStats {
+    review_file_digest: Option<SourceDigest>,
     analysis: FrameAnalysisResult,
     session: FrameCaptureSession,
     frames: Vec<FrameSample>,
@@ -1558,6 +1569,7 @@ fn decode_frame_stats(
         .chain(session.provenance_warnings.clone())
         .collect();
     Ok(LoadedFrameStats {
+        review_file_digest: Some(digest),
         analysis,
         session,
         frames,
@@ -1636,6 +1648,7 @@ fn import_perfetto_blocking(
     };
     let analysis = FrameJankAnalyzer::default().analyze(&frames);
     Ok(LoadedFrameStats {
+        review_file_digest: None,
         analysis,
         session,
         frames,
@@ -2173,6 +2186,31 @@ Flags,IntendedVsync,Vsync,HandleInputStart,AnimationStart,PerformTraversalsStart
         assert_eq!(loaded.session.source, FrameSource::Gfxinfo);
         assert_eq!(loaded.warnings.len(), 1);
         assert!(loaded.warnings[0].contains("framestats file"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn opened_file_uses_same_scoped_evidence_as_headless_not_gui_history_id() {
+        use aps_analysis::frame::FrameScope;
+        let directory = TestDirectory::new();
+        let stats = directory.path().join("framestats.txt");
+        std::fs::write(&stats, FRAMESTATS).unwrap();
+        for path in [stats, exported(directory.path())] {
+            let bytes = std::fs::read(&path).unwrap();
+            let offline = aps_analysis::frame::FrameReport::from_bytes(&bytes).unwrap();
+            let gui = import_frame_stats_blocking(path, "local-history-id".into()).unwrap();
+            let digest = gui.review_file_digest.unwrap();
+            assert_eq!(offline.digest(), digest);
+            assert_eq!(gui.session.id, "local-history-id");
+            for selection in [None, Some(gui.frames[0].frame_id)] {
+                let request =
+                    ai::analysis_request_for_file(&gui.analysis, selection, digest).unwrap();
+                let evidence = offline
+                    .analysis_evidence(selection.map_or(FrameScope::Report, FrameScope::Selected))
+                    .unwrap();
+                assert_eq!(request.evidence[0].payload, evidence.payload);
+                assert_eq!(request.evidence[0].id, evidence.id);
+            }
+        }
     }
 
     #[::core::prelude::v1::test]

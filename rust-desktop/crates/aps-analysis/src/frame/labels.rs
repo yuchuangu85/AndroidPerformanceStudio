@@ -2,11 +2,11 @@
 use aps_frame::FrameSample;
 use std::collections::HashMap;
 
-pub(crate) const MAX_LABEL_BYTES: usize = 512;
-pub(crate) const REDACTED_REASON: &str = "";
+pub const MAX_LABEL_BYTES: usize = 512;
+pub const REDACTED_REASON: &str = "";
 const PRIVATE_CONTEXT_PREFIX: char = '\0';
 
-pub(crate) fn bounded(text: &str) -> bool {
+pub(super) fn bounded(text: &str) -> bool {
     !text.trim().is_empty()
         && text.len() <= MAX_LABEL_BYTES
         && !text.chars().any(|c| {
@@ -16,7 +16,7 @@ pub(crate) fn bounded(text: &str) -> bool {
 
 /// A narrow path-shape guard, not a guarantee that an allowed label is public.
 /// Only exact flattened Android components may contain a literal slash.
-pub(crate) fn public(text: &str, allow_component: bool) -> bool {
+pub fn public(text: &str, allow_component: bool) -> bool {
     bounded(text) && (!path_shaped(text) || (allow_component && android_component(text)))
 }
 
@@ -64,7 +64,7 @@ fn android_component(text: &str) -> bool {
 /// Retain context equality before running the analyzer. Simply dropping two
 /// different unsafe window values to None would join unrelated frame clusters.
 /// The internal token is never a query label or emitted in a tool result.
-pub(crate) fn normalize_contexts(frames: &mut [FrameSample]) {
+pub(super) fn normalize_contexts(frames: &mut [FrameSample]) {
     let mut ids = HashMap::new();
     for sample in frames {
         for context in [&mut sample.window_id, &mut sample.activity_name] {
@@ -79,6 +79,6 @@ pub(crate) fn normalize_contexts(frames: &mut [FrameSample]) {
     }
 }
 
-pub(crate) fn visible_context(label: &str) -> Option<&str> {
+pub fn visible_context(label: &str) -> Option<&str> {
     (!label.starts_with(PRIVATE_CONTEXT_PREFIX)).then_some(label)
 }

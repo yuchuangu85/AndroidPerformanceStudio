@@ -7,7 +7,7 @@ publish = false
 
 [[bin]]
 name = "aps-benchmark"
-path = "src/cli.rs"
+path = "src/cli/main.rs"
 
 [dependencies]
 aps-json = { path = "../aps-json" }

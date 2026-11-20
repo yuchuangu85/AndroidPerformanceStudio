@@ -16,4 +16,4 @@ path = "src/bin/worker.rs"
 
 [[bin]]
 name = "aps-mcp"
-path = "src/bin/aps_mcp.rs"
+path = "src/mcp/main.rs"

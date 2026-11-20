@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+aps-analysis = { path = "../aps-analysis" }
 aps-contracts = { path = "../aps-contracts" }
 aps-frame = { path = "../aps-frame" }
 aps-json = { path = "../aps-json" }

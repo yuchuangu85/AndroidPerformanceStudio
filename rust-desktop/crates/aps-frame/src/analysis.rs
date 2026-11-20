@@ -616,7 +616,7 @@ pub fn frame_timeline_status(sample: &FrameSample) -> FrameTimelineStatus {
         .get(FRAME_TIMELINE_JANK_TAG)
         .map(String::as_str)
     {
-        Some(tag) => tag_status(tag),
+        Some(tag) => timeline_tag_status(tag),
         None => match sample.source {
             FrameSource::Perfetto => match sample.platform_jank_rule_id.as_deref() {
                 Some("None" | "On time") => FrameTimelineStatus::Good,
@@ -630,7 +630,8 @@ pub fn frame_timeline_status(sample: &FrameSample) -> FrameTimelineStatus {
     }
 }
 
-fn tag_status(tag: &str) -> FrameTimelineStatus {
+/// Fixed public classification for a producer-supplied FrameTimeline tag.
+pub fn timeline_tag_status(tag: &str) -> FrameTimelineStatus {
     match tag {
         "No Jank" => FrameTimelineStatus::Good,
         "Buffer Stuffing" | "SurfaceFlinger Stuffing" => FrameTimelineStatus::HighLatency,

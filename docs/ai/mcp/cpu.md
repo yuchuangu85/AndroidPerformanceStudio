@@ -225,7 +225,7 @@ cargo clippy --locked --offline -p aps-cpu --bin aps-cpu-mcp
 
 ## 代码依据
 
-- [CPU MCP server](../../../rust-desktop/crates/aps-cpu/src/cpu_mcp.rs)
+- [CPU MCP server](../../../rust-desktop/crates/aps-cpu/src/cpu_mcp/main.rs)
 - [图表块投影](../../../rust-desktop/crates/aps-cpu/src/cpu_mcp/blocks.rs) · [内联报告](../../../rust-desktop/crates/aps-cpu/src/cpu_mcp/report.rs)
 - [真实 stdio 回归](../../../rust-desktop/crates/aps-cpu/tests/mcp_stdio.rs)
 - [CPU 会话与查询 API](../../../rust-desktop/crates/aps-cpu/src/lib.rs)

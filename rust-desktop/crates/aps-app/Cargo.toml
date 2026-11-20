@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+aps-analysis = { path = "../aps-analysis" }
 gpui-kit.workspace = true
 aps-ui-foundation.workspace = true
 aps-cpu.workspace = true

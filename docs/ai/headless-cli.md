@@ -22,11 +22,15 @@ Windows 使用对应的 `.exe`。复制二进制时，将 `aps`、`aps-orchestra
 aps analyze ./profile.simpleperf.pb --evidence-out ./evidence.json
 aps analyze 'https://artifacts.example.org/test/frame-report.json' --format json
 aps analyze ./startup.pftrace --kind trace
+aps analyze ./frame-analysis.json --scope report
+aps analyze ./frame-analysis.json --frame-id 17
 ```
 
 - 根据内容选择解析器，不确定或超出预算时报错。Perfetto 也识别 `.pftrace` / `.perfetto-trace`；无标志、无后缀时用 `--kind trace`。统一 CLI 文件上限 256 MiB，各解析器可以更严格，大型转储可另用专用工具。
 - HTTPS 是宿主获取一个用户明确指定的 URL，不是爬取页面或解析云盘分享页。只接受成功的完整 HTTP 200 响应；拒绝重定向、URL 用户信息、fragment 和明文 HTTP。不读代理/站点登录配置；连接超时 10 秒，总超时 90 秒。按实际字节数限流，临时文件随调用释放。带签名 URL 本身可能出现在调用者的 shell 历史中。
 - 本地路径/下载地址不是证据身份：`input.sourceDigest` 是内容 SHA-256。每个 `evidence.items[]` 有 `id`、`label`、`value`；`null` 表示缺失而非 0。JSON 供脚本或外部 AI 使用；成功时 stdout 是 JSON，错误写 stderr，命令返回非零。显式输出路径需父目录已存在、文件尚不存在；不覆盖输入、证据或已有报告。
+
+**复现桌面 Frame 分析：** 不指定范围时保留原聚合摘要和证据 ID。对同一份有效的 gfxinfo 或 v3 文件，`--scope report` 输出报告级指标和最多 8 行，`--frame-id 17` 只列出 ID 为 17 的帧（不是第 17 行），仍保留整份报告的统计背景。两者互斥；帧不存在时报错，不退回整份报告。桌面重新打开相同文件、选择相同范围时，证据按文件内容而非本地历史会话编号绑定。实时采集有独立身份；普通文件的 `appTraceOverlaps: null` 表示缺少可验证的探针凭据，并非实测零次重叠。
 
 **可分析的输入：**
 - **CPU**：SIMPLEPERF protobuf、Gecko v24 JSON；输出热点、样本及覆盖，采样权重不是方法耗时。原始 perf.data 在 Unix 需显式设置 `APS_SIMPLEPERF` 指向兼容、可信的宿主 Simpleperf 绝对路径（转换及原始/派生内容摘要会进入证据）；gzip/会话归档不是直接输入。
@@ -47,7 +51,7 @@ aps analyze ./capture.har --evidence-out ./evidence.json \
 
 CLI 使用 APS 已有的 **OpenAI 兼容 Chat Completions** 网关（不是桌面 Provider 首选项、订阅登录、Responses API 或任意本地模型命令）。HTTPS 或明确配置的本机回环 HTTP；运行时需要 `curl` 和兼容结构化响应的模型。模型只收到终端展示的精确请求，不会拿到原始工件或自由执行工具的权限。先产出证据，后在交互终端核对 endpoint、模型、请求内容与报告路径，输入本次专属确认词后才读取凭据、发出请求。没有第二次自动重试或备用模型。
 
-报告支持 `.md`、`.html`。每一条 finding 必须引用本次冻结的证据；响应不合法、引用越界、用户取消、网络错误或落盘失败，均不会返回报告成功。已经输出的证据仍可用。无交互 CI 可运行纯证据模式，不应伪造终端确认；也可由受控的外部 MCP 客户端按自己的审批策略处理证据。
+报告支持 `.md`、`.html`。每一条 finding 必须引用本次冻结的证据；响应不合法、引用越界、用户取消、网络错误或落盘失败，均不会返回报告成功。已经输出的证据仍可用。GUI 与 CLI 分别记录分析状态和报告状态：桌面可保留已验证的回答并提示归档失败；CLI 显式要求 `--out` 时，写盘失败仍以非零退出，且不会再调用模型。无交互 CI 可运行纯证据模式，不应伪造终端确认；也可由受控的外部 MCP 客户端按自己的审批策略处理证据。
 
 ### 自动执行已有设备场景
 
@@ -86,7 +90,7 @@ aps capture cpu --device emulator-5554 --pid 1234 --seconds 10 \
 
 ### 用自然语言
 
-在外部 AI 客户端的 stdio MCP 配置中将 command 设为 `aps` 的绝对路径，args 设为 `["mcp", "--input", "/absolute/path/to/capture.har"]`；已知 HTTPS 工件可改用 `["mcp", "--artifact-url", "https://artifacts.example.org/run/capture.har"]`，由宿主在启动时获取一次。然后问：「这份 HAR 的时延证据支持什么结论？引用证据 ID，并指出缺失项。」不绑定文件时只能发现能力、预览步骤。[工具契约和配置示例](mcp/orchestrator.md)。
+在外部 AI 客户端的 stdio MCP 配置中将 command 设为 `aps` 的绝对路径，args 设为 `["mcp", "--input", "/absolute/path/to/capture.har"]`；已知 HTTPS 工件可改用 `["mcp", "--artifact-url", "https://artifacts.example.org/run/capture.har"]`，由宿主在启动时获取一次。然后问：「这份 HAR 的时延证据支持什么结论？引用证据 ID，并指出缺失项。」外部客户端可以根据摘要继续追问同一份工件：例如列出 HAR 最慢的 3 条请求，再比较阶段统计；或先找错过截止时间的帧，再看单帧证据。每个绑定最多 8 次 `aps_follow_up`，不绑定文件时只能发现能力、预览步骤。[工具契约和配置示例](mcp/orchestrator.md)。
 
 **未开放的操作不会伪装成成功：** 通用 GPU/AGI 工件解析、源码工作区查询、任意自然语言设备动作，以及除上述两类以外的专用自动录制流程，仍用原桌面/领域入口；MCP 工具不下载、不录制、不写报告、不授权模型。扩展时，离线解析加入共享证据适配器与 `aps capabilities`；有副作用的采集加入显式的 host 计划/确认流程，不往只读工具添加命令或路径参数。
 

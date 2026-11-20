@@ -202,3 +202,21 @@ fn dangling_symlink_is_not_a_new_output_file() {
     );
     assert!(!absent.exists());
 }
+
+#[test]
+fn frame_selectors_do_not_reach_capture_or_scenario_execution() {
+    for (flag, value) in [("--scope", "report"), ("--frame-id", "1")] {
+        for (args, expected) in [
+            (vec!["capture", "cpu", flag, value], "E_CAPTURE_OPTION"),
+            (
+                vec!["run", "missing-scenario", flag, value],
+                "E_SCENARIO_OPTIONS",
+            ),
+        ] {
+            let out = cli(args);
+            assert!(!out.status.success());
+            assert!(out.stdout.is_empty());
+            assert!(String::from_utf8_lossy(&out.stderr).contains(expected));
+        }
+    }
+}

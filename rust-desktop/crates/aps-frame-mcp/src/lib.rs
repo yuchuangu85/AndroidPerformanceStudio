@@ -2,27 +2,24 @@
 mod capture;
 mod capture_query;
 mod input;
-mod labels;
 mod query;
 
-use aps_contracts::SourceDigest;
-use aps_frame::analysis::{FrameAnalysisResult, FrameJankAnalyzer};
+use aps_analysis::frame::FrameReport;
+
+use aps_frame::analysis::FrameAnalysisResult;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_PAYLOAD_BYTES: usize = 512 * 1024;
-pub const ANALYSIS_POLICY_VERSION: &str = "aps-frame-v2";
+pub use aps_analysis::frame::ANALYSIS_POLICY_VERSION;
 
 type ToolResult = Result<Value, (i64, String)>;
 
 struct BoundReport {
     path: PathBuf,
-    digest: SourceDigest,
-    input_format: &'static str,
-    parse_warning_count: usize,
-    analysis: FrameAnalysisResult,
+    report: FrameReport,
     capture: Option<capture::Capture>,
 }
 
@@ -31,14 +28,16 @@ impl BoundReport {
         let capture = capture_files
             .map(|(receipt, trace)| capture::Capture::open(receipt, trace))
             .transpose()?;
-        let loaded = input::load_input(path, capture.as_ref().map(|c| &c.meta))?;
-        let analysis = FrameJankAnalyzer::new().analyze(&loaded.samples);
+        let bytes = input::read_bounded(path, aps_analysis::frame::MAX_INPUT_BYTES)?;
+        let report = match &capture {
+            Some(c) => FrameReport::from_capture_bytes(&bytes, c.meta.report_digest, |rows| {
+                c.meta.check_samples(rows)
+            })?,
+            None => FrameReport::from_bytes(&bytes)?,
+        };
         let report = Self {
             path: path.to_owned(),
-            digest: loaded.digest,
-            input_format: loaded.input_format,
-            parse_warning_count: loaded.parse_warning_count,
-            analysis,
+            report,
             capture,
         };
         report.verify()?;
@@ -46,7 +45,7 @@ impl BoundReport {
     }
 
     fn verify(&self) -> Result<(), String> {
-        input::check_source(&self.path, self.digest)?;
+        input::check_source(&self.path, self.report.digest())?;
         if let Some(capture) = &self.capture {
             capture.verify()?;
         }
@@ -163,7 +162,7 @@ impl FrameMcpServer {
             self.report_payload(name, &arguments)
         }
         .map_err(|message| (-32001, message))?;
-        payload["inputWarningCount"] = json!(self.selected.parse_warning_count);
+        payload["inputWarningCount"] = json!(self.selected.report.parse_warning_count());
         let text = serde_json::to_string(&payload)
             .map_err(|_| (-32001, "Cannot serialize frame result".into()))?;
         if text.len() > MAX_PAYLOAD_BYTES {
@@ -181,14 +180,14 @@ impl FrameMcpServer {
     fn capture_payload(&self, name: &str, args: &query::Arguments) -> Result<Value, String> {
         let current = &self.selected;
         let bound = current.capture.as_ref().ok_or("Missing selected capture")?;
-        let session_id = format!("frame-{}", current.digest);
+        let session_id = format!("frame-{}", current.report.digest());
         let mut payload = match name {
             "frame_trace_overlaps" => {
                 if args.session_id.as_deref() != Some(&session_id) {
                     return Err("Stale or unrelated frame sessionId".into());
                 }
                 capture_query::overlaps(
-                    &current.analysis,
+                    current.report.analysis(),
                     args.frame_id.ok_or("Missing frameId")?,
                     bound.meta.probe_query_complete,
                 )?
@@ -203,8 +202,8 @@ impl FrameMcpServer {
                     .as_ref()
                     .ok_or("Missing baseline receipt")?;
                 let mut result = capture_query::compare(
-                    (&bound.meta, &current.analysis),
-                    (&before.meta, &baseline.analysis),
+                    (&bound.meta, current.report.analysis()),
+                    (&before.meta, baseline.report.analysis()),
                     args.offset,
                     args.limit,
                 )?;
@@ -215,7 +214,7 @@ impl FrameMcpServer {
             _ => return Err("Unknown capture tool".into()),
         };
         payload["sessionId"] = json!(session_id);
-        payload["sourceDigest"] = json!(current.digest.to_hex());
+        payload["sourceDigest"] = json!(current.report.digest().to_hex());
         payload["traceDigest"] = json!(bound.meta.trace_digest.to_hex());
         payload["receiptDigest"] = json!(bound.receipt_digest.to_hex());
         payload["captureId"] = json!(bound.meta.capture_id);
@@ -228,7 +227,7 @@ impl FrameMcpServer {
         name: &str,
         arguments: &query::Arguments,
     ) -> Result<Value, String> {
-        let base = &self.selected.analysis;
+        let base = self.selected.report.analysis();
         if arguments.filter != query::Filter::default()
             && self
                 .cached
@@ -250,8 +249,8 @@ impl FrameMcpServer {
             arguments,
             analysis,
             base.frames.len(),
-            &self.selected.digest.to_hex(),
-            self.selected.input_format,
+            &self.selected.report.digest().to_hex(),
+            self.selected.report.input_format(),
         )
     }
 }

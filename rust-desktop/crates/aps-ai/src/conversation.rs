@@ -10,7 +10,8 @@
 //! for identity before use. Errors are stable E_ codes only; SQL, paths and
 //! stored text are never attached.
 
-use crate::runtime::{RunStatus, SessionSummary};
+use crate::runtime::SessionSummary;
+use crate::task::RunStatus;
 use crate::{AnalysisResult, FindingSeverity};
 use aps_json::{Map, Value};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};

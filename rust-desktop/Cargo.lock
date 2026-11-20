@@ -209,11 +209,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aps-analysis"
+version = "0.1.0"
+dependencies = [
+ "aps-contracts",
+ "aps-frame",
+ "aps-json",
+ "serde_json",
+]
+
+[[package]]
 name = "aps-app"
 version = "0.1.0"
 dependencies = [
  "aps-adb",
  "aps-ai",
+ "aps-analysis",
  "aps-battery",
  "aps-benchmark",
  "aps-capture",
@@ -285,12 +296,12 @@ version = "0.1.0"
 dependencies = [
  "aps-adb",
  "aps-ai",
+ "aps-analysis",
  "aps-battery",
  "aps-benchmark",
  "aps-capture",
  "aps-contracts",
  "aps-cpu",
- "aps-frame-mcp",
  "aps-har-engine",
  "aps-json",
  "aps-layout-inspector",
@@ -332,6 +343,7 @@ version = "0.1.0"
 name = "aps-frame-mcp"
 version = "0.1.0"
 dependencies = [
+ "aps-analysis",
  "aps-contracts",
  "aps-frame",
  "aps-json",
@@ -412,6 +424,7 @@ name = "aps-perfetto"
 version = "0.1.0"
 dependencies = [
  "aps-contracts",
+ "aps-frame",
  "aps-platform",
 ]
 

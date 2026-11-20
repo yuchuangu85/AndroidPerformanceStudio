@@ -35,4 +35,4 @@
 - [GPU 工件与索引 API](../../../rust-desktop/crates/aps-gpu/src/lib.rs)
 - [Perfetto GPU 分析投影](../../../rust-desktop/crates/aps-gpu/src/analysis.rs)
 - [AGI 工具链适配](../../../rust-desktop/crates/aps-gpu/src/toolchain.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

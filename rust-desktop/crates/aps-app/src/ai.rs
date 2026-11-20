@@ -866,7 +866,7 @@ impl AiWorkspace {
                     }
                     Err(error) => {
                         this.state.busy = false;
-                        this.state.status = Some(RunStatus::RetryableFailure);
+                        this.state.status = Some(error.run_status());
                         this.state.error = Some(error.to_string());
                         this.state.add_activity_error(
                             String::new(),
@@ -947,8 +947,9 @@ impl AiWorkspace {
                     return Err(aps_ai::runtime::RuntimeError::Context);
                 }
             }
-            let result = runtime.execute(frozen).await?;
-            Ok(opt_guard.and_then(|guard| guard.review(&result).transpose()))
+            let outcome = runtime.execute_with_outcome(frozen).await?;
+            let diff = opt_guard.and_then(|guard| guard.review(&outcome.result).transpose());
+            Ok((diff, outcome.report))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -958,18 +959,30 @@ impl AiWorkspace {
                 }
                 this.state.busy = false;
                 match result {
-                    Ok(result) => {
+                    Ok((diff, report)) => {
                         this.state.status = Some(RunStatus::Succeeded);
                         this.state.add_activity(run_id.clone(), "run", "succeeded");
                         this.state.last_question = None;
-                        match result {
+                        if let aps_ai::task::ReportOutcome::Failed { error, .. } = report {
+                            this.state.add_activity_error(
+                                run_id.clone(),
+                                "report",
+                                "failed",
+                                error.to_string(),
+                            );
+                            this.state.error = Some(format!(
+                                "{error}: {}",
+                                this.language.text(TextKey::AiChatReportNotPublished)
+                            ));
+                        }
+                        match diff {
                             Some(Ok(diff)) => cx.emit(diff),
                             Some(Err(err)) => this.state.error = Some(err),
                             _ => {}
                         }
                     }
                     Err(error) => {
-                        this.state.status = Some(RunStatus::RetryableFailure);
+                        this.state.status = Some(error.run_status());
                         this.state.error = Some(error.to_string());
                         this.state.add_activity_error(
                             run_id.clone(),
@@ -1771,7 +1784,10 @@ mod memory_source_tests {
             .next()
             .unwrap();
         assert!(
-            execute.find(".validate()").unwrap() < execute.find("runtime.execute(frozen)").unwrap()
+            execute.find(".validate()").unwrap()
+                < execute
+                    .find("runtime.execute_with_outcome(frozen)")
+                    .unwrap()
         );
         assert!(execute.contains("runtime.cancel()"));
     }

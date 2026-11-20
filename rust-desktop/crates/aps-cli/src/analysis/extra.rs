@@ -18,9 +18,9 @@ pub fn analyze(
     doc: Option<&Value>,
 ) -> Option<Result<Value, String>> {
     if bytes.starts_with(b"PK\x03\x04") {
-        Some(crate::offline_inspection::layout(path, digest))
-    } else if doc.is_some_and(crate::offline_inspection::is_battery) {
-        Some(crate::offline_inspection::battery(bytes))
+        Some(super::offline_inspection::layout(path, digest))
+    } else if doc.is_some_and(super::offline_inspection::is_battery) {
+        Some(super::offline_inspection::battery(bytes))
     } else if bytes.starts_with(b"JAVA PROFILE ") {
         Some(memory(path, digest))
     } else if doc.is_some_and(|v| v.get("benchmarks").is_some()) {

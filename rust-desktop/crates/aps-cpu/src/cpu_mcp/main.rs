@@ -9,13 +9,9 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 
-#[path = "cpu_mcp/blocks.rs"]
 mod blocks;
-#[path = "cpu_mcp/compare.rs"]
 mod compare;
-#[path = "cpu_mcp/report.rs"]
 mod report;
-#[path = "cpu_mcp/timeline.rs"]
 mod timeline;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";

@@ -39,4 +39,4 @@
 - [Trace Processor 与会话 API](../../../rust-desktop/crates/aps-perfetto/src/lib.rs)
 - [诊断目录](../../../rust-desktop/crates/aps-perfetto/src/diagnostics.rs)
 - [Trace 采集工作区](../../../rust-desktop/crates/aps-app/src/trace/capture.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

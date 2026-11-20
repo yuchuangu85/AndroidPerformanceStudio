@@ -38,4 +38,4 @@
 - [导入与统计边界说明](../../../rust-desktop/crates/aps-benchmark/README.md)
 - [回归比较与门槛](../../../rust-desktop/crates/aps-benchmark/src/compare.rs)
 - [Macrobenchmark 编排](../../../rust-desktop/crates/aps-benchmark/src/orchestrate.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/bin/aps_mcp.rs)
+- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)

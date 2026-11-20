@@ -1,5 +1,7 @@
 //! Interactive CLI host for the existing APS Chat Completions gateway. No
 //! credential discovery, model tools, implicit approvals or raw file uploads.
+use aps_ai::report::ReportError;
+use aps_ai::task::{AnalysisOutcome, ReportOutcome, RunStatus};
 use aps_ai::{
     AnalysisRequest, ApprovalScope, CredentialReference, Evidence, OneShotCredential,
     OpenAiGateway, PreparedRun, ProviderConfig, ReportFormat, RunCoordinator, SecretCredential,
@@ -96,64 +98,145 @@ fn terminal_review(prepared: &PreparedRun, out: &Path) -> Result<bool, String> {
     Ok(reply.trim_end_matches(['\r', '\n']) == phrase)
 }
 
-fn execute(
-    prepared: PreparedRun,
+/// A local review failure before a validated result exists. Codes retain the
+/// CLI contract; status follows the same policy as desktop history.
+#[derive(Debug)]
+pub struct ReviewFailure {
+    pub status: RunStatus,
+    pub code: String,
+}
+
+impl ReviewFailure {
+    fn local(code: impl Into<String>) -> Self {
+        Self {
+            status: RunStatus::PermanentFailure,
+            code: code.into(),
+        }
+    }
+}
+
+impl From<aps_ai::AiError> for ReviewFailure {
+    fn from(error: aps_ai::AiError) -> Self {
+        Self {
+            status: error.run_status(),
+            code: error.to_string(),
+        }
+    }
+}
+
+fn run_review(
     out: &Path,
+    prepare: impl FnOnce() -> Result<PreparedRun, String>,
     confirm: impl FnOnce(&PreparedRun, &Path) -> Result<bool, String>,
     credential: impl FnOnce() -> Result<SecretCredential, String>,
-) -> Result<(), String> {
-    let format = format(out)?;
-    match std::fs::symlink_metadata(out) {
-        Ok(_) => return Err("E_AI_REPORT_WRITE: output already exists".into()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(_) => return Err("E_AI_REPORT_WRITE".into()),
-    }
-    if !confirm(&prepared, out)? {
-        return Err(APPROVAL.into());
-    }
-    let mut coordinator = RunCoordinator::new();
-    coordinator
-        .activate(prepared.session_id(), prepared.generation())
-        .map_err(|e| e.to_string())?;
-    let token = coordinator
-        .approve_explicit(
+    mut observe: impl FnMut(RunStatus),
+) -> Result<AnalysisOutcome, ReviewFailure> {
+    observe(RunStatus::Preparing);
+    let run = || -> Result<AnalysisOutcome, ReviewFailure> {
+        let prepared = prepare().map_err(ReviewFailure::local)?;
+        let format = format(out).map_err(ReviewFailure::local)?;
+        match std::fs::symlink_metadata(out) {
+            Ok(_) => {
+                return Err(ReviewFailure::local(
+                    "E_AI_REPORT_WRITE: output already exists",
+                ));
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Err(ReviewFailure::local("E_AI_REPORT_WRITE")),
+        }
+        observe(RunStatus::AwaitingApproval);
+        if !confirm(&prepared, out).map_err(ReviewFailure::local)? {
+            return Err(ReviewFailure {
+                status: RunStatus::Cancelled,
+                code: APPROVAL.into(),
+            });
+        }
+        let mut coordinator = RunCoordinator::new();
+        coordinator.activate(prepared.session_id(), prepared.generation())?;
+        let token = coordinator.approve_explicit(
             &prepared,
             ApprovalScope::network_only(),
             Duration::from_secs(120),
-        )
-        .map_err(|e| e.to_string())?;
-    let reference = prepared.provider().credential_reference().clone();
-    let run = coordinator
-        .authorize(prepared, token)
-        .map_err(|e| e.to_string())?;
-    // Created after approval. Never borrow a desktop state directory or mutate
-    // desktop provider settings. The key is not read during prepare/preview.
-    let key = Arc::new(OneShotCredential::new(reference, credential()?));
-    let scratch = tempfile::tempdir().map_err(|_| "E_AI_STORAGE")?;
-    let gateway = OpenAiGateway::new(Arc::new(CurlHttpClient::new(scratch.path().into())), key);
-    let result = futures::executor::block_on(gateway.execute(run)).map_err(|e| e.to_string())?;
-    coordinator
-        .accept_result(&result)
-        .map_err(|e| e.to_string())?;
-    let report = aps_ai::report::render_checked(&result, format).map_err(|e| e.to_string())?;
-    crate::write_new(out, report.as_bytes()).map_err(|_| "E_AI_REPORT_WRITE".into())
+        )?;
+        let reference = prepared.provider().credential_reference().clone();
+        let run = coordinator.authorize(prepared, token)?;
+        observe(RunStatus::Running);
+        // No desktop settings or credential reads before explicit approval.
+        let key = Arc::new(OneShotCredential::new(
+            reference,
+            credential().map_err(ReviewFailure::local)?,
+        ));
+        let scratch = tempfile::tempdir().map_err(|_| ReviewFailure::local("E_AI_STORAGE"))?;
+        let gateway = OpenAiGateway::new(Arc::new(CurlHttpClient::new(scratch.path().into())), key);
+        let result = futures::executor::block_on(gateway.execute(run))?;
+        coordinator.accept_result(&result)?;
+        let report = ReportOutcome::from_publication(
+            format,
+            aps_ai::report::publish(&result, format, |_, bytes| {
+                super::output::write_new(out, bytes).map_err(|_| ReportError::Write)
+            }),
+        );
+        Ok(AnalysisOutcome { result, report })
+    };
+    let outcome = run();
+    observe(
+        outcome
+            .as_ref()
+            .map_or_else(|error| error.status, |_| RunStatus::Succeeded),
+    );
+    outcome
+}
+
+/// Trusted interactive host entry point. Observations are informational only;
+/// there is no noninteractive approval or substituted credential path.
+pub fn review_with_outcome(
+    evidence: &Value,
+    question: Option<&str>,
+    out: &Path,
+    observe: impl FnMut(RunStatus),
+) -> Result<AnalysisOutcome, ReviewFailure> {
+    run_review(
+        out,
+        || {
+            if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+                return Err(APPROVAL.into());
+            }
+            let endpoint = std::env::var("APS_CLI_AI_ENDPOINT").map_err(
+                |_| "E_AI_CONFIGURATION: set APS_CLI_AI_ENDPOINT to a Chat Completions base URL",
+            )?;
+            let model = std::env::var("APS_CLI_AI_MODEL")
+                .map_err(|_| "E_AI_CONFIGURATION: set APS_CLI_AI_MODEL")?;
+            prepare(evidence, question, &endpoint, &model)
+        },
+        terminal_review,
+        || {
+            let key = std::env::var("APS_CLI_AI_KEY")
+                .map_err(|_| "E_AI_CREDENTIAL_UNAVAILABLE: set APS_CLI_AI_KEY")?;
+            SecretCredential::new(key.into_bytes()).map_err(|e| e.to_string())
+        },
+        observe,
+    )
+}
+
+fn require_report(review: Result<&AnalysisOutcome, &ReviewFailure>) -> Result<(), String> {
+    match &review.map_err(|e| e.code.clone())?.report {
+        ReportOutcome::Written(_) => Ok(()),
+        ReportOutcome::Failed { error, .. } => Err(error.to_string()),
+        ReportOutcome::NotRequested => Err(ReportError::Write.to_string()),
+    }
 }
 
 pub fn review(evidence: &Value, question: Option<&str>, out: &Path) -> Result<(), String> {
-    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
-        return Err(APPROVAL.into());
+    let outcome = review_with_outcome(evidence, question, out, |_| {});
+    if outcome
+        .as_ref()
+        .is_ok_and(|o| matches!(o.report, ReportOutcome::Failed { .. }))
+    {
+        eprintln!(
+            "aps: analysis succeeded, but the report was not published. No provider retry was attempted."
+        );
     }
-    let endpoint = std::env::var("APS_CLI_AI_ENDPOINT").map_err(
-        |_| "E_AI_CONFIGURATION: set APS_CLI_AI_ENDPOINT to a Chat Completions base URL",
-    )?;
-    let model = std::env::var("APS_CLI_AI_MODEL")
-        .map_err(|_| "E_AI_CONFIGURATION: set APS_CLI_AI_MODEL")?;
-    let prepared = prepare(evidence, question, &endpoint, &model)?;
-    execute(prepared, out, terminal_review, || {
-        let key = std::env::var("APS_CLI_AI_KEY")
-            .map_err(|_| "E_AI_CREDENTIAL_UNAVAILABLE: set APS_CLI_AI_KEY")?;
-        SecretCredential::new(key.into_bytes()).map_err(|e| e.to_string())
-    })
+    require_report(outcome.as_ref())
 }
 
 #[cfg(test)]
@@ -176,17 +259,27 @@ mod tests {
     fn denial_does_not_resolve_credentials_or_publish() {
         let scratch = tempfile::tempdir().unwrap();
         let out = scratch.path().join("test.md");
-        let result = execute(
-            prepared("http://localhost:1"),
+        let mut states = Vec::new();
+        let result = run_review(
             &out,
+            || Ok(prepared("http://localhost:1")),
             |request, _| {
                 assert!(!request.review_body().contains("private-should-not-be-sent"));
                 assert!(request.review_body().contains("cpu-summary"));
                 Ok(false)
             },
             || panic!("approval precedes credential access"),
+            |state| states.push(state),
         );
-        assert_eq!(result, Err(APPROVAL.into()));
+        assert_eq!(
+            states,
+            [
+                RunStatus::Preparing,
+                RunStatus::AwaitingApproval,
+                RunStatus::Cancelled
+            ]
+        );
+        assert_eq!(require_report(result.as_ref()), Err(APPROVAL.into()));
         assert!(!out.exists());
     }
 
@@ -235,25 +328,58 @@ mod tests {
         for id in ["cpu-summary", "unobserved-99"] {
             let out = tmp.path().join(format!("{id}.md"));
             let (endpoint, server) = serve_once(&response(id));
-            let result = execute(
-                prepared(&endpoint),
+            let mut states = Vec::new();
+            let result = run_review(
                 &out,
+                || Ok(prepared(&endpoint)),
                 |_, _| Ok(true),
                 || SecretCredential::new(b"synthetic-test-key".to_vec()).map_err(|e| e.to_string()),
+                |state| states.push(state),
             );
             let wire = server.join().unwrap();
             assert!(wire.starts_with("POST /v1/chat/completions "));
             assert!(!wire.contains("private-should-not-be-sent"));
             assert!(wire.contains("cpu-summary"));
             if id == "cpu-summary" {
-                result.unwrap();
+                let outcome = result.unwrap();
+                let ReportOutcome::Written(receipt) = &outcome.report else {
+                    panic!("missing receipt")
+                };
+                // Publish the same accepted answer via the desktop archive. Both
+                // sinks must commit identical bytes and a matching content hash.
+                let archive = tmp.path().join("archive");
+                let hash = aps_ai::report::write_artifact(
+                    &archive,
+                    &outcome.result,
+                    ReportFormat::Markdown,
+                )
+                .unwrap();
+                assert_eq!(receipt.sha256, hash);
+                assert_eq!(
+                    std::fs::read(&out).unwrap(),
+                    std::fs::read(archive.join(format!("{hash}.md"))).unwrap()
+                );
+                assert_eq!(
+                    states,
+                    [
+                        RunStatus::Preparing,
+                        RunStatus::AwaitingApproval,
+                        RunStatus::Running,
+                        RunStatus::Succeeded
+                    ]
+                );
+                require_report(Ok(&outcome)).unwrap();
                 assert!(
                     std::fs::read_to_string(out)
                         .unwrap()
                         .contains("Evidence: cpu-summary")
                 );
             } else {
-                assert_eq!(result, Err("E_AI_UNKNOWN_REFERENCE".into()));
+                assert_eq!(states.last(), Some(&RunStatus::PermanentFailure));
+                assert_eq!(
+                    require_report(result.as_ref()),
+                    Err("E_AI_UNKNOWN_REFERENCE".into())
+                );
                 assert!(!out.exists());
             }
         }
@@ -264,17 +390,46 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let out = tmp.path().join("report.html");
         let (endpoint, server) = serve_once(&response("cpu-summary"));
-        let result = execute(
-            prepared(&endpoint),
+        let mut states = Vec::new();
+        let result = run_review(
             &out,
+            || Ok(prepared(&endpoint)),
             |_, destination| {
                 std::fs::write(destination, b"owned by another run").unwrap();
                 Ok(true)
             },
             || SecretCredential::new(b"synthetic-test-key".to_vec()).map_err(|e| e.to_string()),
+            |state| states.push(state),
         );
         assert!(server.join().unwrap().contains("cpu-summary"));
-        assert_eq!(result, Err("E_AI_REPORT_WRITE".into()));
+        let mut outcome = result.unwrap();
+        assert_eq!(states.last(), Some(&RunStatus::Succeeded));
+        assert_eq!(outcome.result.summary, "Three observed samples");
+        assert_eq!(
+            outcome.report,
+            ReportOutcome::Failed {
+                error: ReportError::Write,
+                format: ReportFormat::Html
+            }
+        );
+        // Command callers still receive the legacy failure. A host retaining the
+        // result can choose a different destination without asking the model again.
+        assert_eq!(
+            require_report(Ok(&outcome)),
+            Err("E_AI_REPORT_WRITE".into())
+        );
+        let retry = tmp.path().join("retry.html");
+        assert!(matches!(
+            outcome.retry_report_write(
+                |_, bytes| crate::cli::write_new(&retry, bytes).map_err(|_| ReportError::Write)
+            ),
+            ReportOutcome::Written(_)
+        ));
+        assert!(std::fs::read_to_string(retry).unwrap().contains("<html"));
+        assert!(matches!(
+            outcome.retry_report_write(|_, _| panic!("cannot repeat a committed write")),
+            ReportOutcome::Written(_)
+        ));
         assert_eq!(std::fs::read(&out).unwrap(), b"owned by another run");
     }
 
@@ -283,13 +438,20 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let out = tmp.path().join("existing.md");
         std::fs::write(&out, b"preserve").unwrap();
-        let result = execute(
-            prepared("http://localhost:1"),
+        let mut states = Vec::new();
+        let result = run_review(
             &out,
+            || Ok(prepared("http://localhost:1")),
             |_, _| panic!("collision precedes approval"),
             || panic!("no credential access"),
+            |state| states.push(state),
         );
-        assert!(result.unwrap_err().starts_with("E_AI_REPORT_WRITE"));
+        assert_eq!(states, [RunStatus::Preparing, RunStatus::PermanentFailure]);
+        assert!(
+            require_report(result.as_ref())
+                .unwrap_err()
+                .starts_with("E_AI_REPORT_WRITE")
+        );
         assert_eq!(std::fs::read(&out).unwrap(), b"preserve");
     }
 }

@@ -3,7 +3,8 @@
 
 use aps_ai::platform::{AiSecretStore, CredentialKind, ProviderKind, ReportFormat, ReportLanguage};
 use aps_ai::runtime::{AiRuntime, FrozenRun, PrepareOptions, RunStatus, RuntimeError};
-use aps_ai::{AnalysisRequest, AnalysisResult, Evidence, SourceCandidate};
+use aps_ai::task::ReportOutcome;
+use aps_ai::{AnalysisRequest, Evidence, SourceCandidate};
 use aps_contracts::SourceDigest;
 use aps_json::Value;
 use futures::channel::oneshot;
@@ -398,9 +399,9 @@ fn response(body: impl Into<AsyncBody>) -> Response<AsyncBody> {
         .unwrap()
 }
 
-async fn finish(
-    execution: impl Future<Output = Result<AnalysisResult, RuntimeError>>,
-) -> Result<AnalysisResult, RuntimeError> {
+async fn finish<T>(
+    execution: impl Future<Output = Result<T, RuntimeError>>,
+) -> Result<T, RuntimeError> {
     let timeout = async_io::Timer::after(Duration::from_secs(2));
     futures::pin_mut!(execution, timeout);
     match select(execution, timeout).await {
@@ -612,4 +613,112 @@ fn dropping_execution_future_releases_only_its_provider_operation() {
     assert!(futures::executor::block_on(finish(runtime.execute(frozen))).is_ok());
     assert_eq!(client.calls.load(Ordering::SeqCst), 2);
     let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn optional_report_write_failure_keeps_validated_desktop_answer() {
+    let (directory, runtime) = runtime();
+    let client = FakeClient::install(&runtime);
+    let (reply, _) = client.queue();
+    let frozen = prepare_analysis(&runtime);
+    // Deterministic write failure even when tests run as an elevated user.
+    std::fs::remove_dir(runtime.artifacts_dir()).unwrap();
+    std::fs::write(runtime.artifacts_dir(), b"occupied").unwrap();
+    assert!(reply.send(response(answer())).is_ok());
+    let outcome =
+        futures::executor::block_on(finish(runtime.execute_with_outcome(frozen))).unwrap();
+    assert_eq!(
+        outcome.report,
+        ReportOutcome::Failed {
+            error: aps_ai::report::ReportError::Write,
+            format: ReportFormat::Markdown
+        }
+    );
+    assert_eq!(outcome.result.summary, "Validated fake answer");
+    let turns = runtime.transcript("conversation");
+    assert_eq!(turns[0].status, RunStatus::Succeeded);
+    assert!(turns[0].result.is_some());
+    assert!(turns[0].artifact_hashes.is_empty());
+    assert_eq!(std::fs::read(runtime.artifacts_dir()).unwrap(), b"occupied");
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn report_receipt_only_for_a_requested_and_written_desktop_artifact() {
+    let (directory, runtime) = runtime();
+    let client = FakeClient::install(&runtime);
+    for allow in [false, true] {
+        runtime
+            .update_preferences(|prefs| prefs.allow_artifacts = allow)
+            .unwrap();
+        let frozen = runtime.prepare(analysis_options()).unwrap();
+        let (reply, _) = client.queue();
+        assert!(reply.send(response(answer())).is_ok());
+        let outcome =
+            futures::executor::block_on(finish(runtime.execute_with_outcome(frozen))).unwrap();
+        let archived = runtime.transcript("conversation").pop().unwrap();
+        assert_eq!(archived.status, RunStatus::Succeeded);
+        if allow {
+            let ReportOutcome::Written(receipt) = outcome.report else {
+                panic!("missing receipt")
+            };
+            assert_eq!(receipt.format, ReportFormat::Markdown);
+            assert_eq!(archived.artifact_hashes, [receipt.sha256.clone()]);
+            let body = std::fs::read(runtime.artifact_path(&receipt.sha256).unwrap()).unwrap();
+            assert_eq!(
+                SourceDigest::hash_reader(&body[..], body.len() as u64)
+                    .unwrap()
+                    .to_hex(),
+                receipt.sha256
+            );
+        } else {
+            assert_eq!(outcome.report, ReportOutcome::NotRequested);
+            assert!(archived.artifact_hashes.is_empty());
+            assert_eq!(
+                std::fs::read_dir(runtime.artifacts_dir()).unwrap().count(),
+                0
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn statuses_match_across_provider_adapters_without_rewriting_error_codes() {
+    use aps_ai::AiError;
+    for (terminal, desktop, expected) in [
+        (
+            AiError::Cancelled,
+            RuntimeError::Cancelled,
+            RunStatus::Cancelled,
+        ),
+        (
+            AiError::Transport,
+            RuntimeError::Transport,
+            RunStatus::RetryableFailure,
+        ),
+        (
+            AiError::Timeout,
+            RuntimeError::Timeout,
+            RunStatus::RetryableFailure,
+        ),
+        (
+            AiError::HttpStatus(429),
+            RuntimeError::HttpStatus(429),
+            RunStatus::RetryableFailure,
+        ),
+        (
+            AiError::HttpStatus(401),
+            RuntimeError::HttpStatus(401),
+            RunStatus::PermanentFailure,
+        ),
+        (
+            AiError::InvalidResponse,
+            RuntimeError::Provider("E_AI_RESPONSE_SCHEMA".into()),
+            RunStatus::PermanentFailure,
+        ),
+    ] {
+        assert_eq!(terminal.run_status(), expected);
+        assert_eq!(desktop.run_status(), expected);
+    }
 }
