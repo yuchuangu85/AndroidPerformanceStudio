@@ -6,7 +6,7 @@ Android Performance Studio 是一个基于 Compose Desktop 的 Android 性能分
 
 > 部分可执行文件和安装包文件名沿用历史拼写 `AndroidPerfermanceStudio`，以保持兼容。
 
-[无界面 CLI 与 MCP](docs/ai/headless-cli.md)：分析本地文件或 HTTPS 工件，执行经确认的采集场景，并生成引用证据的报告。
+[无界面 CLI 与 MCP](docs/ai/cli/README.md)：分析本地文件或 HTTPS 工件，执行经确认的采集场景，并生成引用证据的报告。
 
 ## 特性概览
 

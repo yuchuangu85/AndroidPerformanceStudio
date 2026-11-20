@@ -13,7 +13,7 @@
 - 采集凭据：[单帧探针重叠](#frame_trace_overlaps)、[前后会话对比](#frame_session_compare)。
   对比工具可被发现，但只有额外绑定基线才可调用。
 
-若要复现桌面「分析此文件 / 选中帧」的 AI 证据，而不是分页浏览，请使用[统一编排 MCP](orchestrator.md) 的 `aps_analyze_file`。在同一绑定内可先用 `aps_follow_up` 的 `frame_rows` 查找错过截止时间的帧，再按返回的帧 ID 下钻。它和 [CLI](../headless-cli.md) 使用相同的文件范围、度量和引用 ID；不会因此取得专用 Server 的采集凭据权限。
+若要复现桌面「分析此文件 / 选中帧」的 AI 证据，而不是分页浏览，请使用[统一编排 MCP](orchestrator.md) 的 `aps_analyze_file`。在同一绑定内可先用 `aps_follow_up` 的 `frame_rows` 查找错过截止时间的帧，再按返回的帧 ID 下钻。它和 [CLI](../cli/README.md) 使用相同的文件范围、度量和引用 ID；不会因此取得专用 Server 的采集凭据权限。
 
 ## 数据输入与启动方式
 

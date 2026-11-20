@@ -1,6 +1,6 @@
 //! Bind exactly one source at startup and invalidate its evidence on replacement.
 use super::{RpcError, follow_up};
-use crate::{AnalyzeOptions, FrameScope, analysis::FrozenAnalysis};
+use crate::{AnalyzeOptions, FrameScope, analysis::FrozenAnalysis, benchmark_source::BoundPair};
 use aps_contracts::SourceDigest;
 use aps_json::Value;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ pub(super) struct Selected {
     path: PathBuf,
     analysis: FrozenAnalysis,
     invalidated: bool,
+    benchmark_pair: Option<BoundPair>,
     remaining_queries: u8,
 }
 
@@ -30,10 +31,47 @@ impl Selected {
             path: path.into(),
             analysis,
             invalidated: false,
+            benchmark_pair: None,
             remaining_queries: follow_up::MAX_QUERIES,
         };
         result.verify().map_err(|(_, message)| message)?;
         Ok(result)
+    }
+
+    pub(super) fn open_benchmark(
+        baseline: &Path,
+        current: &Path,
+        threshold: Option<f64>,
+    ) -> Result<Self, String> {
+        let pair = BoundPair::open(baseline, current, threshold)?;
+        let analysis = pair.current_analysis()?;
+        Ok(Self {
+            path: current.into(),
+            analysis,
+            invalidated: false,
+            benchmark_pair: Some(pair),
+            remaining_queries: follow_up::MAX_QUERIES,
+        })
+    }
+
+    pub(super) fn has_benchmark_pair(&self) -> bool {
+        self.benchmark_pair.is_some()
+    }
+
+    pub(super) fn benchmark_page(
+        &mut self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Value, RpcError> {
+        if self.invalidated {
+            return Err((-32001, "current input binding is no longer valid"));
+        }
+        let pair = self
+            .benchmark_pair
+            .as_mut()
+            .ok_or((-32001, "no bound Benchmark pair"))?;
+        pair.verify().map_err(|msg| (-32001, msg))?;
+        pair.page(offset, limit).map_err(|msg| (-32602, msg))
     }
 
     pub(super) fn supports_frame_scope(&self) -> bool {
@@ -61,6 +99,10 @@ impl Selected {
 
     pub(super) fn remaining_queries(&self) -> u8 {
         self.remaining_queries
+    }
+
+    pub(super) fn supports_startup_details(&self) -> bool {
+        self.analysis.startup().is_some()
     }
 
     pub(super) fn supports_har_details(&self) -> bool {

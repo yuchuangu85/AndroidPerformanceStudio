@@ -22,7 +22,7 @@ NORMAL = {
     'method-recording': '', 'network': 'contracts har-engine json platform',
     'perfetto': 'contracts frame platform', 'platform': '', 'primitives': '',
     'protocol': 'contracts primitives', 'simpleperf-engine': 'primitives',
-    'source': 'contracts platform', 'startup': 'adb perfetto platform', 'storage': 'contracts json source',
+    'source': 'contracts platform', 'startup': 'adb json perfetto platform', 'storage': 'contracts json source',
     'ui-foundation': '',
 }
 ALLOWED = {('aps-' + src, 'normal', 'aps-' + dst)

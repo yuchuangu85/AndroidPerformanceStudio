@@ -51,6 +51,7 @@ Unix 宿主若要读取原始 `perf.data`，须在启动前显式配置 `APS_SIM
 - **`aps_run_plan`**：必须给 `intent: "analyze" | "macrobenchmark" | "cpu-capture"`，可加 `question`。返回 `status: "preview"`、`executed: false` 和建议步骤；不是批准、采集或执行回执。
 - **`aps_analyze_file`**：仅在启动时成功绑定了可解析的本地文件或宿主下载副本时可发现。参数 `{}` 或 `{"question":"…"}`。返回与 CLI 共享的证据，包括 `input.sourceDigest` 和可引用的 `evidence.items[].id`、`label`、`value`。问题文本不改变输入或测量结果。绑定 Frame 输入时，还可给 `{"scope":"report"}` 或 `{"frameId":"17"}`（可加 `question`，两种选择互斥）；分别等价于 CLI 的 `--scope report` 和 `--frame-id 17`。帧证据中的 `frameId` 为十进制字符串，可原样回传；安全整数范围内也接受数字输入。省略选择器仍返回原聚合摘要；非法或不存在的 ID 不会退回摘要。显式范围的证据含 `analysisPolicyVersion`；报告最多包含 8 行，缺失值不会冒充实测零。更细的热点、对象、帧归因和对比仍用专用 Server。
 
+- **`aps_benchmark_compare`**：只在宿主同时指定本地 `--input CURRENT --baseline BASELINE` 且比较成功时注册。双源 SHA-256 复核、整组门槛、按页取证；见 [基准回归 MCP](benchmark.md)。
 - **`aps_follow_up`**：只在绑定工件时注册。先从 `aps_analyze_file` 的响应取出 `input.sourceDigest`，每次原样传回。可用的 `query` 以当前 `tools/list` 中的枚举为准。摘要是调用前置条件，不是授权其他文件的句柄。
 
 ### 在同一工件内追加取证
@@ -64,6 +65,8 @@ Unix 宿主若要读取原始 `perf.data`，须在启动前显式配置 `APS_SIM
 3. 如仍需证据，以同一摘要调用 `{"sourceDigest":"<同上>","query":"har_phases"}`，查看固定七阶段的样本数、缺失数、无效数和毫秒统计。SSL 属于 connect 的一部分，不应重复相加。
 
 Frame 可问：「找出错过截止时间的帧，再看其中一帧的阶段耗时。」先用 `query:"frame_rows", view:"deadline_misses"`（默认视图为 `all`），再把某行 `value.frameId` 的十进制字符串原样传给已有的 `aps_analyze_file({"frameId":"…"})`。错过截止时间不等于平台已判定卡顿。
+
+[Startup](startup.md) 可用 `startup_runs` 查看导入报告中指定请求/观测模式或缺少 TTID/TTFD 的运行；支持 APS Startup CSV 与桌面 JSON v1。
 
 对所有支持的工件，`query:"evidence_item"` 配合 `evidenceId` 可精确取回**无范围摘要中的一项**，保留原引用 ID；它不会产生额外测量，不能按任意键或 JSON 路径遍历。报告中应同时引用 `sourceDigest` 与 `items[].id`。
 

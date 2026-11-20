@@ -1,5 +1,5 @@
 //! Read-only tool discovery, argument validation and evidence presentation.
-use super::{RpcError, follow_up, source::Selected};
+use super::{RpcError, benchmark, follow_up, source::Selected};
 use serde_json::{Map, Value, json};
 
 // Above this bound common MCP clients cannot faithfully serialize a JSON number.
@@ -24,6 +24,9 @@ pub(super) fn list(selected: Option<&Selected>) -> Value {
         }
         entries.push(json!({"name":"aps_analyze_file","description":"Read the frozen APS evidence for the one host-selected input. Interpret the numeric facts, units and missing signals in your answer to the user's question.","inputSchema":schema}));
         entries.push(follow_up::definition(selected));
+        if selected.has_benchmark_pair() {
+            entries.push(benchmark::definition());
+        }
     }
     json!({"tools":entries})
 }
@@ -64,8 +67,9 @@ pub(super) fn call(selected: Option<&mut Selected>, params: &Value) -> Result<Va
         "aps_capabilities" => {
             validate_args(args, &[])?;
             let analyzers = crate::capabilities()["analyze"].clone();
-            json!({"supportedAnalyzers":analyzers,"sourceBound":selected.is_some(),"boundAnalyzer":selected.as_deref().and_then(Selected::analyzer_kind), "followUpRemaining":selected.as_deref().map(Selected::remaining_queries), "readOnly":true,"permissions":{"device":false,"download":false,"writeFiles":false,"invokeModel":false},"report":"The calling client interprets measured evidence. CLI actions require separate host authorization."})
+            json!({"supportedAnalyzers":analyzers,"sourceBound":selected.is_some(),"boundAnalyzer":selected.as_deref().and_then(Selected::analyzer_kind), "followUpRemaining":selected.as_deref().map(Selected::remaining_queries),"benchmarkPairBound":selected.as_deref().is_some_and(Selected::has_benchmark_pair), "readOnly":true,"permissions":{"device":false,"download":false,"writeFiles":false,"invokeModel":false},"report":"The calling client interprets measured evidence. CLI actions require separate host authorization."})
         }
+        benchmark::NAME => benchmark::call(selected, args)?,
         follow_up::NAME => {
             let input = selected.ok_or((-32001, "no bound input for follow-up"))?;
             let (digest, query) = follow_up::Query::parse(args, input)?;
@@ -146,8 +150,9 @@ fn render(name: &str, projection: Value) -> Result<Value, RpcError> {
     // Keep the wire bound separate from the engine bound; the text fallback
     // duplicates structuredContent and JSON escaping can enlarge it again.
     let text = serde_json::to_string(&projection).map_err(|_| (-32603, "cannot encode result"))?;
-    if name == follow_up::NAME && text.len() > follow_up::MAX_RESULT_BYTES {
-        return Err((-32002, "follow-up result exceeds 32 KiB"));
+    if matches!(name, follow_up::NAME | benchmark::NAME) && text.len() > follow_up::MAX_RESULT_BYTES
+    {
+        return Err((-32002, "read-only page exceeds 32 KiB"));
     }
     if text.len() > 512 * 1024 {
         return Err((-32002, "evidence exceeds result budget"));

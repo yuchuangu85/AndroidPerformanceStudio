@@ -1,41 +1,29 @@
 # Benchmark Regression MCP
 
-[总览](README.md) | [Memory](memory.md)
+[总览](README.md) · [统一编排 MCP](orchestrator.md) · [基准回归 CLI](../cli/benchmark.md)
 
-> **统一入口：** 对已绑定的AndroidX Benchmark JSON，可以用 [`aps_analyze_file`](orchestrator.md) 读取有界证据。下文的“未暴露”仅指模块专用工具；统一入口不做设备采集。
+在宿主的 stdio 启动配置里显式绑定两份已有的 AndroidX Benchmark JSON。无需新增 Server：
 
-## 当前状态
-- 当前已实现 MCP 接口：**0**，Benchmark 模块没有注册 MCP 工具。
-- 当前 `aps-mcp` 服务端只注册 `memory_*` 工具，不提供回归比较接口。
-- 统一 `aps-mcp` provider/namespace 是架构方向，不代表 Benchmark 已完成模块注册。
-- 本地 CLI、Gradle 编排、发布门槛和 AI 分析不等于 MCP 支持。
+```sh
+aps mcp --input /absolute/path/to/current.json \
+  --baseline /absolute/path/to/baseline.json
+```
 
-## 使用方式与 MCP 输入输出
-- 目前没有可调用的 Benchmark MCP 接口，也没有本模块的 MCP 启动模式。
-- MCP 输入：**未暴露**；基线、当前运行、策略和项目目录不是 MCP 参数。
-- MCP 输出：**未暴露**；回归报告、门槛决策与导出工件不是 MCP 工具结果。
-- 现有独立 CLI 不是 MCP server，不能把其选项当作工具 schema。
+同样可用 `aps-orchestrator-mcp`，参数不变。可在**启动配置**中加 `--threshold-percent 8`（默认 5）；工具不能修改比较策略。配对模式只接受本地普通文件，不与 `--artifact-url` 一起使用。两份文件内容完全相同时直接拒绝，不把同一工件当作独立重复实验。
 
-## 现有领域能力（非 MCP）
-- `BenchmarkRun` 导入 AndroidX Benchmark JSON，保留用例、原始样本和设备/构建元数据。
-- 运行身份来自输入 JSON 字节的 SHA-256；无有效用例的输入会被拒绝。
-- `compare` 比较基线与当前运行，输出指标差异、可比性问题、原因和置信度。
-- 分类使用中位数差异的双样本 BCa 区间，并结合明确的实际变化阈值。
-- `evaluate_gate` 将不兼容、阻断回归、无法确定和通过区分为不同决策。
-- 本地适配器提供存储、趋势、报告导出，以及 Macrobenchmark 命令构建与阻塞运行。
+两份报告均成功解析并完成有界比较后，`tools/list` 才注册 **`aps_benchmark_compare`**。只绑定一个报告时，`aps_analyze_file` 仍只返回单文件摘要。配对后，该摘要工具仍只读当前报告。可向外部客户端提问：「按已绑定的基线判断当前版本是否回归；解释全量门槛，再引用相关指标证据。」
 
-## 约束与证据边界
-- 输入上限为 64 MiB、10,000 个用例；重复用例身份会被拒绝。
-- 指标缺失、方向未知、原始样本过少或单位不匹配不能伪造成有效回归分数。
-- 设备、场景、编译与启动条件影响队列可比性，仅有两个报告文件不足以证明可比。
-- 无法确定或不兼容不是通过；门槛决策也不代表已发布 Release。
-- Rust 与 Compose 的统计方法不同，不能承诺相同输入的分类逐位一致。
-- Gradle 编排会执行本地测试项目，不能将其描述为只读查询或 MCP 入口。
-- 本页仅核对源码，不声明 MCP、真实设备 Macrobenchmark 或发布 CI 验收通过。
+```json
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"aps_benchmark_compare","arguments":{"offset":0,"limit":8}}}
+```
 
-## 代码依据
-- [Benchmark API](../../../rust-desktop/crates/aps-benchmark/src/lib.rs)
-- [导入与统计边界说明](../../../rust-desktop/crates/aps-benchmark/README.md)
-- [回归比较与门槛](../../../rust-desktop/crates/aps-benchmark/src/compare.rs)
-- [Macrobenchmark 编排](../../../rust-desktop/crates/aps-benchmark/src/orchestrate.rs)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)
+参数仅有 `offset`（默认 0）和 `limit`（默认 8，范围 1–16）；不能传路径、URL、设备、Gradle 参数或模型指令。响应的 `structuredContent` 与同文件、同阈值、同分页的 CLI JSON 一致：
+
+- `baselineDigest`、`currentDigest` 是两份实际输入的 SHA-256；引用时同时保留两个摘要和 `items[].id`。
+- `policy` 显示算法版本、相对阈值、样本数下限和区间配置；`gate` 与 `counts` 覆盖**整组比较**，不是当前页。门槛为 `PASS | FAIL | INCONCLUSIVE`；不兼容或证据不足不是通过。
+- 指标行含中位数或报告代表值、样本数、单位、可比情况下的差值及分类；不返回原始样本、报告路径、设备标识或原始日志。只有满足领域规则的行才有可用 BCa 区间。不兼容行的差值为 `null`。
+- 使用 `nextOffset` 继续读，`null` 表示结束。每次取证会同时复核两个文件；检测到更改、消失或替换后本进程不再返回对比结果（`-32001`，恢复旧字节也不重开）。非法参数或越界页码返回 `-32602`；正文上限 32 KiB。
+
+比较使用已有 Rust Benchmark 分析器，不运行设备实验，不写报告，也不调用模型。详见 [CLI 预算与门槛](../cli/benchmark.md)及[领域比较规则](../../../rust-desktop/crates/aps-benchmark/src/compare.rs)。
+
+验证：`cd rust-desktop && cargo test --locked -p aps-cli --test benchmark_compare`。覆盖合成报告的实际 CLI/stdio 进程，不代表真实设备或发布 CI 已执行。

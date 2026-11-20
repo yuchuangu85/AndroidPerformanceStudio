@@ -318,9 +318,7 @@ fn actual_compose_exports_decode_and_match_comparison_oracle() {
             }
         }
         let encoded = reports::encode_json(&current).unwrap();
-        let replay =
-            reports::decode(aps_json::parse_slice(&encoded, aps_json::Limits::default()).unwrap())
-                .unwrap();
+        let replay = aps_startup::report::parse_json(&encoded).unwrap();
         assert_eq!(replay.compare(&baseline, 5.).unwrap(), comparison);
         assert_eq!(current.warnings(), &["fixture warning"]);
         assert_eq!(
@@ -347,7 +345,7 @@ fn json_recomputes_measurements_and_phases_ignoring_forged_summary_and_phase_arr
     for run in root["runs"].as_array_mut().unwrap() {
         run["phases"] = serde_json::json!([{"name":"invented phase", "durationNs": 999999}]);
     }
-    let session = reports::decode(root).unwrap();
+    let session = aps_startup::report::parse_json(&serde_json::to_vec(&root).unwrap()).unwrap();
     assert_eq!(session.summary().ttid.p50_ms, Some(130));
     let phases = session.evidence(&session.runs()[0].id).unwrap().phases();
     assert_eq!(phases.len(), 1);
@@ -392,15 +390,9 @@ fn json_boundary_rejects_invalid_schema_identity_types_and_unknown_enum_evidence
     root["runs"][0]["environmentEvidence"]["capturedAt"] = "2026-02-30T00:00:00Z".into();
     invalid.push(root);
     for root in invalid {
-        assert!(reports::decode(root).is_err());
+        assert!(aps_startup::report::parse_json(&serde_json::to_vec(&root).unwrap()).is_err());
     }
-    assert!(
-        aps_json::parse_slice(
-            b"{\"schemaVersion\":1,\"schemaVersion\":2}",
-            aps_json::Limits::default()
-        )
-        .is_err()
-    );
+    assert!(aps_startup::report::parse_json(b"{\"schemaVersion\":1,\"schemaVersion\":2}").is_err());
 }
 
 #[::core::prelude::v1::test]
@@ -417,7 +409,7 @@ fn legacy_metric_defaults_match_compose_but_missing_cohort_evidence_is_incompati
             object.remove(key);
         }
     }
-    let session = reports::decode(root).unwrap();
+    let session = aps_startup::report::parse_json(&serde_json::to_vec(&root).unwrap()).unwrap();
     let evidence = session.evidence(&session.runs()[0].id).unwrap();
     assert_eq!(evidence.ttid.source.as_deref(), Some("EVENT_LOG"));
     assert_eq!(evidence.ttid.confidence, aps_startup::Confidence::Exact);
@@ -443,7 +435,7 @@ fn exports_cover_full_cohort_not_current_page_and_csv_is_reimportable() {
             run
         })
         .collect();
-    let session = reports::decode(root).unwrap();
+    let session = aps_startup::report::parse_json(&serde_json::to_vec(&root).unwrap()).unwrap();
     let page = load_page(
         &session,
         &StartupQuery {

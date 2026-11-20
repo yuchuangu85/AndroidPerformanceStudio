@@ -101,7 +101,10 @@ configuration and cannot consume a desktop approval.
   invoke this same implementation.
 * Put a new offline analyzer adapter in `aps-cli/src/analysis/`, not in either
   frontend. Input acquisition and capability discovery are shared host modules;
-  the neutral evidence contract itself belongs in `aps-analysis`.
+  the neutral evidence contract itself belongs in `aps-analysis`. The only
+  paired input in the unified MCP host is explicit Benchmark regression:
+  `benchmark_source.rs` binds both files; the shared analysis adapter freezes
+  bounded pages using the domain comparator before tool discovery.
   `aps-cli/src/lib.rs` keeps existing library import paths via re-exports.
 * Dedicated servers stay with their domain:
   `aps-memory/src/mcp/`, `aps-cpu/src/cpu_mcp/`, or the existing

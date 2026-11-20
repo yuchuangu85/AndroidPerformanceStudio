@@ -25,6 +25,8 @@ pub fn capabilities() -> Value {
         "analyze":kinds,
         "evidenceSchema":EVIDENCE_SCHEMA,
         "frameScopes":["report","selected-frame"],
+        "benchmarkRegression":{"inputs":"explicit-local-baseline-and-current","cli":"aps benchmark compare","mcpTool":"aps_benchmark_compare"},
+        "startup":{"inputFormats":["startup-csv","startup-json-v1"],"scope":"startup-runs","mcpQuery":"startup_runs"},
         "maxInputBytes":MAX_INPUT_BYTES,
         "rawPerfData":if cfg!(unix) {"requires-host-selected-APS_SIMPLEPERF"} else {"unsupported-host"},
         "remoteFetch":"explicit-https-host-input-only",

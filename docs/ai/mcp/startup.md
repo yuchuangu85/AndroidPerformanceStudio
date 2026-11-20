@@ -1,40 +1,33 @@
 # Startup Profiler MCP
 
-[总览](README.md) | [Memory](memory.md)
+[总览](README.md) · [统一编排 MCP](orchestrator.md) · [启动分析 CLI](../cli/startup.md)
 
-> **统一入口：** 对已绑定的APS Startup CSV，可以用 [`aps_analyze_file`](orchestrator.md) 读取有界证据。下文的“未暴露”仅指模块专用工具；统一入口不做设备采集。
+使用统一 stdio MCP，无需新的启动程序。宿主启动时绑定一份 **APS Startup CSV** 或桌面导出的 **Startup JSON v1**：
 
-## 当前状态
-- 当前已实现 MCP 接口：**0**，Startup 模块没有注册 MCP 工具。
-- 当前 `aps-mcp` 服务端只注册 `memory_*` 工具，不提供启动实验接口。
-- 统一 `aps-mcp` provider/namespace 是架构方向，不代表 Startup 已完成模块注册。
-- 启动分析的本地数据与 AI 证据投影不能证明 MCP 支持。
+```sh
+aps mcp --input /absolute/path/to/startup.json
+```
 
-## 使用方式与 MCP 输入输出
-- 目前没有可调用的 Startup MCP 接口，也没有本模块的 MCP 启动模式。
-- MCP 输入：**未暴露**；目标包、启动模式、实验配置和导入报告不是 MCP 参数。
-- MCP 输出：**未暴露**；启动运行记录、统计与工件不是 MCP 工具结果。
-- 不存在通过本模块 MCP 发起启动、确认实验或读取指标的用法。
+1. `aps_analyze_file({})` 读取全报告摘要。引用 `evidence.items[].id`，并保存 `input.sourceDigest`。
+2. 绑定 Startup 报告时，`tools/list` 会在 `aps_follow_up` 的 `query` 中列出 `startup_runs`。用同一摘要分页或筛选，例如：
 
-## 现有领域能力（非 MCP）
-- `StartupSession` 保留每次运行的请求模式、观测模式、来源和缺失指标原因。
-- 本地解析接受 Activity Manager 启动输出、单次启动事件证据与已有 CSV 报告。
-- 运行记录分别存储 `ThisTime`、`TotalTime`、`WaitTime`、TTID 和 TTFD。
-- `capture_startup` 是显式 Review / Confirm 后执行的阻塞式平台实验入口。
-- 实验绑定批准的设备、包与配置，并在执行中重新检查目标身份。
-- 可选 CPU 热点采集按轮次保留独立 Perfetto Trace，默认关闭。
+```json
+{
+  "query": "startup_runs",
+  "sourceDigest": "<aps_analyze_file 返回的 64 位 SHA-256>",
+  "requestedMode": "cold",
+  "observedMode": "unknown",
+  "missingMetric": "ttid",
+  "offset": 0,
+  "limit": 8
+}
+```
 
-## 约束与证据边界
-- TTID 需要平台 Displayed 证据；`TotalTime` 不能替代 TTID。
-- TTFD 需要 Fully drawn 证据，缺失时不能回退为 TTID 或 Agent 首帧。
-- 请求 Cold/Warm/Hot 不证明实际模式；缺失可靠 LaunchState 时观测模式保持未知。
-- 导入报告中的编译、环境字段不能直接当作已验证的可比实验条件。
-- CPU 调度时间与热点观测样本数是不同证据，样本数不能换算为方法耗时。
-- 启动实验涉及应用生命周期副作用；本页不提供绕过确认的 MCP 通道。
-- 本页仅核对源码，不声明设备实验、CPU 关联或 MCP 端到端验证通过。
+除 `query` 与 `sourceDigest` 外其余字段可省略。两种 mode 均接受 `cold|warm|hot|unknown`，`missingMetric` 接受 `ttid|ttfd`。多项过滤相交。比如可以问：「先列出这份报告中 TTID/TTFD 的观测数，再找几条请求为冷启动但无法确认实际模式的记录，引用证据 ID。」
 
-## 代码依据
-- [启动会话与指标模型](../../../rust-desktop/crates/aps-startup/src/lib.rs)
-- [平台实验与确认边界](../../../rust-desktop/crates/aps-startup/src/capture.rs)
-- [启动模块说明](../../../rust-desktop/crates/aps-startup/README.md)
-- [当前 MCP 工具注册](../../../rust-desktop/crates/aps-memory/src/mcp/protocol.rs)
+- 结果包含 `items`、`total`、`offset`、`nextOffset` 和 `remainingQueries`。每页 1–16 条（默认 8）；`total` 是筛选后的匹配数，`nextOffset:null` 表示没有下一页。每次源绑定共 8 次追问。
+- 行证据按原文件顺序，包含 `runIndex`（零基）、`iteration`、请求/观测模式、TTID/TTFD 及独立的 Activity Manager 毫秒时长。相同源的 CLI 与 MCP 行证据 ID 一致。缺失指标保留为 `null`，请求模式不能取代观测模式，Activity Manager 耗时不能取代 TTID/TTFD。
+- 工件变更后停止取证，不支持通过工具参数换路径。工具不返回原始运行 ID、日志、Trace 路径、包名、设备标识或编译/环境声明。导入结果不能证明实时采集或跨会话可比，也不重建启动阶段。
+- 没有启动 APK、设备采集、任意事件日志查询或单独的 Startup Server。APS 不调用模型；是否把有界证据发送给模型由外部客户端决定。
+
+验证：`cd rust-desktop && cargo test --locked -p aps-cli --test orchestrator_stdio startup`。覆盖 CLI/MCP 摘要与行证据一致、分页、缺失指标、非法参数和源替换；不代表真实设备或模型验收。

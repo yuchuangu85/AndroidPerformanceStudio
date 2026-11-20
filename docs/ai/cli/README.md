@@ -1,7 +1,7 @@
 # 不打开桌面：从性能文件或设备场景生成分析报告
 
 `aps` 是 Rust 工作区的独立可执行文件。**默认只在本机解析并输出证据，不调用模型。**
-CLI 和 [stdio MCP](mcp/orchestrator.md) 使用同一套解析器和证据 ID。原来的 Memory、CPU、Frame MCP 和桌面入口不需要改配置。
+CLI 和 [stdio MCP](../mcp/orchestrator.md) 使用同一套解析器和证据 ID。原来的 Memory、CPU、Frame MCP 和桌面入口不需要改配置。
 
 ## 构建与第一次调用
 
@@ -34,9 +34,9 @@ aps analyze ./frame-analysis.json --frame-id 17
 
 **可分析的输入：**
 - **CPU**：SIMPLEPERF protobuf、Gecko v24 JSON；输出热点、样本及覆盖，采样权重不是方法耗时。原始 perf.data 在 Unix 需显式设置 `APS_SIMPLEPERF` 指向兼容、可信的宿主 Simpleperf 绝对路径（转换及原始/派生内容摘要会进入证据）；gzip/会话归档不是直接输入。
-- **Frame / Trace**：gfxinfo FrameStats、APS v3 帧报告；Perfetto protobuf 可返回边界、CPU 调度和 FrameTimeline 观测。Trace 使用摘要与版本匹配的 `trace_processor_shell`（同目录，或宿主通过 `APS_TRACE_PROCESSOR` 指定绝对路径），不从 PATH 自动安装。高级帧凭据/基线比较仍用 [Frame MCP](mcp/frame.md)。
+- **Frame / Trace**：gfxinfo FrameStats、APS v3 帧报告；Perfetto protobuf 可返回边界、CPU 调度和 FrameTimeline 观测。Trace 使用摘要与版本匹配的 `trace_processor_shell`（同目录，或宿主通过 `APS_TRACE_PROCESSOR` 指定绝对路径），不从 PATH 自动安装。高级帧凭据/基线比较仍用 [Frame MCP](../mcp/frame.md)。
 - **Memory / Network**：HPROF 通过同目录 worker 验证来源并输出堆摘要/候选数量，不能直接确认泄漏；HAR 输出请求与耗时等聚合，不发送 URL、headers 和 body。
-- **Benchmark / Startup / Method Recording**：AndroidX Benchmark JSON、APS Startup CSV、ART method trace。分别保留指标单位、启动指标缺失和方法记录时钟；单个 Benchmark 摘要不是回归判定。
+- **Benchmark / Startup / Method Recording**：AndroidX Benchmark JSON、APS Startup CSV / JSON v1、ART method trace。分别保留指标单位、启动指标缺失和方法记录时钟；单个 Benchmark 摘要不是回归判定；[基准回归 CLI](benchmark.md) 可比较明确指定的基线与当前报告。Startup 可按运行分页、按模式或缺失指标筛选，见 [启动分析 CLI](startup.md)。
 - **Battery / Layout Inspector**：APS schema-v1 电池报告、经清单与身份校验的 Inspector ZIP。只输出有界观测，不将导入报告当作实时采集，也不向模型发送截图和节点值。
 
 ### 让 APS 调用模型并生成报告
@@ -90,7 +90,7 @@ aps capture cpu --device emulator-5554 --pid 1234 --seconds 10 \
 
 ### 用自然语言
 
-在外部 AI 客户端的 stdio MCP 配置中将 command 设为 `aps` 的绝对路径，args 设为 `["mcp", "--input", "/absolute/path/to/capture.har"]`；已知 HTTPS 工件可改用 `["mcp", "--artifact-url", "https://artifacts.example.org/run/capture.har"]`，由宿主在启动时获取一次。然后问：「这份 HAR 的时延证据支持什么结论？引用证据 ID，并指出缺失项。」外部客户端可以根据摘要继续追问同一份工件：例如列出 HAR 最慢的 3 条请求，再比较阶段统计；或先找错过截止时间的帧，再看单帧证据。每个绑定最多 8 次 `aps_follow_up`，不绑定文件时只能发现能力、预览步骤。[工具契约和配置示例](mcp/orchestrator.md)。
+在外部 AI 客户端的 stdio MCP 配置中将 command 设为 `aps` 的绝对路径，args 设为 `["mcp", "--input", "/absolute/path/to/capture.har"]`；已知 HTTPS 工件可改用 `["mcp", "--artifact-url", "https://artifacts.example.org/run/capture.har"]`，由宿主在启动时获取一次。然后问：「这份 HAR 的时延证据支持什么结论？引用证据 ID，并指出缺失项。」外部客户端可以根据摘要继续追问同一份工件：例如列出 HAR 最慢的 3 条请求，再比较阶段统计；或先找错过截止时间的帧，再看单帧证据。每个绑定最多 8 次 `aps_follow_up`，不绑定文件时只能发现能力、预览步骤。[工具契约和配置示例](../mcp/orchestrator.md)。
 
 **未开放的操作不会伪装成成功：** 通用 GPU/AGI 工件解析、源码工作区查询、任意自然语言设备动作，以及除上述两类以外的专用自动录制流程，仍用原桌面/领域入口；MCP 工具不下载、不录制、不写报告、不授权模型。扩展时，离线解析加入共享证据适配器与 `aps capabilities`；有副作用的采集加入显式的 host 计划/确认流程，不往只读工具添加命令或路径参数。
 

@@ -4,7 +4,7 @@
 
 ## 当前实现
 
-- [无界面 CLI 使用指南](headless-cli.md)：使用文件、HTTPS 或设备场景生成证据与 AI 报告。
+- [无界面 CLI 使用指南](cli/README.md)：使用文件、HTTPS 或设备场景生成证据与 AI 报告。
 - [MCP 总览与模块索引](mcp/README.md)：统一入口、连接方式、已实现接口和各业务模块的接入状态。
 - [Memory MCP 接口](mcp/memory.md)：5 个已实现工具的使用方式、输入、输出与错误；包含外部 A/B 类级 diff，内置 AI 仍只预取原有 3 个工具。
 - [快照对比 MCP](mcp/memory.md#memory_snapshot_diff)：双快照启动与 Client 配置、`offset`/`limit` 分页，以及完整结果和缺少基线时的错误示例。

@@ -44,14 +44,14 @@ Memory Server 的 `tools/list` 始终注册以下 5 个工具，完整输入输�
   [卡顿簇](frame.md#frame_problem_clusters)、[分组](frame.md#frame_attributions)）。
   采集凭据模式增加[探针重叠](frame.md#frame_trace_overlaps)与
   [前后对比](frame.md#frame_session_compare)，对比需独立的可比基线。
-- [Startup](startup.md)：尚无模块专用工具。
+- [Startup](startup.md)：统一入口支持 Startup CSV / JSON v1 摘要和按运行筛选的只读追问，无单独 Server。
 - [Battery](battery.md)：尚无模块专用工具。
 - [Network](network.md)：尚无模块专用工具。
 - [GPU](gpu.md)：尚无模块专用工具。
 - [Layout Inspector](layout-inspector.md)：尚无模块专用工具。
 - [Capture](capture.md)：尚无模块专用工具。
 - [Trace](trace.md)：尚无模块专用工具。
-- [Benchmark](benchmark.md)：尚无模块专用工具。
+- [Benchmark](benchmark.md)：统一入口可选绑定基线与当前 AndroidX JSON，公开只读回归比较与全量门槛。
 - [Method Recording](method-recording.md)：尚无模块专用工具。
 - [Source Workspaces](source-workspaces.md)：尚无模块专用工具。
 

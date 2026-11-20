@@ -11,6 +11,7 @@ Rust 启动分析支持有界、明确的平台实验以及实际存在的输入
 - 现有的 `StartupCsvExporter` 报告（`parse_csv` / `open_csv`），按命名列解析，
   支持成对引号以及带引号的逗号/换行。其他编译/环境/导出字段保留在
   `imported_fields` 中。
+- 桌面 Startup JSON v1 报告（`report::parse_json` / `report::open_json`）。GUI 与 headless 共享校验；[CLI](../../../docs/ai/cli/startup.md) / [MCP](../../../docs/ai/mcp/startup.md) 只投影数值和固定枚举。
 
 会话保留运行级别的缺失指标、请求模式与观测模式，以及来源。`TotalTime`、
 `ThisTime` 和 `WaitTime` 仍是 Activity Manager 字段：它们都不能替代 TTID。
@@ -24,7 +25,7 @@ Agent-first-frame 事件。即使请求模式为 Cold/Warm/Hot，缺失的 `Laun
 所有受支持的值都是相对于启动的毫秒时长，而不是绝对时间戳；它们无法重建跨时钟
 的阶段瀑布图。CSV 导出缺少完整的目标/会话身份，不能证明队列可比。
 编译字段会被保留，但不会独立验证。Agent 传输、Perfetto 阶段关联、Baseline
-Profile 准备、JSON 报告导入和统计回归资格判定仍是独立工作。
+Profile 准备和统计回归资格判定仍是独立工作。
 
 ## 明确的平台实验
 

@@ -6,7 +6,7 @@ Android Performance Studio is a desktop workstation for collecting, inspecting, 
 
 > Some executable and installer names retain the historical `AndroidPerfermanceStudio` spelling for compatibility.
 
-[Headless CLI and MCP](docs/ai/headless-cli.md): analyze a file or HTTPS artifact, run a trusted capture scenario, and generate an evidence-linked report without opening the desktop.
+[Headless CLI and MCP](docs/ai/cli/README.md): analyze a file or HTTPS artifact, run a trusted capture scenario, and generate an evidence-linked report without opening the desktop.
 
 ## Highlights
 

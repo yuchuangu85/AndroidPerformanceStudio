@@ -464,6 +464,7 @@ name = "aps-startup"
 version = "0.1.0"
 dependencies = [
  "aps-adb",
+ "aps-json",
  "aps-perfetto",
  "aps-platform",
 ]

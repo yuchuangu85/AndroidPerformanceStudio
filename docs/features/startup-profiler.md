@@ -1,5 +1,7 @@
 # Startup Profiler
 
+已导出的 Startup CSV / JSON v1 可通过 [CLI](../ai/cli/startup.md) 或 [只读 MCP](../ai/mcp/startup.md) 分析。两者支持摘要和运行筛选，不会启动设备实验。
+
 ## 功能介绍
 
 Startup Profiler 用于分析冷启动、温启动和可重复启动实验，拆分进程启动、Application、Activity、首帧、首次绘制和 fully drawn 等关键阶段，并支持 Baseline Profile 相关结果导入/导出。

@@ -1,5 +1,6 @@
 //! Headless host adapters. The CLI and MCP share analysis, not authority.
 mod analysis;
+mod benchmark_source;
 mod capabilities;
 pub mod cli;
 pub mod input;

@@ -1,8 +1,9 @@
-//! Startup evidence: platform am-start output, scoped events and existing CSV exports.
+//! Startup evidence: platform am-start output, scoped events and existing CSV/JSON exports.
 pub mod capture;
 mod comparison;
 mod csv;
 mod parser;
+pub mod report;
 pub use comparison::*;
 
 use std::collections::BTreeMap;

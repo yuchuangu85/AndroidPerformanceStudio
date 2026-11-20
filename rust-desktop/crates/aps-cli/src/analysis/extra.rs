@@ -31,11 +31,7 @@ pub fn analyze(
     {
         Some(method(bytes))
     } else {
-        let header = bytes.split(|&b| b == b'\n').next()?;
-        if header.len() > 8192 || !header.windows(13).any(|w| w == b"requestedType") {
-            return None;
-        }
-        Some(startup(bytes))
+        None
     }
 }
 
@@ -60,22 +56,6 @@ fn memory(path: &Path, digest: &str) -> Result<Value, String> {
     }}))
 }
 
-fn startup(bytes: &[u8]) -> Result<Value, String> {
-    let text = std::str::from_utf8(bytes).map_err(|_| "E_STARTUP_CSV")?;
-    let session = aps_startup::StartupSession::parse_csv(text).map_err(|_| "E_STARTUP_CSV")?;
-    let s = session.summary();
-    fn metric(m: &aps_startup::Statistics) -> Value {
-        json!({"observed":m.count,"missing":m.missing,"p50Ms":m.p50_ms,"p95Ms":m.p95_ms,"meanMs":m.mean_ms})
-    }
-    Ok(
-        json!({"kind":"startup","inputFormat":"startup-csv","summary":{
-            "runCount":s.runs,"unknownObservedModes":s.unknown_observed_modes,
-            "requestedObservedMismatches":s.requested_observed_mismatches,
-            "ttid":metric(&s.ttid),"ttfd":metric(&s.ttfd),"amTotalTime":metric(&s.total_time)
-        }}),
-    )
-}
-
 // Only short, printable metric identifiers are forwarded. Never expose linked artifacts.
 fn label(s: &str) -> Option<&str> {
     (!s.is_empty()
@@ -87,6 +67,10 @@ fn label(s: &str) -> Option<&str> {
 
 fn benchmark(bytes: &[u8]) -> Result<Value, String> {
     let run = aps_benchmark::BenchmarkRun::parse_json(bytes).map_err(|_| "E_BENCHMARK_JSON")?;
+    Ok(benchmark_summary(&run))
+}
+
+pub(super) fn benchmark_summary(run: &aps_benchmark::BenchmarkRun) -> Value {
     let count: usize = run.cases.iter().map(|c| c.metrics.len()).sum();
     let rows: Vec<_> = run
         .cases
@@ -100,12 +84,10 @@ fn benchmark(bytes: &[u8]) -> Result<Value, String> {
         })
         .take(24)
         .collect();
-    Ok(
-        json!({"kind":"benchmark","inputFormat":"androidx-benchmark-json","summary":{
+    json!({"kind":"benchmark","inputFormat":"androidx-benchmark-json","summary":{
             "caseCount":run.cases.len(),"metricCount":count,"omittedMetrics":count-rows.len(),
             "metrics":rows,"warningCount":run.warnings.len(),"comparisonPerformed":false
-        }}),
-    )
+    }})
 }
 
 fn method(bytes: &[u8]) -> Result<Value, String> {

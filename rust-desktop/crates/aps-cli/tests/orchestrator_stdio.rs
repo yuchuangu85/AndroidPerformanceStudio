@@ -637,28 +637,165 @@ fn follow_up_frame_finds_one_miss_beyond_header_and_drills_into_that_exact_frame
 }
 
 #[test]
-fn follow_up_other_analyzers_only_advertise_the_frozen_summary_section() {
+fn startup_csv_and_desktop_json_share_cli_mcp_evidence_and_bounded_run_filters() {
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("startup.csv");
-    std::fs::write(&path, "iteration,runId,requestedType,observedType,displayedTimeMs,fullyDrawnTimeMs,totalTimeMs\n1,r1,COLD,UNKNOWN,67,,100\n").unwrap();
-    let mut client = Client::start(Some(&path));
-    assert_eq!(advertised_queries(&mut client), ["evidence_item"]);
-    let report = payload(client.call("aps_analyze_file", json!({})));
-    let digest = &report["input"]["sourceDigest"];
-    let original = &report["evidence"]["items"][0];
-    for query in ["frame_rows", "har_phases", "har_slowest"] {
+    let csv = "iteration,runId,requestedType,observedType,displayedTimeMs,fullyDrawnTimeMs,totalTimeMs,warnings\n1,PRIVATE-r1,COLD,UNKNOWN,,,100,PRIVATE-log\n2,PRIVATE-r2,COLD,WARM,67,120,100,\n3,PRIVATE-r3,HOT,HOT,25,,100,\n";
+    let run = |iteration, requested, observed, ttid, ttfd| {
+        json!({
+            "iteration":iteration,"runId":format!("PRIVATE-r{iteration}"),
+            "requestedType":requested,"observedType":observed,"displayedTimeMs":ttid,
+            "fullyDrawnTimeMs":ttfd,"totalTimeMs":100,
+            "rawEvidence":{"amStartOutput":"PRIVATE-log"},"traceEvidence":{"file":"PRIVATE-trace"}
+        })
+    };
+    let report = json!({"schemaVersion":1,"warnings":["PRIVATE-warning"],"runs":[
+        run(1,"COLD","UNKNOWN",None,None),
+        run(2,"COLD","WARM",Some(67),Some(120)),
+        run(3,"HOT","HOT",Some(25),None),
+    ]})
+    .to_string();
+
+    for (file, format, bytes) in [
+        ("startup.csv", "startup-csv", csv),
+        ("report.json", "startup-json-v1", &report),
+    ] {
+        let path = temp.path().join(file);
+        std::fs::write(&path, bytes).unwrap();
+        let cli = |args: &[&str]| {
+            let output = Command::new(env!("CARGO_BIN_EXE_aps"))
+                .arg("analyze")
+                .arg(&path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            serde_json::from_slice::<Value>(&output.stdout).unwrap()
+        };
+        let mut client = Client::start(Some(&path));
         assert_eq!(
-            client.call(FOLLOW, json!({"query":query,"sourceDigest":digest}))["error"]["code"],
-            -32602
+            advertised_queries(&mut client),
+            ["evidence_item", "startup_runs"]
         );
+        let overview = payload(client.call("aps_analyze_file", json!({})));
+        assert_eq!(overview, cli(&[]));
+        assert_eq!(overview, cli(&["--kind", "startup"]));
+        assert_eq!(overview["evidence"]["inputFormat"], format);
+        let digest = &overview["input"]["sourceDigest"];
+        let summary = &overview["evidence"]["items"][0];
+        assert_eq!(summary["id"], "startup-summary");
+        assert_eq!(summary["value"]["ttid"]["missing"], 1);
+        assert_eq!(summary["value"]["ttfd"]["missing"], 2);
+        assert_eq!(summary["value"]["requestedObservedMismatches"], 1);
+        assert_eq!(
+            follow(
+                &mut client,
+                digest,
+                "evidence_item",
+                json!({"evidenceId":summary["id"]})
+            )["items"],
+            json!([summary])
+        );
+
+        let filter = json!({"requestedMode":"cold","observedMode":"unknown","missingMetric":"ttid","limit":1});
+        let page = follow(&mut client, digest, "startup_runs", filter);
+        assert_eq!(page["total"], 1);
+        assert_eq!(page["nextOffset"], Value::Null);
+        let row = &page["items"][0];
+        assert_eq!(row["value"]["observedMode"], "unknown");
+        assert_eq!(row["value"]["ttidMs"], Value::Null);
+        assert_eq!(row["value"]["ttfdMs"], Value::Null);
+        assert_eq!(row["value"]["amTotalTimeMs"], 100);
+        assert!(!page.to_string().contains("PRIVATE"));
+        assert!(!overview.to_string().contains("PRIVATE"));
+        let cli_page = cli(&[
+            "--scope",
+            "startup-runs",
+            "--requested-mode",
+            "cold",
+            "--observed-mode",
+            "unknown",
+            "--missing-metric",
+            "ttid",
+            "--limit",
+            "1",
+        ]);
+        assert_eq!(cli_page["input"]["sourceDigest"], *digest);
+        assert_eq!(cli_page["evidence"]["items"], json!([summary, row]));
+        assert_eq!(cli_page["evidence"]["page"]["total"], 1);
+        let first = follow(&mut client, digest, "startup_runs", json!({"limit":1}));
+        assert_eq!(first["items"][0], *row);
+        let second = follow(
+            &mut client,
+            digest,
+            "startup_runs",
+            json!({"offset":first["nextOffset"],"limit":1}),
+        );
+        assert_eq!(second["items"][0]["value"]["ttfdMs"], 120);
+
+        for args in [
+            json!({"requestedMode":"COLD"}),
+            json!({"observedMode":null}),
+            json!({"missingMetric":"amTotalTime"}),
+            json!({"path":"other.csv"}),
+            json!({"offset":4}),
+        ] {
+            let mut args = args;
+            args["query"] = "startup_runs".into();
+            args["sourceDigest"] = digest.clone();
+            assert_eq!(client.call(FOLLOW, args)["error"]["code"], -32602);
+        }
+        std::fs::write(&path, format!("{bytes} ")).unwrap();
+        assert_eq!(
+            client.call(
+                FOLLOW,
+                json!({"query":"startup_runs","sourceDigest":digest})
+            )["error"]["code"],
+            -32001
+        );
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(
+            client.call(
+                FOLLOW,
+                json!({"query":"startup_runs","sourceDigest":digest})
+            )["error"]["code"],
+            -32001
+        );
+        client.finish();
     }
-    let reply = follow(
-        &mut client,
-        digest,
-        "evidence_item",
-        json!({"evidenceId":original["id"]}),
-    );
-    assert_eq!(reply["items"], json!([original]));
-    assert_eq!(reply["remainingQueries"], 7);
-    client.finish();
+}
+
+#[test]
+fn startup_cli_rejects_malformed_reports_and_incompatible_selections() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("input");
+    let cli = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_aps"))
+            .arg("analyze")
+            .arg(&path)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        String::from_utf8(output.stderr).unwrap()
+    };
+    std::fs::write(&path, HAR).unwrap();
+    assert!(cli(&["--kind", "startup"]).contains("E_STARTUP_JSON"));
+    assert!(cli(&["--scope", "startup-runs", "--kind", "trace"]).contains("E_ANALYSIS_SCOPE"));
+    assert!(cli(&["--kind", "startup", "--frame-id", "1"]).contains("E_ANALYSIS_SCOPE"));
+    assert!(cli(&["--requested-mode", "warm"]).contains("E_ANALYSIS_SCOPE"));
+    assert!(cli(&["--scope", "startup-runs", "--limit", "17"]).contains("E_STARTUP_QUERY"));
+    let raw = json!({"schemaVersion":2,"runs":[{"iteration":1,"runId":"r","requestedType":"COLD",
+        "observedType":"UNKNOWN","rawEvidence":{"amStartOutput":"PRIVATE-raw"}}]});
+    std::fs::write(&path, raw.to_string()).unwrap();
+    let error = cli(&[]);
+    assert!(error.contains("E_STARTUP_JSON") && !error.contains("PRIVATE"));
+    let mut ambiguous = raw;
+    ambiguous["log"] = json!({});
+    std::fs::write(&path, ambiguous.to_string()).unwrap();
+    assert!(cli(&[]).contains("ambiguous JSON artifact"));
 }

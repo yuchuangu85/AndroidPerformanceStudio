@@ -1,9 +1,11 @@
 //! Source-bound analysis used by both frontends. No command dispatch, model
 //! approval, report publication or MCP protocol types belong here.
+pub(crate) mod benchmark;
 mod extra;
 mod har;
 mod offline_inspection;
 mod raw_cpu;
+pub(crate) mod startup;
 mod trace;
 
 use aps_analysis::evidence::{EvidenceBundle, EvidenceItem};
@@ -92,9 +94,25 @@ enum Details {
     None,
     Frame(Box<FrameReport>),
     Har(har::HarDetails),
+    Startup(startup::StartupDetails),
 }
 
 impl FrozenAnalysis {
+    pub(crate) fn from_benchmark_projection(
+        projection: Value,
+        digest: SourceDigest,
+        byte_length: u64,
+    ) -> Result<Self, String> {
+        let evidence =
+            EvidenceBundle::from_projection(digest, byte_length, projection)?.into_json()?;
+        Ok(Self {
+            digest,
+            byte_length,
+            evidence,
+            details: Details::None,
+        })
+    }
+
     pub(super) fn digest(&self) -> SourceDigest {
         self.digest
     }
@@ -122,10 +140,26 @@ impl FrozenAnalysis {
         }
     }
 
+    pub(crate) fn startup(&self) -> Option<&startup::StartupDetails> {
+        match &self.details {
+            Details::Startup(details) => Some(details),
+            _ => None,
+        }
+    }
+
     pub(super) fn open(
         path: &Path,
         options: &AnalyzeOptions,
         scope: Option<FrameScope>,
+    ) -> Result<Self, String> {
+        Self::open_selected(path, options, scope, false)
+    }
+
+    pub(super) fn open_selected(
+        path: &Path,
+        options: &AnalyzeOptions,
+        scope: Option<FrameScope>,
+        force_startup: bool,
     ) -> Result<Self, String> {
         if path.to_string_lossy().contains("://") {
             return Err("E_LOCAL_INPUT_REQUIRED: bind a local file to this analyzer".into());
@@ -134,8 +168,15 @@ impl FrozenAnalysis {
         let digest = SourceDigest::hash_reader(bytes.as_slice(), MAX_INPUT_BYTES)?;
         let byte_length = bytes.len() as u64;
         let frame_only = scope.is_some();
-        let (projection, details) = if options.force_trace || trace::looks_like_trace(path, &bytes)
-        {
+        let (projection, details) = if force_startup {
+            let first = bytes.iter().copied().find(|b| !b.is_ascii_whitespace());
+            if first == Some(b'{') {
+                startup::report_json(&bytes)
+            } else {
+                startup::csv(&bytes)
+            }
+            .map(|(projection, runs)| (projection, Details::Startup(runs)))?
+        } else if options.force_trace || trace::looks_like_trace(path, &bytes) {
             if frame_only {
                 return Err(FRAME_ONLY.into());
             }
@@ -164,6 +205,33 @@ impl FrozenAnalysis {
             evidence,
             details,
         })
+    }
+
+    pub(crate) fn into_startup_page(mut self, query: &startup::Query) -> Result<Value, String> {
+        let mut page = self
+            .startup()
+            .ok_or("E_ANALYSIS_SCOPE: startup-runs requires a Startup report")?
+            .page(query, self.digest)
+            .map_err(|e| format!("E_STARTUP_QUERY: {e}"))?;
+        let items = page
+            .as_object_mut()
+            .ok_or("E_EVIDENCE_SCHEMA")?
+            .remove("items")
+            .and_then(|items| match items {
+                Value::Array(items) => Some(items),
+                _ => None,
+            })
+            .ok_or("E_EVIDENCE_SCHEMA")?;
+        self.evidence["evidence"]["items"]
+            .as_array_mut()
+            .ok_or("E_EVIDENCE_SCHEMA")?
+            .extend(items);
+        self.evidence["evidence"]["page"] = page;
+        Ok(self.evidence)
+    }
+
+    pub(super) fn into_evidence(self) -> Value {
+        self.evidence
     }
 
     pub(super) fn scoped(&self, scope: FrameScope) -> Result<Value, String> {
@@ -243,6 +311,17 @@ fn detect_and_analyze(
         let gecko = document.get("threads").is_some() && document.get("meta").is_some();
         let benchmark = document.get("benchmarks").is_some();
         let battery = offline_inspection::is_battery(&document);
+        if aps_startup::report::looks_like_json(&document) {
+            if har || is_frame || gecko || benchmark || battery {
+                return Err("E_INPUT_FORMAT: ambiguous JSON artifact".into());
+            }
+            if frame_only {
+                return Err(FRAME_ONLY.into());
+            }
+            drop(document);
+            return startup::report_json(bytes)
+                .map(|(projection, runs)| (projection, Details::Startup(runs)));
+        }
         if benchmark || battery {
             if har || is_frame || gecko || benchmark && battery {
                 return Err("E_INPUT_FORMAT: ambiguous JSON artifact".into());
@@ -270,6 +349,9 @@ fn detect_and_analyze(
     }
     if !frame_only && let Some(result) = extra::analyze(path, bytes, digest, None) {
         return sections(result);
+    }
+    if !frame_only && startup::looks_like_csv(bytes) {
+        return startup::csv(bytes).map(|(projection, runs)| (projection, Details::Startup(runs)));
     }
     if bytes
         .windows(b"IntendedVsync".len())

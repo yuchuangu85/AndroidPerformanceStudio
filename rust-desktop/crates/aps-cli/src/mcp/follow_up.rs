@@ -1,7 +1,7 @@
 //! Fixed selectors over facts frozen at bind time. No paths, process handles,
 //! provider configuration, prompts, or output destinations enter this module.
 use super::{RpcError, source::Selected};
-use crate::analysis::FrozenAnalysis;
+use crate::analysis::{FrozenAnalysis, startup};
 use aps_contracts::SourceDigest;
 use serde_json::{Map, Value, json};
 
@@ -14,6 +14,7 @@ const ITEM: &str = "evidence_item";
 const FRAMES: &str = "frame_rows";
 const SLOWEST: &str = "har_slowest";
 const PHASES: &str = "har_phases";
+const STARTUP: &str = "startup_runs";
 
 /// The client discovers only queries available for this analyzer. The digest
 /// comes from aps_analyze_file; it is a precondition, not a way to select input.
@@ -30,12 +31,18 @@ pub(super) fn definition(selected: &Selected) -> Value {
     if selected.supports_har_details() {
         queries.extend([SLOWEST, PHASES]);
     }
+    if selected.supports_startup_details() {
+        queries.push(STARTUP);
+        props["requestedMode"] = json!({"type":"string","enum":startup::MODES});
+        props["observedMode"] = json!({"type":"string","enum":startup::MODES});
+        props["missingMetric"] = json!({"type":"string","enum":startup::MISSING_METRICS});
+    }
     if queries.len() > 1 {
         props["offset"] = json!({"type":"integer","minimum":0,"maximum":u32::MAX,"default":0});
         props["limit"] =
             json!({"type":"integer","minimum":1,"maximum":MAX_LIMIT,"default":DEFAULT_LIMIT});
     }
-    props["query"] = json!({"type":"string","enum":queries,"description":"evidence_item: retrieve an existing summary section; frame_rows: find frame IDs for detail; har_slowest: slowest retained requests without URLs; har_phases: aggregate phase timings."});
+    props["query"] = json!({"type":"string","enum":queries,"description":"evidence_item: retrieve an existing summary section; frame_rows: find frame IDs for detail; har_slowest: slowest retained requests without URLs; har_phases: aggregate phase timings; startup_runs: page imported startup runs by requested mode, observed mode or missing metric."});
     json!({"name":NAME,"description":"Ask a bounded follow-up on the same artifact. First call aps_analyze_file. Cite sourceDigest and item IDs; stop paging at null nextOffset; stop follow-ups at zero remainingQueries. No new capture or model call.",
         "inputSchema":{"type":"object","properties":props,"required":["sourceDigest","query"],"additionalProperties":false},
         "annotations":{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false}})
@@ -43,6 +50,7 @@ pub(super) fn definition(selected: &Selected) -> Value {
 
 pub(super) enum Query<'a> {
     Item(&'a str),
+    Startup(startup::Query),
     Frames {
         misses: bool,
         offset: usize,
@@ -79,6 +87,15 @@ impl<'a> Query<'a> {
             Some(FRAMES) if selected.supports_frame_scope() => {
                 &["sourceDigest", "query", "view", "offset", "limit"]
             }
+            Some(STARTUP) if selected.supports_startup_details() => &[
+                "sourceDigest",
+                "query",
+                "requestedMode",
+                "observedMode",
+                "missingMetric",
+                "offset",
+                "limit",
+            ],
             Some(SLOWEST | PHASES) if selected.supports_har_details() => {
                 &["sourceDigest", "query", "offset", "limit"]
             }
@@ -117,6 +134,31 @@ impl<'a> Query<'a> {
                 offset,
                 limit,
             }
+        } else if name == Some(STARTUP) {
+            let filter = |key| {
+                args.get(key)
+                    .map(|v| {
+                        v.as_str()
+                            .ok_or((-32602, "startup filters must be strings"))
+                    })
+                    .transpose()
+            };
+            let mode = |key| {
+                filter(key)?
+                    .map(startup::mode)
+                    .transpose()
+                    .map_err(|m| (-32602, m))
+            };
+            Self::Startup(startup::Query {
+                requested: mode("requestedMode")?,
+                observed: mode("observedMode")?,
+                missing: filter("missingMetric")?
+                    .map(startup::missing_metric)
+                    .transpose()
+                    .map_err(|m| (-32602, m))?,
+                offset,
+                limit,
+            })
         } else {
             Self::Har {
                 phases: name == Some(PHASES),
@@ -159,6 +201,15 @@ impl<'a> Query<'a> {
                     report
                         .follow_up_rows(misses, offset, limit)
                         .map_err(|m| (-32602, m))?,
+                )
+            }
+            Self::Startup(query) => {
+                let startup = analysis
+                    .startup()
+                    .ok_or((-32602, "Startup query unavailable"))?;
+                (
+                    STARTUP,
+                    startup.page(&query, digest).map_err(|m| (-32602, m))?,
                 )
             }
             Self::Har {
