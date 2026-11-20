@@ -37,6 +37,9 @@ pub enum CaptureState {
     Rechecking,
     Preparing,
     Recording,
+    Pausing,
+    Paused,
+    Resuming,
     Pulling,
     Converting,
     Stopping,
@@ -73,19 +76,109 @@ impl CaptureHandle {
     }
 
     pub fn can_stop(&self) -> bool {
-        self.state() == CaptureState::Recording && !self.cancel.is_cancelled()
+        matches!(
+            self.state(),
+            CaptureState::Recording
+                | CaptureState::Pausing
+                | CaptureState::Paused
+                | CaptureState::Resuming
+        ) && !self.cancel.is_cancelled()
+            && !self.stop.load(Ordering::Acquire)
+    }
+
+    pub fn can_pause(&self) -> bool {
+        self.state() == CaptureState::Recording
+            && !self.cancel.is_cancelled()
+            && !self.stop.load(Ordering::Acquire)
+    }
+
+    /// Queue a sampling control. Paused is reported only after the recorder's
+    /// acknowledgment has been verified by the capture worker.
+    pub fn pause(&self) -> bool {
+        self.request_control(SamplingControl::Pause)
+    }
+
+    pub fn can_resume(&self) -> bool {
+        self.state() == CaptureState::Paused
+            && !self.cancel.is_cancelled()
+            && !self.stop.load(Ordering::Acquire)
+    }
+
+    pub fn resume(&self) -> bool {
+        self.request_control(SamplingControl::Resume)
+    }
+
+    fn request_control(&self, control: SamplingControl) -> bool {
+        let mut state = self.state.lock().expect("capture state lock");
+        if *state != control.source_state()
+            || self.cancel.is_cancelled()
+            || self.stop.load(Ordering::Acquire)
+        {
+            return false;
+        }
+        *state = control.pending_state();
+        true
+    }
+
+    fn acknowledge_control(&self, control: SamplingControl) -> bool {
+        let mut state = self.state.lock().expect("capture state lock");
+        if *state != control.pending_state()
+            || self.cancel.is_cancelled()
+            || self.stop.load(Ordering::Acquire)
+        {
+            return false;
+        }
+        *state = control.acknowledged_state();
+        true
     }
 
     /// Request graceful completion, not cancellation. The worker verifies exit
     /// before pulling; cancellation accepted before final publication still wins.
     pub fn stop(&self) -> bool {
         let mut state = self.state.lock().expect("capture state lock");
-        if *state != CaptureState::Recording || self.cancel.is_cancelled() {
+        if !matches!(
+            *state,
+            CaptureState::Recording
+                | CaptureState::Pausing
+                | CaptureState::Paused
+                | CaptureState::Resuming
+        ) || self.cancel.is_cancelled()
+            || self.stop.load(Ordering::Acquire)
+        {
             return false;
         }
         self.stop.store(true, Ordering::Release);
         *state = CaptureState::Stopping;
         true
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SamplingControl {
+    Pause,
+    Resume,
+}
+
+impl SamplingControl {
+    fn source_state(self) -> CaptureState {
+        match self {
+            Self::Pause => CaptureState::Recording,
+            Self::Resume => CaptureState::Paused,
+        }
+    }
+
+    fn pending_state(self) -> CaptureState {
+        match self {
+            Self::Pause => CaptureState::Pausing,
+            Self::Resume => CaptureState::Resuming,
+        }
+    }
+
+    fn acknowledged_state(self) -> CaptureState {
+        match self {
+            Self::Pause => CaptureState::Paused,
+            Self::Resume => CaptureState::Recording,
+        }
     }
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -452,6 +545,16 @@ impl ConfirmedCapture {
         timeout: Duration,
         cancellation: &CancellationToken,
     ) -> Result<String, String> {
+        String::from_utf8(self.adb_output_bytes(tail, timeout, cancellation)?)
+            .map_err(|_| "ADB remote capture output is not UTF-8".into())
+    }
+
+    fn adb_output_bytes(
+        &self,
+        tail: &[&str],
+        timeout: Duration,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<u8>, String> {
         let mut args = vec!["-s", self.plan.request.serial.as_str()];
         args.extend_from_slice(tail);
         let mut request =
@@ -465,8 +568,7 @@ impl ConfirmedCapture {
         if !result.status.success() {
             return Err("ADB remote capture command failed".into());
         }
-        String::from_utf8(result.stdout)
-            .map_err(|_| "ADB remote capture output is not UTF-8".into())
+        Ok(result.stdout)
     }
 
     fn adb_with_token(
@@ -709,6 +811,127 @@ fn artifact(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn handle_in(state: CaptureState) -> CaptureHandle {
+        CaptureHandle {
+            state: Arc::new(Mutex::new(state)),
+            cancel: CancellationToken::new(),
+            stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn sampling_controls_require_acknowledgment_and_reject_repeated_requests() {
+        let handle = handle_in(CaptureState::Recording);
+        assert!(handle.can_pause());
+        assert!(!handle.can_resume());
+        assert!(handle.pause());
+        assert_eq!(handle.state(), CaptureState::Pausing);
+        assert!(!handle.can_pause());
+        assert!(!handle.pause());
+        assert!(!handle.can_resume());
+        assert!(!handle.resume());
+        assert!(!handle.acknowledge_control(SamplingControl::Resume));
+        assert_eq!(handle.state(), CaptureState::Pausing);
+        assert!(handle.acknowledge_control(SamplingControl::Pause));
+        assert_eq!(handle.state(), CaptureState::Paused);
+        assert!(!handle.pause());
+        assert!(handle.can_resume());
+        assert!(handle.resume());
+        assert_eq!(handle.state(), CaptureState::Resuming);
+        assert!(!handle.pause());
+        assert!(!handle.resume());
+        assert!(!handle.acknowledge_control(SamplingControl::Pause));
+        assert!(handle.acknowledge_control(SamplingControl::Resume));
+        assert_eq!(handle.state(), CaptureState::Recording);
+    }
+
+    #[test]
+    fn concurrent_sampling_control_clicks_accept_only_one_request() {
+        let handle = handle_in(CaptureState::Recording);
+        for control in [SamplingControl::Pause, SamplingControl::Resume] {
+            let barrier = Arc::new(std::sync::Barrier::new(8));
+            let threads: Vec<_> = (0..8)
+                .map(|_| {
+                    let handle = handle.clone();
+                    let barrier = barrier.clone();
+                    thread::spawn(move || {
+                        barrier.wait();
+                        handle.request_control(control)
+                    })
+                })
+                .collect();
+            let accepted = threads
+                .into_iter()
+                .map(|thread| usize::from(thread.join().unwrap()))
+                .sum::<usize>();
+            assert_eq!(accepted, 1);
+            assert_eq!(handle.state(), control.pending_state());
+            assert!(handle.acknowledge_control(control));
+        }
+        assert_eq!(handle.state(), CaptureState::Recording);
+    }
+
+    #[test]
+    fn stop_and_cancel_override_pending_and_paused_sampling_controls() {
+        for state in [
+            CaptureState::Recording,
+            CaptureState::Pausing,
+            CaptureState::Paused,
+            CaptureState::Resuming,
+        ] {
+            let handle = handle_in(state.clone());
+            assert!(handle.can_stop(), "{state:?}");
+            assert!(handle.stop(), "{state:?}");
+            assert_eq!(handle.state(), CaptureState::Stopping);
+            assert!(!handle.can_stop());
+            assert!(!handle.stop());
+            assert!(!handle.pause());
+            assert!(!handle.resume());
+            assert!(!handle.acknowledge_control(SamplingControl::Pause));
+            assert!(!handle.acknowledge_control(SamplingControl::Resume));
+            assert!(handle.cancel());
+
+            let cancelled = handle_in(state);
+            assert!(cancelled.cancel());
+            assert!(!cancelled.can_pause());
+            assert!(!cancelled.can_resume());
+            assert!(!cancelled.can_stop());
+            assert!(!cancelled.pause());
+            assert!(!cancelled.resume());
+            assert!(!cancelled.stop());
+            assert!(!cancelled.acknowledge_control(SamplingControl::Pause));
+            assert!(!cancelled.acknowledge_control(SamplingControl::Resume));
+        }
+    }
+
+    #[test]
+    fn sampling_controls_cannot_mutate_non_recording_or_terminal_states() {
+        for state in [
+            CaptureState::Planned,
+            CaptureState::Confirmed,
+            CaptureState::Rechecking,
+            CaptureState::Preparing,
+            CaptureState::Pulling,
+            CaptureState::Converting,
+            CaptureState::Stopping,
+            CaptureState::Complete,
+            CaptureState::Cancelled,
+            CaptureState::CancellationUnverified,
+            CaptureState::StopUnverified,
+            CaptureState::Failed,
+        ] {
+            let handle = handle_in(state.clone());
+            assert!(!handle.can_pause(), "{state:?}");
+            assert!(!handle.can_resume(), "{state:?}");
+            assert!(!handle.pause(), "{state:?}");
+            assert!(!handle.resume(), "{state:?}");
+            assert!(!handle.acknowledge_control(SamplingControl::Pause));
+            assert!(!handle.acknowledge_control(SamplingControl::Resume));
+            assert_eq!(handle.state(), state);
+        }
+    }
+
     #[test]
     fn call_graph_modes_match_compose_and_default_to_dwarf() {
         assert_eq!(CallGraphMode::default(), CallGraphMode::Dwarf);

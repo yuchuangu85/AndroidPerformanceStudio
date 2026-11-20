@@ -1,5 +1,5 @@
-//! CPU capture is never triggered by navigation or planning. A single explicit
-//! confirmation consumes a freshly observed plan and starts the displayed run.
+//! Navigation and inspection alone never start CPU recording. The explicit CPU
+//! capture command or planner confirmation consumes a freshly observed plan.
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use aps_adb::{AdbClient, AdbLocator};
 use aps_capture::{
@@ -176,7 +176,16 @@ struct CaptureControls {
 
 fn capture_controls(busy: bool, state: Option<&CaptureState>) -> CaptureControls {
     CaptureControls {
-        can_stop: busy && state == Some(&CaptureState::Recording),
+        can_stop: busy
+            && matches!(
+                state,
+                Some(
+                    CaptureState::Recording
+                        | CaptureState::Pausing
+                        | CaptureState::Paused
+                        | CaptureState::Resuming
+                )
+            ),
         can_cancel: busy
             && !matches!(
                 state,
@@ -319,6 +328,37 @@ impl CaptureWorkspace {
         let mut controls = capture_controls(self.busy, state.as_ref());
         controls.can_stop &= self.handle.as_ref().is_some_and(CaptureHandle::can_stop);
         controls
+    }
+
+    pub(crate) fn capture_state(&self) -> Option<CaptureState> {
+        self.handle.as_ref().map(CaptureHandle::state)
+    }
+
+    pub(crate) fn can_stop_capture(&self) -> bool {
+        self.controls().can_stop
+    }
+
+    pub(crate) fn can_cancel_capture(&self) -> bool {
+        self.controls().can_cancel && !self.cancellation_notice
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn stop_if_current(&mut self, generation: u64, cx: &mut Context<Self>) {
+        if self.generation == generation
+            && self.busy
+            && self.handle.as_ref().is_some_and(CaptureHandle::stop)
+        {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn cancel_if_current(&mut self, generation: u64, cx: &mut Context<Self>) {
+        if self.generation == generation && self.busy {
+            self.cancel(cx);
+        }
     }
 
     fn draft_target(&self, cx: &App) -> Result<(String, u32), TextKey> {
@@ -584,7 +624,15 @@ impl CaptureWorkspace {
         });
         cx.notify();
     }
+    pub(crate) fn start_capture(&mut self, cx: &mut Context<Self>) {
+        self.plan_internal(true, cx);
+    }
+
     fn plan(&mut self, cx: &mut Context<Self>) {
+        self.plan_internal(false, cx);
+    }
+
+    fn plan_internal(&mut self, auto_confirm: bool, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
@@ -655,6 +703,9 @@ impl CaptureWorkspace {
                         this.frozen_request = Some(plan.request().clone());
                         this.frozen_template = draft.template;
                         this.plan = Some(plan);
+                        if auto_confirm {
+                            this.confirm(cx);
+                        }
                     }
                     Err(error) => this.error = Some(error),
                 }
@@ -1109,6 +1160,9 @@ fn capture_state_key(state: CaptureState) -> TextKey {
         CaptureState::Rechecking => TextKey::DetailsCaptureStateRechecking,
         CaptureState::Preparing => TextKey::DetailsCaptureStatePreparing,
         CaptureState::Recording => TextKey::DetailsCaptureStateRecording,
+        CaptureState::Pausing => TextKey::CapturePausing,
+        CaptureState::Paused => TextKey::CapturePaused,
+        CaptureState::Resuming => TextKey::CaptureResuming,
         CaptureState::Pulling => TextKey::DetailsCaptureStatePulling,
         CaptureState::Converting => TextKey::DetailsCaptureStateConverting,
         CaptureState::Stopping => TextKey::DetailsCaptureStateStopping,
@@ -1646,13 +1700,16 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
-    fn stop_is_recording_only_but_cancel_remains_available_through_stopping_and_import_work() {
+    fn stop_supports_paused_sampling_and_cancel_remains_available_during_work() {
         for state in [
             CaptureState::Planned,
             CaptureState::Confirmed,
             CaptureState::Rechecking,
             CaptureState::Preparing,
             CaptureState::Recording,
+            CaptureState::Pausing,
+            CaptureState::Paused,
+            CaptureState::Resuming,
             CaptureState::Stopping,
             CaptureState::Pulling,
             CaptureState::Converting,
@@ -1672,7 +1729,13 @@ mod tests {
             let active = capture_controls(true, Some(&state));
             assert_eq!(
                 active.can_stop,
-                state == CaptureState::Recording,
+                matches!(
+                    state,
+                    CaptureState::Recording
+                        | CaptureState::Pausing
+                        | CaptureState::Paused
+                        | CaptureState::Resuming
+                ),
                 "{state:?}"
             );
             assert_eq!(
@@ -1684,6 +1747,9 @@ mod tests {
                         | CaptureState::Rechecking
                         | CaptureState::Preparing
                         | CaptureState::Recording
+                        | CaptureState::Pausing
+                        | CaptureState::Paused
+                        | CaptureState::Resuming
                         | CaptureState::Stopping
                         | CaptureState::Pulling
                         | CaptureState::Converting
@@ -1768,6 +1834,67 @@ mod tests {
         assert!(
             planning.contains("can_publish_plan(this.generation, generation, &publication_cancel)")
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn cpu_start_and_settings_inspection_use_distinct_planning_intents() {
+        let source = include_str!("capture.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let start = implementation
+            .split("pub(crate) fn start_capture(")
+            .nth(1)
+            .unwrap()
+            .split("fn plan(&mut self,")
+            .next()
+            .unwrap();
+        assert!(start.contains("self.plan_internal(true, cx)"));
+        let inspect = implementation
+            .split("fn plan(&mut self,")
+            .nth(1)
+            .unwrap()
+            .split("fn plan_internal(")
+            .next()
+            .unwrap();
+        assert!(inspect.contains("self.plan_internal(false, cx)"));
+        assert!(!inspect.contains("self.confirm("));
+        let planning = implementation
+            .split("fn plan_internal(")
+            .nth(1)
+            .unwrap()
+            .split("fn confirm(&mut self,")
+            .next()
+            .unwrap();
+        let guard = planning
+            .find("can_publish_plan(this.generation, generation, &publication_cancel)")
+            .unwrap();
+        let frozen = planning.find("this.plan = Some(plan)").unwrap();
+        let confirm = planning.find("this.confirm(cx)").unwrap();
+        assert!(guard < frozen && frozen < confirm);
+        assert!(planning.contains("if auto_confirm"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn cpu_has_no_extra_capture_status_bar_and_errors_stay_in_notifications() {
+        let source = include_str!("capture.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        assert!(!implementation.contains("cpu_status_bar"));
+        assert!(!implementation.contains("cpu-capture-status"));
+        let notices = source
+            .split("impl NoticeSource for CaptureWorkspace {")
+            .nth(1)
+            .unwrap()
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(notices.contains("if let Some(error) = &self.error"));
+        assert!(notices.contains("NoticeSnapshot::error"));
+        let shell = include_str!("shell.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(shell.contains("cx.observe(&capture, |_, _, cx| cx.notify())"));
+        assert!(!shell.contains("CaptureWorkspace::cpu_status_bar"));
+        assert!(shell.contains("Destination::Cpu => self.cpu.clone().into_any_element()"));
     }
 
     #[::core::prelude::v1::test]

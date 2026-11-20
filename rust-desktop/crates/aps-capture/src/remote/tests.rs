@@ -65,10 +65,27 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 cp {root}/perf.data.fixture "$output"
-printf started
+printf started >&2
 printf ready >{root}/recorder-ready
 case $(cat {root}/mode) in
     eof|launch-failure|manual|delayed-pull|identity-block|identity-invalid) cat >/dev/null; printf eof >{root}/recorder-eof ;;
+    control*)
+        while IFS= read -r command; do
+            printf '%s\n' "$command" >>{root}/control-commands
+            mode=$(cat {root}/mode)
+            if [ "$mode" = control-delay ]; then
+                while [ ! -f {root}/allow-"$command" ] && [ ! -f "${{output%/*}}/record.stop" ]; do sleep 0.01; done
+                [ ! -f "${{output%/*}}/record.stop" ] || break
+            fi
+            case "$mode:$command" in
+                control-error:*) printf 'error\n' ;;
+                control-invalid:*) printf 'ok\nextra\n' ;;
+                control-silent:*|control-no-resume-ack:resume) printf 'ok\n' >&2 ;;
+                *) printf 'ok\n' ;;
+            esac
+            if [ "$mode" = control-timed ]; then sleep 0.5; exit 0; fi
+        done
+        printf eof >{root}/recorder-eof ;;
     failure) printf recorder-failed >&2; exit 23 ;;
     *) sleep 0.1 ;;
 esac
@@ -108,6 +125,23 @@ case "$*" in
                 printf 'wrong-boot\nAPS_RECORDER_EXITED\n'; exit 0 ;;
         esac
         printf 'boot\nAPS_RECORDER_EXITED\n'; exit 0 ;;
+esac
+case "$*" in
+    'sent=;'*)
+        case $(cat {root}/mode) in
+            control-ack-block|control-ack-invalid|control-ack-invalid-bytes)
+                : >{root}/control-transport-waiting
+                while [ ! -f {root}/release-control ]; do sleep 0.01; done
+                if [ "$(cat {root}/mode)" = control-ack-block ]; then exit 94; fi
+                if [ "$(cat {root}/mode)" = control-ack-invalid-bytes ]; then printf '1\n\377'; exit 0; fi
+                printf '1\nerror\n'; exit 0 ;;
+        esac ;;
+    '[ -d '*record.control.tmp*)
+        if [ "$(cat {root}/mode)" = control-request-block ]; then
+            : >{root}/control-transport-waiting
+            while [ ! -f {root}/release-control ]; do sleep 0.01; done
+            exit 94
+        fi ;;
 esac
 case "$*" in
     *record.stop*) [ ! -f {root}/stop-fails ] || exit 93 ;;
@@ -264,6 +298,9 @@ impl Drop for FakeAdb {
         let _ = fs::write(self.root.join("remote/record.stop"), b"");
         let _ = fs::write(self.root.join("allow-pull"), b"");
         let _ = fs::write(self.root.join("release-identity"), b"");
+        let _ = fs::write(self.root.join("release-control"), b"");
+        let _ = fs::write(self.root.join("allow-pause"), b"");
+        let _ = fs::write(self.root.join("allow-resume"), b"");
         if self.root.join("remote/record.pid").exists() {
             self.wait_for("remote/record.exit");
         }
@@ -280,6 +317,304 @@ fn wait_until_recording(handle: &CaptureHandle) {
             handle.state()
         );
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_until_state(handle: &CaptureHandle, expected: CaptureState) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while handle.state() != expected {
+        assert!(
+            Instant::now() < deadline,
+            "recorder never became {expected:?}: {:?}",
+            handle.state()
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn sampling_commands_use_private_stdin_and_require_fresh_recorder_acknowledgments() {
+    let fake = FakeAdb::new("control-delay");
+    let mut plan = fake.plan(CallGraphMode::Dwarf);
+    plan.request.duration = CaptureDuration::Manual;
+    let capture = plan.confirm("device", 42, "boot", 7).unwrap();
+    let handle = capture.handle();
+    let controller = handle.clone();
+    let root = fake.root.clone();
+    let controls = thread::spawn(move || {
+        wait_until_recording(&controller);
+        assert!(controller.pause());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !root.join("control-commands").exists() {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
+        let lease = fs::read_to_string(root.join("remote/record.lease")).unwrap();
+        thread::sleep(Duration::from_millis(1400));
+        assert_eq!(controller.state(), CaptureState::Pausing);
+        assert!(!controller.pause());
+        assert!(!controller.resume());
+        assert_ne!(
+            fs::read_to_string(root.join("remote/record.lease")).unwrap(),
+            lease
+        );
+        fs::write(root.join("allow-pause"), b"").unwrap();
+        wait_until_state(&controller, CaptureState::Paused);
+        assert!(!controller.pause());
+        assert!(controller.resume());
+        thread::sleep(Duration::from_millis(400));
+        // The previous pause's `ok` must not acknowledge this resume.
+        assert_eq!(controller.state(), CaptureState::Resuming);
+        assert!(!controller.resume());
+        fs::write(root.join("allow-resume"), b"").unwrap();
+        wait_until_state(&controller, CaptureState::Recording);
+        assert!(controller.stop());
+    });
+    let output = capture.run().unwrap();
+    controls.join().unwrap();
+    assert_eq!(output.completion, CaptureCompletion::StopRequested);
+    assert_eq!(handle.state(), CaptureState::Complete);
+    assert_eq!(
+        fs::read_to_string(fake.root.join("control-commands")).unwrap(),
+        "pause\nresume\n"
+    );
+    assert!(fake.root.join("recorder-eof").exists());
+    fake.assert_duration_argv(&SamplingConfiguration::default(), CaptureDuration::Manual);
+    fake.assert_cleaned();
+}
+
+#[test]
+fn paused_and_pending_recorders_still_stop_or_cancel_through_owned_eof() {
+    for pending in [false, true] {
+        for cancel in [false, true] {
+            let fake = FakeAdb::new(if pending { "control-silent" } else { "control" });
+            let mut plan = fake.plan(CallGraphMode::Dwarf);
+            plan.request.duration = CaptureDuration::Timed(Duration::from_secs(20));
+            let capture = plan.confirm("device", 42, "boot", 7).unwrap();
+            let handle = capture.handle();
+            let controller = handle.clone();
+            let root = fake.root.clone();
+            let controls = thread::spawn(move || {
+                wait_until_recording(&controller);
+                assert!(controller.pause());
+                if pending {
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while !root.join("control-commands").exists() {
+                        assert!(Instant::now() < deadline);
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    thread::sleep(Duration::from_millis(200));
+                    // stderr contains `ok`, but only stdout can acknowledge.
+                    assert_eq!(controller.state(), CaptureState::Pausing);
+                } else {
+                    wait_until_state(&controller, CaptureState::Paused);
+                }
+                if cancel {
+                    assert!(controller.cancel());
+                } else {
+                    assert!(controller.stop());
+                }
+            });
+            let result = capture.run();
+            controls.join().unwrap();
+            if cancel {
+                assert!(result.is_err());
+                assert_eq!(handle.state(), CaptureState::Cancelled);
+                assert!(!fake.root.join("local/owned").exists());
+            } else {
+                assert_eq!(result.unwrap().completion, CaptureCompletion::StopRequested);
+                assert_eq!(handle.state(), CaptureState::Complete);
+            }
+            assert!(fake.root.join("recorder-eof").exists());
+            fake.assert_cleaned();
+        }
+    }
+}
+
+#[test]
+fn unsupported_invalid_or_missing_control_acknowledgment_fails_closed_and_cleans_up() {
+    for mode in ["control-error", "control-invalid", "control-silent"] {
+        let fake = FakeAdb::new(mode);
+        let mut plan = fake.plan(CallGraphMode::Dwarf);
+        plan.request.duration = CaptureDuration::Timed(Duration::from_secs(20));
+        let capture = plan.confirm("device", 42, "boot", 7).unwrap();
+        let handle = capture.handle();
+        let controller = handle.clone();
+        let controls = thread::spawn(move || {
+            wait_until_recording(&controller);
+            assert!(controller.pause());
+        });
+        let error = capture.run().unwrap_err();
+        controls.join().unwrap();
+        assert!(error.contains("sampling control"), "{mode}: {error}");
+        assert_eq!(handle.state(), CaptureState::Failed);
+        assert!(fake.root.join("recorder-eof").exists());
+        assert!(!fake.root.join("local/owned").exists());
+        fake.assert_cleaned();
+    }
+}
+
+#[test]
+fn stale_pause_acknowledgment_cannot_complete_an_unacknowledged_resume() {
+    let fake = FakeAdb::new("control-no-resume-ack");
+    let mut plan = fake.plan(CallGraphMode::Dwarf);
+    plan.request.duration = CaptureDuration::Timed(Duration::from_secs(20));
+    let capture = plan.confirm("device", 42, "boot", 7).unwrap();
+    let handle = capture.handle();
+    let controller = handle.clone();
+    let controls = thread::spawn(move || {
+        wait_until_recording(&controller);
+        assert!(controller.pause());
+        wait_until_state(&controller, CaptureState::Paused);
+        assert!(controller.resume());
+    });
+    let error = capture.run().unwrap_err();
+    controls.join().unwrap();
+    assert!(error.contains("not acknowledged before timeout"), "{error}");
+    assert_eq!(handle.state(), CaptureState::Failed);
+    assert_eq!(
+        fs::read_to_string(fake.root.join("control-commands")).unwrap(),
+        "pause\nresume\n"
+    );
+    fake.assert_cleaned();
+}
+
+#[test]
+fn natural_recorder_deadline_can_complete_a_paused_timed_capture() {
+    let fake = FakeAdb::new("control-timed");
+    let capture = fake.capture();
+    let handle = capture.handle();
+    let controller = handle.clone();
+    let controls = thread::spawn(move || {
+        wait_until_recording(&controller);
+        assert!(controller.pause());
+        wait_until_state(&controller, CaptureState::Paused);
+    });
+    let output = capture.run().unwrap();
+    controls.join().unwrap();
+    assert_eq!(output.completion, CaptureCompletion::RecorderExited);
+    assert_eq!(handle.state(), CaptureState::Complete);
+    fake.assert_duration_argv(
+        &SamplingConfiguration::default(),
+        CaptureDuration::Timed(Duration::from_secs(1)),
+    );
+    fake.assert_cleaned();
+}
+
+#[test]
+fn private_writer_rejects_replayed_control_sequences() {
+    let fake = FakeAdb::new("control");
+    let capture = fake.capture();
+    fs::create_dir(&capture.plan.remote_directory).unwrap();
+    let mut remote = RemoteRecording::new(&capture);
+    remote.launched = true;
+    let path = format!("{}/perf.data", capture.plan.remote_directory);
+    let pid = capture.start_remote_recording("42", &path).unwrap();
+    let await_ack = |sequence| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !capture.recorder_control_acknowledged(sequence).unwrap() {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(10));
+        }
+    };
+    capture
+        .request_sampling_control(SamplingControl::Pause, 2)
+        .unwrap();
+    await_ack(2);
+    capture
+        .request_sampling_control(SamplingControl::Resume, 1)
+        .unwrap();
+    thread::sleep(Duration::from_millis(300));
+    assert!(!capture.recorder_control_acknowledged(1).unwrap());
+    assert_eq!(
+        fs::read_to_string(fake.root.join("control-commands")).unwrap(),
+        "pause\n"
+    );
+    capture
+        .request_sampling_control(SamplingControl::Resume, 3)
+        .unwrap();
+    await_ack(3);
+    assert_eq!(
+        fs::read_to_string(fake.root.join("control-commands")).unwrap(),
+        "pause\nresume\n"
+    );
+    capture.set(CaptureState::Recording);
+    assert!(capture.handle.stop());
+    capture.await_remote_recording(pid, &path).unwrap();
+    remote.stopped = true;
+    remote.cleanup().unwrap();
+    fake.assert_cleaned();
+}
+
+#[test]
+fn late_control_cannot_replace_verified_natural_recorder_exit() {
+    let fake = FakeAdb::new("success");
+    let capture = fake.capture();
+    fs::create_dir(&capture.plan.remote_directory).unwrap();
+    let mut remote = RemoteRecording::new(&capture);
+    remote.launched = true;
+    let path = format!("{}/perf.data", capture.plan.remote_directory);
+    let pid = capture.start_remote_recording("42", &path).unwrap();
+    assert!(fake.wait_for("remote/record.exit"));
+    capture.set(CaptureState::Recording);
+    assert!(capture.handle.pause());
+    capture
+        .request_sampling_control(SamplingControl::Pause, 1)
+        .unwrap();
+    assert!(!capture.recorder_control_acknowledged(1).unwrap());
+    capture.await_remote_recording(pid, &path).unwrap();
+    assert!(!fake.root.join("control-commands").exists());
+    remote.stopped = true;
+    remote.cleanup().unwrap();
+    fake.assert_cleaned();
+}
+
+#[test]
+fn stop_during_control_transport_failure_requires_owned_exit_and_rejects_protocol_failure() {
+    for mode in [
+        "control-request-block",
+        "control-ack-block",
+        "control-ack-invalid",
+        "control-ack-invalid-bytes",
+    ] {
+        let fake = FakeAdb::new(mode);
+        let mut plan = fake.plan(CallGraphMode::Dwarf);
+        plan.request.duration = CaptureDuration::Timed(Duration::from_secs(20));
+        let capture = plan.confirm("device", 42, "boot", 7).unwrap();
+        let handle = capture.handle();
+        let controller = handle.clone();
+        let root = fake.root.clone();
+        let stopper = thread::spawn(move || {
+            wait_until_recording(&controller);
+            assert!(controller.pause());
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !root.join("control-transport-waiting").exists() {
+                assert!(Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(controller.stop());
+            fs::write(root.join("release-control"), b"").unwrap();
+        });
+        let result = capture.run();
+        stopper.join().unwrap();
+        if mode.starts_with("control-ack-invalid") {
+            let error = result.unwrap_err();
+            assert!(
+                error.contains(if mode == "control-ack-invalid" {
+                    "rejected sampling control"
+                } else {
+                    "receipt is not UTF-8"
+                }),
+                "{error}"
+            );
+            assert_eq!(handle.state(), CaptureState::Failed);
+            assert!(!fake.root.join("local/owned").exists());
+        } else {
+            assert_eq!(result.unwrap().completion, CaptureCompletion::StopRequested);
+            assert_eq!(handle.state(), CaptureState::Complete);
+        }
+        assert!(fake.root.join("recorder-eof").exists());
+        fake.assert_cleaned();
     }
 }
 

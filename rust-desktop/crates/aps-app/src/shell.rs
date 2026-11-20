@@ -76,7 +76,8 @@ fn capture_completion_action(
 ) -> CaptureCompletionAction {
     if !has_protobuf {
         CaptureCompletionAction::RawOnly
-    } else if (destination == Destination::Capture
+    } else if (destination == Destination::Cpu
+        || destination == Destination::Capture
         || (destination == Destination::Settings && settings_page == SettingsPage::CpuCapture))
         && cpu_available
     {
@@ -824,6 +825,7 @@ impl Studio {
                 cx,
             )
         });
+        cpu.update(cx, |cpu, cx| cpu.bind_capture(capture.clone(), cx));
         let method = cx.new(|_| MethodWorkspace::new(settings.language.resolved()));
         let source = cx.new(|cx| {
             SourceWorkspace::new(settings.language.resolved(), metadata_path, window, cx)
@@ -961,6 +963,7 @@ impl Studio {
                 this.invalidate_ai(Destination::Frame, None, cx);
                 this.refresh_route_menus(cx);
             }),
+            cx.observe(&capture, |_, _, cx| cx.notify()),
             cx.subscribe(&capture, |this, _, completed: &CaptureCompleted, cx| {
                 this.captured = completed.0.protobuf.clone();
                 let action = capture_completion_action(
@@ -1897,16 +1900,16 @@ impl Studio {
         }
     }
 
-    /// CPU opens capture setup only; planning and recording require explicit
-    /// actions there. Other profilers retain their existing capture commands.
+    /// The CPU page's primary capture action starts recording with the current
+    /// capture draft; configuration remains available through Tools > Configuration.
     fn start_capture_active_route(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.destination {
             Destination::Cpu => {
                 let converter = self.cpu.read(cx).selected_converter();
                 self.capture.update(cx, |capture, cx| {
                     capture.set_converter_if_empty(converter, window, cx);
+                    capture.start_capture(cx);
                 });
-                self.navigate(Destination::Capture, cx);
             }
             Destination::MethodRecording => {
                 self.method
@@ -3846,7 +3849,7 @@ mod menubar_tests {
     }
 
     #[::core::prelude::v1::test]
-    fn cpu_capture_action_routes_to_setup_without_planning_or_recording() {
+    fn cpu_capture_action_starts_the_shared_recorder_without_settings_navigation() {
         let source = include_str!("shell.rs");
         let routing = source
             .split("fn start_capture_active_route(")
@@ -3861,14 +3864,14 @@ mod menubar_tests {
             .unwrap();
         assert!(cpu_arm.contains("self.cpu.read(cx).selected_converter()"));
         assert!(cpu_arm.contains("capture.set_converter_if_empty(converter, window, cx)"));
-        assert!(cpu_arm.contains("self.navigate(Destination::Capture, cx)"));
+        assert!(cpu_arm.contains("capture.start_capture(cx)"));
+        assert!(!cpu_arm.contains("capture.stop(cx)"));
         assert!(
             cpu_arm.find("set_converter_if_empty").unwrap()
-                < cpu_arm.find("self.navigate(").unwrap()
+                < cpu_arm.find("capture.start_capture(cx)").unwrap()
         );
-        for forbidden in ["prepare(", "confirm(", "execute(", "resolve_simpleperf("] {
-            assert!(!cpu_arm.contains(forbidden));
-        }
+        assert!(!cpu_arm.contains("Destination::Settings"));
+        assert!(!cpu_arm.contains("self.navigate(Destination::Capture, cx)"));
     }
 
     #[::core::prelude::v1::test]
@@ -3878,7 +3881,8 @@ mod menubar_tests {
                 for cpu_available in [false, true] {
                     let action = capture_completion_action(destination, page, true, cpu_available);
                     let expected = if cpu_available
-                        && (destination == Destination::Capture
+                        && (destination == Destination::Cpu
+                            || destination == Destination::Capture
                             || (destination == Destination::Settings
                                 && page == SettingsPage::CpuCapture))
                     {

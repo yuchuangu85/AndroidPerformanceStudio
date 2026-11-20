@@ -1,11 +1,13 @@
 mod firefox_ai;
 
+use crate::capture::CaptureWorkspace;
 use crate::firefox_viewer::FirefoxViewer;
 use crate::import_timing::ImportTiming;
 use crate::notifications::{NoticeSnapshot, NoticeSource};
 use crate::shell::menubar::MenuGroup;
 use crate::simpleperf_tool::{discover_simpleperf, executable_file};
 use crate::studio::{self, StudioColors};
+use aps_capture::CaptureState;
 use aps_contracts::{
     ArtifactCompleteness, ArtifactId, Capabilities, CapabilityId, CaptureArtifact, ClockDomain,
     ClockDomainId, ClockKind, ProfilerSession, ProfilerSessionId, Provenance, ProvenanceAction,
@@ -22,7 +24,7 @@ use aps_storage::{PageRequest, QueryBinding, Storage, StoredSession};
 use aps_ui_foundation::{Language, TextKey};
 use gpui_kit::{
     component::{
-        VirtualListScrollHandle,
+        IconName, VirtualListScrollHandle,
         input::{Input, InputState},
         menu::{DropdownMenu, PopupMenuItem},
         scroll::{Scrollbar, ScrollbarAxis},
@@ -376,10 +378,34 @@ pub struct CpuWorkspace {
     end: Entity<InputState>,
     pending_time_input_sync: bool,
     studio: Option<WeakEntity<crate::shell::Studio>>,
+    capture: Option<Entity<CaptureWorkspace>>,
+    _capture_subscription: Option<Subscription>,
 }
 
 fn capture_import_available(busy: bool, shared_busy: bool) -> bool {
     !busy && !shared_busy
+}
+
+fn capture_button_state(
+    capturing: bool,
+    state: Option<&CaptureState>,
+    can_stop: bool,
+    workspace_busy: bool,
+) -> (TextKey, IconName, bool) {
+    if !capturing {
+        return (TextKey::CaptureCpuCapture, IconName::Play, !workspace_busy);
+    }
+    let stoppable = can_stop
+        && matches!(
+            state,
+            Some(
+                CaptureState::Recording
+                    | CaptureState::Pausing
+                    | CaptureState::Paused
+                    | CaptureState::Resuming
+            )
+        );
+    (TextKey::CaptureStopAndAnalyze, IconName::Square, stoppable)
 }
 
 impl CpuWorkspace {
@@ -583,7 +609,19 @@ impl CpuWorkspace {
                     .placeholder(language.text(TextKey::CpuEndNsOptionalPlaceholder))
             }),
             studio: None,
+            capture: None,
+            _capture_subscription: None,
         }
+    }
+
+    pub(crate) fn bind_capture(
+        &mut self,
+        capture: Entity<CaptureWorkspace>,
+        cx: &mut Context<Self>,
+    ) {
+        self._capture_subscription = Some(cx.observe(&capture, |_, _, cx| cx.notify()));
+        self.capture = Some(capture);
+        cx.notify();
     }
 
     /// The shell injects its own weak handle so the page-level "Run AI
@@ -3137,6 +3175,25 @@ fn workspace_toolbar(
     let lang = ws.language;
     let busy = ws.busy || ws.shared_busy;
     let has_session = ws.catalog.is_some();
+    let (capturing, state, can_stop, can_cancel) =
+        ws.capture
+            .as_ref()
+            .map_or((false, None, false, false), |capture| {
+                let capture = capture.read(cx);
+                (
+                    !capture.can_edit_configuration(),
+                    capture.capture_state(),
+                    capture.can_stop_capture(),
+                    capture.can_cancel_capture(),
+                )
+            });
+    let (capture_label, capture_icon, capture_enabled) =
+        capture_button_state(capturing, state.as_ref(), can_stop, busy);
+    let stop_capture = ws
+        .capture
+        .as_ref()
+        .map(|capture| (capture.clone(), capture.read(cx).generation()));
+    let cancel_capture = stop_capture.clone();
     let mut row = div()
         .id("cpu-workspace-toolbar")
         .flex()
@@ -3163,19 +3220,6 @@ fn workspace_toolbar(
                 colors,
             )
             .on_click(cx.listener(|this, _, _, cx| this.pick_comparison(cx))),
-        )
-        .child(
-            studio::text_button(
-                "cpu-capture",
-                lang.text(TextKey::CaptureCpuCapture),
-                !busy,
-                false,
-                colors,
-            )
-            .icon(gpui_kit::component::IconName::Play)
-            .on_click(cx.listener(|_, _, window, cx| {
-                window.dispatch_action(Box::new(crate::shell::StartCaptureActiveRoute), cx)
-            })),
         )
         .child(
             studio::text_button(
@@ -3286,6 +3330,43 @@ fn workspace_toolbar(
             },
             colors.secondary_text,
         ))
+        .child(
+            studio::text_button(
+                "cpu-capture",
+                lang.text(capture_label),
+                capture_enabled,
+                false,
+                colors,
+            )
+            .icon(capture_icon)
+            .on_click(cx.listener(move |_, _, window, cx| {
+                if capturing {
+                    if let Some((capture, generation)) = &stop_capture {
+                        capture.update(cx, |capture, cx| capture.stop_if_current(*generation, cx));
+                    }
+                } else {
+                    window.dispatch_action(Box::new(crate::shell::StartCaptureActiveRoute), cx);
+                }
+            })),
+        )
+        .when(capturing, |row| {
+            row.child(
+                studio::text_button(
+                    "cpu-capture-cancel",
+                    lang.text(TextKey::CommonCancel),
+                    can_cancel,
+                    false,
+                    colors,
+                )
+                .icon(IconName::Close)
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if let Some((capture, generation)) = &cancel_capture {
+                        capture
+                            .update(cx, |capture, cx| capture.cancel_if_current(*generation, cx));
+                    }
+                })),
+            )
+        })
         .child(ai)
 }
 
@@ -8854,14 +8935,15 @@ impl NoticeSource for CpuWorkspace {
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        CALL_TREE_CATEGORY_SWATCH_MARGIN, CALL_TREE_CATEGORY_SWATCH_SIZE, CPU_MEDIA_TYPE, CpuError,
-        CpuSourceClass, CpuSourceKind, FLAME_ROW_HEIGHT_PX, FirefoxChartCategory, Language,
-        RecentCpu, activity_fill_edges, associate_cpu, call_tree_category_swatch,
-        capture_import_available, chart_tooltip_placement, check_cpu_binding, classify_cpu_source,
-        cpu_artifact, cpu_snapshot_path, decompress_cpu_source, firefox_activity_style,
-        firefox_chart_background, firefox_chart_category, firefox_chart_color_values,
-        firefox_chart_text_color, flame_box_rect, flame_selection_summary, load_cpu_import,
-        load_cpu_snapshot, load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
+        CALL_TREE_CATEGORY_SWATCH_MARGIN, CALL_TREE_CATEGORY_SWATCH_SIZE, CPU_MEDIA_TYPE,
+        CaptureState, CpuError, CpuSourceClass, CpuSourceKind, FLAME_ROW_HEIGHT_PX,
+        FirefoxChartCategory, IconName, Language, RecentCpu, activity_fill_edges, associate_cpu,
+        call_tree_category_swatch, capture_button_state, capture_import_available,
+        chart_tooltip_placement, check_cpu_binding, classify_cpu_source, cpu_artifact,
+        cpu_snapshot_path, decompress_cpu_source, firefox_activity_style, firefox_chart_background,
+        firefox_chart_category, firefox_chart_color_values, firefox_chart_text_color,
+        flame_box_rect, flame_selection_summary, load_cpu_import, load_cpu_snapshot,
+        load_cpu_source, load_cpu_source_with, persist_cpu_snapshot, recent_cpu,
         resolve_simpleperf, timeline_bar_width, timeline_query, timeline_sample_bar_width,
         validate_recent,
     };
@@ -9142,6 +9224,124 @@ mod metadata_tests {
             (true, true, false),
         ] {
             assert_eq!(capture_import_available(busy, shared_busy), expected);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn cpu_capture_button_stops_and_analyzes_without_being_blocked_by_queries() {
+        for workspace_busy in [false, true] {
+            let (label, icon, enabled) = capture_button_state(false, None, false, workspace_busy);
+            assert_eq!(label, TextKey::CaptureCpuCapture);
+            assert!(matches!(icon, IconName::Play));
+            assert_eq!(enabled, !workspace_busy);
+            for can_stop in [false, true] {
+                for state in [
+                    CaptureState::Recording,
+                    CaptureState::Pausing,
+                    CaptureState::Paused,
+                    CaptureState::Resuming,
+                ] {
+                    let (label, icon, enabled) =
+                        capture_button_state(true, Some(&state), can_stop, workspace_busy);
+                    assert_eq!(label, TextKey::CaptureStopAndAnalyze);
+                    assert!(matches!(icon, IconName::Square));
+                    assert_eq!(enabled, can_stop, "{state:?}");
+                }
+            }
+            for state in [
+                None,
+                Some(CaptureState::Confirmed),
+                Some(CaptureState::Rechecking),
+                Some(CaptureState::Preparing),
+                Some(CaptureState::Stopping),
+                Some(CaptureState::Pulling),
+                Some(CaptureState::Converting),
+                Some(CaptureState::Complete),
+                Some(CaptureState::Cancelled),
+                Some(CaptureState::CancellationUnverified),
+                Some(CaptureState::StopUnverified),
+                Some(CaptureState::Failed),
+            ] {
+                let (label, _, enabled) =
+                    capture_button_state(true, state.as_ref(), true, workspace_busy);
+                assert!(!enabled, "{state:?}");
+                assert_eq!(label, TextKey::CaptureStopAndAnalyze);
+            }
+        }
+        for language in [Language::English, Language::SimplifiedChinese] {
+            for key in [
+                TextKey::CaptureCpuCapture,
+                TextKey::CaptureStopAndAnalyze,
+                TextKey::CapturePaused,
+                TextKey::CommonCancel,
+            ] {
+                assert!(!language.text(key).is_empty());
+                assert!(key.parameters().is_empty());
+            }
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn cpu_capture_button_precedes_ai_and_observes_the_shared_capture() {
+        let source = include_str!("cpu.rs");
+        let toolbar = source
+            .split("fn workspace_toolbar(")
+            .nth(1)
+            .unwrap()
+            .split("fn empty_state(")
+            .next()
+            .unwrap();
+        assert!(toolbar.contains("capture.can_stop_capture()"));
+        assert!(toolbar.contains("capture.can_cancel_capture()"));
+        assert!(toolbar.contains("!capture.can_edit_configuration()"));
+        let capture_button = toolbar.find("\"cpu-capture\"").unwrap();
+        let cancel_button = toolbar.find("\"cpu-capture-cancel\"").unwrap();
+        let ai_button = toolbar.find(".child(ai)").unwrap();
+        assert!(capture_button < cancel_button && cancel_button < ai_button);
+        assert!(toolbar[capture_button..cancel_button].contains(".when(capturing"));
+        assert!(toolbar[capture_button..ai_button].contains(".on_click"));
+        assert!(!toolbar[capture_button..ai_button].contains("\"cpu-close\""));
+        assert!(source.contains("cx.observe(&capture, |_, _, cx| cx.notify())"));
+        assert!(include_str!("shell.rs").contains("cpu.bind_capture(capture.clone(), cx)"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn cpu_capture_controls_preserve_rendered_intent_and_capture_generation() {
+        let source = include_str!("cpu.rs");
+        let toolbar = source
+            .split("fn workspace_toolbar(")
+            .nth(1)
+            .unwrap()
+            .split("fn empty_state(")
+            .next()
+            .unwrap();
+        assert!(toolbar.contains("capture.read(cx).generation()"));
+        let sampling_branch = toolbar
+            .split("if capturing {")
+            .nth(1)
+            .unwrap()
+            .split("window.dispatch_action")
+            .next()
+            .unwrap();
+        assert!(sampling_branch.contains("capture.stop_if_current(*generation, cx)"));
+        assert!(!sampling_branch.contains("StartCaptureActiveRoute"));
+        assert!(toolbar.contains("capture.cancel_if_current(*generation, cx)"));
+        let capture_source = include_str!("capture.rs");
+        for (method, call) in [
+            ("stop_if_current", "CaptureHandle::stop"),
+            ("cancel_if_current", "self.cancel(cx)"),
+        ] {
+            let function = capture_source
+                .split(&format!("pub(crate) fn {method}("))
+                .nth(1)
+                .unwrap()
+                .split("\n    }")
+                .next()
+                .unwrap();
+            assert!(function.contains("if self.generation == generation"));
+            assert!(function.contains("self.busy"));
+            assert!(function.contains(call));
+            assert!(!function.contains("self.start_capture("));
         }
     }
 

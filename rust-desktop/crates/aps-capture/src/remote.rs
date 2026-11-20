@@ -3,6 +3,8 @@
 //! --stdio-controls-profiling exits on EOF (AOSP simpleperf/cmd_record.cpp).
 use super::*;
 
+const CONTROL_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[cfg(test)]
 mod tests;
 
@@ -12,6 +14,7 @@ struct RecorderIdentity {
     start_ticks: u64,
 }
 
+#[derive(Debug)]
 enum RecorderObservationError {
     Transport(String),
     Invalid(String),
@@ -91,7 +94,7 @@ impl<'a> RemoteRecording<'a> {
         // Only the fresh, exclusively created directory is eligible. Never
         // delete files under a recorder whose termination remains unknown.
         let script = format!(
-            "rm -f {directory}/perf.data {directory}/record.log {directory}/record.pid {directory}/record.exit {directory}/record.stop {directory}/record.writer.exit {directory}/record.lease {directory}/record.lease.expired && rmdir {directory}"
+            "rm -f {directory}/perf.data {directory}/record.log {directory}/record.pid {directory}/record.exit {directory}/record.stop {directory}/record.writer.exit {directory}/record.lease {directory}/record.lease.expired {directory}/record.control {directory}/record.control.tmp {directory}/record.control.sent {directory}/record.reply && rmdir {directory}"
         );
         self.capture
             .adb_with_token(&["shell", &script], Duration::from_secs(5), &token)
@@ -118,17 +121,30 @@ impl ConfirmedCapture {
             .map(|package| format!(" --app {package}"))
             .unwrap_or_default();
         self.plan.request.duration.validate()?;
+        // Only this private writer has the recorder's stdin. A request is
+        // atomic and has a monotonically increasing sequence; repeated polls
+        // cannot emit the same command twice. AOSP replies `ok\n` or `error\n`
+        // on stdout after enabling/disabling events, not when queued here.
+        let control_poll = format!(
+            "if [ -f {directory}/record.control ]; then \
+             sequence=; command=; IFS=' ' read -r sequence command <{directory}/record.control || :; \
+             case \"$sequence\" in ''|*[!0-9]*) ;; *) case \"$command\" in pause|resume) \
+             if [ \"$sequence\" -gt \"$previous_control\" ]; then \
+             printf '%s\\n' \"$command\" || break; printf '%s\\n' \"$sequence\" >{directory}/record.control.sent; previous_control=$sequence; \
+             fi ;; esac ;; esac; fi"
+        );
         let writer_control = match self.plan.request.duration {
             CaptureDuration::Timed(value) => {
                 let writer_ticks = value.as_millis().div_ceil(100) + 100;
                 format!(
-                    "n={writer_ticks}; while [ \"$n\" -gt 0 ] && [ -d {directory} ] && [ ! -f {directory}/record.stop ]; do sleep 0.1; n=$((n-1)); done"
+                    "n={writer_ticks}; previous_control=0; while [ \"$n\" -gt 0 ] && [ -d {directory} ] && [ ! -f {directory}/record.stop ]; do {control_poll}; sleep 0.1; n=$((n-1)); done"
                 )
             }
             CaptureDuration::Manual => {
                 let ticks = MANUAL_LEASE_SECONDS * 10;
                 format!(
-                    "n={ticks}; previous=; while [ \"$n\" -gt 0 ] && [ -d {directory} ] && [ ! -f {directory}/record.stop ]; do \
+                    "n={ticks}; previous=; previous_control=0; while [ \"$n\" -gt 0 ] && [ -d {directory} ] && [ ! -f {directory}/record.stop ]; do \
+                    {control_poll}; \
                     current=; IFS= read -r current <{directory}/record.lease || :; \
                     case \"$current\" in ''|*[!0-9]*) ;; *) if [ \"$current\" != \"$previous\" ]; then previous=$current; n={ticks}; fi ;; esac; \
                     sleep 0.1; n=$((n-1)); done; \
@@ -149,8 +165,8 @@ impl ConfirmedCapture {
         // Save the pipe first: Android's shell can replace fd 0 with /dev/null
         // for an asynchronous child even when it has the no-op redirect <&0.
         let worker = format!(
-            "( {writer_control}; : >{directory}/record.writer.exit ) | \
-             ( exec 3<&0; simpleperf record --stdio-controls-profiling {sampling}{app} -p {pid}{duration} --size-limit {MAX_ARTIFACT} -o {remote_data} <&3 3<&- >{directory}/record.log 2>&1 & \
+            ": >{directory}/record.reply; ( trap '' PIPE; {writer_control}; : >{directory}/record.writer.exit ) | \
+             ( exec 3<&0; simpleperf record --stdio-controls-profiling {sampling}{app} -p {pid}{duration} --size-limit {MAX_ARTIFACT} -o {remote_data} <&3 3<&- >>{directory}/record.reply 2>{directory}/record.log & \
              aps_pid=$!; exec 3<&-; printf '%s\\n' \"$aps_pid\" >{directory}/record.pid; wait \"$aps_pid\"; aps_exit=$?; : >{directory}/record.stop; exit \"$aps_exit\" ); \
              aps_exit=$?; n=50; while [ \"$n\" -gt 0 ] && [ ! -f {directory}/record.writer.exit ]; do sleep 0.1; n=$((n-1)); done; \
              [ -f {directory}/record.writer.exit ] && printf '%s\\n' \"$aps_exit\" >{directory}/record.exit"
@@ -201,6 +217,8 @@ impl ConfirmedCapture {
         let mut stop_deadline = None;
         let mut next_lease = Instant::now();
         let mut lease_sequence = 0u64;
+        let mut control_sequence = 0u64;
+        let mut pending_control = None;
         loop {
             if self.handle.cancel.is_cancelled() {
                 self.set(CaptureState::Stopping);
@@ -251,6 +269,40 @@ impl ConfirmedCapture {
                     }
                     Err(error) => return Err(error.to_string()),
                 }
+                if !self.handle.stop.load(Ordering::Acquire) {
+                    let result = (|| {
+                        if let Some((control, sequence, requested_at)) = pending_control {
+                            if self.recorder_control_acknowledged(sequence)? {
+                                self.handle.acknowledge_control(control);
+                                pending_control = None;
+                            } else if Instant::now() >= requested_at + CONTROL_ACK_TIMEOUT {
+                                return Err("simpleperf sampling control was not acknowledged before timeout; recorder support for pause/resume is required".into());
+                            }
+                        } else if let Some(control) = match self.handle.state() {
+                            CaptureState::Pausing => Some(SamplingControl::Pause),
+                            CaptureState::Resuming => Some(SamplingControl::Resume),
+                            _ => None,
+                        } {
+                            control_sequence += 1;
+                            self.request_sampling_control(control, control_sequence)?;
+                            pending_control = Some((control, control_sequence, Instant::now()));
+                        }
+                        Ok(())
+                    })();
+                    match result {
+                        Ok(()) => {}
+                        Err(RecorderObservationError::Transport(_))
+                            if self.handle.stop.load(Ordering::Acquire) =>
+                        {
+                            // Stop can arrive while publication/reply reads
+                            // are in flight. Only transport failure may yield
+                            // to owned EOF and a verified supervisor exit.
+                            self.request_recorder_stop()?;
+                            stop_deadline = Some(Instant::now() + Duration::from_secs(10));
+                        }
+                        Err(error) => return Err(error.to_string()),
+                    }
+                }
             }
             // Absence alone never means successful exit; the parent must
             // publish its verified wait status, including launch failures.
@@ -264,6 +316,74 @@ impl ConfirmedCapture {
                 return Err("remote recording exceeded its bounded host timeout or lost its verified exit status".into());
             }
             thread::sleep(Duration::from_millis(100));
+        }
+    }
+    fn request_sampling_control(
+        &self,
+        control: SamplingControl,
+        sequence: u64,
+    ) -> Result<(), RecorderObservationError> {
+        let directory = &self.plan.remote_directory;
+        let command = match control {
+            SamplingControl::Pause => "pause",
+            SamplingControl::Resume => "resume",
+        };
+        // stdout is opened O_APPEND by the recorder, so resetting the previous
+        // reply does not leave holes or retain a previous `ok`. The new command
+        // becomes visible only after that reset. Only one is outstanding.
+        let script = format!(
+            "[ -d {directory} ] && [ ! -L {directory} ] && \
+             : >{directory}/record.reply && printf '%s\\n' '{sequence} {command}' >{directory}/record.control.tmp && \
+             mv {directory}/record.control.tmp {directory}/record.control"
+        );
+        let output = self
+            .adb_output_bytes(
+                &["shell", &script],
+                Duration::from_secs(5),
+                &self.handle.cancel,
+            )
+            .map_err(|error| {
+                RecorderObservationError::Transport(format!(
+                    "cannot request simpleperf {command}: {error}"
+                ))
+            })?;
+        if !output.is_empty() {
+            return Err("unexpected sampling control publication response".into());
+        }
+        Ok(())
+    }
+
+    fn recorder_control_acknowledged(
+        &self,
+        sequence: u64,
+    ) -> Result<bool, RecorderObservationError> {
+        let directory = &self.plan.remote_directory;
+        let script = format!(
+            "sent=; if [ -f {directory}/record.control.sent ]; then IFS= read -r sent <{directory}/record.control.sent || :; fi; \
+             printf '%s\\n' \"$sent\"; if [ -f {directory}/record.reply ]; then head -c 16 {directory}/record.reply; fi"
+        );
+        let bytes = self
+            .adb_output_bytes(
+                &["shell", &script],
+                Duration::from_secs(5),
+                &self.handle.cancel,
+            )
+            .map_err(RecorderObservationError::Transport)?;
+        let output = String::from_utf8(bytes).map_err(|_| {
+            RecorderObservationError::Invalid("sampling control receipt is not UTF-8".into())
+        })?;
+        let (sent, reply) = output
+            .split_once('\n')
+            .ok_or("malformed sampling control receipt")?;
+        if sent != sequence.to_string() || reply.is_empty() {
+            return Ok(false);
+        }
+        match reply {
+            "ok\n" => Ok(true),
+            "error\n" => {
+                Err("simpleperf rejected sampling control; pause/resume is unavailable".into())
+            }
+            _ => Err("simpleperf returned an invalid sampling control acknowledgment".into()),
         }
     }
     pub(super) fn refresh_manual_lease(&self, sequence: u64) -> Result<(), String> {
