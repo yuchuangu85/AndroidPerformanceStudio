@@ -36,6 +36,14 @@ use std::{
 const RECENT_PAGE: usize = 25;
 const SEARCH_HIT_LIMIT: usize = 200;
 const MISSING_VALUE: &str = "—";
+const DETAIL_DEFAULT_HEIGHT: f32 = 230.;
+const DETAIL_MIN_HEIGHT: f32 = 140.;
+const DETAIL_MAX_HEIGHT: f32 = 480.;
+
+/// The detail panel sits below the drag handle: dragging up grows it.
+fn detail_height_after_drag(base: f32, delta_y: f32) -> f32 {
+    (base - delta_y).clamp(DETAIL_MIN_HEIGHT, DETAIL_MAX_HEIGHT)
+}
 impl EventEmitter<crate::home_recent::RecentArtifactOpened> for TraceWorkspace {}
 
 /// Passive Home adapter for existing captured sessions. No Trace Processor,
@@ -116,6 +124,8 @@ pub struct TraceWorkspace {
     pub(in crate::trace) workspace_bookmarks: Vec<model::TraceWorkspaceBookmark>,
     pub(in crate::trace) capture: capture::Capture,
     pub(in crate::trace) capture_visible: bool,
+    pub(in crate::trace) detail_height: f32,
+    pub(in crate::trace) detail_drag: Option<(f32, f32)>,
     pub(in crate::trace) viewer: ViewerServer,
     pub(in crate::trace) status: Option<String>,
     pub(in crate::trace) error: Option<String>,
@@ -186,6 +196,8 @@ impl TraceWorkspace {
             workspace_bookmarks: Vec::new(),
             capture: capture::Capture::new(data_dir),
             capture_visible: false,
+            detail_height: DETAIL_DEFAULT_HEIGHT,
+            detail_drag: None,
             viewer: ViewerServer::new(9417),
             status: None,
             error: None,
@@ -966,9 +978,29 @@ impl TraceWorkspace {
         if aps_perfetto::diagnostic_query(&query_id).is_some() {
             self.selected_query = Some(query_id);
             self.detail_tab = model::TraceDetailTab::Result;
+            // The detail panel is only rendered while capture is closed; asking
+            // for a result must actually reveal it.
+            self.capture_visible = false;
             self.rebuild_result_table();
             cx.notify();
         }
+    }
+
+    pub(in crate::trace) fn begin_detail_drag(&mut self, y: f32, cx: &mut Context<Self>) {
+        self.detail_drag = Some((y, self.detail_height));
+        cx.notify();
+    }
+
+    pub(in crate::trace) fn update_detail_drag(&mut self, y: f32, cx: &mut Context<Self>) {
+        if let Some((start, base)) = self.detail_drag {
+            self.detail_height = detail_height_after_drag(base, y - start);
+            cx.notify();
+        }
+    }
+
+    pub(in crate::trace) fn end_detail_drag(&mut self, cx: &mut Context<Self>) {
+        self.detail_drag = None;
+        cx.notify();
     }
 
     pub(in crate::trace) fn set_insight_filter(
@@ -1208,6 +1240,15 @@ impl TraceWorkspace {
         cx: &mut Context<Self>,
     ) {
         self.capture.apply_devices(devices, cx);
+    }
+
+    /// Mirrors the title-bar process selection into the capture target package.
+    pub(crate) fn set_capture_target_package(
+        &mut self,
+        package: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.capture.set_shared_target_package(package, cx);
     }
 
     pub(in crate::trace) fn start_capture(
@@ -1923,6 +1964,8 @@ impl TraceWorkspace {
 
 #[cfg(test)]
 mod import_timing_tests {
+    use super::*;
+
     #[::core::prelude::v1::test]
     fn trace_cost_is_published_after_the_current_import_not_capture() {
         let source = include_str!("trace.rs");
@@ -1976,5 +2019,31 @@ mod import_timing_tests {
             .unwrap();
         assert!(footer.contains("this.import_timing.text(language)"));
         assert!(footer.contains("crate::studio::selectable(timing)"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn detail_panel_drag_clamps_height() {
+        assert_eq!(detail_height_after_drag(230., 0.), 230.);
+        assert_eq!(detail_height_after_drag(230., -50.), 280.);
+        assert_eq!(detail_height_after_drag(230., 50.), 180.);
+        assert_eq!(detail_height_after_drag(150., 100.), DETAIL_MIN_HEIGHT);
+        assert_eq!(detail_height_after_drag(400., -200.), DETAIL_MAX_HEIGHT);
+    }
+
+    #[::core::prelude::v1::test]
+    fn viewing_an_insight_result_reveals_the_detail_panel() {
+        let source = include_str!("trace.rs");
+        let view = source
+            .split("pub(in crate::trace) fn view_insight_result(")
+            .nth(1)
+            .unwrap()
+            .split("pub(in crate::trace) fn set_insight_filter(")
+            .next()
+            .unwrap();
+        assert!(view.contains("self.selected_query = Some(query_id)"));
+        assert!(view.contains("self.detail_tab = model::TraceDetailTab::Result"));
+        assert!(view.contains("self.capture_visible = false"));
+        assert!(view.contains("self.rebuild_result_table()"));
+        assert!(view.contains("cx.notify()"));
     }
 }

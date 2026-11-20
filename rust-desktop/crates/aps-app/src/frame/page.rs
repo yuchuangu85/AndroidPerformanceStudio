@@ -2166,7 +2166,7 @@ fn problems_panel(
         .bg(colors.section_background)
         .child(problem_cell(
             language.text(TextKey::FrameFrame),
-            0.55,
+            0.8,
             colors,
             true,
         ))
@@ -2322,14 +2322,18 @@ fn problem_row(
         })
         .child(
             div()
-                .flex_grow(0.55)
+                .flex_grow(0.8)
                 .flex_basis(relative(0.))
                 .min_w_0()
+                .text_size(px(FONT_SUPPORTING))
+                .text_color(colors.text)
                 .font_weight(if selected {
                     FontWeight::SEMIBOLD
                 } else {
                     FontWeight::NORMAL
                 })
+                .whitespace_nowrap()
+                .text_ellipsis()
                 .child(crate::studio::selectable(format!("#{frame_id}"))),
         )
         .child(problem_cell(
@@ -2615,6 +2619,31 @@ mod tests {
         let detail = include_str!("page/detail_ui.rs");
         assert!(implementation.contains("const FRAME_DETAIL_SCROLLBAR_GUTTER: f32 = 16.;"));
         assert!(detail.contains(".pr(px(FRAME_DETAIL_SCROLLBAR_GUTTER))"));
+    }
+
+    #[test]
+    fn problem_frame_column_is_wider_and_never_wraps() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let row = implementation
+            .split("fn problem_row(")
+            .nth(1)
+            .unwrap()
+            .split("fn detail_panel(")
+            .next()
+            .unwrap();
+        assert!(row.contains(".flex_grow(0.8)"));
+        assert!(row.contains(".whitespace_nowrap()"));
+        assert!(row.contains(".text_ellipsis()"));
+        let panel = implementation
+            .split("fn problems_panel(")
+            .nth(1)
+            .unwrap()
+            .split("fn problem_cell(")
+            .next()
+            .unwrap();
+        assert!(panel.contains("TextKey::FrameFrame)"));
+        assert!(panel.contains("0.8"));
     }
 
     #[test]

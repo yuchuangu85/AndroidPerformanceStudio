@@ -87,6 +87,19 @@ fn capture_completion_action(
     }
 }
 
+/// The title-bar selection is the only shared process identity; resolve its
+/// package so Trace capture can default to it.
+fn shared_process_package(
+    processes: &[aps_adb::AndroidApplicationProcess],
+    pid: Option<u32>,
+) -> Option<String> {
+    let pid = pid?;
+    processes
+        .iter()
+        .find(|process| process.pid == pid && !process.package_name.is_empty())
+        .map(|process| process.package_name.clone())
+}
+
 /// Keep the previous route as an alias without creating another capture owner.
 fn resolve_capture_route(
     destination: Destination,
@@ -1065,6 +1078,9 @@ impl Studio {
                 let serial = event.serial.clone();
                 let pid = event.pid;
                 let lists = targets.read(cx).current_lists();
+                let package = lists
+                    .as_ref()
+                    .and_then(|lists| shared_process_package(&lists.processes, pid));
                 if let Some(memory) = this.imports.get(&Destination::Memory) {
                     memory.update(cx, |memory, cx| {
                         memory.set_memory_capture_target(serial.clone(), pid, cx);
@@ -1147,7 +1163,8 @@ impl Studio {
                         .update(cx, |inspector, cx| inspector.capture_if_idle(cx));
                 }
                 this.trace.update(cx, |trace, cx| {
-                    trace.select_capture_device(serial.clone(), cx)
+                    trace.select_capture_device(serial.clone(), cx);
+                    trace.set_capture_target_package(package, cx);
                 });
                 if let Some(serial) = event.serial.clone() {
                     this.frame.update(cx, |frame, cx| {
@@ -1194,6 +1211,7 @@ impl Studio {
                 }
                 let selected = this.targets.read(cx).selected_device().map(str::to_owned);
                 let selected_pid = this.targets.read(cx).selected_process();
+                let selected_package = shared_process_package(&event.processes, selected_pid);
                 let selected = selected.filter(|serial| {
                     event
                         .devices
@@ -1203,8 +1221,13 @@ impl Studio {
                 this.benchmark.update(cx, |benchmark, cx| {
                     benchmark.set_shared_device(selected.clone(), cx)
                 });
+                let trace_serial = selected.clone();
                 this.trace.update(cx, |trace, cx| {
                     trace.apply_shared_target_devices(&event.devices, cx);
+                    if let Some(serial) = trace_serial {
+                        trace.select_capture_device(Some(serial), cx);
+                    }
+                    trace.set_capture_target_package(selected_package, cx);
                 });
                 this.frame.update(cx, |frame, cx| {
                     let selection = (
@@ -1233,6 +1256,7 @@ impl Studio {
         if let Some(lists) = initial_target_lists {
             let selected = targets.read(cx).selected_device().map(str::to_owned);
             let selected_pid = targets.read(cx).selected_process();
+            let selected_package = shared_process_package(&lists.processes, selected_pid);
             let selected = selected.filter(|serial| {
                 lists
                     .devices
@@ -1273,8 +1297,13 @@ impl Studio {
                     });
                 }
             }
+            let trace_serial = selected.clone();
             trace.update(cx, |trace, cx| {
                 trace.apply_shared_target_devices(&lists.devices, cx);
+                if let Some(serial) = trace_serial {
+                    trace.select_capture_device(Some(serial), cx);
+                }
+                trace.set_capture_target_package(selected_package, cx);
             });
             frame.update(cx, |frame, cx| {
                 let selection = (
@@ -4403,8 +4432,14 @@ mod menubar_tests {
             .unwrap();
         assert!(wiring.contains("event: &TargetListsChanged"));
         assert!(wiring.contains("trace.apply_shared_target_devices(&event.devices, cx)"));
+        assert!(wiring.contains("shared_process_package(&event.processes, selected_pid)"));
+        assert!(wiring.contains("trace.set_capture_target_package(selected_package, cx)"));
         assert!(wiring.contains("if let Some(lists) = initial_target_lists"));
         assert!(wiring.contains("trace.apply_shared_target_devices(&lists.devices, cx)"));
+        assert!(wiring.contains("shared_process_package(&lists.processes, selected_pid)"));
+        // A live title-bar process change also seeds the capture package.
+        assert!(source.contains("shared_process_package(&lists.processes, pid)"));
+        assert!(source.contains("trace.set_capture_target_package(package, cx)"));
     }
 
     /// macOS shows the route menus in the native application menu bar; other

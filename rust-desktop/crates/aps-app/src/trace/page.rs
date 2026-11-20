@@ -34,18 +34,16 @@ const TOOLBAR_PADDING: f32 = 16.;
 const TOOLBAR_GAP: f32 = 8.;
 const SEARCH_INPUT_HEIGHT: f32 = 22.;
 const SEARCH_INPUT_WIDTH: f32 = 220.;
-const DEVICE_SELECTOR_WIDTH: f32 = 190.;
 const PRESET_SELECTOR_WIDTH: f32 = 190.;
 const WIDE_WORKSPACE_BREAKPOINT: f32 = 1100.;
 const SESSIONS_RAIL_WIDTH: f32 = 232.;
 const INSIGHTS_RAIL_WIDTH: f32 = 312.;
-const DETAIL_PANEL_HEIGHT: f32 = 230.;
 const NARROW_DETAIL_PANEL_HEIGHT: f32 = 300.;
 const BOOKMARKS_PANEL_HEIGHT: f32 = 180.;
 const NARROW_SESSIONS_HEIGHT: f32 = 280.;
 const NARROW_VIEWER_HEIGHT: f32 = 360.;
 const NARROW_INSIGHTS_HEIGHT: f32 = 420.;
-const SESSION_ROW_HEIGHT: f32 = 72.;
+const SESSION_ROW_HEIGHT: f32 = 58.;
 const RESULT_ROW_HEIGHT: f32 = 22.;
 const TABLE_HEADER_HEIGHT: f32 = 24.;
 const TABLE_ACTIONS_WIDTH: f32 = 116.;
@@ -134,6 +132,19 @@ pub(in crate::trace) fn render(
         .bg(colors.workspace)
         .text_color(colors.text)
         .text_size(px(FONT_BODY))
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+            if this.detail_drag.is_some() {
+                this.update_detail_drag(f32::from(event.position.y), cx);
+            }
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                if this.detail_drag.is_some() {
+                    this.end_detail_drag(cx);
+                }
+            }),
+        )
         .child(header(this, &colors, cx))
         .child(studio::divider(&colors));
     let language = this.language;
@@ -218,24 +229,6 @@ fn header(
         .gap(px(TOOLBAR_GAP))
         .px(px(TOOLBAR_PADDING))
         .overflow_x_scroll()
-        .children(this.capture_visible.then(|| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(TOOLBAR_GAP))
-                .child(device_selector(this, colors, cx))
-                .child(
-                    toolbar_button(
-                        "trace-refresh-devices",
-                        language.text(TextKey::Refresh),
-                        !this.capture.refresh_in_progress(),
-                        false,
-                        colors,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh_devices(cx))),
-                )
-                .child(div().w(px(8.)).flex_shrink_0())
-        }))
         .child(
             toolbar_button(
                 "trace-toggle-capture",
@@ -319,56 +312,6 @@ fn header(
                 }
             })),
         )
-        .into_any_element()
-}
-
-fn device_selector(
-    this: &TraceWorkspace,
-    colors: &StudioColors,
-    cx: &Context<TraceWorkspace>,
-) -> AnyElement {
-    let language = this.language;
-    let devices = this.capture.devices();
-    let selected = this
-        .capture
-        .selected_serial()
-        .and_then(|serial| devices.iter().find(|device| device.serial == serial));
-    let label = selected
-        .map(|device| device.display_name.clone())
-        .unwrap_or_else(|| language.text(TextKey::SelectDevice).to_owned());
-    let items: Vec<(String, String, bool)> = devices
-        .iter()
-        .map(|device| {
-            (
-                device.serial.clone(),
-                device.display_name.clone(),
-                device.online,
-            )
-        })
-        .collect();
-    let entity = cx.entity().downgrade();
-    toolbar_button("trace-device-selector", label, true, false, colors)
-        .w(px(DEVICE_SELECTOR_WIDTH))
-        .justify_start()
-        .dropdown_menu(move |menu, _, _| {
-            let mut menu = menu;
-            for (serial, display_name, online) in &items {
-                let serial = serial.clone();
-                let entity = entity.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(display_name.clone())
-                        .disabled(!online)
-                        .on_click(move |_, _, cx| {
-                            let serial = serial.clone();
-                            let _ = entity.update(cx, |this, cx| {
-                                this.capture.select_device(Some(serial), cx);
-                                cx.notify();
-                            });
-                        }),
-                );
-            }
-            menu
-        })
         .into_any_element()
 }
 
@@ -711,13 +654,25 @@ fn center_column(
         .h_full()
         .flex()
         .flex_col()
-        .gap(px(studio::metrics::CARD_GAP))
         .child(div().flex_1().min_h_0().w_full().child(viewer));
     if show_detail {
+        // Invisible grab zone as tall as the original card gap, no divider.
+        let handle = div()
+            .id("trace-detail-handle")
+            .w_full()
+            .h(px(studio::metrics::CARD_GAP))
+            .flex_shrink_0()
+            .cursor(CursorStyle::ResizeUpDown)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    this.begin_detail_drag(f32::from(event.position.y), cx);
+                }),
+            );
         let detail = detail_panel(this, colors, cx);
-        column = column.child(
+        column = column.child(handle).child(
             div()
-                .h(px(DETAIL_PANEL_HEIGHT))
+                .h(px(this.detail_height))
                 .w_full()
                 .flex_shrink_0()
                 .child(detail),
@@ -831,18 +786,7 @@ fn sessions_panel(
             ))
             .into_any_element()
     };
-    body = body.child(list_area).child(
-        studio::text_button(
-            "toggle-trace-capture",
-            language.text(TextKey::TraceWorkspaceCapture),
-            this.capture.device_ready(),
-            this.capture_visible,
-            colors,
-        )
-        .w_full()
-        .flex_shrink_0()
-        .on_click(cx.listener(|this, _, _, cx| this.toggle_capture(cx))),
-    );
+    body = body.child(list_area);
 
     workspace_card(
         "trace-sessions-panel",
@@ -872,81 +816,99 @@ fn session_row(
         .h(px(SESSION_ROW_HEIGHT))
         .w_full()
         .flex_shrink_0()
-        .flex()
-        .flex_col()
-        .justify_between()
-        .gap(px(3.))
-        .p(px(studio::metrics::COMPACT_PADDING))
-        .rounded(px(studio::metrics::CARD_RADIUS))
-        .border_1()
-        .border_color(if selected {
-            colors.accent
-        } else {
-            colors.border
-        })
-        .bg(if selected {
-            selected_row_color(colors)
-        } else {
-            colors.panel
-        })
-        .cursor_pointer()
-        .on_click(move |_, _, cx| {
-            let session_id = session_id.clone();
-            let _ = entity_click.update(cx, |this, cx| this.select_session(session_id, cx));
-        })
+        .pb(px(studio::metrics::CARD_GAP))
         .child(
             div()
+                .id(("trace-session-card", index))
+                .h_full()
                 .w_full()
-                .text_size(px(FONT_BODY))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(colors.text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(session.title.clone()),
-        )
-        .child(
-            div()
-                .w_full()
-                .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.secondary_text)
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .child(crate::studio::selectable(format!(
-                    "{}  ·  {}",
-                    session.captured_at_label, session.duration_label
-                ))),
-        )
-        .child(
-            div()
                 .flex()
                 .items_center()
                 .gap(px(6.))
+                .p(px(studio::metrics::COMPACT_PADDING))
+                .rounded(px(studio::metrics::CARD_RADIUS))
+                .border_1()
+                .border_color(if selected {
+                    colors.accent
+                } else {
+                    colors.border
+                })
+                .bg(if selected {
+                    selected_row_color(colors)
+                } else {
+                    colors.panel
+                })
+                .cursor_pointer()
+                .on_click(move |_, _, cx| {
+                    let session_id = session_id.clone();
+                    let _ = entity_click.update(cx, |this, cx| this.select_session(session_id, cx));
+                })
                 .child(
-                    studio::compact_text_button(
-                        format!("open-trace-session-{open_id}"),
-                        language.text(TextKey::TraceWorkspaceOpen),
-                        true,
-                        false,
-                        colors,
-                    )
-                    .on_click(move |_, _, cx| {
-                        let open_id = open_id.clone();
-                        let _ = open_entity.update(cx, |this, cx| this.open_session(open_id, cx));
-                    }),
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .w_full()
+                                .text_size(px(FONT_BODY))
+                                .line_height(px(17.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(colors.text)
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(session.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .text_size(px(FONT_SUPPORTING))
+                                .line_height(px(15.))
+                                .text_color(colors.secondary_text)
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(crate::studio::selectable(format!(
+                                    "{}  ·  {}",
+                                    session.captured_at_label, session.duration_label
+                                ))),
+                        ),
                 )
                 .child(
-                    studio::compact_text_button(
-                        format!("delete-trace-session-{delete_id}"),
-                        language.text(TextKey::TraceWorkspaceDelete),
-                        true,
-                        false,
-                        colors,
-                    )
-                    .on_click(move |_, _, cx| {
-                        let delete_id = delete_id.clone();
-                        let _ =
-                            delete_entity.update(cx, |this, cx| this.delete_session(delete_id, cx));
-                    }),
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .child(
+                            studio::compact_text_button(
+                                format!("open-trace-session-{open_id}"),
+                                language.text(TextKey::TraceWorkspaceOpen),
+                                true,
+                                false,
+                                colors,
+                            )
+                            .on_click(move |_, _, cx| {
+                                let open_id = open_id.clone();
+                                let _ = open_entity
+                                    .update(cx, |this, cx| this.open_session(open_id, cx));
+                            }),
+                        )
+                        .child(
+                            studio::compact_text_button(
+                                format!("delete-trace-session-{delete_id}"),
+                                language.text(TextKey::TraceWorkspaceDelete),
+                                true,
+                                false,
+                                colors,
+                            )
+                            .on_click(move |_, _, cx| {
+                                let delete_id = delete_id.clone();
+                                let _ = delete_entity
+                                    .update(cx, |this, cx| this.delete_session(delete_id, cx));
+                            }),
+                        ),
                 ),
         )
         .into_any_element()
@@ -1203,16 +1165,6 @@ fn viewer_panel(
                             colors,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.export_raw_trace(cx))),
-                    )
-                    .child(
-                        studio::compact_text_button(
-                            "show-trace-capture",
-                            language.text(TextKey::TraceWorkspaceCapture),
-                            this.capture.device_ready(),
-                            false,
-                            colors,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_capture(cx))),
                     ),
             );
             column.into_any_element()
@@ -2485,28 +2437,41 @@ fn row_actions(
             studio::compact_text_button(
                 format!("open-timestamp-{tag}"),
                 language.text(TextKey::TraceWorkspaceGo),
-                timestamp.is_some() && viewer_available,
+                viewer_available,
                 false,
                 colors,
             )
             .on_click(move |_, _, cx| {
-                if let Some(timestamp) = timestamp {
-                    let _ = go_entity.update(cx, |this, cx| this.open_in_timeline(timestamp, cx));
-                }
+                let _ = go_entity.update(cx, |this, cx| {
+                    if let Some(timestamp) = timestamp {
+                        this.open_in_timeline(timestamp, cx);
+                    } else {
+                        this.open_viewer(cx);
+                    }
+                });
             }),
         )
         .child(
             studio::compact_text_button(
                 format!("add-bookmark-{tag}"),
                 language.text(TextKey::TraceWorkspaceBookmark),
-                bookmark.is_some(),
+                true,
                 false,
                 colors,
             )
             .on_click(move |_, _, cx| {
-                if let Some(request) = bookmark.clone() {
-                    let _ = bookmark_entity.update(cx, |this, cx| this.add_bookmark(request, cx));
-                }
+                let _ = bookmark_entity.update(cx, |this, cx| {
+                    if let Some(request) = bookmark.clone() {
+                        this.add_bookmark(request, cx);
+                    } else {
+                        this.status = Some(
+                            this.language
+                                .text(TextKey::TraceWorkspaceBookmarkNoTimestamp)
+                                .to_owned(),
+                        );
+                        cx.notify();
+                    }
+                });
             }),
         )
         .into_any_element()
@@ -2515,6 +2480,49 @@ fn row_actions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn result_row_actions_respond_even_without_timestamps() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let actions = implementation.split("fn row_actions(").nth(1).unwrap();
+        // Locate opens the trace when the row has no event time.
+        assert!(actions.contains("viewer_available"));
+        assert!(actions.contains("this.open_viewer(cx)"));
+        // Bookmark stays clickable and explains a missing timestamp.
+        assert!(actions.contains("TraceWorkspaceBookmarkNoTimestamp"));
+        assert!(!actions.contains("bookmark.is_some()"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn viewer_and_detail_share_a_draggable_divider() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        assert!(implementation.contains("\"trace-detail-handle\""));
+        assert!(implementation.contains("this.begin_detail_drag"));
+        assert!(implementation.contains("this.update_detail_drag"));
+        assert!(implementation.contains("this.end_detail_drag"));
+        assert!(implementation.contains(".h(px(this.detail_height))"));
+        // The grab zone is invisible and keeps the original card gap.
+        assert!(implementation.contains("studio::metrics::CARD_GAP"));
+        assert!(!implementation.contains("studio::resize_handle"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn capture_has_one_toolbar_entry_without_inline_device_controls() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        // The top toolbar toggle is the only capture entry on the page.
+        assert!(implementation.contains("\"trace-toggle-capture\""));
+        for removed in [
+            "\"trace-device-selector\"",
+            "\"trace-refresh-devices\"",
+            "\"toggle-trace-capture\"",
+            "\"show-trace-capture\"",
+        ] {
+            assert!(!implementation.contains(removed), "{removed}");
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn status_distinguishes_discovery_selection_connection_and_disconnection() {
@@ -2538,7 +2546,7 @@ mod tests {
                 (colors.error, language.text(TextKey::NoOnlineDevice).into())
             );
             capture.publish_devices(&two);
-            assert_eq!(capture.selected_serial(), None);
+            assert!(capture.selected_device().is_none());
             assert_eq!(
                 device_status(&capture, language, &colors),
                 (colors.warning, language.text(TextKey::SelectDevice).into())

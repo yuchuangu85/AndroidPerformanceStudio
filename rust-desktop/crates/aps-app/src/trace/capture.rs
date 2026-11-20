@@ -397,9 +397,35 @@ pub(in crate::trace) struct DeviceCapabilities {
     pub(in crate::trace) query_error: Option<String>,
 }
 
+/// Why a probe cannot be enabled for the observed device or config.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::trace) enum ProbeBlocker {
+    AndroidSdk(u32),
+    DebugBuild,
+    DataSource(&'static str),
+    TargetPackage,
+}
+
+impl ProbeBlocker {
+    pub(in crate::trace) fn message(self, language: Language) -> String {
+        match self {
+            Self::AndroidSdk(sdk) => {
+                language.format(TextKey::ProbeRequiresAndroid, &[("value1", &sdk)])
+            }
+            Self::DebugBuild => language.text(TextKey::ProbeRequiresDebugBuild).to_owned(),
+            Self::DataSource(name) => {
+                language.format(TextKey::ProbeDataSourceUnavailable, &[("value1", &name)])
+            }
+            Self::TargetPackage => language
+                .text(TextKey::ProbeRequiresTargetPackage)
+                .to_owned(),
+        }
+    }
+}
+
 impl DeviceCapabilities {
     /// Mirrors PerfettoDeviceCapabilities.unsupportedReason.
-    pub(in crate::trace) fn unsupported_reason(&self, probe: Probe) -> Option<String> {
+    pub(in crate::trace) fn probe_blocker(&self, probe: Probe) -> Option<ProbeBlocker> {
         let source = probe.required_data_source();
         let source_unavailable = self.query_error.is_none()
             && !self.data_source_names.is_empty()
@@ -410,14 +436,11 @@ impl DeviceCapabilities {
             && self.build_type != "userdebug"
             && self.build_type != "eng";
         if self.android_sdk > 0 && self.android_sdk < probe.minimum_android_sdk() {
-            Some(format!("Requires Android {}+", probe.minimum_android_sdk()))
+            Some(ProbeBlocker::AndroidSdk(probe.minimum_android_sdk()))
         } else if unsupported_build {
-            Some("Requires a userdebug or eng build".to_owned())
+            Some(ProbeBlocker::DebugBuild)
         } else if source_unavailable {
-            Some(format!(
-                "{} is unavailable on this device",
-                source.unwrap_or_default()
-            ))
+            Some(ProbeBlocker::DataSource(source.unwrap_or_default()))
         } else {
             None
         }
@@ -1102,6 +1125,12 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     )
 }
 
+/// The shared title-bar target may fill the package field only while it is
+/// untouched; an operator-entered value always wins.
+fn should_apply_shared_target(current: &str, applied: Option<&str>) -> bool {
+    current.trim().is_empty() || applied == Some(current)
+}
+
 fn preferred_device_serial(current: Option<&str>, devices: &[CaptureDevice]) -> Option<String> {
     if let Some(current) = current
         && devices
@@ -1552,6 +1581,8 @@ pub(in crate::trace) struct Capture {
     selected_template: CaptureTemplate,
     enabled_probes: BTreeSet<Probe>,
     inputs: Option<CaptureInputs>,
+    shared_target_package: Option<String>,
+    applied_target_package: Option<String>,
 }
 
 impl Capture {
@@ -1575,6 +1606,8 @@ impl Capture {
             selected_template: CaptureTemplate::SystemOverview,
             enabled_probes: CaptureTemplate::SystemOverview.default_probes(),
             inputs: None,
+            shared_target_package: None,
+            applied_target_package: None,
         }
     }
 
@@ -1586,10 +1619,6 @@ impl Capture {
 
     pub(in crate::trace) fn devices_loaded(&self) -> bool {
         self.devices_loaded
-    }
-
-    pub(in crate::trace) fn selected_serial(&self) -> Option<&str> {
-        self.selected_serial.as_deref()
     }
 
     pub(in crate::trace) fn selected_device(&self) -> Option<&CaptureDevice> {
@@ -1776,6 +1805,43 @@ impl Capture {
         self.inputs.as_ref()
     }
 
+    /// The title-bar process selection seeds the target package so heap probes
+    /// are usable without retyping it; an operator-entered value always wins.
+    pub(in crate::trace) fn set_shared_target_package(
+        &mut self,
+        package: Option<String>,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        if self.shared_target_package == package {
+            return;
+        }
+        self.shared_target_package = package;
+        cx.notify();
+    }
+
+    pub(in crate::trace) fn sync_shared_target_package(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        let Some(package) = self.shared_target_package.clone() else {
+            return;
+        };
+        let Some(inputs) = &self.inputs else {
+            return;
+        };
+        if self.applied_target_package.as_deref() == Some(package.as_str()) {
+            return;
+        }
+        let current = inputs.target_package.read(cx).value().trim().to_owned();
+        if should_apply_shared_target(&current, self.applied_target_package.as_deref()) {
+            inputs
+                .target_package
+                .update(cx, |state, cx| state.set_value(package.clone(), window, cx));
+        }
+        self.applied_target_package = Some(package);
+    }
+
     /// Lazily creates the configuration fields and applies the current language.
     pub(in crate::trace) fn ensure_inputs(
         &mut self,
@@ -1918,7 +1984,7 @@ impl Capture {
                 .filter(|probe| {
                     self.capabilities
                         .as_ref()
-                        .and_then(|capabilities| capabilities.unsupported_reason(*probe))
+                        .and_then(|capabilities| capabilities.probe_blocker(*probe))
                         .is_none()
                         && (!probe.requires_target_package() || config.target_package.is_some())
                 })
@@ -2137,7 +2203,7 @@ mod tests {
         capture.publish_devices(&devices);
         assert!(capture.devices_loaded());
         assert!(capture.device_ready());
-        assert_eq!(capture.selected_serial(), Some("serial"));
+        assert_eq!(capture.selected_serial.as_deref(), Some("serial"));
         assert_eq!(capture.devices()[0].display_name, devices[0].display_name());
         assert_ne!(capture.device_generation, refresh_generation);
         assert!(!capture.refresh_in_progress());
@@ -2171,7 +2237,7 @@ mod tests {
         let generation = capture.capability_generation;
         capture.publish_devices(&offline);
         assert!(!capture.device_ready());
-        assert_eq!(capture.selected_serial(), None);
+        assert_eq!(capture.selected_serial.as_deref(), None);
         assert!(!capture.capabilities_in_progress());
         assert_ne!(capture.capability_generation, generation);
         capture.publish_devices(&devices);
@@ -2179,7 +2245,7 @@ mod tests {
         capture.capabilities = Some(DeviceCapabilities::default());
         let generation = capture.capability_generation;
         capture.set_selected_serial(None);
-        assert_eq!(capture.selected_serial(), None);
+        assert_eq!(capture.selected_serial.as_deref(), None);
         assert!(capture.capabilities().is_none());
         assert_ne!(capture.capability_generation, generation);
         capture.publish_devices(&[]);
@@ -2348,29 +2414,60 @@ mod tests {
             query_error: None,
         };
         assert_eq!(
-            capabilities
-                .unsupported_reason(Probe::NativeHeap)
-                .as_deref(),
-            Some("Requires Android 29+")
+            capabilities.probe_blocker(Probe::NativeHeap),
+            Some(ProbeBlocker::AndroidSdk(29))
         );
         assert_eq!(
-            capabilities.unsupported_reason(Probe::Syscalls).as_deref(),
-            Some("Requires a userdebug or eng build")
+            capabilities.probe_blocker(Probe::Syscalls),
+            Some(ProbeBlocker::DebugBuild)
         );
         // SDK gating takes precedence over source availability (Compose order).
         assert_eq!(
-            capabilities
-                .unsupported_reason(Probe::FrameTimeline)
-                .as_deref(),
-            Some("Requires Android 31+")
+            capabilities.probe_blocker(Probe::FrameTimeline),
+            Some(ProbeBlocker::AndroidSdk(31))
         );
         assert_eq!(
-            capabilities
-                .unsupported_reason(Probe::GpuRenderStages)
-                .as_deref(),
-            Some("gpu.renderstages is unavailable on this device")
+            capabilities.probe_blocker(Probe::GpuRenderStages),
+            Some(ProbeBlocker::DataSource("gpu.renderstages"))
         );
-        assert_eq!(capabilities.unsupported_reason(Probe::CpuScheduling), None);
+        assert_eq!(capabilities.probe_blocker(Probe::CpuScheduling), None);
+    }
+
+    #[::core::prelude::v1::test]
+    fn probe_blockers_render_in_the_selected_language() {
+        for language in [Language::English, Language::SimplifiedChinese] {
+            for blocker in [
+                ProbeBlocker::AndroidSdk(29),
+                ProbeBlocker::DebugBuild,
+                ProbeBlocker::DataSource("gpu.renderstages"),
+                ProbeBlocker::TargetPackage,
+            ] {
+                assert!(!blocker.message(language).is_empty());
+            }
+        }
+        assert_eq!(
+            ProbeBlocker::TargetPackage.message(Language::SimplifiedChinese),
+            "需要先填写目标软件包"
+        );
+        assert!(
+            ProbeBlocker::DataSource("gpu.renderstages")
+                .message(Language::SimplifiedChinese)
+                .contains("gpu.renderstages")
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn shared_target_package_fills_only_an_untouched_field() {
+        assert!(should_apply_shared_target("", None));
+        assert!(should_apply_shared_target(
+            "com.example.app",
+            Some("com.example.app")
+        ));
+        assert!(should_apply_shared_target("", Some("com.example.app")));
+        assert!(!should_apply_shared_target(
+            "com.manual.app",
+            Some("com.example.app")
+        ));
     }
 
     #[::core::prelude::v1::test]
@@ -2381,7 +2478,7 @@ mod tests {
             data_source_names: BTreeSet::new(),
             query_error: Some("Perfetto is unavailable on this device".to_owned()),
         };
-        assert_eq!(capabilities.unsupported_reason(Probe::GpuMemory), None);
+        assert_eq!(capabilities.probe_blocker(Probe::GpuMemory), None);
     }
 
     #[::core::prelude::v1::test]

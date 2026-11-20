@@ -9,7 +9,8 @@
 
 use super::TraceWorkspace;
 use super::capture::{
-    CaptureState, CaptureTemplate, DeviceCapabilities, Probe, ProbeGroup, format_unix_ms,
+    CaptureState, CaptureTemplate, DeviceCapabilities, Probe, ProbeBlocker, ProbeGroup,
+    format_unix_ms,
 };
 use crate::studio::{self, FONT_BODY, FONT_SUPPORTING, StudioColors};
 use aps_ui_foundation::{Language, TextKey};
@@ -46,6 +47,7 @@ pub(in crate::trace) fn capture_page(
 ) -> AnyElement {
     let language = this.language;
     this.capture.ensure_inputs(language, window, cx);
+    this.capture.sync_shared_target_package(window, cx);
     let colors = StudioColors::from_theme(cx);
     let entity = cx.entity().downgrade();
     let inputs = this.capture.inputs();
@@ -379,15 +381,15 @@ fn probe_option(
     snapshot: &CaptureSnapshot,
     entity: &WeakEntity<TraceWorkspace>,
 ) -> AnyElement {
-    let reason = snapshot
+    let blocker = snapshot
         .capabilities
         .as_ref()
-        .and_then(|capabilities| capabilities.unsupported_reason(probe))
+        .and_then(|capabilities| capabilities.probe_blocker(probe))
         .or_else(|| {
             (probe.requires_target_package() && snapshot.target_package_blank)
-                .then(|| "Requires a target package".to_owned())
+                .then_some(ProbeBlocker::TargetPackage)
         });
-    let disabled = reason.is_some();
+    let disabled = blocker.is_some();
     let checked = snapshot.probes.contains(&probe) && !disabled;
     let colors = snapshot.colors;
     let entity = entity.clone();
@@ -407,12 +409,14 @@ fn probe_option(
                 })
                 .child(probe.label()),
         );
-    if let Some(reason) = reason {
+    if let Some(blocker) = blocker {
         label = label.child(
             div()
                 .text_size(px(FONT_SUPPORTING))
-                .text_color(colors.error)
-                .child(crate::studio::selectable(reason)),
+                .text_color(colors.warning)
+                .child(crate::studio::selectable(
+                    blocker.message(snapshot.language),
+                )),
         );
     }
     div()
