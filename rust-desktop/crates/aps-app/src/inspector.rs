@@ -20,6 +20,7 @@ use gpui_kit::{
 };
 use std::{
     collections::BTreeSet,
+    io::Cursor,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -363,6 +364,7 @@ pub struct InspectorWorkspace {
     timeline_reveal_selected: bool,
     window: usize,
     selected: Option<String>,
+    isolation: hierarchy::IsolationState,
     hidden: BTreeSet<String>,
     collapsed: BTreeSet<String>,
     search: Entity<InputState>,
@@ -395,6 +397,7 @@ pub struct InspectorWorkspace {
     /// instead of the full display. Presentation-only; never persisted.
     app_only: bool,
     screenshot_image: Option<Arc<RenderImage>>,
+    screenshot_image_source: Option<PreviewSource>,
     /// Compose Agent opt-in, mirroring the Compose toolbar checkbox. Offline
     /// archives have no live injection; checking it reveals the Compose
     /// inspection sidecar (Compose category/summary) captured in the archive.
@@ -442,6 +445,7 @@ impl InspectorWorkspace {
             timeline_reveal_selected: false,
             window: 0,
             selected: None,
+            isolation: hierarchy::IsolationState::default(),
             hidden: BTreeSet::new(),
             collapsed: BTreeSet::new(),
             search,
@@ -470,6 +474,7 @@ impl InspectorWorkspace {
             capture_target: CaptureTargetMode::ForegroundApp,
             app_only: true,
             screenshot_image: None,
+            screenshot_image_source: None,
             compose_agent: false,
             compose_inspection_confirmation_pending: false,
             compose_bridge: None,
@@ -620,11 +625,8 @@ impl InspectorWorkspace {
                     .position(|window| window.id == archive.default_window_id)
             })
             .unwrap_or(0);
-        self.screenshot_image = self
-            .archive
-            .as_ref()
-            .and_then(|archive| archive.screenshot_png.as_deref())
-            .and_then(|bytes| decode_screenshot(bytes, cx));
+        self.screenshot_image = None;
+        self.screenshot_image_source = None;
         self.findings = Arc::new(findings);
         self.findings_ui = findings::UiState::default();
         self.selected_finding = None;
@@ -633,6 +635,7 @@ impl InspectorWorkspace {
         self.compose_agent = source == Some(timeline::Source::Compose);
         self.compose_inspection_confirmation_pending = false;
         self.selected = None;
+        self.isolation = hierarchy::IsolationState::default();
         self.hovered = None;
         self.hidden.clear();
         self.collapsed.clear();
@@ -1104,6 +1107,7 @@ impl InspectorWorkspace {
             self.findings_ui = findings::UiState::default();
             self.selected_finding = None;
             self.selected = None;
+            self.isolation = hierarchy::IsolationState::default();
             self.hovered = None;
             self.hidden.clear();
             self.collapsed.clear();
@@ -1325,6 +1329,7 @@ impl InspectorWorkspace {
         if !self.hidden.remove(&id) {
             self.hidden.insert(id);
         }
+        self.preview_cache = hierarchy::PreviewCache::default();
         cx.notify();
     }
 
@@ -1333,6 +1338,49 @@ impl InspectorWorkspace {
             self.collapsed.insert(id);
         }
         self.hierarchy_cache.invalidate();
+        cx.notify();
+    }
+
+    fn isolate_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(nodes) = self
+            .archive
+            .as_ref()
+            .and_then(|archive| archive.windows.get(self.window))
+            .map(|window| window.nodes.as_slice())
+        else {
+            return;
+        };
+        self.isolation = self.isolation.isolate(self.selected.as_deref(), nodes);
+        self.hierarchy_cache.invalidate();
+        self.preview_cache = hierarchy::PreviewCache::default();
+        self.preview_pan = (0.0, 0.0);
+        cx.notify();
+    }
+
+    fn isolate_parent(&mut self, cx: &mut Context<Self>) {
+        let Some(nodes) = self
+            .archive
+            .as_ref()
+            .and_then(|archive| archive.windows.get(self.window))
+            .map(|window| window.nodes.as_slice())
+        else {
+            return;
+        };
+        self.isolation = self.isolation.parent(nodes);
+        self.hierarchy_cache.invalidate();
+        self.preview_cache = hierarchy::PreviewCache::default();
+        self.preview_pan = (0.0, 0.0);
+        cx.notify();
+    }
+
+    fn clear_isolation(&mut self, cx: &mut Context<Self>) {
+        if !self.isolation.active() {
+            return;
+        }
+        self.isolation = self.isolation.clear();
+        self.hierarchy_cache.invalidate();
+        self.preview_cache = hierarchy::PreviewCache::default();
+        self.preview_pan = (0.0, 0.0);
         cx.notify();
     }
 
@@ -1350,13 +1398,14 @@ impl InspectorWorkspace {
     ) -> Option<Arc<hierarchy::HierarchySnapshot>> {
         let archive = self.archive.as_ref()?;
         let query = self.search.read(cx).value().to_lowercase();
-        self.hierarchy_cache.get(
+        self.hierarchy_cache.get_with_isolation(
             archive,
             self.window,
             self.preferences,
             self.frame_show_system_composables,
             &query,
             &self.collapsed,
+            self.isolation.root_id.as_deref(),
         )
     }
 
@@ -1742,12 +1791,13 @@ impl Render for InspectorWorkspace {
         let preview_nodes = archive
             .as_ref()
             .and_then(|archive| {
-                self.preview_cache.get_with_system_composables(
+                self.preview_cache.get_with_isolation(
                     archive,
                     self.window,
                     &self.hidden,
                     &self.selected,
                     self.frame_show_system_composables,
+                    self.isolation.root_id.as_deref(),
                 )
             })
             .unwrap_or_default();
@@ -1789,6 +1839,7 @@ impl Render for InspectorWorkspace {
                     &self.hidden,
                     &self.selected,
                     &self.collapsed,
+                    self.isolation.root_id.as_deref(),
                     self.preferences,
                     entity.clone(),
                     self.search.clone(),
@@ -1802,12 +1853,15 @@ impl Render for InspectorWorkspace {
                     cx,
                 ));
         }
+        let hidden_for_preview = self.hidden.clone();
+        let isolation_for_preview = self.isolation.root_id.clone();
         panes = panes.child(self.preview_pane(
             language,
             &colors,
             archive.clone(),
             preview_nodes,
-            &self.hidden,
+            &hidden_for_preview,
+            isolation_for_preview.as_deref(),
             cx,
         ));
         if self.show_details {
@@ -2090,21 +2144,37 @@ fn preview_source(
     window: Option<&LayoutWindow>,
     app_only: bool,
 ) -> PreviewSource {
+    preview_source_with_isolation(display, window, None, app_only)
+}
+
+fn preview_source_with_isolation(
+    display: DisplayInfo,
+    window: Option<&LayoutWindow>,
+    isolation_root: Option<&LayoutNode>,
+    app_only: bool,
+) -> PreviewSource {
     let full = PreviewSource {
         left: 0,
         top: 0,
         width: display.width_px,
         height: display.height_px,
     };
-    let Some(window) = window.filter(|_| app_only) else {
+    let bounds = if let Some(node) = isolation_root {
+        node.bounds
+    } else if app_only {
+        let Some(window) = window else {
+            return full;
+        };
+        window.bounds
+    } else {
         return full;
     };
     let width = i64::from(display.width_px);
     let height = i64::from(display.height_px);
-    let left = i64::from(window.bounds.left).clamp(0, width);
-    let top = i64::from(window.bounds.top).clamp(0, height);
-    let right = i64::from(window.bounds.right).clamp(0, width);
-    let bottom = i64::from(window.bounds.bottom).clamp(0, height);
+    let left = i64::from(bounds.left).clamp(0, width);
+    let top = i64::from(bounds.top).clamp(0, height);
+    let right = i64::from(bounds.right).clamp(0, width);
+    let bottom = i64::from(bounds.bottom).clamp(0, height);
     if right <= left || bottom <= top {
         return full;
     }
@@ -2127,16 +2197,52 @@ fn canvas_nodes(
     compose: Option<&ComposeEvidence>,
     show_system_composables: bool,
 ) -> (Vec<(usize, LayoutNode)>, usize) {
+    canvas_nodes_with_isolation(
+        nodes,
+        hidden,
+        selected,
+        display_width,
+        display_height,
+        compose,
+        show_system_composables,
+        None,
+    )
+}
+
+fn canvas_nodes_with_isolation(
+    nodes: &[LayoutNode],
+    hidden: &BTreeSet<String>,
+    selected: Option<&str>,
+    display_width: u32,
+    display_height: u32,
+    compose: Option<&ComposeEvidence>,
+    show_system_composables: bool,
+    isolation_root: Option<&str>,
+) -> (Vec<(usize, LayoutNode)>, usize) {
     let mut alpha = vec![0.0; nodes.len()];
     let mut eligible = Vec::new();
+    let isolation = hierarchy::IsolationState {
+        root_id: isolation_root.map(str::to_owned),
+    };
+    let range = isolation.range(nodes);
+    let (start_index, end_index) = range.map_or((0, nodes.len()), |(start, end, _)| (start, end));
     for (index, node) in nodes.iter().enumerate() {
-        let ancestor_alpha =
+        if index < start_index {
+            continue;
+        }
+        if index >= end_index {
+            break;
+        }
+        let ancestor_alpha = if range.is_some_and(|(start, _, _)| index == start) {
+            1.0
+        } else {
             node.parent_index.map_or(
                 1.0,
                 |parent| {
                     if parent < index { alpha[parent] } else { 0.0 }
                 },
-            );
+            )
+        };
         alpha[index] = if node.visible && !hidden.contains(&node.id) {
             ancestor_alpha * node.alpha
         } else {
@@ -2921,6 +3027,7 @@ fn hierarchy_pane(
     hidden: &BTreeSet<String>,
     selected: &Option<String>,
     collapsed: &BTreeSet<String>,
+    isolation_root: Option<&str>,
     preferences: LayoutPreferences,
     entity: Entity<InspectorWorkspace>,
     search: Entity<InputState>,
@@ -2929,14 +3036,59 @@ fn hierarchy_pane(
 ) -> AnyElement {
     let count = snapshot.as_ref().map_or(0, |snapshot| snapshot.rows.len());
 
+    let isolate_entity = entity.clone();
+    let mut actions = div()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .child(crate::studio::selectable(count.to_string()))
+        .child(
+            toolbar_button(
+                "inspector-isolate-subtree",
+                language.text(TextKey::InspectorIsolateSubtree),
+                selected.is_some(),
+                false,
+                colors,
+            )
+            .on_click(move |_, _, cx| {
+                isolate_entity.update(cx, |this, cx| this.isolate_selected(cx));
+            }),
+        );
+    if isolation_root.is_some() {
+        let parent_entity = entity.clone();
+        let clear_entity = entity.clone();
+        actions = actions
+            .child(
+                toolbar_button(
+                    "inspector-isolate-parent",
+                    language.text(TextKey::InspectorIsolateParent),
+                    true,
+                    false,
+                    colors,
+                )
+                .on_click(move |_, _, cx| {
+                    parent_entity.update(cx, |this, cx| this.isolate_parent(cx));
+                }),
+            )
+            .child(
+                toolbar_button(
+                    "inspector-clear-isolation",
+                    language.text(TextKey::InspectorClearIsolation),
+                    true,
+                    false,
+                    colors,
+                )
+                .on_click(move |_, _, cx| {
+                    clear_entity.update(cx, |this, cx| this.clear_isolation(cx));
+                }),
+            );
+    }
+
     let header = panel_header(
         language,
         TextKey::InspectorHierarchyTitle,
         TextKey::InspectorHierarchyLabel,
-        div()
-            .text_size(px(studio::FONT_SUPPORTING))
-            .text_color(colors.muted_text)
-            .child(crate::studio::selectable(count.to_string())),
+        actions,
         colors,
     );
 
@@ -3160,12 +3312,13 @@ fn preview_surface_color(dark: bool) -> Rgba {
 
 impl InspectorWorkspace {
     fn preview_pane(
-        &self,
+        &mut self,
         language: Language,
         colors: &StudioColors,
         archive: Option<Arc<InspectorArchive>>,
         nodes: Arc<Vec<(usize, LayoutNode)>>,
         hidden: &BTreeSet<String>,
+        isolation_root: Option<&str>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let dark = colors.dark;
@@ -3173,8 +3326,15 @@ impl InspectorWorkspace {
         let window = archive
             .as_ref()
             .and_then(|archive| archive.windows.get(self.window));
+        let isolation_node = window.and_then(|window| {
+            isolation_root.and_then(|root| window.nodes.iter().find(|node| node.id == root))
+        });
         let hidden_count = hidden.len();
-        let source = display.map(|display| preview_source(display, window, self.app_only));
+        let source = display.map(|display| {
+            preview_source_with_isolation(display, window, isolation_node, self.app_only)
+        });
+        let screenshot =
+            source.and_then(|source| self.screenshot_for_source(archive.as_ref(), source, cx));
         let dimensions = source.map_or_else(
             || language.text(TextKey::InspectorNoSnapshot).to_owned(),
             |source| format!("{} × {}", source.width, source.height),
@@ -3277,7 +3437,7 @@ impl InspectorWorkspace {
             .overflow_hidden()
             .flex()
             .flex_col();
-        if let (Some(display), Some(_), Some(source)) = (display, window, source) {
+        if let (Some(_display), Some(_), Some(source)) = (display, window, source) {
             // Compose draws the zoom overlay at the bottom-right of the canvas
             // viewport instead of a fixed row below it.
             body = body.child(
@@ -3287,16 +3447,7 @@ impl InspectorWorkspace {
                     .w_full()
                     .flex()
                     .flex_col()
-                    .child(self.geometry_canvas(
-                        nodes,
-                        source,
-                        display.width_px,
-                        display.height_px,
-                        self.screenshot_image.clone(),
-                        dark,
-                        colors,
-                        cx,
-                    ))
+                    .child(self.geometry_canvas(nodes, source, screenshot, dark, colors, cx))
                     .child(self.zoom_controls(language, colors, cx)),
             );
         } else {
@@ -3343,12 +3494,45 @@ impl InspectorWorkspace {
             .into_any_element()
     }
 
+    fn screenshot_for_source(
+        &mut self,
+        archive: Option<&Arc<InspectorArchive>>,
+        source: PreviewSource,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<RenderImage>> {
+        if self.screenshot_image_source == Some(source) {
+            return self.screenshot_image.clone();
+        }
+        let bytes = archive?.screenshot_png.as_deref()?;
+        let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok()?;
+        let image_width = decoded.width();
+        let image_height = decoded.height();
+        let left = (source.left.max(0) as u32).min(image_width);
+        let top = (source.top.max(0) as u32).min(image_height);
+        let right = left.saturating_add(source.width).min(image_width);
+        let bottom = top.saturating_add(source.height).min(image_height);
+        let width = right.saturating_sub(left);
+        let height = bottom.saturating_sub(top);
+        if width == 0 || height == 0 {
+            self.screenshot_image = None;
+            self.screenshot_image_source = Some(source);
+            return None;
+        }
+        let cropped = decoded.crop_imm(left, top, width, height);
+        let mut encoded = Cursor::new(Vec::new());
+        cropped
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .ok()?;
+        let rendered = decode_screenshot(encoded.get_ref(), cx);
+        self.screenshot_image = rendered.clone();
+        self.screenshot_image_source = Some(source);
+        rendered
+    }
+
     fn geometry_canvas(
         &self,
         nodes: Arc<Vec<(usize, LayoutNode)>>,
         source: PreviewSource,
-        display_width: u32,
-        display_height: u32,
         screenshot: Option<Arc<RenderImage>>,
         dark: bool,
         colors: &StudioColors,
@@ -3557,13 +3741,10 @@ impl InspectorWorkspace {
                             Default::default(),
                         ));
                         if let Some(image) = screenshot.as_ref() {
-                            let image_origin = point(
-                                origin.x - px(source_left * scale),
-                                origin.y - px(source_top * scale),
-                            );
+                            let image_origin = origin;
                             let image_size = size(
-                                px(display_width as f32 * scale),
-                                px(display_height as f32 * scale),
+                                px(source.width as f32 * scale),
+                                px(source.height as f32 * scale),
                             );
                             window
                                 .paint_image(
@@ -5314,6 +5495,42 @@ mod tests {
                 top: 0,
                 width: 1080,
                 height: 2400,
+            }
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_source_crops_to_isolated_root_when_app_only_is_on() {
+        let display = test_display();
+        let window = window_with_bounds(NodeBounds {
+            left: 0,
+            top: 0,
+            right: 1080,
+            bottom: 2400,
+        });
+        let mut root = node(1, None);
+        root.bounds = NodeBounds {
+            left: 120,
+            top: 240,
+            right: 900,
+            bottom: 1800,
+        };
+        assert_eq!(
+            preview_source_with_isolation(display, Some(&window), Some(&root), true),
+            PreviewSource {
+                left: 120,
+                top: 240,
+                width: 780,
+                height: 1560,
+            }
+        );
+        assert_eq!(
+            preview_source_with_isolation(display, Some(&window), Some(&root), false),
+            PreviewSource {
+                left: 120,
+                top: 240,
+                width: 780,
+                height: 1560,
             }
         );
     }

@@ -3,6 +3,66 @@ use aps_layout_inspector::{InspectorArchive, LayoutNode};
 use aps_ui_foundation::LayoutPreferences;
 use std::{collections::BTreeSet, sync::Arc};
 
+/// Presentation-only hierarchy root. The captured archive remains unchanged;
+/// this state limits the tree and canvas to one contiguous preorder subtree.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct IsolationState {
+    pub(super) root_id: Option<String>,
+}
+
+impl IsolationState {
+    pub(super) fn active(&self) -> bool {
+        self.root_id.is_some()
+    }
+
+    pub(super) fn isolate(&self, node_id: Option<&str>, nodes: &[LayoutNode]) -> Self {
+        Self {
+            root_id: node_id
+                .filter(|id| nodes.iter().any(|node| node.id == *id))
+                .map(str::to_owned),
+        }
+    }
+
+    pub(super) fn parent(&self, nodes: &[LayoutNode]) -> Self {
+        let Some(index) = self.root_index(nodes) else {
+            return Self::default();
+        };
+        Self {
+            root_id: nodes
+                .get(index)
+                .and_then(|node| node.parent_index)
+                .and_then(|parent| nodes.get(parent))
+                .map(|node| node.id.clone()),
+        }
+    }
+
+    pub(super) fn sanitize(&self, nodes: &[LayoutNode]) -> Self {
+        self.isolate(self.root_id.as_deref(), nodes)
+    }
+
+    pub(super) fn clear(&self) -> Self {
+        Self::default()
+    }
+
+    pub(super) fn root_index(&self, nodes: &[LayoutNode]) -> Option<usize> {
+        self.root_id
+            .as_deref()
+            .and_then(|id| nodes.iter().position(|node| node.id == id))
+    }
+
+    pub(super) fn range(&self, nodes: &[LayoutNode]) -> Option<(usize, usize, usize)> {
+        let start = self.root_index(nodes)?;
+        let depth = nodes[start].depth;
+        let end = nodes
+            .iter()
+            .enumerate()
+            .skip(start + 1)
+            .find(|(_, node)| node.depth <= depth)
+            .map_or(nodes.len(), |(index, _)| index);
+        Some((start, end, depth))
+    }
+}
+
 pub(super) fn reveal_ancestors(
     nodes: &[LayoutNode],
     mut index: usize,
@@ -32,6 +92,7 @@ pub(super) struct HierarchySnapshot {
     pub(super) content_width: f32,
     pub(super) display_depths: Vec<usize>,
     pub(super) visible_nodes: usize,
+    isolation_root: Option<String>,
     preferences: (bool, bool, bool, bool),
     show_system_composables: bool,
     query: String,
@@ -51,7 +112,29 @@ impl HierarchyCache {
         query: &str,
         collapsed: &BTreeSet<String>,
     ) -> Option<Arc<HierarchySnapshot>> {
+        self.get_with_isolation(
+            archive,
+            window_index,
+            preferences,
+            show_system_composables,
+            query,
+            collapsed,
+            None,
+        )
+    }
+
+    pub(super) fn get_with_isolation(
+        &mut self,
+        archive: &Arc<InspectorArchive>,
+        window_index: usize,
+        preferences: LayoutPreferences,
+        show_system_composables: bool,
+        query: &str,
+        collapsed: &BTreeSet<String>,
+        isolation_root: Option<&str>,
+    ) -> Option<Arc<HierarchySnapshot>> {
         let query = query.trim();
+        let isolation_root = isolation_root.map(str::to_owned);
         let preference_key = (
             preferences.hide_invisible_hierarchy,
             preferences.hide_indices,
@@ -64,6 +147,7 @@ impl HierarchyCache {
             && snapshot.preferences == preference_key
             && snapshot.show_system_composables == show_system_composables
             && snapshot.query == query
+            && snapshot.isolation_root == isolation_root
         {
             return Some(snapshot.clone());
         }
@@ -74,8 +158,31 @@ impl HierarchyCache {
             archive.compose.as_ref(),
             show_system_composables,
         );
+        let isolation = IsolationState {
+            root_id: isolation_root.clone(),
+        };
+        let (start_index, end_index, _) = isolation
+            .range(&window.nodes)
+            .map_or((0, window.nodes.len(), 0), |(start, end, depth)| {
+                (start, end, depth)
+            });
+        let isolation_base_depth = isolation
+            .range(&window.nodes)
+            .map(|(start, _, _)| display_depths[start]);
+        let mut display_depths = display_depths;
+        if let Some(base_depth) = isolation_base_depth {
+            for depth in &mut display_depths[start_index..end_index] {
+                *depth = depth.saturating_sub(base_depth);
+            }
+        }
         let mut skip_depth = None;
-        for (index, node) in window.nodes.iter().enumerate() {
+        for (index, node) in window
+            .nodes
+            .iter()
+            .enumerate()
+            .skip(start_index)
+            .take(end_index.saturating_sub(start_index))
+        {
             let hidden_system = super::hidden_system_composable(
                 node,
                 archive.compose.as_ref(),
@@ -118,7 +225,11 @@ impl HierarchyCache {
             numbers: hierarchy_numbers(&window.nodes),
             content_width,
             display_depths,
-            visible_nodes: window.nodes.iter().filter(|node| node.visible).count(),
+            visible_nodes: window.nodes[start_index..end_index]
+                .iter()
+                .filter(|node| node.visible)
+                .count(),
+            isolation_root,
             preferences: preference_key,
             show_system_composables,
             query: query.to_owned(),
@@ -138,6 +249,7 @@ struct PreviewSnapshot {
     window_index: usize,
     hidden: BTreeSet<String>,
     selected: Option<String>,
+    isolation_root: Option<String>,
     show_system_composables: bool,
     nodes: Arc<Vec<(usize, LayoutNode)>>,
 }
@@ -162,17 +274,38 @@ impl PreviewCache {
         selected: &Option<String>,
         show_system_composables: bool,
     ) -> Option<Arc<Vec<(usize, LayoutNode)>>> {
+        self.get_with_isolation(
+            archive,
+            window_index,
+            hidden,
+            selected,
+            show_system_composables,
+            None,
+        )
+    }
+
+    pub(super) fn get_with_isolation(
+        &mut self,
+        archive: &Arc<InspectorArchive>,
+        window_index: usize,
+        hidden: &BTreeSet<String>,
+        selected: &Option<String>,
+        show_system_composables: bool,
+        isolation_root: Option<&str>,
+    ) -> Option<Arc<Vec<(usize, LayoutNode)>>> {
+        let isolation_root = isolation_root.map(str::to_owned);
         if let Some(snapshot) = &self.snapshot
             && Arc::ptr_eq(&snapshot.archive, archive)
             && snapshot.window_index == window_index
             && snapshot.hidden == *hidden
             && snapshot.selected == *selected
+            && snapshot.isolation_root == isolation_root
             && snapshot.show_system_composables == show_system_composables
         {
             return Some(snapshot.nodes.clone());
         }
         let window = archive.windows.get(window_index)?;
-        let (nodes, _) = super::canvas_nodes(
+        let (nodes, _) = super::canvas_nodes_with_isolation(
             &window.nodes,
             hidden,
             selected.as_deref(),
@@ -180,6 +313,7 @@ impl PreviewCache {
             archive.display.height_px,
             archive.compose.as_ref(),
             show_system_composables,
+            isolation_root.as_deref(),
         );
         let nodes = Arc::new(nodes);
         self.snapshot = Some(PreviewSnapshot {
@@ -187,6 +321,7 @@ impl PreviewCache {
             window_index,
             hidden: hidden.clone(),
             selected: selected.clone(),
+            isolation_root,
             show_system_composables,
             nodes: nodes.clone(),
         });

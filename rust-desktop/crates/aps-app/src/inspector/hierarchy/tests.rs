@@ -1,4 +1,4 @@
-use super::{HierarchyCache, HierarchySnapshot, PreviewCache};
+use super::{HierarchyCache, HierarchySnapshot, IsolationState, PreviewCache};
 use crate::inspector::{
     MAX_CANVAS_NODES, hierarchy_content_width, hierarchy_label, hierarchy_numbers,
 };
@@ -88,6 +88,57 @@ fn default_snapshot(
             &BTreeSet::new(),
         )
         .expect("fixture window exists")
+}
+
+#[test]
+fn isolation_returns_only_the_subtree_and_parent_moves_one_level_up() {
+    let nodes = vec![
+        node("root", 0, None),
+        node("parent", 1, Some(0)),
+        node("child", 2, Some(1)),
+        node("sibling", 1, Some(0)),
+    ];
+    let isolated = IsolationState::default().isolate(Some("child"), &nodes);
+    assert_eq!(isolated.root_id.as_deref(), Some("child"));
+    assert_eq!(isolated.range(&nodes), Some((2, 3, 2)));
+    assert_eq!(isolated.parent(&nodes).root_id.as_deref(), Some("parent"));
+    assert_eq!(isolated.parent(&nodes).range(&nodes), Some((1, 3, 1)));
+    assert_eq!(isolated.clear(), IsolationState::default());
+    assert_eq!(isolated.sanitize(&nodes), isolated);
+    assert_eq!(
+        IsolationState {
+            root_id: Some("gone".into())
+        }
+        .sanitize(&nodes),
+        IsolationState::default()
+    );
+}
+
+#[test]
+fn hierarchy_cache_isolation_rebases_depth_and_keeps_original_numbers() {
+    let archive = archive(vec![vec![
+        node("root", 0, None),
+        node("parent", 1, Some(0)),
+        node("child", 2, Some(1)),
+        node("sibling", 1, Some(0)),
+    ]]);
+    let mut cache = HierarchyCache::default();
+    let isolated = cache
+        .get_with_isolation(
+            &archive,
+            0,
+            LayoutPreferences::default(),
+            true,
+            "",
+            &BTreeSet::new(),
+            Some("parent"),
+        )
+        .unwrap();
+    assert_eq!(isolated.rows.as_slice(), &[1, 2]);
+    assert_eq!(isolated.display_depths[1], 0);
+    assert_eq!(isolated.display_depths[2], 1);
+    assert_eq!(isolated.numbers, ["0-0", "1-0", "2-0", "1-1"]);
+    assert_eq!(isolated.visible_nodes, 2);
 }
 
 fn rich_nodes(count: usize) -> Vec<LayoutNode> {
@@ -807,6 +858,27 @@ fn preview_hidden_parent_prunes_descendants_without_pruning_siblings() {
 }
 
 #[test]
+fn preview_isolation_excludes_siblings_and_uses_the_isolated_root_for_hit_testing() {
+    let archive = archive(vec![vec![
+        node("root", 0, None),
+        node("parent", 1, Some(0)),
+        node("child", 2, Some(1)),
+        node("sibling", 1, Some(0)),
+    ]]);
+    let visible = PreviewCache::default()
+        .get_with_isolation(&archive, 0, &BTreeSet::new(), &None, true, Some("parent"))
+        .unwrap();
+    assert_eq!(
+        visible.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(
+        super::super::canvas_hit(&visible, 10.0, 10.0, true).as_deref(),
+        Some("child")
+    );
+}
+
+#[test]
 fn preview_hides_system_composable_itself_but_keeps_user_descendant_hit() {
     let mut nodes = vec![
         node("root", 0, None),
@@ -982,12 +1054,13 @@ fn production_render_uses_preview_cache_and_passes_arc_nodes_to_geometry() {
     assert!(root.contains("lethierarchy=self.hierarchy_snapshot(cx);"));
     assert!(root.contains("hierarchy_pane(language,&colors,hierarchy,"));
     assert_eq!(
-        root.matches("self.preview_cache.get_with_system_composables(")
+        root.matches("self.preview_cache.get_with_isolation(")
             .count(),
         1
     );
-    assert!(root.contains("self.preview_cache.get_with_system_composables("));
+    assert!(root.contains("self.preview_cache.get_with_isolation("));
     assert!(root.contains("self.frame_show_system_composables"));
+    assert!(root.contains("self.isolation.root_id.as_deref()"));
     assert!(root.contains("self.preview_pane(language,&colors,archive.clone(),preview_nodes,"));
     assert!(!root.contains("canvas_nodes("));
     assert!(!root.contains(".nodes.clone()"));
@@ -1017,7 +1090,10 @@ fn production_render_uses_preview_cache_and_passes_arc_nodes_to_geometry() {
     assert!(!geometry.contains("canvas_nodes("));
 
     let cache = include_str!("../hierarchy.rs");
-    assert_eq!(cache.matches("super::canvas_nodes").count(), 1);
+    assert_eq!(
+        cache.matches("super::canvas_nodes_with_isolation").count(),
+        1
+    );
 }
 
 #[test]
