@@ -1,62 +1,77 @@
 # Startup Profiler
 
-已导出的 Startup CSV / JSON v1 可通过 [CLI](../ai/cli/startup.md) 或 [只读 MCP](../ai/mcp/startup.md) 分析。两者支持摘要和运行筛选，不会启动设备实验。
+## 功能定位
 
-## 功能介绍
+Startup Profiler 分析 Cold、Warm、Hot 和重复启动实验，保留每轮请求模式、实际观测模式、TTID/TTFD 可用性、阶段证据、编译/profile 状态和异常原因。它也支持导入/导出 Startup CSV/JSON，并通过 CLI/MCP 对已有报告做只读分析。
 
-Startup Profiler 用于分析冷启动、温启动和可重复启动实验，拆分进程启动、Application、Activity、首帧、首次绘制和 fully drawn 等关键阶段，并支持 Baseline Profile 相关结果导入/导出。
+当前状态：
 
-## 详细设计方案
+- **已接入**：启动报告导入、运行列表、TTID/TTFD 可用性、阶段/统计、CSV/JSON 导出、CLI/MCP 文件分析，以及 Rust 页面中的启动实验编排。
+- **条件能力**：设备、包名、组件、用户/UID、Android 版本、Perfetto、采样权限和目标 App 行为决定结果完整性。
+- **未完成验收**：Cold/Warm/Hot 设备矩阵、完整基线/profile 工作流、停止/取消、Open Trace 交接和所有 milestone 的真机证据仍开放。
+
+## 功能点
+
+- Cold：force-stop 后启动，记录新一轮进程和启动事件。
+- Warm/Hot：执行受支持的预热/返回 Home 语义，准备动作不计入正式测量。
+- 多轮 iteration、cohort 统计、运行筛选、异常轮次和缺失字段。
+- TTID（首次显示）和 TTFD（`reportFullyDrawn`）分开保存；`thisTime`/`totalTime`/`waitTime` 不替代它们。
+- 可选 CPU 热点：围绕启动动作录制最长约 12 秒 Perfetto，保留调度、wakeup、FrameTimeline、主线程样本和包名限定调用栈。
+- 阶段与 ART attribution：GC、JIT/dex2oat、class loading、verification/initialization 分开统计。
+- baseline/current 比较：统计差异、阶段差异、置信区间和 Regression/Improvement/NoChange/Inconclusive/Insufficient/Incompatible 状态。
+- CLI：`aps analyze startup.json --kind startup`；MCP 绑定 Startup CSV/JSON 后支持摘要和运行筛选，不启动设备实验。
+
+## 原理与数据流
 
 ```text
-设备/包名/启动模式
-  -> am start / force-stop / warm reset
-  -> platform startup events + log/Perfetto evidence
-  -> parser-startup
-  -> StartupAnalyzer
-  -> phase breakdown / stability / comparison
-  -> JSON/CSV/report
+device + package + requested mode
+  -> target validation / force-stop / warm-up
+  -> am start + startup events + optional Perfetto
+  -> milestone parser and phase model
+  -> cohort statistics / comparison / CPU evidence
+  -> GPUI page, CSV/JSON, CLI/MCP
 ```
 
-### 模块职责
+当前 Rust 入口：
 
-- `startup-profiler/capture-startup`：实验编排、重复运行、socket Agent connection。
-- `startup-profiler/startup-agent-protocol`：设备端启动事件、cursor、result 和 session descriptor。
-- `startup-profiler/parser-startup`：`am start`、事件日志和启动输出解析。
-- `startup-profiler/startup-model`：milestone、phase、confidence、compilation mode。
-- `startup-profiler/analysis-startup`：阶段分解、稳定性和基线对比。
-- `startup-profiler/startup-app` / `presentation`：实验配置、结果和导出。
+- `rust-desktop/crates/aps-app/src/import/startup`：捕获、模型、报告、CPU evidence 和页面状态。
+- `rust-desktop/crates/aps-startup`：启动事件、阶段、统计和比较模型。
+- `rust-desktop/crates/aps-cli`：Startup 文件分析和结构化输出。
 
-## 使用方案
+实验前验证设备、包名、进程、安装身份、用户、UID、版本和组件；启动后再核对目标进程实例。真实 milestone 必须来自设备事件/trace 的同一时间基础，不能用主机时钟或 Activity Manager 总耗时补齐。
 
-1. 选择设备、包名、启动模式和重复次数。
-2. 配置 cold/warm/hot、编译模式和 Baseline Profile 输入。
-3. 运行实验并等待所有 iteration 完成。
-4. 查看 p50/p90、阶段分布、波动和异常 iteration。
-5. 导出结果，与另一组基线进行比较。
+## 使用方法
 
-## 证据边界
+### 设备实验
 
-- 首帧、fully drawn 和用户可交互是不同 milestone，不应混为一个数字。
-- 单次启动不能作为稳定性结论；重复实验需保留每轮原始事件和丢失状态。
-- Baseline Profile 只说明编译配置差异与观测指标关联，不单独证明某项代码修改的因果。
+1. 选择设备、包名、启动模式、重复次数和编译/profile 配置。
+2. 先确认目标身份、用户/UID、包版本和设备状态。
+3. 运行实验，等待每轮的启动、首帧和可用阶段证据完成。
+4. 查看每轮结果，再看 cohort p50/p90、阶段分布和异常轮次。
+5. 开启 CPU 热点时检查 trace、符号、调度覆盖和样本限制。
+6. 导出 CSV/JSON；同条件下保留另一组作为 baseline 做比较。
 
-## 启动阶段跨域归因
+### 文件分析
 
-Startup Perfetto 证据包含调度、`sched_waking`、run queue、Binder、主线程阻塞和帧区间。存在可接受的 Perfetto 到 `elapsed_realtime` 时钟映射时，这些区间会按相邻启动 milestone 窗口汇总。结果保留有界重叠、时钟误差和缺失证据限制，不把时间相关直接表述为代码级因果。
+```sh
+aps analyze startup.json --kind startup
+aps analyze startup.json --scope startup-runs   --requested-mode cold --observed-mode unknown --missing-metric ttid
+```
 
-## ART startup attribution
+CLI/MCP 只读已有报告，不会连接设备、启动应用、重建日志或执行新实验。
 
-Startup Perfetto evidence 将 GC、JIT/dex2oat、class loading、class verification/initialization 分别保留，并按 milestone phase 统计重叠时长；JSON round-trip 保留原始 slice，不把多个 ART 通道合并为单一耗时。
+## 证据边界与限制
 
-## Rust 桌面端：启动 + CPU 热点
+- 首帧、fully drawn、Displayed 和用户可交互不是同一个 milestone；缺失时保持 unknown。
+- 单次启动不能形成稳定性结论；应保留每轮原始事件、模式和丢失状态。
+- CPU sample 是采样窗口证据，不是方法调用次数或逐方法耗时；没有目标样本不等于线程没有运行。
+- Baseline Profile/编译模式与指标相关，不单独证明代码修改因果。
+- Startup Perfetto 与 milestone 的重叠保留时钟误差、覆盖率和窗口边界，不自动归因到 Binder、GC 或某行代码。
 
-在标题栏选择在线设备及应用进程，进入 **启动分析 → CPU 热点：开 → 检查实验配置**。确认后的每轮测量分别启动一份最长 12 秒的 Perfetto 录制：收到数据源就绪回执并核对本轮会话后，才拉起目标 Activity。冷启动按包名限定调用栈采样，不绑定会被强停的旧 PID。关闭开关时仍只采集原有启动指标。此录制要求 Android 11+ 及可用的系统 Perfetto；设备或应用的采样权限还会影响能否得到调用栈。
+## 故障排查
 
-选择一轮结果查看**启动到首帧（TTID）的主线程 CPU 热点**。窗口来自本轮 Trace 中唯一匹配的启动和首帧，且进程须与启动后验证的目标 PID 一致；不以 Activity Manager 的 TotalTime 或主机时钟补齐。面板分别显示：
-
-- 实际观测的运行、就绪等待 CPU 和其他线程状态时间，以及调度记录覆盖了多少窗口。未覆盖时间不等于阻塞，“其他”不证明在等锁或 I/O。
-- 采到的前 12 个叶符号和样本数，占比分母包含未解析样本。若整份 Trace 有内核采样记录丢失，会提示统计可能不完整；不能确定哪些线程受影响。
-- 未匹配首帧、不支持符号解析或没有样本时的限制。冷启动新进程的早期名称与包名可能不同，即使线程确实使用过 CPU，也可能没有目标样本。样本数既不是方法调用次数，也不是某次调用的耗时。
-
-**AI 分析**使用所选轮次的启动指标、调度摘要及有界的热点计数/符号；不会发送原始 Trace、ADB 日志或本地路径。实时热点随当前采集会话保留，现有 CSV/Compose JSON 启动报告不包含可重新分析的 CPU 轨迹。优化前后请在相同条件下复测，并用关闭 CPU 采集的轮次核对启动指标。
+- TTID/TTFD 缺失：检查目标是否真正启动、事件日志/trace 是否覆盖、App 是否调用 `reportFullyDrawn`。
+- Warm/Hot 与 Cold 混淆：查看 requested/observed mode；准备过程不能被当作正式启动时间。
+- CPU 热点为空：检查 Android 11+、Perfetto 数据源、采样权限、trace 是否在启动前就绪和符号匹配。
+- 比较为 Incompatible：核对设备、构建、包版本、编译模式、profile、场景和 metric 单位。
+- 真实设备、profile 生成、Open Trace、停止/取消和 Release 验收参考功能对等审计。

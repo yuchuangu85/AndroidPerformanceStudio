@@ -1,89 +1,84 @@
 # Layout Inspector
 
-## 功能介绍
+## 功能定位
 
-Layout Inspector 用于采集 Android View 层级、截图和布局属性，帮助定位层级复杂度、不可见 View、异常尺寸、重复背景和选中节点位置等问题。它支持两条采集路径：
+Layout Inspector 用于查看 Android 窗口的 View 层级、支持的 Compose 检查证据、截图、节点属性和结构问题。当前 Rust/GPUI 页面将一次检查建模为不可变的布局归档，再在其上提供临时展示投影。
 
-- Debug Agent：高保真、可扩展、可持续采集；
-- ADB/UI Automator fallback：不修改目标 App 时的通用回退能力。
+当前状态：
 
-## 详细设计方案
+- **已接入**：ADB/兼容 View 层级导入、截图与窗口选择、层级搜索、折叠、隐藏图层、隔离子树、画布边界、节点详情、结构 Findings、归档导入/导出基础路径。
+- **条件能力**：完整 Compose 检查依赖目标进程、Agent/运行时能力、Java/Compose helper bundle、设备版本和用户确认；不满足时保留兼容回退。
+- **未完成验收**：连续 Auto Scan、完整 Compose/JVMTI、设备端重组/参数分页、所有归档往返和原生设备矩阵仍需单独验收。
 
-### 采集链路
+## 功能点
 
-```text
-设备发现
-  -> 选择前台应用/进程
-  -> Agent socket 或 ADB fallback
-  -> LayoutSnapshot + screenshot
-  -> LayoutAnalyzer
-  -> hierarchy / canvas / properties / findings
-```
+### 采集与来源
 
-### 模块职责
+- 选择前台应用目标，独立于其他 profiler 的进程选择。
+- 选择 Foreground App 或 System UI 采集目标；系统窗口模式要求 WindowManager 类型证据，不能用标题或包名猜测。
+- 手动刷新和 Auto Scan；采集失败、设备断开、目标变化和取消会保留明确状态。
+- 完整 Compose Agent 为显式授权能力；兼容 ADB/UIAutomator 路径不会伪装成完整 Compose 证据。
 
-- `layout-inspector/shared-kernel/protocol-model`：快照、节点、截图和协议模型。
-- `layout-inspector/shared-kernel/android-agent-core`：设备端 socket、token、请求处理。
-- `layout-inspector/shared-kernel/android-agent-view`：Activity/View 树与截图采集。
-- `layout-inspector/shared-kernel/android-agent-frame`：帧相关补充数据。
-- `layout-inspector/shared-kernel/analysis-engine`：复杂度、背景覆盖、不可见节点等规则。
-- `layout-inspector/adb-gateway`：设备发现、ADB fallback 和连接恢复。
-- `layout-inspector/application`：会话、采集调度、归档和状态。
-- `layout-inspector/presentation`：层级树、画布、属性、findings 和归档 UI。
+### 层级树
 
-### 关键边界
+- 按窗口切换层级，保留原始节点 ID、父子关系、深度、类名、资源 ID、文本和可见性。
+- 按 ID、类名和资源名搜索；搜索是展示过滤，不重编号原始证据。
+- 折叠/展开只影响树的显示密度，不改变画布命中、Findings 或归档数据。
+- 隐藏图层是可逆的临时展示状态：隐藏节点仍保留在树中，画布命中会穿透隐藏子树。
+- **隔离子树**只显示选中节点及其后代；`上级` 返回父节点，`清除隔离` 恢复完整树。隔离同样作用于画布、截图裁剪、hover 和点击命中，但不修改归档。
 
-- Agent 快照和 ADB fallback 必须在 UI 中明确区分。
-- 截图和 bounds 使用同一坐标空间，不能把设备完整屏幕误标为 App 内容区域。
-- Findings 必须包含规则 ID、严重级别、节点 ID、证据和置信度。
-- Release 构建不注入 Agent，不增加调试权限或网络权限。
+### 画布与详情
 
-## 实现方案
+- 按显示空间绘制截图和节点 bounds overlay，支持缩放、平移、Fit、App Only 和命中顺序切换。
+- 隔离子树会按隔离根 bounds 对截图做像素级裁剪，不依赖完整截图偏移；没有隔离根时 App Only 才决定是否裁剪到窗口 bounds。
+- 节点点击支持 Z-order 或小面积优先；选中画布节点会同步层级树并展开必要祖先。
+- 详情页按 Overview、Layout、Drawing、Accessibility、Compose、Evidence 等类别展示可用字段；缺失字段显示为未知/不可用。
+- Findings 包含不可见节点、子节点过多、同级重叠、层级过深等结构规则，并支持点击定位节点。
 
-主要入口：
+## 原理与数据流
 
 ```text
-layout-inspector/application
-layout-inspector/presentation
-layout-inspector/adb-gateway
-layout-inspector/shared-kernel/android-agent-view
-layout-inspector/shared-kernel/analysis-engine
+ADB / Compose Agent / archive import
+  -> InspectorArchive + LayoutWindow + LayoutNode + screenshot
+  -> immutable timeline frame
+  -> hierarchy projection (search/collapse/hide/isolation)
+  -> canvas projection (crop/hit/overlay)
+  -> node details + structural findings + export
 ```
 
-桌面端通过共享 Android Agent session 连接设备；没有 Agent 时使用 UI Automator 和截图回退。快照归档保留 manifest、原始 JSON、截图和可选 sidecar，便于离线复核。
+当前 Rust 入口：
 
-## 使用方案
+- `rust-desktop/crates/aps-app/src/inspector.rs`：页面状态、采集编排、画布、详情、隔离和导出接线。
+- `rust-desktop/crates/aps-app/src/inspector/hierarchy.rs`：层级/画布缓存、隔离根投影和共享节点存储。
+- `rust-desktop/crates/aps-app/src/inspector/findings.rs`：规则筛选、计数和选择联动。
+- `rust-desktop/crates/aps-layout-inspector`：协议、ADB/窗口解析、归档和边界验证。
 
-1. 启动桌面应用并打开 Layout Inspector。
-2. 选择已授权设备和前台 App。
-3. 优先使用 Debug Agent 采集；普通 App 自动走 fallback。
-4. 在层级树中选择节点。
-5. 在 Canvas 查看 bounds overlay，在 Properties 查看字段。
-6. 在 Findings 中按规则和严重级别筛选。
-7. 需要离线复核时导出 capture archive。
+隔离状态、隐藏状态、折叠状态和搜索状态均是展示层状态。`InspectorArchive` 仍是原始证据，Findings 使用原始节点集合分析，避免把展示过滤误当成设备真实可见性。
 
-### 手动启用 Compose Agent
+## 使用方法
 
-- 工具栏中的 `Compose Agent` 默认关闭，不保存为下次启动时自动开启。关闭时只使用现有兼容采集链路，不准备或注入 Compose JVMTI Agent。
-- 检查 Compose 内部节点时，手动勾选开关。预检完成后，确认框显示设备、包名、PID、Android API、ABI、Compose 版本、Inspector 来源及下载/重启需求；选择“允许注入”后才连接运行时检查器。取消确认会关闭开关。
-- 关闭开关会取消当前检查流程，停止观察并清理会话；切换设备、切换到 System UI 或导入归档也会关闭开关。归档中的 Compose 数据仍可离线查看。
-- 连接中关闭开关时，同一手动刷新可继续走兼容采集；设备、采集模式变化或导入归档则丢弃旧刷新，防止旧结果覆盖新目标。已经被取消或替换的确认框回调不能授权或关闭新请求。
-- 前台应用或进程变化后需要重新确认，失败时回退兼容采集，不静默重新授权。手动刷新同一个已授权目标不重复弹出确认框。
-- 关闭 Agent 后无法获取完整 Composable 树、运行时参数和重组数据；传统 View、截图与可获得的兼容层级仍可使用。关闭开关不代表所有采集路径完全无开销，也不能撤销此前已发生的目标进程副作用。
-- 错误原因和诊断提示支持鼠标选择复制，也可右键“复制完整提示”，复制内容不受界面省略号或折叠状态影响。
-- Compose 附加错误可展开并滚动查看详情，包含 PID 范围内的 Warning/Error 和 ART 原因。单条 `ActivityThread: Attaching agent ... PathClassLoader` 不是最终失败证据；等待有界的 socket 就绪结果，避免首次类加载器尝试或同秒旧日志误判。附加异常及日志中的会话 Token 在显示和复制前脱敏。
+1. 在首页或导航栏打开 Layout Inspector。
+2. 选择设备和采集目标；没有设备时可导入 Inspector archive。
+3. 点击刷新或开启 Auto Scan；等待来源标签显示 ADB view、Agent view、Compose 或离线归档。
+4. 在左侧搜索节点，点击节点查看属性；使用 disclosure 控制折叠。
+5. 需要排除遮挡层时先在层级行使用隐藏图层；需要只研究一个容器时选择 **隔离子树**。
+6. 在画布使用 Fit、缩放、平移和命中顺序；点击画布节点可反向定位层级。
+7. 在 Findings 中按级别筛选问题，点击问题跳转节点；必要时导出归档保留复核输入。
 
-此功能的 host 单元测试与 Compose 交互回归不等于 Windows 真机注入验收；实际设备上的 ABI、JVMTI 和 Compose 版本兼容性仍需分别验证。
+## 输入、输出与证据边界
 
-## 输出与限制
+输入可以是设备实时采集、已验证的 Inspector archive 或兼容 View/UIAutomator 结果。输出包括结构化归档、节点详情、规则 Findings、截图和导出文件。
 
-- 输出包括层级快照、截图、属性、findings 和归档。
-- Capture archive 支持导入/导出快照、截图和时间线历史；`InspectorStore` 保留有界时间线，`TimelineDiff` 对相邻快照生成节点新增、移除和属性变化。
-- 跨帧节点对应必须有可验证身份；不能把路径编号当作稳定身份，也不能把本地隐藏或未绘制节点解释为原始证据不存在。
-- fallback 无法保证获得 Agent 的全部字段、事件和自定义采集能力。
-- 当前实时路径面向一台授权设备；多设备选择仍是待办。
-- Compose 深层语义、State Reads 和调用栈属于独立能力，不应从传统 View snapshot 的结果推断。
+- 截图、bounds、窗口和节点必须处于同一显示坐标空间；坐标不一致时应显示错误或不可用，而不是自动猜测。
+- ADB fallback 证明的是当次 View/UIAutomator 投影，不证明目标 App 具备完整 Compose Runtime 检查能力。
+- 隔离、隐藏和折叠不改变 Android 设备状态，也不改变原始 Findings 指标。
+- 时间线和跨帧对应只有在节点身份可验证时才建立；路径相同不是稳定身份证明。
+- 截图可见不等于像素级渲染因果；结构 Findings 不能证明 GPU 成本、重组原因或代码行因果。
 
-## Compose Stability / Recomposition
+## 故障排查与限制
 
-Layout Inspector 可导入 Compose Compiler `*-composables.txt`、`*-composables.csv` 与 `*-classes.txt` 报告，在 Compose 节点详情中展示 restartable、skippable 和不稳定参数。`ComposeStabilityAnalyzer` 将静态稳定性与 Inspector 的 recompose/skip count 合并，并只在提供显式 `ComposeJankObservation` 时报告 Jank 关联，避免从重组次数直接推断卡顿因果。
+- 没有层级：检查设备授权、WindowManager/UIAutomator 权限、目标窗口是否仍在前台，以及 archive 是否包含 `viewHierarchy`。
+- 没有截图：归档可能只包含层级；详情和 Findings 仍可用，画布应显示无媒体状态。
+- Compose 选项不可用：检查目标进程是否可调试、helper/runtime 是否准备、Compose 版本和用户授权；不要把回退层级当作完整 Compose。
+- 隔离后显示完整截图：确认重新运行的是最新 Release，并重新点击一次隔离；当前实现按隔离根像素裁剪截图，隔离屏幕根节点时完整截图是预期结果。
+- 真实设备、连续扫描、Agent 注入、完整 Compose 和打包验收必须参考 `rust-desktop/FUNCTIONAL_PARITY.md`，不能由单元测试替代。
