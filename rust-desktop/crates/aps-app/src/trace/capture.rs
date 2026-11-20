@@ -49,7 +49,9 @@ const CAPTURE_CONFIG_PATH_SEGMENT: &str = "captures";
 const DEVICE_TRACE_COMMAND: &str = "cat /data/local/tmp/perfetto-config.pbtxt | perfetto --txt -c - -o /data/misc/perfetto-traces/aps-perfetto-trace.pftrace --background-wait";
 const DEVICE_INFO_COMMAND: &str = "getprop ro.product.model; getprop ro.build.version.sdk";
 const DEVICE_BUILD_COMMAND: &str = "getprop ro.build.version.sdk; getprop ro.build.type";
-const PERFETTO_QUERY_ARGUMENTS: [&str; 2] = ["perfetto", "--query"];
+/// Runs on the device shell: adb itself has no `perfetto` command, so omitting
+/// `shell` fails every query and reports all devices as Perfetto-less.
+const PERFETTO_QUERY_ARGUMENTS: [&str; 3] = ["shell", "perfetto", "--query"];
 
 static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -1192,15 +1194,18 @@ impl AdbRunner {
     }
 
     fn shell(&self, command: &str, timeout: Duration) -> Result<ProcessOutput, String> {
-        let arguments = vec![
+        self.run(self.shell_arguments(command), timeout, SHELL_OUTPUT_LIMIT)
+    }
+
+    /// adb joins everything after `shell` into one device-shell command line, so
+    /// `sh -c` with a separate command argument would run only its first token.
+    fn shell_arguments(&self, command: &str) -> Vec<OsString> {
+        vec![
             "-s".into(),
             self.serial.clone().into(),
             "shell".into(),
-            "sh".into(),
-            "-c".into(),
             command.into(),
-        ];
-        self.run(arguments, timeout, SHELL_OUTPUT_LIMIT)
+        ]
     }
 
     fn push_config(&self, local: &Path) -> Result<(), String> {
@@ -2553,7 +2558,31 @@ mod tests {
         assert!(DEVICE_TRACE_COMMAND.contains("--background-wait"));
         assert!(DEVICE_TRACE_COMMAND.contains(DEVICE_TRACE_PATH));
         assert_eq!(ADB_START_TIMEOUT, Duration::from_secs(60));
-        assert_eq!(PERFETTO_QUERY_ARGUMENTS, ["perfetto", "--query"]);
+        assert_eq!(PERFETTO_QUERY_ARGUMENTS, ["shell", "perfetto", "--query"]);
+    }
+
+    #[::core::prelude::v1::test]
+    fn device_shell_commands_reach_the_device_as_one_argument() {
+        let adb = AdbRunner::new(
+            PathBuf::from("/platform-tools/adb"),
+            "serial".to_owned(),
+            CancellationToken::new(),
+        );
+        for command in [
+            DEVICE_TRACE_COMMAND,
+            DEVICE_INFO_COMMAND,
+            DEVICE_BUILD_COMMAND,
+        ] {
+            assert_eq!(
+                adb.shell_arguments(command),
+                vec![
+                    OsString::from("-s"),
+                    OsString::from("serial"),
+                    OsString::from("shell"),
+                    OsString::from(command),
+                ]
+            );
+        }
     }
 
     #[::core::prelude::v1::test]
