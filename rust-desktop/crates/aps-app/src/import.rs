@@ -364,9 +364,20 @@ impl ImportWorkspace {
     }
 
     pub(super) fn import_status(&self, colors: &studio::StudioColors) -> Stateful<Div> {
-        let value = self
-            .import_duration_text()
-            .unwrap_or_else(|| "—".to_owned());
+        self.import_status_text(
+            self.import_duration_text()
+                .unwrap_or_else(|| "—".to_owned()),
+            colors.secondary_text,
+            colors,
+        )
+    }
+
+    pub(super) fn import_status_text(
+        &self,
+        value: String,
+        tone: Rgba,
+        colors: &studio::StudioColors,
+    ) -> Stateful<Div> {
         div()
             .id("import-operation-status")
             .flex()
@@ -377,7 +388,11 @@ impl ImportWorkspace {
             .flex_shrink_0()
             .border_t_1()
             .border_color(colors.border)
-            .child(studio::supporting(value, colors))
+            .child(
+                div()
+                    .text_color(tone)
+                    .child(studio::supporting(value, colors)),
+            )
     }
 
     pub(crate) fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {

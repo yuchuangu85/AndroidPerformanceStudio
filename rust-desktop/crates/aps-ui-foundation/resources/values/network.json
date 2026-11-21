@@ -70,6 +70,7 @@
   "network_live_approve": "Authorize and connect",
   "network_live_select_target": "Select an online device and a running app process in the title bar.",
   "network_live_coverage": "APS Network Agent · instrumented OkHttp only · WebView, Cronet, URLConnection, native sockets and unconfigured clients excluded",
+  "network_tcpdump_coverage": "Root tcpdump fallback · plaintext HTTP details · HTTPS limited to SNI hosts · retained traffic filtered to the selected UID",
   "network_live_connecting": "Connecting to authorized Agent…",
   "network_live_capturing": "Capturing instrumented OkHttp events",
   "network_live_stopping": "Stopping and draining authorized session…",

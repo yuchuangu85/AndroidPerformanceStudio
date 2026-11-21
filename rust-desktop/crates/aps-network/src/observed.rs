@@ -9,6 +9,15 @@ pub const MAX_OBSERVED_REQUESTS: usize = 20_000;
 pub const MAX_OBSERVED_PHASES: usize = 64;
 pub const MAX_TLS_TEXT_CHARS: usize = 64;
 
+/// How the observation reached the host. Agent events are in-process OkHttp;
+/// Tcpdump is a root fallback that sees plaintext HTTP and TLS SNI only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ObservedOrigin {
+    #[default]
+    Agent,
+    Tcpdump,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObservedOutcome {
     InFlight,
@@ -94,6 +103,7 @@ pub struct ObservedRequest {
 
 #[derive(Clone, Debug)]
 pub struct ObservedCapture {
+    pub origin: ObservedOrigin,
     pub process_id: u32,
     pub process_start_ticks: u64,
     /// Validated kernel boot UUID. Not included in exported presentation rows.

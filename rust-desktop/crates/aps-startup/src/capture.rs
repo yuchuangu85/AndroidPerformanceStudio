@@ -16,6 +16,11 @@ use std::{
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_EXPERIMENT: Duration = Duration::from_secs(15 * 60);
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// A force-stopped package can outlive the platform call: the kill is
+/// asynchronous and an auto-start/keep-alive policy can restart the process.
+const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const COLD_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const COLD_RETRY_AFTER: Duration = Duration::from_millis(750);
 const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
 static NEXT_EXPERIMENT: AtomicU64 = AtomicU64::new(0);
 
@@ -152,16 +157,7 @@ pub fn capture_startup(
         // Warm/Hot preparation is deliberately not counted as a measured run.
         match config.mode {
             StartupMode::Cold => {
-                runner.shell(
-                    &[
-                        "am",
-                        "force-stop",
-                        "--user",
-                        &identity.user.to_string(),
-                        &target.package_name,
-                    ],
-                    COMMAND_TIMEOUT,
-                )?;
+                runner.stop_package_for_cold_launch(&identity, config.settle_delay)?;
             }
             StartupMode::Warm | StartupMode::Hot => {
                 if runner.package_pids(&identity)?.is_empty() {
@@ -180,10 +176,10 @@ pub fn capture_startup(
                         .map_err(|error| format!("Startup preparation failed: {error}"))?;
                 }
                 runner.shell(&["input", "keyevent", "HOME"], COMMAND_TIMEOUT)?;
+                runner.wait(config.settle_delay)?;
             }
             StartupMode::Unknown => unreachable!("validated launch mode"),
         }
-        runner.wait(config.settle_delay)?;
         runner.verify_identity(&identity)?;
         let run_id = format!("{experiment_id}-{iteration}");
         let mut measure = || -> Result<_, String> {
@@ -192,9 +188,19 @@ pub fn capture_startup(
                 // this exact measured Activity launch, not against the old PID.
                 runner.verify_identity(&identity)?;
             }
-            let pids_before = runner.package_pids(&identity)?;
+            if config.mode == StartupMode::Cold {
+                // Recorder setup and identity revalidation can take seconds; a
+                // keep-alive restart in that gap is re-stopped here instead of
+                // failing the whole experiment.
+                runner.stop_package_for_cold_launch(&identity, config.settle_delay)?;
+            }
+            let processes_before = runner.package_processes(&identity)?;
+            let pids_before: Vec<u32> = processes_before.iter().map(|(pid, _)| *pid).collect();
             if config.mode == StartupMode::Cold && !pids_before.is_empty() {
-                return Err("The approved package still has a process after force-stop; the Cold experiment was stopped.".into());
+                return Err(format!(
+                    "Cold start was not verified: {} appeared between force-stop and the measured launch. The experiment was stopped before launching the application.",
+                    describe_processes(&processes_before)
+                ));
             }
             let before = runner.read_event_log(&mut warnings)?;
             let output = runner.launch(
@@ -394,6 +400,63 @@ impl AndroidRunner<'_> {
         self.check()
     }
 
+    fn force_stop_package(&self, identity: &InstallationIdentity) -> Result<(), String> {
+        self.shell(
+            &[
+                "am",
+                "force-stop",
+                "--user",
+                &identity.user.to_string(),
+                &self.target.package_name,
+            ],
+            COMMAND_TIMEOUT,
+        )
+        .map(|_| ())
+    }
+
+    /// Cold preparation: a force-stopped package is not necessarily gone when
+    /// `am force-stop` returns, and a keep-alive policy or a racing launch can
+    /// restart it. Verify the process table instead of trusting the call, keep
+    /// the package absent for the requested settle window, retry the stop once,
+    /// and only launch after that continuous teardown. The caller re-runs this
+    /// check immediately before each measured launch.
+    fn stop_package_for_cold_launch(
+        &self,
+        identity: &InstallationIdentity,
+        settle: Duration,
+    ) -> Result<(), String> {
+        // Skip the redundant platform call when the package is already gone;
+        // the loop below still re-observes it until the settle window elapses.
+        if !self.package_processes(identity)?.is_empty() {
+            self.force_stop_package(identity)?;
+        }
+        let started = Instant::now();
+        let mut retried = false;
+        let mut cleared_at: Option<Instant> = None;
+        loop {
+            let remaining = self.package_processes(identity)?;
+            if remaining.is_empty() {
+                match cleared_at {
+                    // A restart inside the settle window invalidates the
+                    // observation and keeps polling until the window elapses.
+                    Some(cleared) if cleared.elapsed() >= settle => return Ok(()),
+                    Some(_) => {}
+                    None => cleared_at = Some(Instant::now()),
+                }
+            } else {
+                cleared_at = None;
+                if !retried && started.elapsed() >= COLD_RETRY_AFTER {
+                    retried = true;
+                    self.force_stop_package(identity)?;
+                }
+                if started.elapsed() >= COLD_TEARDOWN_TIMEOUT {
+                    return Err(cold_process_error(&remaining, retried));
+                }
+            }
+            self.wait(PROCESS_POLL_INTERVAL)?;
+        }
+    }
+
     fn identity(&self) -> Result<InstallationIdentity, String> {
         let boot_id = self
             .shell(&["cat", "/proc/sys/kernel/random/boot_id"], COMMAND_TIMEOUT)?
@@ -544,12 +607,27 @@ impl AndroidRunner<'_> {
         self.check()
     }
 
-    fn package_pids(&self, identity: &InstallationIdentity) -> Result<Vec<u32>, String> {
+    fn package_processes(
+        &self,
+        identity: &InstallationIdentity,
+    ) -> Result<Vec<(u32, String)>, String> {
         let output = self.shell(&["ps", "-A", "-o", "PID,UID,NAME"], COMMAND_TIMEOUT)?;
-        Self::parse_package_pids(&output, &self.target.package_name, identity.uid)
+        Self::parse_package_processes(&output, &self.target.package_name, identity.uid)
     }
 
-    fn parse_package_pids(output: &str, package_name: &str, uid: u32) -> Result<Vec<u32>, String> {
+    fn package_pids(&self, identity: &InstallationIdentity) -> Result<Vec<u32>, String> {
+        Ok(self
+            .package_processes(identity)?
+            .into_iter()
+            .map(|(pid, _)| pid)
+            .collect())
+    }
+
+    fn parse_package_processes(
+        output: &str,
+        package_name: &str,
+        uid: u32,
+    ) -> Result<Vec<(u32, String)>, String> {
         let mut lines = output.lines();
         if lines
             .next()
@@ -558,7 +636,7 @@ impl AndroidRunner<'_> {
         {
             return Err("Cannot verify the startup process table header.".into());
         }
-        let mut pids = Vec::new();
+        let mut processes = Vec::new();
         for line in lines.filter(|line| !line.trim().is_empty()) {
             let (pid_text, remainder) = Self::next_process_field(line)
                 .ok_or("Cannot verify the startup process table format.")?;
@@ -578,15 +656,24 @@ impl AndroidRunner<'_> {
                     .map_err(|_| "Process table did not report numeric UIDs")?
                     == uid
             {
-                pids.push(
+                processes.push((
                     pid_text
                         .parse::<u32>()
                         .map_err(|_| "Invalid startup process PID")?,
-                );
+                    name.to_owned(),
+                ));
             }
         }
-        pids.sort_unstable();
-        Ok(pids)
+        processes.sort_by_key(|(pid, _)| *pid);
+        Ok(processes)
+    }
+
+    #[cfg(test)]
+    fn parse_package_pids(output: &str, package_name: &str, uid: u32) -> Result<Vec<u32>, String> {
+        Ok(Self::parse_package_processes(output, package_name, uid)?
+            .into_iter()
+            .map(|(pid, _)| pid)
+            .collect())
     }
 
     fn next_process_field(input: &str) -> Option<(&str, &str)> {
@@ -1033,6 +1120,26 @@ fn join_pids(pids: &[u32]) -> String {
         .join(",")
 }
 
+/// Process identities are diagnostics, not trusted platform facts: keep the
+/// observed PID and name so an operator can tell a slow teardown from a
+/// keep-alive restart.
+fn describe_processes(processes: &[(u32, String)]) -> String {
+    let processes = processes
+        .iter()
+        .map(|(pid, name)| format!("{pid} ({name})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("process(es) {processes}")
+}
+
+fn cold_process_error(processes: &[(u32, String)], retried: bool) -> String {
+    format!(
+        "Cold start was not verified: {} remained after force-stop{}. The experiment was stopped before launching the application, so no launch timing was published. A persistent system app, an auto-start/keep-alive policy or another launch can keep the package alive.",
+        describe_processes(processes),
+        if retried { " and one retry" } else { "" }
+    )
+}
+
 /// Deferred regression sources: all cases are pure or host scratch ownership;
 /// none discovers ADB, runs a device command, or starts an Android application.
 #[cfg(test)]
@@ -1046,6 +1153,23 @@ mod tests {
             AndroidRunner::parse_package_pids(output, "com.example", 10001).unwrap(),
             vec![123]
         );
+        assert_eq!(
+            AndroidRunner::parse_package_processes(output, "com.example", 10001).unwrap(),
+            vec![(123, "com.example:worker with-space".to_owned())]
+        );
+    }
+
+    #[test]
+    fn cold_teardown_diagnostic_names_the_surviving_processes() {
+        let processes = vec![
+            (123, "com.example".to_owned()),
+            (456, "com.example:remote".to_owned()),
+        ];
+        let error = cold_process_error(&processes, true);
+        assert!(error.contains("123 (com.example)"));
+        assert!(error.contains("456 (com.example:remote)"));
+        assert!(error.contains("one retry"));
+        assert!(error.contains("no launch timing was published"));
     }
 
     #[test]

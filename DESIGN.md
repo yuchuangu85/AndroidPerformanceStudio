@@ -782,6 +782,15 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
   verified. Only explicit whitelisted evidence fields are projected. Diagnostics
   stay verbatim and bounded in the UI. JSON/CSV labels disclose current-page
   scope and are not a lossless report round-trip.
+- Cold preparation never trusts `am force-stop` to be synchronous and never
+  aborts on a title-bar PID disappearing, which is the expected effect of the
+  experiment. Poll the package process table, require continuous absence for the
+  configured settle delay, retry the stop once after a bounded wait, and stop the
+  experiment before any measured launch only if a process survives; that failure
+  names the observed PIDs and processes instead of implying the selected process
+  is invalid. The preparation is re-confirmed immediately before the measured
+  launch: a restart inside that gap is stopped again, and only a package that
+  stays alive is reported instead of publishing a launch as Cold.
 - Author regression coverage and run formatting/compilation checks only during
   the rewrite. Test execution, native screenshot fidelity, keyboard/device,
   provider and package acceptance remain distinct deferred gates.
@@ -1306,11 +1315,12 @@ client (GPUI's default is a null client), so any provider request failed with
 
 ### Memory Capture Entry (2026-11-21)
 
-- Every capture has exactly one entry. Native heap and ART samples stay in the
-  memory toolbar's capture group; the bitmap dump moved into the Bitmap page,
-  immediately after 导入产物/导出产物, and is no longer offered in the toolbar.
-- The bitmap capture occupies a single action slot: it starts a dump when idle
-  and becomes 取消操作 while a capture runs, so the page never renders a
-  separate cancel button beside it. The Bitmap findings state (an imported
-  HPROF without a bitmap dump) reuses that same slot instead of adding a second
-  capture or a disabled export.
+- Every capture has exactly one entry. The bitmap dump and the native heap
+  capture live on their own pages, immediately after 导入产物/导出产物, and are
+  no longer offered in the toolbar; ART samples still capture from the memory
+  toolbar's capture group.
+- Each of those page captures occupies a single action slot: it starts the
+  capture when idle and becomes 取消操作 while one runs, so the page never
+  renders a separate cancel button beside it. The Bitmap findings state (an
+  imported HPROF without a bitmap dump) reuses that same slot instead of adding
+  a second capture or a disabled export.

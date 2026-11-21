@@ -394,14 +394,19 @@ impl ImportWorkspace {
             _ => None,
         };
         let loaded = summary.is_some();
+        // Transient network messages all render in the fixed bottom status bar.
+        // The Agent-token failure stays in the notification center because it is
+        // actionable only by integrating the target app.
+        let error_text = self.error.as_ref().map(|error| error.render(language));
+        let show_error = error_text
+            .as_ref()
+            .is_some_and(|message| !message.contains("Network Agent token unavailable"));
         let layout = NetworkLayout::new(
             f32::from(size.width),
             f32::from(size.height),
             loaded,
             self.network.filters_expanded,
-            usize::from(self.error.is_some())
-                + usize::from(self.notice.is_some())
-                + usize::from(self.busy),
+            0,
         );
         let analysis = self.network.analysis.as_ref();
         let mut content = studio::page(&colors)
@@ -428,25 +433,6 @@ impl ImportWorkspace {
             } else {
                 content.child(coverage_panel(summary, analysis, language, &colors))
             };
-        }
-        if let Some(error) = &self.error {
-            content = content.child(message_strip(error.render(language), colors.error, &colors));
-        }
-        if let Some(notice) = &self.notice {
-            content = content.child(message_strip(notice.render(language), colors.info, &colors));
-        }
-        if self.busy {
-            content = content.child(message_strip(
-                language
-                    .text(if self.network_live_busy() {
-                        self.network_live_status()
-                    } else {
-                        TextKey::ImportLoadingQuerying
-                    })
-                    .to_owned(),
-                colors.info,
-                &colors,
-            ));
         }
         content = if let Some(observed) = observed {
             content.child(live::activity_panel(observed, language, &colors))
@@ -523,6 +509,28 @@ impl ImportWorkspace {
                 );
         }
         content = content.child(panes).child(self.network_footer(&colors, cx));
+        let (status_text, status_tone) = if show_error {
+            (error_text.clone().unwrap_or_default(), colors.error)
+        } else if let Some(notice) = &self.notice {
+            (notice.render(language), colors.info)
+        } else if self.busy {
+            (
+                language
+                    .text(if self.network_live_busy() {
+                        self.network_live_status()
+                    } else {
+                        TextKey::ImportLoadingQuerying
+                    })
+                    .to_owned(),
+                colors.info,
+            )
+        } else {
+            (
+                self.import_duration_text()
+                    .unwrap_or_else(|| "—".to_owned()),
+                colors.secondary_text,
+            )
+        };
         div()
             .id("network-profiler-workspace")
             .size_full()
@@ -544,7 +552,7 @@ impl ImportWorkspace {
                     .child(content),
             )
             .child(
-                self.import_status(&colors)
+                self.import_status_text(status_text, status_tone, &colors)
                     .id("network-status-bar")
                     .h(px(NETWORK_STATUS_HEIGHT))
                     .line_height(px(16.)),
@@ -1127,17 +1135,6 @@ fn coverage_panel(
     )
 }
 
-fn message_strip(message: String, tone: Rgba, colors: &studio::StudioColors) -> Div {
-    panel(colors).px(px(8.)).py(px(5.)).child(
-        div()
-            .text_size(px(11.))
-            .line_height(px(15.))
-            .text_color(tone)
-            .line_clamp(2)
-            .child(crate::studio::selectable(message)),
-    )
-}
-
 /// Completion-bucketed byte activity. Bars are completed bytes, not a measured
 /// instantaneous throughput; unknown byte counts remain visibly unknown.
 fn network_activity_panel(
@@ -1581,7 +1578,7 @@ mod tests {
             .split(".id(\"network-profiler-workspace\")")
             .next()
             .unwrap();
-        assert!(!content.contains("self.import_status("));
+        assert!(!content.contains("self.import_status_text("));
         let workspace = source
             .split(".id(\"network-profiler-workspace\")")
             .nth(1)
@@ -1590,9 +1587,9 @@ mod tests {
             .next()
             .unwrap();
         assert!(workspace.contains(".child(content),\n            )\n            .child("));
-        assert!(workspace.contains("self.import_status(&colors)"));
+        assert!(workspace.contains("self.import_status_text(status_text, status_tone, &colors)"));
         assert!(workspace.contains(".h(px(NETWORK_STATUS_HEIGHT))"));
-        assert_eq!(workspace.matches("self.import_status(").count(), 1);
+        assert_eq!(workspace.matches("self.import_status_text(").count(), 1);
         let tiny = NetworkLayout::new(320., 40., false, false, 0);
         assert_eq!(tiny.viewport_height, 0.);
         assert_eq!(tiny.panes_height, tiny.minimum_panes_height);

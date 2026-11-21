@@ -112,7 +112,11 @@ impl ImportWorkspace {
         let title = page_title(
             language.text(TextKey::MemoryAppBitmapDumpView),
             language.text(TextKey::MemoryPageBitmapDumpNoSession),
-            vec![self.bitmap_capture_action(colors, cx)],
+            vec![self.capture_action(
+                super::advanced::AdvancedMemoryKind::Bitmap,
+                colors,
+                cx,
+            )],
             colors,
         );
 

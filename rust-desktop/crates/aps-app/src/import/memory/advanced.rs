@@ -40,6 +40,14 @@ impl AdvancedMemoryKind {
             Self::Bitmap => TextKey::MemoryAppBitmapDumpView,
         }
     }
+    /// Label of this kind's capture action while it is idle.
+    fn capture_label(self) -> TextKey {
+        match self {
+            Self::Native => TextKey::MemoryPageCaptureNativeHeap,
+            Self::Art => TextKey::MemoryAppRecordSampledArt,
+            Self::Bitmap => TextKey::MemoryPageDumpBitmaps,
+        }
+    }
     fn filename(self) -> &'static str {
         match self {
             Self::Native => "native-heap.pftrace",
@@ -675,17 +683,18 @@ impl ImportWorkspace {
         }
         page.into_any_element()
     }
-    /// The bitmap dump owns its capture action. One slot serves both states:
-    /// while a capture runs the same button cancels it, so the page never shows
-    /// a capture and a cancel side by side.
-    pub(super) fn bitmap_capture_action(
+    /// One capture slot per advanced evidence page. It starts the capture while
+    /// idle and cancels it while one runs, so a page never shows capture and
+    /// cancel side by side.
+    pub(super) fn capture_action(
         &self,
+        kind: AdvancedMemoryKind,
         colors: &studio::StudioColors,
         cx: &mut Context<Self>,
     ) -> Button {
         if self.busy {
             return toolbar_button(
-                "bitmap-capture-cancel",
+                ("advanced-capture-cancel", kind as usize),
                 self.language.text(TextKey::ImportCancelOperation),
                 true,
                 false,
@@ -694,20 +703,18 @@ impl ImportWorkspace {
             .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx)));
         }
         toolbar_button(
-            "bitmap-capture",
-            self.language.text(TextKey::MemoryPageDumpBitmaps),
+            ("advanced-capture", kind as usize),
+            self.language.text(kind.capture_label()),
             self.advanced_memory_ready(),
             false,
             colors,
         )
         .tooltip(self.memory_capture_tooltip())
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.capture_advanced_memory(AdvancedMemoryKind::Bitmap, cx)
-        }))
+        .on_click(cx.listener(move |this, _, _, cx| this.capture_advanced_memory(kind, cx)))
     }
 
-    /// Import and export for one advanced evidence view. Native and ART
-    /// captures stay in the toolbar; the bitmap page adds its own capture slot.
+    /// Import and export for one advanced evidence view, plus the capture slot
+    /// of pages that own it. ART samples still capture from the toolbar.
     fn advanced_actions(
         &self,
         kind: AdvancedMemoryKind,
@@ -738,8 +745,11 @@ impl ImportWorkspace {
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.export_advanced_memory(kind, cx))),
             );
-        if kind == AdvancedMemoryKind::Bitmap {
-            return row.child(self.bitmap_capture_action(colors, cx));
+        if matches!(
+            kind,
+            AdvancedMemoryKind::Bitmap | AdvancedMemoryKind::Native
+        ) {
+            return row.child(self.capture_action(kind, colors, cx));
         }
         row.when(self.busy, |row| {
             row.child(
@@ -1303,35 +1313,41 @@ mod bitmap_grid_tests {
     }
 
     #[::core::prelude::v1::test]
-    fn bitmap_capture_is_one_slot_after_export_that_becomes_cancel() {
-        // The bitmap page owns capture; the toolbar keeps native and ART only.
+    fn bitmap_and_native_capture_is_one_slot_after_export_that_becomes_cancel() {
+        // The bitmap and native heap pages own capture; the toolbar keeps ART.
         let toolbar = include_str!("toolbar.rs");
         assert!(!toolbar.contains("\"memory-dump-bitmaps\""));
-        assert!(toolbar.contains("\"memory-capture-native-heap\""));
+        assert!(!toolbar.contains("\"memory-capture-native-heap\""));
         assert!(toolbar.contains("\"memory-record-art-samples\""));
         let advanced = runtime_source(include_str!("advanced.rs"));
         let action = advanced
-            .split("fn bitmap_capture_action(")
+            .split("fn capture_action(")
             .nth(1)
             .unwrap()
             .split("fn advanced_actions(")
             .next()
             .unwrap();
         for marker in [
-            "\"bitmap-capture\"",
-            "\"bitmap-capture-cancel\"",
-            "MemoryPageDumpBitmaps",
+            "\"advanced-capture\"",
+            "\"advanced-capture-cancel\"",
+            "kind.capture_label()",
             "ImportCancelOperation",
             "this.cancel_work(cx)",
-            "capture_advanced_memory(AdvancedMemoryKind::Bitmap, cx)",
+            "capture_advanced_memory(kind, cx)",
         ] {
             assert!(
                 action.contains(marker),
                 "Missing capture slot behaviour: {marker}"
             );
         }
-        // Import and export come first, then the capture slot; the bitmap row
-        // returns before the generic cancel button is appended.
+        for label in [
+            "Self::Native => TextKey::MemoryPageCaptureNativeHeap",
+            "Self::Bitmap => TextKey::MemoryPageDumpBitmaps",
+        ] {
+            assert!(advanced.contains(label), "Missing capture label: {label}");
+        }
+        // Import and export come first, then the capture slot; those two kinds
+        // return before the generic cancel button is appended.
         let actions = advanced
             .split("fn advanced_actions(")
             .nth(1)
@@ -1343,17 +1359,17 @@ mod bitmap_grid_tests {
             actions.find("\"advanced-memory-import\"").unwrap()
                 < actions.find("\"advanced-memory-export\"").unwrap()
         );
-        let bitmap_branch = actions
-            .split("if kind == AdvancedMemoryKind::Bitmap {")
+        let own_capture = actions
+            .split("AdvancedMemoryKind::Bitmap | AdvancedMemoryKind::Native")
             .nth(1)
             .unwrap();
-        assert!(bitmap_branch
+        assert!(own_capture
             .trim_start()
-            .starts_with("return row.child(self.bitmap_capture_action(colors, cx));"));
+            .starts_with(") {\n            return row.child(self.capture_action(kind, colors, cx));"));
         // The bitmap findings state shares that one slot instead of adding a
         // second capture or cancel button.
         let bitmap_findings = runtime_source(include_str!("auxiliary.rs"));
-        assert!(bitmap_findings.contains("vec![self.bitmap_capture_action(colors, cx)]"));
+        assert!(bitmap_findings.contains("self.capture_action("));
         assert!(!bitmap_findings.contains("\"memory-bitmap-dump\""));
     }
 

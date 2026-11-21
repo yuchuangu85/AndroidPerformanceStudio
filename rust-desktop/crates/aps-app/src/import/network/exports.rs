@@ -535,6 +535,7 @@ mod tests {
     fn observed_session(count: usize) -> HarSession {
         let url = "https://example.test/<redacted-path>?q=<redacted>";
         HarSession::from_observed(ObservedCapture {
+            origin: aps_network::ObservedOrigin::Agent,
             process_id: 123,
             process_start_ticks: 1,
             device_boot_id: "11111111-1111-1111-1111-111111111111".into(),

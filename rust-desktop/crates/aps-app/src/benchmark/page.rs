@@ -202,10 +202,14 @@ fn run_selector(
         .map(|option| (option.id.clone(), run_option_label(option, language)))
         .collect();
     let entity = cx.entity().downgrade();
+    let hint = language.text(TextKey::BenchmarkImportHint);
     studio::compact_text_button(id, label, enabled, false, colors)
         .w(px(RUN_SELECTOR_WIDTH))
         .dropdown_menu(move |menu, _, _| {
             let mut menu = menu;
+            if items.is_empty() {
+                return menu.item(PopupMenuItem::new(hint.clone()).disabled(true));
+            }
             for (option_id, option_label) in &items {
                 let entity = entity.clone();
                 let option_id = option_id.clone();
@@ -254,7 +258,7 @@ fn header(
             &state.run_options,
             state.baseline_id.as_deref(),
             language,
-            !busy && !state.run_options.is_empty(),
+            !busy,
             colors,
             BenchmarkWorkspace::select_baseline,
             cx,
@@ -268,7 +272,7 @@ fn header(
             &state.run_options,
             state.current_id.as_deref(),
             language,
-            !busy && !state.run_options.is_empty(),
+            !busy,
             colors,
             BenchmarkWorkspace::select_current,
             cx,

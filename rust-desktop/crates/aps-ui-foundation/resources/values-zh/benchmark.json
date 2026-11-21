@@ -33,6 +33,7 @@
   "benchmark_share_report": "分享报告",
   "benchmark_compare_settings": "对比设置",
   "benchmark_select_run": "选择一次结果",
+  "benchmark_import_hint": "请先导入 AndroidX Benchmark JSON（benchmarkData.json）。",
   "benchmark_import_run": "导入结果",
   "benchmark_orchestrate_run": "编排运行",
   "benchmark_run_option_detail": "{label} · {detail}",

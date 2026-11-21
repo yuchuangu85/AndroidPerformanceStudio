@@ -53,6 +53,7 @@ fn observed_session() -> HarSession {
     .map(|(index, (outcome, status))| request(index as u64 + 1, outcome, status, Vec::new()))
     .collect();
     HarSession::from_observed(ObservedCapture {
+        origin: aps_network::ObservedOrigin::Agent,
         process_id: 123,
         process_start_ticks: 10,
         device_boot_id: "01234567-89ab-cdef-0123-456789abcdef".into(),

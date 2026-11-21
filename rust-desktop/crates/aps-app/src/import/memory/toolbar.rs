@@ -52,19 +52,6 @@ impl ImportWorkspace {
             )
             .child(
                 toolbar_button(
-                    "memory-capture-native-heap",
-                    language.text(TextKey::MemoryPageCaptureNativeHeap),
-                    self.advanced_memory_ready(),
-                    false,
-                    colors,
-                )
-                .tooltip(self.memory_capture_tooltip())
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.capture_advanced_memory(super::advanced::AdvancedMemoryKind::Native, cx)
-                })),
-            )
-            .child(
-                toolbar_button(
                     "memory-record-art-samples",
                     language.text(TextKey::MemoryAppRecordSampledArt),
                     self.advanced_memory_ready(),

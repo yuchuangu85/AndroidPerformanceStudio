@@ -207,6 +207,13 @@ impl ImportWorkspace {
         } else {
             primary.items_center().child(tabs).child(search_actions)
         };
+        // Keep the collapsed wide filter bar to one compact row. Narrow layouts
+        // stack the search row, and the advanced region keeps its natural height.
+        let primary = if self.network.filters_expanded || narrow {
+            primary
+        } else {
+            primary.h(px(34.)).overflow_hidden()
+        };
         let mut controls = div()
             .flex()
             .flex_col()

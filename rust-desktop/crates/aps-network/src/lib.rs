@@ -10,8 +10,8 @@
 mod observed;
 mod redact;
 pub use observed::{
-    OBSERVED_MINIMIZATION_POLICY, ObservedCapture, ObservedConcurrency, ObservedOutcome,
-    ObservedPhase, ObservedPhaseKind, ObservedPhaseSummary, ObservedRequest,
+    OBSERVED_MINIMIZATION_POLICY, ObservedCapture, ObservedConcurrency, ObservedOrigin,
+    ObservedOutcome, ObservedPhase, ObservedPhaseKind, ObservedPhaseSummary, ObservedRequest,
 };
 pub use redact::{
     INVALID_URL, MAX_HEADER_NAME_CHARS, MAX_HEADER_VALUE_CHARS, MAX_HEADERS,

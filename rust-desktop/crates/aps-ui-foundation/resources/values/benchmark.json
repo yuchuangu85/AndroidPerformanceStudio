@@ -33,6 +33,7 @@
   "benchmark_share_report": "Share Report",
   "benchmark_compare_settings": "Compare Settings",
   "benchmark_select_run": "Select a run",
+  "benchmark_import_hint": "Import an AndroidX Benchmark JSON (benchmarkData.json) first.",
   "benchmark_import_run": "Import Run",
   "benchmark_orchestrate_run": "Run Benchmark",
   "benchmark_run_option_detail": "{label} · {detail}",

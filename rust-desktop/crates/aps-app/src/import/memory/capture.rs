@@ -576,7 +576,7 @@ mod tests {
             .split("\"memory-dump-heap\"")
             .nth(1)
             .unwrap()
-            .split("\"memory-capture-native-heap\"")
+            .split("\"memory-record-art-samples\"")
             .next()
             .unwrap();
         assert!(heap_button.contains("self.memory_capture_block_reason().is_none()"));

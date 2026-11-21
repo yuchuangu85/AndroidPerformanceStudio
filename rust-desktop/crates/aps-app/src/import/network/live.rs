@@ -3,7 +3,7 @@
 //! bound to the selected descriptor and this live run's independent generation.
 use super::*;
 use aps_adb::{AdbDevice, AndroidApplicationProcess};
-use aps_network::{ObservedCapture, ObservedOutcome, ObservedPhaseKind};
+use aps_network::{ObservedCapture, ObservedOrigin, ObservedOutcome, ObservedPhaseKind};
 use capture::{CaptureTarget, CaptureUpdate, LiveControl, LiveSnapshot};
 
 #[derive(Default)]
@@ -411,10 +411,16 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
     let Some(capture) = session.observed() else {
         return;
     };
+    let tcpdump = capture.origin == ObservedOrigin::Tcpdump;
     page.summary = format!(
-        "{} matching / {} observed OkHttp calls · events {} · dropped {} · sequence gaps {} · minimized snapshot SHA-256 {} · {}",
+        "{} matching / {} {} · events {} · dropped {} · sequence gaps {} · minimized snapshot SHA-256 {} · {}",
         matching,
         capture.requests.len(),
+        if tcpdump {
+            "tcpdump-observed calls"
+        } else {
+            "observed OkHttp calls"
+        },
         capture.event_count,
         capture.dropped_events,
         capture.sequence_gaps,
@@ -441,7 +447,11 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
             .and_then(|index| capture.request(index));
         if let Some(request) = request {
             if let Some(source) = row.get_mut(8) {
-                *source = "APS Network Agent v2".to_owned();
+                *source = if capture.origin == ObservedOrigin::Tcpdump {
+                    "root tcpdump fallback".to_owned()
+                } else {
+                    "APS Network Agent v2".to_owned()
+                };
             }
             let offset = |time: Option<u64>| {
                 time.and_then(|time| time.checked_sub(capture.start_monotonic_ns))
@@ -468,19 +478,35 @@ pub(super) fn project_observed(session: &HarSession, page: &mut PageData, matchi
             row.extend(["unavailable"; 7].into_iter().map(str::to_owned));
         }
     }
-    page.warnings = vec![
-        "APS Agent v2; instrumented OkHttp only. WebView, Cronet, URLConnection, native sockets and unconfigured clients excluded.".into(),
-        format!("Agent dropped events {}; missing sequence numbers {}; incomplete requests {}. Loss counters may overlap; no completeness claim.", capture.dropped_events, capture.sequence_gaps, capture.incomplete_requests()),
-        "Observed body-end byte subtotals are not complete transferred wire bytes; absent measurements remain unknown.".into(),
-        "SHA-256 identifies this minimized immutable snapshot, not the original Agent stream. Raw URL, headers, cookies, body and arbitrary diagnostics were not retained.".into(),
-        format!("STOP acknowledged {}; budget reached {}; excluded pre-boundary events {}; unknown event kinds {}; truncated phase records {}; budget-discarded events {}; omitted-call events {}.",
-            capture.stop_acknowledged, capture.limit_reached, capture.excluded_preboundary_events, capture.unknown_events,
-            capture.requests.iter().map(|request| request.phases_truncated).sum::<u64>(), capture.discarded_events, capture.omitted_call_events),
-    ];
-    page.ui = PageUi::default()
-        .warning(0, TextKey::NetworkLiveCoverage.into())
-        .warning(2, TextKey::NetworkLiveBodyBytesNote.into())
-        .warning(3, TextKey::NetworkLiveSnapshotEvidenceNote.into());
+    let tcpdump = capture.origin == ObservedOrigin::Tcpdump;
+    page.warnings = if tcpdump {
+        vec![
+            "Root tcpdump fallback; plaintext HTTP details only. HTTPS is limited to SNI host names; paths, status, headers and bodies remain unavailable.".into(),
+            format!("TCP packets {}; retained requests {}. Device traffic was filtered to sockets owned by the selected UID; other traffic was discarded by the parser.", capture.event_count, capture.requests.len()),
+            "TLS SNI observations do not prove HTTP completion, status or transferred bytes. No value is inferred when the fallback cannot see it.".into(),
+        ]
+    } else {
+        vec![
+            "APS Agent v2; instrumented OkHttp only. WebView, Cronet, URLConnection, native sockets and unconfigured clients excluded.".into(),
+            format!("Agent dropped events {}; missing sequence numbers {}; incomplete requests {}. Loss counters may overlap; no completeness claim.", capture.dropped_events, capture.sequence_gaps, capture.incomplete_requests()),
+            "Observed body-end byte subtotals are not complete transferred wire bytes; absent measurements remain unknown.".into(),
+            "SHA-256 identifies this minimized immutable snapshot, not the original Agent stream. Raw URL, headers, cookies, body and arbitrary diagnostics were not retained.".into(),
+            format!("STOP acknowledged {}; budget reached {}; excluded pre-boundary events {}; unknown event kinds {}; truncated phase records {}; budget-discarded events {}; omitted-call events {}.",
+                capture.stop_acknowledged, capture.limit_reached, capture.excluded_preboundary_events, capture.unknown_events,
+                capture.requests.iter().map(|request| request.phases_truncated).sum::<u64>(), capture.discarded_events, capture.omitted_call_events),
+        ]
+    };
+    page.ui = if tcpdump {
+        PageUi::default()
+            .warning(0, TextKey::NetworkTcpdumpCoverage.into())
+            .warning(1, TextKey::NetworkLiveBodyBytesNote.into())
+            .warning(2, TextKey::NetworkLiveSnapshotEvidenceNote.into())
+    } else {
+        PageUi::default()
+            .warning(0, TextKey::NetworkLiveCoverage.into())
+            .warning(2, TextKey::NetworkLiveBodyBytesNote.into())
+            .warning(3, TextKey::NetworkLiveSnapshotEvidenceNote.into())
+    };
 }
 
 fn phase_evidence(request: &aps_network::ObservedRequest, boundary: u64) -> String {
@@ -520,7 +546,11 @@ pub(super) fn coverage_panel(
         .p(px(8.))
         .gap(px(6.))
         .child(studio::supporting(
-            language.text(TextKey::NetworkLiveCoverage),
+            language.text(if capture.origin == ObservedOrigin::Tcpdump {
+                TextKey::NetworkTcpdumpCoverage
+            } else {
+                TextKey::NetworkLiveCoverage
+            }),
             colors,
         ))
         .when_some(target, |panel, target| {
@@ -725,6 +755,7 @@ mod tests {
             ],
         };
         let session = HarSession::from_observed(ObservedCapture {
+            origin: aps_network::ObservedOrigin::Agent,
             process_id: 123,
             process_start_ticks: 10,
             device_boot_id: "01234567-89ab-cdef-0123-456789abcdef".into(),

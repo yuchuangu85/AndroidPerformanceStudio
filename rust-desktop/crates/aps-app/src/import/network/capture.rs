@@ -4,11 +4,11 @@
 use aps_adb::{AdbClient, AdbLocator, validate_serial};
 use aps_network::{
     ConnectionUse, EntryOutcome, HarSession, INVALID_URL, NetworkEntry, ObservedCapture,
-    ObservedOutcome, ObservedPhase, ObservedPhaseKind, ObservedRequest, redact_url,
+    ObservedOrigin, ObservedOutcome, ObservedPhase, ObservedPhaseKind, ObservedRequest, redact_url,
 };
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Write},
     net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpStream},
     sync::{
@@ -160,10 +160,30 @@ fn run_inner(target: &CaptureTarget, control: &LiveControl) -> Result<Arc<HarSes
     }
     // This command has no raw-traffic output. Authentication material stays
     // transient, is never formatted into diagnostics, and is cleared below.
-    let mut token = adb_bytes(&adb, &target.serial,
-        &["shell", "run-as", &target.package_name, "cat", "files/aps-network/token"],
-        256, &control.cancel)
-        .map_err(|_| "Network Agent token unavailable; use a running debuggable app with the APS Network Agent initializer")?;
+    let mut token = match adb_bytes(
+        &adb,
+        &target.serial,
+        &[
+            "shell",
+            "run-as",
+            &target.package_name,
+            "cat",
+            "files/aps-network/token",
+        ],
+        256,
+        &control.cancel,
+    ) {
+        Ok(token) => token,
+        Err(_) => {
+            return tcpdump_fallback(
+                &adb,
+                target,
+                &identity,
+                control,
+                "Network Agent token unavailable; use a running debuggable app with the APS Network Agent initializer",
+            );
+        }
+    };
     while token.last().is_some_and(u8::is_ascii_whitespace) {
         token.pop();
     }
@@ -864,6 +884,7 @@ impl Collector {
     fn new(pid: u32, identity: Identity, ready: &Reply) -> Self {
         Self {
             capture: ObservedCapture {
+                origin: aps_network::ObservedOrigin::Agent,
                 process_id: pid,
                 process_start_ticks: identity.start_ticks,
                 device_boot_id: identity.boot_id.clone(),
@@ -1121,9 +1142,528 @@ impl Collector {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct FlowKey {
+    client_ip: String,
+    client_port: u16,
+    server_ip: String,
+    server_port: u16,
+}
+
+#[derive(Default)]
+struct FlowState {
+    http_seen: bool,
+    tls_seen: bool,
+    pending: std::collections::VecDeque<usize>,
+}
+
+struct PendingRequest {
+    method: &'static str,
+    path: String,
+    host: Option<String>,
+    start_ns: u64,
+    status: u16,
+    end_ns: Option<u64>,
+    tls: bool,
+}
+
+struct TcpdumpParser {
+    ports: BTreeSet<u16>,
+    start: Instant,
+    flows: BTreeMap<FlowKey, FlowState>,
+    pending: Vec<PendingRequest>,
+    current: Option<(FlowKey, bool)>,
+    event_count: u64,
+}
+
+impl TcpdumpParser {
+    fn new(ports: BTreeSet<u16>) -> Self {
+        Self {
+            ports,
+            start: Instant::now(),
+            flows: BTreeMap::new(),
+            pending: Vec::new(),
+            current: None,
+            event_count: 0,
+        }
+    }
+
+    fn refresh_ports(&mut self, ports: BTreeSet<u16>) {
+        self.ports = ports;
+    }
+
+    fn line(&mut self, line: &str) {
+        if let Some((key, outbound)) = parse_tcpdump_header(line, &self.ports) {
+            if self.event_count < 220_500 {
+                self.event_count += 1;
+            }
+            self.flows.entry(key.clone()).or_default();
+            self.current = Some((key, outbound));
+            return;
+        }
+        let Some((key, outbound)) = self.current.clone() else {
+            return;
+        };
+        let text = line.trim_end_matches(['\r', '\n']);
+        if text.is_empty() {
+            return;
+        }
+        let flow = self.flows.entry(key.clone()).or_default();
+        if outbound {
+            if let Some((method, path)) = parse_request_line(text) {
+                let index = self.pending.len();
+                self.pending.push(PendingRequest {
+                    method,
+                    path,
+                    host: None,
+                    start_ns: self.start.elapsed().as_nanos() as u64,
+                    status: 0,
+                    end_ns: None,
+                    tls: false,
+                });
+                flow.pending.push_back(index);
+                flow.http_seen = true;
+            } else if let Some(host) = text
+                .strip_prefix("Host:")
+                .or_else(|| text.strip_prefix("host:"))
+                .map(str::trim)
+                .filter(|host| valid_host(host))
+            {
+                if let Some(index) = flow.pending.back().copied() {
+                    self.pending[index].host = Some(host.to_owned());
+                }
+            } else if !flow.http_seen && !flow.tls_seen {
+                if let Some(host) = extract_domain(text) {
+                    flow.tls_seen = true;
+                    self.pending.push(PendingRequest {
+                        method: "OTHER",
+                        path: "/".into(),
+                        host: Some(host),
+                        start_ns: self.start.elapsed().as_nanos() as u64,
+                        status: 0,
+                        end_ns: None,
+                        tls: true,
+                    });
+                }
+            }
+        } else if let Some(status) = parse_response_status(text) {
+            if let Some(index) = flow.pending.pop_front() {
+                self.pending[index].status = status;
+                self.pending[index].end_ns = Some(self.start.elapsed().as_nanos() as u64);
+            }
+        }
+    }
+
+    fn finish(
+        self,
+        target: &CaptureTarget,
+        identity: &Identity,
+        elapsed_ns: u64,
+    ) -> ObservedCapture {
+        let mut requests = Vec::new();
+        for (index, pending) in self.pending.into_iter().enumerate() {
+            let host = pending.host.clone().unwrap_or_else(|| "unknown".into());
+            let raw_url = if pending.tls {
+                format!("https://{host}/")
+            } else if pending.path.starts_with("http://") || pending.path.starts_with("https://") {
+                pending.path.clone()
+            } else {
+                format!(
+                    "http://{host}{}",
+                    if pending.path.starts_with('/') {
+                        pending.path.clone()
+                    } else {
+                        format!("/{}", pending.path)
+                    }
+                )
+            };
+            let redacted_url = redact_url(&raw_url);
+            if redacted_url == INVALID_URL || !valid_redacted_url(&redacted_url) {
+                continue;
+            }
+            let duration = pending
+                .end_ns
+                .and_then(|end| end.checked_sub(pending.start_ns))
+                .map(|ns| ns as f64 / 1_000_000.);
+            requests.push(ObservedRequest {
+                entry: NetworkEntry {
+                    index: index as u64 + 1,
+                    method: pending.method,
+                    status: pending.status,
+                    duration_ms: duration,
+                    request_bytes: None,
+                    response_bytes: None,
+                    redacted_url: redacted_url.clone(),
+                    protocol: (!pending.tls).then(|| "http/1.1".to_owned()),
+                    outcome: if pending.end_ns.is_some() {
+                        EntryOutcome::Completed
+                    } else {
+                        EntryOutcome::InFlight
+                    },
+                    connection_use: ConnectionUse::Unknown,
+                    started_at_ms: None,
+                },
+                outcome: if pending.end_ns.is_some() {
+                    ObservedOutcome::Completed
+                } else {
+                    ObservedOutcome::InFlight
+                },
+                start_ns: Some(pending.start_ns),
+                end_ns: pending.end_ns,
+                protocol: (!pending.tls).then_some("http/1.1"),
+                redacted_url,
+                tls_version: None,
+                cipher_suite: None,
+                cancellation_requested: false,
+                phases_truncated: 0,
+                phases: Vec::new(),
+            });
+        }
+        ObservedCapture {
+            origin: ObservedOrigin::Tcpdump,
+            process_id: target.pid,
+            process_start_ticks: identity.start_ticks,
+            device_boot_id: identity.boot_id.clone(),
+            start_monotonic_ns: 0,
+            end_monotonic_ns: elapsed_ns.max(1),
+            event_count: self.event_count,
+            dropped_events: 0,
+            sequence_gaps: 0,
+            excluded_preboundary_events: 0,
+            unknown_events: 0,
+            discarded_events: 0,
+            omitted_call_events: 0,
+            stop_acknowledged: true,
+            limit_reached: false,
+            requests,
+        }
+    }
+}
+
+fn parse_tcpdump_header(line: &str, ports: &BTreeSet<u16>) -> Option<(FlowKey, bool)> {
+    let rest = line.split_once(" IP ")?.1;
+    let (source, rest) = rest.split_once(" > ")?;
+    let destination = rest.split(':').next()?;
+    let (source_ip, source_port) = source.rsplit_once('.')?;
+    let (destination_ip, destination_port) = destination.rsplit_once('.')?;
+    let source_port = source_port.parse::<u16>().ok()?;
+    let destination_port = destination_port.parse::<u16>().ok()?;
+    let source_local = ports.contains(&source_port);
+    let destination_local = ports.contains(&destination_port);
+    let (client_ip, client_port, server_ip, server_port, outbound) =
+        match (source_local, destination_local) {
+            (true, false) => (
+                source_ip.to_owned(),
+                source_port,
+                destination_ip.to_owned(),
+                destination_port,
+                true,
+            ),
+            (false, true) => (
+                destination_ip.to_owned(),
+                destination_port,
+                source_ip.to_owned(),
+                source_port,
+                false,
+            ),
+            _ => return None,
+        };
+    Some((
+        FlowKey {
+            client_ip,
+            client_port,
+            server_ip,
+            server_port,
+        },
+        outbound,
+    ))
+}
+
+fn parse_request_line(line: &str) -> Option<(&'static str, String)> {
+    let mut parts = line.split_whitespace();
+    let method = parts.next()?;
+    let path = parts.next()?;
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/1.") || path.len() > 4096 {
+        return None;
+    }
+    let method = match method {
+        "GET" => "GET",
+        "POST" => "POST",
+        "PUT" => "PUT",
+        "PATCH" => "PATCH",
+        "DELETE" => "DELETE",
+        "HEAD" => "HEAD",
+        "OPTIONS" => "OPTIONS",
+        "CONNECT" => "CONNECT",
+        "TRACE" => "TRACE",
+        _ => return None,
+    };
+    Some((method, path.to_owned()))
+}
+
+fn parse_response_status(line: &str) -> Option<u16> {
+    let mut parts = line.split_whitespace();
+    if !parts.next()?.starts_with("HTTP/1.") {
+        return None;
+    }
+    parts
+        .next()?
+        .parse::<u16>()
+        .ok()
+        .filter(|status| (100..600).contains(status))
+}
+
+fn valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':'))
+}
+
+fn extract_domain(text: &str) -> Option<String> {
+    let mut best: Option<String> = None;
+    let mut token = String::new();
+    for ch in text.chars().chain(std::iter::once(' ')) {
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' {
+            token.push(ch);
+            continue;
+        }
+        let candidate = token.trim_matches(|c| c == '.' || c == '-');
+        if candidate.len() >= 4
+            && candidate.len() <= 253
+            && candidate.contains('.')
+            && !candidate.contains("..")
+            && !candidate.contains("--")
+            && !candidate.chars().any(|c| c.is_ascii_uppercase())
+            && candidate.rsplit_once('.').is_some_and(|(_, tld)| {
+                tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
+            })
+            && best
+                .as_ref()
+                .is_none_or(|current| candidate.len() > current.len())
+        {
+            best = Some(candidate.to_owned());
+        }
+        token.clear();
+    }
+    best.filter(|host| host != "http" && host != "https")
+}
+
+fn valid_redacted_url(url: &str) -> bool {
+    !url.is_empty() && url.chars().count() <= aps_network::MAX_REDACTED_URL_CHARS
+}
+
+fn target_uid(
+    adb: &AdbClient,
+    target: &CaptureTarget,
+    control: &LiveControl,
+) -> Result<u32, String> {
+    let status = adb_bytes(
+        adb,
+        &target.serial,
+        &["shell", "cat", &format!("/proc/{}/status", target.pid)],
+        8192,
+        &control.cancel,
+    )?;
+    let status = std::str::from_utf8(&status).map_err(|_| "Invalid target status")?;
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .and_then(|line| line.split_whitespace().next())
+        .and_then(|uid| uid.parse::<u32>().ok())
+        .ok_or_else(|| "Cannot determine selected UID for tcpdump fallback".to_owned())
+}
+
+fn target_ports(
+    adb: &AdbClient,
+    target: &CaptureTarget,
+    uid: u32,
+    control: &LiveControl,
+) -> Result<BTreeSet<u16>, String> {
+    let mut ports = BTreeSet::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let text = adb_bytes(
+            adb,
+            &target.serial,
+            &["shell", "cat", table],
+            2 * 1024 * 1024,
+            &control.cancel,
+        )?;
+        let text = std::str::from_utf8(&text).map_err(|_| "Invalid socket table")?;
+        for line in text.lines().skip(1) {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() < 8 || fields[7].parse::<u32>().ok() != Some(uid) {
+                continue;
+            }
+            if let Some((_, port)) = fields[1].rsplit_once(':') {
+                if let Ok(port) = u16::from_str_radix(port, 16) {
+                    ports.insert(port);
+                }
+            }
+        }
+    }
+    Ok(ports)
+}
+
+fn tcpdump_fallback(
+    adb: &AdbClient,
+    target: &CaptureTarget,
+    identity: &Identity,
+    control: &LiveControl,
+    agent_error: &str,
+) -> Result<Arc<HarSession>, String> {
+    let root = adb_bytes(adb, &target.serial, &["shell", "id"], 4096, &control.cancel)?;
+    if !String::from_utf8_lossy(&root).contains("uid=0") {
+        return Err(format!(
+            "{agent_error}; root tcpdump fallback requires root on the selected device"
+        ));
+    }
+    let which = adb_bytes(
+        adb,
+        &target.serial,
+        &["shell", "which", "tcpdump"],
+        4096,
+        &control.cancel,
+    )?;
+    if which.is_empty() {
+        return Err(format!(
+            "{agent_error}; root tcpdump fallback needs tcpdump on the device"
+        ));
+    }
+    let uid = target_uid(adb, target, control)?;
+    let mut ports = target_ports(adb, target, uid, control)?;
+    let executable = adb.location().executable.clone();
+    let mut child = std::process::Command::new(executable)
+        .args([
+            "-s",
+            &target.serial,
+            "shell",
+            "tcpdump",
+            "-i",
+            "any",
+            "-s",
+            "0",
+            "-A",
+            "-l",
+            "-q",
+            "-n",
+            "tcp",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| "Cannot start root tcpdump fallback")?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("Cannot read root tcpdump fallback output")?;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = thread::spawn(move || {
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match std::io::BufRead::read_line(&mut reader, &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    if sender.send(line.clone()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    let started = Instant::now();
+    let mut parser = TcpdumpParser::new(ports.clone());
+    let mut last_refresh = Instant::now();
+    loop {
+        if control.cancelled() || control.stopping() {
+            break;
+        }
+        if started.elapsed() > MAX_DURATION {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "{agent_error}; root tcpdump fallback exceeded the maximum duration"
+            ));
+        }
+        match receiver.recv_timeout(Duration::from_millis(200)) {
+            Ok(line) => parser.line(&line),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if last_refresh.elapsed() >= Duration::from_millis(500) {
+                    if let Ok(updated) = target_ports(adb, target, uid, control) {
+                        ports = updated;
+                        parser.refresh_ports(ports.clone());
+                    }
+                    last_refresh = Instant::now();
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader.join();
+    let capture = parser.finish(target, identity, started.elapsed().as_nanos() as u64);
+    HarSession::from_observed(capture)
+        .map(Arc::new)
+        .map_err(|_| "Cannot project root tcpdump fallback evidence".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn tcpdump_fallback_parses_http_and_sni_without_inventing_status() {
+        let target = CaptureTarget {
+            serial: "device".into(),
+            pid: 42,
+            process_name: "example.app".into(),
+            package_name: "example.app".into(),
+            user: "u0_a42".into(),
+        };
+        let identity = Identity {
+            boot_id: "01234567-89ab-cdef-0123-456789abcdef".into(),
+            start_ticks: 10,
+        };
+        let mut parser = TcpdumpParser::new(BTreeSet::from([40000, 40001]));
+        parser.line(
+            "16:00:00.000000 wlan0 Out IP 192.168.1.2.40000 > 1.2.3.4.80: Flags [P.], length 30",
+        );
+        parser.line("GET /hello HTTP/1.1");
+        parser.line("Host: example.test");
+        parser.line(
+            "16:00:00.100000 wlan0 In IP 1.2.3.4.80 > 192.168.1.2.40000: Flags [P.], length 20",
+        );
+        parser.line("HTTP/1.1 200 OK");
+        parser.line(
+            "16:00:00.200000 wlan0 Out IP 192.168.1.2.40001 > 1.2.3.4.443: Flags [P.], length 200",
+        );
+        parser.line("......hweudc-conf-t.api.leiniao.com......");
+        let capture = parser.finish(&target, &identity, 1_000_000);
+        assert_eq!(capture.origin, ObservedOrigin::Tcpdump);
+        assert_eq!(capture.requests.len(), 2);
+        assert_eq!(capture.requests[0].entry.status, 200);
+        assert_eq!(
+            capture.requests[0].entry.protocol.as_deref(),
+            Some("http/1.1")
+        );
+        assert_eq!(
+            capture.requests[0].redacted_url,
+            "http://example.test/<redacted-path>"
+        );
+        assert_eq!(capture.requests[1].entry.status, 0);
+        assert_eq!(capture.requests[1].entry.protocol, None);
+        assert_eq!(
+            capture.requests[1].redacted_url,
+            "https://hweudc-conf-t.api.leiniao.com/"
+        );
+        let session = HarSession::from_observed(capture).unwrap();
+        assert_eq!(session.summary().entry_count, 2);
+    }
 
     fn collector() -> Collector {
         Collector::new(
