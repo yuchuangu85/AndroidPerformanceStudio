@@ -14,7 +14,7 @@ pub use baseline::{
 pub use capture::{
     BatteryCapabilities, BatteryCaptureArtifact, BatteryCaptureConfig, BatteryCaptureControl,
     BatteryCaptureMode, BatteryCaptureOutcome, BatteryCaptureProgress, BatteryCaptureTarget,
-    ThermalSample, capture_live, capture_live_with_workload,
+    BatterySnapshotPoint, ThermalSample, capture_live, capture_live_with_workload,
 };
 pub use parser::{parse_device_state, parse_history, parse_snapshot};
 pub use report::{

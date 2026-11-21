@@ -1,5 +1,6 @@
 //! Selected-run workspace. Derived report totals never become synthetic samples.
 use super::*;
+use aps_battery::BatterySnapshotPoint;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 #[derive(Default)]
@@ -50,9 +51,12 @@ fn detail(
         .child(small(language.text(key), colors))
         .child(body(value, colors))
 }
-fn unavailable_chart(
+const BATTERY_CHART_HEIGHT: f32 = 118.;
+
+fn chart_notice(
     title: TextKey,
     clock: TextKey,
+    message: TextKey,
     language: Language,
     colors: &studio::StudioColors,
 ) -> Div {
@@ -64,15 +68,279 @@ fn unavailable_chart(
         .child(small(language.text(clock), colors))
         .child(
             div()
-                .min_h(px(110.))
+                .min_h(px(BATTERY_CHART_HEIGHT))
+                .flex()
+                .items_center()
+                .p(px(8.))
+                .child(small(language.text(message), colors)),
+        )
+}
+
+fn unavailable_chart(
+    title: TextKey,
+    clock: TextKey,
+    language: Language,
+    colors: &studio::StudioColors,
+) -> Div {
+    chart_notice(
+        title,
+        clock,
+        TextKey::BatteryWorkspaceRawMissing,
+        language,
+        colors,
+    )
+}
+
+fn snapshot_chart(
+    points: &[BatterySnapshotPoint],
+    language: Language,
+    colors: &studio::StudioColors,
+) -> Div {
+    let start = points.first().map_or(0, |point| point.uptime_ms);
+    let end = points.last().map_or(start, |point| point.uptime_ms);
+    let span = end.saturating_sub(start).max(1) as f32;
+    let x_for =
+        |point: &BatterySnapshotPoint| (point.uptime_ms.saturating_sub(start)) as f32 / span;
+    let levels: Vec<(f32, Option<f32>)> = points
+        .iter()
+        .map(|point| {
+            (
+                x_for(point),
+                point.level_percent.map(|value| f32::from(value) / 100.),
+            )
+        })
+        .collect();
+    let temperatures: Vec<f32> = points
+        .iter()
+        .filter_map(|point| point.temperature_tenths_celsius)
+        .map(|value| value as f32 / 10.)
+        .collect();
+    let has_temperature = !temperatures.is_empty();
+    let minimum = temperatures.iter().copied().fold(f32::INFINITY, f32::min);
+    let maximum = temperatures
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let temperature_span = maximum - minimum;
+    let temperature_series: Vec<(f32, Option<f32>)> = points
+        .iter()
+        .map(|point| {
+            (
+                x_for(point),
+                point.temperature_tenths_celsius.map(|value| {
+                    if temperature_span <= 0.05 {
+                        0.5
+                    } else {
+                        ((value as f32 / 10. - minimum) / temperature_span).clamp(0., 1.)
+                    }
+                }),
+            )
+        })
+        .collect();
+    let unavailable = language.text(TextKey::BatteryWorkspaceUnavailable);
+    let level_label = points
+        .iter()
+        .rev()
+        .find_map(|point| point.level_percent)
+        .map_or_else(|| unavailable.to_owned(), |value| format!("{value}%"));
+    let temperature_label = points
+        .iter()
+        .rev()
+        .find_map(|point| point.temperature_tenths_celsius)
+        .map_or_else(
+            || unavailable.to_owned(),
+            |value| format!("{:.1}°C", value as f32 / 10.),
+        );
+    let minimum_label = has_temperature
+        .then(|| format!("{minimum:.1}"))
+        .unwrap_or_else(|| unavailable.to_owned());
+    let maximum_label = has_temperature
+        .then(|| format!("{maximum:.1}"))
+        .unwrap_or_else(|| unavailable.to_owned());
+    let legend = language.format(
+        TextKey::BatteryWorkspaceSnapshotLegend,
+        &[
+            ("level", &level_label),
+            ("temperature", &temperature_label),
+            ("minimum", &minimum_label),
+            ("maximum", &maximum_label),
+        ],
+    );
+    let level_series = levels.clone();
+    let temperature_series_draw = temperature_series.clone();
+    let accent = colors.accent;
+    let warning = colors.warning;
+    let border = colors.border;
+    studio::card(colors)
+        .flex_1()
+        .min_w_0()
+        .flex_shrink_0()
+        .child(studio::section_title(
+            language.text(TextKey::BatteryWorkspaceSnapshots),
+            colors,
+        ))
+        .child(small(
+            language.text(TextKey::BatteryWorkspaceSnapshotClock),
+            colors,
+        ))
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<Pixels>, _, window: &mut Window, _: &mut App| {
+                    paint_chart_grid(bounds, border, window);
+                    paint_series(bounds, &level_series, accent, 2., window);
+                    paint_series(bounds, &temperature_series_draw, warning, 1.5, window);
+                },
+            )
+            .w_full()
+            .h(px(BATTERY_CHART_HEIGHT)),
+        )
+        .child(small(legend, colors))
+}
+
+fn history_chart(
+    run: &aps_battery::BatteryReportRun,
+    language: Language,
+    colors: &studio::StudioColors,
+) -> Div {
+    let mut card = studio::card(colors)
+        .flex_1()
+        .min_w_0()
+        .flex_shrink_0()
+        .child(studio::section_title(
+            language.text(TextKey::BatteryWorkspaceHistoryChart),
+            colors,
+        ))
+        .child(small(
+            language.text(TextKey::BatteryWorkspaceHistoryClock),
+            colors,
+        ));
+    if run.history.is_empty() {
+        return card.child(
+            div()
+                .min_h(px(BATTERY_CHART_HEIGHT))
                 .flex()
                 .items_center()
                 .p(px(8.))
                 .child(small(
-                    language.text(TextKey::BatteryWorkspaceRawMissing),
+                    language.text(TextKey::BatteryWorkspaceHistoryEmpty),
                     colors,
                 )),
+        );
+    }
+    // Android 13+ history lines carry a wall-clock prefix rather than device
+    // uptime, so the chart plots the retained event sequence instead of
+    // inventing an elapsed-time axis.
+    let visible = &run.history[run.history.len().saturating_sub(240)..];
+    let bucket_count = 48usize;
+    let mut buckets = vec![0f32; bucket_count];
+    for index in 0..visible.len() {
+        let bucket = index * bucket_count / visible.len();
+        buckets[bucket.min(bucket_count - 1)] += 1.;
+    }
+    let maximum = buckets.iter().copied().fold(0., f32::max).max(1.);
+    let legend = language.format(
+        TextKey::BatteryWorkspaceHistoryEvents,
+        &[
+            ("count", &run.history.len().to_string()),
+            ("shown", &visible.len().to_string()),
+        ],
+    );
+    let buckets_draw = buckets.clone();
+    let accent = colors.accent;
+    let border = colors.border;
+    card.child(
+        canvas(
+            |_, _, _| (),
+            move |bounds: Bounds<Pixels>, _, window: &mut Window, _: &mut App| {
+                paint_chart_grid(bounds, border, window);
+                let width = f32::from(bounds.size.width);
+                let height = f32::from(bounds.size.height);
+                if width <= 0. || height <= 0. {
+                    return;
+                }
+                let slot = width / buckets_draw.len() as f32;
+                for (index, count) in buckets_draw.iter().enumerate() {
+                    if *count <= 0. {
+                        continue;
+                    }
+                    let bar_height = (height * 0.12 + height * 0.88 * (count / maximum)).max(2.);
+                    let bar_width = (slot * 0.72).max(1.);
+                    window.paint_quad(quad(
+                        Bounds::new(
+                            point(
+                                bounds.origin.x + px(index as f32 * slot + slot * 0.14),
+                                bounds.origin.y + px(height - bar_height),
+                            ),
+                            size(px(bar_width), px(bar_height)),
+                        ),
+                        px(0.),
+                        accent.alpha(0.8),
+                        px(0.),
+                        transparent_black(),
+                        BorderStyle::Solid,
+                    ));
+                }
+            },
         )
+        .w_full()
+        .h(px(BATTERY_CHART_HEIGHT)),
+    )
+    .child(small(legend, colors))
+}
+
+fn paint_chart_grid(bounds: Bounds<Pixels>, color: Rgba, window: &mut Window) {
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    for index in 0..3 {
+        let y = height * index as f32 / 2.;
+        window.paint_quad(quad(
+            Bounds::new(
+                point(bounds.origin.x, bounds.origin.y + px(y)),
+                size(px(width), px(1.)),
+            ),
+            px(0.),
+            color,
+            px(0.),
+            transparent_black(),
+            BorderStyle::Solid,
+        ));
+    }
+}
+
+fn paint_series(
+    bounds: Bounds<Pixels>,
+    points: &[(f32, Option<f32>)],
+    color: Rgba,
+    width: f32,
+    window: &mut Window,
+) {
+    let chart_width = f32::from(bounds.size.width);
+    let chart_height = f32::from(bounds.size.height);
+    if chart_width <= 0. || chart_height <= 0. {
+        return;
+    }
+    let mut path = PathBuilder::stroke(px(width));
+    let mut active = false;
+    for (x, value) in points {
+        let Some(value) = value else {
+            active = false;
+            continue;
+        };
+        let location = point(
+            bounds.origin.x + px(x * chart_width),
+            bounds.origin.y + px(chart_height - value.clamp(0., 1.) * chart_height),
+        );
+        if active {
+            path.line_to(location);
+        } else {
+            path.move_to(location);
+            active = true;
+        }
+    }
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
 }
 fn cells(row: &EvidenceRow, language: Language) -> [String; 4] {
     let unknown = language.text(TextKey::BatteryWorkspaceUnknown);
@@ -191,24 +459,38 @@ impl ImportWorkspace {
         let colors = studio::StudioColors::from_theme(cx);
         let search = self.battery_search(run, window, cx);
         let wide = wide_workspace(width);
+        let artifact = self.battery_capture_artifact();
+        let snapshot_points: Vec<BatterySnapshotPoint> = artifact
+            .as_ref()
+            .and_then(|artifact| artifact.snapshot_points().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|point| point.iteration == run.iteration)
+            .collect();
+        let snapshots = match snapshot_points.len() {
+            0 if artifact.is_none() => unavailable_chart(
+                TextKey::BatteryWorkspaceSnapshots,
+                TextKey::BatteryWorkspaceSnapshotClock,
+                language,
+                &colors,
+            ),
+            0 | 1 => chart_notice(
+                TextKey::BatteryWorkspaceSnapshots,
+                TextKey::BatteryWorkspaceSnapshotClock,
+                TextKey::BatteryWorkspaceSnapshotTooFew,
+                language,
+                &colors,
+            ),
+            _ => snapshot_chart(&snapshot_points, language, &colors),
+        };
         let mut charts = div()
             .flex()
             .gap(px(4.))
             .flex_shrink_0()
             .when(!wide, |s| s.flex_col());
         charts = charts
-            .child(unavailable_chart(
-                TextKey::BatteryWorkspaceSnapshots,
-                TextKey::BatteryWorkspaceSnapshotClock,
-                language,
-                &colors,
-            ))
-            .child(unavailable_chart(
-                TextKey::BatteryWorkspaceHistoryChart,
-                TextKey::BatteryWorkspaceHistoryClock,
-                language,
-                &colors,
-            ));
+            .child(snapshots)
+            .child(history_chart(run, language, &colors));
         let mut tabs = div().flex().flex_wrap().gap(px(4.));
         for (index, tab) in ResourceTab::ALL.into_iter().enumerate() {
             tabs = tabs.child(

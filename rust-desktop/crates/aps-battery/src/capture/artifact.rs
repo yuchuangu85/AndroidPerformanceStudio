@@ -9,6 +9,19 @@ const MAX_LEDGER_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 256 * 1024;
 const MAX_MANIFEST_BYTES: usize = 32 * 1024;
 
+/// One minimized snapshot as retained in the capture ledger, for timeline
+/// charts. Fields stay optional when the device omitted them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BatterySnapshotPoint {
+    pub iteration: u32,
+    pub ordinal: u64,
+    pub uptime_ms: u64,
+    pub level_percent: Option<u8>,
+    pub temperature_tenths_celsius: Option<i32>,
+    pub powered: Option<bool>,
+    pub thermal_status: Option<u32>,
+}
+
 /// Private immutable bytes bind export to the exact report session. The UI may
 /// retain this behind Arc; cancellation/failure drops only the unpublished copy.
 pub struct BatteryCaptureArtifact {
@@ -28,6 +41,46 @@ impl BatteryCaptureArtifact {
             ("analysis.json", &self.analysis),
             ("snapshots.jsonl", &self.snapshots),
         ]
+    }
+
+    /// Parses the retained minimized snapshots for timeline rendering. The
+    /// ledger was validated on construction; malformed rows still fail closed.
+    pub fn snapshot_points(&self) -> Result<Vec<BatterySnapshotPoint>, String> {
+        let text = std::str::from_utf8(&self.snapshots)
+            .map_err(|_| "Stored Battery snapshots are not UTF-8".to_owned())?;
+        let mut points = Vec::new();
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let row = aps_json::parse_slice(
+                line.as_bytes(),
+                Limits {
+                    max_bytes: MAX_SNAPSHOT_BYTES as u64,
+                    max_string_bytes: 4096,
+                    max_nodes: 100_000,
+                    ..Limits::default()
+                },
+            )
+            .map_err(|error| format!("Stored Battery snapshot: {error}"))?;
+            points.push(BatterySnapshotPoint {
+                iteration: stored_u32(&row, "iteration")?,
+                ordinal: row["ordinal"]
+                    .as_u64()
+                    .ok_or("Invalid Battery snapshot ordinal")?,
+                uptime_ms: row["deviceUptimeMs"]
+                    .as_u64()
+                    .ok_or("Invalid Battery snapshot clock")?,
+                level_percent: row["deviceBattery"]["levelPercent"]
+                    .as_u64()
+                    .and_then(|value| u8::try_from(value).ok()),
+                temperature_tenths_celsius: row["deviceBattery"]["temperatureTenthsCelsius"]
+                    .as_i64()
+                    .and_then(|value| i32::try_from(value).ok()),
+                powered: row["deviceBattery"]["powered"].as_bool(),
+                thermal_status: row["deviceThermalStatus"]
+                    .as_u64()
+                    .and_then(|value| u32::try_from(value).ok()),
+            });
+        }
+        Ok(points)
     }
     pub(super) fn build(
         report: &BatteryReport,
@@ -759,6 +812,17 @@ mod tests {
             report.runs()[0].snapshot_interval
         );
         restored.validate_report(&derived).unwrap();
+    }
+
+    #[test]
+    fn snapshot_points_expose_the_retained_device_series() {
+        let (_, artifact) = BatteryCaptureArtifact::test_capture();
+        let points = artifact.snapshot_points().unwrap();
+        assert_eq!(points.len(), 2);
+        assert_eq!(points[0].iteration, 1);
+        assert_eq!(points[0].uptime_ms, 1000);
+        assert_eq!(points[1].uptime_ms, 6000);
+        assert_eq!(points[1].ordinal, 2);
     }
 
     #[test]

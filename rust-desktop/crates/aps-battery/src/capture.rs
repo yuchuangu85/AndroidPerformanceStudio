@@ -9,8 +9,8 @@ use crate::{
 };
 use aps_adb::{AdbClient, validate_serial};
 use aps_platform::{CancellationToken, ProcessRequest, ProcessRunner};
-pub use artifact::BatteryCaptureArtifact;
 use artifact::SnapshotLedger;
+pub use artifact::{BatteryCaptureArtifact, BatterySnapshotPoint};
 use installation::{InstallationIdentity, read_installation};
 use std::{
     collections::BTreeSet,
@@ -23,6 +23,13 @@ use std::{
 };
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+/// Long-lived devices can return 15+ MiB of batterystats history, so the
+/// optional report/history reads allow more than the checkin payload.
+const BATTERY_DUMP_LIMIT: usize = 32 * 1024 * 1024;
+/// The device history ring can contain hundreds of thousands of lines; keep the
+/// most recent event lines that fit inside the 1 MiB analysis report budget.
+const MAX_HISTORY_EVENTS: usize = 20_000;
+const HISTORY_RAW_BUDGET: usize = 128 * 1024;
 const CONTROL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_SNAPSHOTS: usize = 1024;
 static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(0);
@@ -690,7 +697,7 @@ impl Capture<'_> {
         let mut warnings = Vec::new();
         let report = self.optional(
             &["dumpsys", "batterystats"],
-            8 * 1024 * 1024,
+            BATTERY_DUMP_LIMIT,
             "System-model energy report unavailable; no energy estimate was invented.",
             &mut warnings,
         )?;
@@ -779,18 +786,37 @@ impl Capture<'_> {
         let mut warnings = Vec::new();
         match self.optional(
             &["dumpsys", "batterystats", "--history"],
-            8 * 1024 * 1024,
+            BATTERY_DUMP_LIMIT,
             "Battery history is unavailable on this device; the final snapshot retains no history events.",
             &mut warnings,
         ) {
             Ok(text) => {
-                let mut events = crate::parse_history(&text);
-                if events.len() > 20_000 {
+                // The history ring can hold >200k lines. Keep the most recent
+                // event lines that fit the report budget instead of parsing and
+                // serializing the entire device history.
+                let lines: Vec<&str> = text
+                    .lines()
+                    .filter(|line| history_event_line(line))
+                    .collect();
+                let mut selected: Vec<&str> = Vec::new();
+                let mut bytes = 0usize;
+                for line in lines.iter().rev() {
+                    if selected.len() >= MAX_HISTORY_EVENTS
+                        || bytes + line.len() + 1 > HISTORY_RAW_BUDGET
+                    {
+                        break;
+                    }
+                    bytes += line.len() + 1;
+                    selected.push(line);
+                }
+                selected.reverse();
+                let omitted = lines.len().saturating_sub(selected.len());
+                let mut events = crate::parse_history(&selected.join("\n"));
+                events.retain(|event| event.uid.is_none_or(|uid| uid == self.identity.uid));
+                if omitted > 0 {
                     warnings.push(format!(
-                        "Battery history exceeded 20,000 events; {} later events were omitted.",
-                        events.len() - 20_000
+                        "Battery history exceeded the report budget; {omitted} earlier events were omitted."
                     ));
-                    events.truncate(20_000);
                 }
                 for event in &mut events {
                     event.raw = event.raw.chars().take(1024).collect();
@@ -872,6 +898,21 @@ fn uid_packages(
         return Err("Cannot establish the selected package's actual runtime UID; no attribution was guessed.".into());
     }
     Ok(packages)
+}
+
+/// Matches the Android 13+ history line prefix "MM-DD HH:MM:SS.mmm".
+fn history_event_line(line: &str) -> bool {
+    let line = line.trim_start();
+    let bytes = line.as_bytes();
+    bytes.len() >= 19
+        && bytes[0..2].iter().all(u8::is_ascii_digit)
+        && bytes[2] == b'-'
+        && bytes[3..5].iter().all(u8::is_ascii_digit)
+        && bytes[5] == b' '
+        && bytes[8] == b':'
+        && bytes[11] == b':'
+        && matches!(bytes[14], b'.' | b' ')
+        && !line.contains("TIME:")
 }
 
 fn read_identity(
@@ -1035,6 +1076,19 @@ mod tests {
         assert!(!empty.throttled);
         let out_of_range = parse_thermal_sample("Temperature{mValue=400, mName=CPU}", 1);
         assert_eq!(out_of_range.peak_celsius, None);
+    }
+
+    #[test]
+    fn history_lines_require_the_android_timestamp_prefix() {
+        assert!(history_event_line("  11-21 14:30:10.340 100"));
+        assert!(history_event_line(
+            "  11-21 14:30:10.427 100 stats=0:\"dump\""
+        ));
+        assert!(!history_event_line("  Wakeup events:"));
+        assert!(!history_event_line(
+            "  11-09 06:55:36.600 TIME: 2026-11-09-06-55-36"
+        ));
+        assert!(!history_event_line("  Total: 0"));
     }
 
     #[test]
