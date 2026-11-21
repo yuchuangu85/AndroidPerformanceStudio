@@ -275,10 +275,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
+          title="AndroidPerfermanceStudio ${version}"
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            # Re-running a tag must refresh the packaged assets, not fail on the
-            # existing release.
+            # Re-running a tag refreshes the packaged assets and keeps the
+            # product-style release title instead of failing on the existing
+            # release.
             gh release upload "${RELEASE_TAG}" release-assets/* --clobber
+            gh release edit "${RELEASE_TAG}" --title "${title}"
           else
-            gh release create "${RELEASE_TAG}" release-assets/* --generate-notes --title "Rust Desktop ${RELEASE_TAG}"
+            gh release create "${RELEASE_TAG}" release-assets/* --generate-notes --title "${title}"
           fi
