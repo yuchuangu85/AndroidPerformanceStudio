@@ -1,4 +1,4 @@
-name: Rust desktop architecture
+name: APS desktop architecture
 
 on:
   pull_request:
@@ -6,14 +6,14 @@ on:
       - 'rust-desktop/**'
       - 'scripts/check_rust_architecture.py'
       - 'scripts/tests/test_rust_architecture.py'
-      - '.github/workflows/rust-desktop-architecture.yml'
+      - '.github/workflows/aps-desktop-architecture.yml'
   push:
     branches: ['**']
     paths:
       - 'rust-desktop/**'
       - 'scripts/check_rust_architecture.py'
       - 'scripts/tests/test_rust_architecture.py'
-      - '.github/workflows/rust-desktop-architecture.yml'
+      - '.github/workflows/aps-desktop-architecture.yml'
 
 permissions:
   contents: read

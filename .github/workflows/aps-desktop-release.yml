@@ -1,4 +1,4 @@
-name: Rust Desktop Release
+name: APS Desktop Release
 
 # Release packaging does not deny rustc warnings. The workspace still reports
 # them in the build log, but a platform-specific unused or dead-code warning
@@ -7,7 +7,7 @@ name: Rust Desktop Release
 on:
   push:
     tags:
-      - "rust-desktop-v*"
+      - "aps-desktop-v*"
       - "v*"
 
 permissions:
@@ -59,7 +59,8 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -e
-          version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
+          version="${RELEASE_TAG#aps-desktop-v}"
+          version="${version#rust-desktop-v}"; version="${version#v}"
           root="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}"
           libdir="$root/usr/lib/aps-desktop"
           mkdir -p "$libdir" "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/1024x1024/apps" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
@@ -166,7 +167,8 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           set -e
-          version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
+          version="${RELEASE_TAG#aps-desktop-v}"
+          version="${version#rust-desktop-v}"; version="${version#v}"
           app="dist/Android Performance Studio.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp "rust-desktop/target/${TARGET}/release/aps-app" "$app/Contents/MacOS/aps-app"
@@ -230,7 +232,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = $env:RELEASE_TAG -replace '^(rust-desktop-)?v', ''
+          $version = $env:RELEASE_TAG -replace '^(?:aps-desktop-|rust-desktop-)?v', ''
           $parts = (($version -replace '[^0-9.]', '.') -split '\.' | Where-Object { $_ -ne '' } | Select-Object -First 3)
           while ($parts.Count -lt 3) { $parts += '0' }
           $msiVersion = $parts -join '.'
@@ -303,7 +305,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
+          version="${RELEASE_TAG#aps-desktop-v}"
+          version="${version#rust-desktop-v}"; version="${version#v}"
           title="AndroidPerfermanceStudio ${version}"
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             # Re-running a tag refreshes the packaged assets and keeps the
