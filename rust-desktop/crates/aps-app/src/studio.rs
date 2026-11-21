@@ -218,6 +218,24 @@ pub fn page(colors: &StudioColors) -> Div {
         .text_size(px(FONT_BODY))
 }
 
+/// Root of a profiler workspace that must hand its remaining height to a
+/// scrolling child. Unlike `page`, the root is a flex item rather than an
+/// auto-sized box: a `flex_1` list inside an auto-height column resolves to
+/// zero height and silently disappears.
+pub fn page_fill(colors: &StudioColors) -> Div {
+    div()
+        .w_full()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(metrics::CARD_GAP))
+        .p(px(metrics::WORKSPACE_PADDING))
+        .bg(colors.workspace)
+        .text_color(colors.text)
+        .text_size(px(FONT_BODY))
+}
+
 /// Compact repeatable card surface for dense workspaces.
 pub fn card(colors: &StudioColors) -> Div {
     div()

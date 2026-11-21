@@ -5,7 +5,6 @@
 //! sample traces use the explicit advanced capture adapters. Ordinary HPROF
 //! bitmap findings remain distinct from extracted image-dump sessions.
 use super::ImportWorkspace;
-use super::widgets::toolbar_button;
 use crate::studio::{self, StudioColors};
 use aps_memory::BitmapInstance;
 use aps_ui_foundation::{Language, TextKey, typography};
@@ -108,30 +107,12 @@ impl ImportWorkspace {
         let duplicate_classes = self.memory_state.duplicate_classes.len();
         let unavailable = language.text(TextKey::MemoryPageUnavailable);
 
+        // The findings state shares the bitmap page's capture slot: one button
+        // that starts a dump and becomes the cancel action while it runs.
         let title = page_title(
             language.text(TextKey::MemoryAppBitmapDumpView),
             language.text(TextKey::MemoryPageBitmapDumpNoSession),
-            vec![
-                toolbar_button(
-                    "memory-bitmap-dump",
-                    language.text(TextKey::MemoryPageDumpBitmaps),
-                    self.advanced_memory_ready(),
-                    false,
-                    colors,
-                )
-                .tooltip(self.memory_capture_tooltip())
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.capture_advanced_memory(super::advanced::AdvancedMemoryKind::Bitmap, cx)
-                })),
-                toolbar_button(
-                    "memory-bitmap-export",
-                    language.text(TextKey::MemoryAppExportBitmapDump),
-                    false,
-                    false,
-                    colors,
-                )
-                .tooltip(language.text(TextKey::MemoryPageCaptureUnavailable)),
-            ],
+            vec![self.bitmap_capture_action(colors, cx)],
             colors,
         );
 
@@ -182,11 +163,7 @@ impl ImportWorkspace {
             );
         }
 
-        let mut root = studio::page(colors)
-            .id("memory-bitmaps-page")
-            .h_auto()
-            .flex_1()
-            .min_h_0()
+        let mut root = studio::page_fill(colors).id("memory-bitmaps-page")
             .child(title)
             .child(summary);
         if rows.is_empty() {

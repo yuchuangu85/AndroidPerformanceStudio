@@ -73,6 +73,8 @@ pub(in crate::import) struct AdvancedMemoryUi {
     art: Option<Arc<HeapDataset>>,
     pub(in crate::import) bitmap: Option<Arc<BitmapDataset>>,
     selected_image: usize,
+    /// Keeps the thumbnail gallery at the top for every newly captured dump.
+    bitmap_scroll: ScrollHandle,
 }
 impl AdvancedMemoryUi {
     fn heap(&self, kind: AdvancedMemoryKind) -> Option<&Arc<HeapDataset>> {
@@ -228,25 +230,6 @@ impl ImportWorkspace {
         cx.notify();
         true
     }
-    fn advanced_target_text(&self) -> String {
-        self.memory_capture.target().map_or_else(
-            || {
-                self.language
-                    .text(TextKey::MemoryPageCaptureSelectTarget)
-                    .into()
-            },
-            |target| {
-                self.language.format(
-                    TextKey::MemoryLiveTarget,
-                    &[
-                        ("process", &target.process_name),
-                        ("pid", &target.pid),
-                        ("serial", &target.serial),
-                    ],
-                )
-            },
-        )
-    }
     pub(crate) fn capture_advanced_memory(
         &mut self,
         kind: AdvancedMemoryKind,
@@ -364,6 +347,9 @@ impl ImportWorkspace {
                     .map(|previous| Arc::new(compare_bitmap_dumps(&previous.dump, &data.dump)));
                 self.memory_advanced.bitmap = Some(Arc::new(data));
                 self.memory_advanced.selected_image = 0;
+                self.memory_advanced
+                    .bitmap_scroll
+                    .set_offset(point(px(0.), px(0.)));
                 self.memory_state.view_mode = MemoryViewMode::BitmapDump;
                 self.notice = Some(TextKey::MemoryLivePublished.into());
             }
@@ -589,15 +575,10 @@ impl ImportWorkspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let language = self.language;
-        let ready = self.advanced_memory_ready();
         let data = self.memory_advanced.heap(kind).cloned();
-        let mut page = studio::page(colors)
-            .id("memory-advanced-heap")
-            .h_auto()
-            .flex_1()
-            .min_h_0()
+        let mut page = studio::page_fill(colors).id("memory-advanced-heap")
             .child(studio::section_title(language.text(kind.title()), colors))
-            .child(self.advanced_actions(kind, ready, colors, cx))
+            .child(self.advanced_actions(kind, colors, cx))
             .child(studio::supporting(
                 language.text(if kind == AdvancedMemoryKind::Art {
                     TextKey::MemoryLiveArtBoundary
@@ -694,30 +675,49 @@ impl ImportWorkspace {
         }
         page.into_any_element()
     }
+    /// The bitmap dump owns its capture action. One slot serves both states:
+    /// while a capture runs the same button cancels it, so the page never shows
+    /// a capture and a cancel side by side.
+    pub(super) fn bitmap_capture_action(
+        &self,
+        colors: &studio::StudioColors,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        if self.busy {
+            return toolbar_button(
+                "bitmap-capture-cancel",
+                self.language.text(TextKey::ImportCancelOperation),
+                true,
+                false,
+                colors,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx)));
+        }
+        toolbar_button(
+            "bitmap-capture",
+            self.language.text(TextKey::MemoryPageDumpBitmaps),
+            self.advanced_memory_ready(),
+            false,
+            colors,
+        )
+        .tooltip(self.memory_capture_tooltip())
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.capture_advanced_memory(AdvancedMemoryKind::Bitmap, cx)
+        }))
+    }
+
+    /// Import and export for one advanced evidence view. Native and ART
+    /// captures stay in the toolbar; the bitmap page adds its own capture slot.
     fn advanced_actions(
         &self,
         kind: AdvancedMemoryKind,
-        ready: bool,
         colors: &studio::StudioColors,
         cx: &mut Context<Self>,
     ) -> Div {
-        div()
+        let row = div()
             .flex()
             .flex_wrap()
             .gap_1()
-            .child(
-                toolbar_button(
-                    "advanced-memory-capture",
-                    self.language.text(TextKey::MemoryLiveCapture),
-                    ready,
-                    false,
-                    colors,
-                )
-                .tooltip(self.advanced_target_text())
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.capture_advanced_memory(kind, cx)),
-                ),
-            )
             .child(
                 toolbar_button(
                     "advanced-memory-import",
@@ -737,40 +737,35 @@ impl ImportWorkspace {
                     colors,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.export_advanced_memory(kind, cx))),
-            )
-            .when(self.busy, |row| {
-                row.child(
-                    toolbar_button(
-                        "advanced-memory-cancel",
-                        self.language.text(TextKey::ImportCancelOperation),
-                        true,
-                        false,
-                        colors,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
+            );
+        if kind == AdvancedMemoryKind::Bitmap {
+            return row.child(self.bitmap_capture_action(colors, cx));
+        }
+        row.when(self.busy, |row| {
+            row.child(
+                toolbar_button(
+                    "advanced-memory-cancel",
+                    self.language.text(TextKey::ImportCancelOperation),
+                    true,
+                    false,
+                    colors,
                 )
-            })
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
+            )
+        })
     }
     pub(super) fn render_bitmap_dump(
         &mut self,
         colors: &studio::StudioColors,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut page = studio::page(colors)
+        let mut page = studio::page_fill(colors)
             .id("memory-bitmap-image-dump")
-            .h_auto()
-            .flex_1()
-            .min_h_0()
             .child(studio::section_title(
                 self.language.text(TextKey::MemoryAppBitmapDumpView),
                 colors,
             ))
-            .child(self.advanced_actions(
-                AdvancedMemoryKind::Bitmap,
-                self.advanced_memory_ready(),
-                colors,
-                cx,
-            ))
+            .child(self.advanced_actions(AdvancedMemoryKind::Bitmap, colors, cx))
             .child(studio::supporting(
                 self.language.text(TextKey::MemoryLiveBitmapBoundary),
                 colors,
@@ -801,7 +796,10 @@ impl ImportWorkspace {
                     ("discovered", &dump.discovered),
                     ("images", &dump.images.len()),
                     ("omitted", &dump.omitted),
-                    ("bytes", &summary.total_png_bytes),
+                    (
+                        "bytes",
+                        &super::auxiliary::memory_bytes(summary.total_png_bytes),
+                    ),
                 ],
             ),
             colors,
@@ -1016,8 +1014,11 @@ impl ImportWorkspace {
                     })
                     .text_color(colors.text)
                     .accessibility_label(format!(
-                        "#{}  {}×{}  {} B",
-                        image.index, image.width, image.height, image.png_bytes
+                        "#{}  {}×{}  {}",
+                        image.index,
+                        image.width,
+                        image.height,
+                        image_size(image.png_bytes)
                     ))
                     .child(
                         div()
@@ -1056,8 +1057,8 @@ impl ImportWorkspace {
                                     .text_color(colors.secondary_text)
                                     .text_ellipsis()
                                     .child(format!(
-                                        "{} B · dup ×{}",
-                                        image.png_bytes,
+                                        "{} · dup ×{}",
+                                        image_size(image.png_bytes),
                                         duplicates.get(image.sha256.as_str()).copied().unwrap_or(1)
                                     )),
                             ),
@@ -1078,12 +1079,13 @@ impl ImportWorkspace {
             .min_h_0()
             .gap_1();
         if let Some(image) = selected_image {
+            // Keep the strip non-scrollable: a horizontally scrollable row in
+            // this column consumes the height of the gallery list below it.
             image_panel = image_panel.child(
                 div()
                     .id("bitmap-image-metadata")
                     .w_full()
                     .flex_shrink_0()
-                    .overflow_x_scrollbar()
                     .child(studio::supporting(
                         format!("{} · SHA-256 {}", image.array_id, image.sha256),
                         colors,
@@ -1094,9 +1096,10 @@ impl ImportWorkspace {
             div()
                 .id("bitmap-images-list")
                 .flex_1()
-                .h_full()
+                .w_full()
                 .min_w_0()
                 .min_h_0()
+                .track_scroll(&self.memory_advanced.bitmap_scroll)
                 .overflow_y_scrollbar()
                 .child(grid),
         );
@@ -1139,6 +1142,19 @@ impl ImportWorkspace {
                 .child(preview),
         )
         .into_any_element()
+    }
+}
+
+/// Thumbnail PNG size at tile width. A raw byte count is unreadable in the
+/// gallery, so tiles report KB and only switch to MB past a megabyte.
+fn image_size(bytes: u64) -> String {
+    const KB: f64 = 1024.;
+    const MB: f64 = 1024. * 1024.;
+    let value = bytes as f64;
+    if value >= MB {
+        format!("{:.1} MB", value / MB)
+    } else {
+        format!("{:.1} KB", value / KB)
     }
 }
 
@@ -1269,7 +1285,7 @@ mod bitmap_grid_tests {
             .unwrap();
         for constraint in [
             ".flex_1()",
-            ".h_full()",
+            ".w_full()",
             ".min_w_0()",
             ".min_h_0()",
             ".overflow_y_scrollbar()",
@@ -1280,6 +1296,84 @@ mod bitmap_grid_tests {
                 "Missing grid constraint: {constraint}"
             );
         }
+    }
+
+    fn runtime_source(source: &'static str) -> &'static str {
+        source.split("#[cfg(test)]").next().unwrap()
+    }
+
+    #[::core::prelude::v1::test]
+    fn bitmap_capture_is_one_slot_after_export_that_becomes_cancel() {
+        // The bitmap page owns capture; the toolbar keeps native and ART only.
+        let toolbar = include_str!("toolbar.rs");
+        assert!(!toolbar.contains("\"memory-dump-bitmaps\""));
+        assert!(toolbar.contains("\"memory-capture-native-heap\""));
+        assert!(toolbar.contains("\"memory-record-art-samples\""));
+        let advanced = runtime_source(include_str!("advanced.rs"));
+        let action = advanced
+            .split("fn bitmap_capture_action(")
+            .nth(1)
+            .unwrap()
+            .split("fn advanced_actions(")
+            .next()
+            .unwrap();
+        for marker in [
+            "\"bitmap-capture\"",
+            "\"bitmap-capture-cancel\"",
+            "MemoryPageDumpBitmaps",
+            "ImportCancelOperation",
+            "this.cancel_work(cx)",
+            "capture_advanced_memory(AdvancedMemoryKind::Bitmap, cx)",
+        ] {
+            assert!(
+                action.contains(marker),
+                "Missing capture slot behaviour: {marker}"
+            );
+        }
+        // Import and export come first, then the capture slot; the bitmap row
+        // returns before the generic cancel button is appended.
+        let actions = advanced
+            .split("fn advanced_actions(")
+            .nth(1)
+            .unwrap()
+            .split("pub(super) fn render_bitmap_dump(")
+            .next()
+            .unwrap();
+        assert!(
+            actions.find("\"advanced-memory-import\"").unwrap()
+                < actions.find("\"advanced-memory-export\"").unwrap()
+        );
+        let bitmap_branch = actions
+            .split("if kind == AdvancedMemoryKind::Bitmap {")
+            .nth(1)
+            .unwrap();
+        assert!(bitmap_branch
+            .trim_start()
+            .starts_with("return row.child(self.bitmap_capture_action(colors, cx));"));
+        // The bitmap findings state shares that one slot instead of adding a
+        // second capture or cancel button.
+        let bitmap_findings = runtime_source(include_str!("auxiliary.rs"));
+        assert!(bitmap_findings.contains("vec![self.bitmap_capture_action(colors, cx)]"));
+        assert!(!bitmap_findings.contains("\"memory-bitmap-dump\""));
+    }
+
+    #[::core::prelude::v1::test]
+    fn bitmap_gallery_root_is_height_bounded_so_the_grid_is_laid_out() {
+        let source = bitmap_view_source();
+        // An auto-height page collapses every nested `flex_1` pane to zero, so
+        // the gallery root must remain a bounded flex item.
+        assert!(source.contains("studio::page_fill(colors)"));
+        assert!(!source.contains(".h_auto()"));
+        // A horizontally scrolling metadata strip consumes the height of the
+        // gallery list that follows it, so the strip stays a plain text row.
+        let metadata = source
+            .split(".id(\"bitmap-image-metadata\")")
+            .nth(1)
+            .unwrap()
+            .split(".id(\"bitmap-images-list\")")
+            .next()
+            .unwrap();
+        assert!(!metadata.contains("overflow_x_scrollbar"));
     }
 
     #[::core::prelude::v1::test]
@@ -1307,6 +1401,26 @@ mod bitmap_grid_tests {
                 "data.comparison = self.memory_advanced.bitmap.as_ref().map(|previous| {"
             )
         );
+    }
+
+    #[::core::prelude::v1::test]
+    fn bitmap_tiles_label_sizes_in_kb_and_never_raw_bytes() {
+        // The gallery is a picture list: a five digit byte count is noise at
+        // tile width, so a tile reports KB and only switches to MB past a
+        // megabyte.
+        use super::image_size;
+        assert_eq!(image_size(512), "0.5 KB");
+        assert_eq!(image_size(40 * 1024), "40.0 KB");
+        assert_eq!(image_size(3 * 1024 * 1024), "3.0 MB");
+        let tile = bitmap_view_source()
+            .split("Button::new((\"bitmap-image\", index))")
+            .nth(1)
+            .unwrap()
+            .split("let mut preview =")
+            .next()
+            .unwrap();
+        assert!(tile.contains("image_size(image.png_bytes)"));
+        assert!(!tile.contains("{} B"));
     }
 
     #[::core::prelude::v1::test]

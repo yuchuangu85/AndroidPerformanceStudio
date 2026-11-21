@@ -12,6 +12,6 @@
   "memory_live_heap_columns": "PID / UPID · 调用点 · 样本行数 · 加权分配数量 / 字节 · 采样净数量 / 字节 · 叶帧",
   "memory_live_no_samples": "此页没有分配采样。Trace 非空并不证明具备采样权限或已观测到分配。",
   "memory_live_bitmap_boundary": "Android 15+ Bitmap.dumpData PNG 图像，由隔离 worker 提取。普通 HPROF 的 Bitmap 实例不等于图像转储。提取有数量与字节上限，省略数量明确展示。",
-  "memory_live_bitmap_summary": "已记录 {recorded} / 已发现 {discovered} · 提取 {images} · 省略 {omitted} · PNG 存储 {bytes} B",
+  "memory_live_bitmap_summary": "已记录 {recorded} / 已发现 {discovered} · 提取 {images} · 省略 {omitted} · PNG 存储 {bytes}",
   "memory_live_target": "采集目标：{serial} 上的 {process}（PID {pid}）"
 }

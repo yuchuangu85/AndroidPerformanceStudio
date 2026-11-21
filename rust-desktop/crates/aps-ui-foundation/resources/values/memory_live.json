@@ -12,6 +12,6 @@
   "memory_live_heap_columns": "PID / UPID · callsite · sample rows · weighted allocation count / bytes · sampled net count / bytes · leaf frame",
   "memory_live_no_samples": "No allocation samples in this page. A nonempty trace does not prove profiling permission or observed allocations.",
   "memory_live_bitmap_boundary": "Android 15+ Bitmap.dumpData PNG images, extracted in the isolated worker. Ordinary HPROF Bitmap instances are not image dumps. Extraction is bounded; omitted images are explicit.",
-  "memory_live_bitmap_summary": "Recorded {recorded} / discovered {discovered} · extracted {images} · omitted {omitted} · PNG storage {bytes} B",
+  "memory_live_bitmap_summary": "Recorded {recorded} / discovered {discovered} · extracted {images} · omitted {omitted} · PNG storage {bytes}",
   "memory_live_target": "Captured target: {process} (PID {pid}) on {serial}"
 }

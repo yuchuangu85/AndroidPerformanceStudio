@@ -1285,3 +1285,32 @@ client (GPUI's default is a null client), so any provider request failed with
   request/navigation epoch before using the existing AI conversation/preflight.
   Browser errors never substitute native CPU selection. Numeric weights retain
   their reported units and are not reinterpreted as exact method durations.
+
+### Rust Bitmap Gallery Height (2026-11-21)
+
+- The Bitmap image dump page is a bounded flex column: the workspace root fills
+  the remaining height and hands it to the gallery row, so the thumbnail grid
+  and the selected-image preview always get a non-zero size. An auto-height root
+  collapses every nested flexible pane to zero height and the gallery disappears
+  while the summary still reports the extracted images.
+- The selected-image metadata strip is a plain, non-scrollable text row. A
+  horizontally scrollable strip in the same column consumes the height of the
+  gallery list that follows it, leaving the grid invisible.
+- The thumbnail list itself scrolls vertically inside the page; the grid keeps
+  its wrapping multi-column layout, fixed 164 x 166 tiles and the adjacent
+  preview. Bitmap findings, Native heap, ART samples and leak tables use the
+  same bounded page root so their scrolling rows are laid out too.
+- A tile labels its PNG size in KB (MB past a megabyte) instead of a raw byte
+  count, and the accessibility label carries the same text. The page's PNG
+  storage total uses the shared memory byte label instead of a bare `B`.
+
+### Memory Capture Entry (2026-11-21)
+
+- Every capture has exactly one entry. Native heap and ART samples stay in the
+  memory toolbar's capture group; the bitmap dump moved into the Bitmap page,
+  immediately after 导入产物/导出产物, and is no longer offered in the toolbar.
+- The bitmap capture occupies a single action slot: it starts a dump when idle
+  and becomes 取消操作 while a capture runs, so the page never renders a
+  separate cancel button beside it. The Bitmap findings state (an imported
+  HPROF without a bitmap dump) reuses that same slot instead of adding a second
+  capture or a disabled export.

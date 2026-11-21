@@ -201,11 +201,7 @@ impl ImportWorkspace {
             );
         }
 
-        studio::page(colors)
-            .id("memory-leak-analysis-page")
-            .h_auto()
-            .flex_1()
-            .min_h_0()
+        studio::page_fill(colors).id("memory-leak-analysis-page")
             .child(summary)
             .child(notes)
             .child(tabs)
