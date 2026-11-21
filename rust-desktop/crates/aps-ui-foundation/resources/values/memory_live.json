@@ -7,6 +7,7 @@
   "memory_live_capture": "Capture selected process",
   "memory_live_import": "Import artifact…",
   "memory_live_export": "Export artifact…",
+  "memory_live_open_in_perfetto": "Open in Perfetto",
   "memory_live_native_boundary": "10 s · 4096-byte sampling · Android 10+. Native values are sampled recorded allocation accounting, not exact allocations or the full live heap. Net values may be negative.",
   "memory_live_art_boundary": "10 s · 4096-byte sampling · Android 12+. com.android.art positive allocation samples only: no full coverage, object classes, deallocation, GC or retention claims.",
   "memory_live_heap_columns": "PID / UPID · callsite · sample rows · weighted allocation count / bytes · sampled net count / bytes · leaf frame",

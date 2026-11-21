@@ -713,6 +713,37 @@ impl ImportWorkspace {
         .on_click(cx.listener(move |this, _, _, cx| this.capture_advanced_memory(kind, cx)))
     }
 
+    /// Opens the published Native heap trace in the local Perfetto UI. The
+    /// button only exists once a capture or import produced a dataset.
+    fn perfetto_action(&self, colors: &studio::StudioColors, cx: &mut Context<Self>) -> Button {
+        toolbar_button(
+            "advanced-native-perfetto",
+            self.language.text(TextKey::MemoryLiveOpenInPerfetto),
+            self.memory_advanced.native.is_some() && !self.busy,
+            false,
+            colors,
+        )
+        .on_click(cx.listener(|this, _, _, cx| this.open_native_heap_in_perfetto(cx)))
+    }
+
+    /// Hands the Native heap trace to the loopback Perfetto UI server; the
+    /// system browser opens that local URL and the trace never leaves the host.
+    pub(crate) fn open_native_heap_in_perfetto(&mut self, cx: &mut Context<Self>) {
+        let Some(data) = self.memory_advanced.native.as_ref() else {
+            return;
+        };
+        let path = data.path.clone();
+        let assets = crate::perfetto_tool::viewer_assets_dir();
+        match self
+            .memory_viewer
+            .open(&path, None, assets.as_deref(), None, None)
+        {
+            Ok(()) => self.error = None,
+            Err(error) => self.error = Some(error.into()),
+        }
+        cx.notify();
+    }
+
     /// Import and export for one advanced evidence view, plus the capture slot
     /// of pages that own it. ART samples still capture from the toolbar.
     fn advanced_actions(
@@ -749,7 +780,11 @@ impl ImportWorkspace {
             kind,
             AdvancedMemoryKind::Bitmap | AdvancedMemoryKind::Native
         ) {
-            return row.child(self.capture_action(kind, colors, cx));
+            let row = row.child(self.capture_action(kind, colors, cx));
+            if kind == AdvancedMemoryKind::Native {
+                return row.child(self.perfetto_action(colors, cx));
+            }
+            return row;
         }
         row.when(self.busy, |row| {
             row.child(
@@ -1363,14 +1398,66 @@ mod bitmap_grid_tests {
             .split("AdvancedMemoryKind::Bitmap | AdvancedMemoryKind::Native")
             .nth(1)
             .unwrap();
-        assert!(own_capture
-            .trim_start()
-            .starts_with(") {\n            return row.child(self.capture_action(kind, colors, cx));"));
+        assert!(own_capture.trim_start().starts_with(
+            ") {\n            let row = row.child(self.capture_action(kind, colors, cx));"
+        ));
         // The bitmap findings state shares that one slot instead of adding a
         // second capture or cancel button.
         let bitmap_findings = runtime_source(include_str!("auxiliary.rs"));
         assert!(bitmap_findings.contains("self.capture_action("));
         assert!(!bitmap_findings.contains("\"memory-bitmap-dump\""));
+    }
+
+    #[::core::prelude::v1::test]
+    fn native_heap_opens_its_trace_in_the_local_perfetto_ui() {
+        let advanced = runtime_source(include_str!("advanced.rs"));
+        let action = advanced
+            .split("fn perfetto_action(")
+            .nth(1)
+            .unwrap()
+            .split("pub(crate) fn open_native_heap_in_perfetto(")
+            .next()
+            .unwrap();
+        for marker in [
+            "MemoryLiveOpenInPerfetto",
+            "self.memory_advanced.native.is_some() && !self.busy",
+            "this.open_native_heap_in_perfetto(cx)",
+        ] {
+            assert!(action.contains(marker), "Missing perfetto action: {marker}");
+        }
+        // The trace is served by the loopback viewer, never uploaded.
+        let open = advanced
+            .split("pub(crate) fn open_native_heap_in_perfetto(")
+            .nth(1)
+            .unwrap()
+            .split("fn advanced_actions(")
+            .next()
+            .unwrap();
+        for marker in [
+            ".memory_viewer",
+            "crate::perfetto_tool::viewer_assets_dir()",
+            ".open(&path, None, assets.as_deref(), None, None)",
+        ] {
+            assert!(open.contains(marker), "Missing perfetto handoff: {marker}");
+        }
+        // Only the native page appends it, after its capture slot.
+        let actions = advanced
+            .split("fn advanced_actions(")
+            .nth(1)
+            .unwrap()
+            .split("pub(super) fn render_bitmap_dump(")
+            .next()
+            .unwrap();
+        let native_branch = actions
+            .split("if kind == AdvancedMemoryKind::Native {")
+            .nth(1)
+            .unwrap();
+        assert!(native_branch
+            .trim_start()
+            .starts_with("return row.child(self.perfetto_action(colors, cx));"));
+        // The memory workspace owns a loopback port of its own.
+        let workspace = runtime_source(include_str!("../../import.rs"));
+        assert!(workspace.contains("memory_viewer: crate::perfetto_viewer::ViewerServer::new(9419)"));
     }
 
     #[::core::prelude::v1::test]

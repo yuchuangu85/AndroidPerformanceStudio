@@ -274,6 +274,9 @@ pub struct ImportWorkspace {
     memory_state: MemoryState,
     memory_capture: memory::capture::MemoryCaptureUi,
     memory_advanced: memory::advanced::AdvancedMemoryUi,
+    /// Local Perfetto UI server for captured Native heap traces; the trace is
+    /// served from loopback and never uploaded.
+    memory_viewer: crate::perfetto_viewer::ViewerServer,
     startup_capture: startup::StartupCaptureUi,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
@@ -320,6 +323,7 @@ impl ImportWorkspace {
             memory_state: MemoryState::new(),
             memory_capture: memory::capture::MemoryCaptureUi::default(),
             memory_advanced: memory::advanced::AdvancedMemoryUi::default(),
+            memory_viewer: crate::perfetto_viewer::ViewerServer::new(9419),
             startup_capture: startup::StartupCaptureUi::default(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,

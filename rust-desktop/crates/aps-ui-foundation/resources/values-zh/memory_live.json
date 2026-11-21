@@ -7,6 +7,7 @@
   "memory_live_capture": "采集所选进程",
   "memory_live_import": "导入产物…",
   "memory_live_export": "导出产物…",
+  "memory_live_open_in_perfetto": "用 Perfetto 打开",
   "memory_live_native_boundary": "10 秒 · 4096 字节采样间隔 · Android 10+。Native 数值是录制区间内的采样分配记账，不是精确分配量或完整存活堆；净值可能为负。",
   "memory_live_art_boundary": "10 秒 · 4096 字节采样间隔 · Android 12+。仅分析 com.android.art 的正向分配采样：不代表完整覆盖、对象类型、释放、GC 或持有关系。",
   "memory_live_heap_columns": "PID / UPID · 调用点 · 样本行数 · 加权分配数量 / 字节 · 采样净数量 / 字节 · 叶帧",
