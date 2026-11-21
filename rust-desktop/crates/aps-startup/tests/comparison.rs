@@ -240,6 +240,44 @@ fn phase_comparison_requires_every_run_and_same_source_endpoints() {
     }
 }
 
+fn milestone(kind: &str, elapsed_realtime_ns: u64) -> Milestone {
+    Milestone {
+        kind: kind.into(),
+        elapsed_realtime_ns: Some(elapsed_realtime_ns),
+        source: "AGENT".into(),
+        confidence: Confidence::Exact,
+    }
+}
+
+#[test]
+fn agent_first_frame_is_derived_from_process_start() {
+    let current = report(&[10, 20], |_, _, evidence| {
+        evidence.milestones = vec![
+            milestone("PROCESS_START", 1_000_000_000),
+            milestone("FIRST_FRAME", 1_120_000_000),
+        ];
+    });
+    assert_eq!(current.summary().agent_first_frame.p50_ms, Some(120));
+    assert_eq!(current.summary().agent_first_frame.count, 2);
+    assert_eq!(current.runs()[0].agent_first_frame_ms, Some(120));
+}
+
+#[test]
+fn agent_first_frame_falls_back_to_first_draw_callback_and_needs_process_start() {
+    let fallback = report(&[10], |_, _, evidence| {
+        evidence.milestones = vec![
+            milestone("PROCESS_START", 1_000_000_000),
+            milestone("FIRST_DRAW_CALLBACK", 1_050_000_000),
+        ];
+    });
+    assert_eq!(fallback.summary().agent_first_frame.p50_ms, Some(50));
+    let missing = report(&[10], |_, _, evidence| {
+        evidence.milestones = vec![milestone("FIRST_FRAME", 1_050_000_000)];
+    });
+    assert_eq!(missing.summary().agent_first_frame.count, 0);
+    assert_eq!(missing.summary().agent_first_frame.missing, 1);
+}
+
 #[test]
 fn thresholds_are_bounded_and_affect_interval_classification() {
     let baseline = report(&[100; 3], |_, _, _| {});

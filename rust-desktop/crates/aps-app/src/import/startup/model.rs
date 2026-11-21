@@ -141,6 +141,7 @@ mod tests {
                 source: None,
                 unavailable_reason: Some("No reportFullyDrawn evidence".to_owned()),
             },
+            agent_first_frame_ms: None,
             warnings: Vec::new(),
             imported_fields: BTreeMap::new(),
         }

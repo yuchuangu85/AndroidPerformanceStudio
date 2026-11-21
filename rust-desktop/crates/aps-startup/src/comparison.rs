@@ -75,6 +75,24 @@ pub struct RunEvidence {
 }
 
 impl RunEvidence {
+    /// Compose parity: first Agent FIRST_FRAME (falling back to
+    /// FIRST_DRAW_CALLBACK) minus PROCESS_START, both on the Agent clock.
+    pub fn agent_first_frame_ms(&self) -> Option<u64> {
+        let process = self
+            .milestones
+            .iter()
+            .find(|milestone| milestone.kind == "PROCESS_START")?
+            .elapsed_realtime_ns?;
+        let frame = self
+            .milestones
+            .iter()
+            .find(|milestone| {
+                milestone.kind == "FIRST_FRAME" || milestone.kind == "FIRST_DRAW_CALLBACK"
+            })?
+            .elapsed_realtime_ns?;
+        (frame >= process).then(|| (frame - process) / 1_000_000)
+    }
+
     /// Exported phase arrays are descriptive only; rebuild intervals from the
     /// first available same-source endpoints, just as Compose import does.
     pub fn phases(&self) -> Vec<Phase> {

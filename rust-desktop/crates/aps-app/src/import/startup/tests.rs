@@ -181,26 +181,44 @@ fn empty_workspace_has_no_implicit_import_selection_or_ai_authority() {
         "startup-live-timeout",
         "startup-live-settle",
         "startup-live-event-wait",
-        "startup-live-review",
-        "startup-live-confirm",
-        "startup-live-cancel-review",
+        "startup-confirm-skip",
+        "startup-confirm-start",
     ] {
         assert!(
             capture.contains(id),
             "Missing explicit scenario control: {id}"
         );
     }
-    let review = capture
-        .split("pub(crate) fn start_startup_capture(")
+    for removed in ["startup-live-review", "startup-live-cancel"] {
+        assert!(
+            !capture.contains(removed),
+            "Inline action must move to the toolbar or dialog: {removed}"
+        );
+    }
+    assert!(ui.contains("\"startup-start\""));
+    assert!(ui.contains("StartupStop"));
+    let request = capture
+        .split("pub(crate) fn request_startup_start(")
         .nth(1)
         .unwrap()
-        .split("fn confirm_startup_capture(")
+        .split("fn begin_startup_experiment(")
         .next()
         .unwrap();
-    assert!(review.contains("review = Some(ReviewedExperiment"));
-    assert!(!review.contains("load_capture("));
-    assert!(!review.contains("capture_startup("));
-    assert!(!review.contains(".spawn("));
+    assert!(request.contains("startup_skip_confirm"));
+    assert!(request.contains("window.open_dialog(cx"));
+    assert!(!request.contains("load_capture("));
+    assert!(!request.contains("capture_startup("));
+    assert!(!request.contains(".spawn("));
+    let begin = capture
+        .split("fn begin_startup_experiment(")
+        .nth(1)
+        .unwrap()
+        .split("pub(crate) fn stop_startup_capture(")
+        .next()
+        .unwrap();
+    assert!(begin.contains("review = Some(ReviewedExperiment"));
+    assert!(begin.contains("confirm_startup_capture(cx)"));
+    assert!(!begin.contains("load_capture("));
     let confirm = capture
         .split("fn confirm_startup_capture(")
         .nth(1)
@@ -214,6 +232,7 @@ fn empty_workspace_has_no_implicit_import_selection_or_ai_authority() {
     assert!(confirm.contains("config != experiment.config"));
     assert!(confirm.contains("load_capture(&experiment"));
     assert!(ui.contains("StartupMetrics"));
+    assert!(ui.contains("summary.agent_first_frame.p50_ms"));
     assert!(ui.contains("startup-evidence-scroll"));
     assert!(!ui.contains("this.selected_frame ="));
     assert!(!ui.contains("this.selected_frame_id ="));

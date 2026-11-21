@@ -894,6 +894,10 @@ impl Studio {
         .into_iter()
         .map(|kind| {
             let workspace = cx.new(|_| ImportWorkspace::new(kind, settings.language.resolved()));
+            workspace.update(cx, |workspace, _| {
+                workspace.set_studio(studio_handle.clone());
+                workspace.set_startup_skip_confirm(settings.startup_skip_confirm);
+            });
             (kind, workspace)
         })
         .collect();
@@ -1959,7 +1963,9 @@ impl Studio {
             }
             Destination::Startup => {
                 if let Some(workspace) = self.imports.get(&Destination::Startup) {
-                    workspace.update(cx, |workspace, cx| workspace.start_startup_capture(cx));
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.request_startup_start(window, cx)
+                    });
                 }
             }
             Destination::Battery => {
@@ -2378,6 +2384,19 @@ impl Studio {
         cx.notify();
     }
 
+    pub(crate) fn set_startup_skip_confirm(
+        &mut self,
+        skip: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.startup_skip_confirm == skip {
+            return;
+        }
+        self.settings.startup_skip_confirm = skip;
+        self.persist_settings(window, cx);
+    }
+
     fn persist_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         crate::apply_theme(&self.settings, cx);
         window.set_rem_size(px(16. * self.settings.display_scale.multiplier()));
@@ -2432,7 +2451,8 @@ impl Studio {
         });
         for import in self.imports.values() {
             import.update(cx, |import, cx| {
-                import.set_language(self.settings.language.resolved(), cx)
+                import.set_language(self.settings.language.resolved(), cx);
+                import.set_startup_skip_confirm(self.settings.startup_skip_confirm);
             });
         }
         let Some(path) = self.settings_path.clone() else {

@@ -384,6 +384,7 @@ fn decode(root: Value) -> Result<StartupSession, String> {
             complete: false,
             ttid: duration(ttid, &metadata.ttid),
             ttfd: duration(ttfd, &metadata.ttfd),
+            agent_first_frame_ms: None,
             warnings: strings(value, "warnings")?,
             imported_fields: fields,
         });

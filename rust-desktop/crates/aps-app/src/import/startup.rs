@@ -231,12 +231,6 @@ impl ImportWorkspace {
                 self.language,
                 &colors,
             ));
-        if self.busy {
-            main = main.child(note(
-                self.language.text(TextKey::ImportLoadingQuerying),
-                colors.info,
-            ));
-        }
         main = main
             .child(waterfall(
                 selected,
@@ -395,7 +389,7 @@ impl ImportWorkspace {
                 ),
             )
             .child(div().flex_1())
-            .when(self.busy, |bar| {
+            .when(self.busy && !self.startup_capture.in_progress, |bar| {
                 bar.child(
                     studio::compact_text_button(
                         "startup-cancel",
@@ -406,6 +400,28 @@ impl ImportWorkspace {
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_work(cx))),
                 )
+            })
+            .child({
+                let in_progress = self.startup_capture.in_progress;
+                studio::compact_text_button(
+                    "startup-start",
+                    language.text(if in_progress {
+                        TextKey::StartupStop
+                    } else {
+                        TextKey::StartupStart
+                    }),
+                    in_progress
+                        || (self.startup_capture.has_target() && !self.busy && !self.export_busy),
+                    !in_progress,
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    if this.startup_capture.in_progress {
+                        this.stop_startup_capture(cx);
+                    } else {
+                        this.request_startup_start(window, cx);
+                    }
+                }))
             })
             .child(
                 studio::compact_text_button(
@@ -943,8 +959,8 @@ fn metrics(
         ),
         (
             TextKey::StartupFirstFrame,
-            "—".to_owned(),
-            None,
+            metric_ms(summary.agent_first_frame.p50_ms),
+            Some(&summary.agent_first_frame),
             colors.success,
         ),
         (

@@ -84,6 +84,7 @@ pub fn am_start(text: &str, package: &str, requested: StartupMode) -> Result<Sta
             "No platform Displayed event was supplied; am-start TotalTime is not substituted.",
         ),
         ttfd: DurationMetric::missing("No platform Fully drawn event was supplied."),
+        agent_first_frame_ms: None,
         warnings,
         imported_fields: BTreeMap::new(),
     })

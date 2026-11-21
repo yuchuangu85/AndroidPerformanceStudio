@@ -5,6 +5,7 @@ use aps_adb::{AdbDevice, AndroidApplicationProcess};
 use aps_startup::capture::{
     StartupCaptureArtifact, StartupCaptureConfig, StartupCaptureTarget, capture_startup,
 };
+use gpui_kit::component::{WindowExt, checkbox::Checkbox};
 use std::sync::atomic::AtomicU32;
 
 #[derive(Clone)]
@@ -182,6 +183,33 @@ fn load_capture(
     })
 }
 
+/// Self-rendering confirmation checkbox so toggling repaints inside the dialog
+/// without rebuilding the whole dialog layer.
+struct StartupConfirmSkip {
+    checked: bool,
+    label: SharedString,
+}
+
+impl Render for StartupConfirmSkip {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let checked = self.checked;
+        let colors = studio::StudioColors::from_theme(cx);
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                Checkbox::new("startup-confirm-skip")
+                    .checked(checked)
+                    .on_change(cx.listener(|this, checked, _, cx| {
+                        this.checked = *checked;
+                        cx.notify();
+                    })),
+            )
+            .child(note(self.label.clone(), colors.secondary_text))
+    }
+}
+
 impl ImportWorkspace {
     pub(crate) fn set_startup_capture_target(
         &mut self,
@@ -216,9 +244,121 @@ impl ImportWorkspace {
         cx.notify();
     }
 
-    /// All entry points, including shortcuts, first show the exact experiment
-    /// and lifecycle side effects. Merely opening/choosing a target does no work.
-    pub(crate) fn start_startup_capture(&mut self, cx: &mut Context<Self>) {
+    /// Toolbar entry point. The confirmation dialog is shown unless the operator
+    /// previously checked "do not ask again"; either path starts one experiment.
+    pub(crate) fn request_startup_start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.kind != Destination::Startup || self.busy || self.export_busy {
+            return;
+        }
+        let Some(target) = self.startup_capture.target.clone() else {
+            self.notice = Some(TextKey::StartupLiveSelectTarget.into());
+            cx.notify();
+            return;
+        };
+        if self.startup_skip_confirm {
+            self.begin_startup_experiment(cx);
+            return;
+        }
+        let language = self.language;
+        let config = self.startup_capture.config.clone();
+        let target_label = language.format(
+            TextKey::StartupLiveTarget,
+            &[
+                ("package", &target.package_name),
+                ("pid", &target.pid),
+                ("serial", &target.serial),
+            ],
+        );
+        let config_label = format!(
+            "{} · {}",
+            language.format(
+                TextKey::StartupLiveMode,
+                &[("mode", &mode_label(config.mode, language))],
+            ),
+            language.format(
+                TextKey::StartupLiveIterations,
+                &[("count", &config.iterations)],
+            )
+        );
+        let cpu_hotspots = config.cpu_hotspots;
+        let entity = cx.entity();
+        let skip_state = cx.new(|_| StartupConfirmSkip {
+            checked: false,
+            label: language.text(TextKey::StartupConfirmSkip).into(),
+        });
+        window.open_dialog(cx, move |dialog, _window, cx| {
+            let colors = studio::StudioColors::from_theme(cx);
+            let skip_controls = skip_state.clone();
+            let confirm_skip = skip_state.clone();
+            let start_entity = entity.clone();
+            let mut content = div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(note(target_label.clone(), colors.text))
+                .child(note(config_label.clone(), colors.secondary_text))
+                .child(note(
+                    language.text(TextKey::StartupLiveAuthorization),
+                    colors.warning,
+                ));
+            if cpu_hotspots {
+                content = content.child(note(
+                    language.text(TextKey::StartupCpuReview),
+                    colors.warning,
+                ));
+            }
+            content = content.child(skip_controls);
+            dialog
+                .bg(colors.dialog_background)
+                .title(language.text(TextKey::StartupConfirmTitle))
+                .w(px(560.))
+                .centered()
+                .child(content)
+                .footer(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(px(8.))
+                        .child(
+                            studio::compact_text_button(
+                                "startup-confirm-cancel",
+                                language.text(TextKey::CommonCancel),
+                                true,
+                                false,
+                                &colors,
+                            )
+                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            studio::compact_text_button(
+                                "startup-confirm-start",
+                                language.text(TextKey::StartupStart),
+                                true,
+                                true,
+                                &colors,
+                            )
+                            .on_click(move |_, window, cx| {
+                                let skip = confirm_skip.read(cx).checked;
+                                if skip {
+                                    let studio = start_entity.read(cx).studio.clone();
+                                    if let Some(studio) = studio {
+                                        studio
+                                            .update(cx, |studio, cx| {
+                                                studio.set_startup_skip_confirm(true, window, cx)
+                                            })
+                                            .ok();
+                                    }
+                                }
+                                start_entity
+                                    .update(cx, |this, cx| this.begin_startup_experiment(cx));
+                                window.close_dialog(cx);
+                            }),
+                        ),
+                )
+        });
+    }
+
+    fn begin_startup_experiment(&mut self, cx: &mut Context<Self>) {
         if self.kind != Destination::Startup || self.busy || self.export_busy {
             return;
         }
@@ -233,7 +373,15 @@ impl ImportWorkspace {
         });
         self.error = None;
         self.notice = None;
-        cx.notify();
+        self.confirm_startup_capture(cx);
+    }
+
+    pub(crate) fn stop_startup_capture(&mut self, cx: &mut Context<Self>) {
+        if !self.startup_capture.in_progress {
+            return;
+        }
+        self.startup_capture.cancel_pending();
+        self.cancel_work(cx);
     }
 
     fn confirm_startup_capture(&mut self, cx: &mut Context<Self>) {
@@ -605,88 +753,16 @@ impl ImportWorkspace {
                 colors.secondary_text,
             ));
         if state.in_progress {
-            panel = panel
-                .child(note(
-                    language.format(
-                        TextKey::StartupLiveProgress,
-                        &[
-                            ("completed", &state.progress.load(Ordering::Acquire)),
-                            ("total", &config.iterations),
-                        ],
-                    ),
-                    colors.info,
-                ))
-                .child(
-                    studio::compact_text_button(
-                        "startup-live-cancel",
-                        language.text(TextKey::ImportCancelOperation),
-                        true,
-                        false,
-                        colors,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.startup_capture.cancel_pending();
-                        this.cancel_work(cx);
-                    })),
-                );
-        } else if let Some(review) = &state.review {
-            panel = panel
-                .child(note(
-                    language.text(TextKey::StartupLiveAuthorization),
-                    colors.warning,
-                ))
-                .when(review.config.cpu_hotspots, |panel| {
-                    panel.child(note(
-                        language.text(TextKey::StartupCpuReview),
-                        colors.warning,
-                    ))
-                })
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .justify_end()
-                        .flex_wrap()
-                        .gap(px(4.))
-                        .child(
-                            studio::compact_text_button(
-                                "startup-live-confirm",
-                                language.text(TextKey::StartupLiveConfirm),
-                                !self.busy && !self.export_busy,
-                                true,
-                                colors,
-                            )
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.confirm_startup_capture(cx)),
-                            ),
-                        )
-                        .child(
-                            studio::compact_text_button(
-                                "startup-live-cancel-review",
-                                language.text(TextKey::StartupLiveCancelReview),
-                                true,
-                                false,
-                                colors,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.startup_capture.review = None;
-                                cx.notify();
-                            })),
-                        ),
-                );
-        } else {
-            panel = panel.child(
-                div().w_full().flex().justify_end().child(
-                    studio::compact_text_button(
-                        "startup-live-review",
-                        language.text(TextKey::StartupStart),
-                        editable && state.target.is_some(),
-                        true,
-                        colors,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.start_startup_capture(cx))),
+            panel = panel.child(note(
+                language.format(
+                    TextKey::StartupLiveProgress,
+                    &[
+                        ("completed", &state.progress.load(Ordering::Acquire)),
+                        ("total", &config.iterations),
+                    ],
                 ),
-            );
+                colors.info,
+            ));
         }
         panel.into_any_element()
     }

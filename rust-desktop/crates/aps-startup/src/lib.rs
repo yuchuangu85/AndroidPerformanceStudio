@@ -94,6 +94,9 @@ pub struct StartupRun {
     pub ttid: DurationMetric,
     /// reportFullyDrawn evidence only; absence stays absent, never TTID fallback.
     pub ttfd: DurationMetric,
+    /// Agent FIRST_FRAME (or FIRST_DRAW_CALLBACK) minus PROCESS_START in the
+    /// Agent clock. Derived only from structured milestone evidence.
+    pub agent_first_frame_ms: Option<u64>,
     pub warnings: Vec<String>,
     /// Original export fields preserve compilation/environment evidence without
     /// pretending they are verified or sufficient for a comparable cohort.
@@ -119,6 +122,7 @@ pub struct StartupSummary {
     pub requested_observed_mismatches: usize,
     pub ttid: Statistics,
     pub ttfd: Statistics,
+    pub agent_first_frame: Statistics,
     pub total_time: Statistics,
 }
 
@@ -265,7 +269,7 @@ impl StartupSession {
     /// Structured report evidence is separate from untrusted CSV declarations.
     /// The application boundary decodes JSON with its existing bounded parser.
     pub fn from_report(
-        runs: Vec<StartupRun>,
+        mut runs: Vec<StartupRun>,
         evidence: BTreeMap<String, RunEvidence>,
         warnings: Vec<String>,
     ) -> Result<Self, String> {
@@ -285,6 +289,11 @@ impl StartupSession {
         }
         if evidence.len() != runs.len() {
             return Err("Startup report evidence does not match its runs".into());
+        }
+        for run in &mut runs {
+            if let Some(run_evidence) = evidence.get(&run.id) {
+                run.agent_first_frame_ms = run_evidence.agent_first_frame_ms();
+            }
         }
         let mut session = Self::from_runs(runs)?;
         session.evidence = evidence;
@@ -379,6 +388,7 @@ fn summarize<'a>(runs: impl Iterator<Item = &'a StartupRun>) -> StartupSummary {
             .count(),
         ttid: statistics(runs.iter().map(|run| run.ttid.milliseconds)),
         ttfd: statistics(runs.iter().map(|run| run.ttfd.milliseconds)),
+        agent_first_frame: statistics(runs.iter().map(|run| run.agent_first_frame_ms)),
         total_time: statistics(runs.iter().map(|run| run.total_time_ms)),
     }
 }

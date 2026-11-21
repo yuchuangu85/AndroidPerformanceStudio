@@ -95,6 +95,7 @@ pub fn parse(text: &str) -> Result<Vec<StartupRun>, String> {
             complete: false,
             ttid,
             ttfd,
+            agent_first_frame_ms: None,
             warnings,
             imported_fields: fields,
         });

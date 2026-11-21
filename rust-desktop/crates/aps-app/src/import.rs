@@ -277,6 +277,8 @@ pub struct ImportWorkspace {
     startup_capture: startup::StartupCaptureUi,
     memory_snapshots: Vec<snapshots::MemorySnapshot>,
     memory_snapshot_id: Option<u64>,
+    studio: Option<WeakEntity<crate::shell::Studio>>,
+    startup_skip_confirm: bool,
     selected_network: Option<Vec<String>>,
     session_id: Option<String>,
     export_busy: bool,
@@ -321,6 +323,8 @@ impl ImportWorkspace {
             startup_capture: startup::StartupCaptureUi::default(),
             memory_snapshots: Vec::new(),
             memory_snapshot_id: None,
+            studio: None,
+            startup_skip_confirm: false,
             selected_network: None,
             session_id: None,
             export_busy: false,
@@ -374,6 +378,14 @@ impl ImportWorkspace {
             .border_t_1()
             .border_color(colors.border)
             .child(studio::supporting(value, colors))
+    }
+
+    pub(crate) fn set_studio(&mut self, studio: WeakEntity<crate::shell::Studio>) {
+        self.studio = Some(studio);
+    }
+
+    pub(crate) fn set_startup_skip_confirm(&mut self, skip: bool) {
+        self.startup_skip_confirm = skip;
     }
 
     pub fn set_language(&mut self, language: Language, cx: &mut Context<Self>) {

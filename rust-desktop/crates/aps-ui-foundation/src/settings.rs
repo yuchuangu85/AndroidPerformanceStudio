@@ -121,6 +121,8 @@ pub struct Settings {
     /// Experimental semantic navigation: launches a local LSP server. Off by
     /// default because language servers can consume hundreds of MB.
     pub source_lsp_enabled: bool,
+    /// Startup Analyzer: skip the start-authorization dialog next time.
+    pub startup_skip_confirm: bool,
 }
 
 impl Default for Settings {
@@ -139,6 +141,7 @@ impl Default for Settings {
             simpleperf_viewer_engine: 0,
             ai_settings_tab: 0,
             source_lsp_enabled: false,
+            startup_skip_confirm: false,
         }
     }
 }
@@ -200,15 +203,18 @@ impl Settings {
         let version = lines.next();
         if !matches!(
             version,
-            Some("version=1" | "version=2" | "version=3" | "version=4" | "version=5")
+            Some("version=1" | "version=2" | "version=3" | "version=4" | "version=5" | "version=6")
         ) {
             return Err(SettingsError::Invalid(
-                "expected version=1, version=2, version=3, version=4 or version=5",
+                "expected version=1, version=2, version=3, version=4, version=5 or version=6",
             ));
         }
         let language = match lines.next() {
             Some("language=system")
-                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+                if matches!(
+                    version,
+                    Some("version=3" | "version=4" | "version=5" | "version=6")
+                ) =>
             {
                 Language::System
             }
@@ -222,7 +228,10 @@ impl Settings {
         };
         let theme = match lines.next() {
             Some("theme=system")
-                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+                if matches!(
+                    version,
+                    Some("version=3" | "version=4" | "version=5" | "version=6")
+                ) =>
             {
                 ThemeMode::System
             }
@@ -251,7 +260,10 @@ impl Settings {
             Some("displayScale=110") => DisplayScale::Percent110,
             Some("displayScale=125") => DisplayScale::Percent125,
             Some("displayScale=150")
-                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+                if matches!(
+                    version,
+                    Some("version=3" | "version=4" | "version=5" | "version=6")
+                ) =>
             {
                 DisplayScale::Percent150
             }
@@ -277,17 +289,26 @@ impl Settings {
             Some("accent=orange") => AccentColor::Orange,
             Some("accent=purple") => AccentColor::Purple,
             Some("accent=bananaRed")
-                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+                if matches!(
+                    version,
+                    Some("version=3" | "version=4" | "version=5" | "version=6")
+                ) =>
             {
                 AccentColor::BananaRed
             }
             Some("accent=merlotPink")
-                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+                if matches!(
+                    version,
+                    Some("version=3" | "version=4" | "version=5" | "version=6")
+                ) =>
             {
                 AccentColor::MerlotPink
             }
             Some("accent=lemonYellow")
-                if matches!(version, Some("version=3" | "version=4" | "version=5")) =>
+                if matches!(
+                    version,
+                    Some("version=3" | "version=4" | "version=5" | "version=6")
+                ) =>
             {
                 AccentColor::LemonYellow
             }
@@ -317,7 +338,10 @@ impl Settings {
             capture_frequency_hz,
             ..Self::default()
         };
-        if matches!(version, Some("version=3" | "version=4" | "version=5")) {
+        if matches!(
+            version,
+            Some("version=3" | "version=4" | "version=5" | "version=6")
+        ) {
             settings.custom_accent = match parse_value(lines.next(), "customAccent")? {
                 "none" => None,
                 color => Some(parse_argb(color)?),
@@ -325,7 +349,7 @@ impl Settings {
             settings.layout = LayoutPreferences {
                 hide_invisible_hierarchy: parse_bool(lines.next(), "layoutHideInvisibleHierarchy")?,
                 hide_invisible_findings: parse_bool(lines.next(), "layoutHideInvisibleFindings")?,
-                show_system_composables: if version == Some("version=5") {
+                show_system_composables: if matches!(version, Some("version=5" | "version=6")) {
                     parse_bool(lines.next(), "layoutShowSystemComposables")?
                 } else {
                     false
@@ -351,8 +375,14 @@ impl Settings {
                 parse_index(lines.next(), "simpleperfViewerEngine", 2)?;
             settings.ai_settings_tab = parse_index(lines.next(), "aiSettingsTab", 3)?;
         }
-        if version == Some("version=4") || version == Some("version=5") {
+        if version == Some("version=4")
+            || version == Some("version=5")
+            || version == Some("version=6")
+        {
             settings.source_lsp_enabled = parse_bool(lines.next(), "sourceLspEnabled")?;
+        }
+        if version == Some("version=6") {
+            settings.startup_skip_confirm = parse_bool(lines.next(), "startupSkipConfirm")?;
         }
         if lines.next().is_some() {
             return Err(SettingsError::Invalid("unexpected preference fields"));
@@ -435,7 +465,7 @@ impl Settings {
         };
         write!(
             file,
-            "version=5\nlanguage={language}\ntheme={theme}\ndisplayScale={display_scale}\nnavigationRail={navigation_rail}\naccent={accent}\ncaptureDuration={}\ncaptureFrequency={}\n",
+            "version=6\nlanguage={language}\ntheme={theme}\ndisplayScale={display_scale}\nnavigationRail={navigation_rail}\naccent={accent}\ncaptureDuration={}\ncaptureFrequency={}\n",
             self.capture_duration_seconds, self.capture_frequency_hz,
         )?;
         let custom_accent = self
@@ -445,7 +475,7 @@ impl Settings {
         let layout = self.layout;
         write!(
             file,
-            "customAccent={custom_accent}\nlayoutHideInvisibleHierarchy={}\nlayoutHideInvisibleFindings={}\nlayoutShowSystemComposables={}\nlayoutHideIndices={}\nlayoutShowIds={}\nlayoutShowLayerButtons={}\nlayoutShowVisibleBounds={}\nlayoutHitSmallest={}\nlayoutArchiveMultiplier={}\nlayoutNormalColor={:08X}\nlayoutHoverColor={:08X}\nlayoutSelectedColor={:08X}\nsimpleperfFollowTooltip={}\nsimpleperfViewerEngine={}\naiSettingsTab={}\nsourceLspEnabled={}\n",
+            "customAccent={custom_accent}\nlayoutHideInvisibleHierarchy={}\nlayoutHideInvisibleFindings={}\nlayoutShowSystemComposables={}\nlayoutHideIndices={}\nlayoutShowIds={}\nlayoutShowLayerButtons={}\nlayoutShowVisibleBounds={}\nlayoutHitSmallest={}\nlayoutArchiveMultiplier={}\nlayoutNormalColor={:08X}\nlayoutHoverColor={:08X}\nlayoutSelectedColor={:08X}\nsimpleperfFollowTooltip={}\nsimpleperfViewerEngine={}\naiSettingsTab={}\nsourceLspEnabled={}\nstartupSkipConfirm={}\n",
             layout.hide_invisible_hierarchy,
             layout.hide_invisible_findings,
             layout.show_system_composables,
@@ -462,6 +492,7 @@ impl Settings {
             self.simpleperf_viewer_engine,
             self.ai_settings_tab,
             self.source_lsp_enabled,
+            self.startup_skip_confirm,
         )?;
         file.sync_all()?;
         drop(file);
@@ -597,11 +628,12 @@ mod tests {
             simpleperf_viewer_engine: 2,
             ai_settings_tab: 3,
             source_lsp_enabled: true,
+            startup_skip_confirm: true,
             ..Settings::default()
         };
         settings.save(&temp.file()).unwrap();
         let text = fs::read_to_string(temp.file()).unwrap();
-        assert!(text.starts_with("version=5\n"));
+        assert!(text.starts_with("version=6\n"));
         assert!(text.len() <= MAX_SETTINGS_BYTES);
         assert_eq!(Settings::load(&temp.file()).unwrap(), settings);
     }
