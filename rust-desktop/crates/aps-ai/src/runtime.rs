@@ -224,8 +224,42 @@ impl fmt::Display for ProviderFailure {
     }
 }
 
-/// Errors surfaced as stable E_ codes. Only `Provider` may carry a diagnostic
-/// detail, and that detail stays local to the window that showed the failure.
+/// One HTTP failure. The status is mapped to the stable E_AI_HTTP_STATUS code;
+/// the detail carries the number plus a bounded preview of the provider error
+/// body and stays local to the window that showed the failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpFailure {
+    pub status: u16,
+    pub detail: Option<String>,
+}
+
+impl From<u16> for HttpFailure {
+    fn from(status: u16) -> Self {
+        Self {
+            status,
+            detail: None,
+        }
+    }
+}
+
+impl HttpFailure {
+    pub fn with_detail(status: u16, detail: impl Into<String>) -> Self {
+        Self {
+            status,
+            detail: Some(detail.into()),
+        }
+    }
+}
+
+impl fmt::Display for HttpFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("E_AI_HTTP_STATUS")
+    }
+}
+
+/// Errors surfaced as stable E_ codes. `Provider` and `HttpStatus` may carry a
+/// diagnostic detail, and that detail stays local to the window that showed the
+/// failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
     Unavailable,
@@ -236,7 +270,7 @@ pub enum RuntimeError {
     Storage,
     Transport,
     Timeout,
-    HttpStatus(u16),
+    HttpStatus(HttpFailure),
     Provider(ProviderFailure),
     Cancelled,
     Run,
@@ -249,6 +283,7 @@ impl RuntimeError {
     pub fn detail(&self) -> Option<&str> {
         match self {
             Self::Provider(failure) => failure.detail.as_deref(),
+            Self::HttpStatus(failure) => failure.detail.as_deref(),
             _ => None,
         }
     }
@@ -264,7 +299,7 @@ impl RuntimeError {
             Self::Cancelled => crate::AiError::Cancelled,
             Self::Transport => crate::AiError::Transport,
             Self::Timeout => crate::AiError::Timeout,
-            Self::HttpStatus(status) => crate::AiError::HttpStatus(*status),
+            Self::HttpStatus(failure) => crate::AiError::HttpStatus(failure.status),
             _ => return RunStatus::PermanentFailure,
         }
         .run_status()
@@ -1622,6 +1657,28 @@ fn redact_credential(text: String, credential: &AiSecret) -> String {
     text.replace(&secret, "[redacted]")
 }
 
+/// Local, actionable description of an HTTP failure: the status number plus the
+/// provider's own bounded message.
+fn http_status_detail(status: u16, body: Option<String>) -> String {
+    let mut detail = format!("HTTP {status}{}", http_status_hint(status));
+    if let Some(body) = body {
+        detail.push_str("\nprovider: ");
+        detail.push_str(&body);
+    }
+    detail
+}
+
+fn http_status_hint(status: u16) -> &'static str {
+    match status {
+        401 | 403 => " · the provider rejected the credential",
+        404 | 405 => " · the endpoint path, model or method is unknown",
+        408 | 429 => " · the provider asked to retry later",
+        400 | 413 | 422 => " · the provider rejected the request",
+        500..=599 => " · the provider failed internally",
+        _ => "",
+    }
+}
+
 fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError {
     use crate::responses::ResponsesError;
     match error {
@@ -1630,7 +1687,9 @@ fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError 
         ResponsesError::Cancelled => RuntimeError::Cancelled,
         ResponsesError::Transport => RuntimeError::Transport,
         ResponsesError::Timeout => RuntimeError::Timeout,
-        ResponsesError::HttpStatus(status) => RuntimeError::HttpStatus(status),
+        ResponsesError::HttpStatus(status, body) => RuntimeError::HttpStatus(
+            HttpFailure::with_detail(status, http_status_detail(status, body)),
+        ),
         ResponsesError::Limit => RuntimeError::Provider("E_AI_RESPONSE_LIMIT".into()),
         other => RuntimeError::Provider(other.to_string().into()),
     }
@@ -2274,6 +2333,25 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(error, "E_AI_MODEL_CATALOG_CREDENTIAL");
+    }
+
+    #[test]
+    fn http_failure_carries_the_status_and_the_provider_message() {
+        use crate::responses::ResponsesError;
+        let failure = map_responses_error(ResponsesError::HttpStatus(
+            404,
+            Some("{\"error\":\"model not found\"}".to_owned()),
+        ));
+        assert_eq!(failure.to_string(), "E_AI_HTTP_STATUS");
+        assert_eq!(failure.run_status(), RunStatus::PermanentFailure);
+        let detail = failure.detail().expect("http failure carries a diagnostic");
+        assert!(detail.starts_with("HTTP 404"));
+        assert!(detail.contains("model not found"));
+
+        let retryable = map_responses_error(ResponsesError::HttpStatus(429, None));
+        assert_eq!(retryable.to_string(), "E_AI_HTTP_STATUS");
+        assert_eq!(retryable.run_status(), RunStatus::RetryableFailure);
+        assert!(retryable.detail().unwrap().contains("HTTP 429"));
     }
 
     #[test]

@@ -704,12 +704,12 @@ fn statuses_match_across_provider_adapters_without_rewriting_error_codes() {
         ),
         (
             AiError::HttpStatus(429),
-            RuntimeError::HttpStatus(429),
+            RuntimeError::HttpStatus(429.into()),
             RunStatus::RetryableFailure,
         ),
         (
             AiError::HttpStatus(401),
-            RuntimeError::HttpStatus(401),
+            RuntimeError::HttpStatus(401.into()),
             RunStatus::PermanentFailure,
         ),
         (

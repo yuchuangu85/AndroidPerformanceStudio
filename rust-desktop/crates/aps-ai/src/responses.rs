@@ -17,6 +17,10 @@ use std::time::Duration;
 
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(120);
 const ENVELOPE_LIMIT: usize = 1024 * 1024;
+/// Diagnostic preview of a non-200 body. Bounded because it is shown to the
+/// user, screened for the resolved credential and never persisted.
+const ERROR_PREVIEW_LIMIT: usize = 4_096;
+const ERROR_PREVIEW_CHARS: usize = 600;
 const MAX_OUTPUT_TOKENS: u32 = 8192;
 
 pub struct ResponsesRequest<'a> {
@@ -33,14 +37,14 @@ pub struct ResponsesAnswer {
     pub model: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResponsesError {
     Credential,
     Configuration,
     Cancelled,
     Transport,
     Timeout,
-    HttpStatus(u16),
+    HttpStatus(u16, Option<String>),
     InvalidResponse,
     Incomplete,
     ToolResponse,
@@ -60,7 +64,7 @@ impl fmt::Display for ResponsesError {
             Self::Cancelled => "E_AI_CANCELLED",
             Self::Transport => "E_AI_TRANSPORT",
             Self::Timeout => "E_PROVIDER_TIMEOUT",
-            Self::HttpStatus(_) => "E_AI_HTTP_STATUS",
+            Self::HttpStatus(..) => "E_AI_HTTP_STATUS",
             Self::InvalidResponse => "E_AI_RESPONSE_SCHEMA",
             Self::Incomplete => "E_AI_RESPONSE_INCOMPLETE",
             Self::ToolResponse => "E_AI_TOOL_RESPONSE",
@@ -133,11 +137,8 @@ pub async fn execute(
     let response = select_or_cancel(client.send(request), token).await?;
     let response = response.map_err(|_| ResponsesError::Transport)?;
     let status = response.status().as_u16();
-    if status != 200 {
-        return Err(match status {
-            408 | 504 => ResponsesError::Timeout,
-            _ => ResponsesError::HttpStatus(status),
-        });
+    if matches!(status, 408 | 504) {
+        return Err(ResponsesError::Timeout);
     }
     let content_type = response
         .headers()
@@ -145,6 +146,14 @@ pub async fn execute(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default()
         .to_owned();
+    let mut stream = response.into_body();
+    if status != 200 {
+        let preview = read_bounded(&mut stream, ERROR_PREVIEW_LIMIT, token).await?;
+        return Err(ResponsesError::HttpStatus(
+            status,
+            error_body_preview(credential, &preview),
+        ));
+    }
     if !content_type
         .split(';')
         .next()
@@ -155,7 +164,6 @@ pub async fn execute(
         return Err(ResponsesError::InvalidResponse);
     }
     let mut body = Vec::new();
-    let mut stream = response.into_body();
     let mut buffer = [0u8; 8192];
     loop {
         let read = select_or_cancel(stream.read(&mut buffer), token)
@@ -179,6 +187,55 @@ pub async fn execute(
         return Err(ResponsesError::SecretInResponse);
     }
     Ok(ResponsesAnswer { text, model })
+}
+
+/// Read a bounded diagnostic body. Overflow truncates instead of failing: this
+/// text only explains an error, it is never parsed as data.
+async fn read_bounded(
+    stream: &mut AsyncBody,
+    limit: usize,
+    token: &CancellationToken,
+) -> Result<Vec<u8>, ResponsesError> {
+    let mut body = Vec::new();
+    let mut buffer = [0u8; 4096];
+    while body.len() < limit {
+        let read = select_or_cancel(stream.read(&mut buffer), token)
+            .await?
+            .map_err(|_| ResponsesError::Transport)?;
+        if read == 0 {
+            break;
+        }
+        let take = read.min(limit - body.len());
+        body.extend_from_slice(&buffer[..take]);
+    }
+    Ok(body)
+}
+
+/// Local display copy of a provider error body, screened for the credential and
+/// stripped of control characters.
+fn error_body_preview(credential: &AiSecret, bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    if credential_appears(credential, bytes) {
+        return Some("[redacted]".to_owned());
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let total = text.chars().count();
+    let mut preview: String = text
+        .chars()
+        .take(ERROR_PREVIEW_CHARS)
+        .map(|character| match character {
+            '\n' | '\t' => character,
+            other if other.is_control() => ' ',
+            other => other,
+        })
+        .collect();
+    if total > ERROR_PREVIEW_CHARS {
+        preview.push('…');
+    }
+    let preview = preview.trim().to_owned();
+    (!preview.is_empty()).then_some(preview)
 }
 
 fn credential_header(credential: &AiSecret) -> Result<http::HeaderValue, ResponsesError> {
@@ -396,6 +453,26 @@ mod tests {
             parse_output(&bytes).unwrap_err(),
             ResponsesError::ToolResponse
         );
+    }
+
+    #[test]
+    fn error_body_preview_is_bounded_screened_and_control_free() {
+        let credential = AiSecret::new("sk-preview-secret").unwrap();
+        assert_eq!(error_body_preview(&credential, b""), None);
+        assert_eq!(error_body_preview(&credential, b"   "), None);
+        assert_eq!(
+            error_body_preview(&credential, b"{\"error\":\"model not found\"}"),
+            Some("{\"error\":\"model not found\"}".to_owned())
+        );
+        assert_eq!(
+            error_body_preview(&credential, b"key sk-preview-secret rejected"),
+            Some("[redacted]".to_owned())
+        );
+        let long = "x".repeat(ERROR_PREVIEW_CHARS + 10) + "\u{7}";
+        let preview = error_body_preview(&credential, long.as_bytes()).unwrap();
+        assert!(preview.ends_with('…'));
+        assert_eq!(preview.chars().count(), ERROR_PREVIEW_CHARS + 1);
+        assert!(!preview.contains('\u{7}'));
     }
 
     #[test]
