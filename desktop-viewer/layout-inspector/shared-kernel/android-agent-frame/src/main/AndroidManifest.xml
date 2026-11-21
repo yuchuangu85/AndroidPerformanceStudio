@@ -1,4 +1,0 @@
-<manifest xmlns:tools="http://schemas.android.com/tools">
-    <!-- JankStats is only initialized inside the API 24+ FrameMetrics path. -->
-    <uses-sdk tools:overrideLibrary="androidx.metrics.performance" />
-</manifest>

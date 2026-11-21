@@ -1,0 +1,23 @@
+{
+  "common_about": "关于",
+  "common_ai": "AI",
+  "common_back": "返回",
+  "common_cancel": "取消",
+  "common_close": "关闭",
+  "common_configuration": "配置",
+  "common_dark": "深色",
+  "common_endpoint": "端点",
+  "common_general": "通用",
+  "common_hide": "隐藏",
+  "common_language": "语言",
+  "common_light": "浅色",
+  "common_model": "模型",
+  "common_next": "下一页",
+  "common_previous": "上一页",
+  "common_show": "显示",
+  "common_simpleperf": "Simpleperf",
+  "common_state": "状态",
+  "common_theme": "主题",
+  "common_unavailable": "不可用",
+  "common_version": "版本"
+}

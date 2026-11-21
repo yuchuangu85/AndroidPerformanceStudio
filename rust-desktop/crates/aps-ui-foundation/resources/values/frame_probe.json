@@ -1,0 +1,18 @@
+{
+  "frame_probe_interpret": "Interpret probes with AI",
+  "frame_probe_ai": "Ask AI where to probe",
+  "frame_probe_review": "Generate a Trace patch…",
+  "frame_probe_choose_source": "Open the matching local Kotlin/Java file in Source Workspaces, then return to the selected frame and choose Generate a Trace patch.",
+  "frame_probe_choose": "Frame #{id} · Select a synchronous method to test. This is your hypothesis, not an identified cause. Confirm this snapshot matches the APK; APS cannot verify that mapping.",
+  "frame_probe_preview": "Review Trace patch",
+  "frame_probe_instructions": "Test whether this method overlaps slow frames. Review the diff, rebuild and install the instrumented APK, then use Capture FrameTimeline for the same process and interaction. Match the probe ID in frame details. APS does not edit, build or install the app.",
+  "frame_probe_export": "Save new .patch…",
+  "frame_probe_copy": "Copy diff",
+  "frame_probe_overlap": "App Trace in this frame",
+  "frame_probe_missing": "No matched APS probe is available. Use the instrumented build and FrameTimeline capture. Missing evidence is not zero time.",
+  "frame_probe_overlap_hint": "Same-process wall-time overlap in the actual frame. Nested or parallel spans can overlap; do not sum them or infer a cause.",
+  "frame_probe_times": "{role} · TID {tid} · overlap {wall} · observed on CPU {cpu}",
+  "frame_probe_limited": "Only the eight longest overlaps are shown.",
+  "frame_probe_no_methods": "No supported synchronous block-bodied method in this snapshot. Select a different local file.",
+  "frame_probe_export_failed": "Cannot export: select a new .patch file in a writable directory. Existing files are never overwritten."
+}

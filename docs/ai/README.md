@@ -4,10 +4,15 @@
 
 ## 当前实现
 
-以下按当前源码和测试定义说明能力，不把接线、测试存在或本地假 Provider 验证等同于真实服务、跨平台或发布验收。新测试总数与执行结果只维护在 [TODO 状态统计](agent-platform-todo-status.md)，不在入口文档复制易失效的精确数字。
+- [无界面 CLI 使用指南](cli/README.md)：使用文件、HTTPS 或设备场景生成证据与 AI 报告。
+- [MCP 总览与模块索引](mcp/README.md)：统一入口、连接方式、已实现接口和各业务模块的接入状态。
+- [Memory MCP 接口](mcp/memory.md)：5 个已实现工具的使用方式、输入、输出与错误；包含外部 A/B 类级 diff，内置 AI 仍只预取原有 3 个工具。
+- [快照对比 MCP](mcp/memory.md#memory_snapshot_diff)：双快照启动与 Client 配置、`offset`/`limit` 分页，以及完整结果和缺少基线时的错误示例。
+
+以下为 Kotlin AI Platform 的历史实现说明，不代表当前 Rust 能力或验收状态。Rust Provider 的当前边界见 [Rust Provider README](../../rust-desktop/crates/aps-ai/README.md)，跨平台和发布门禁见 [Rust AI 与 Agent TODO](../../rust-desktop/TODO.md)。
 
 - `ai-core` 提供 provider-neutral analysis contract、OpenAI Responses client/gateway、结构化输出校验、Credential Store 和 Analysis Session 持久化；不依赖平台层或 Compose。
-- `ai-platform` 已包含 model、registry、storage、providers、runtime、app、presentation、script-runtime、provider-claude、provider-codex。中立契约、包信任、结果与审计存储、Provider/process 边界、编排、桌面生命周期和 UI 分开归属，详见 [模块说明](../../desktop-viewer/ai-platform/README.md)。
+- `ai-platform` 历史实现曾包含 model、registry、storage、providers、runtime、app、presentation、script-runtime、provider-claude、provider-codex 等模块；此处只作历史说明，不代表当前 Rust 模块或能力。
 - 桌面已调用 `AiPlatformRuntime.open()`，初始化私有目录、独占 profile、安装内置包、注册 Provider、恢复未完成记录为 interrupted。启动、恢复和只读发现不会自动发起分析；关闭时先取消并等待所属工作，再释放存储与锁。
 - `DesktopAppMainPage` 已接入全局 Chat，即 `AiConversationWindowHost`，有导航栏、菜单和快捷键入口。窗口提供上下文绑定、问题输入、预检与显式确认、取消/重试、Finding/Evidence/Source Candidate、Agent/Skill 时间线和只读历史。没有有效业务上下文时不可发送，不是自由聊天。
 - 统一 AI 设置保留 Provider/Agent/Skill/Policy 四个分类：Provider 是原“连接”页，管理 Codex、Claude 的 endpoint/model 和 Credential Store，原独立 Provider 选择与默认模型页已删除；其他分类管理扩展导入/信任/启用/撤销/版本和 Artifact/历史策略。本地 CLI 发现只读取白名单配置元数据，不复制凭证或加载认证文件、helper、hook。
@@ -42,22 +47,23 @@
 
 ## 文档地图
 
-- [模块与源码入口](../../desktop-viewer/ai-platform/README.md)：当前模块归属、桌面接线、执行与验证边界。
-- [总体架构与接口](architecture.md)：数据契约、源码授权边界和对话窗口设计；含历史提案，不能单独作为当前完成证据。
-- [AI Business Layer](business-layer.md)：主/子 Agent、Skill、外部扩展、脚本和 Artifact 的详细设计，不代表所有目标都已开放。
-- [AI 对话窗口](conversation-window.md)：以不可变 Analysis Session 为上下文的产品、交互、状态和安全需求。
-- [路线图与缺口](roadmap.md)：源码已有能力、未完成产品闭环及后续验收顺序。
-- [AI Agent Platform TODO](agent-platform-todo.md)：跨模块实施清单。
-- [AI Agent Platform TODO 状态统计](agent-platform-todo-status.md)：由主线维护的新执行结果、计数及证据边界。
-- [真实 Provider 验收](live-provider-acceptance.md)：显式 opt-in、合成输入、调用上限和脱敏回执。
-- [原生沙箱契约](native-sandbox-contracts.md)：Linux 边界、逐平台资格和已知不支持项。
-- [发布资格](release-qualification.md)：同 SHA CI、凭证引用、签名、公证与发布门禁。
+- [Rust Provider 边界](../../rust-desktop/crates/aps-ai/README.md)：审批、传输、凭据和隐私约束。
+- [Rust AI 与 Agent TODO](../../rust-desktop/TODO.md)：Agent 工作流及 Provider、沙箱、打包和发布验收。
+- [AI Agent Platform TODO](agent-platform-todo.md)：保留的 Kotlin AI Platform 历史规划与跨模块需求，不作为 Rust 当前实现证据。
 
 ## 历史设计与决策
 
-以下文档保留为详细设计和不可逆决策的来源，`docs/ai/` 负责提供统一入口和当前状态解释：
+以下文档保留为设计和不可逆决策参考；它们不描述当前 Rust 实现状态：
 
-- [AI 分析与源码工作区总体设计](../../desktop-viewer/docs/design/2026-08-01-ai-source-workspace-design.md)
+- [AI Agent Platform TODO](agent-platform-todo.md)：Kotlin AI Platform 的历史需求规划。
+- [总体架构与接口](architecture.md)：数据契约、源码授权边界和对话窗口设计。
+- [AI Business Layer](business-layer.md)：主/子 Agent、Skill、扩展、脚本和 Artifact 设计。
+- [AI 对话窗口](conversation-window.md)：不可变 Analysis Session、交互和安全需求。
+- [路线图与缺口](roadmap.md)：Kotlin AI Platform 路线及验收要求。
+- [原生沙箱契约](native-sandbox-contracts.md)：沙箱边界、逐平台资格和不支持项。
+
+不可逆决策记录：
+
 - [ADR-0001：确定性源码定位优先于 AI 排序](../adr/0001-deterministic-source-resolution-before-ai-ranking.md)
 - [ADR-0004：provider-neutral AI boundary，OpenAI first](../adr/0004-provider-neutral-ai-boundary-with-openai-first.md)
 - [ADR-0005：最小化并授权发送到云端 AI 的源码](../adr/0005-minimize-and-authorize-source-sent-to-cloud-ai.md)

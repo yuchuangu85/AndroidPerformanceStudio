@@ -1,0 +1,247 @@
+name: Rust Desktop Release
+
+on:
+  push:
+    tags:
+      - "rust-desktop-v*"
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            deb_arch: amd64
+            rpm_arch: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            deb_arch: arm64
+            rpm_arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.99.1
+          target: ${{ matrix.target }}
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Build binaries
+        working-directory: rust-desktop
+        run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
+      - name: Package deb and rpm
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RPM_ARCH: ${{ matrix.rpm_arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -e
+          version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
+          root="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}"
+          mkdir -p "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/1024x1024/apps" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
+          cp "rust-desktop/target/${TARGET}/release/aps-app" "$root/usr/bin/aps-app"
+          cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$root/usr/bin/aps-memory-worker"
+          cp rust-desktop/crates/aps-app/assets/icons/linux/app-icon.png "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png"
+          cat > "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Android Performance Studio
+          Exec=/usr/bin/aps-app
+          Icon=com.androidperformancestudio.rust
+          StartupWMClass=com.androidperformancestudio.rust
+          Categories=Development;
+          Terminal=false
+          EOF
+          chmod 0755 "$root/usr/bin/aps-app" "$root/usr/bin/aps-memory-worker"
+          mkdir -p "$root/DEBIAN"
+          cat > "$root/DEBIAN/control" <<EOF
+          Package: aps-desktop
+          Version: ${version}
+          Section: devel
+          Priority: optional
+          Architecture: ${DEB_ARCH}
+          Maintainer: Android Performance Studio
+          Description: Android Performance Studio Rust desktop application
+          EOF
+          dpkg-deb --build --root-owner-group "$root" "dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}.deb"
+          cp "$root/usr/bin/aps-app" "dist/rpm/SOURCES/aps-app"
+          cp "$root/usr/bin/aps-memory-worker" "dist/rpm/SOURCES/aps-memory-worker"
+          cp "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png" dist/rpm/SOURCES/app-icon.png
+          cp "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" dist/rpm/SOURCES/aps.desktop
+          cat > dist/rpm/SPECS/aps-desktop.spec <<EOF
+          Name: aps-desktop
+          Version: ${version}
+          Release: 1
+          Summary: Android Performance Studio Rust desktop application
+          License: Proprietary
+          BuildArch: ${RPM_ARCH}
+          %description
+          Android Performance Studio Rust desktop application.
+          %install
+          mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/share/applications %{buildroot}/usr/share/icons/hicolor/1024x1024/apps
+          install -m 0755 %{_sourcedir}/aps-app %{buildroot}/usr/bin/aps-app
+          install -m 0755 %{_sourcedir}/aps-memory-worker %{buildroot}/usr/bin/aps-memory-worker
+          install -m 0644 %{_sourcedir}/aps.desktop %{buildroot}/usr/share/applications/com.androidperformancestudio.rust.desktop
+          install -m 0644 %{_sourcedir}/app-icon.png %{buildroot}/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png
+          %files
+          /usr/bin/aps-app
+          /usr/bin/aps-memory-worker
+          /usr/share/applications/com.androidperformancestudio.rust.desktop
+          /usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png
+          EOF
+          rpmbuild --define "_topdir $PWD/dist/rpm" -bb dist/rpm/SPECS/aps-desktop.spec
+          cp "dist/rpm/RPMS/${RPM_ARCH}/"*.rpm "dist/aps-desktop-${RELEASE_TAG}-linux-${RPM_ARCH}.rpm"
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - arch: arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.99.1
+          target: ${{ matrix.target }}
+      - name: Build binaries
+        working-directory: rust-desktop
+        run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
+      - name: Package dmg and pkg
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -e
+          version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
+          app="dist/Android Performance Studio.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp "rust-desktop/target/${TARGET}/release/aps-app" "$app/Contents/MacOS/aps-app"
+          cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$app/Contents/MacOS/aps-memory-worker"
+          cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
+          cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
+          chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
+          hdiutil create -volname "Android Performance Studio" -srcfolder "$app" -ov -format UDZO "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.dmg"
+          pkgbuild --component "$app" --install-location /Applications --version "$version" "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.pkg"
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.pkg
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86_64
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.99.1
+          target: x86_64-pc-windows-msvc
+      - name: Build binaries
+        working-directory: rust-desktop
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc -p aps-app -p aps-memory
+      - name: Install WiX
+        shell: pwsh
+        run: choco install wixtoolset -y --no-progress
+      - name: Package exe and msi
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^(rust-desktop-)?v', ''
+          $parts = (($version -replace '[^0-9.]', '.') -split '\.' | Where-Object { $_ -ne '' } | Select-Object -First 3)
+          while ($parts.Count -lt 3) { $parts += '0' }
+          $msiVersion = $parts -join '.'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-app.exe "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.exe"
+          Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-app.exe dist/aps-app.exe
+          Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-memory-worker.exe dist/aps-memory-worker.exe
+          @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="Android Performance Studio" Language="1033" Version="$msiVersion" Manufacturer="Android Performance Studio" UpgradeCode="7D3A2A7A-48B6-4EF0-8D8D-5C9D1E7E8F21">
+              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+              <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+              <MediaTemplate EmbedCab="yes" />
+              <Icon Id="AppIcon" SourceFile="rust-desktop\crates\aps-app\assets\icons\windows\app-icon.ico" /><Property Id="ARPPRODUCTICON" Value="AppIcon" />
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFiles64Folder">
+                  <Directory Id="INSTALLFOLDER" Name="Android Performance Studio" />
+                </Directory>
+              </Directory>
+              <Feature Id="MainFeature" Title="Android Performance Studio" Level="1">
+                <ComponentRef Id="AppComponent" />
+                <ComponentRef Id="WorkerComponent" />
+              </Feature>
+            </Product>
+            <Fragment>
+              <Component Id="AppComponent" Directory="INSTALLFOLDER" Guid="*">
+                <File Id="AppFile" Source="dist\aps-app.exe" KeyPath="yes" />
+              </Component>
+              <Component Id="WorkerComponent" Directory="INSTALLFOLDER" Guid="*">
+                <File Id="WorkerFile" Source="dist\aps-memory-worker.exe" KeyPath="yes" />
+              </Component>
+            </Fragment>
+          </Wix>
+          "@ | Set-Content dist/aps-desktop.wxs
+          & candle.exe -nologo dist/aps-desktop.wxs -out dist/aps-desktop.wixobj
+          & light.exe -nologo -out "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.msi" dist/aps-desktop.wixobj
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: |
+            dist/aps-desktop-*-windows-x86_64.exe
+            dist/*.msi
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [linux, macos, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "${RELEASE_TAG}" release-assets/* --generate-notes --title "Rust Desktop ${RELEASE_TAG}"

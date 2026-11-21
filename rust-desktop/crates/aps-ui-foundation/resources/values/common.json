@@ -1,0 +1,23 @@
+{
+  "common_about": "About",
+  "common_ai": "AI",
+  "common_back": "Back",
+  "common_cancel": "Cancel",
+  "common_close": "Close",
+  "common_configuration": "Configuration",
+  "common_dark": "Dark",
+  "common_endpoint": "Endpoint",
+  "common_general": "General",
+  "common_hide": "Hide",
+  "common_language": "Language",
+  "common_light": "Light",
+  "common_model": "Model",
+  "common_next": "Next",
+  "common_previous": "Previous",
+  "common_show": "Show",
+  "common_simpleperf": "Simpleperf",
+  "common_state": "State",
+  "common_theme": "Theme",
+  "common_unavailable": "Unavailable",
+  "common_version": "Version"
+}

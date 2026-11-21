@@ -1,0 +1,12 @@
+{
+  "productCode": "AI",
+  "buildNumber": "262.10968.63.2623.16898116",
+  "release": "Android Studio Rabbit 3 | 2026.2.3 RC 1",
+  "channel": "RC",
+  "files": {
+    "Resources/product-info.json": "20fb94e6c71ea3527c86b003d1822e7eb048c6f8350e336e3015aaf76c2adbea",
+    "plugins/android/lib/sdk-tools.jar": "9aed366191805dea00bc3e8abe4c7d37a6f80a9818e1e30bbea57ab5ac3d7864",
+    "plugins/android/lib/android-profilers.jar": "5a21b8c9f3c41167b66e450fbc68bbe0b49b39c1cf0ac3dacbf7f447c9d714f6"
+  },
+  "hprofSha256": "de569d397b4cf510f8fbf0834d681b8606bf991598b0252d76cd60efad3ecfc8"
+}

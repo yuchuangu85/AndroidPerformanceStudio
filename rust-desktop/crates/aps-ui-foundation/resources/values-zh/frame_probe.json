@@ -1,0 +1,18 @@
+{
+  "frame_probe_interpret": "AI 解读本帧探针",
+  "frame_probe_ai": "AI 建议在哪里加 Trace",
+  "frame_probe_review": "生成 Trace 补丁…",
+  "frame_probe_choose_source": "请在源码工作区打开与应用构建匹配的本地 Kotlin/Java 文件，再回到选中帧生成 Trace 补丁。",
+  "frame_probe_choose": "帧 #{id} · 请选择要验证的同步方法。这是待验证的假设，不是已定位的原因。请确认源码快照与 APK 一致；APS 尚不能验证两者的对应关系。",
+  "frame_probe_preview": "审阅 Trace 补丁",
+  "frame_probe_instructions": "验证这个方法是否与慢帧重叠：审阅补丁，重新构建并安装插桩 APK，再对相同进程和操作执行「采集 FrameTimeline」，按探针 ID 查看帧详情。APS 不会修改、构建或安装应用。",
+  "frame_probe_export": "另存为新 .patch 文件…",
+  "frame_probe_copy": "复制补丁",
+  "frame_probe_overlap": "本帧应用 Trace",
+  "frame_probe_missing": "没有可关联的 APS 探针。请使用插桩构建并采集 FrameTimeline。证据缺失不等于耗时为零。",
+  "frame_probe_overlap_hint": "同一进程与实际帧窗口的墙钟时间交集。嵌套或并行区段可能重叠，不能相加或据此认定根因。",
+  "frame_probe_times": "{role} · 线程 {tid} · 窗内耗时 {wall} · 已观测上 CPU 时间 {cpu}",
+  "frame_probe_limited": "仅显示窗内耗时最长的八个区段。",
+  "frame_probe_no_methods": "此快照没有支持的同步块体方法，请选择其他本地文件。",
+  "frame_probe_export_failed": "导出失败：请在可写目录选择新的 .patch 文件；已有文件不会被覆盖。"
+}

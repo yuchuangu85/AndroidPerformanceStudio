@@ -1,5 +1,0 @@
-*.bat text eol=crlf whitespace=-trailing-space
-*.data binary
-*.jar binary
-*.xlsx binary
-*.zip binary

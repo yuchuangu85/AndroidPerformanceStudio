@@ -1,0 +1,49 @@
+# Synthetic timings in nanoseconds. One main-thread launch [100,130);
+# pid/tid 30, two resolved and one unresolved sample, including distractors
+# on another tid and immediately before/at the exclusive end of the window.
+# Rebuild from repo root using protoc -Ithird_party/perfetto \
+#   --encode=perfetto.protos.Trace protos/perfetto/trace/trace.proto \
+#   < startup-cpu.textproto > startup-cpu.pftrace (use these fixture paths).
+packet { process_tree {
+ processes { pid:2 ppid:1 cmdline:"system_server" uid:1000 }
+ processes { pid:30 ppid:1 cmdline:"com.example.startup" uid:10030 }
+ threads { tid:31 tgid:30 name:"RenderThread" }
+} }
+packet { ftrace_events { cpu:0
+ event { timestamp:100 pid:2 print { buf:"S|2|launchingActivity#7|0" } }
+ event { timestamp:101 pid:2 sched_switch { prev_comm:"system_server" prev_pid:2 next_comm:"main" next_pid:30 } }
+ event { timestamp:102 pid:30 print { buf:"B|30|activityResume" } }
+ event { timestamp:103 pid:30 print { buf:"E|30" } }
+ event { timestamp:110 pid:30 sched_switch { prev_comm:"main" prev_pid:30 prev_state:0 next_comm:"system_server" next_pid:2 } }
+ event { timestamp:120 pid:2 sched_switch { prev_comm:"system_server" prev_pid:2 next_comm:"main" next_pid:30 } }
+ event { timestamp:121 pid:30 print { buf:"B|30|Choreographer#doFrame" } }
+ event { timestamp:124 pid:30 print { buf:"E|30" } }
+ event { timestamp:125 pid:31 print { buf:"B|30|DrawFrame" } }
+ event { timestamp:130 pid:31 print { buf:"E|30" } }
+ event { timestamp:133 pid:2 print { buf:"F|2|launchingActivity#7|0" } }
+ event { timestamp:134 pid:2 print { buf:"I|2|launchingActivity#7:completed-cold:com.example.startup" } }
+ event { timestamp:140 pid:30 sched_switch { prev_comm:"main" prev_pid:30 prev_state:1 next_comm:"system_server" next_pid:2 } }
+} }
+packet { trusted_packet_sequence_id:2 sequence_flags:1 interned_data {
+ mapping_paths { iid:1 str:"example.vdex" }
+ build_ids { iid:1 str:"test" }
+ mappings { iid:1 path_string_ids:1 build_id:1 }
+ function_names { iid:1 str:"Example.init" }
+ frames { iid:1 mapping_id:1 function_name_id:1 }
+ callstacks { iid:1 frame_ids:1 }
+} }
+packet { trusted_packet_sequence_id:2 timestamp:99 perf_sample { pid:30 tid:30 callstack_iid:1 } }
+packet { trusted_packet_sequence_id:2 timestamp:102 perf_sample { pid:30 tid:30 callstack_iid:1 } }
+packet { trusted_packet_sequence_id:2 timestamp:104 perf_sample { pid:30 tid:31 callstack_iid:1 } }
+packet { trusted_packet_sequence_id:2 timestamp:121 perf_sample { pid:30 tid:30 callstack_iid:1 } }
+packet { trusted_packet_sequence_id:2 timestamp:122 perf_sample { pid:30 tid:30 callstack_iid:1 unwind_error:UNWIND_ERROR_INVALID_MAP } }
+packet { trusted_packet_sequence_id:2 timestamp:130 perf_sample { pid:30 tid:30 callstack_iid:1 } }
+packet { ftrace_events { cpu:0
+ event { timestamp:200 pid:2 print { buf:"S|2|launchingActivity#8|0" } }
+ event { timestamp:230 pid:2 print { buf:"F|2|launchingActivity#8|0" } }
+ event { timestamp:231 pid:2 print { buf:"I|2|launchingActivity#8:completed-cold:com.example.secondx" } }
+} }
+# Deliberately *after* the first-display window: per-CPU ring loss is
+# trace-wide and cannot be attributed to the target or counted as its samples.
+packet { trusted_packet_sequence_id:2 timestamp:235 perf_sample { cpu:0 kernel_records_lost:7 } }
+packet { trusted_packet_sequence_id:2 timestamp:237 perf_sample { cpu:1 kernel_records_lost:5 } }

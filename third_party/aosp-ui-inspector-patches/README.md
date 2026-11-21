@@ -14,6 +14,14 @@ directory made every session after the first fail with `UnsatisfiedLinkError` in
 `LambdaLocation.resolveWithJvmTI`, which surfaced as a Compose inspector that stopped answering
 parameter queries (b/187342510).
 
+`0003-release-authenticated-session-on-disconnect.patch` binds an APS injection
+grant to its authenticated host connection. An authenticated disconnect releases
+the agent immediately rather than leaving the socket open for the upstream
+five-minute reconnection window. Rejected/partial authentication cannot shut down
+the agent, and an explicit shutdown still completes when writing its response
+fails. The patch includes upstream-harness regression fixtures; the vendored
+snapshot remains unchanged.
+
 Check against the pinned snapshot:
 
 ```sh

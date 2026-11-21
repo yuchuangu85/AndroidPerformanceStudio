@@ -1,0 +1,14 @@
+{
+  "frame_compare_title": "Compare runs",
+  "frame_compare_base": "Add baseline",
+  "frame_compare_after": "Add after change",
+  "frame_compare_clear": "Clear comparison",
+  "frame_compare_help": "Only add runs if the interaction, device settings and build configuration match except for the change under test. P95 is the median of run P95s; misses use classified frames only. n = measured/all. For each exact probe: overlap P95 [covered runs; matched windows / spans]. Missing is not zero. Compatible frame budgets do not prove identical refresh rates or causality.",
+  "frame_optimize": "Request a source optimization",
+  "frame_opt_consent": "Enable source for this run and approve the exact method excerpt before requesting an optimization.",
+  "frame_opt_review": "Review proposed optimization",
+  "frame_opt_review_help": "Review the change and behavior first. No source is overwritten. Check the diff against the stated version, build/test, then compare repeated FrameTimeline captures under the same conditions.",
+  "frame_probe_locate": "Open probe in source",
+  "frame_compare_baseline_label": "Baseline",
+  "frame_compare_after_label": "After change"
+}

@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string] $Destination = (Join-Path $PSScriptRoot '../build/jbr/windows-x64'),
-    [string] $ManifestPath = (Join-Path $PSScriptRoot '../desktop-viewer/jbr-runtime-manifest.json'),
+    [string] $ManifestPath = (Join-Path $PSScriptRoot '../rust-desktop/assets/manifests/jbr-runtime-manifest.json'),
     [string] $OutputName
 )
 

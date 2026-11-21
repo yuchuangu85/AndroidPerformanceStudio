@@ -1,64 +1,72 @@
 # Benchmark Regression
 
-## 功能介绍
+## 功能定位
 
-Benchmark Regression 用于导入 AndroidX Benchmark JSON，对比 baseline 与 current 结果，按指标和统计规则标记回归，并导出适合 CI 或人工审查的报告。
+Benchmark Regression 对 AndroidX Benchmark JSON 的 baseline/current 运行进行身份对齐、样本比较和统计门禁。它把“测量变化”和“是否足够确定地判为回归”分开，避免用两个 summary median 直接下结论。
 
-## 详细设计方案
+当前状态：
+
+- **已接入**：Benchmark JSON 导入、case/metric/sample 模型、baseline/current 对齐、兼容性检查、统计分类、趋势/报告/导出和 CLI/MCP 只读分析。
+- **条件能力**：真实 Macrobenchmark 编排需要目标 Android 工程提供测试、Gradle task、设备和可比较环境。
+- **未完成验收**：真实设备编排、完整报告交互、失败恢复和发布级 CI 门禁仍需单独验证。
+
+## 功能点
+
+- 解析 benchmarks/results/tests、`className#testName` identity、metric、raw samples、median/min/max、device/API/ABI/build 信息。
+- 保留场景、编译模式、启动模式、Baseline Profile 状态、trace artifact 和实验身份。
+- baseline/current 按稳定 case identity 和 metric name 对齐。
+- 比较前检查设备、API、ABI、指纹、构建变体、场景、编译/启动模式、单位和指标方向。
+- raw sample 默认要求 baseline/current 各至少 5 个；默认相对实际阈值约 5%、95% confidence、约 2,000 次 bootstrap（具体策略以报告字段为准）。
+- 支持 BCa median difference 区间、`REGRESSED`、`IMPROVED`、`STABLE`、`INCONCLUSIVE`、`INCOMPATIBLE`、`INSUFFICIENT`。
+- ReleaseGatePolicy 按不兼容证据、阻断回归、不确定证据、通过顺序给出 PASS/FAIL/INCONCLUSIVE。
+- 输出 JSON、CSV、Markdown、JUnit、SARIF、PDF 等适配器；CLI 退出码区分通过、回归、输入错误和数据不足。
+
+## 原理与数据流
 
 ```text
-baseline JSON + current JSON
-  -> parser-benchmark-json
-  -> benchmark model
-  -> RegressionAnalyzer
-  -> threshold / direction / sample comparison
-  -> report / export / CI result
+AndroidX Benchmark JSON / Macrobenchmark result
+  -> bounded parser + benchmark identity
+  -> comparable cohort validation
+  -> raw sample statistics / bootstrap interval
+  -> regression classification + release gate
+  -> GUI trend/table/report, CLI/MCP and exports
 ```
 
-### 模块职责
+当前 Rust 入口：
 
-- `benchmark-regression/parser-benchmark-json`：AndroidX Benchmark JSON 解析。
-- `benchmark-model`：benchmark、metric、iteration、baseline 和 regression 状态。
-- `analysis-regression`：方向、阈值、样本和回归分类。
-- `benchmark-storage-sqlite`：结果和历史基线存储。
-- `benchmark-export-adapters`：JSON/CSV/Markdown/CI 输出。
-- `benchmark-app` / `presentation`：导入、选择、比较和报告展示。
-- `benchmark-cli`：适合自动化和脚本的入口。
+- `rust-desktop/crates/aps-app/src/benchmark`：页面、表格、趋势、对话框和报告接线。
+- `rust-desktop/crates/aps-benchmark`：解析、模型、比较、策略和导出。
+- `rust-desktop/crates/aps-cli`：文件分析、报告和 capture 编排入口。
 
-## Macrobenchmark 实验台
+Macrobenchmark 编排只构建并执行目标 Gradle task，传递 compilation mode、startup mode、scenario、warmup、iteration、trace dir 等参数；APS 不替代目标工程的 AndroidX benchmark test。
 
-`benchmark-cli` 还提供可复现的 Macrobenchmark 命令计划和执行入口：
+## 使用方法
 
-```bash
-./gradlew -p benchmark-regression :benchmark-cli:run \
-  --args='macro-run --project /path/to/android-project \
-  --task :macrobenchmark:connectedCheck \
-  --compilation-mode SPEED_PROFILE \
-  --startup-mode WARM \
-  --scenario SCROLL \
-  --warmups 2 --iterations 5 \
-  --trace-dir /tmp/macro-traces \
-  --result /tmp/benchmark.json'
-```
+### 导入比较
 
-命令通过 `APS_MACROBENCHMARK_*` 环境变量和 Gradle project properties 把编译模式、启动模式、场景、warmup、iteration、trace 输出目录传给目标 Android Benchmark 工程。执行完成后可以直接复用现有 JSON parser 和 RegressionAnalyzer 做 baseline/current 比较。
+1. 导入 baseline JSON 和 current JSON。
+2. 检查两组设备、构建、场景、编译模式、启动模式、单位和样本数。
+3. 选择 case/metric 和比较策略。
+4. 查看 raw samples、median、变化百分比、区间和分类原因。
+5. 只有明确 PASS/FAIL 时才作为门禁；INCONCLUSIVE/INCOMPATIBLE 必须处理证据问题。
+6. 导出报告或读取 CLI/JUnit/SARIF 结果。
 
-当前边界：目标工程仍需提供 AndroidX Macrobenchmark 测试和可运行设备；APS 负责实验编排、参数传递、原始输出和结果比较，不替代目标工程中的 benchmark test。
+### Macrobenchmark
 
-## 使用方案
+目标工程需提供可运行的 Macrobenchmark 测试和设备。编排完成后把生成 JSON/trace 导入同一比较流程；Profile 验证状态和性能回归结论分别报告。
 
-1. 导入 baseline Benchmark JSON。
-2. 导入 current Benchmark JSON。
-3. 选择比较范围、指标和回归阈值。
-4. 查看相对变化、样本分布和不确定性提示。
-5. 导出报告或在 CI 中读取退出状态/结构化结果。
+## 证据边界与限制
 
-## 证据边界
+- summary median 不能替代 raw sample；样本少、单位不匹配、metric 方向未知或 cohort 不兼容时不猜测。
+- benchmark 回归分类是统计规则结果，不自动证明代码因果。
+- baseline/current 必须记录设备、版本、编译模式、场景、环境和 artifact 身份。
+- trace 路径存在不等于 trace 已成功采集或内容足够；需检查报告状态和源文件。
+- 单次运行不能代表稳定回归；应保留完整样本和实验上下文。
 
-- 单次 benchmark 结果不能代表稳定回归；应保留样本数和统计上下文。
-- baseline 与 current 必须记录设备、编译模式、版本和环境，否则比较可能无效。
-- 回归标记是统计规则输出，不自动解释代码因果；需要结合 Startup、Frame、CPU 或 Trace Analyzer。
+## 故障排查
 
-## P0 实验矩阵与证据关联
-
-Benchmark case 会在指标样本之外保留标准化场景（`STARTUP`、`SCROLL`、`ANIMATION`、`PAGE_SWITCH`）、ART 编译模式、Baseline Profile 状态与 artifact 身份，以及 trace 路径。`BenchmarkExperimentAnalyzer` 对比 Profile 前后实验并按 benchmark case 配对 trace；Profile 是否验证成功与指标回归结论分别报告。CLI 通过 Gradle properties 和环境变量把同一实验矩阵传给目标 AndroidX Macrobenchmark 工程。
+- Case 对不上：检查 class/test identity、参数化 benchmark、metric name 和单位。
+- INCOMPATIBLE：核对设备、API、ABI、build fingerprint、场景和编译模式。
+- INCONCLUSIVE：增加 raw samples、检查异常值/丢样/阈值和 confidence interval。
+- CLI 返回 3：通常是数据不足或不可比较，不应当改写成 PASS。
+- Macrobenchmark 失败：区分目标 Gradle/设备测试失败、APS 编排错误和后续 JSON 解析错误。

@@ -1,15 +1,13 @@
 # AI 路线与缺口
 
-本页按当前源码区分“已接线”“已有局部实现”和“尚待产品验收”。详细实施项见
-[AI Agent Platform TODO](agent-platform-todo.md)，新测试计数与执行结果由主线更新到
-[状态统计](agent-platform-todo-status.md)。本地验证与真实 Provider、原生平台、hosted 和签名证据分别统计，不能互相替代。
+本页保留 Kotlin AI Platform 的历史路线和验收要求，不描述当前 Rust 实现。Rust Provider 的当前边界见 [Rust Provider README](../../rust-desktop/crates/aps-ai/README.md)，跨平台和发布门禁见 [Rust AI 与 Agent TODO](../../rust-desktop/TODO.md)。
 
 ## 1. 已有实现，不再作为从零建设项
 
 ### 模块与桌面入口
 
 - `ai-core` 保留中立分析契约、OpenAI Responses client/gateway、输出校验、Credential Store 和 Analysis Session。
-- `ai-platform` 的 model/registry/storage/providers/runtime 分别负责契约、包信任、引用与结构化结果/审计、Provider/process 边界和编排；app 负责 profile 生命周期/上下文/设置，presentation 负责全局 UI，provider-claude/provider-codex 负责各自 API/CLI 边界，script-runtime 负责沙箱与 Artifact。具体依赖和源码入口见 [模块说明](../../desktop-viewer/ai-platform/README.md)。
+- `ai-platform` 的 model/registry/storage/providers/runtime 分别负责契约、包信任、引用与结构化结果/审计、Provider/process 边界和编排；app 负责 profile 生命周期/上下文/设置，presentation 负责全局 UI，provider-claude/provider-codex 负责各自 API/CLI 边界，script-runtime 负责沙箱与 Artifact。此为 Kotlin 历史模块说明。
 - `AiPlatformRuntime.open()` 已由桌面调用，创建目录、取得独占 profile、安装内置包、注册可发现的 Provider 并把未完成记录恢复为 interrupted。恢复不重放请求，关闭先取消并等待所属工作。
 - 全局 `AiConversationWindowHost` 已接入导航栏、菜单与快捷键。已有业务上下文绑定、证据追问、预检确认、取消/重试、Finding/Evidence/Source Candidate、时间线及只读历史；Provider/Agent/Skill/Policy 设置页已存在。应用 AI 设置继续管理 OpenAI 凭证/endpoint/model。
 
@@ -27,7 +25,7 @@
 - Layout、Simpleperf、Trace/Perfetto、Memory、Frame、Startup、Battery、Network、GPU、Benchmark Regression 均已有页面适配器及对应测试定义。Trace 是 artifact 绑定的数值诊断投影；GPU 当前仅 artifact 元数据。其余投影保留适用的单位、选择/摘要范围、缺失值、覆盖边界和省略计数，不能扩大为完整采集或全库分析。
 - Simpleperf 统一桌面已传入 `ProductionSimpleperfAiAnalysisClient`，不是空 client。Layout 的 `SourceAwareLayoutAiAnalysisClient` 和 Simpleperf 均走 `DesktopAiCoordinator`，由同一全局窗口显式批准，旧入口等待精确 run 的结果；旧调用者取消不会取消新会话。
 - Local/GitHub/AOSP 源码 provider、Snapshot、索引、确定性 resolver 与只读 Source Viewer 已存在。Source Workspace 的独立 AI 上下文已发布有界的可验证选择元信息，并经过本地回归；不发布路径/源码正文，也不冒充性能测量。
-- Layout Inspector MCP 仍是设备、View hierarchy 与源码定位桥接，不等同于主 Agent 已开放通用 MCP 工具。
+- 统一 `aps-mcp` 已作为本地只读 MCP Server 接入 Memory HPROF 分析；当前 Memory provider 已提供快照摘要、泄漏发现、类直方图和对象详情 tools。CPU、Frame、Trace、Source 等模块应继续以 provider/namespace 方式注册到同一 Server，不应各自新增无边界 MCP 进程。
 
 ## 2. P0：收口当前可信链与验收
 
@@ -73,7 +71,7 @@
 - 本地模型或更多 Provider；Claude 已有 adapter，不再笼统写成“尚无第二 Provider”。
 - 流式回答与更完整的阶段交互；当前已有执行时间线，不等于 token streaming。
 - 跨 Profiler 的证据关联与统一诊断会话。
-- 受限只读 MCP tools 与模型驱动的动态规划；当前通用 manifest 图编排不等于允许模型任意扩展执行图或主机工具。
+- 受限只读 MCP tools 与模型驱动的动态规划；当前统一 `aps-mcp` 采用 Host 在 prepare 阶段确定性调用并冻结 evidence，尚不允许模型任意扩展执行图或主机工具。
 - 显式脱敏的团队共享格式。
 
 这些能力继续复用 Evidence/Candidate allowlist、用户授权、固定版本身份与 Analysis Session，不退化成全项目自由聊天。

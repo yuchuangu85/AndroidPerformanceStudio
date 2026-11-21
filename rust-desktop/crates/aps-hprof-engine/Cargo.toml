@@ -1,0 +1,12 @@
+[package]
+name = "aps-hprof-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+aps-primitives = { path = "../aps-primitives" }
+
+[dev-dependencies]
+serde_json.workspace = true

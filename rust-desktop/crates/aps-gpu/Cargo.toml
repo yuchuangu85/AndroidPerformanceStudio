@@ -1,0 +1,13 @@
+[package]
+name = "aps-gpu"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aps-adb = { path = "../aps-adb" }
+aps-json = { path = "../aps-json" }
+aps-contracts = { path = "../aps-contracts" }
+aps-platform = { path = "../aps-platform" }
+aps-perfetto = { path = "../aps-perfetto" }

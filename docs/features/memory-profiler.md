@@ -1,82 +1,78 @@
 # Memory Profiler
 
-## 功能介绍
+## 功能定位
 
-Memory Profiler 用于抓取、导入和调查 Java HPROF、Native heap 以及 Bitmap dump。当前能力包括类直方图、对象实例、引用链、Dominator/retained size、快照 diff、Bitmap 分析和 LeakCanary/Shark 兼容分析。
+Memory Profiler 用于抓取或导入 Java HPROF，并在可用时关联 Native heap、ART runtime、Bitmap dump 和 LeakCanary/Shark 证据。它支持从类级别逐步深入到实例、字段、引用链、Dominator 和快照差异。
 
-## 详细设计方案
+当前状态：
+
+- **已接入**：HPROF 导入/转换、类直方图、实例列表、字段/引用展开、Dominator、retained size、快照 diff、导出和有界 AI/源码关联。
+- **条件能力**：Native/ART/Bitmap/LeakCanary 依赖设备数据源、debug Agent、Perfetto/heap tooling、mapping 和目标工程配置。
+- **未完成验收**：大真实堆的 RSS/取消、真机 Native/ART/Bitmap 完整往返和 LeakCanary Agent 端到端仍开放。
+
+## 功能点
+
+- Dump Heap 或导入 `.hprof`；必要时使用宿主 `hprof-conv` 生成标准副本。
+- Class List 展示对象数、shallow size、retained size、heap/来源和可用性。
+- Instance List 保留快照内对象 ID；详情支持字段、引用、数组页和对象路径。
+- Dominator tree 用于识别保留内存的支配对象和 retained size。
+- Reference path/nearest GC root 用于调查对象为何仍可达；未知边和缺失详情保持显式。
+- Snapshot Diff 比较两个兼容快照的类、对象数和大小变化；不把不同来源混成同一快照。
+- Bitmap、Native Heap、ART GC/JIT/class loading 等属于独立证据通道，不伪装成 Java HPROF 对象图。
+- 导出 CSV/JSON/Markdown/原始 artifact；报告会写入引擎、来源 digest、覆盖率和省略原因。
+
+## 原理与数据流
 
 ```text
-ADB dumpheap / import HPROF
-  -> probe
-  -> optional hprof-conv
-  -> parse/index
-  -> heap graph
-  -> histogram + dominator + reference query
-  -> LeakCanary/Shark or native analysis
-  -> themed workspace / export
+ADB dumpheap / imported HPROF
+  -> bounded source probe and optional hprof-conv
+  -> isolated memory worker
+  -> parser/index/heap projection
+  -> histogram / instance / reference / dominator queries
+  -> snapshot diff / Shark adapter / exports
 ```
 
-### 模块职责
+当前 Rust 入口：
 
-- `memory-profiler/capture-memory`：ADB dumpheap、pull、hprof-conv、Native trace 和 Agent 连接。
-- `parser-hprof`：Android/Java HPROF 识别、解析、索引和 warning。
-- `memory-model`：HeapDump、HeapClass、HeapInstance、snapshot capability、leak report。
-- `analysis-memory`：直方图、Dominator、对象调查、Bitmap、Shark adapter。
-- `memory-storage-sqlite`：最近会话和 session 元数据。
-- `memory-export-adapters`：CSV、JSON、Markdown 和原始 artifact 导出。
-- `presentation`：Dashboard、Class List、Dominator、Diff、Native Heap、Memory Leaks 页面。
-- `memory-app`：设备/进程、任务取消、导入、会话和菜单编排。
+- `rust-desktop/crates/aps-app/src/import/memory.rs` 及其子模块：workspace、任务、查询、导出和 UI 状态。
+- `rust-desktop/crates/aps-memory`：隔离 worker、协议、快照和分页结果。
+- `rust-desktop/crates/aps-hprof-engine`：HPROF 解析、索引和分析。
+- `rust-desktop/crates/aps-app/src/import/memory/inspector.rs`：实例、字段、引用和路径交互。
 
-### LeakCanary 实时链路
+原始 HPROF 不进入 UI 进程的 heap graph；worker 输出有界、类型化、不可变的快照投影。取消和关闭会释放源租约，避免 UI 直接持有任意堆对象。
 
-目标 debug App 可注入 `android-agent-leakcanary` AAR 和 protocol JAR。Agent 通过 ContentProvider 自动启动，监听 Activity/Fragment、弱引用回收和 retained object，桌面端通过 ADB forward + token session 轮询事件。
+## 使用方法
 
-## 实现方案
-
-离线 HPROF 分析和实时 Agent 是两条证据通道：
-
-- Shark 负责主机侧 heap graph/leak trace；不把启发式候选冒充成 LeakCanary 证明。
-- Agent 负责 App 侧生命周期、弱引用和实时事件；LeakCanary 依赖通过 Android 工程 debug 注入。
-- Native heap 通过 heapprofd/Perfetto 证据分析，不伪装成 Java HPROF 对象图。
-
-## 使用方案
-
-### 离线/快照模式
-
-HPROF 使用 Kotlin 解析器加载 raw Android 和标准/converted HPROF，保留原始对象 ID。
-对象查询、支配树和导出共用同一快照；LeakCanary 引用链由 Shark 分析。
-加载来源通过内容摘要和托管租约保持不可变，取消或关闭快照后释放租约。
+### HPROF
 
 1. 选择设备和可调试进程，点击 Dump Heap，或导入 `.hprof`。
-2. 等待 probe、转换、解析和分析完成。
-3. 在 Class List 查找类与实例，在 Dominator 查看 retained size。
-4. 打开 Memory Leaks 查看 Shark 引用链。
-5. 需要时导入 `mapping.txt` 并导出调查报告。
+2. 等待来源校验、可选转换、解析、索引和摘要完成。
+3. 从 Class List 找到可疑类，进入实例列表和对象详情。
+4. 用 Fields/References、nearest GC root 和 Dominator 追查保留路径。
+5. 导入匹配的 `mapping.txt`（如有），再导出报告或保存会话。
 
-开发和发行包不再需要 Rust 工具链或 HPROF 侧车。运行解析器和工作区测试：
-`./gradlew :memory-profiler:parser-hprof:test :memory-profiler:memory-app:test`。
+### Diff
 
-### 实时模式
+1. 打开两个来源兼容的快照。
+2. 选择 baseline/current，检查源 digest、时间、引擎和能力差异。
+3. 按类、对象数、shallow/retained size 查看变化。
+4. 对变化最大的类回到实例/引用路径，避免只根据聚合数字下结论。
 
-1. 构建 bridge bundle：
+### Native/ART/Bitmap
 
-```bash
-cd desktop-viewer/memory-profiler
-./gradlew -PincludeLeakCanaryAgent=true :android-agent-leakcanary:bundleLeakCanaryAgent
-```
+先确认目标设备和采集能力，再分别打开对应页面。Native allocation、ART runtime slice 和 Bitmap dump 不是 HPROF 的同一对象空间，比较时必须保留各自的时间、heap、来源和覆盖率。
 
-2. 在 Memory Profiler 选择 Inject Agent，选择 Android 工程。
-3. 重新构建并安装 debug APK。
-4. 选择设备和进程，点击 Memory Leaks。
-5. 查看 Activity/Fragment destroyed、Object retained/collected 等实时事件。
+## 输出与证据边界
 
-## 输出与限制
+- Java HPROF 对象 ID 只在单个快照内稳定，不能跨快照直接当作身份。
+- retained size、Dominator 和 LeakCanary/Shark 是不同分析模型；Shark 候选不是 LeakCanary 运行时证明。
+- HPROF 成功不证明 Native Heap、ART、Bitmap 或 Agent 已在真机完成。
+- 缺失 mapping、截断字段、未知引用、分页省略和 worker 失败必须保持可见。
+- 真实设备、注入、签名、重启恢复和大堆性能属于独立验收门槛。
 
-- HPROF、Native trace、Bitmap dump、分析 JSON/CSV/Markdown 分属不同 artifact。
-- 已安装 APK 不能假设可以无损注入；注入需要重建、签名和重新安装。
-- 当前真机端到端 Agent 验收仍需单独执行。
+## 故障排查
 
-## ART runtime evidence
-
-`ArtRuntimeTraceProcessorAdapter` 提供 GC pause/reclaimed heap、allocation churn、JIT/dex2oat 和 class loading/initialization 的独立模型。该证据来自 Perfetto ART/heap tables，与 HPROF retained-size 和 Native Heap allocation 保持分离。
+- HPROF 无法解析：检查文件是否完整、是否为目标 Android 版本格式、是否需要 `hprof-conv`，以及 source digest 是否稳定。
+- 内存高或取消慢：确认是否使用隔离 worker、输入是否超预算、是否同时运行多个导入；不要用旧 worker 进程判断新任务状态。
+- 没有泄漏链：可能没有 Shark/LeakCanary 证据、mapping 缺失或对象边界不可用；显示不可用不等于没有泄漏。
+- Diff 不可比：检查快照来源、引擎、heap/能力、digest 和采集时刻。

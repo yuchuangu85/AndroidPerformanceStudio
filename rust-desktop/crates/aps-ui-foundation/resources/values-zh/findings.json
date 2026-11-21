@@ -1,0 +1,16 @@
+{
+  "inspector_finding_invisible_node": "不可见节点",
+  "inspector_finding_excessive_children": "子节点过多",
+  "inspector_finding_overlapping_siblings": "兄弟节点区域重叠",
+  "inspector_finding_deep_hierarchy": "层级过深",
+  "inspector_finding_invisible_node_message": "{class_name} 节点存在但当前不可见",
+  "inspector_finding_excessive_children_message": "直接子节点数量 {count}，超过阈值 {threshold}",
+  "inspector_finding_overlapping_siblings_message": "{count} 个兄弟节点的边界重叠比例至少为 {ratio_percent}%；这是结构性渲染风险，请使用 GPU 工具进一步确认",
+  "inspector_finding_deep_hierarchy_message": "层级深度 {depth}，超过阈值 {threshold}",
+  "inspector_finding_severity_info": "提示",
+  "inspector_finding_severity_warning": "警告",
+  "inspector_finding_severity_error": "错误",
+  "inspector_findings_filtered": "没有符合当前筛选条件的问题。",
+  "inspector_findings_partial_empty": "未保留问题；部分结构检查尚未评估。",
+  "inspector_findings_scope": "仅对抓取的节点应用四条结构规则；未评估 GPU 或重组情况。"
+}

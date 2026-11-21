@@ -1,0 +1,14 @@
+[package]
+name = "aps-ui-foundation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+
+[build-dependencies]
+aps-json = { path = "../aps-json" }
+
+[dev-dependencies]
+aps-json = { path = "../aps-json" }

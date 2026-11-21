@@ -1,0 +1,46 @@
+T	true	0	10	-e cpu-clock:u -f 1000 -g
+T	true	1	10	-e cpu-clock:u -f 1000 -g
+T	true	2	10	-e cpu-cycles:u -f 1000 -g
+T	true	3	10	-e cpu-clock:u -f 100 --call-graph fp
+T	true	4	10	-e cpu-clock:u -f 400 --call-graph fp
+T	false	0	10	-e cpu-clock -f 1000 -g
+T	false	1	10	-e cpu-clock -f 1000 -g
+T	false	2	10	-e cpu-cycles -f 1000 -g
+T	false	3	10	-e cpu-clock -f 100 --call-graph fp
+T	false	4	10	-e cpu-clock -f 400 --call-graph fp
+M	0	-e cpu-clock:u -f 99 -g
+M	1	-e cpu-clock:u -f 99 --call-graph fp
+M	2	-e cpu-clock:u -f 99
+M	3	-e cpu-clock:u -c 4096 -g
+M	4	-e cpu-clock:u -c 4096 --call-graph fp
+M	5	-e cpu-clock:u -c 4096
+M	6	-e cpu-clock:k -f 99 -g
+M	7	-e cpu-clock:k -f 99 --call-graph fp
+M	8	-e cpu-clock:k -f 99
+M	9	-e cpu-clock:k -c 4096 -g
+M	10	-e cpu-clock:k -c 4096 --call-graph fp
+M	11	-e cpu-clock:k -c 4096
+M	12	-e cpu-clock -f 99 -g
+M	13	-e cpu-clock -f 99 --call-graph fp
+M	14	-e cpu-clock -f 99
+M	15	-e cpu-clock -c 4096 -g
+M	16	-e cpu-clock -c 4096 --call-graph fp
+M	17	-e cpu-clock -c 4096
+M	18	-e cpu-cycles:u -f 99 -g
+M	19	-e cpu-cycles:u -f 99 --call-graph fp
+M	20	-e cpu-cycles:u -f 99
+M	21	-e cpu-cycles:u -c 4096 -g
+M	22	-e cpu-cycles:u -c 4096 --call-graph fp
+M	23	-e cpu-cycles:u -c 4096
+M	24	-e cpu-cycles:k -f 99 -g
+M	25	-e cpu-cycles:k -f 99 --call-graph fp
+M	26	-e cpu-cycles:k -f 99
+M	27	-e cpu-cycles:k -c 4096 -g
+M	28	-e cpu-cycles:k -c 4096 --call-graph fp
+M	29	-e cpu-cycles:k -c 4096
+M	30	-e cpu-cycles -f 99 -g
+M	31	-e cpu-cycles -f 99 --call-graph fp
+M	32	-e cpu-cycles -f 99
+M	33	-e cpu-cycles -c 4096 -g
+M	34	-e cpu-cycles -c 4096 --call-graph fp
+M	35	-e cpu-cycles -c 4096

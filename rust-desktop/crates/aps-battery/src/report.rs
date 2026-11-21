@@ -1,0 +1,1307 @@
+use crate::baseline::{config_value, parse_config};
+use crate::{
+    BatteryCapabilities, BatteryCaptureConfig, BatteryHistoryEvent, BatterySnapshotInterval,
+    ThermalSample,
+};
+use crate::{BatteryDelta, BatterySnapshot, MAX_PAGE_SIZE, ResourceKind, ResourceTimer};
+use aps_json::{Limits, Map, Number, Value};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+
+/// Read-only report projection with optional minimized interval evidence.
+pub struct BatteryReport {
+    pub session_id: String,
+    pub uid: Option<u32>,
+    pub attribution_scope: Option<String>,
+    pub package_name: Option<String>,
+    pub device_local_id: Option<String>,
+    pub capture_mode: Option<String>,
+    pub capability_level: Option<String>,
+    /// Observed command-level capabilities; None for reports without a probe.
+    pub capabilities: Option<BatteryCapabilities>,
+    /// Exported capture timestamp, never inferred from the imported file.
+    pub created_at: Option<String>,
+    /// User-declared scenario, never inferred from package or process identity.
+    pub workload_id: Option<String>,
+    pub configuration: Option<BatteryCaptureConfig>,
+    pub stopped_early: Option<bool>,
+    pub warnings: Vec<String>,
+    /// True only for observations captured by this process. Import never trusts
+    /// a producer-supplied flag to establish live device provenance.
+    pub live_capture: bool,
+    runs: Vec<BatteryReportRun>,
+}
+
+/// One bounded observation interval, not an inferred workload or power model.
+#[derive(Debug, Clone)]
+pub struct BatteryRunObservation {
+    pub iteration: u32,
+    pub before: BatterySnapshot,
+    pub after: BatterySnapshot,
+    pub temperatures_tenths_celsius: Vec<i32>,
+    pub thermal_statuses: Vec<u32>,
+    /// Device-wide thermal samples; empty means the probe was unavailable.
+    pub thermal_samples: Vec<ThermalSample>,
+    /// Final-snapshot history events already filtered by the capture boundary.
+    pub history: Vec<BatteryHistoryEvent>,
+    /// Every observed battery charging state, including unavailable samples.
+    pub charging_states: Vec<Option<bool>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BatteryReportRun {
+    pub id: String,
+    pub iteration: u32,
+    pub duration_ms: u64,
+    pub network_bytes: Option<u64>,
+    pub network_counters: BTreeMap<String, Option<u64>>,
+    pub network_packets: BTreeMap<String, Option<u64>>,
+    pub radio_active_ms: Option<u64>,
+    pub snapshot_interval: Option<BatterySnapshotInterval>,
+    pub timers: Vec<ResourceTimer>,
+    /// Source confidences in the same order as `timers`; no confidence is inferred.
+    pub timer_confidence: Vec<Option<String>>,
+    /// Distinguishes an explicitly empty counter list from an omitted list.
+    pub timer_arrays_present: BTreeSet<ResourceKind>,
+    pub energy: Vec<ImportedEnergy>,
+    pub peak_temperature_celsius: Option<f64>,
+    pub max_thermal_status: Option<u32>,
+    pub throttled_samples: Option<u64>,
+    /// None means not supplied; Some(empty) is an explicitly empty window list.
+    pub performance_windows: Option<Vec<ImportedPerformanceWindow>>,
+    pub history: Vec<BatteryHistoryEvent>,
+    pub warnings: Vec<String>,
+}
+
+impl BatteryReportRun {
+    pub fn has_timer_evidence(&self, kind: ResourceKind) -> bool {
+        self.timer_arrays_present.contains(&kind)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportedPerformanceWindow {
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub peak_temperature_celsius: Option<f64>,
+    pub max_thermal_status: Option<u32>,
+    pub throttled: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportedEnergy {
+    pub component: String,
+    pub energy_mah: Option<f64>,
+    pub energy_uws: Option<u64>,
+    pub source: String,
+    pub scope: String,
+    pub confidence: String,
+}
+
+impl BatteryReport {
+    /// Complete schema-v1 analysis, not the currently visible runs page. Keeps
+    /// omitted timer/window evidence distinct from explicit empty collections.
+    /// Reimport remains a derived report and cannot acquire live provenance.
+    pub fn to_json(&self, max_bytes: usize) -> Result<Vec<u8>, String> {
+        if max_bytes == 0 || max_bytes > crate::MAX_INPUT_BYTES {
+            return Err(
+                "Battery analysis export requires a positive byte budget at most 64 MiB".into(),
+            );
+        }
+        let mut runs = Vec::with_capacity(self.runs.len());
+        for run in &self.runs {
+            if run.timers.len() != run.timer_confidence.len()
+                || run
+                    .timers
+                    .iter()
+                    .any(|timer| !run.timer_arrays_present.contains(&timer.kind))
+            {
+                return Err("Battery timer evidence and confidence are inconsistent".into());
+            }
+            let energy = run
+                .energy
+                .iter()
+                .map(|energy| {
+                    Ok(object([
+                        ("component", energy.component.clone().into()),
+                        ("energyMah", finite_value(energy.energy_mah)?),
+                        ("energyUws", optional_value(energy.energy_uws)),
+                        ("source", energy.source.clone().into()),
+                        ("scope", energy.scope.clone().into()),
+                        ("confidence", energy.confidence.clone().into()),
+                    ]))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let mut row = object([
+                ("runId", run.id.clone().into()),
+                ("iteration", run.iteration.into()),
+                ("durationMs", run.duration_ms.into()),
+                ("networkBytes", optional_value(run.network_bytes)),
+                (
+                    "networkCounters",
+                    Value::Object(
+                        run.network_counters
+                            .iter()
+                            .map(|(key, value)| (key.clone(), optional_value(*value)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "networkPackets",
+                    Value::Object(
+                        run.network_packets
+                            .iter()
+                            .map(|(key, value)| (key.clone(), optional_value(*value)))
+                            .collect(),
+                    ),
+                ),
+                ("radioActiveMs", optional_value(run.radio_active_ms)),
+                (
+                    "snapshotInterval",
+                    run.snapshot_interval
+                        .as_ref()
+                        .map_or(Value::Null, BatterySnapshotInterval::to_value),
+                ),
+                ("energy", energy.into()),
+                (
+                    "peakTemperatureCelsius",
+                    finite_value(run.peak_temperature_celsius)?,
+                ),
+                ("maxThermalStatus", optional_value(run.max_thermal_status)),
+                ("throttledSamples", optional_value(run.throttled_samples)),
+                ("warnings", run.warnings.clone().into()),
+                ("history", history_values(&run.history)),
+            ]);
+            let fields = row.as_object_mut().expect("Battery run object");
+            for (name, kind) in [
+                ("wakelocks", ResourceKind::Wakelock),
+                ("alarms", ResourceKind::Alarm),
+                ("jobs", ResourceKind::Job),
+                ("sensors", ResourceKind::Sensor),
+            ] {
+                if run.timer_arrays_present.contains(&kind) {
+                    let timers = run
+                        .timers
+                        .iter()
+                        .zip(&run.timer_confidence)
+                        .filter(|(timer, _)| timer.kind == kind)
+                        .map(|(timer, confidence)| {
+                            object([
+                                ("name", timer.name.clone().into()),
+                                ("durationMs", timer.duration_ms.into()),
+                                ("count", timer.count.into()),
+                                ("confidence", optional_value(confidence.as_deref())),
+                            ])
+                        })
+                        .collect::<Vec<_>>();
+                    fields.insert(name.into(), timers.into());
+                }
+            }
+            if let Some(windows) = &run.performance_windows {
+                let windows = windows
+                    .iter()
+                    .map(|window| {
+                        Ok(object([
+                            ("startedAt", optional_value(window.started_at.as_deref())),
+                            ("endedAt", optional_value(window.ended_at.as_deref())),
+                            ("durationMs", optional_value(window.duration_ms)),
+                            (
+                                "peakTemperatureCelsius",
+                                finite_value(window.peak_temperature_celsius)?,
+                            ),
+                            (
+                                "maxThermalStatus",
+                                optional_value(window.max_thermal_status),
+                            ),
+                            ("throttled", optional_value(window.throttled)),
+                        ]))
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                fields.insert("performanceWindows".into(), windows.into());
+            }
+            runs.push(row);
+        }
+        let root = object([
+            ("schemaVersion", 1.into()),
+            ("sessionId", self.session_id.clone().into()),
+            ("uid", optional_value(self.uid)),
+            (
+                "attributionScope",
+                optional_value(self.attribution_scope.as_deref()),
+            ),
+            ("packageName", optional_value(self.package_name.as_deref())),
+            (
+                "deviceLocalId",
+                optional_value(self.device_local_id.as_deref()),
+            ),
+            ("captureMode", optional_value(self.capture_mode.as_deref())),
+            (
+                "capabilityLevel",
+                optional_value(self.capability_level.as_deref()),
+            ),
+            (
+                "capabilities",
+                self.capabilities
+                    .as_ref()
+                    .map_or(Value::Null, capabilities_value),
+            ),
+            ("createdAt", optional_value(self.created_at.as_deref())),
+            ("workloadId", optional_value(self.workload_id.as_deref())),
+            (
+                "configuration",
+                self.configuration.map_or(Value::Null, config_value),
+            ),
+            ("stoppedEarly", optional_value(self.stopped_early)),
+            ("warnings", self.warnings.clone().into()),
+            ("runs", runs.into()),
+        ]);
+        let bytes = aps_json::to_vec(
+            &root,
+            Limits {
+                max_bytes: max_bytes as u64,
+                ..Limits::default()
+            },
+        )
+        .map_err(|error| format!("Battery analysis export: {error}"))?;
+        // Fail before publication if a public model was mutated into something
+        // the existing importer cannot re-open. The parsed value is not retained.
+        Self::parse_json(&bytes)?;
+        Ok(bytes)
+    }
+
+    /// Whole-session CSV matching the Compose exporter columns. Summary rows use
+    /// the same explicit unknown semantics as the JSON projection.
+    pub fn to_csv(&self, max_bytes: usize) -> Result<Vec<u8>, String> {
+        if max_bytes == 0 || max_bytes > crate::MAX_INPUT_BYTES {
+            return Err("Battery CSV export requires a positive byte budget at most 64 MiB".into());
+        }
+        let scope = self.attribution_scope.as_deref().unwrap_or("UNKNOWN");
+        let mut output = String::from(
+            "schema_version,run,resource_type,name,duration_ms,count,bytes,energy_mah,energy_uws,source,scope,confidence\n",
+        );
+        let escape = |value: &str| format!("\"{}\"", value.replace('"', "\"\""));
+        for run in &self.runs {
+            for (timer, confidence) in run.timers.iter().zip(&run.timer_confidence) {
+                let kind = match timer.kind {
+                    ResourceKind::Wakelock => "wakelock",
+                    ResourceKind::Alarm => "alarm",
+                    ResourceKind::Job => "job",
+                    ResourceKind::Sensor => "sensor",
+                };
+                output.push_str(&format!(
+                    "1,{},{},{},{},{},,,,UID_COUNTER,{},{}\n",
+                    run.iteration,
+                    kind,
+                    escape(&timer.name),
+                    timer.duration_ms,
+                    timer.count,
+                    scope,
+                    confidence.as_deref().unwrap_or("UNKNOWN"),
+                ));
+            }
+            output.push_str(&format!(
+                "1,{},network,total,,,,{},,,,,\n",
+                run.iteration,
+                run.network_bytes
+                    .map_or_else(String::new, |value| value.to_string())
+            ));
+            output.push_str(&format!(
+                "1,{},thermal,peak_temperature_c,,,,{},,,,,\n",
+                run.iteration,
+                run.peak_temperature_celsius
+                    .map_or_else(String::new, |value| value.to_string())
+            ));
+            output.push_str(&format!(
+                "1,{},thermal,status,,,,{},,,,,\n",
+                run.iteration,
+                run.max_thermal_status
+                    .map_or_else(String::new, |value| value.to_string())
+            ));
+            for energy in &run.energy {
+                let row = [
+                    "1".to_owned(),
+                    run.iteration.to_string(),
+                    "energy".to_owned(),
+                    escape(&energy.component),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    energy
+                        .energy_mah
+                        .map_or_else(String::new, |value| value.to_string()),
+                    energy
+                        .energy_uws
+                        .map_or_else(String::new, |value| value.to_string()),
+                    energy.source.clone(),
+                    energy.scope.clone(),
+                    energy.confidence.clone(),
+                ];
+                output.push_str(&row.join(","));
+                output.push('\n');
+            }
+            if output.len() > max_bytes {
+                return Err("Battery CSV export exceeds its byte budget".into());
+            }
+        }
+        if output.len() > max_bytes {
+            return Err("Battery CSV export exceeds its byte budget".into());
+        }
+        Ok(output.into_bytes())
+    }
+
+    /// Builds the same report projection as import while keeping the real
+    /// snapshot/UID continuity gate. A counter that disappeared or reset is
+    /// omitted with a warning, never turned into a measured zero.
+    pub fn from_live_snapshots(
+        session_id: &str,
+        package_name: &str,
+        capture_mode: &str,
+        observations: &[BatteryRunObservation],
+        capabilities: Option<BatteryCapabilities>,
+    ) -> Result<Self, String> {
+        if session_id.is_empty()
+            || session_id.len() > 128
+            || package_name.is_empty()
+            || package_name.len() > 4096
+            || capture_mode.len() > 64
+            || observations.is_empty()
+            || observations.len() > 100
+        {
+            return Err("Invalid live battery report identity or run count".into());
+        }
+        let first = &observations[0].before.identity;
+        if first.device_id.is_empty()
+            || first.boot_id.as_deref().is_none_or(str::is_empty)
+            || observations.windows(2).any(|runs| {
+                runs[1].iteration <= runs[0].iteration
+                    || runs[1].before.identity.elapsed_ms < runs[0].after.identity.elapsed_ms
+            })
+        {
+            return Err("Live battery observations require explicit boot identity and ordered, non-overlapping runs".into());
+        }
+        let mut runs = Vec::with_capacity(observations.len());
+        let mut warnings = Vec::new();
+        for observation in observations {
+            if observation.iteration == 0
+                || observation.before.identity.uid != first.uid
+                || observation.after.identity.uid != first.uid
+                || observation.before.identity.device_id != first.device_id
+                || observation.after.identity.device_id != first.device_id
+                || observation.before.identity.boot_id != first.boot_id
+                || observation.after.identity.boot_id != first.boot_id
+            {
+                return Err("Live battery target or device boot changed".into());
+            }
+            let duration_ms = observation
+                .after
+                .identity
+                .elapsed_ms
+                .checked_sub(observation.before.identity.elapsed_ms)
+                .ok_or("Live battery observation clock moved backwards")?;
+            let delta = BatteryDelta::between(&observation.before, &observation.after);
+            let mut timers = Vec::new();
+            let mut timer_arrays_present = BTreeSet::new();
+            for timer in &delta.timers {
+                if let Some((duration_ms, count)) = timer.duration_ms.zip(timer.count) {
+                    timers.push(ResourceTimer {
+                        kind: timer.kind,
+                        name: timer.name.clone(),
+                        duration_ms,
+                        count,
+                    });
+                    timer_arrays_present.insert(timer.kind);
+                }
+            }
+            let timer_confidence = vec![Some("UID_CUMULATIVE_DELTA".into()); timers.len()];
+            let energy = delta
+                .modeled_energy_mah
+                .iter()
+                .filter_map(|(component, value)| {
+                    value.map(|energy_mah| ImportedEnergy {
+                        component: component.clone(),
+                        energy_mah: Some(energy_mah),
+                        energy_uws: None,
+                        source: "SYSTEM_MODEL".into(),
+                        scope: if delta.shared_uid {
+                            "SHARED_UID"
+                        } else {
+                            "UID"
+                        }
+                        .into(),
+                        confidence: "MODELED".into(),
+                    })
+                })
+                .collect();
+            let mut run_warnings = observation.before.warnings.clone();
+            run_warnings.extend(observation.after.warnings.iter().cloned());
+            run_warnings.extend(delta.warnings);
+            run_warnings.push("Device commands are sequential observations; duration uses device uptime and is not precise command-to-command workload time.".into());
+            run_warnings.sort();
+            run_warnings.dedup();
+            if run_warnings.len() > 200 {
+                let omitted = run_warnings.len() - 200;
+                run_warnings.truncate(200);
+                run_warnings.push(format!("{omitted} additional capture warnings omitted."));
+            }
+            warnings.extend(run_warnings.iter().cloned());
+            runs.push(BatteryReportRun {
+                id: format!("{session_id}-{}", observation.iteration),
+                iteration: observation.iteration,
+                duration_ms,
+                network_bytes: delta.network_total_bytes,
+                network_counters: delta.network_bytes.clone(),
+                network_packets: delta.network_packets.clone(),
+                radio_active_ms: delta.radio_active_ms,
+                snapshot_interval: Some(BatterySnapshotInterval::from_snapshots(
+                    &observation.before,
+                    &observation.after,
+                    observation.charging_states.clone(),
+                )),
+                timers,
+                timer_confidence,
+                timer_arrays_present,
+                energy,
+                peak_temperature_celsius: observation
+                    .thermal_samples
+                    .iter()
+                    .filter_map(|sample| sample.peak_celsius)
+                    .reduce(f64::max)
+                    .or_else(|| {
+                        observation
+                            .temperatures_tenths_celsius
+                            .iter()
+                            .copied()
+                            .max()
+                            .map(|value| f64::from(value) / 10.)
+                    }),
+                max_thermal_status: observation
+                    .thermal_samples
+                    .iter()
+                    .filter_map(|sample| sample.status)
+                    .max()
+                    .or_else(|| observation.thermal_statuses.iter().copied().max()),
+                throttled_samples: (!observation.thermal_samples.is_empty()).then(|| {
+                    observation
+                        .thermal_samples
+                        .iter()
+                        .filter(|sample| sample.throttled)
+                        .count() as u64
+                }),
+                performance_windows: Some(
+                    observation
+                        .thermal_samples
+                        .windows(2)
+                        .map(|pair| ImportedPerformanceWindow {
+                            started_at: None,
+                            ended_at: None,
+                            duration_ms: pair[1].elapsed_ms.checked_sub(pair[0].elapsed_ms),
+                            peak_temperature_celsius: [pair[0].peak_celsius, pair[1].peak_celsius]
+                                .into_iter()
+                                .flatten()
+                                .reduce(f64::max),
+                            max_thermal_status: [pair[0].status, pair[1].status]
+                                .into_iter()
+                                .flatten()
+                                .max(),
+                            throttled: Some(pair[0].throttled || pair[1].throttled),
+                        })
+                        .collect(),
+                ),
+                history: observation
+                    .history
+                    .iter()
+                    .filter(|event| event.uid.is_none_or(|uid| uid == first.uid))
+                    .cloned()
+                    .collect(),
+                warnings: run_warnings,
+            });
+        }
+        warnings.sort();
+        warnings.dedup();
+        warnings.truncate(200);
+        let shared_uid = observations
+            .iter()
+            .any(|run| run.before.identity.shared_uid || run.after.identity.shared_uid);
+        let has_energy = runs.iter().any(|run| !run.energy.is_empty());
+        Ok(Self {
+            session_id: session_id.into(),
+            uid: Some(first.uid),
+            attribution_scope: Some(if shared_uid { "SHARED_UID" } else { "UID" }.into()),
+            package_name: Some(package_name.into()),
+            device_local_id: Some(first.device_id.clone()),
+            capture_mode: Some(capture_mode.into()),
+            capability_level: Some(capabilities.as_ref().map_or_else(
+                || {
+                    if has_energy {
+                        "ENERGY_ENHANCED"
+                    } else {
+                        "RESOURCE_BASIC"
+                    }
+                    .into()
+                },
+                |capabilities| capabilities.level.clone(),
+            )),
+            capabilities,
+            created_at: None,
+            workload_id: None,
+            configuration: None,
+            stopped_early: None,
+            warnings,
+            live_capture: true,
+            runs,
+        })
+    }
+
+    pub fn open(path: &Path, max_bytes: u64) -> Result<Self, String> {
+        let root = aps_json::read(
+            path,
+            Limits {
+                max_bytes,
+                ..Limits::default()
+            },
+        )
+        .map_err(|error| error.to_string())?;
+        Self::from_value(root)
+    }
+
+    pub fn parse_json(bytes: &[u8]) -> Result<Self, String> {
+        Self::from_value(
+            aps_json::parse_slice(bytes, Limits::default()).map_err(|error| error.to_string())?,
+        )
+    }
+
+    fn from_value(root: Value) -> Result<Self, String> {
+        if root.get("schemaVersion").and_then(Value::as_u64) != Some(1) {
+            return Err("Unsupported battery report schema".into());
+        }
+        let session_id = required_text(&root, "sessionId")?;
+        let rows = root
+            .get("runs")
+            .and_then(Value::as_array)
+            .ok_or("Battery report lacks runs")?;
+        if rows.is_empty() || rows.len() > 100_000 {
+            return Err("Battery report requires 1..100000 runs".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        let mut runs = Vec::new();
+        for row in rows {
+            let id = required_text(row, "runId")?;
+            if !ids.insert(id.clone()) {
+                return Err("Duplicate battery run identity".into());
+            }
+            let iteration = integer(row, "iteration")?
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0)
+                .ok_or("Invalid battery iteration")?;
+            let duration_ms = integer(row, "durationMs")?.ok_or("Missing battery duration")?;
+            let mut timers = Vec::new();
+            let mut timer_confidence = Vec::new();
+            let mut timer_arrays_present = BTreeSet::new();
+            for (name, kind) in [
+                ("wakelocks", ResourceKind::Wakelock),
+                ("alarms", ResourceKind::Alarm),
+                ("jobs", ResourceKind::Job),
+                ("sensors", ResourceKind::Sensor),
+            ] {
+                if row.get(name).is_some() {
+                    // optional_array below rejects explicit null or malformed arrays.
+                    timer_arrays_present.insert(kind);
+                }
+                for timer in optional_array(row, name)? {
+                    timers.push(ResourceTimer {
+                        kind,
+                        name: required_text(timer, "name")?,
+                        duration_ms: integer(timer, "durationMs")?
+                            .ok_or("Missing timer duration")?,
+                        count: integer(timer, "count")?.ok_or("Missing timer count")?,
+                    });
+                    timer_confidence.push(optional_text(timer, "confidence")?);
+                }
+            }
+            let mut energy = Vec::new();
+            for value in optional_array(row, "energy")? {
+                energy.push(ImportedEnergy {
+                    component: required_text(value, "component")?,
+                    energy_mah: number(value, "energyMah")?,
+                    energy_uws: integer(value, "energyUws")?,
+                    source: required_text(value, "source")?,
+                    scope: required_text(value, "scope")?,
+                    confidence: required_text(value, "confidence")?,
+                });
+            }
+            runs.push(BatteryReportRun {
+                id,
+                iteration,
+                duration_ms,
+                network_bytes: integer(row, "networkBytes")?,
+                network_counters: network_counters(row)?,
+                network_packets: optional_counter_map(row, "networkPackets")?,
+                radio_active_ms: integer(row, "radioActiveMs")?,
+                snapshot_interval: BatterySnapshotInterval::from_value(&row["snapshotInterval"])?,
+                timers,
+                timer_confidence,
+                timer_arrays_present,
+                energy,
+                peak_temperature_celsius: finite_number(row, "peakTemperatureCelsius")?,
+                max_thermal_status: unsigned32(row, "maxThermalStatus")?,
+                throttled_samples: integer(row, "throttledSamples")?,
+                performance_windows: performance_windows(row)?,
+                history: history_values_from_json(row)?,
+                warnings: strings(row, "warnings")?,
+            });
+        }
+        let mut warnings = strings(&root, "warnings")?;
+        let warning = "Imported battery evidence is source-supplied, not independently verified; omitted snapshot or counter fields cannot establish continuity or measured-zero semantics.";
+        if !warnings.iter().any(|value| value == warning) {
+            warnings.push(warning.into());
+        }
+        Ok(Self {
+            session_id,
+            uid: integer(&root, "uid")?
+                .map(u32::try_from)
+                .transpose()
+                .map_err(|_| "Battery UID out of range")?,
+            attribution_scope: optional_text(&root, "attributionScope")?,
+            package_name: optional_text(&root, "packageName")?,
+            device_local_id: optional_text(&root, "deviceLocalId")?,
+            capture_mode: optional_text(&root, "captureMode")?,
+            capability_level: optional_text(&root, "capabilityLevel")?,
+            capabilities: parse_capabilities(&root["capabilities"])?,
+            created_at: optional_instant(&root, "createdAt")?,
+            workload_id: optional_text(&root, "workloadId")?,
+            configuration: parse_config(&root["configuration"])?,
+            stopped_early: optional_bool(&root, "stoppedEarly")?,
+            warnings,
+            live_capture: false,
+            runs,
+        })
+    }
+
+    pub fn runs(&self) -> &[BatteryReportRun] {
+        &self.runs
+    }
+
+    pub fn page(&self, offset: usize, limit: usize) -> Result<Vec<BatteryReportRun>, String> {
+        if limit > MAX_PAGE_SIZE || offset.checked_add(limit).is_none() {
+            return Err("Battery page exceeds supported bounds".into());
+        }
+        Ok(self.runs.iter().skip(offset).take(limit).cloned().collect())
+    }
+}
+
+pub(super) fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
+    Value::Object(
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.into(), value))
+            .collect::<Map<_, _>>(),
+    )
+}
+pub(super) fn optional_value<T: Into<Value>>(value: Option<T>) -> Value {
+    value.map_or(Value::Null, Into::into)
+}
+
+fn capabilities_value(capabilities: &BatteryCapabilities) -> Value {
+    object([
+        ("level", capabilities.level.clone().into()),
+        ("checkin", capabilities.checkin.into()),
+        ("history", capabilities.history.into()),
+        ("reset", capabilities.reset.into()),
+        ("energy", capabilities.energy.into()),
+        ("bugreport", capabilities.bugreport.into()),
+        (
+            "missingReasons",
+            capabilities.missing_reasons.clone().into(),
+        ),
+    ])
+}
+
+/// Capability flags are observation-backed. A capability block that omits a
+/// required flag is rejected instead of being silently treated as false.
+fn parse_capabilities(value: &Value) -> Result<Option<BatteryCapabilities>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let map = value
+        .as_object()
+        .ok_or("Battery capability block must be an object")?;
+    let level = map
+        .get("level")
+        .and_then(Value::as_str)
+        .filter(|level| {
+            matches!(
+                *level,
+                "RESOURCE_FULL"
+                    | "RESOURCE_BASIC"
+                    | "ENERGY_ENHANCED"
+                    | "HISTORIAN_EXPORT"
+                    | "UNAVAILABLE"
+            )
+        })
+        .ok_or("Battery capability level is invalid")?;
+    let flag = |name: &str| {
+        map.get(name)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| format!("Missing Battery capability flag {name}"))
+    };
+    let missing_reasons = map
+        .get("missingReasons")
+        .map(|value| {
+            value
+                .as_array()
+                .ok_or("Battery capability missing-reasons must be an array")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|text| text.len() <= 512)
+                        .map(str::to_owned)
+                        .ok_or("Invalid Battery capability reason")
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    if missing_reasons.len() > 32 {
+        return Err("Battery capability reasons exceed the bound".into());
+    }
+    Ok(Some(BatteryCapabilities {
+        level: level.into(),
+        checkin: flag("checkin")?,
+        history: flag("history")?,
+        reset: flag("reset")?,
+        energy: flag("energy")?,
+        bugreport: flag("bugreport")?,
+        missing_reasons,
+    }))
+}
+fn finite_value(value: Option<f64>) -> Result<Value, String> {
+    value
+        .map(|value| {
+            Number::from_f64(value)
+                .map(Value::Number)
+                .ok_or_else(|| "Battery export cannot encode a non-finite measurement".into())
+        })
+        .transpose()
+        .map(|value| value.unwrap_or(Value::Null))
+}
+
+pub(super) fn required_text(value: &Value, key: &str) -> Result<String, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 4096)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("Invalid battery {key}"))
+}
+pub(super) fn integer(value: &Value, key: &str) -> Result<Option<u64>, String> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| format!("Invalid unsigned battery {key}")),
+    }
+}
+pub(super) fn unsigned32(value: &Value, key: &str) -> Result<Option<u32>, String> {
+    integer(value, key)?
+        .map(u32::try_from)
+        .transpose()
+        .map_err(|_| format!("Battery {key} out of range"))
+}
+pub(super) fn optional_text(value: &Value, key: &str) -> Result<Option<String>, String> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(_) => required_text(value, key).map(Some),
+    }
+}
+pub(super) fn optional_bool(value: &Value, key: &str) -> Result<Option<bool>, String> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_bool()
+            .map(Some)
+            .ok_or_else(|| format!("Invalid battery boolean {key}")),
+    }
+}
+fn finite_number(value: &Value, key: &str) -> Result<Option<f64>, String> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_f64()
+            .filter(|value| value.is_finite())
+            .map(Some)
+            .ok_or_else(|| format!("Invalid battery {key}")),
+    }
+}
+fn number(value: &Value, key: &str) -> Result<Option<f64>, String> {
+    let number = finite_number(value, key)?;
+    if number.is_some_and(|value| value < 0.) {
+        return Err(format!("Invalid battery {key}"));
+    }
+    Ok(number)
+}
+
+fn performance_windows(row: &Value) -> Result<Option<Vec<ImportedPerformanceWindow>>, String> {
+    if row.get("performanceWindows").is_none() {
+        return Ok(None);
+    }
+    // The shared JSON boundary already bounds total nodes and collection sizes.
+    optional_array(row, "performanceWindows")?
+        .iter()
+        .map(|window| {
+            if !window.is_object() {
+                return Err("Invalid battery performance window".into());
+            }
+            Ok(ImportedPerformanceWindow {
+                started_at: optional_instant(window, "startedAt")?,
+                ended_at: optional_instant(window, "endedAt")?,
+                duration_ms: integer(window, "durationMs")?,
+                peak_temperature_celsius: finite_number(window, "peakTemperatureCelsius")?,
+                max_thermal_status: unsigned32(window, "maxThermalStatus")?,
+                throttled: optional_bool(window, "throttled")?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+fn network_counters(row: &Value) -> Result<BTreeMap<String, Option<u64>>, String> {
+    optional_counter_map(row, "networkCounters")
+}
+
+fn optional_counter_map(row: &Value, name: &str) -> Result<BTreeMap<String, Option<u64>>, String> {
+    let Some(value) = row.get(name) else {
+        return Ok(BTreeMap::new());
+    };
+    let object = value
+        .as_object()
+        .ok_or("Invalid battery network counter map")?;
+    object
+        .iter()
+        .map(|(key, value)| {
+            let value = if value.is_null() {
+                None
+            } else {
+                Some(value.as_u64().ok_or("Invalid battery network counter")?)
+            };
+            Ok((key.clone(), value))
+        })
+        .collect()
+}
+
+fn history_values(events: &[BatteryHistoryEvent]) -> Value {
+    events
+        .iter()
+        .map(|event| {
+            object([
+                ("elapsedMs", optional_value(event.elapsed_ms)),
+                ("kind", event.kind.clone().into()),
+                ("active", optional_value(event.active)),
+                ("name", optional_value(event.name.as_deref())),
+                ("uid", optional_value(event.uid)),
+                ("raw", event.raw.clone().into()),
+                ("confidence", event.confidence.clone().into()),
+            ])
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
+fn history_values_from_json(row: &Value) -> Result<Vec<BatteryHistoryEvent>, String> {
+    optional_array(row, "history")?
+        .iter()
+        .map(|value| {
+            Ok(BatteryHistoryEvent {
+                elapsed_ms: integer(value, "elapsedMs")?,
+                kind: required_text(value, "kind")?,
+                active: optional_bool(value, "active")?,
+                name: optional_text(value, "name")?,
+                uid: unsigned32(value, "uid")?,
+                raw: required_text(value, "raw")?,
+                confidence: required_text(value, "confidence")?,
+            })
+        })
+        .collect()
+}
+
+fn optional_instant(value: &Value, key: &str) -> Result<Option<String>, String> {
+    let text = optional_text(value, key)?;
+    if text
+        .as_deref()
+        .is_some_and(|value| !valid_exported_instant(value))
+    {
+        return Err(format!("Invalid battery timestamp {key}"));
+    }
+    Ok(text)
+}
+
+/// The exporter uses java.time.Instant: UTC with optional nanosecond precision.
+/// Validate calendar and clock fields without inventing another clock or adding
+/// a date-time dependency. Keep the source text verbatim for display.
+fn valid_exported_instant(text: &str) -> bool {
+    let Some((date, time)) = text
+        .strip_suffix('Z')
+        .and_then(|value| value.split_once('T'))
+    else {
+        return false;
+    };
+    let Some((year_month, day)) = date.rsplit_once('-') else {
+        return false;
+    };
+    let Some((year, month)) = year_month.rsplit_once('-') else {
+        return false;
+    };
+    let year_digits = year.strip_prefix(['+', '-']).unwrap_or(year);
+    if year_digits.len() < 4
+        || year_digits.len() > 10
+        || !year_digits.bytes().all(|b| b.is_ascii_digit())
+    {
+        return false;
+    }
+    let Ok(year) = year.parse::<i64>() else {
+        return false;
+    };
+    let digits = |value: &str, length: usize| {
+        (value.len() == length && value.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| value.parse::<u32>().ok())
+            .flatten()
+    };
+    let Some(month) = digits(month, 2) else {
+        return false;
+    };
+    let Some(day) = digits(day, 2) else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+    if day == 0 || day > max_day {
+        return false;
+    }
+    let (clock, fraction) = time
+        .split_once('.')
+        .map_or((time, None), |(clock, fraction)| (clock, Some(fraction)));
+    if fraction.is_some_and(|value| {
+        value.is_empty() || value.len() > 9 || !value.bytes().all(|b| b.is_ascii_digit())
+    }) {
+        return false;
+    }
+    let mut fields = clock.split(':');
+    let hour = fields.next().and_then(|value| digits(value, 2));
+    let minute = fields.next().and_then(|value| digits(value, 2));
+    let second = fields.next().and_then(|value| digits(value, 2));
+    hour.is_some_and(|value| value < 24)
+        && minute.is_some_and(|value| value < 60)
+        && second.is_some_and(|value| value < 60)
+        && fields.next().is_none()
+}
+fn optional_array<'a>(value: &'a Value, key: &str) -> Result<&'a [Value], String> {
+    match value.get(key) {
+        None => Ok(&[]),
+        Some(Value::Array(values)) => Ok(values),
+        _ => Err(format!("Invalid battery array {key}")),
+    }
+}
+fn strings(value: &Value, key: &str) -> Result<Vec<String>, String> {
+    optional_array(value, key)?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("Invalid battery text array {key}"))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(root_fields: &str, run_fields: &str) -> Result<BatteryReport, String> {
+        BatteryReport::parse_json(
+            format!(
+                r#"{{"schemaVersion":1,"sessionId":"imported",{root_fields}"runs":[{{"runId":"run-1","iteration":1,"durationMs":1000{run_fields}}}]}}"#
+            )
+            .as_bytes(),
+        )
+    }
+
+    #[test]
+    fn legacy_report_does_not_invent_optional_metadata_or_empty_counter_evidence() {
+        let report = report("", "").unwrap();
+        assert!(report.device_local_id.is_none());
+        assert!(report.capture_mode.is_none());
+        assert!(report.capability_level.is_none());
+        assert!(report.created_at.is_none());
+        let run = &report.runs()[0];
+        assert!(run.timer_arrays_present.is_empty());
+        assert!(run.timer_confidence.is_empty());
+        assert!(!run.has_timer_evidence(ResourceKind::Wakelock));
+        assert!(run.performance_windows.is_none());
+        assert!(run.throttled_samples.is_none());
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("measured-zero"))
+        );
+    }
+
+    #[test]
+    fn compose_exporter_v1_field_names_and_nullable_thermal_values_are_preserved() {
+        // Match BatteryJsonExporter.document/run/timers: config.mode is exported
+        // under captureMode, not mode, and optional thermal fields are JSON null.
+        let report = BatteryReport::parse_json(
+            br#"{
+            "schemaVersion":1,"sessionId":"source-session",
+            "deviceLocalId":"battery-local-device","packageName":"example.app",
+            "uid":10001,"attributionScope":"UID","captureMode":"REPEATED",
+            "capabilityLevel":"RESOURCE_FULL","createdAt":"2026-11-07T01:02:03Z",
+            "runs":[{
+                "runId":"source-run","iteration":1,"durationMs":1000,"networkBytes":0,
+                "peakTemperatureCelsius":null,"maxThermalStatus":null,"throttledSamples":0,
+                "performanceWindows":[{
+                    "startedAt":"2026-11-07T01:02:03Z","endedAt":"2026-11-07T01:02:04Z",
+                    "durationMs":1000,"peakTemperatureCelsius":null,
+                    "maxThermalStatus":null,"throttled":false
+                }],
+                "wakelocks":[{"name":"lock","durationMs":4,"count":2,"confidence":"EXACT"}],
+                "alarms":[],"jobs":[],"sensors":[],
+                "energy":[{"component":"cpu","energyMah":0.25,"energyUws":100,
+                    "source":"SYSTEM_MODEL","scope":"UID","confidence":"MODELED"}],
+                "warnings":[]
+            }],"warnings":[]
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(report.session_id, "source-session");
+        assert_eq!(
+            report.device_local_id.as_deref(),
+            Some("battery-local-device")
+        );
+        assert_eq!(report.capture_mode.as_deref(), Some("REPEATED"));
+        assert_eq!(report.capability_level.as_deref(), Some("RESOURCE_FULL"));
+        assert_eq!(report.created_at.as_deref(), Some("2026-11-07T01:02:03Z"));
+        let run = &report.runs()[0];
+        assert_eq!(run.id, "source-run");
+        assert_eq!(run.network_bytes, Some(0));
+        assert!(run.peak_temperature_celsius.is_none());
+        assert!(run.max_thermal_status.is_none());
+        assert_eq!(run.throttled_samples, Some(0));
+        assert_eq!(run.timer_arrays_present.len(), 4);
+        assert_eq!(run.timer_confidence, [Some("EXACT".into())]);
+        let window = &run.performance_windows.as_ref().unwrap()[0];
+        assert_eq!(window.duration_ms, Some(1000));
+        assert!(window.peak_temperature_celsius.is_none());
+        assert!(window.max_thermal_status.is_none());
+        assert_eq!(window.throttled, Some(false));
+        let energy = &run.energy[0];
+        assert_eq!(energy.source, "SYSTEM_MODEL");
+        assert_eq!(energy.scope, "UID");
+        assert_eq!(energy.confidence, "MODELED");
+        assert_eq!(energy.energy_mah, Some(0.25));
+        assert_eq!(energy.energy_uws, Some(100));
+    }
+
+    #[test]
+    fn config_mode_is_not_an_exported_capture_mode_alias() {
+        let legacy = report(r#""mode":"TIMED","#, "").unwrap();
+        assert!(legacy.capture_mode.is_none());
+        let exported = report(r#""mode":"TIMED","captureMode":"ONLINE","#, "").unwrap();
+        assert_eq!(exported.capture_mode.as_deref(), Some("ONLINE"));
+    }
+
+    #[test]
+    fn explicit_empty_arrays_are_distinct_from_omitted_arrays() {
+        let report = report(
+            "",
+            r#", "wakelocks":[],"jobs":[],"performanceWindows":[],"throttledSamples":0"#,
+        )
+        .unwrap();
+        let run = &report.runs()[0];
+        assert!(run.has_timer_evidence(ResourceKind::Wakelock));
+        assert!(run.has_timer_evidence(ResourceKind::Job));
+        assert!(!run.has_timer_evidence(ResourceKind::Alarm));
+        assert!(!run.has_timer_evidence(ResourceKind::Sensor));
+        assert!(run.timers.is_empty());
+        assert!(run.performance_windows.as_ref().unwrap().is_empty());
+        assert_eq!(run.throttled_samples, Some(0));
+    }
+
+    #[test]
+    fn complete_analysis_export_preserves_all_runs_and_optional_evidence() {
+        let source = BatteryReport::parse_json(
+            br#"{
+            "schemaVersion":1,"sessionId":"captured","uid":10001,
+            "captureMode":"REPEATED","liveCapture":true,
+            "runs":[
+                {"runId":"one","iteration":1,"durationMs":1000,"networkBytes":0,
+                 "wakelocks":[{"name":"a","durationMs":0,"count":0,"confidence":"EXACT"}],
+                 "jobs":[],"performanceWindows":[],"throttledSamples":0,
+                 "energy":[{"component":"total","energyMah":0,"energyUws":0,
+                            "source":"SYSTEM_MODEL","scope":"UID","confidence":"MODELED"}]},
+                {"runId":"two","iteration":2,"durationMs":2000,
+                 "performanceWindows":[{"startedAt":"2026-11-11T00:00:00Z",
+                      "endedAt":"2026-11-11T00:00:02Z","durationMs":2000,
+                      "peakTemperatureCelsius":-1.5,"maxThermalStatus":0,"throttled":false}]}
+            ]
+        }"#,
+        )
+        .unwrap();
+        let bytes = source.to_json(1024 * 1024).unwrap();
+        let exported = BatteryReport::parse_json(&bytes).unwrap();
+        assert!(!source.live_capture);
+        assert!(!exported.live_capture);
+        assert_eq!(exported.runs().len(), 2);
+        let first = &exported.runs()[0];
+        assert_eq!(first.network_bytes, Some(0));
+        assert_eq!(first.throttled_samples, Some(0));
+        assert_eq!(first.timers[0].count, 0);
+        assert_eq!(first.timer_confidence, [Some("EXACT".into())]);
+        assert!(first.has_timer_evidence(ResourceKind::Job));
+        assert!(!first.has_timer_evidence(ResourceKind::Alarm));
+        assert!(first.performance_windows.as_ref().unwrap().is_empty());
+        assert_eq!(first.energy[0].energy_mah, Some(0.));
+        assert_eq!(first.energy[0].energy_uws, Some(0));
+        let second = &exported.runs()[1];
+        assert!(second.network_bytes.is_none());
+        assert!(second.timer_arrays_present.is_empty());
+        let window = &second.performance_windows.as_ref().unwrap()[0];
+        assert_eq!(window.peak_temperature_celsius, Some(-1.5));
+        assert_eq!(window.max_thermal_status, Some(0));
+        assert_eq!(window.throttled, Some(false));
+        assert!(source.to_json(32).is_err());
+    }
+
+    #[test]
+    fn source_metadata_and_thermal_windows_are_preserved_without_clock_conversion() {
+        let report = report(
+            r#""deviceLocalId":"local-device","captureMode":"ONLINE","capabilityLevel":"PARTIAL","createdAt":"2026-11-07T01:02:03.123Z","uid":10001,"attributionScope":"SHARED_UID","packageName":"example.app","#,
+            r#", "peakTemperatureCelsius":-3.5,"maxThermalStatus":0,"throttledSamples":2,"performanceWindows":[{"startedAt":"2026-11-07T01:02:03.123Z","endedAt":"2026-11-07T01:02:04.123Z","durationMs":1000,"peakTemperatureCelsius":-2.5,"maxThermalStatus":3,"throttled":false}]"#,
+        ).unwrap();
+        assert_eq!(report.device_local_id.as_deref(), Some("local-device"));
+        assert_eq!(report.capture_mode.as_deref(), Some("ONLINE"));
+        assert_eq!(report.capability_level.as_deref(), Some("PARTIAL"));
+        assert_eq!(
+            report.created_at.as_deref(),
+            Some("2026-11-07T01:02:03.123Z")
+        );
+        assert_eq!(report.attribution_scope.as_deref(), Some("SHARED_UID"));
+        let run = &report.runs()[0];
+        assert_eq!(run.peak_temperature_celsius, Some(-3.5));
+        assert_eq!(run.max_thermal_status, Some(0));
+        assert_eq!(run.throttled_samples, Some(2));
+        let window = &run.performance_windows.as_ref().unwrap()[0];
+        assert_eq!(
+            window.started_at.as_deref(),
+            Some("2026-11-07T01:02:03.123Z")
+        );
+        assert_eq!(window.ended_at.as_deref(), Some("2026-11-07T01:02:04.123Z"));
+        assert_eq!(window.duration_ms, Some(1000));
+        assert_eq!(window.peak_temperature_celsius, Some(-2.5));
+        assert_eq!(window.max_thermal_status, Some(3));
+        assert_eq!(window.throttled, Some(false));
+    }
+
+    #[test]
+    fn confidences_follow_timer_order_without_changing_shared_timer_type() {
+        let report = report("", r#", "wakelocks":[{"name":"lock","durationMs":2,"count":1,"confidence":"INFERRED"}],"alarms":[{"name":"alarm","durationMs":0,"count":2}],"sensors":[{"name":"sensor","durationMs":3,"count":1,"confidence":"EXACT"}]"#).unwrap();
+        let run = &report.runs()[0];
+        assert_eq!(run.timers.len(), run.timer_confidence.len());
+        assert_eq!(run.timers[0].kind, ResourceKind::Wakelock);
+        assert_eq!(run.timers[1].kind, ResourceKind::Alarm);
+        assert_eq!(run.timers[2].kind, ResourceKind::Sensor);
+        assert_eq!(
+            run.timer_confidence,
+            [Some("INFERRED".into()), None, Some("EXACT".into())]
+        );
+    }
+
+    #[test]
+    fn unknown_window_fields_remain_missing_instead_of_becoming_zero() {
+        let report = report("", r#", "performanceWindows":[{}]"#).unwrap();
+        let window = &report.runs()[0].performance_windows.as_ref().unwrap()[0];
+        assert!(window.started_at.is_none());
+        assert!(window.ended_at.is_none());
+        assert!(window.duration_ms.is_none());
+        assert!(window.peak_temperature_celsius.is_none());
+        assert!(window.max_thermal_status.is_none());
+        assert!(window.throttled.is_none());
+    }
+
+    #[test]
+    fn malformed_present_metadata_is_rejected() {
+        for fields in [
+            r#""deviceLocalId":12,"#,
+            r#""captureMode":true,"#,
+            r#""capabilityLevel":"","#,
+            r#""createdAt":"yesterday","#,
+            r#""createdAt":"2026-02-29T00:00:00Z","#,
+            r#""packageName":{},"#,
+            r#""attributionScope":[],"#,
+        ] {
+            assert!(report(fields, "").is_err(), "{fields}");
+        }
+    }
+
+    #[test]
+    fn malformed_present_run_evidence_is_rejected() {
+        for fields in [
+            r#", "wakelocks":null"#,
+            r#", "performanceWindows":null"#,
+            r#", "performanceWindows":{}"#,
+            r#", "performanceWindows":[false]"#,
+            r#", "performanceWindows":[{"durationMs":-1}]"#,
+            r#", "performanceWindows":[{"durationMs":1.5}]"#,
+            r#", "performanceWindows":[{"maxThermalStatus":4294967296}]"#,
+            r#", "performanceWindows":[{"throttled":"false"}]"#,
+            r#", "performanceWindows":[{"startedAt":"2026-11-07T25:00:00Z"}]"#,
+            r#", "performanceWindows":[{"peakTemperatureCelsius":"cold"}]"#,
+            r#", "throttledSamples":-1"#,
+            r#", "throttledSamples":18446744073709551616"#,
+            r#", "maxThermalStatus":4294967296"#,
+            r#", "peakTemperatureCelsius":"cold""#,
+            r#", "wakelocks":[{"name":"lock","durationMs":0,"count":0,"confidence":1}]"#,
+            r#", "energy":[{"component":"CPU","energyMah":-1,"source":"MODEL","scope":"UID","confidence":"MODELED"}]"#,
+        ] {
+            assert!(report("", fields).is_err(), "{fields}");
+        }
+    }
+
+    #[test]
+    fn timestamps_validate_calendar_precision_and_clock_fields() {
+        for valid in [
+            "2024-02-29T23:59:59Z",
+            "2026-11-07T01:02:03.123456789Z",
+            "+10000-01-01T00:00:00Z",
+            "-0001-01-01T00:00:00Z",
+        ] {
+            assert!(valid_exported_instant(valid), "{valid}");
+        }
+        for invalid in [
+            "2026-02-29T00:00:00Z",
+            "2024-04-31T00:00:00Z",
+            "2026-11-07T00:60:00Z",
+            "2026-11-07T00:00:60Z",
+            "2026-11-07T00:00:00.Z",
+            "2026-11-07T00:00:00.1234567890Z",
+            "2026-11-07T00:00:00",
+            "2026-11-07T00:00:00Zjunk",
+        ] {
+            assert!(!valid_exported_instant(invalid), "{invalid}");
+        }
+    }
+}

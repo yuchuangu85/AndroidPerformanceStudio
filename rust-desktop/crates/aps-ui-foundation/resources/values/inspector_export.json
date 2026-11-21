@@ -1,0 +1,9 @@
+{
+  "inspector_export_title": "Export Captured Inspector Evidence",
+  "inspector_export_sensitive": "This local archive keeps captured runtime values, raw properties, screenshots and any Compose details without additional redaction. It may contain sensitive data. Existing capture omissions and limits remain; uncaptured fields are not reconstructed.",
+  "inspector_export_confirm": "Choose Destination",
+  "inspector_export_cancel": "Cancel",
+  "inspector_export_working": "Exporting Inspector archive...",
+  "inspector_export_saved": "Inspector archive exported to {path} ({bytes} bytes).",
+  "inspector_export_failed": "Could not export Inspector archive: {detail}"
+}

@@ -1,0 +1,12 @@
+[package]
+name = "aps-startup"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+aps-adb = { path = "../aps-adb" }
+aps-json = { path = "../aps-json" }
+aps-platform = { path = "../aps-platform" }
+aps-perfetto = { path = "../aps-perfetto" }

@@ -1,0 +1,300 @@
+# Android Performance Studio — Rust 桌面端
+
+Android Performance Studio desktop application implemented with Rust and GPUI Kit.
+
+## 开发
+
+- Rust **1.99.1**；`rust-toolchain.toml` 固定 rustup 安装版本。
+- GPUI Kit **0.9.0**、上游后端和默认资源。不要添加第二个 GPUI 源。
+- 上游桌面端要求：macOS **15+**，带有 MSVC/CMake 的 Windows 10+，以及带图形会话和 Vulkan 的 Linux Ubuntu 24.04。这些是依赖项的要求，并不表示应用已在所有平台上通过验收。
+- macOS 需要 Xcode 命令行工具 / SDK 以及可用的 Metal 工具链。
+
+```sh
+cd rust-desktop
+cargo run --locked -p aps-app
+```
+
+FrameTimeline 捕获会在录制前检查固定版本的 Trace Processor。本地 Release 可执行文件和分发包一样，只从其同级的 `resources/perfetto-tools/` 加载工具，不搜索 PATH。在仓库根目录执行以下命令可为默认 Cargo Release 输出安装经过校验的工具（自定义 `CARGO_TARGET_DIR` 时请调整路径）：
+
+```sh
+PERFETTO_TOOLS_DIR="$PWD/rust-desktop/target/release/resources/perfetto-tools" bash scripts/install-trace-processor.sh
+```
+
+Rust settings and storage use their own application-data root and do not migrate or overwrite settings from older application versions.
+
+### Full Compose Inspection Runtime
+
+Full Compose inspection requires the headless JVM helper, its complete `lib/`
+distribution, a verified Compose agent bundle, and Java 17+. Release builds load
+these from the executable's sibling `resources/` directory, not a deleted
+`desktop-viewer` checkout. Packaged helpers run via the bundled Java executable
+with an explicit classpath, without relying on shell tools, `PATH`, or the GUI
+process's `JAVA_HOME`.
+
+The last committed helper source before the Compose desktop tree was removed is
+`3c53d9616af8bd11a8f4c4487b871890d63b7830`. It can be built in an isolated,
+ignored directory using JDK 21:
+
+```sh
+mkdir -p build/compose-helper-source
+git archive 3c53d9616af8bd11a8f4c4487b871890d63b7830 desktop-viewer | tar -x -C build/compose-helper-source
+cd build/compose-helper-source/desktop-viewer
+./gradlew :layout-inspector:compose-inspection-host:installDist
+```
+
+From the repository root, stage a prepared distribution, a checksum-verified
+agent bundle, and a Java home before packaging the app:
+
+```sh
+python3 scripts/prepare-compose-runtime.py \
+  --helper-dist build/compose-helper-source/desktop-viewer/layout-inspector/compose-inspection-host/build/install/aps-compose-inspection \
+  --agent-bundle /absolute/path/to/compose-agent-bundle \
+  --java-home "$JAVA_HOME" \
+  --resources rust-desktop/target/release/resources
+```
+
+Copy the resulting resources along with the Release executable into the app
+bundle. Preparation validates the helper entry point, agent hashes, and Java
+version before replacing existing resources. `APS_COMPOSE_HELPER` and
+`APS_COMPOSE_AGENT_BUNDLE` remain explicit development overrides. Preflight is
+read-only; attaching an inspector still requires the target-bound confirmation
+in the application. A successful runtime preparation or preflight does not
+constitute on-device injection, capture, or cross-platform acceptance.
+
+## 帧分析器：用 Trace 验证慢帧假设
+
+1. 选中有可信耗时的超时帧或平台卡顿帧，在帧详情点 **AI 建议在哪里加 Trace**。审批页仅包含帧指标、已报告的阶段以及有界的探针测量，不上传工程。阶段耗时不是方法归因。
+2. 在「源码工作区」打开与被测 APK 对应的本地 Kotlin/Java 文件。回到该帧点 **生成 Trace 补丁**，选择要验证的同步方法。APS 核对文件与索引快照的哈希，不声称已验证 APK 与工程的版本匹配。挂起函数、内联函数和无法安全包装的声明不会列出。
+3. 审阅差异，复制或另存为新的 `.patch`。可以在目标工程根目录运行 `git apply --check /path/to/probe.patch`；确认后再应用、构建并安装可分析的 APK。APS 不修改源码，也不代为编译或安装。
+4. 在 Android 12+ 设备上选择重新安装后的目标进程，点 **采集 FrameTimeline**，在录制期间复现相同操作。普通 gfxinfo 轮询不会采到应用 Trace。也可以直接导入含有相同数据源的 `.pftrace`。
+5. 在新帧的 **本帧应用 Trace** 中按探针 ID 对照补丁。每行显示同进程、同线程的探针与实际帧窗口的交集，以及其中观测到的上 CPU 时间。时间重叠不是因果关系，嵌套区段不能求和；没有证据显示为未知，不是 0。可以用 **AI 解读本帧探针** 继续分析。验证业务优化时，请在相同场景比较多次采集的 P95 和截止时间未命中率，移除探针后再测一次。
+
+6. 刷新插桩后的源码快照，在定向复采的帧详情点 **定位探针源码**。至少两个不同慢帧有同一主线程/渲染线程探针时，可申请 AI 优化补丁；须在工作区和本次请求分别同意发送片段。来源、哈希、引用或语法范围不符时拒绝生成。用户自行审阅、测试和应用。
+7. 使用 **采集前后对比** 把同场景多次采集分别加入两组，查看 P95、未命中率及变化量；不接受重复 Trace 或目标、设备、报告刷新率、帧预算不兼容的采集。[完整使用说明](../docs-user-zh/capture-artifacts.md)。
+
+## 验证策略
+
+11 月 11 日提出的测试全部功能的要求取代了此前仅进行开发检查、暂缓测试的安排。
+集成后，为每条变更路径运行针对性的回归验证，并运行锁定依赖的离线工作区测试套件。
+在 [FUNCTIONAL_PARITY.md](FUNCTIONAL_PARITY.md) 中跟踪剩余的 Compose 对等工作。
+编译、领域测试、相同输入对等性、原生交互、设备/Provider 执行和打包仍属于相互独立的证据类别。
+
+新增 crate、共享能力或跨页面操作时，参见[模块边界与本地检查](ARCHITECTURE.md)。
+
+当前实现和剩余门槛见[迁移进度](MIGRATION.md)。
+
+## 本地化
+
+Rust UI 文案独立于 Compose，位于
+`crates/aps-ui-foundation/resources/values/*.json`（英文）和
+`crates/aps-ui-foundation/resources/values-zh/*.json`（简体中文）中。
+这些文件按工作区拆分。两种语言环境都必须添加相同的 `snake_case` 键；资源值必须是非空字符串。不需要运行时资源路径。
+
+`aps-ui-foundation/build.rs` 使用现有的严格 `aps-json` 解析器，验证资源目录，并将 `TextKey` 与嵌入式静态文本生成到 Cargo 的
+`OUT_DIR` 中。缺少/多余的键、重复键（文件内或文件之间）、无效 JSON、标识符冲突以及命名参数不匹配都会导致构建失败。
+资源变更会触发重新生成。生成的代码不会提交到版本库。
+
+```rust
+use aps_ui_foundation::{Language, TextKey};
+
+let title = Language::SimplifiedChinese.text(TextKey::FoundationSettings);
+let version = Language::English.format(
+    TextKey::ShellMigrationBuildVersion,
+    &[("version", &"0.1.0")],
+);
+```
+
+模板使用 `{name}` 占位符，不同语言环境可以调整参数顺序。
+参数只插入一次，绝不会被当作模板再次解析。只翻译应用自有的标签、摘要和提示语。
+保留源代码符号、SQL、路径、协议标识符、导出内容、导入的诊断信息以及 AI 响应文本。
+切换语言时会更新输入占位符，但不会替换其值。GPUI Kit 内置控件字符串和原生应用菜单遵循相同的语言偏好。
+
+资源契约测试位于
+`crates/aps-ui-foundation/tests/localization.rs`。按照上述验证策略，可以使用
+`cargo check --locked --workspace --all-targets --offline` 编译这些测试而不执行测试。
+在正常构建中也会执行资源目录验证。
+
+## 性能分析器 UI 范围
+
+数据导入工作区会在底部状态栏显示 **Import time**。单调时钟的墙上时间间隔从文件/文件夹选择完成后开始，包含转换、解析和初始页面准备时间，但不包含选择器耗时、录制时长或产物时间戳。
+时长归属于当前产物/快照（包括独立的 Native/ART/Bitmap 数据集和 Compose 编译器报告）；查询和导出不会替换这些时长。
+导入失败/取消时，只要数据仍然存在，就保留上一个值；关闭数据或将其替换为没有测量值的捕获数据时，会清除该值。
+这些是观测到的导入成本，不是基准测试或捕获性能声明。
+
+Memory 和 Frame 现在使用专用的 GPUI 工作区，而不是通用导入表。Memory 遵循 Compose Memory Profiler 页面：包含命令工具栏（导入、捕获操作、Overview/Classes/Dominators/Diff、辅助视图、Mapping、AI 分析）、快照标签页、证据/警告条和状态栏。
+Classes 具有主筛选栏、八张 KPI 卡片、堆分布、可调整大小的分类器树（堆/包分组、排序、展开、泄漏和重复项着色）、实例列表分页，以及内嵌对象检查器（Fields/References、最近 GC 根、深入导航和数组分页）。
+Dominators 具有 KPI、分布、筛选器、延迟加载的支配树和检查器；Diff 比较两个 dump 之间的类数量、浅层大小和保留大小，不建立跨 dump 的身份关系；Leak Analysis 展示 HPROF 启发式发现。
+Memory 的 AI 默认仅发送当前 HPROF 已解析的泄漏候选和必要的覆盖信息，不发送类直方图、原始堆、Bitmap 或历史对话。顶部与 Leak Analysis 页的 AI 按钮共用显式审批和会话流程，没有候选或仍在加载时不可用。
+泄漏证据 JSON 总量最多 16 KiB，每类最多 32 条，单条最多 4 KiB；已有 GC Root 引用链保留最多 16 个节点，长链分别保留根侧和目标侧并明确标记中间缺口。原始候选总数、加载数量、实际发送数量和省略数量分开记录；超限的候选不会被改写或伪造。对象 ID 使用十六进制字符串保留 64 位身份，数值和未知状态沿用解析结果，retained size 是代表对象值，不汇总重叠保留范围。
+源码辅助分析只使用已注册、索引完成且允许 AI 上传的 Local 源码工作区，优先当前选中的工作区，最多检查 4 个。后台按已发送泄漏候选和引用链中的类型名做确定性定位，沿用 mapping 导入后的名称；不扫描整个工程，不让 AI 创建路径或行号，也不自动获取 GitHub/AOSP 源码。
+源码上下文最多包含 6 个片段，每个片段最多 80 行、3072 字节，候选和绑定元数据合计最多 16 KiB，独立于泄漏证据预算。片段只来自内容哈希校验通过的不可变缓存，绑定 workspace/snapshot、相对路径、行范围、全文和片段哈希、索引覆盖及工作区变化状态。未验证运行时构建身份时，定位最多为 Probable；片段截断不能作为“缺少释放代码”的证明。
+“包含已授权源码”默认关闭。开启后预检显示实际片段、快照、哈希和行范围，逐次确认才发送；关闭时源码候选和绑定元数据一起移除，保持 HPROF-only。工作区授权、活动快照、缓存内容和片段状态会在预检与发送前重新验证；撤销、同步或堆快照切换会失效旧请求。预检失败不会静默发送旧源码。
+每条 AI Finding 必须引用已发送的具体泄漏候选，不能只引用覆盖信息；源码引用还必须与该 Finding 的泄漏证据有绑定关系，并可跳转到持久化的精确快照片段。候选仍是启发式保留证据，不是已证实泄漏。Provider 真实执行、原生 GUI 和发布资格需要分别验收。
+Phase 3 增强诊断使用独立证据通道：比较两个 HPROF 时发送类级数量/浅层/保留大小变化，不使用跨 dump 对象身份；没有比较对时可发送确定性的 Activity/Fragment/静态 Context/Handler 生命周期规则结果。Native Heap AI 只在 Native heapprofd 页面发送采样 accounting 和覆盖信息，不发送 Java retained size；ART sampled 页面仍保持独立不可用。LeakCanary/Shark 使用独立外部 artifact 状态/摘要/有界引用链接口，未采集时保持 unavailable，不由 HPROF 候选伪造 Shark 结论。
+Native Heap 和 ART Samples 在专用页面中使用有边界的 heapprofd 跟踪投影；Bitmap image dump 使用隔离的提取流程、ARGB 内容/唯一内容/重复组摘要、与上一份 dump 的 SHA-256 内容比较，以及图像预览/导出。
+这些产物仍与普通 Java HPROF 发现保持独立，缺少样本/不支持的图像 dump 仍会明确显示。类型化的 `aps-memory` 领域层移植了 Compose presenter（包括有边界的无依赖 regex 子集），并通过隔离的 HPROF worker 执行一次有边界的快照读取以及类型化的实例/详情/支配树页面。
+Mapping 导入（ProGuard/R8）和 HPROF 导出（raw/standard、类直方图、实例、对象调查、Diff、快照 JSON、调查报告、Bitmap dump/比较）已通过 File 菜单接入，并使用有边界、经过摘要校验的写入；standard HPROF 只复制宿主 `hprof-conv` 的真实输出，缺失时保留 raw 分析并提示。Frame 提供离线 gfxinfo FrameStats 摘要卡片、截止时间筛选、分页、窗口筛选、帧选择、使用 Canvas 渲染的有边界分页/缩放/悬停时长时间线、问题帧导航、可信的预算来源、阶段分解详情、警告、证据复制以及相同的有边界导出生命周期。
+
+这些页面有意受当前可用 Rust 引擎的能力边界约束：Memory 支持离线 HPROF 分析，以及从标题栏设备/进程目标进行显式 Java heap 捕获。
+Dump Heap 运行有边界的 ADB 命令，为其快照标签页保留捕获文件，并通过隔离 worker 加载该文件。设备必须允许对该进程执行 `am dumpheap`；应用不会获取设备 root 权限、重启进程或绕过 Android 权限。
+取消操作或目标变更会丢弃待处理结果并保留上一个快照。关闭标签页会删除由该标签页拥有的本地捕获文件。
+Native/ART 和 FrameTimeline 录制使用共享的、有时长/大小边界的 Perfetto 适配器，并使用自有的分离会话键。取消操作只会停止自有会话；无法确认停止时会保留精确的恢复路径。
+Native/ART 还会重新检查启动 ID/进程身份，并在数据集打开期间保留其本地录制文件。Bitmap 捕获请求 Android 支持的 bitmap heap-dump 扩展，然后在有边界的 memory worker 中提取 PNG；主机端取消不会声称已经终止 Android 的 heap-dump 操作。
+本次开发跟进不构成 FrameMetrics/JankStats、LeakCanary/Shark 或多数据源完整运行时验收。不支持的操作会保持为明确不可用。
+快照比较只使用两个独立 dump 的类聚合数据；相同的对象 ID 绝不表示共享身份。不会从离线 HPROF 推断实时时间线/GC 标记以及 native/bitmap 指标。
+
+HPROF 引用图使用专用批量扫描器：缓存继承字段的引用偏移和原始 slot，只读取引用 ID，不为建图创建完整字段 `Value`；沿原始已打开句柄复用固定读取缓冲，小跨度前移直接消费缓冲。
+扫描开始、每 4096 个对象或 1 MiB 扫描跨度、扫描结束都会检查路径和原句柄的文件身份，失败不发布图；长数组也会触发批次检查。这不是原子不可变字节快照，worker 导入前后的 SHA-256 校验及对象详情的独立校验仍然保留。
+
+NativeAllocationRegistry 归属也使用缓存布局的批量字段读取；macOS SHA-256 使用系统 CommonCrypto，其他平台保留可移植实现。首次 snapshot 共享全堆/按堆聚合、直接汇总可见支配树根，并在响应预算内复用按堆回退结果；完整 findings 发布、三次内容校验和响应上限不变。真实 `launcher.hprof` 的交错 Release 采样中，数据与展示模型就绪中位数从 6.436 秒降至 3.155 秒；这不是首帧上屏耗时。实现、结果一致性证据、复测命令和验证边界见 [HPROF 导入性能](HPROF_IMPORT_PERFORMANCE.md)。
+
+## 网络工作区
+
+Network 现在拥有专用工作区，遵循 Compose 页面结构，包括命令栏、五项摘要指标、覆盖率/活动区域、Requests/Domains 标签页、请求表格和可滚动的请求详情。
+它使用英文/中文资源、主题 token，以及会根据宽度采用堆叠或并排布局的面板。
+
+主控件现在对应 Requests/Domains、结果/数量和弹性搜索；HTTP 状态/方法/排序扩展位于 More filters 中，并显示活动筛选数量。
+表格列使用参考权重，详情遵循其方法/字节摘要、置信度图例、十个阶段行和四个内容块。只有详情标题保持固定；所有证据和复制控件一起滚动。
+在较矮的窗口中，页面仍保留可用的列表/详情空间，并在固定工具栏下方使用一个自然高度的页面滚动器。
+
+HAR 状态/方法/搜索筛选以及时长/响应大小排序，会在 100 行分页之前应用于整个导入会话。Median/P95 来自有效的源提供时长；缺失值和未知结果保持明确显示。
+复制/保存 JSON 和 CSV 只导出已发布的最小化页面。选择请求不会授权 AI 传输；AI 操作会打开现有的 preflight。
+未知传输大小仍保持未知；部分已知字节会标记为小计，而不是会话总量。Copy-details 只会重建安全的最小化字段白名单。
+HAR 哈希计算和解析使用相同的已验证文件描述符，并执行取消以及前后身份检查，包括普通路径替换。
+
+这**不是完整的 Network 功能对等**。现有最小化策略会删除 URL/主机、时间戳、标头和正文。因此，对于 HAR 证据，域聚合、真实活动时间线、每阶段计时和内容区段会明确显示为不可用状态。
+实时 Android 捕获现在会在明确同意后连接现有 APS Agent v2，使用自有 ADB 转发、有边界的轮询、观测结果和可为空的阶段计时。
+它不会恢复原始 URL、标头或内容来填充缺失区域；域聚合和 HAR 导出仍不可用。Android Agent 的常规 Gradle 构建目前在 Kotlin 编译前被 AGP `KotlinAndroidTarget` / 缺少 `BaseVariant` 的配置失败阻断。
+原生视觉、设备、Provider 和打包验收属于分别延期的门槛。
+
+## 启动工作区
+
+Startup 现在拥有自己的参考形状工作区，而不是通用导入占位页：包括固定命令栏、Cold/Warm/Hot 卡片、场景控件、四张指标卡片、瀑布图区域、七列运行表、基线边界和 300dp 证据栏。
+它以当前 Compose 实现为参考，使用共享的 Studio 字体/颜色和基于实际容器的响应式布局。空状态仍保留完整页面结构。
+窄视图会将证据堆叠在主要内容下方；表格会水平滚动，同时不将表头分离。
+
+适配器支持 Startup CSV 和经过明确审查、有边界的 Cold/Warm/Hot 实时实验。审查会识别目标以及所需的 force-stop/launch 准备；应用不会更改全局编译器或权限状态。
+模式卡片筛选请求模式，而观测模式保持独立，并且可以是 Unknown。整个样本组的统计在后台线程运行；行、摘要、分页、导出和 AI 共享一个已发布投影。
+稳定的 run-ID 选择不再读取/写入 Frame 状态。失败/取消的操作会保留上一次发布结果。缺失的 TTID/TTFD 绝不会使用 TotalTime 或 Agent 声明作为回退。
+MAD 遵循参考概览相同的最近秩中位数约定。
+
+这**不是完整的 Startup 功能或像素对等**。扩展实验配置、Agent 首帧/阶段间隔、可比较的基线统计以及跟踪导航/关联仍需要额外适配器。
+这些区域会保持可见，并明确解释为不可用；不会推断合成的阶段条、设备身份、验证结果、根因或回归差值。
+导入 CSV 中的 Compiler、Profile、设备和 trace 字段是声明，不是独立验证的事实。实时运行会保留各自有边界的目标和平台事件证据；缺失/含糊的启动事件保持未分配。
+JSON/CSV 导出只包含当前已发布页面，不是无损报告，也无法重新作为 Startup CSV 导入。回归源仅完成编写/编译。
+已在宽布局和堆叠布局中检查原生空状态预览；已填充报告的交互、像素匹配、键盘、真实设备、Provider 和包验收仍分别延期。
+
+## 电池实时捕获
+
+Battery 支持经过明确审查、只读的快照，并绑定到选定的 UID、启动 ID 以及包安装/进程身份。Stop 会发布保守的累计差异；取消或过期结果会保留上一个报告。
+可选的最小化证据 ZIP 包含完整分析 JSON、清单和有边界的已解析快照，而不是整台设备的原始历史记录。不执行全局 BatteryStats 重置。
+Historian、合格的基线比较、已保存会话和整包导入仍是分别不可用的能力。
+
+本次开发跟进的实现、编译/静态证据以及有意设置的无测试/无设备/无 GUI 边界见 `LIVE_CAPTURE_DEVELOPMENT.md`。
+
+## 依赖来源
+
+- <https://github.com/longbridge/gpui-kit/tree/v0.9.0>
+- <https://gpui-kit.com/docs/installation>
+- <https://gpui-kit.com/docs/getting-started>
+
+`gpui-kit = "=0.9.0"` 将其 GPUI 核心/平台固定为 `gpui-pre = 0.3.11`。
+其 Apache-2.0 许可证不能替代传递依赖或捆绑 Android/Perfetto 工具的第三方声明；声明文件是发布门槛。
+
+## 设置工作区
+
+设置现在遵循 Compose 的六分区布局：常规、配置、布局检查器、Simpleperf、AI 和关于。
+系统主题/语言、八种强调色预设/自定义 HSV 与十六进制颜色、SDK 路径管理、离线检查器视图和边框偏好、捕获默认值以及原生图表提示模式，均已连接到 Rust 行为。
+偏好设置使用版本 5，并兼容读取旧版本；独立的 SDK 文件和所有写入仍由 Rust 拥有并保持原子性。
+
+CPU 设置和捕获规划器现在共享一个实时草稿：五个 Compose 采样模板、事件、频率/周期、USER/KERNEL/BOTH 以及 DWARF/Frame Pointer/None 会传递给实际录制器。
+已准备的请求和确认值不可变；后续编辑需要再次执行检查。有效的 Hz/时长默认值会持久化，包括仅将模式切换到频率；周期计数绝不会变成 Hz 偏好设置。
+无效输入会保持可见，而不是静默限制到边界。CPU 工具栏/工具菜单操作及其捕获快捷操作现在会打开这个显式规划器，但不会启动设备录制。
+当前边界仍为 1..300 个整数秒和 1..4000 Hz；手动时长/停止并保存以及事件发现尚未完成。
+
+这不是完整的设置对等：旧版引擎、依赖设备的捕获配置、实时捕获归档限制、扩展/Agent/Skill 包管理和沙箱脚本执行仍需要 Rust 适配器，并保持明确禁用。
+AI 提供方连接、本地 Codex/Claude 配置导入、模型发现、内置 Agent 选择、报告格式/语言和保留策略控件已连接到 Rust AI 运行时。
+通用缩放覆盖基础字体和基于 rem 的控件，但不覆盖每个使用显式像素的性能分析器元素。当前自动化证据记录在后续报告中；原生视觉匹配以及设备/提供方/包验收仍是分别开放的门槛。
+
+### CPU 查看器选择
+
+设置 > Simpleperf 可选择原生 Rust（默认）、Firefox Profiler（内置）或 Firefox Profiler（在线）。该选择会跨启动持久化。
+选择内置本地查看器后，成功导入会自动打开它，包括重新打开的快照和捕获的性能剖析数据。CPU 工具栏的**在所选查看器中打开**命令仍可用于重新打开查看器或使用在线模式。
+仅更改偏好不会启动浏览器或发送数据。
+
+- 原生 Rust 将分析保留在 APS 内部。
+- 内置 Firefox 会在系统浏览器中打开仓库的 `third_party/firefox-profiler/dist` 生产构建，并通过私有回环性能剖析 URL 加载会话。
+  使用此模式前请保留/构建该目录；资源缺失会产生明确错误。打包应用必须在其资源中包含相同的资源目录。关闭/替换 CPU 会话会关闭其本地服务器。
+  其只读查询适配器由 APS 拥有，并注入 HTTP 响应，同时保持上游源代码和构建文件不变。本地查看器的 AI 入口会异步拉取当前浏览器证据；过期或不可用的浏览器数据会产生明确错误，不会回退到原生选择。参见[版本化 API 和兼容性检查](../integrations/firefox-profiler/README.md)。
+- 在线 Firefox 会先将 `.json.gz` 文件保存到选定目标，然后打开官方网站供手动导入。APS 绝不会上传性能剖析数据，也不会通过 localhost URL 将其发送到官方网站。
+  取消保存对话框不会打开浏览器。Firefox 中的分享仍是由该查看器控制的独立操作。
+
+## AI 分析工作区
+
+AI 路由现在是遵循 Compose 布局的对话工作区。它包含 260 dp 的对话侧栏（搜索、最近/已归档、置顶/重命名/分支/归档/复制 ID/删除及确认）、带空状态和用户气泡的居中聊天栏、安全的 Markdown 答案（标题、列表、引用、表格、带语言/换行/复制功能的代码围栏）、带证据/来源标签的发现项、已验证报告和模型行、重试状态、预检审批卡片（提供方/模型、证据和来源数量及字节数、计划调用、报告格式/语言、历史对话、SHA-256 和权限列表、批准/取消）、活动开关，以及带排队问题、绑定上下文行、包含源码同意、带加载/空/错误/刷新状态的模型选择器和发送/停止按钮的输入区。
+Enter 发送，Shift+Enter 添加换行，Up 调出上一个问题；在 500 ms 内按两次 Escape 会停止运行，Cmd/Ctrl+N/Ctrl+K 已接入。DSH 聊天颜色和字号比例只作用于此页面。
+
+`crates/aps-ai` 下的 Rust AI 引擎负责已保存偏好、由 Keychain 支持的连接凭据存储、有边界的 SQLite 对话存储（置顶/重命名/归档/删除/派生、不重放的恢复、保留策略）、面向 Codex/Custom 连接的非流式 Responses API 客户端、无工具的 Claude CLI 提供方、本地 Codex/Claude 配置导入、带缓存的模型发现、以 SHA-256 寻址的 HTML/Markdown 报告产物，以及冻结 -> 显式批准 -> 执行 -> 验证 -> 持久化流程。
+性能分析器 AI 入口仍会发布现有的有边界 `AnalysisRequest`，并打开绑定到该上下文的工作区。
+
+明确边界：这是单个应用窗口中的一个路由，不是第二个原生 AI 窗口；Compose Agent 图、子 Agent、Skills 和沙箱脚本未移植（内置 Agent 描述符是静态的，永远不会授予脚本执行权限）；Claude 通过 CLI 运行；Keychain 访问使用有边界的 `security` 辅助程序；活动面板仅限当前会话；答案不会逐 token 渲染；此处也未执行实时提供方、交互式审批、IME、跨平台或打包验收。
+证据和测试夹具见 MIGRATION.md 中 2026-11-08 的 AI 条目。
+
+## 首页仪表盘
+
+首页现在遵循当前 Compose 仪表盘：两个真实指标、四张快捷卡片、十一个有序模块条目、五列最近记录表以及本地日期/设备栏。
+它使用共享主题/字体和基于实际容器的响应式断点。取消 Trace/HPROF 选择器会保留当前页面；开始捕获和运行启动测试只进行导航，不会自动运行操作。
+只有在首页处理导入操作时，原生文件菜单才会展示首页导入操作。
+
+设备信息来自现有共享 ADB 发现，并区分加载中、零设备和错误状态。最近历史记录现在按照 Compose 源顺序交错显示布局、CPU、跟踪和内存来源，最多保留六条可用记录，并对每个来源执行有边界的扫描。
+成功导入会将路径记录在独立的 Rust 自有索引中；捕获的跟踪会话也使用现有的只读会话目录。损坏的来源彼此隔离，缺失/非普通文件产物会被跳过，不会修复索引。
+未知的包/捕获时间仍不可用；导入时间和文件 mtime 绝不会冒充捕获时间。重新打开已捕获的跟踪时，即使其路径已经进入 MRU 列表，也会保留已知时间戳。
+
+成功的 Java 堆捕获只有在当前代发布后，才会保留经过摘要验证的私有历史副本。副本和索引注册组成一个后台事务；注册失败只会删除新创建的副本，不会删除已有的去重证据。
+临时文件所有权和清理行为不变。清除历史不会删除保留的证据。检查器现在拥有异步的十文件最近菜单：同名归档使用完整路径标签，并提供非破坏性的清空菜单操作。
+应用外壳变更按 UI 事件顺序执行，因此较早的延迟记录不能恢复已清除的历史。CPU/跟踪/电池最近菜单分离、内存已保存会话菜单、保留配额以及崩溃孤儿文件恢复仍属于未完成工作。
+
+被动的首页发现不会解析性能剖析数据、初始化存储或迁移 Compose 索引。打开操作会交给各功能的导入器；CPU 会保留其已保存会话/摘要检查。
+这不是像素或完整原生交互验收。11 月 11 日，当前原生导入将真实 CPU/HPROF/跟踪数据和一个布局测试夹具发布到了隔离历史记录中，但锁定的 macOS 会话阻止了截图以及点击/重新打开验收。
+详见当前后续报告。
+
+## 源码工作区
+
+源码工作区现在遵循 Compose 页面：固定命令栏包含“+ 本地”、“AI 设置”和受选择状态控制的 AI 分析操作；三栏浏览器（工作区卡片 / 文件树 / 源码）使用可拖动的 7 px 分隔条，并保证 220/220/360 的最小面板宽度；实时阶段/进度卡片提供同步、AI 源码上传同意和移除；提供 28 px 文件搜索和虚拟化的目录优先树，初始完全折叠，会展开所选文件的祖先节点，并采用 Compose 的 20 px 行高 / 14 px 缩进指标和按语言着色的图标；只读 One Dark 查看器提供行号槽、当前行色带、token 颜色、视图内搜索（n/m、循环搜索）、水平/垂直滚动、拖动选择和复制。
+
+数据层对应 Compose 源码工作区模块：显式本地根目录、Git 修订版本加脏内容摘要、内容寻址的本地缓存、结构化 Kotlin/Java/XML/C/C++ 声明索引、带 Compose 置信度/原因字符串的证据解析，以及由 Rust 拥有的、用于工作区/快照/文件/符号/候选项的 SQLite 模式。
+读取会针对不可变内容哈希进行验证，并在工作树发生变化时标记为过期。源文本只会缓存在 Rust 应用数据目录下；不会上传任何内容。
+
+AI 预检接收仅包含元数据的选择证据（快照身份、内容哈希、语言、内容状态、大小和行边界）。只有在该工作区启用上传授权期间，候选项才会被包含；现有 AI 页面仍要求单独明确的源码同意。
+
+只有本地提供方可见，与 Compose 页面完全一致（那里也隐藏了 GitHub/AOSP 控件）。远程获取、布局检查器 Compose 源码候选对话框以及归档源码重新绑定尚未接通；持久化的远程工作区刷新失败时会显示明确的不可用错误。
+CPU 符号导航和 AI 结果候选项打开已为非 Weak 候选项接通。完整 Rust 测试套件现在通过（392 个测试，0 个失败），一次使用预置测试夹具的原生交互检查覆盖了选择、同步、AI 上传同意、复制位置、树/搜索交互、代码搜索、拖动选择/复制、过期检测、移除、AI 设置、AI 预检、符号候选项导航和添加本地工作区（截图位于 `build/source-workspace/`）。
+未执行像素比较、打包和提供方请求，因此这仍然只是功能/冒烟证据。
+
+## 电池工作区
+
+电池现在使用自己的参考布局 UI：紧凑工具栏、可搜索会话栏、自适应指标、六列运行表、快照/历史面板、八个资源标签、带检查器/复制功能的可搜索分页证据、温度窗口和诊断信息。
+它复用 Studio 主题和字体。运行、资源、窗口和诊断均有边界并支持分页，不会静默截断。原生文件导入和工具栏导入使用现有的代际绑定适配器。
+JSON/CSV 导出明确表示已发布的运行页面，而不是会话归档。
+
+导入的 schema-v1 报告会保留可用的来源身份/时钟元数据、计时器置信度和温度窗口。缺失字段保持未知；不会从总量推断电量曲线、历史样本、请求事件或兼容基线。
+能量身份保持分离，温度可以为负数。
+
+会话栏中只显示当前导入的报告。持久化的已保存电池会话、实时实验、应用启动、全局 BatteryStats 重置、Historian/错误报告和原始包仍需要 Rust 适配器；这些控件会明确禁用。
+配置是只读参考对话框，不是一组无效的已保存偏好。格式化、编译和静态检查不能证明像素对等或真实捕获行为。
+测试、原生视觉/键盘交互、提供方/设备以及打包验收仍分别延期。
+
+
+## GPU 分析中心
+
+GPU 检查器现在遵循 Compose 分析中心：紧凑操作条、四张摘要卡片、可搜索产物栏、设备图形上下文、概览/产物/相关证据/工具能力标签以及能力/打开方式栏。
+它使用实际内容宽度：1100dp 选择三列，900dp 选择四张摘要卡片而不是两行；更窄的布局会堆叠各区域。
+共享字体、表面、边框和双语资源均得到保留。
+
+显式操作会导入按内容识别的产物、验证 SHA-256 和大小、重新定位匹配副本、显示已验证文件、将 Perfetto 产物路由到跟踪分析器，以及探测/启动选定的本地 AGI 可执行文件。
+AGI 启动仅限 GUI，不会声称打开选定产物，也不会推断 CLI 参数。共享设备选择可显式刷新图形属性。
+AI 预检接收最小化的产物身份，而不是本地路径。
+
+这不是完整的后端或像素对等。内存中的目录仅限当前会话；设备/包/捕获/API 元数据以及相关产物匹配尚未接通。
+文件修改时间绝不会被呈现为捕获时间。AGI 帧指标、着色器、绘制调用和过度绘制仍明确不可用。
+测试已编写/编译，但按照重写策略未执行。编译、原生深色中文空状态截图和进程启动，与全面的 GUI、设备、真实 AGI、持久化及打包验收相互独立。

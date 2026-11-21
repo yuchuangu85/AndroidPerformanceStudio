@@ -1,0 +1,9 @@
+name;status;difference;percent;low;high;threshold;phase
+regression;REGRESSION;30.0;30.0;27.0;32.0;5.0;3.0
+improvement;IMPROVEMENT;-22.0;-22.0;-26.0;-20.0;5.0;-2.2
+no-change;NO_CHANGE;2.0;2.0;2.0;2.0;5.0;0.1999999999999993
+inconclusive;INCONCLUSIVE;30.0;30.0;-40.0;80.0;5.0;3.0
+even-asymmetric;REGRESSION;15.0;15.463917525773196;5.0;81.5;4.85;1.5
+ties;NO_CHANGE;-0.5;-0.49504950495049505;-1.0;0.0;5.05;-0.049999999999998934
+insufficient;INSUFFICIENT;null;null;null;null;null;null
+zero-baseline;INSUFFICIENT;null;null;null;null;null;null

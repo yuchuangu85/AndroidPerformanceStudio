@@ -1,0 +1,20 @@
+{
+  "generatedOn": "2026-11-11",
+  "kotlinVersion": "2.4.20",
+  "cases": 46,
+  "scope": "normalized sampling arguments and template duration only",
+  "sources": [
+    {
+      "path": "desktop-viewer/simpleperf-viewer/capture-simpleperf/src/main/kotlin/com/androidperformancestudio/capture/SamplingParameters.kt",
+      "sha256": "148188e31e2fdc0d673c971b9bc36c70d4f05acfbe609504a36db2e452205e95"
+    },
+    {
+      "path": "desktop-viewer/simpleperf-viewer/capture-simpleperf/src/main/kotlin/com/androidperformancestudio/capture/SamplingTemplate.kt",
+      "sha256": "88ead064e2e74ac81f89606718c3df58a5d2ef4f4e54fc6c454603df6b38675f"
+    },
+    {
+      "path": "rust-desktop/crates/aps-capture/tests/fixtures/SamplingOracle.java",
+      "sha256": "202396e761ff8b375f2bf2a83bcc1d00cebf5eae32b19bbc5112ce1c71ca9891"
+    }
+  ]
+}

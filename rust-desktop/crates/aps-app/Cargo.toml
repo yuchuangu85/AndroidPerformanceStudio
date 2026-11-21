@@ -1,0 +1,56 @@
+[package]
+name = "aps-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aps-analysis = { path = "../aps-analysis" }
+gpui-kit.workspace = true
+aps-ui-foundation.workspace = true
+aps-cpu.workspace = true
+aps-platform.workspace = true
+aps-adb.workspace = true
+aps-contracts = { path = "../aps-contracts" }
+aps-memory = { path = "../aps-memory" }
+aps-network = { path = "../aps-network" }
+aps-perfetto = { path = "../aps-perfetto" }
+aps-frame = { path = "../aps-frame" }
+aps-startup = { path = "../aps-startup" }
+
+aps-battery = { path = "../aps-battery" }
+aps-benchmark = { path = "../aps-benchmark" }
+aps-gpu = { path = "../aps-gpu" }
+aps-source = { path = "../aps-source" }
+aps-layout-inspector = { path = "../aps-layout-inspector" }
+aps-method-recording = { path = "../aps-method-recording" }
+aps-storage = { path = "../aps-storage" }
+aps-ai = { path = "../aps-ai" }
+aps-json = { path = "../aps-json" }
+aps-capture = { path = "../aps-capture" }
+serde_json.workspace = true
+futures = "0.3"
+tree-sitter.workspace = true
+tree-sitter-c.workspace = true
+tree-sitter-cpp.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-kotlin-ng.workspace = true
+tree-sitter-xml.workspace = true
+zip = { version = "=9.4.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# gzip-wrapped CPU profiles (perf.data / SIMPLEPERF protobuf) are decompressed
+# before the existing import routes; reuse the backend zip already links.
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+image = { version = "=0.25.9", default-features = false, features = ["png"] }
+
+[build-dependencies]
+embed-resource = "=3.0.12"
+
+[dev-dependencies]
+# Verify that the desktop export producer and the offline reader agree.
+aps-frame-mcp = { path = "../aps-frame-mcp" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSImage", "NSMenu", "NSMenuItem"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSData", "NSProcessInfo", "NSString"] }
