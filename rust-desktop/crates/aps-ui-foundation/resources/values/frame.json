@@ -155,6 +155,7 @@
   "frame_timeline_previous": "Previous",
   "frame_timeline_unknown": "Unclassified",
   "frame_timeline_visible_range": "Frames {value1}–{value2} of {value3}",
+  "frame_display_frame_token": "Display frame token",
   "frame_timeline_vsync_id": "FrameTimeline VSync ID",
   "frame_timeline_zoom_in": "Zoom in",
   "frame_timeline_zoom_out": "Zoom out",

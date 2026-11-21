@@ -155,6 +155,7 @@
   "frame_timeline_previous": "上一段",
   "frame_timeline_unknown": "未分类",
   "frame_timeline_visible_range": "第 {value1}–{value2} 帧，共 {value3} 帧",
+  "frame_display_frame_token": "Display frame token",
   "frame_timeline_vsync_id": "FrameTimeline VSync ID",
   "frame_timeline_zoom_in": "放大",
   "frame_timeline_zoom_out": "缩小",

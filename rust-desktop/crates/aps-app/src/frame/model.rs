@@ -485,8 +485,13 @@ pub(in crate::frame) fn copy_evidence_text(frame: &AnalyzedFrame, language: Lang
         language.text(TextKey::FrameFrame),
         format!("#{}", sample.frame_id),
     );
+    let timeline_id_label = if sample.source == FrameSource::Perfetto {
+        TextKey::FrameDisplayFrameToken
+    } else {
+        TextKey::FrameTimelineVsyncId
+    };
     add(
-        language.text(TextKey::FrameTimelineVsyncId),
+        language.text(timeline_id_label),
         sample
             .frame_timeline_vsync_id
             .map(|value| value.to_string())

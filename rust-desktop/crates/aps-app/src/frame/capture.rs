@@ -628,6 +628,15 @@ fn parse_display_refresh_rates(output: &str) -> Vec<f64> {
         .collect()
 }
 
+/// A single observed display rate is unambiguous per-frame evidence; adaptive
+/// mode lists stay unset rather than guessing which mode a frame used.
+pub(in crate::frame) fn single_observed_refresh_rate(rates: &[f64]) -> Option<f64> {
+    match rates {
+        [rate] if rate.is_finite() && *rate > 0.0 => Some(*rate),
+        _ => None,
+    }
+}
+
 fn leading_rate(rest: &str) -> Option<f64> {
     let rest = rest.trim_start();
     let rest = rest
@@ -2166,6 +2175,15 @@ mod tests {
         let output = "mRefreshRate=120.0\n  mRenderFrameRate: 90.0\nrefreshRate 60\nnoise mRefreshRate=0.0\n";
         let rates = parse_display_refresh_rates(output);
         assert_eq!(rates, vec![60.0, 90.0, 120.0]);
+    }
+
+    #[::core::prelude::v1::test]
+    fn only_one_observed_refresh_rate_is_applied_to_frames() {
+        assert_eq!(single_observed_refresh_rate(&[90.0]), Some(90.0));
+        assert_eq!(single_observed_refresh_rate(&[]), None);
+        assert_eq!(single_observed_refresh_rate(&[60.0, 120.0]), None);
+        assert_eq!(single_observed_refresh_rate(&[f64::NAN]), None);
+        assert_eq!(single_observed_refresh_rate(&[0.0]), None);
     }
 
     struct FakeAgentTransport {

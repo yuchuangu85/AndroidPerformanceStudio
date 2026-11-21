@@ -787,6 +787,19 @@ impl FrameWorkspace {
                 match result {
                     Ok(batch) => {
                         this.online_frames.extend(batch.frames);
+                        let observed_refresh_rate_hz =
+                            this.current_session.as_ref().and_then(|session| {
+                                capture::single_observed_refresh_rate(
+                                    &session.observed_refresh_rates_hz,
+                                )
+                            });
+                        if let Some(rate) = observed_refresh_rate_hz {
+                            for frame in &mut this.online_frames {
+                                if frame.refresh_rate_hz.is_none() {
+                                    frame.refresh_rate_hz = Some(rate);
+                                }
+                            }
+                        }
                         this.warnings.extend(batch.warnings);
                         this.warnings.dedup();
                         let analysis = FrameJankAnalyzer::default().analyze(&this.online_frames);
@@ -948,6 +961,8 @@ impl FrameWorkspace {
                 "perfetto-{}",
                 final_artifact.id.trim_start_matches("frame-").to_owned()
             );
+            let observed_refresh_rate_hz =
+                capture::single_observed_refresh_rate(&captured.observed_refresh_rates_hz);
             let frames: Vec<FrameSample> = processed
                 .frames
                 .into_iter()
@@ -956,6 +971,9 @@ impl FrameWorkspace {
                     frame.package_name = Some(process.package_name.clone());
                     frame.process_id = Some(process.pid);
                     frame.session_id = session_id.clone();
+                    if frame.refresh_rate_hz.is_none() {
+                        frame.refresh_rate_hz = observed_refresh_rate_hz;
+                    }
                     frame
                 })
                 .collect();
@@ -1934,6 +1952,29 @@ mod tests {
         assert!(!operation.can_publish(8));
         operation.cancel.cancel();
         assert!(!operation.can_publish(7));
+    }
+
+    #[::core::prelude::v1::test]
+    fn capture_uses_only_a_single_observed_refresh_rate_for_frames() {
+        let source = include_str!("frame.rs");
+        let capture = source
+            .split("pub(in crate::frame) fn capture_frame_timeline(")
+            .nth(1)
+            .unwrap()
+            .split("fn reconcile_frame_timeline_target(")
+            .next()
+            .unwrap();
+        assert!(capture.contains("single_observed_refresh_rate"));
+        assert!(capture.contains("refresh_rate_hz = observed_refresh_rate_hz"));
+        let poll = source
+            .split("fn poll_capture_once(")
+            .nth(1)
+            .unwrap()
+            .split("pub(in crate::frame) fn stop_capture(")
+            .next()
+            .unwrap();
+        assert!(poll.contains("single_observed_refresh_rate"));
+        assert!(poll.contains("refresh_rate_hz = Some(rate)"));
     }
 
     #[::core::prelude::v1::test]

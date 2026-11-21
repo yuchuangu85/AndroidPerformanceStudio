@@ -116,7 +116,12 @@ pub(super) fn frame_detail_sections(
         ),
         row(
             language,
-            TextKey::FrameTimelineVsyncId,
+            if sample.source == FrameSource::Perfetto {
+                // FrameTimeline rows carry the display frame token, not a vsync id.
+                TextKey::FrameDisplayFrameToken
+            } else {
+                TextKey::FrameTimelineVsyncId
+            },
             optional(sample.frame_timeline_vsync_id),
         ),
     ];
@@ -376,6 +381,41 @@ mod tests {
         });
         assert_eq!(value(&unknown, TextKey::FrameDetailOverBudget), "—");
         assert_eq!(value(&unknown, TextKey::FrameDetailRefreshRate), "—");
+    }
+
+    #[test]
+    fn perfetto_frames_label_the_row_as_a_display_frame_token() {
+        let analyzer = FrameJankAnalyzer::default();
+        let perfetto = analyzer.analyze_frame(FrameSample {
+            source: FrameSource::Perfetto,
+            frame_timeline_vsync_id: Some(3248292),
+            ..sample()
+        });
+        let rows: Vec<_> = frame_detail_sections(&perfetto, Language::English)
+            .into_iter()
+            .flat_map(|section| section.rows)
+            .collect();
+        assert!(rows.iter().any(|row| {
+            row.label == Language::English.text(TextKey::FrameDisplayFrameToken)
+                && row.value == "3248292"
+        }));
+        assert!(
+            !rows
+                .iter()
+                .any(|row| row.label == Language::English.text(TextKey::FrameTimelineVsyncId))
+        );
+
+        let metrics = analyzer.analyze_frame(FrameSample {
+            frame_timeline_vsync_id: Some(42),
+            ..sample()
+        });
+        let rows: Vec<_> = frame_detail_sections(&metrics, Language::English)
+            .into_iter()
+            .flat_map(|section| section.rows)
+            .collect();
+        assert!(rows.iter().any(|row| {
+            row.label == Language::English.text(TextKey::FrameTimelineVsyncId) && row.value == "42"
+        }));
     }
 
     #[test]
