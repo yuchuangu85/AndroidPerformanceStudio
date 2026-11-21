@@ -163,7 +163,14 @@ jobs:
           cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
           cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
           chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
-          hdiutil create -volname "Android Performance Studio" -srcfolder "$app" -ov -format UDZO "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.dmg"
+          # A DMG needs the application plus an /Applications target so the user can
+          # drag-install; a bundle alone in the volume gives no destination folder.
+          stage="dist/dmg-${ARCH}"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp -R "$app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -volname "Android Performance Studio" -srcfolder "$stage" -ov -format UDZO "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.dmg"
           pkgbuild --component "$app" --install-location /Applications --version "$version" "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.pkg"
       - name: Upload macOS packages
         uses: actions/upload-artifact@v4
