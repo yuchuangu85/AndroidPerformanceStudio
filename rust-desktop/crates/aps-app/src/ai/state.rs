@@ -5,7 +5,7 @@
 //! without a provider, database or window.
 #![allow(dead_code)]
 
-use aps_ai::runtime::{ApprovalView, RunStatus, SessionSummary, TurnRecord};
+use aps_ai::runtime::{ApprovalView, RunStatus, RuntimeError, SessionSummary, TurnRecord};
 use aps_ui_foundation::{Language, TextKey};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -70,6 +70,9 @@ pub struct ChatState {
     pub busy: bool,
     pub status: Option<RunStatus>,
     pub error: Option<String>,
+    /// Local diagnostic supplied with a provider rejection: why the answer was
+    /// refused and a bounded excerpt of what the model returned. Never persisted.
+    pub error_detail: Option<String>,
     pub pending_approval: Option<ApprovalView>,
     pub activity: Vec<ActivityEvent>,
     pub include_source: bool,
@@ -117,6 +120,7 @@ impl ChatState {
             busy: false,
             status: None,
             error: None,
+            error_detail: None,
             pending_approval: None,
             activity: Vec::new(),
             include_source: false,
@@ -236,6 +240,23 @@ impl ChatState {
             .filter(|item| item.conversation_id == id)
             .cloned()
             .collect()
+    }
+
+    /// Surface one runtime failure, including any rejected-answer diagnostic.
+    pub fn fail(&mut self, error: &RuntimeError) {
+        self.error = Some(error.to_string());
+        self.error_detail = error.detail().map(str::to_owned);
+    }
+
+    /// Surface a code or message that carries no diagnostic body.
+    pub fn fail_with(&mut self, message: impl Into<String>) {
+        self.error = Some(message.into());
+        self.error_detail = None;
+    }
+
+    pub fn clear_error(&mut self) {
+        self.error = None;
+        self.error_detail = None;
     }
 
     pub fn add_activity(
@@ -668,6 +689,32 @@ mod tests {
         assert!(text.contains("Summary"));
         assert!(text.contains("Title\nWhy\nFix"));
         assert!(text.contains("e1, c1"));
+    }
+
+    #[test]
+    fn failures_keep_the_code_and_diagnostic_together() {
+        use aps_ai::runtime::{ProviderFailure, RuntimeError};
+        let mut state = ChatState::new();
+        state.fail(&RuntimeError::Provider(ProviderFailure::with_detail(
+            "E_AI_RESPONSE_SCHEMA",
+            "model m: findings[0].severity must be INFO, WARNING or ERROR",
+        )));
+        assert_eq!(state.error.as_deref(), Some("E_AI_RESPONSE_SCHEMA"));
+        assert!(
+            state
+                .error_detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("findings[0].severity"))
+        );
+        state.clear_error();
+        assert_eq!(state.error, None);
+        assert_eq!(state.error_detail, None);
+
+        state.fail(&RuntimeError::Transport);
+        assert_eq!(state.error_detail, None);
+        state.fail_with("E_RETRY_UNAVAILABLE");
+        assert_eq!(state.error_detail, None);
+        assert_eq!(state.error.as_deref(), Some("E_RETRY_UNAVAILABLE"));
     }
 
     #[test]

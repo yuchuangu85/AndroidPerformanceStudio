@@ -37,6 +37,7 @@
   "ai_chat_open_verified_report": "打开已验证报告",
   "ai_chat_no_references": "无引用",
   "ai_chat_retry": "重试",
+  "ai_chat_rejected_response": "被拒的模型回答",
   "ai_chat_status_queued": "排队中",
   "ai_chat_status_preparing": "准备中",
   "ai_chat_status_awaiting_approval": "等待确认",

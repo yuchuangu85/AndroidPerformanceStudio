@@ -181,7 +181,51 @@ pub struct PrepareOptions {
     pub agent_id: String,
 }
 
-/// Errors surfaced as stable E_ codes, never raw provider or filesystem text.
+/// One rejected-provider failure. The code is the stable E_ identifier the
+/// conversation stores; the detail is a bounded, credential-screened diagnostic
+/// for the local window and is never persisted, logged or sent anywhere.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderFailure {
+    pub code: String,
+    pub detail: Option<String>,
+}
+
+impl ProviderFailure {
+    pub fn new(code: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            detail: None,
+        }
+    }
+
+    pub fn with_detail(code: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            detail: Some(detail.into()),
+        }
+    }
+}
+
+impl From<&str> for ProviderFailure {
+    fn from(code: &str) -> Self {
+        Self::new(code)
+    }
+}
+
+impl From<String> for ProviderFailure {
+    fn from(code: String) -> Self {
+        Self::new(code)
+    }
+}
+
+impl fmt::Display for ProviderFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.code)
+    }
+}
+
+/// Errors surfaced as stable E_ codes. Only `Provider` may carry a diagnostic
+/// detail, and that detail stays local to the window that showed the failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
     Unavailable,
@@ -193,13 +237,22 @@ pub enum RuntimeError {
     Transport,
     Timeout,
     HttpStatus(u16),
-    Provider(String),
+    Provider(ProviderFailure),
     Cancelled,
     Run,
     Artifact,
 }
 
 impl RuntimeError {
+    /// Local diagnostic for a rejected provider answer: why it was rejected and
+    /// a bounded excerpt of what the model returned. Never persisted.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Self::Provider(failure) => failure.detail.as_deref(),
+            _ => None,
+        }
+    }
+
     /// Retryable failures are network/timeout/rate-limit cases; schema,
     /// credential, approval and configuration failures are permanent.
     pub fn retryable(&self) -> bool {
@@ -230,7 +283,7 @@ impl fmt::Display for RuntimeError {
             Self::Transport => "E_AI_TRANSPORT",
             Self::Timeout => "E_PROVIDER_TIMEOUT",
             Self::HttpStatus(_) => "E_AI_HTTP_STATUS",
-            Self::Provider(code) => code,
+            Self::Provider(failure) => failure.code.as_str(),
             Self::Cancelled => "E_AI_CANCELLED",
             Self::Run => "E_AI_RUN",
             Self::Artifact => "E_AI_ARTIFACT",
@@ -1357,7 +1410,9 @@ impl AiRuntime {
             )
             .map_err(map_claude_error)?;
             AnalysisResult::validate(structured.as_bytes(), &material.request, &material.model)
-                .map_err(|error| RuntimeError::Provider(error.to_string()))?
+                .map_err(|error| {
+                    rejected_answer(error, structured.as_bytes(), &material.model, &credential)
+                })?
         } else {
             let input = String::from_utf8(payload).map_err(|_| RuntimeError::Context)?;
             let request = crate::responses::ResponsesRequest {
@@ -1372,7 +1427,14 @@ impl AiRuntime {
                 .await
                 .map_err(map_responses_error)?;
             AnalysisResult::validate(response.text.as_bytes(), &material.request, &response.model)
-                .map_err(|error| RuntimeError::Provider(error.to_string()))?
+                .map_err(|error| {
+                rejected_answer(
+                    error,
+                    response.text.as_bytes(),
+                    &response.model,
+                    &credential,
+                )
+            })?
         };
         // Linearize success with cancellation and newer approvals before writing
         // either an artifact or the conversation result. No I/O await holds this lock.
@@ -1522,6 +1584,44 @@ fn map_import_failure(failure: crate::platform::import::LocalImportFailure) -> I
     }
 }
 
+/// Attach a bounded, credential-screened diagnostic to a rejected answer. The
+/// error code stays the stable E_ identifier; only failures the user can act on
+/// carry the rejected text, and it never leaves this process.
+fn rejected_answer(
+    error: crate::AiError,
+    answer: &[u8],
+    model: &str,
+    credential: &AiSecret,
+) -> RuntimeError {
+    let code = error.to_string();
+    match error {
+        crate::AiError::InvalidResponse
+        | crate::AiError::UnknownReference
+        | crate::AiError::ResponseLimit => {
+            let reason = crate::model::rejection_reason(answer);
+            let excerpt = redact_credential(crate::model::rejection_excerpt(answer), credential);
+            RuntimeError::Provider(ProviderFailure::with_detail(
+                code,
+                format!("model {model}: {reason}\n\n{excerpt}"),
+            ))
+        }
+        crate::AiError::SecretInResponse => RuntimeError::Provider(ProviderFailure::with_detail(
+            code,
+            format!("model {model}: answer contained the stored credential and was discarded"),
+        )),
+        _ => RuntimeError::Provider(ProviderFailure::new(code)),
+    }
+}
+
+/// Replace any occurrence of the stored credential in local diagnostic text.
+fn redact_credential(text: String, credential: &AiSecret) -> String {
+    let secret = String::from_utf8_lossy(credential.as_bytes()).into_owned();
+    if secret.is_empty() || !text.contains(&secret) {
+        return text;
+    }
+    text.replace(&secret, "[redacted]")
+}
+
 fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError {
     use crate::responses::ResponsesError;
     match error {
@@ -1532,7 +1632,7 @@ fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError 
         ResponsesError::Timeout => RuntimeError::Timeout,
         ResponsesError::HttpStatus(status) => RuntimeError::HttpStatus(status),
         ResponsesError::Limit => RuntimeError::Provider("E_AI_RESPONSE_LIMIT".into()),
-        other => RuntimeError::Provider(other.to_string()),
+        other => RuntimeError::Provider(other.to_string().into()),
     }
 }
 
@@ -1544,7 +1644,7 @@ fn map_claude_error(error: crate::claude::ClaudeError) -> RuntimeError {
         ClaudeError::ProcessExit => RuntimeError::Provider("E_PROVIDER_PROCESS_EXIT".into()),
         ClaudeError::Protocol => RuntimeError::Provider("E_PROVIDER_PROTOCOL".into()),
         ClaudeError::OutputLimit => RuntimeError::Provider("E_PROVIDER_OUTPUT_LIMIT".into()),
-        other => RuntimeError::Provider(other.to_string()),
+        other => RuntimeError::Provider(other.to_string().into()),
     }
 }
 
@@ -2174,5 +2274,55 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(error, "E_AI_MODEL_CATALOG_CREDENTIAL");
+    }
+
+    #[test]
+    fn rejected_answer_detail_is_bounded_screened_and_never_the_displayed_code() {
+        use crate::AiError;
+        let credential = AiSecret::new("sk-test-secret-value").unwrap();
+        let answer = format!(
+            "{{\"summary\":\"{}\",\"findings\":[],\"confidence\":0.4}}",
+            "x".repeat(4_000)
+        );
+        let failure = rejected_answer(
+            AiError::InvalidResponse,
+            answer.as_bytes(),
+            "test-model",
+            &credential,
+        );
+        assert_eq!(failure.to_string(), "E_AI_RESPONSE_SCHEMA");
+        assert_eq!(failure.run_status(), RunStatus::PermanentFailure);
+        let detail = failure.detail().expect("rejection carries a diagnostic");
+        assert!(detail.contains("test-model"));
+        assert!(detail.contains("unexpected: confidence"));
+        assert!(detail.contains("characters omitted"));
+        assert!(detail.len() < 8_000);
+
+        let leaked = format!(
+            "{{\"summary\":\"{}\",\"findings\":[]}}",
+            "sk-test-secret-value"
+        );
+        let failure = rejected_answer(
+            AiError::InvalidResponse,
+            leaked.as_bytes(),
+            "test-model",
+            &credential,
+        );
+        let detail = failure.detail().unwrap();
+        assert!(!detail.contains("sk-test-secret-value"));
+        assert!(detail.contains("[redacted]"));
+
+        let discarded = rejected_answer(
+            AiError::SecretInResponse,
+            b"sk-test-secret-value",
+            "test-model",
+            &credential,
+        );
+        assert!(!discarded.detail().unwrap().contains("sk-test-secret-value"));
+
+        assert_eq!(
+            rejected_answer(AiError::Transport, b"ignored", "m", &credential).detail(),
+            None
+        );
     }
 }

@@ -1062,6 +1062,298 @@ fn normalized_json_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
+/// Answer-shape budgets mirrored by the strict schema and the validator.
+const SUMMARY_BYTES_LIMIT: usize = 16_384;
+const TITLE_BYTES_LIMIT: usize = 512;
+const TEXT_BYTES_LIMIT: usize = 8_192;
+const MAX_REFERENCES: usize = 100;
+const FINDING_KEYS: [&str; 8] = [
+    "id",
+    "severity",
+    "title",
+    "explanation",
+    "recommendation",
+    "analysisConfidence",
+    "performanceEvidenceIds",
+    "sourceCandidateIds",
+];
+/// Diagnostic excerpt bound. Enough to identify the failure, never the whole
+/// document, and never persisted.
+pub(crate) const REJECTION_EXCERPT_CHARS: usize = 2_000;
+
+/// Explain a rejected answer in one line. Diagnostics only: this never accepts a
+/// response that `AnalysisResult::validate` refused, and it reports answer shape
+/// rules only, because evidence-reference rules have their own error codes.
+pub(crate) fn rejection_reason(bytes: &[u8]) -> String {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return "answer is not valid UTF-8".to_owned();
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return "answer is empty".to_owned();
+    }
+    let Some(normalized) = normalized_json_bytes(bytes) else {
+        return "answer is an empty JSON code fence, or text follows the closing fence".to_owned();
+    };
+    let Ok(root) = aps_json::parse_slice(&normalized, json_limits(256 * 1024)) else {
+        return match json_framing(trimmed) {
+            Some(framing) => format!("answer is not bare JSON: {framing}"),
+            None => "answer is not valid JSON".to_owned(),
+        };
+    };
+    shape_reason(&root)
+}
+
+/// Bounded, control-character-free copy of a rejected answer for local display.
+pub(crate) fn rejection_excerpt(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let total = text.chars().count();
+    let mut kept = String::new();
+    for (index, character) in text.chars().enumerate() {
+        if index == REJECTION_EXCERPT_CHARS {
+            break;
+        }
+        kept.push(match character {
+            '\n' | '\t' => character,
+            other if other.is_control() => ' ',
+            other => other,
+        });
+    }
+    if kept.trim().is_empty() {
+        return "(empty answer)".to_owned();
+    }
+    if total > REJECTION_EXCERPT_CHARS {
+        kept.push_str(&format!(
+            "\n… ({} characters omitted)",
+            total - REJECTION_EXCERPT_CHARS
+        ));
+    }
+    kept
+}
+
+fn shape_reason(root: &Value) -> String {
+    let Some(object) = root.as_object() else {
+        return format!(
+            "top-level JSON must be an object, found {}",
+            json_kind(root)
+        );
+    };
+    if let Some(reason) = key_mismatch(
+        "top-level",
+        object.keys().map(String::as_str),
+        &["summary", "findings"],
+    ) {
+        return reason;
+    }
+    match object.get("summary") {
+        Some(Value::String(summary)) if summary.len() > SUMMARY_BYTES_LIMIT => {
+            return format!(
+                "summary is {} bytes; the limit is {SUMMARY_BYTES_LIMIT}",
+                summary.len()
+            );
+        }
+        Some(Value::String(_)) => {}
+        Some(other) => return format!("summary must be a string, found {}", json_kind(other)),
+        None => return "summary is missing".to_owned(),
+    }
+    let Some(rows) = object.get("findings") else {
+        return "findings is missing".to_owned();
+    };
+    let Some(rows) = rows.as_array() else {
+        return format!("findings must be an array, found {}", json_kind(rows));
+    };
+    if rows.len() > 12 {
+        return format!("findings has {} entries; the limit is 12", rows.len());
+    }
+    let mut seen = BTreeSet::new();
+    for (index, row) in rows.iter().enumerate() {
+        let Some(row_object) = row.as_object() else {
+            return format!(
+                "findings[{index}] must be an object, found {}",
+                json_kind(row)
+            );
+        };
+        if let Some(reason) = key_mismatch(
+            &format!("findings[{index}]"),
+            row_object.keys().map(String::as_str),
+            &FINDING_KEYS,
+        ) {
+            return reason;
+        }
+        let Some(id) = row.get("id").and_then(Value::as_str) else {
+            return format!("findings[{index}].id must be a string");
+        };
+        if identifier(id).is_err() {
+            return format!(
+                "findings[{index}].id must be 1-128 characters from A-Z a-z 0-9 . _ : -"
+            );
+        }
+        if !seen.insert(id) {
+            return format!("findings[{index}].id \"{id}\" repeats an earlier finding");
+        }
+        match row.get("severity").and_then(Value::as_str) {
+            Some("INFO" | "WARNING" | "ERROR") => {}
+            Some(other) => {
+                return format!(
+                    "findings[{index}].severity must be INFO, WARNING or ERROR, found \"{}\"",
+                    diagnostic_token(other)
+                );
+            }
+            None => return format!("findings[{index}].severity must be a string"),
+        }
+        match row.get("analysisConfidence").and_then(Value::as_f64) {
+            Some(value) if value.is_finite() && (0.0..=1.0).contains(&value) => {}
+            Some(value) => {
+                return format!(
+                    "findings[{index}].analysisConfidence must be between 0 and 1, found {value}"
+                );
+            }
+            None => return format!("findings[{index}].analysisConfidence must be a number"),
+        }
+        for key in ["performanceEvidenceIds", "sourceCandidateIds"] {
+            let Some(values) = row.get(key).and_then(Value::as_array) else {
+                return format!("findings[{index}].{key} must be an array of strings");
+            };
+            if values.len() > MAX_REFERENCES {
+                return format!(
+                    "findings[{index}].{key} has {} entries; the limit is {MAX_REFERENCES}",
+                    values.len()
+                );
+            }
+            if let Some(position) = values.iter().position(|value| !value.is_string()) {
+                return format!("findings[{index}].{key}[{position}] must be a string");
+            }
+        }
+        for (key, limit) in [
+            ("title", TITLE_BYTES_LIMIT),
+            ("explanation", TEXT_BYTES_LIMIT),
+            ("recommendation", TEXT_BYTES_LIMIT),
+        ] {
+            match row.get(key) {
+                Some(Value::String(text)) if text.len() > limit => {
+                    return format!(
+                        "findings[{index}].{key} is {} bytes; the limit is {limit}",
+                        text.len()
+                    );
+                }
+                Some(Value::String(_)) => {}
+                Some(other) => {
+                    return format!(
+                        "findings[{index}].{key} must be a string, found {}",
+                        json_kind(other)
+                    );
+                }
+                None => return format!("findings[{index}].{key} is missing"),
+            }
+        }
+    }
+    "answer JSON does not match the analysis schema".to_owned()
+}
+
+fn key_mismatch<'a>(
+    scope: &str,
+    present: impl Iterator<Item = &'a str>,
+    expected: &[&str],
+) -> Option<String> {
+    let present: Vec<&str> = present.collect();
+    let missing: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|key| !present.contains(key))
+        .collect();
+    let unexpected: Vec<&str> = present
+        .iter()
+        .copied()
+        .filter(|key| !expected.contains(key))
+        .collect();
+    if missing.is_empty() && unexpected.is_empty() {
+        return None;
+    }
+    let mut reason = format!("{scope} keys must be exactly {}", expected.join(", "));
+    if !unexpected.is_empty() {
+        reason.push_str(&format!("; unexpected: {}", unexpected.join(", ")));
+    }
+    if !missing.is_empty() {
+        reason.push_str(&format!("; missing: {}", missing.join(", ")));
+    }
+    Some(reason)
+}
+
+fn json_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
+}
+
+fn diagnostic_token(value: &str) -> String {
+    value
+        .chars()
+        .take(24)
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
+/// Surrounding text around the first balanced JSON object, if any. A response
+/// that is exactly one JSON object returns `None` and has no framing defect.
+fn json_framing(text: &str) -> Option<String> {
+    let start = text.find('{')?;
+    let end = object_end(text, start)?;
+    let leading = start;
+    let trailing = text.len().saturating_sub(end + 1);
+    let mut parts = Vec::new();
+    if leading > 0 {
+        parts.push(format!("{leading} bytes of prose before the JSON object"));
+    }
+    if trailing > 0 {
+        parts.push(format!("{trailing} bytes of text after it"));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" and "))
+    }
+}
+
+fn object_end(text: &str, start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, character) in text[start..].char_indices() {
+        if in_string {
+            match character {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(start + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 const MEMORY_SOURCE_BINDING: &str = "memory-source-binding";
 
 fn is_memory_candidate_kind(kind: &str) -> bool {
@@ -1883,5 +2175,55 @@ pub(crate) mod tests {
         assert!(
             AnalysisResult::validate(&response(&["candidate"], &[]), &request, "model").is_ok()
         );
+    }
+
+    #[test]
+    fn rejection_reason_explains_the_first_broken_shape_rule() {
+        let lowercase_severity = r#"{"summary":"ok","findings":[{"id":"a","severity":"info","title":"t","explanation":"e","recommendation":"r","analysisConfidence":0.5,"performanceEvidenceIds":[],"sourceCandidateIds":[]}]}"#;
+        let string_confidence = r#"{"summary":"ok","findings":[{"id":"a","severity":"INFO","title":"t","explanation":"e","recommendation":"r","analysisConfidence":"high","performanceEvidenceIds":[],"sourceCandidateIds":[]}]}"#;
+        for (answer, expected) in [
+            (br#"{"summary":"ok"}"#.as_slice(), "missing: findings"),
+            (
+                br#"{"summary":"ok","findings":[],"confidence":0.4}"#.as_slice(),
+                "unexpected: confidence",
+            ),
+            (
+                lowercase_severity.as_bytes(),
+                "severity must be INFO, WARNING or ERROR",
+            ),
+            (
+                string_confidence.as_bytes(),
+                "analysisConfidence must be a number",
+            ),
+            (
+                b"Here is the JSON you asked for:\n{\"summary\":\"ok\",\"findings\":[]}".as_slice(),
+                "prose before the JSON object",
+            ),
+            (b"not json".as_slice(), "not valid JSON"),
+            (b"   ".as_slice(), "answer is empty"),
+            (
+                b"\n\n{\"summary\":\"ok\",\"findings\":[]}\n\nno tools were used".as_slice(),
+                "text after it",
+            ),
+        ] {
+            let reason = rejection_reason(answer);
+            assert!(
+                reason.contains(expected),
+                "{reason} does not mention {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejection_excerpt_is_bounded_and_sanitized() {
+        let long = "a".repeat(REJECTION_EXCERPT_CHARS + 50) + "\u{7}";
+        let excerpt = rejection_excerpt(long.as_bytes());
+        assert!(excerpt.contains("characters omitted"));
+        assert!(excerpt.chars().count() < REJECTION_EXCERPT_CHARS + 60);
+        assert!(!excerpt.contains('\u{7}'));
+        assert_eq!(rejection_excerpt(b""), "(empty answer)");
+        assert_eq!(rejection_excerpt(b"  \n "), "(empty answer)");
+        let short = rejection_excerpt(b"{\"summary\":\"ok\"}");
+        assert_eq!(short, "{\"summary\":\"ok\"}");
     }
 }

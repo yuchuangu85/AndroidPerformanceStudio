@@ -37,6 +37,7 @@
   "ai_chat_open_verified_report": "Open verified report",
   "ai_chat_no_references": "No references",
   "ai_chat_retry": "Retry",
+  "ai_chat_rejected_response": "Rejected model answer",
   "ai_chat_status_queued": "Queued",
   "ai_chat_status_preparing": "Preparing",
   "ai_chat_status_awaiting_approval": "Awaiting approval",

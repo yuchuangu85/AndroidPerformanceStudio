@@ -224,7 +224,7 @@ impl AiWorkspace {
         self.bound_context = Some(request);
         self.state.pending_approval = None;
         self.state.status = None;
-        self.state.error = None;
+        self.state.clear_error();
         self.state.can_include_source = source_context_available(self.bound_context.as_ref());
         self.state.include_source = false;
         self.state.context_title = self.bound_title.clone();
@@ -257,7 +257,7 @@ impl AiWorkspace {
         self.state.can_include_source = false;
         self.state.pending_approval = None;
         self.state.status = None;
-        self.state.error = None;
+        self.state.clear_error();
         self.state.activity.clear();
         cx.notify();
     }
@@ -431,7 +431,7 @@ impl AiWorkspace {
         self.state.selected_conversation_id = id;
         self.state.turns.clear();
         self.state.activity.clear();
-        self.state.error = None;
+        self.state.clear_error();
         self.state.status = None;
         self.state.pending_approval = None;
         self.state.queued.clear();
@@ -494,7 +494,7 @@ impl AiWorkspace {
         self.state.turns.clear();
         self.state.pending_approval = None;
         self.state.status = None;
-        self.state.error = None;
+        self.state.clear_error();
         self.state.activity.clear();
         self.state.follow_latest = true;
         self.set_draft(&draft, window, cx);
@@ -648,7 +648,7 @@ impl AiWorkspace {
                             this.state.model = model.clone();
                             this.state.models_open = false;
                         }
-                        Err(error) => this.state.error = Some(error.to_string()),
+                        Err(error) => this.state.fail(&error),
                     }
                     cx.notify();
                 })
@@ -729,7 +729,7 @@ impl AiWorkspace {
                 cx.open_url(&url);
             }
             None => {
-                self.state.error = Some("E_AI_ARTIFACT".to_owned());
+                self.state.fail_with("E_AI_ARTIFACT");
                 cx.notify();
             }
         }
@@ -749,7 +749,7 @@ impl AiWorkspace {
         if self.state.busy {
             match self.state.push_queued(question) {
                 Ok(()) => self.set_draft("", window, cx),
-                Err(code) => self.state.error = Some(code.to_owned()),
+                Err(code) => self.state.fail_with(code),
             }
             cx.notify();
             return;
@@ -759,7 +759,7 @@ impl AiWorkspace {
 
     fn prepare_question(&mut self, question: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(runtime) = self.runtime.clone() else {
-            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_AI_UNAVAILABLE");
             cx.notify();
             return;
         };
@@ -772,7 +772,8 @@ impl AiWorkspace {
             .is_some_and(AnalysisRequest::is_frame_optimization);
         let opt_guard = self.frame_optimization.clone().filter(|_| is_opt);
         if is_opt && (!include_source || opt_guard.is_none()) {
-            self.state.error = Some(self.language.text(TextKey::FrameOptConsent).into());
+            self.state
+                .fail_with(self.language.text(TextKey::FrameOptConsent));
             cx.notify();
             return;
         }
@@ -787,7 +788,7 @@ impl AiWorkspace {
             .is_some_and(|request| request.is_memory_hprof() && !request.candidates.is_empty());
         let source_guard = self.memory_source_guard.clone().filter(|_| needs_guard);
         if needs_guard && source_guard.is_none() {
-            self.state.error = Some("E_MEMORY_SOURCE_GUARD".into());
+            self.state.fail_with("E_MEMORY_SOURCE_GUARD");
             cx.notify();
             return;
         }
@@ -821,7 +822,7 @@ impl AiWorkspace {
         self.epoch = epoch;
         self.state.busy = true;
         self.state.status = Some(RunStatus::Preparing);
-        self.state.error = None;
+        self.state.clear_error();
         self.state.pending_approval = None;
         self.frozen = None;
         self.state.last_question = Some(question);
@@ -867,7 +868,7 @@ impl AiWorkspace {
                     Err(error) => {
                         this.state.busy = false;
                         this.state.status = Some(error.run_status());
-                        this.state.error = Some(error.to_string());
+                        this.state.fail(&error);
                         this.state.add_activity_error(
                             String::new(),
                             "prepare",
@@ -889,7 +890,7 @@ impl AiWorkspace {
             return;
         };
         let Some(runtime) = self.runtime.clone() else {
-            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_AI_UNAVAILABLE");
             cx.notify();
             return;
         };
@@ -907,7 +908,8 @@ impl AiWorkspace {
             runtime.cancel();
             self.state.pending_approval = None;
             self.state.busy = false;
-            self.state.error = Some(self.language.text(TextKey::FrameOptConsent).into());
+            self.state
+                .fail_with(self.language.text(TextKey::FrameOptConsent));
             cx.notify();
             return;
         }
@@ -921,7 +923,7 @@ impl AiWorkspace {
             runtime.cancel();
             self.state.pending_approval = None;
             self.state.busy = false;
-            self.state.error = Some("E_MEMORY_SOURCE_GUARD".into());
+            self.state.fail_with("E_MEMORY_SOURCE_GUARD");
             cx.notify();
             return;
         }
@@ -931,7 +933,7 @@ impl AiWorkspace {
         self.state.pending_approval = None;
         self.state.busy = true;
         self.state.status = Some(RunStatus::Running);
-        self.state.error = None;
+        self.state.clear_error();
         self.state.add_activity(run_id.clone(), "run", "started");
         cx.notify();
         let task = cx.background_executor().spawn(async move {
@@ -970,20 +972,20 @@ impl AiWorkspace {
                                 "failed",
                                 error.to_string(),
                             );
-                            this.state.error = Some(format!(
+                            this.state.fail_with(format!(
                                 "{error}: {}",
                                 this.language.text(TextKey::AiChatReportNotPublished)
                             ));
                         }
                         match diff {
                             Some(Ok(diff)) => cx.emit(diff),
-                            Some(Err(err)) => this.state.error = Some(err),
+                            Some(Err(err)) => this.state.fail_with(err),
                             _ => {}
                         }
                     }
                     Err(error) => {
                         this.state.status = Some(error.run_status());
-                        this.state.error = Some(error.to_string());
+                        this.state.fail(&error);
                         this.state.add_activity_error(
                             run_id.clone(),
                             "run",
@@ -1055,11 +1057,11 @@ impl AiWorkspace {
         };
         match question {
             Some(question) if !question.trim().is_empty() => {
-                self.state.error = None;
+                self.state.clear_error();
                 self.prepare_question(question, window, cx);
             }
             _ => {
-                self.state.error = Some("E_RETRY_UNAVAILABLE".to_owned());
+                self.state.fail_with("E_RETRY_UNAVAILABLE");
                 cx.notify();
             }
         }
@@ -1100,7 +1102,7 @@ impl AiWorkspace {
         F: FnOnce(Arc<AiRuntime>) -> Result<(), String> + Send + 'static,
     {
         let Some(runtime) = self.runtime.clone() else {
-            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_AI_UNAVAILABLE");
             cx.notify();
             return;
         };
@@ -1113,9 +1115,9 @@ impl AiWorkspace {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(()) => {
-                        this.state.error = None;
+                        this.state.clear_error();
                     }
-                    Err(code) => this.state.error = Some(code),
+                    Err(code) => this.state.fail_with(code),
                 }
                 if reload_sessions {
                     this.reload_sessions(cx);
@@ -1181,7 +1183,7 @@ impl AiWorkspace {
             self.new_chat(window, cx);
         }
         let Some(runtime) = self.runtime.clone() else {
-            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_AI_UNAVAILABLE");
             cx.notify();
             return;
         };
@@ -1195,7 +1197,7 @@ impl AiWorkspace {
             let result = task.await;
             this.update(cx, |this, cx| {
                 if let Err(code) = result {
-                    this.state.error = Some(code);
+                    this.state.fail_with(code);
                 }
                 this.reload_sessions(cx);
                 cx.notify();
@@ -1216,7 +1218,7 @@ impl AiWorkspace {
             self.new_chat(window, cx);
         }
         let Some(runtime) = self.runtime.clone() else {
-            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_AI_UNAVAILABLE");
             cx.notify();
             return;
         };
@@ -1230,7 +1232,7 @@ impl AiWorkspace {
             let result = task.await;
             this.update(cx, |this, cx| {
                 if let Err(code) = result {
-                    this.state.error = Some(code);
+                    this.state.fail_with(code);
                 }
                 this.state.queued.retain(|item| item.conversation_id != id);
                 this.state.drafts.remove(&id);
@@ -1252,7 +1254,7 @@ impl AiWorkspace {
             return;
         }
         let Some(runtime) = self.runtime.clone() else {
-            self.state.error = Some("E_AI_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_AI_UNAVAILABLE");
             cx.notify();
             return;
         };
@@ -1268,11 +1270,11 @@ impl AiWorkspace {
                     Ok(new_id) => {
                         this.state.selected_conversation_id = Some(new_id.clone());
                         this.state.turns.clear();
-                        this.state.error = None;
+                        this.state.clear_error();
                         this.load_transcript(new_id, cx);
                         this.reload_sessions(cx);
                     }
-                    Err(code) => this.state.error = Some(code),
+                    Err(code) => this.state.fail_with(code),
                 }
                 cx.notify();
             });
@@ -1313,7 +1315,7 @@ impl AiWorkspace {
             self.state.context_title = self.bound_title.clone();
             cx.notify();
         } else {
-            self.state.error = Some("E_CONTEXT_UNAVAILABLE".to_owned());
+            self.state.fail_with("E_CONTEXT_UNAVAILABLE");
             cx.notify();
         }
     }

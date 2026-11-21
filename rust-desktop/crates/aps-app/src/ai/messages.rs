@@ -220,7 +220,14 @@ fn render_message_list(
     }
 
     if let Some(error) = workspace.state.error.clone() {
-        content = content.child(error_row(&error, colors, language, entity, retry_enabled));
+        content = content.child(error_row(
+            &error,
+            workspace.state.error_detail.as_deref(),
+            colors,
+            language,
+            entity,
+            retry_enabled,
+        ));
     }
 
     content = content.child(div().h(px(8.)));
@@ -934,6 +941,7 @@ fn activity_card(
 
 fn error_row(
     error: &str,
+    detail: Option<&str>,
     colors: &DshChatColors,
     language: Language,
     entity: &WeakEntity<AiWorkspace>,
@@ -956,6 +964,26 @@ fn error_row(
                     language.text(TextKey::AiChatChildrenDeleteHint),
                 )),
         );
+    }
+    if let Some(detail) = detail.filter(|detail| !detail.trim().is_empty()) {
+        column = column
+            .child(
+                div()
+                    .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                    .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                    .text_color(colors.muted)
+                    .child(crate::studio::selectable(
+                        language.text(TextKey::AiChatRejectedResponse),
+                    )),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .text_size(px(tokens::SECONDARY_FONT_SIZE))
+                    .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
+                    .text_color(colors.muted)
+                    .child(crate::studio::selectable(detail.to_owned())),
+            );
     }
     column = column.child(widgets::command_button(
         entity.clone(),
