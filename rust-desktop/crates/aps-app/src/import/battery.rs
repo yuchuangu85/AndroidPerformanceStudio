@@ -958,62 +958,103 @@ impl ImportWorkspace {
                 .package_name
                 .clone()
                 .unwrap_or_else(|| language.text(TextKey::BatteryImported).into());
-            let open = div()
+            let hover_bg = colors.section_background;
+            let hover_border = colors.strong_border;
+            let card = div()
                 .id(("battery-saved-session", session_index))
-                .flex_1()
+                .w_full()
                 .min_w_0()
                 .flex()
-                .flex_col()
-                .gap(px(3.))
-                .p(px(8.))
+                .items_start()
+                .gap(px(6.))
+                .p(px(studio::metrics::COMPACT_PADDING))
+                .rounded(px(studio::metrics::CARD_RADIUS))
+                .border_1()
+                .border_color(if selected {
+                    colors.accent
+                } else {
+                    colors.border
+                })
                 .bg(if selected {
                     colors.selected_row
                 } else {
                     colors.panel
                 })
-                .child(
-                    div()
-                        .text_size(px(studio::FONT_BODY))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(package),
-                )
-                .child(note(
-                    session.created_at.clone().unwrap_or_else(|| "—".into()),
-                    colors,
-                ))
-                .child(note(session.session_id.clone(), colors))
                 .cursor_pointer()
-                .child(note(
-                    language.format(
-                        if session.captured {
-                            TextKey::BatteryLiveSessionRuns
-                        } else {
-                            TextKey::BatterySessionRuns
-                        },
-                        &[("count", &session.run_count)],
-                    ),
-                    colors,
-                ))
+                .when(!selected, |card| {
+                    card.hover(move |style| style.bg(hover_bg).border_color(hover_border))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.open_battery_saved_session(key.clone(), cx)
-                }));
-            entries = entries.child(
-                div().flex().items_stretch().gap(px(2.)).child(open).child(
-                    Button::new(("battery-remove-session", session_index))
-                        .ghost()
-                        .w(px(24.))
-                        .h(px(24.))
-                        .icon(gpui_kit::component::IconName::Close)
-                        .disabled(
-                            self.busy || self.export_busy || self.battery().shell.sessions_loading,
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(3.))
+                        .child(
+                            div()
+                                .w_full()
+                                .text_size(px(studio::FONT_BODY))
+                                .line_height(px(17.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.text)
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(package),
                         )
-                        .accessibility_label(language.text(TextKey::BatteryRemoveSession))
-                        .tooltip(language.text(TextKey::BatteryRemoveSession))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.remove_battery_saved_session(remove_key.clone(), cx)
-                        })),
-                ),
-            );
+                        .child(
+                            note(
+                                session.created_at.clone().unwrap_or_else(|| "—".into()),
+                                colors,
+                            )
+                            .whitespace_nowrap()
+                            .text_ellipsis(),
+                        )
+                        .child(
+                            note(session.session_id.clone(), colors)
+                                .whitespace_nowrap()
+                                .text_ellipsis(),
+                        )
+                        .child(note(
+                            language.format(
+                                if session.captured {
+                                    TextKey::BatteryLiveSessionRuns
+                                } else {
+                                    TextKey::BatterySessionRuns
+                                },
+                                &[("count", &session.run_count)],
+                            ),
+                            colors,
+                        )),
+                )
+                .child(
+                    // Remove runs on click while the card opens on click too, so
+                    // swallow the press before the card records it.
+                    div()
+                        .flex_shrink_0()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            Button::new(("battery-remove-session", session_index))
+                                .ghost()
+                                .w(px(24.))
+                                .h(px(24.))
+                                .icon(gpui_kit::component::IconName::Close)
+                                .disabled(
+                                    self.busy
+                                        || self.export_busy
+                                        || self.battery().shell.sessions_loading,
+                                )
+                                .accessibility_label(language.text(TextKey::BatteryRemoveSession))
+                                .tooltip(language.text(TextKey::BatteryRemoveSession))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.remove_battery_saved_session(remove_key.clone(), cx)
+                                })),
+                        ),
+                );
+            entries = entries.child(card);
         }
         if rendered == 0 {
             entries = entries.child(note(
