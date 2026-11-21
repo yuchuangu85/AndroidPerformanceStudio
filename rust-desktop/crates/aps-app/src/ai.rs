@@ -684,8 +684,8 @@ impl AiWorkspace {
         cx.notify();
     }
 
-    /// Open the one-use preflight approval card. Rendering the frozen view is
-    /// the only thing that can lead to execution.
+    /// Hand the frozen view to the execution step. Sending is the authorization,
+    /// so the workspace applies it immediately instead of asking again.
     pub(crate) fn present_approval(&mut self, frozen: FrozenRun) {
         self.state.can_include_source = source_context_available(self.bound_context.as_ref());
         self.state.pending_approval = Some(frozen.view.clone());
@@ -857,13 +857,12 @@ impl AiWorkspace {
                 }
                 match result {
                     Ok(frozen) => {
-                        this.state.status = Some(RunStatus::AwaitingApproval);
-                        this.state.add_activity(
-                            frozen.view.run_id.clone(),
-                            "prepare",
-                            "awaiting_approval",
-                        );
+                        this.state
+                            .add_activity(frozen.view.run_id.clone(), "prepare", "ready");
+                        // Sending the question is the authorization: the prepared
+                        // request executes immediately with no second confirmation.
                         this.present_approval(frozen);
+                        this.approve(cx);
                     }
                     Err(error) => {
                         this.state.busy = false;
@@ -884,7 +883,8 @@ impl AiWorkspace {
         .detach();
     }
 
-    /// Approve the frozen request exactly once and execute it off-thread.
+    /// Execute the frozen request exactly once, off-thread and after the guards
+    /// are re-validated. Called by the prepare step; no user confirmation.
     pub(crate) fn approve(&mut self, cx: &mut Context<Self>) {
         let Some(frozen) = self.frozen.take() else {
             return;
