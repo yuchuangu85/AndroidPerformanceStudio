@@ -1460,7 +1460,7 @@ impl AiRuntime {
             };
             let response = crate::responses::execute(&client, &credential, &request, cancellation)
                 .await
-                .map_err(map_responses_error)?;
+                .map_err(|error| map_responses_error(error, &material.model))?;
             AnalysisResult::validate(response.text.as_bytes(), &material.request, &response.model)
                 .map_err(|error| {
                 rejected_answer(
@@ -1659,8 +1659,8 @@ fn redact_credential(text: String, credential: &AiSecret) -> String {
 
 /// Local, actionable description of an HTTP failure: the status number plus the
 /// provider's own bounded message.
-fn http_status_detail(status: u16, body: Option<String>) -> String {
-    let mut detail = format!("HTTP {status}{}", http_status_hint(status));
+fn http_status_detail(status: u16, model: &str, body: Option<String>) -> String {
+    let mut detail = format!("model {model}: HTTP {status}{}", http_status_hint(status));
     if let Some(body) = body {
         detail.push_str("\nprovider: ");
         detail.push_str(&body);
@@ -1679,7 +1679,7 @@ fn http_status_hint(status: u16) -> &'static str {
     }
 }
 
-fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError {
+fn map_responses_error(error: crate::responses::ResponsesError, model: &str) -> RuntimeError {
     use crate::responses::ResponsesError;
     match error {
         ResponsesError::Credential => RuntimeError::Credential,
@@ -1688,7 +1688,7 @@ fn map_responses_error(error: crate::responses::ResponsesError) -> RuntimeError 
         ResponsesError::Transport => RuntimeError::Transport,
         ResponsesError::Timeout => RuntimeError::Timeout,
         ResponsesError::HttpStatus(status, body) => RuntimeError::HttpStatus(
-            HttpFailure::with_detail(status, http_status_detail(status, body)),
+            HttpFailure::with_detail(status, http_status_detail(status, model, body)),
         ),
         ResponsesError::Limit => RuntimeError::Provider("E_AI_RESPONSE_LIMIT".into()),
         other => RuntimeError::Provider(other.to_string().into()),
@@ -2338,17 +2338,17 @@ mod tests {
     #[test]
     fn http_failure_carries_the_status_and_the_provider_message() {
         use crate::responses::ResponsesError;
-        let failure = map_responses_error(ResponsesError::HttpStatus(
-            404,
-            Some("{\"error\":\"model not found\"}".to_owned()),
-        ));
+        let failure = map_responses_error(
+            ResponsesError::HttpStatus(404, Some("{\"error\":\"model not found\"}".to_owned())),
+            "gpt-6.1-terra",
+        );
         assert_eq!(failure.to_string(), "E_AI_HTTP_STATUS");
         assert_eq!(failure.run_status(), RunStatus::PermanentFailure);
         let detail = failure.detail().expect("http failure carries a diagnostic");
-        assert!(detail.starts_with("HTTP 404"));
+        assert!(detail.starts_with("model gpt-6.1-terra: HTTP 404"));
         assert!(detail.contains("model not found"));
 
-        let retryable = map_responses_error(ResponsesError::HttpStatus(429, None));
+        let retryable = map_responses_error(ResponsesError::HttpStatus(429, None), "m");
         assert_eq!(retryable.to_string(), "E_AI_HTTP_STATUS");
         assert_eq!(retryable.run_status(), RunStatus::RetryableFailure);
         assert!(retryable.detail().unwrap().contains("HTTP 429"));

@@ -19,6 +19,8 @@ const TOTAL_TIMEOUT: Duration = Duration::from_secs(120);
 const ENVELOPE_LIMIT: usize = 1024 * 1024;
 /// Diagnostic preview of a non-200 body. Bounded because it is shown to the
 /// user, screened for the resolved credential and never persisted.
+/// Route-level statuses that justify one attempt at the versioned path.
+const ROUTE_FAILURES: [u16; 3] = [404, 405, 502];
 const ERROR_PREVIEW_LIMIT: usize = 4_096;
 const ERROR_PREVIEW_CHARS: usize = 600;
 const MAX_OUTPUT_TOKENS: u32 = 8192;
@@ -107,6 +109,12 @@ pub fn request_body(request: &ResponsesRequest<'_>) -> Vec<u8> {
 
 /// Run one explicit, already-approved request. The credential is read only here
 /// and is never logged or included in error text.
+///
+/// A gateway is allowed one documented path correction: when the configured
+/// path is a bare `/responses` and the host answers with a route-level status
+/// (404, 405 or a proxy 502), the same request is retried once at
+/// `/v1/responses`, which is where OpenAI-compatible hosts mount the Responses
+/// API. No other failure is retried.
 pub async fn execute(
     client: &Arc<dyn HttpClient>,
     credential: &AiSecret,
@@ -123,16 +131,46 @@ pub async fn execute(
     if body.is_empty() {
         return Err(ResponsesError::Configuration);
     }
+    match execute_at(client, credential, &body, request.endpoint, token).await {
+        Err(ResponsesError::HttpStatus(status, detail)) if ROUTE_FAILURES.contains(&status) => {
+            match versioned_alternate(request.endpoint) {
+                Some(alternate) => execute_at(client, credential, &body, &alternate, token).await,
+                None => Err(ResponsesError::HttpStatus(status, detail)),
+            }
+        }
+        result => result,
+    }
+}
+
+/// A Responses path without a version segment is the common gateway mistake: an
+/// OpenAI-compatible host mounts the API at `/v1/responses` while `/responses`
+/// answers with a routing failure.
+fn versioned_alternate(endpoint: &str) -> Option<String> {
+    let mut url = http_client::Url::parse(endpoint).ok()?;
+    if url.path().trim_end_matches('/') != "/responses" {
+        return None;
+    }
+    url.set_path("/v1/responses");
+    Some(url.to_string())
+}
+
+async fn execute_at(
+    client: &Arc<dyn HttpClient>,
+    credential: &AiSecret,
+    body: &[u8],
+    endpoint: &str,
+    token: &CancellationToken,
+) -> Result<ResponsesAnswer, ResponsesError> {
     let authorization = credential_header(credential)?;
     let request = Request::builder()
         .method(Method::POST)
-        .uri(request.endpoint)
+        .uri(endpoint)
         .header(http::header::AUTHORIZATION, authorization)
         .header(http::header::CONTENT_TYPE, "application/json")
         .header(http::header::ACCEPT, "application/json")
         .follow_redirects(RedirectPolicy::NoFollow)
         .timeout(TOTAL_TIMEOUT)
-        .body(AsyncBody::from(body))
+        .body(AsyncBody::from(body.to_vec()))
         .map_err(|_| ResponsesError::Configuration)?;
     let response = select_or_cancel(client.send(request), token).await?;
     let response = response.map_err(|_| ResponsesError::Transport)?;
@@ -154,12 +192,12 @@ pub async fn execute(
             error_body_preview(credential, &preview),
         ));
     }
-    if !content_type
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .eq_ignore_ascii_case("application/json")
+    // Some OpenAI-compatible gateways label a plain JSON body as
+    // `text/event-stream`. The strict JSON parse below is the real gate; only a
+    // non-JSON media type is rejected here.
+    let media_type = content_type.split(';').next().unwrap_or("").trim();
+    if !media_type.eq_ignore_ascii_case("application/json")
+        && !media_type.eq_ignore_ascii_case("text/event-stream")
     {
         return Err(ResponsesError::InvalidResponse);
     }
@@ -453,6 +491,80 @@ mod tests {
             parse_output(&bytes).unwrap_err(),
             ResponsesError::ToolResponse
         );
+    }
+
+    struct RouteClient {
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl HttpClient for RouteClient {
+        fn user_agent(&self) -> Option<&http::HeaderValue> {
+            None
+        }
+        fn proxy(&self) -> Option<&http_client::Url> {
+            None
+        }
+        fn send(
+            &self,
+            request: Request<AsyncBody>,
+        ) -> futures::future::BoxFuture<
+            'static,
+            http_client::Result<http_client::Response<AsyncBody>>,
+        > {
+            self.calls.lock().unwrap().push(request.uri().to_string());
+            let versioned = request.uri().path() == "/v1/responses";
+            Box::pin(async move {
+                let (status, media, body) = if versioned {
+                    (200, "text/event-stream", envelope("output_text", "ok"))
+                } else {
+                    (502, "text/plain", b"error code: 502".to_vec())
+                };
+                Ok(http_client::Response::builder()
+                    .status(status)
+                    .header(http::header::CONTENT_TYPE, media)
+                    .body(AsyncBody::from(body))
+                    .unwrap())
+            })
+        }
+    }
+
+    #[test]
+    fn bare_responses_path_is_retried_once_at_the_versioned_path() {
+        let client = Arc::new(RouteClient {
+            calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let dynamic: Arc<dyn HttpClient> = client.clone();
+        let credential = AiSecret::new("sk-route-test-123456").unwrap();
+        let token = CancellationToken::new();
+        let schema = Value::Object(Default::default());
+        let request = ResponsesRequest {
+            endpoint: "https://gateway.example/responses",
+            model: "m",
+            instructions: "i",
+            input: "{}",
+            schema_name: "s",
+            schema: &schema,
+        };
+        let answer =
+            futures::executor::block_on(execute(&dynamic, &credential, &request, &token)).unwrap();
+        assert_eq!(answer.text, "ok");
+        assert_eq!(
+            client.calls.lock().unwrap().as_slice(),
+            [
+                "https://gateway.example/responses",
+                "https://gateway.example/v1/responses"
+            ]
+        );
+    }
+
+    #[test]
+    fn versioned_alternate_only_corrects_a_bare_responses_path() {
+        assert_eq!(
+            versioned_alternate("https://host/responses").as_deref(),
+            Some("https://host/v1/responses")
+        );
+        assert_eq!(versioned_alternate("https://host/v1/responses"), None);
+        assert_eq!(versioned_alternate("https://host/v1/responses/"), None);
     }
 
     #[test]

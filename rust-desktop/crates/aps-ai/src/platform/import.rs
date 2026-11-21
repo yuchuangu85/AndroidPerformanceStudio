@@ -176,6 +176,11 @@ impl<'a> CodexConnection<'a> {
         let trimmed = base.trim_end_matches('/');
         let responses_endpoint = if trimmed.ends_with("/responses") {
             trimmed.to_owned()
+        } else if url_path_is_root(trimmed) {
+            // A bare host carries no API root. OpenAI-compatible gateways mount
+            // the Responses API under /v1/responses, while /responses is a
+            // routing failure on most of them.
+            format!("{trimmed}/v1/responses")
         } else {
             format!("{trimmed}/responses")
         };
@@ -608,6 +613,12 @@ fn endpoint(value: &str) -> ImportResult<String> {
         return Err(LocalImportFailure::Malformed);
     }
     Ok(value)
+}
+
+fn url_path_is_root(value: &str) -> bool {
+    http_client::Url::parse(value)
+        .map(|url| url.path().trim_matches('/').is_empty())
+        .unwrap_or(false)
 }
 
 fn is_official_openai(value: &str) -> ImportResult<bool> {
@@ -1449,6 +1460,21 @@ mod tests {
                 .err()
                 .unwrap(),
             LocalImportFailure::UnsupportedAuth
+        );
+    }
+
+    #[test]
+    fn codex_bare_host_base_uses_the_versioned_responses_path() {
+        let (_workspace, home) = workspace();
+        codex_config(
+            &home,
+            "model = \"gpt-5\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://gateway.example\"\nenv_key = \"MY_KEY\"\n",
+        );
+        let env = environment(&[("MY_KEY", VALID_KEY)]);
+        let imported = import_local_config(ProviderKind::Codex, &home, &env).unwrap();
+        assert_eq!(
+            imported.endpoint.as_deref(),
+            Some("https://gateway.example/v1/responses")
         );
     }
 
