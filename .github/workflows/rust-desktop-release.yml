@@ -61,9 +61,16 @@ jobs:
           set -e
           version="${RELEASE_TAG#rust-desktop-v}"; version="${version#v}"
           root="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}"
-          mkdir -p "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/1024x1024/apps" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
-          cp "rust-desktop/target/${TARGET}/release/aps-app" "$root/usr/bin/aps-app"
-          cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$root/usr/bin/aps-memory-worker"
+          libdir="$root/usr/lib/aps-desktop"
+          mkdir -p "$libdir" "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/1024x1024/apps" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
+          cp "rust-desktop/target/${TARGET}/release/aps-app" "$libdir/aps-app"
+          cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$libdir/aps-memory-worker"
+          chmod 0755 "$libdir/aps-app" "$libdir/aps-memory-worker"
+          # The app resolves packaged tools next to its executable, so both
+          # binaries live in /usr/lib/aps-desktop and /usr/bin only links to them.
+          PERFETTO_TOOLS_DIR="$libdir/resources/perfetto-tools" bash scripts/install-trace-processor.sh
+          ln -s ../lib/aps-desktop/aps-app "$root/usr/bin/aps-app"
+          ln -s ../lib/aps-desktop/aps-memory-worker "$root/usr/bin/aps-memory-worker"
           cp rust-desktop/crates/aps-app/assets/icons/linux/app-icon.png "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png"
           cat > "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" <<EOF
           [Desktop Entry]
@@ -75,7 +82,6 @@ jobs:
           Categories=Development;
           Terminal=false
           EOF
-          chmod 0755 "$root/usr/bin/aps-app" "$root/usr/bin/aps-memory-worker"
           mkdir -p "$root/DEBIAN"
           cat > "$root/DEBIAN/control" <<EOF
           Package: aps-desktop
@@ -87,8 +93,9 @@ jobs:
           Description: Android Performance Studio Rust desktop application
           EOF
           dpkg-deb --build --root-owner-group "$root" "dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}.deb"
-          cp "$root/usr/bin/aps-app" "dist/rpm/SOURCES/aps-app"
-          cp "$root/usr/bin/aps-memory-worker" "dist/rpm/SOURCES/aps-memory-worker"
+          cp "$libdir/aps-app" "dist/rpm/SOURCES/aps-app"
+          cp "$libdir/aps-memory-worker" "dist/rpm/SOURCES/aps-memory-worker"
+          cp "$libdir/resources/perfetto-tools/trace_processor_shell" "dist/rpm/SOURCES/trace_processor_shell"
           cp "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png" dist/rpm/SOURCES/app-icon.png
           cp "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" dist/rpm/SOURCES/aps.desktop
           cat > dist/rpm/SPECS/aps-desktop.spec <<EOF
@@ -101,14 +108,18 @@ jobs:
           %description
           Android Performance Studio Rust desktop application.
           %install
-          mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/share/applications %{buildroot}/usr/share/icons/hicolor/1024x1024/apps
-          install -m 0755 %{_sourcedir}/aps-app %{buildroot}/usr/bin/aps-app
-          install -m 0755 %{_sourcedir}/aps-memory-worker %{buildroot}/usr/bin/aps-memory-worker
+          mkdir -p %{buildroot}/usr/lib/aps-desktop/resources/perfetto-tools %{buildroot}/usr/bin %{buildroot}/usr/share/applications %{buildroot}/usr/share/icons/hicolor/1024x1024/apps
+          install -m 0755 %{_sourcedir}/aps-app %{buildroot}/usr/lib/aps-desktop/aps-app
+          install -m 0755 %{_sourcedir}/aps-memory-worker %{buildroot}/usr/lib/aps-desktop/aps-memory-worker
+          install -m 0755 %{_sourcedir}/trace_processor_shell %{buildroot}/usr/lib/aps-desktop/resources/perfetto-tools/trace_processor_shell
+          ln -s ../lib/aps-desktop/aps-app %{buildroot}/usr/bin/aps-app
+          ln -s ../lib/aps-desktop/aps-memory-worker %{buildroot}/usr/bin/aps-memory-worker
           install -m 0644 %{_sourcedir}/aps.desktop %{buildroot}/usr/share/applications/com.androidperformancestudio.rust.desktop
           install -m 0644 %{_sourcedir}/app-icon.png %{buildroot}/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png
           %files
           /usr/bin/aps-app
           /usr/bin/aps-memory-worker
+          /usr/lib/aps-desktop
           /usr/share/applications/com.androidperformancestudio.rust.desktop
           /usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png
           EOF
@@ -163,12 +174,16 @@ jobs:
           cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
           cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
           chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
+          # The app resolves injected tools next to its executable, so the pinned
+          # Trace Processor must live inside Contents/MacOS/resources.
+          PERFETTO_TOOLS_DIR="$app/Contents/MacOS/resources/perfetto-tools" bash scripts/install-trace-processor.sh
           # Ad-hoc sign the nested executables and then the bundle. An unsigned
           # bundle is reported as damaged and System Settings offers no "Open
           # Anyway"; an ad-hoc signature makes Gatekeeper offer that choice.
           # Real distribution still needs Developer ID signing and notarization.
           codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-memory-worker"
           codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-app"
+          codesign --force --timestamp=none --sign - "$app/Contents/MacOS/resources/perfetto-tools/trace_processor_shell"
           codesign --force --timestamp=none --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           # A DMG needs the application plus an /Applications target so the user can
@@ -204,6 +219,9 @@ jobs:
       - name: Build binaries
         working-directory: rust-desktop
         run: cargo build --locked --release --target x86_64-pc-windows-msvc -p aps-app -p aps-memory
+      - name: Package Trace Processor
+        shell: bash
+        run: PERFETTO_TOOLS_DIR="$PWD/dist/resources/perfetto-tools" bash scripts/install-trace-processor.sh
       - name: Install WiX
         shell: pwsh
         run: choco install wixtoolset -y --no-progress
@@ -217,9 +235,9 @@ jobs:
           while ($parts.Count -lt 3) { $parts += '0' }
           $msiVersion = $parts -join '.'
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-app.exe "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.exe"
           Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-app.exe dist/aps-app.exe
           Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-memory-worker.exe dist/aps-memory-worker.exe
+          Compress-Archive -Path dist/aps-app.exe, dist/aps-memory-worker.exe, dist/resources -DestinationPath "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.zip" -Force
           @"
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
@@ -236,6 +254,7 @@ jobs:
               <Feature Id="MainFeature" Title="Android Performance Studio" Level="1">
                 <ComponentRef Id="AppComponent" />
                 <ComponentRef Id="WorkerComponent" />
+                <ComponentRef Id="TraceProcessorComponent" />
               </Feature>
             </Product>
             <Fragment>
@@ -245,6 +264,15 @@ jobs:
               <Component Id="WorkerComponent" Directory="INSTALLFOLDER" Guid="*" Win64="yes">
                 <File Id="WorkerFile" Source="dist\aps-memory-worker.exe" KeyPath="yes" />
               </Component>
+              <DirectoryRef Id="INSTALLFOLDER">
+                <Directory Id="ResourcesDir" Name="resources">
+                  <Directory Id="PerfettoToolsDir" Name="perfetto-tools">
+                    <Component Id="TraceProcessorComponent" Guid="*" Win64="yes">
+                      <File Id="TraceProcessorFile" Source="dist\resources\perfetto-tools\trace_processor_shell.exe" KeyPath="yes" />
+                    </Component>
+                  </Directory>
+                </Directory>
+              </DirectoryRef>
             </Fragment>
           </Wix>
           "@ | Set-Content dist/aps-desktop.wxs
@@ -255,7 +283,7 @@ jobs:
         with:
           name: windows-x86_64
           path: |
-            dist/aps-desktop-*-windows-x86_64.exe
+            dist/aps-desktop-*-windows-x86_64.zip
             dist/*.msi
           if-no-files-found: error
 
