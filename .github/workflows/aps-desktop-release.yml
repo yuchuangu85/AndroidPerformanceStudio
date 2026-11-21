@@ -179,12 +179,14 @@ jobs:
           # The app resolves injected tools next to its executable, so the pinned
           # Trace Processor must live inside Contents/MacOS/resources.
           PERFETTO_TOOLS_DIR="$app/Contents/MacOS/resources/perfetto-tools" bash scripts/install-trace-processor.sh
-          # Ad-hoc sign the nested executables and then the bundle. An unsigned
-          # bundle is reported as damaged and System Settings offers no "Open
-          # Anyway"; an ad-hoc signature makes Gatekeeper offer that choice.
-          # Real distribution still needs Developer ID signing and notarization.
+          # Ad-hoc sign the nested code first and the bundle last. Signing the main
+          # executable by path is not used: on an intel host codesign treats that
+          # path as the bundle entry point and fails while any nested binary is
+          # still unsigned. An unsigned bundle is reported as damaged and System
+          # Settings offers no "Open Anyway"; an ad-hoc signature makes Gatekeeper
+          # offer that choice. Real distribution still needs Developer ID signing
+          # and notarization.
           codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-memory-worker"
-          codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-app"
           codesign --force --timestamp=none --sign - "$app/Contents/MacOS/resources/perfetto-tools/trace_processor_shell"
           codesign --force --timestamp=none --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
