@@ -157,6 +157,18 @@ jobs:
           toolchain: 1.99.1
           rustflags: ''
           target: ${{ matrix.target }}
+      - name: Prepare pinned macOS Trace Processor
+        run: |
+          set -euo pipefail
+          tools="$PWD/dist/Android Performance Studio.app/Contents/MacOS/resources/perfetto-tools"
+          PERFETTO_TOOLS_DIR="$tools" bash scripts/install-trace-processor.sh
+          tool="$tools/trace_processor_shell"
+          codesign --force --timestamp=none --sign - "$tool"
+          codesign --verify --strict "$tool"
+          # Signing changes the verified upstream bytes. Compile in the new hash
+          # instead of allowing a mutable checksum file beside the executable.
+          checksum="$(shasum -a 256 "$tool")"
+          printf 'APS_MACOS_PACKAGED_TRACE_PROCESSOR_SHA256=%s\n' "${checksum%% *}" >> "$GITHUB_ENV"
       - name: Build binaries
         working-directory: rust-desktop
         run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
@@ -176,10 +188,8 @@ jobs:
           cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
           cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
           chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
-          # The app resolves injected tools next to its executable, so the pinned
-          # Trace Processor must live inside Contents/MacOS/resources.
-          PERFETTO_TOOLS_DIR="$app/Contents/MacOS/resources/perfetto-tools" bash scripts/install-trace-processor.sh
-          # Ad-hoc sign the nested code first and the bundle last. Signing the main
+          # Ad-hoc sign the remaining nested code and the bundle last. Do not
+          # re-sign Trace Processor: its bytes are pinned in the app. Signing the main
           # executable by path is not used: on an intel host codesign treats that
           # path as the bundle entry point and fails while any nested binary is
           # still unsigned. An unsigned bundle is reported as damaged and System
@@ -187,9 +197,11 @@ jobs:
           # offer that choice. Real distribution still needs Developer ID signing
           # and notarization.
           codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-memory-worker"
-          codesign --force --timestamp=none --sign - "$app/Contents/MacOS/resources/perfetto-tools/trace_processor_shell"
           codesign --force --timestamp=none --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          APS_TEST_PACKAGED_PERFETTO_RESOURCES="$PWD/$app/Contents/MacOS/resources" \
+            cargo test --locked --release --target "$TARGET" --manifest-path rust-desktop/Cargo.toml \
+            -p aps-perfetto --test pinned_tool signed_packaged_tool_opens_a_trace_and_rejects_modified_bytes -- --exact
           # A DMG needs the application plus an /Applications target so the user can
           # drag-install; a bundle alone in the volume gives no destination folder.
           stage="dist/dmg-${ARCH}"

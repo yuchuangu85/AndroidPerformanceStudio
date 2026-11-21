@@ -143,8 +143,15 @@ impl TraceProcessor {
         resources: &Path,
         cancel: &CancellationToken,
     ) -> Result<Self, PerfettoError> {
-        Self::from_verified_path(
+        check_cancel(cancel)?;
+        let expected = pinned_host_sha256()?;
+        // macOS release packaging verifies the upstream artifact before signing,
+        // then embeds the exact signed hash at compile time. No runtime override.
+        #[cfg(target_os = "macos")]
+        let expected = option_env!("APS_MACOS_PACKAGED_TRACE_PROCESSOR_SHA256").unwrap_or(expected);
+        Self::verify(
             &resources.join("perfetto-tools").join(executable_name()),
+            expected,
             cancel,
         )
     }
@@ -154,7 +161,14 @@ impl TraceProcessor {
         cancel: &CancellationToken,
     ) -> Result<Self, PerfettoError> {
         check_cancel(cancel)?;
-        let expected = pinned_host_sha256()?;
+        Self::verify(path, pinned_host_sha256()?, cancel)
+    }
+
+    fn verify(
+        path: &Path,
+        expected: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Self, PerfettoError> {
         let path = path
             .canonicalize()
             .map_err(|_| PerfettoError::ToolMissing)?;
@@ -211,7 +225,7 @@ fn executable_name() -> &'static str {
     }
 }
 
-/// SHA-256 values from desktop-viewer/platform-perfetto/trace-processor-manifest.json.
+/// SHA-256 values from assets/manifests/trace-processor-manifest.json.
 /// Keep source checks in tests when updating the canonical pinned manifest.
 pub fn pinned_host_sha256() -> Result<&'static str, PerfettoError> {
     match (std::env::consts::OS, std::env::consts::ARCH) {

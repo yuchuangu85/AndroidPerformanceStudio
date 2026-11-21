@@ -2,11 +2,14 @@
 
 此 crate 复用真实的 Perfetto v59.1 可执行文件，绝不重新实现 trace 解析。
 各主机的精确 SHA-256 值与现有规范文件
-desktop-viewer/platform-perfetto/trace-processor-manifest.json 一致；虽然声明了
+rust-desktop/assets/manifests/trace-processor-manifest.json 一致；虽然声明了
 全部五个主机，但主机声明不是跨平台验证证据。解析器只接受显式的包/源代码检出
 路径，在执行 --version 前检查 SHA-256，并在每次操作前重新检查校验和。
 不存在未经验证的 PATH 回退或下载。Rust 打包必须独立包含该固定版本的可执行文件
-及其 notice 文件。
+及其 notice 文件。macOS 发布流程先校验上游制品，再签名，并通过
+`APS_MACOS_PACKAGED_TRACE_PROCESSOR_SHA256` 把签名后文件的 SHA-256 编译进应用。
+只在读取打包资源时使用这个值；显式路径和源码检出仍要求上游 SHA-256。
+发布前会用签名后的 bundle 打开并查询测试 trace，并确认改动一个字节会被拒绝。
 
 ## 每会话预热的 Trace Processor
 

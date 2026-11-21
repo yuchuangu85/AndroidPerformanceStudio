@@ -1,6 +1,5 @@
-//! Pinned Trace Processor integration evidence. Every test skips cleanly when
-//! the pinned native tool or the synthetic trace fixture is absent, so packaged
-//! source builds without native artifacts stay green.
+//! Pinned Trace Processor integration evidence. Repository tests can skip
+//! without local artifacts; release CI supplies its signed bundle explicitly.
 
 use aps_perfetto::{
     MAX_DIAGNOSTIC_ROWS, PINNED_VERSION, TraceProcessor, TraceSession, TraceSessionMode,
@@ -11,6 +10,47 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(target_os = "macos")]
+#[test]
+fn signed_packaged_tool_opens_a_trace_and_rejects_modified_bytes() {
+    let Some(resources) = std::env::var_os("APS_TEST_PACKAGED_PERFETTO_RESOURCES") else {
+        eprintln!("skipping: no packaged resources supplied");
+        return;
+    };
+    let resources = PathBuf::from(resources);
+    let cancel = CancellationToken::new();
+    let tool = TraceProcessor::from_packaged_resources(&resources, &cancel)
+        .expect("verify the bundled, signed Trace Processor");
+    let binary = resources.join("perfetto-tools/trace_processor_shell");
+    assert!(
+        matches!(
+            TraceProcessor::from_verified_path(&binary, &cancel),
+            Err(aps_perfetto::PerfettoError::ToolChecksumMismatch)
+        ),
+        "a signed package must not change the upstream pin for explicit paths"
+    );
+
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/frame-probes.pftrace");
+    let session =
+        TraceSession::open(tool, &fixture, &cancel).expect("open the trace with the signed tool");
+    let page = session
+        .query(aps_perfetto::QueryPreset::Slices, 0, 1, &cancel)
+        .expect("query slices from the packaged tool");
+    assert_eq!(page.rows.len(), 1);
+    drop(session);
+
+    let temp = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+    let tool_dir = temp.path().join("perfetto-tools");
+    fs::create_dir(&tool_dir).unwrap();
+    let mut bytes = fs::read(binary).unwrap();
+    *bytes.last_mut().unwrap() ^= 1;
+    fs::write(tool_dir.join("trace_processor_shell"), bytes).unwrap();
+    assert!(matches!(
+        TraceProcessor::from_packaged_resources(temp.path(), &cancel),
+        Err(aps_perfetto::PerfettoError::ToolChecksumMismatch)
+    ));
+}
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
