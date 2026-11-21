@@ -142,38 +142,6 @@ fn render_message_list(
         .pt(px(tokens::MESSAGE_TOP_PADDING))
         .pb(px(tokens::MESSAGE_BOTTOM_PADDING));
 
-    if workspace.state.turns.is_empty() && workspace.state.pending_approval.is_none() {
-        content = content.child(
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .items_center()
-                .pt(px(tokens::EMPTY_TOP_PADDING))
-                .pb(px(tokens::EMPTY_BOTTOM_PADDING))
-                .child(
-                    div()
-                        .w(px(tokens::EMPTY_SPARKLE_SIZE))
-                        .h(px(tokens::EMPTY_SPARKLE_SIZE))
-                        .flex_shrink_0()
-                        .text_size(px(tokens::EMPTY_SPARKLE_SIZE))
-                        .text_color(colors.send)
-                        .child(IconName::Bot),
-                )
-                .child(div().h(px(20.)))
-                .child(
-                    div()
-                        .text_size(px(tokens::TITLE_FONT_SIZE))
-                        .line_height(px(tokens::TITLE_LINE_HEIGHT))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(colors.text)
-                        .child(crate::studio::selectable(
-                            language.text(TextKey::AiChatEmptyPrompt),
-                        )),
-                ),
-        );
-    }
-
     let conversation_id = workspace.state.selected_conversation_id.clone();
     let retry_enabled = !workspace.state.busy && workspace.state.can_send;
     for turn in workspace.state.turns.clone() {

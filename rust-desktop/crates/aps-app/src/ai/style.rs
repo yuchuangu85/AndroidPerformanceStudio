@@ -83,8 +83,6 @@ pub mod tokens {
     pub const MESSAGE_GAP: f32 = 24.0;
     pub const MESSAGE_TOP_PADDING: f32 = 16.0;
     pub const MESSAGE_BOTTOM_PADDING: f32 = 24.0;
-    pub const EMPTY_TOP_PADDING: f32 = 72.0;
-    pub const EMPTY_BOTTOM_PADDING: f32 = 40.0;
     pub const USER_BUBBLE_MAX_FRACTION: f32 = 0.702;
     pub const USER_BUBBLE_PADDING_X: f32 = 16.0;
     pub const USER_BUBBLE_PADDING_Y: f32 = 10.0;
@@ -95,7 +93,6 @@ pub mod tokens {
     pub const MODEL_MENU_MAX_HEIGHT: f32 = 320.0;
     pub const MODEL_MENU_MAX_WIDTH: f32 = 280.0;
     pub const ACTIVITY_ICON_SIZE: f32 = 18.0;
-    pub const EMPTY_SPARKLE_SIZE: f32 = 36.0;
     pub const TITLE_FONT_SIZE: f32 = 26.0;
     pub const TITLE_LINE_HEIGHT: f32 = 32.0;
     pub const BODY_FONT_SIZE: f32 = 14.0;
