@@ -14,6 +14,12 @@ const MIN_REFRESH_INTERVAL_NS: i64 = 4_000_000;
 const MAX_REFRESH_INTERVAL_NS: i64 = 50_000_000;
 const REFRESH_INTERVAL_TOLERANCE_DIVISOR: i64 = 20;
 
+/// Android 17 gfxinfo dumps can report a FrameDeadline seconds in the future.
+/// Deadlines beyond a few refresh intervals (or this absolute cap) are treated
+/// as dump artifacts and replaced by the platform workload target.
+const DEADLINE_INTERVAL_FACTOR: i64 = 4;
+const MAX_PLAUSIBLE_DEADLINE_NS: i64 = 250_000_000;
+
 // A corruption guard, not a jank threshold. Headerless imports and old sessions
 // have no dump clock; even a multi-hour stall is distinct from a years-long fence.
 const MAX_FRAME_SPAN_NS: i64 = 24 * 60 * 60 * 1_000_000_000;
@@ -76,6 +82,7 @@ const METADATA_COLUMNS: &[&str] = &[
     "InputEventId",
     "FrameStartTime",
     "CommandSubmissionCompleted",
+    "WorkloadTarget",
 ];
 
 const KNOWN_COLUMNS: &[&str] = &[
@@ -92,6 +99,7 @@ const KNOWN_COLUMNS: &[&str] = &[
     "DrawStart",
     "FrameDeadline",
     "FrameInterval",
+    "WorkloadTarget",
     "FrameStartTime",
     "SyncQueued",
     "SyncStart",
@@ -261,6 +269,20 @@ fn parse(
     Ok(GfxInfoParse { frames, warnings })
 }
 
+fn plausible_deadline_budget(
+    deadline: Option<i64>,
+    intended_vsync: Option<i64>,
+    interval: Option<i64>,
+) -> Option<i64> {
+    let delta = positive_difference(deadline, intended_vsync)?;
+    let cap = interval
+        .map(|interval| interval.saturating_mul(DEADLINE_INTERVAL_FACTOR))
+        .map_or(MAX_PLAUSIBLE_DEADLINE_NS, |cap| {
+            cap.min(MAX_PLAUSIBLE_DEADLINE_NS)
+        });
+    (delta <= cap).then_some(delta)
+}
+
 fn parse_row(
     header: &[&str],
     columns: &[&str],
@@ -290,8 +312,10 @@ fn parse_row(
     let present = fence("DisplayPresentTime");
     let deadline = number("FrameDeadline");
     let interval = number("FrameInterval");
-    let expected = positive_difference(deadline, intended_vsync)
+    let workload = number("WorkloadTarget");
+    let expected = plausible_deadline_budget(deadline, intended_vsync, interval)
         .map(|duration| (duration, ExpectedDurationSource::PlatformDeadline))
+        .or_else(|| workload.map(|duration| (duration, ExpectedDurationSource::PlatformDeadline)))
         .or_else(|| interval.map(|duration| (duration, ExpectedDurationSource::FrameInterval)));
 
     let mut states: BTreeMap<String, String> = BTreeMap::new();

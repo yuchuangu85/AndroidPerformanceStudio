@@ -44,6 +44,48 @@ fn parses_deadline_and_stage_durations_by_column_name() {
 }
 
 #[test]
+fn implausible_deadline_falls_back_to_the_workload_target() {
+    let input = r"---PROFILEDATA---
+Flags,IntendedVsync,Vsync,FrameDeadline,FrameStartTime,FrameInterval,WorkloadTarget,SyncQueued,SyncStart,IssueDrawCommandsStart,SwapBuffers,FrameCompleted
+0,100000000,100000000,2500000000,100500000,11000000,14600000,101000000,102000000,103000000,104000000,110000000
+---PROFILEDATA---";
+    let result = parse(input, "session");
+    assert_eq!(result.frames[0].expected_duration_ns, Some(14_600_000));
+    assert_eq!(
+        result.frames[0].expected_duration_source,
+        ExpectedDurationSource::PlatformDeadline
+    );
+}
+
+#[test]
+fn implausible_deadline_without_workload_target_falls_back_to_the_interval() {
+    let input = r"---PROFILEDATA---
+Flags,IntendedVsync,Vsync,FrameDeadline,FrameInterval,FrameCompleted
+0,100000000,100000000,2500000000,11000000,110000000
+---PROFILEDATA---";
+    let result = parse(input, "session");
+    assert_eq!(result.frames[0].expected_duration_ns, Some(11_000_000));
+    assert_eq!(
+        result.frames[0].expected_duration_source,
+        ExpectedDurationSource::FrameInterval
+    );
+}
+
+#[test]
+fn plausible_deadline_still_wins_over_the_workload_target() {
+    let input = r"---PROFILEDATA---
+Flags,IntendedVsync,Vsync,FrameDeadline,FrameStartTime,FrameInterval,WorkloadTarget,FrameCompleted
+0,100000000,100000000,114600000,100500000,11000000,20000000,110000000
+---PROFILEDATA---";
+    let result = parse(input, "session");
+    assert_eq!(result.frames[0].expected_duration_ns, Some(14_600_000));
+    assert_eq!(
+        result.frames[0].expected_duration_source,
+        ExpectedDurationSource::PlatformDeadline
+    );
+}
+
+#[test]
 fn marks_nonzero_flag_rows_ineligible_for_jank_classification() {
     let result = parse(
         &FRAMESTATS_WITH_DEADLINE.replacen("0,100000000", "1,100000000", 1),
