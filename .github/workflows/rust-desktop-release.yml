@@ -224,10 +224,10 @@ jobs:
               </Feature>
             </Product>
             <Fragment>
-              <Component Id="AppComponent" Directory="INSTALLFOLDER" Guid="*">
+              <Component Id="AppComponent" Directory="INSTALLFOLDER" Guid="*" Win64="yes">
                 <File Id="AppFile" Source="dist\aps-app.exe" KeyPath="yes" />
               </Component>
-              <Component Id="WorkerComponent" Directory="INSTALLFOLDER" Guid="*">
+              <Component Id="WorkerComponent" Directory="INSTALLFOLDER" Guid="*" Win64="yes">
                 <File Id="WorkerFile" Source="dist\aps-memory-worker.exe" KeyPath="yes" />
               </Component>
             </Fragment>
