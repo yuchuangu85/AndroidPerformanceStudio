@@ -17,6 +17,7 @@ jobs:
   linux:
     name: Linux ${{ matrix.arch }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: x86_64
@@ -125,13 +126,14 @@ jobs:
   macos:
     name: macOS ${{ matrix.arch }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
           - arch: arm64
-            runner: macos-14
+            runner: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
