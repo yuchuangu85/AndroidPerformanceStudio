@@ -163,6 +163,14 @@ jobs:
           cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
           cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
           chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
+          # Ad-hoc sign the nested executables and then the bundle. An unsigned
+          # bundle is reported as damaged and System Settings offers no "Open
+          # Anyway"; an ad-hoc signature makes Gatekeeper offer that choice.
+          # Real distribution still needs Developer ID signing and notarization.
+          codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-memory-worker"
+          codesign --force --timestamp=none --sign - "$app/Contents/MacOS/aps-app"
+          codesign --force --timestamp=none --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
           # A DMG needs the application plus an /Applications target so the user can
           # drag-install; a bundle alone in the volume gives no destination folder.
           stage="dist/dmg-${ARCH}"

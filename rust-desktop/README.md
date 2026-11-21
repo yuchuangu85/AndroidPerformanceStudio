@@ -2,6 +2,20 @@
 
 Android Performance Studio desktop application implemented with Rust and GPUI Kit.
 
+## macOS 安装
+
+发布包没有 Apple Developer ID 签名和公证（CI 未配置证书），因此首次打开会被 Gatekeeper 拦下：
+
+1. 打开 DMG，把 **Android Performance Studio.app** 拖到 **Applications**（卷内已提供该快捷方式）。
+2. 首次启动被拦时，点 **系统设置 → 隐私与安全性 → 仍要打开**；或在 Finder 里右键点应用 → **打开** → 再确认一次。
+3. 若提示“已损坏，无法打开”（0.8.0 之前打出的旧包），移除隔离属性：
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Android Performance Studio.app"
+   ```
+
+流水线会对 bundle 及其可执行文件做 ad-hoc 签名，所以 Gatekeeper 至少会给出“仍要打开”的选项；要彻底消除该提示，需要在仓库 Secrets 中配置 Developer ID 证书与 notary 凭据（`scripts/ai-release/sign.py` 已实现签名与校验逻辑）。
+
 ## 开发
 
 - Rust **1.99.1**；`rust-toolchain.toml` 固定 rustup 安装版本。
