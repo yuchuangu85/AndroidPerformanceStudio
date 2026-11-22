@@ -1222,8 +1222,10 @@ impl CpuWorkspace {
                 }
                 self.refresh_shared(cx);
                 self.reload(cx);
-                if self.viewer_engine == 1 {
-                    self.open_local_firefox(true, cx);
+                match self.viewer_engine {
+                    1 => self.open_local_firefox(true, cx),
+                    2 => self.save_firefox_for_site(true, cx),
+                    _ => {}
                 }
             }
             Err(error) => self.error = Some(error.into()),
@@ -1937,6 +1939,7 @@ impl CpuWorkspace {
         self.export_message = None;
         self.generation += 1;
         let generation = self.generation;
+        let viewer_epoch = self.viewer_epoch;
         let directory = self
             .metadata_path
             .as_deref()
@@ -1990,12 +1993,13 @@ impl CpuWorkspace {
                 this.busy = false;
                 match result {
                     Ok(()) => {
-                        if open_website {
+                        let opened_website = open_website && this.viewer_epoch == viewer_epoch;
+                        if opened_website {
                             cx.open_url(crate::firefox_viewer::OFFICIAL_URL);
                         }
                         this.export_message = Some(
                             this.language
-                                .text(if open_website {
+                                .text(if opened_website {
                                     TextKey::CpuViewerOnlineExported
                                 } else {
                                     TextKey::CpuFirefoxProfileExportedExistingFilesAreNever
@@ -10507,7 +10511,7 @@ mod metadata_tests {
     }
 
     #[test]
-    fn local_firefox_opens_after_successful_import_but_not_for_other_engines_or_failures() {
+    fn the_selected_viewer_runs_after_successful_import_but_not_on_failure() {
         let source = include_str!("cpu.rs");
         let publish = source
             .split("fn publish_open_result(")
@@ -10517,15 +10521,20 @@ mod metadata_tests {
             .next()
             .unwrap();
         let (success, failure) = publish.split_once("Err(error) =>").unwrap();
-        let automatic = "if self.viewer_engine == 1 {\n                    self.open_local_firefox(true, cx);\n                }";
-        assert!(success.contains(automatic));
-        assert!(success.find("self.reload(cx)").unwrap() < success.find(automatic).unwrap());
+        let automatic = success.split("match self.viewer_engine").nth(1).unwrap();
+        assert!(
+            success.find("self.reload(cx)").unwrap()
+                < success.find("match self.viewer_engine").unwrap()
+        );
+        assert!(automatic.contains("1 => self.open_local_firefox(true, cx)"));
+        assert!(automatic.contains("2 => self.save_firefox_for_site(true, cx)"));
+        assert!(automatic.contains("_ => {}"), "native mode stays in APS");
         assert_eq!(
             success.matches("self.open_local_firefox(true, cx)").count(),
             1
         );
-        assert!(!success.contains("save_firefox_for_site"));
         assert!(!failure.contains("open_local_firefox"));
+        assert!(!failure.contains("save_firefox_for_site"));
         let settings = source
             .split("pub(crate) fn set_viewer_engine(")
             .nth(1)
@@ -10592,7 +10601,7 @@ mod metadata_tests {
                 < site.find("cx.open_url(").unwrap()
         );
         let success = site.split("Ok(()) => {").nth(1).unwrap();
-        assert!(success.contains("if open_website"));
+        assert!(success.contains("open_website && this.viewer_epoch == viewer_epoch"));
         assert!(success.contains("crate::firefox_viewer::OFFICIAL_URL"));
         assert!(!site.contains("from-url"));
         assert!(!site.contains("postMessage"));

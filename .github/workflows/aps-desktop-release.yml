@@ -14,8 +14,30 @@ permissions:
   contents: write
 
 jobs:
+  firefox-profiler:
+    name: Build bundled Firefox Profiler
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build pinned Firefox Profiler
+        run: |
+          npm install --global yarn@1.22.22
+          bash scripts/firefox-profiler.sh all
+          test -s third_party/firefox-profiler/dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firefox-profiler-dist
+          path: third_party/firefox-profiler/dist/
+          if-no-files-found: error
+
   linux:
     name: Linux ${{ matrix.arch }}
+    needs: firefox-profiler
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +73,11 @@ jobs:
       - name: Build binaries
         working-directory: rust-desktop
         run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
+      - name: Download bundled Firefox Profiler
+        uses: actions/download-artifact@v4
+        with:
+          name: firefox-profiler-dist
+          path: dist/firefox-profiler
       - name: Package deb and rpm
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -70,6 +97,8 @@ jobs:
           # The app resolves packaged tools next to its executable, so both
           # binaries live in /usr/lib/aps-desktop and /usr/bin only links to them.
           PERFETTO_TOOLS_DIR="$libdir/resources/perfetto-tools" bash scripts/install-trace-processor.sh
+          cp -R dist/firefox-profiler "$libdir/resources/"
+          test -s "$libdir/resources/firefox-profiler/index.html"
           ln -s ../lib/aps-desktop/aps-app "$root/usr/bin/aps-app"
           ln -s ../lib/aps-desktop/aps-memory-worker "$root/usr/bin/aps-memory-worker"
           cp rust-desktop/crates/aps-app/assets/icons/linux/app-icon.png "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png"
@@ -97,6 +126,7 @@ jobs:
           cp "$libdir/aps-app" "dist/rpm/SOURCES/aps-app"
           cp "$libdir/aps-memory-worker" "dist/rpm/SOURCES/aps-memory-worker"
           cp "$libdir/resources/perfetto-tools/trace_processor_shell" "dist/rpm/SOURCES/trace_processor_shell"
+          cp -R "$libdir/resources/firefox-profiler" "dist/rpm/SOURCES/firefox-profiler"
           cp "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png" dist/rpm/SOURCES/app-icon.png
           cp "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" dist/rpm/SOURCES/aps.desktop
           cat > dist/rpm/SPECS/aps-desktop.spec <<EOF
@@ -113,6 +143,7 @@ jobs:
           install -m 0755 %{_sourcedir}/aps-app %{buildroot}/usr/lib/aps-desktop/aps-app
           install -m 0755 %{_sourcedir}/aps-memory-worker %{buildroot}/usr/lib/aps-desktop/aps-memory-worker
           install -m 0755 %{_sourcedir}/trace_processor_shell %{buildroot}/usr/lib/aps-desktop/resources/perfetto-tools/trace_processor_shell
+          cp -R %{_sourcedir}/firefox-profiler %{buildroot}/usr/lib/aps-desktop/resources/
           ln -s ../lib/aps-desktop/aps-app %{buildroot}/usr/bin/aps-app
           ln -s ../lib/aps-desktop/aps-memory-worker %{buildroot}/usr/bin/aps-memory-worker
           install -m 0644 %{_sourcedir}/aps.desktop %{buildroot}/usr/share/applications/com.androidperformancestudio.rust.desktop
@@ -129,7 +160,7 @@ jobs:
       - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
+          name: packages-linux-${{ matrix.arch }}
           path: |
             dist/*.deb
             dist/*.rpm
@@ -137,6 +168,7 @@ jobs:
 
   macos:
     name: macOS ${{ matrix.arch }}
+    needs: firefox-profiler
     strategy:
       fail-fast: false
       matrix:
@@ -172,6 +204,11 @@ jobs:
       - name: Build binaries
         working-directory: rust-desktop
         run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
+      - name: Download bundled Firefox Profiler
+        uses: actions/download-artifact@v4
+        with:
+          name: firefox-profiler-dist
+          path: dist/Android Performance Studio.app/Contents/Resources/firefox-profiler
       - name: Package dmg and pkg
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -187,6 +224,7 @@ jobs:
           cp "rust-desktop/target/${TARGET}/release/aps-memory-worker" "$app/Contents/MacOS/aps-memory-worker"
           cp rust-desktop/crates/aps-app/Info.plist "$app/Contents/Info.plist"
           cp rust-desktop/crates/aps-app/assets/icons/macos/app-icon.icns "$app/Contents/Resources/app-icon.icns"
+          test -s "$app/Contents/Resources/firefox-profiler/index.html"
           chmod 0755 "$app/Contents/MacOS/aps-app" "$app/Contents/MacOS/aps-memory-worker"
           # Ad-hoc sign the remaining nested code and the bundle last. Do not
           # re-sign Trace Processor: its bytes are pinned in the app. Signing the main
@@ -214,7 +252,7 @@ jobs:
       - name: Upload macOS packages
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch }}
+          name: packages-macos-${{ matrix.arch }}
           path: |
             dist/*.dmg
             dist/*.pkg
@@ -222,6 +260,7 @@ jobs:
 
   windows:
     name: Windows x86_64
+    needs: firefox-profiler
     runs-on: windows-2022
     steps:
       - name: Checkout
@@ -238,6 +277,11 @@ jobs:
       - name: Package Trace Processor
         shell: bash
         run: PERFETTO_TOOLS_DIR="$PWD/dist/resources/perfetto-tools" bash scripts/install-trace-processor.sh
+      - name: Download bundled Firefox Profiler
+        uses: actions/download-artifact@v4
+        with:
+          name: firefox-profiler-dist
+          path: dist/resources/firefox-profiler
       - name: Install WiX
         shell: pwsh
         run: choco install wixtoolset -y --no-progress
@@ -253,6 +297,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-app.exe dist/aps-app.exe
           Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-memory-worker.exe dist/aps-memory-worker.exe
+          if (-not (Test-Path "dist/resources/firefox-profiler/index.html" -PathType Leaf)) { throw "Missing bundled Firefox Profiler" }
           Compress-Archive -Path dist/aps-app.exe, dist/aps-memory-worker.exe, dist/resources -DestinationPath "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.zip" -Force
           @"
           <?xml version="1.0" encoding="UTF-8"?>
@@ -271,6 +316,7 @@ jobs:
                 <ComponentRef Id="AppComponent" />
                 <ComponentRef Id="WorkerComponent" />
                 <ComponentRef Id="TraceProcessorComponent" />
+                <ComponentGroupRef Id="FirefoxProfilerFiles" />
               </Feature>
             </Product>
             <Fragment>
@@ -282,6 +328,7 @@ jobs:
               </Component>
               <DirectoryRef Id="INSTALLFOLDER">
                 <Directory Id="ResourcesDir" Name="resources">
+                  <Directory Id="FirefoxProfilerDir" Name="firefox-profiler" />
                   <Directory Id="PerfettoToolsDir" Name="perfetto-tools">
                     <Component Id="TraceProcessorComponent" Guid="*" Win64="yes">
                       <File Id="TraceProcessorFile" Source="dist\resources\perfetto-tools\trace_processor_shell.exe" KeyPath="yes" />
@@ -292,12 +339,15 @@ jobs:
             </Fragment>
           </Wix>
           "@ | Set-Content dist/aps-desktop.wxs
-          & candle.exe -nologo dist/aps-desktop.wxs -out dist/aps-desktop.wixobj
-          & light.exe -nologo -out "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.msi" dist/aps-desktop.wixobj
+          & heat.exe dir "dist\resources\firefox-profiler" -nologo -cg FirefoxProfilerFiles -dr FirefoxProfilerDir -srd -ag -scom -sreg -var var.FirefoxProfilerSource -out dist/firefox-profiler.wxs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & candle.exe -nologo -arch x64 "-dFirefoxProfilerSource=dist\resources\firefox-profiler" dist/aps-desktop.wxs dist/firefox-profiler.wxs -out "dist\"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & light.exe -nologo -out "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.msi" dist/aps-desktop.wixobj dist/firefox-profiler.wixobj
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x86_64
+          name: packages-windows-x86_64
           path: |
             dist/aps-desktop-*-windows-x86_64.zip
             dist/*.msi
@@ -312,6 +362,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: packages-*
           merge-multiple: true
       - name: Publish release
         env:

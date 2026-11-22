@@ -22,6 +22,7 @@ use std::{
 pub(crate) const OFFICIAL_URL: &str = "https://profiler.firefox.com/";
 
 const DIST_DIRECTORY: &str = "third_party/firefox-profiler/dist";
+const PACKAGED_DIST_DIRECTORY: &str = "firefox-profiler";
 const INDEX_FILE: &str = "index.html";
 const PROFILE_FILE: &str = "profile.json.gz";
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
@@ -716,6 +717,7 @@ fn validate_dist_root(root: &Path) -> Result<PathBuf, String> {
     Ok(root)
 }
 
+#[cfg(any(debug_assertions, test))]
 fn locate_dist_root(start: &Path) -> Option<PathBuf> {
     start.ancestors().find_map(|ancestor| {
         [
@@ -728,15 +730,35 @@ fn locate_dist_root(start: &Path) -> Option<PathBuf> {
     })
 }
 
+fn packaged_dist_root(executable_directory: &Path) -> Option<PathBuf> {
+    [
+        executable_directory
+            .join("resources")
+            .join(PACKAGED_DIST_DIRECTORY),
+        executable_directory
+            .join("../Resources")
+            .join(PACKAGED_DIST_DIRECTORY),
+    ]
+    .into_iter()
+    .find(|root| root.join(INDEX_FILE).is_file())
+}
+
 fn find_dist_root() -> Option<PathBuf> {
-    std::env::current_dir()
-        .ok()
-        .and_then(|start| locate_dist_root(&start))
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|executable| executable.parent().and_then(locate_dist_root))
-        })
+    let executable = std::env::current_exe().ok()?;
+    let directory = executable.parent()?;
+    if let Some(root) = packaged_dist_root(directory) {
+        return Some(root);
+    }
+    // Release builds must not serve arbitrary JS from the working directory
+    // alongside a private CPU profile. Only the debug app uses the checkout.
+    #[cfg(debug_assertions)]
+    {
+        locate_dist_root(directory)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
 }
 
 fn private_directory(storage_root: &Path) -> Result<PathBuf, String> {
@@ -1078,13 +1100,21 @@ mod tests {
             Some(fixture.assets.clone())
         );
         let bundle = fixture.root.join("Viewer.app");
-        let packaged = bundle.join("Contents/Resources").join(DIST_DIRECTORY);
+        let executable = bundle.join("Contents/MacOS");
+        fs::create_dir_all(&executable).unwrap();
+        let packaged = bundle.join("Contents/Resources").join(PACKAGED_DIST_DIRECTORY);
         fs::create_dir_all(&packaged).unwrap();
         fs::write(packaged.join(INDEX_FILE), b"packaged").unwrap();
         assert_eq!(
-            locate_dist_root(&bundle.join("Contents/MacOS")),
-            Some(packaged)
+            packaged_dist_root(&executable).and_then(|root| root.canonicalize().ok()),
+            Some(packaged.canonicalize().unwrap())
         );
+        let portable = fixture.root.join("portable");
+        let assets = portable.join("resources").join(PACKAGED_DIST_DIRECTORY);
+        fs::create_dir_all(&assets).unwrap();
+        fs::write(assets.join(INDEX_FILE), b"packaged").unwrap();
+        assert_eq!(packaged_dist_root(&portable), Some(assets));
+        assert!(packaged_dist_root(&fixture.root).is_none());
         let mut viewer = FirefoxViewer::new();
         let storage = fixture.root.join("unused");
         assert!(
