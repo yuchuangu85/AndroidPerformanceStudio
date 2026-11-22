@@ -3,29 +3,27 @@
 //! The guide is a docsify bundle: `index.html` loads `js/init.js`, which fetches
 //! `README.md`, the sidebar and page markdown with an absolute `basePath`
 //! (`/docs-user/` or `/docs-user-zh/`). Browsers refuse those requests over
-//! `file://`, so Help > User guide used to open a page that rendered nothing.
-//! Serving the same tree from loopback keeps the guide readable offline.
+//! `file://`. Serving embedded assets from loopback keeps the guide readable
+//! offline, even when the executable is installed outside the checkout.
 
 use aps_ui_foundation::Language;
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Mutex, OnceLock},
     thread,
     time::Duration,
 };
 
-const INDEX_FILE: &str = "index.html";
+const ASSETS: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/user_guide_assets.rs"));
 const LOOPBACK: Ipv4Addr = Ipv4Addr::LOCALHOST;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_HEADER_BYTES: usize = 8 * 1024;
 
 /// Browser URL of the bundled guide for `language`, starting the site if needed.
 pub(crate) fn url(language: Language) -> Result<String, String> {
-    let root =
-        site_root(language).ok_or_else(|| "bundled user documentation was not found".to_owned())?;
-    let origin = site_origin(root)?;
+    let origin = site_origin()?;
     Ok(format!("{origin}{}/", site_directory(language)))
 }
 
@@ -37,34 +35,8 @@ fn site_directory(language: Language) -> &'static str {
     }
 }
 
-/// Parent directory of the language sites: the checkout root or an app bundle.
-fn site_root(language: Language) -> Option<PathBuf> {
-    let mut starts = Vec::new();
-    if let Ok(current) = std::env::current_dir() {
-        starts.push(current);
-    }
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(directory) = executable.parent()
-    {
-        starts.push(directory.to_path_buf());
-    }
-    starts.iter().find_map(|start| locate_site(start, language))
-}
-
-fn locate_site(start: &Path, language: Language) -> Option<PathBuf> {
-    start
-        .ancestors()
-        .find(|candidate| {
-            candidate
-                .join(site_directory(language))
-                .join(INDEX_FILE)
-                .is_file()
-        })
-        .map(Path::to_path_buf)
-}
-
 /// Starts the loopback site once per process and reuses its origin afterwards.
-fn site_origin(root: PathBuf) -> Result<String, String> {
+fn site_origin() -> Result<String, String> {
     static ORIGIN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
     let origin = ORIGIN.get_or_init(|| Mutex::new(None));
     let mut origin = origin
@@ -73,13 +45,13 @@ fn site_origin(root: PathBuf) -> Result<String, String> {
     if let Some(url) = origin.as_ref() {
         return Ok(url.clone());
     }
-    let url = start_server(root)?;
+    let url = start_server()?;
     *origin = Some(url.clone());
     Ok(url)
 }
 
-/// Binds a loopback port and serves `root` from a detached thread.
-fn start_server(root: PathBuf) -> Result<String, String> {
+/// Binds a loopback port and serves the embedded files from a detached thread.
+fn start_server() -> Result<String, String> {
     let listener = TcpListener::bind((LOOPBACK, 0))
         .map_err(|error| format!("cannot bind the user documentation server: {error}"))?;
     let port = listener
@@ -90,48 +62,40 @@ fn start_server(root: PathBuf) -> Result<String, String> {
     // window ends the process, so there is no shutdown path to leak.
     thread::Builder::new()
         .name("aps-user-guide".to_owned())
-        .spawn(move || serve(listener, root))
+        .spawn(move || serve(listener))
         .map_err(|error| format!("cannot start the user documentation server: {error}"))?;
     Ok(format!("http://{LOOPBACK}:{port}/"))
 }
 
-fn serve(listener: TcpListener, root: PathBuf) {
+fn serve(listener: TcpListener) {
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        let root = root.clone();
         // One short-lived thread per request keeps a stalled client from blocking
         // the rest of the guide.
         let _ = thread::Builder::new()
             .name("aps-user-guide-request".to_owned())
-            .spawn(move || handle(stream, &root));
+            .spawn(move || handle(stream));
     }
 }
 
-fn handle(mut stream: TcpStream, root: &Path) {
+fn handle(mut stream: TcpStream) {
     let _ = stream.set_read_timeout(Some(SOCKET_TIMEOUT));
     let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
     let Ok(clone) = stream.try_clone() else {
         return;
     };
-    let mut reader = BufReader::new(clone);
+    let mut reader = BufReader::new(clone).take(MAX_HEADER_BYTES as u64);
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).is_err() {
         return;
     }
     let mut header = String::new();
-    let mut header_bytes = 0;
     loop {
         header.clear();
         match reader.read_line(&mut header) {
-            Ok(0) => break,
-            Ok(_) if header == "\r\n" || header == "\n" => break,
-            Ok(read) => {
-                header_bytes += read;
-                if header_bytes > MAX_HEADER_BYTES {
-                    return;
-                }
-            }
-            Err(_) => return,
+            Ok(_) if header == "\r\n" => break,
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
         }
     }
     let mut parts = request_line.split(' ');
@@ -148,37 +112,41 @@ fn handle(mut stream: TcpStream, root: &Path) {
         );
         return;
     }
-    match resolve_request(root, target) {
-        Some(file) => serve_file(&mut stream, &file, head_only),
-        None => not_found(&mut stream, head_only),
+    match resolve_request(target) {
+        Some((file, body)) => write_response(
+            &mut stream,
+            "200 OK",
+            content_type(Path::new(file)),
+            body,
+            head_only,
+        ),
+        None => write_response(
+            &mut stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"Not found",
+            head_only,
+        ),
     }
 }
 
-/// Maps one request target to a file inside `root`.
-fn resolve_request(root: &Path, target: &str) -> Option<PathBuf> {
-    let decoded = decode_target(target)?;
-    let mut candidate = root.to_path_buf();
-    for segment in decoded.split('/').filter(|segment| !segment.is_empty()) {
-        if segment == "." || segment == ".." {
-            return None;
-        }
-        candidate.push(segment);
+/// Resolves only embedded assets, never a pathname on the host.
+fn resolve_request(target: &str) -> Option<(&'static str, &'static [u8])> {
+    let mut path = decode_target(target)?;
+    if path.ends_with('/') {
+        path.push_str("index.html");
     }
-    if !candidate.starts_with(root) {
-        return None;
-    }
-    if candidate.is_dir() {
-        return Some(candidate.join(INDEX_FILE));
-    }
-    Some(candidate)
+    let index = ASSETS
+        .binary_search_by_key(&path.as_str(), |&(name, _)| name)
+        .ok()?;
+    Some(ASSETS[index])
 }
 
 fn decode_target(target: &str) -> Option<String> {
-    let without_origin = match target.split_once("://") {
-        Some((_, rest)) => rest.split_once('/').map_or("/", |(_, path)| path),
-        None => target,
-    };
-    let path = without_origin.split(['?', '#']).next().unwrap_or_default();
+    let path = target.split(['?', '#']).next()?;
+    if !path.starts_with('/') {
+        return None;
+    }
     let bytes = path.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -203,35 +171,6 @@ fn hex(byte: u8) -> Option<u8> {
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
     }
-}
-
-fn serve_file(stream: &mut TcpStream, file: &Path, head_only: bool) {
-    let Ok(metadata) = std::fs::metadata(file) else {
-        not_found(stream, head_only);
-        return;
-    };
-    let Ok(mut source) = std::fs::File::open(file) else {
-        not_found(stream, head_only);
-        return;
-    };
-    if !metadata.is_file() {
-        not_found(stream, head_only);
-        return;
-    }
-    write_headers(stream, "200 OK", content_type(file), metadata.len());
-    if !head_only {
-        let _ = std::io::copy(&mut source, stream);
-    }
-}
-
-fn not_found(stream: &mut TcpStream, head_only: bool) {
-    write_response(
-        stream,
-        "404 Not Found",
-        "text/plain; charset=utf-8",
-        b"Not found",
-        head_only,
-    );
 }
 
 fn write_response(
@@ -283,180 +222,68 @@ fn content_type(file: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        io::Read,
-        path::Path,
-        sync::atomic::{AtomicU64, Ordering},
-    };
 
-    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-    struct Fixture {
-        root: PathBuf,
-    }
-
-    impl Fixture {
-        fn new() -> Self {
-            let root = std::env::temp_dir().join(format!(
-                "aps-user-guide-{}-{}",
-                std::process::id(),
-                SEQUENCE.fetch_add(1, Ordering::Relaxed)
-            ));
-            let english = root.join("docs-user");
-            let chinese = root.join("docs-user-zh");
-            std::fs::create_dir_all(&english).unwrap();
-            std::fs::create_dir_all(&chinese).unwrap();
-            std::fs::write(english.join(INDEX_FILE), "<html>en</html>").unwrap();
-            std::fs::write(english.join("README.md"), "# Hello").unwrap();
-            std::fs::write(chinese.join(INDEX_FILE), "<html>zh</html>").unwrap();
-            std::fs::write(root.join("secret.txt"), "not part of the guide").unwrap();
-            Self { root }
-        }
-    }
-
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
-
-    fn request(address: &str, raw: &str) -> String {
+    fn request(origin: &str, method: &str, path: &str) -> String {
+        let address = origin.trim_start_matches("http://").trim_end_matches('/');
         let mut stream = TcpStream::connect(address).unwrap();
-        stream.write_all(raw.as_bytes()).unwrap();
+        stream.set_read_timeout(Some(SOCKET_TIMEOUT)).unwrap();
+        write!(
+            stream,
+            "{method} {path} HTTP/1.1\r\nHost: {address}\r\n\r\n"
+        )
+        .unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         response
     }
 
-    fn address(origin: &str) -> &str {
-        origin.trim_start_matches("http://").trim_end_matches('/')
+    #[test]
+    fn serves_both_embedded_guides_from_one_origin() {
+        let en = url(Language::English).unwrap();
+        let zh = url(Language::SimplifiedChinese).unwrap();
+        let origin = en.strip_suffix("docs-user/").unwrap();
+        assert_eq!(zh, format!("{origin}docs-user-zh/"));
+        for (site, heading, language) in [
+            ("docs-user", "# User Guide", "en"),
+            ("docs-user-zh", "# 用户指南", "zh-CN"),
+        ] {
+            let page = request(origin, "GET", &format!("/{site}/"));
+            assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+            assert!(page.contains(&format!("<html lang=\"{language}\">")));
+            assert!(page.contains("docsify"));
+            for asset in [
+                "README.md",
+                "_sidebar.md",
+                "_navbar.md",
+                "js/init.js",
+                "css/vue_v4.13.1.min.css",
+            ] {
+                let response = request(origin, "GET", &format!("/{site}/{asset}"));
+                assert!(response.starts_with("HTTP/1.1 200 OK"), "{site}/{asset}");
+            }
+            let markdown = request(origin, "GET", &format!("/{site}/README.md?test=1"));
+            assert!(markdown.contains("Content-Type: text/markdown; charset=utf-8"));
+            assert!(markdown.contains(heading), "{markdown}");
+        }
     }
 
     #[test]
-    fn locates_a_language_site_from_a_nested_directory() {
-        let fixture = Fixture::new();
-        let nested = fixture.root.join("crates").join("aps-app");
-
-        assert_eq!(
-            locate_site(&nested, Language::English),
-            Some(fixture.root.clone())
-        );
-        assert_eq!(
-            locate_site(&nested, Language::SimplifiedChinese),
-            Some(fixture.root.clone())
-        );
-        assert_eq!(locate_site(Path::new("/"), Language::English), None);
-    }
-
-    #[test]
-    fn resolves_directories_and_rejects_escapes() {
-        let fixture = Fixture::new();
-
-        assert_eq!(
-            resolve_request(&fixture.root, "/docs-user/"),
-            Some(fixture.root.join("docs-user").join(INDEX_FILE))
-        );
-        assert_eq!(
-            resolve_request(&fixture.root, "/docs-user/README.md?search=1"),
-            Some(fixture.root.join("docs-user").join("README.md"))
-        );
-        assert_eq!(
-            resolve_request(&fixture.root, "/%64ocs-user/"),
-            Some(fixture.root.join("docs-user").join(INDEX_FILE))
-        );
-        assert_eq!(
-            resolve_request(&fixture.root, "/docs-user/../secret.txt"),
-            None
-        );
-        assert_eq!(resolve_request(&fixture.root, "/%2E%2E/secret.txt"), None);
-        assert_eq!(resolve_request(&fixture.root, "/docs-user/%zz"), None);
-    }
-
-    #[test]
-    fn serves_pages_markdown_and_head_without_a_body() {
-        let fixture = Fixture::new();
-        let origin = start_server(fixture.root.clone()).unwrap();
-        let address = address(&origin);
-
-        let page = request(
-            address,
-            "GET /docs-user/ HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
-        assert!(page.contains("Content-Type: text/html; charset=utf-8"));
-        assert!(page.ends_with("<html>en</html>"));
-
-        let markdown = request(
-            address,
-            "GET /docs-user/README.md HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(markdown.contains("Content-Type: text/markdown; charset=utf-8"));
-        assert!(markdown.ends_with("# Hello"));
-
-        let head = request(
-            address,
-            "HEAD /docs-user/README.md HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(head.starts_with("HTTP/1.1 200 OK"), "{head}");
-        assert!(!head.contains("# Hello"), "HEAD must not send a body");
-    }
-
-    #[test]
-    fn serves_the_bundled_guide_tree_from_the_checkout() {
-        let root = site_root(Language::SimplifiedChinese).expect("the checkout ships docs-user-zh");
-        let origin = start_server(root).unwrap();
-        let address = address(&origin);
-
-        let page = request(
-            address,
-            "GET /docs-user-zh/ HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    fn accepts_head_and_never_serves_files_outside_the_guide() {
+        let url = url(Language::English).unwrap();
+        let origin = url.strip_suffix("docs-user/").unwrap();
+        let response = request(origin, "HEAD", "/docs-user/README.md");
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.ends_with("\r\n\r\n"));
+        for path in [
+            "/Cargo.toml",
+            "/docs-user/../README.md",
+            "/docs-user/%2E%2E/README.md",
+            "/docs-user/%zz",
+        ] {
+            assert!(request(origin, "GET", path).starts_with("HTTP/1.1 404 Not Found"));
+        }
         assert!(
-            page.contains("docsify"),
-            "the landing page must be the docsify shell"
+            request(origin, "POST", "/docs-user/").starts_with("HTTP/1.1 405 Method Not Allowed")
         );
-
-        // docsify fetches the shell assets, the sidebar and the page markdown.
-        let script = request(
-            address,
-            "GET /docs-user-zh/js/init.js HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(script.starts_with("HTTP/1.1 200 OK"), "{script}");
-        assert!(script.contains("Content-Type: text/javascript"));
-        let readme = request(
-            address,
-            "GET /docs-user-zh/README.md HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(readme.starts_with("HTTP/1.1 200 OK"), "{readme}");
-        assert!(readme.contains("Content-Type: text/markdown"));
-        let sidebar = request(
-            address,
-            "GET /docs-user-zh/_sidebar.md HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(sidebar.starts_with("HTTP/1.1 200 OK"), "{sidebar}");
-    }
-
-    #[test]
-    fn rejects_unknown_paths_escapes_and_non_read_methods() {
-        let fixture = Fixture::new();
-        let origin = start_server(fixture.root.clone()).unwrap();
-        let address = address(&origin);
-
-        let missing = request(
-            address,
-            "GET /missing.html HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(missing.starts_with("HTTP/1.1 404 Not Found"));
-        let escape = request(
-            address,
-            "GET /..%2Fsecret.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(escape.starts_with("HTTP/1.1 404 Not Found"), "{escape}");
-        let post = request(
-            address,
-            "POST /docs-user/ HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        );
-        assert!(post.starts_with("HTTP/1.1 405 Method Not Allowed"));
     }
 }

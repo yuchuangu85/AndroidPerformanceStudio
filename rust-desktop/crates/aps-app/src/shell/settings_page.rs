@@ -1324,12 +1324,7 @@ impl Studio {
                             true,
                             &colors,
                         )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            match crate::user_guide::url(this.settings.language) {
-                                Ok(url) => cx.open_url(&url),
-                                Err(error) => eprintln!("User guide unavailable: {error}"),
-                            }
-                        })),
+                        .on_click(cx.listener(|this, _, _, cx| this.open_user_guide(cx))),
                     ),
                 ),
         )

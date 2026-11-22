@@ -623,47 +623,15 @@ fn analyze_menu_group() -> MenuGroup<ShellMenu> {
 }
 
 /// All routes share the guide and, outside macOS, a Settings entry.
-fn help_menu_group(language: Language) -> MenuGroup<ShellMenu> {
-    // Keep the guide disabled when the bundled documentation is unavailable.
-    let guide = user_guide_path(language).is_some();
-    let group = MenuGroup::new(TextKey::ShellMenuHelp).item_when(
-        guide,
-        TextKey::SettingsUiGuide,
-        ShellMenu::OpenUserGuide,
-    );
+fn help_menu_group() -> MenuGroup<ShellMenu> {
+    let group = MenuGroup::new(TextKey::ShellMenuHelp)
+        .item(TextKey::SettingsUiGuide, ShellMenu::OpenUserGuide);
     // macOS reaches Settings through the application menu.
     #[cfg(not(target_os = "macos"))]
     let group = group
         .separator()
         .item(TextKey::ShellMenuSettings, ShellMenu::OpenSettings);
     group
-}
-
-/// Locates the bundled documentation landing page for the current language.
-fn user_guide_path(language: Language) -> Option<PathBuf> {
-    let relative = if language == Language::SimplifiedChinese {
-        "docs-user-zh/index.html"
-    } else {
-        "docs-user/index.html"
-    };
-    let mut roots = Vec::new();
-    if let Ok(current) = std::env::current_dir() {
-        roots.push(current);
-    }
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(directory) = executable.parent()
-    {
-        roots.push(directory.to_path_buf());
-    }
-    for root in roots {
-        for ancestor in root.ancestors() {
-            let candidate = ancestor.join(relative);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
 }
 
 #[derive(Default)]
@@ -1842,7 +1810,10 @@ impl Studio {
         // from loopback instead, matching the Compose launcher.
         match crate::user_guide::url(self.settings.language) {
             Ok(url) => cx.open_url(&url),
-            Err(error) => eprintln!("User guide unavailable: {error}"),
+            Err(error) => {
+                self.notice = Some(error);
+                cx.notify();
+            }
         }
     }
 
@@ -2232,7 +2203,7 @@ impl Studio {
         if supports_ai(self.destination) {
             self.push_shell_menus(vec![analyze_menu_group()], language, &mut build);
         }
-        self.push_shell_menus(vec![help_menu_group(language)], language, &mut build);
+        self.push_shell_menus(vec![help_menu_group()], language, &mut build);
         build
     }
 
@@ -4279,7 +4250,7 @@ mod menubar_tests {
     fn shared_help_menu_only_offers_the_guide_and_platform_settings() {
         for language in [Language::English, Language::SimplifiedChinese] {
             let mut build = menubar::RouteMenuBuild::default();
-            build.push(help_menu_group(language), language, |_, _, _| {});
+            build.push(help_menu_group(), language, |_, _, _| {});
             let expected = [
                 language.text(TextKey::SettingsUiGuide),
                 #[cfg(not(target_os = "macos"))]
@@ -4297,7 +4268,10 @@ mod menubar_tests {
                 .rows
                 .iter()
                 .filter_map(|row| match row {
-                    menubar::StripRow::Item { label, .. } => Some(label.as_ref()),
+                    menubar::StripRow::Item { label, enabled, .. } => {
+                        assert!(enabled, "{label} should be available in installed builds");
+                        Some(label.as_ref())
+                    }
                     _ => None,
                 })
                 .collect();
