@@ -183,7 +183,7 @@ impl FrameWorkspace {
             online_capture: None,
             online_frames: Vec::new(),
             current_session: None,
-            viewer: ViewerServer::new(9418),
+            viewer: ViewerServer::default(),
             ui: page::PageUi::new(window, cx),
             language_generation: 0,
             import_generation: 0,
@@ -1315,11 +1315,7 @@ impl FrameWorkspace {
     }
 
     fn show_trace(&mut self, trace: &Path, timestamp: Option<i64>, cx: &mut Context<Self>) {
-        let assets = crate::perfetto_tool::viewer_assets_dir();
-        if let Err(error) = self
-            .viewer
-            .open(trace, timestamp, assets.as_deref(), None, None)
-        {
+        if let Err(error) = self.viewer.open(trace, timestamp, |url| cx.open_url(url)) {
             self.error = Some(error);
             cx.notify();
         }

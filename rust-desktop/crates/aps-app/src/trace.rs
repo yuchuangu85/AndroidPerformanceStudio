@@ -198,7 +198,7 @@ impl TraceWorkspace {
             capture_visible: false,
             detail_height: DETAIL_DEFAULT_HEIGHT,
             detail_drag: None,
-            viewer: ViewerServer::new(9417),
+            viewer: ViewerServer::default(),
             status: None,
             error: None,
             studio: None,
@@ -1089,16 +1089,12 @@ impl TraceWorkspace {
     // ---------------- viewer / bookmarks / capture ----------------
 
     fn open_external_viewer(&mut self, timestamp_nanos: Option<i64>, cx: &mut Context<Self>) {
-        if std::env::var_os("APS_TRACE_NO_BROWSER").is_some() {
-            return;
-        }
         let Some(path) = self.active_trace_path.clone() else {
             return;
         };
-        let assets = crate::perfetto_tool::viewer_assets_dir();
         if let Err(error) = self
             .viewer
-            .open(&path, timestamp_nanos, assets.as_deref(), None, None)
+            .open(&path, timestamp_nanos, |url| cx.open_url(url))
         {
             self.error = Some(self.failure(error));
             cx.notify();

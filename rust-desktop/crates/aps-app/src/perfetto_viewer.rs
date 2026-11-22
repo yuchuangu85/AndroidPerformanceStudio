@@ -1,289 +1,263 @@
-//! Minimal local Perfetto UI server for the system browser.
-//!
-//! Compose parity with PerfettoUiServer, implemented with std only: bind
-//! 127.0.0.1, serve the selected trace at /trace with CORS octet-stream
-//! headers, serve a static UI directory when it has index.html, otherwise
-//! render a self-contained page that explains the trace URL and how to load it
-//! in ui.perfetto.dev. The trace bytes never leave the machine: there is no
-//! upload, proxy or cloud connection. Request parsing and IO are bounded.
+//! Direct links to the official Perfetto UI. APS serves only explicitly
+//! selected trace bytes, over loopback; it does not host UI assets or upload
+//! traces. Each workspace owns a separate route on one shared listener.
 
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::{self, Read, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
     path::{Path, PathBuf},
-    process::Stdio,
     sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::Duration,
 };
 
+const OFFICIAL_ORIGIN: &str = "https://ui.perfetto.dev";
 const MAX_REQUEST_BYTES: usize = 8 * 1024;
 const MAX_TRACE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
-const MAX_ASSET_BYTES: u64 = 512 * 1024 * 1024;
 const TIMESTAMP_WINDOW_NANOS: i64 = 5_000_000;
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const ACCEPT_POLL: Duration = Duration::from_millis(5);
-const BROWSER_ENVIRONMENT: &str = "APS_TRACE_NO_BROWSER";
+// Perfetto explicitly allows this loopback port in its Content Security Policy
+// and uses it for trace links in its upstream tools/open_trace_in_ui.
+static HOSTED_VIEWER: ViewerHub = ViewerHub::new(9001);
+static NEXT_TRACE_ID: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Debug, Default)]
-struct ViewerState {
-    trace: Option<PathBuf>,
-    assets: Option<PathBuf>,
-    zoom: Option<(i64, i64)>,
+type TraceRoutes = Mutex<HashMap<u64, PathBuf>>;
+
+struct ViewerHub {
+    port: u16,
+    running: Mutex<Weak<RunningServer>>,
+}
+
+impl ViewerHub {
+    const fn new(port: u16) -> Self {
+        Self {
+            port,
+            running: Mutex::new(Weak::new()),
+        }
+    }
+
+    fn server(&self) -> io::Result<Arc<RunningServer>> {
+        let mut running = self
+            .running
+            .lock()
+            .map_err(|_| io::Error::other("Local Perfetto listener lock is poisoned"))?;
+        if let Some(server) = running.upgrade() {
+            return Ok(server);
+        }
+        let server = Arc::new(RunningServer::start(self.port)?);
+        *running = Arc::downgrade(&server);
+        Ok(server)
+    }
 }
 
 struct RunningServer {
+    port: u16,
+    routes: Arc<TraceRoutes>,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
-    bound_port: u16,
 }
 
-/// One local HTTP server reused for every trace opened by the workspace.
+impl RunningServer {
+    fn start(port: u16) -> io::Result<Self> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let routes = Arc::new(TraceRoutes::default());
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let worker_routes = Arc::clone(&routes);
+        let worker_shutdown = Arc::clone(&shutdown);
+        let thread = thread::Builder::new()
+            .name("aps-perfetto-trace".to_owned())
+            .spawn(move || serve(listener, port, &worker_routes, &worker_shutdown))?;
+        Ok(Self {
+            port,
+            routes,
+            shutdown,
+            thread: Some(thread),
+        })
+    }
+}
+
+impl Drop for RunningServer {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+struct PublishedTrace {
+    server: Arc<RunningServer>,
+    id: u64,
+}
+
+impl Drop for PublishedTrace {
+    fn drop(&mut self) {
+        if let Ok(mut routes) = self.server.routes.lock() {
+            routes.remove(&self.id);
+        }
+    }
+}
+
+/// A workspace-owned trace link. The shared port is released after the last
+/// workspace closes its link; replaced links cannot resolve another trace.
+#[derive(Default)]
 pub(crate) struct ViewerServer {
-    port: u16,
-    running: Option<RunningServer>,
-    state: Arc<Mutex<ViewerState>>,
-    browser: bool,
+    trace: Option<PublishedTrace>,
 }
 
 impl ViewerServer {
-    pub(crate) fn new(port: u16) -> Self {
-        Self {
-            port,
-            running: None,
-            state: Arc::new(Mutex::new(ViewerState::default())),
-            browser: true,
-        }
-    }
-
-    pub(crate) fn is_running(&self) -> bool {
-        self.running.is_some()
-    }
-
-    /// Bound loopback port, or the configured port before the server starts.
-    pub(crate) fn port(&self) -> u16 {
-        self.running
-            .as_ref()
-            .map(|running| running.bound_port)
-            .unwrap_or(self.port)
-    }
-
-    /// Selects the trace and view window, starts the server when needed and
-    /// opens the system browser unless APS_TRACE_NO_BROWSER is present.
     pub(crate) fn open(
         &mut self,
-        trace: &Path,
+        path: &Path,
         timestamp_nanos: Option<i64>,
-        ui_assets: Option<&Path>,
-        start_nanos: Option<i64>,
-        end_nanos: Option<i64>,
+        browser: impl FnOnce(&str),
     ) -> Result<(), String> {
-        let trace = validated_trace(trace)?;
-        let assets = ui_assets.and_then(validated_assets);
-        let zoom = zoom_window(timestamp_nanos, start_nanos, end_nanos);
-        {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| "Trace viewer state lock is poisoned".to_owned())?;
-            state.trace = Some(trace);
-            state.assets = assets.clone();
-            state.zoom = zoom;
+        if std::env::var_os("APS_TRACE_NO_BROWSER").is_some() {
+            return Ok(());
         }
-        if self.running.is_none() {
-            self.start()?;
-        }
-        let url = viewer_url(self.port(), assets.is_some(), zoom);
-        if self.browser && std::env::var_os(BROWSER_ENVIRONMENT).is_none() {
-            launch_browser(&url)?;
-        }
-        Ok(())
+        self.open_with_hub(&HOSTED_VIEWER, path, timestamp_nanos, browser)
     }
 
-    /// Idempotent shutdown; the port is released for a future open.
-    pub(crate) fn stop(&mut self) {
-        if let Some(mut running) = self.running.take() {
-            running.shutdown.store(true, Ordering::Release);
-            if let Some(thread) = running.thread.take() {
-                let _ = thread.join();
+    fn open_with_hub(
+        &mut self,
+        hub: &ViewerHub,
+        path: &Path,
+        timestamp_nanos: Option<i64>,
+        browser: impl FnOnce(&str),
+    ) -> Result<(), String> {
+        let path = validated_trace(path)?;
+        let server = match hub.server() {
+            Ok(server) => server,
+            Err(_) => {
+                browser(&format!("{OFFICIAL_ORIGIN}/"));
+                return Err("Could not start the local trace handoff. In Perfetto UI, choose Open trace file and select the trace manually.".to_owned());
             }
-        }
-        if let Ok(mut state) = self.state.lock() {
-            *state = ViewerState::default();
-        }
-    }
-
-    fn start(&mut self) -> Result<(), String> {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, self.port))
-            .map_err(|_| "Cannot bind the local Perfetto viewer port".to_owned())?;
-        listener
-            .set_nonblocking(true)
-            .map_err(|_| "Cannot configure the local Perfetto viewer port".to_owned())?;
-        let bound_port = listener
-            .local_addr()
-            .map_err(|_| "Cannot read the local Perfetto viewer port".to_owned())?
-            .port();
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let state = Arc::clone(&self.state);
-        let thread_shutdown = Arc::clone(&shutdown);
-        let thread = thread::Builder::new()
-            .name("aps-trace-viewer".to_owned())
-            .spawn(move || serve(listener, state, thread_shutdown))
-            .map_err(|_| "Cannot start the local Perfetto viewer".to_owned())?;
-        self.running = Some(RunningServer {
-            shutdown,
-            thread: Some(thread),
-            bound_port,
-        });
+        };
+        let id = NEXT_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+        server
+            .routes
+            .lock()
+            .map_err(|_| "Local Perfetto trace routes are unavailable".to_owned())?
+            .insert(id, path);
+        let url = viewer_url(server.port, id, timestamp_nanos);
+        self.trace = Some(PublishedTrace { server, id });
+        browser(&url);
         Ok(())
     }
-}
 
-impl Drop for ViewerServer {
-    fn drop(&mut self) {
-        self.stop();
+    pub(crate) fn stop(&mut self) {
+        self.trace.take();
     }
 }
 
-fn validated_trace(trace: &Path) -> Result<PathBuf, String> {
-    let metadata = fs::metadata(trace)
-        .map_err(|_| "Trace file is missing or is not a regular file".to_owned())?;
+fn validated_trace(path: &Path) -> Result<PathBuf, String> {
+    let metadata =
+        fs::metadata(path).map_err(|_| "Trace file is missing or is not a regular file")?;
     if !metadata.is_file() {
         return Err("Trace file is missing or is not a regular file".to_owned());
     }
     if metadata.len() > MAX_TRACE_BYTES {
         return Err("Trace exceeds the viewer byte budget".to_owned());
     }
-    trace
-        .canonicalize()
+    path.canonicalize()
         .map_err(|_| "Cannot resolve the trace file".to_owned())
 }
 
-fn validated_assets(path: &Path) -> Option<PathBuf> {
-    if path.is_dir() && path.join("index.html").is_file() {
-        path.canonicalize().ok()
-    } else {
-        None
-    }
-}
-
-fn zoom_window(
-    timestamp_nanos: Option<i64>,
-    start_nanos: Option<i64>,
-    end_nanos: Option<i64>,
-) -> Option<(i64, i64)> {
-    if let (Some(start), Some(end)) = (start_nanos, end_nanos) {
-        if start >= 0 && start < end {
-            return Some((start, end));
+fn viewer_url(port: u16, id: u64, timestamp_nanos: Option<i64>) -> String {
+    // The fragment holds a percent-encoded loopback URL, not a local path.
+    let mut url =
+        format!("{OFFICIAL_ORIGIN}/#!/?url=http%3A%2F%2F127.0.0.1%3A{port}%2Ftrace%2F{id}.pftrace");
+    if let Some(timestamp) = timestamp_nanos {
+        let start = timestamp.saturating_sub(TIMESTAMP_WINDOW_NANOS).max(0);
+        let end = timestamp.saturating_add(TIMESTAMP_WINDOW_NANOS);
+        if start < end {
+            url.push_str(&format!("&visStart={start}&visEnd={end}"));
         }
     }
-    timestamp_nanos.map(|timestamp| {
-        (
-            timestamp.saturating_sub(TIMESTAMP_WINDOW_NANOS).max(0),
-            timestamp.saturating_add(TIMESTAMP_WINDOW_NANOS),
-        )
-    })
+    url
 }
 
-fn viewer_url(port: u16, has_assets: bool, zoom: Option<(i64, i64)>) -> String {
-    if has_assets {
-        let zoom_parameters = zoom
-            .map(|(start, end)| format!("&visStart={start}&visEnd={end}"))
-            .unwrap_or_default();
-        format!("http://127.0.0.1:{port}/#!/?url=http://127.0.0.1:{port}/trace{zoom_parameters}")
-    } else {
-        format!("http://127.0.0.1:{port}/")
-    }
-}
-
-fn launch_browser(url: &str) -> Result<(), String> {
-    let mut command = match std::env::consts::OS {
-        "macos" => {
-            let mut command = std::process::Command::new("open");
-            command.arg(url);
-            command
-        }
-        "linux" => {
-            let mut command = std::process::Command::new("xdg-open");
-            command.arg(url);
-            command
-        }
-        "windows" => {
-            let mut command = std::process::Command::new("cmd");
-            command.args(["/C", "start", "", url]);
-            command
-        }
-        _ => return Err("No system browser is available to open the local Perfetto UI".to_owned()),
-    };
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|_| "Failed to open the local Perfetto UI in the system browser".to_owned())
-}
-
-fn serve(listener: TcpListener, state: Arc<Mutex<ViewerState>>, shutdown: Arc<AtomicBool>) {
+fn serve(listener: TcpListener, port: u16, routes: &TraceRoutes, shutdown: &AtomicBool) {
+    let host = format!("127.0.0.1:{port}");
     while !shutdown.load(Ordering::Acquire) {
         match listener.accept() {
             Ok((stream, _)) => {
-                let _ = handle_connection(stream, &state);
+                let _ = handle_connection(stream, &host, routes);
             }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => thread::sleep(ACCEPT_POLL),
             Err(_) => thread::sleep(ACCEPT_POLL),
         }
     }
 }
 
-fn handle_connection(mut stream: TcpStream, state: &Arc<Mutex<ViewerState>>) -> io::Result<()> {
+fn handle_connection(mut stream: TcpStream, host: &str, routes: &TraceRoutes) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     let Some(request) = read_request(&mut stream)? else {
         return write_status(&mut stream, "400 Bad Request");
     };
-    let request_line = request.lines().next().unwrap_or_default();
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or_default();
-    let target = parts.next().unwrap_or_default();
-    if method != "GET" {
+    let mut lines = request.lines();
+    let mut request_line = lines.next().unwrap_or_default().split_whitespace();
+    let method = request_line.next().unwrap_or_default();
+    let target = request_line.next().unwrap_or_default();
+    if method != "GET" && method != "OPTIONS" {
         return write_status(&mut stream, "405 Method Not Allowed");
     }
-    let path = target.split_once('?').map_or(target, |(path, _)| path);
-    if !valid_request_path(path) {
-        return write_status(&mut stream, "400 Bad Request");
+    let mut request_host = None;
+    let mut origin = None;
+    let mut preflight_method = None;
+    for (name, value) in lines
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| line.split_once(':'))
+    {
+        let field = if name.eq_ignore_ascii_case("host") {
+            &mut request_host
+        } else if name.eq_ignore_ascii_case("origin") {
+            &mut origin
+        } else if name.eq_ignore_ascii_case("access-control-request-method") {
+            &mut preflight_method
+        } else {
+            continue;
+        };
+        if field.replace(value.trim()).is_some() {
+            return write_status(&mut stream, "400 Bad Request");
+        }
     }
-    if path == "/trace" {
-        return serve_trace(&mut stream, state);
+    if request_host != Some(host) || origin != Some(OFFICIAL_ORIGIN) {
+        return write_status(&mut stream, "403 Forbidden");
     }
-    let (assets, zoom) = {
-        let Ok(state) = state.lock() else {
+    let id = target
+        .strip_prefix("/trace/")
+        .and_then(|tail| tail.strip_suffix(".pftrace"))
+        .and_then(|digits| digits.parse::<u64>().ok());
+    let trace = {
+        let Ok(routes) = routes.lock() else {
             return write_status(&mut stream, "500 Internal Server Error");
         };
-        (state.assets.clone(), state.zoom)
+        id.and_then(|id| routes.get(&id)).cloned()
     };
-    match assets {
-        Some(root) => match resolve_asset(&root, path) {
-            Some(file) => serve_file(&mut stream, &file),
-            None => write_status(&mut stream, "404 Not Found"),
-        },
-        None if path == "/" => {
-            let page = embed_page(port_of(&stream), zoom);
-            write_response(
-                &mut stream,
-                "200 OK",
-                "text/html; charset=utf-8",
-                page.as_bytes(),
-            )
+    let Some(trace) = trace else {
+        return write_status(&mut stream, "404 Not Found");
+    };
+    if method == "OPTIONS" {
+        if preflight_method != Some("GET") {
+            return write_status(&mut stream, "405 Method Not Allowed");
         }
-        None => write_status(&mut stream, "404 Not Found"),
+        // Older Chromium versions may preflight a public-to-loopback fetch.
+        return write!(
+            stream,
+            "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: {OFFICIAL_ORIGIN}\r\nAccess-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Private-Network: true\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        );
     }
+    serve_trace(&mut stream, &trace)
 }
 
 fn read_request(stream: &mut TcpStream) -> io::Result<Option<String>> {
@@ -295,11 +269,11 @@ fn read_request(stream: &mut TcpStream) -> io::Result<Option<String>> {
             break;
         }
         buffer.extend_from_slice(&chunk[..read]);
-        if has_request_terminator(&buffer) {
-            break;
-        }
         if buffer.len() > MAX_REQUEST_BYTES {
             return Ok(None);
+        }
+        if has_request_terminator(&buffer) {
+            break;
         }
     }
     if !has_request_terminator(&buffer) {
@@ -312,32 +286,8 @@ fn has_request_terminator(buffer: &[u8]) -> bool {
     buffer.windows(4).any(|window| window == b"\r\n\r\n")
 }
 
-fn valid_request_path(path: &str) -> bool {
-    path.starts_with('/')
-        && !path.contains("..")
-        && !path.contains('\\')
-        && !path.contains('%')
-        && !path.chars().any(char::is_control)
-}
-
-fn port_of(stream: &TcpStream) -> u16 {
-    stream
-        .local_addr()
-        .map(|address| address.port())
-        .unwrap_or(0)
-}
-
-fn serve_trace(stream: &mut TcpStream, state: &Arc<Mutex<ViewerState>>) -> io::Result<()> {
-    let trace = {
-        let Ok(state) = state.lock() else {
-            return write_status(stream, "500 Internal Server Error");
-        };
-        state.trace.clone()
-    };
-    let Some(trace) = trace else {
-        return write_status(stream, "404 Not Found");
-    };
-    let file = match File::open(&trace) {
+fn serve_trace(stream: &mut TcpStream, trace: &Path) -> io::Result<()> {
+    let file = match File::open(trace) {
         Ok(file) => file,
         Err(_) => return write_status(stream, "404 Not Found"),
     };
@@ -347,127 +297,23 @@ fn serve_trace(stream: &mut TcpStream, state: &Arc<Mutex<ViewerState>>) -> io::R
     };
     write!(
         stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {length}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {length}\r\nAccess-Control-Allow-Origin: {OFFICIAL_ORIGIN}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
     )?;
-    let mut body = file.take(length);
-    io::copy(&mut body, stream)?;
+    io::copy(&mut file.take(length), stream)?;
     stream.flush()
-}
-
-fn resolve_asset(root: &Path, path: &str) -> Option<PathBuf> {
-    let relative = path.trim_start_matches('/');
-    let relative = if relative.is_empty() {
-        "index.html"
-    } else {
-        relative
-    };
-    let canonical_root = root.canonicalize().ok()?;
-    let candidate = root.join(relative).canonicalize().ok()?;
-    if !candidate.starts_with(&canonical_root) || !candidate.is_file() {
-        return None;
-    }
-    Some(candidate)
-}
-
-fn serve_file(stream: &mut TcpStream, file: &Path) -> io::Result<()> {
-    let handle = match File::open(file) {
-        Ok(handle) => handle,
-        Err(_) => return write_status(stream, "404 Not Found"),
-    };
-    let length = match handle.metadata() {
-        Ok(metadata) if metadata.is_file() && metadata.len() <= MAX_ASSET_BYTES => metadata.len(),
-        _ => return write_status(stream, "404 Not Found"),
-    };
-    let content_type = content_type(file);
-    write!(
-        stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
-    )?;
-    let mut body = handle.take(length);
-    io::copy(&mut body, stream)?;
-    stream.flush()
-}
-
-fn content_type(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "html" | "htm" => "text/html; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" | "map" => "application/json",
-        "wasm" => "application/wasm",
-        "png" => "image/png",
-        "svg" => "image/svg+xml",
-        "ico" => "image/x-icon",
-        "txt" => "text/plain; charset=utf-8",
-        _ => "application/octet-stream",
-    }
 }
 
 fn write_status(stream: &mut TcpStream, status: &str) -> io::Result<()> {
-    write_response(
-        stream,
-        status,
-        "text/plain; charset=utf-8",
-        status.as_bytes(),
-    )
-}
-
-fn write_response(
-    stream: &mut TcpStream,
-    status: &str,
-    content_type: &str,
-    body: &[u8],
-) -> io::Result<()> {
     write!(
         stream,
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.len()
-    )?;
-    stream.write_all(body)?;
-    stream.flush()
-}
-
-fn embed_page(port: u16, zoom: Option<(i64, i64)>) -> String {
-    let trace_url = format!("http://127.0.0.1:{port}/trace");
-    let zoom_note = zoom
-        .map(|(start, end)| {
-            format!(
-                "<p>Suggested view window: {:.6} s to {:.6} s.</p>",
-                start as f64 / 1_000_000_000.0,
-                end as f64 / 1_000_000_000.0
-            )
-        })
-        .unwrap_or_default();
-    format!(
-        "<!DOCTYPE html>\n\
-         <html><head><meta charset=\"utf-8\"><title>Perfetto Trace</title>\n\
-         <style>body{{margin:0;padding:40px;background:#1f2430;color:#d7dae0;font-family:-apple-system,\"Segoe UI\",sans-serif}}\
-         a{{color:#61afef}}code{{background:#2b3240;padding:2px 6px;border-radius:4px}}\
-         li{{margin:8px 0}}</style></head><body>\n\
-         <h1>Perfetto Trace Viewer</h1>\n\
-         <p>The trace is served locally at <a href=\"{trace_url}\">{trace_url}</a>.</p>\n\
-         <p>To inspect it, open the Perfetto UI at \
-         <a href=\"https://ui.perfetto.dev\" target=\"_blank\" rel=\"noreferrer\">ui.perfetto.dev</a>, \
-         choose <b>Open trace file</b> then <b>Open URL</b>, and enter:</p>\n\
-         <p><code>{trace_url}</code></p>\n\
-         <ul><li>This page runs on loopback only; the trace is not uploaded anywhere.</li>\
-         <li>Keep the Trace Analyzer open while the Perfetto UI reads the trace.</li></ul>\n\
-         {zoom_note}\n\
-         </body></html>"
+        "HTTP/1.1 {status}\r\nContent-Length: 0\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
 
     static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
@@ -499,12 +345,6 @@ mod tests {
         path
     }
 
-    fn muted(port: u16) -> ViewerServer {
-        let mut server = ViewerServer::new(port);
-        server.browser = false;
-        server
-    }
-
     struct Response {
         status: u16,
         headers: Vec<(String, String)>,
@@ -520,14 +360,14 @@ mod tests {
         }
     }
 
-    fn http_get(port: u16, path: &str) -> Response {
+    fn http_request(port: u16, method: &str, path: &str, host: &str, headers: &str) -> Response {
         let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         write!(
             stream,
-            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+            "{method} {path} HTTP/1.1\r\nHost: {host}\r\n{headers}Connection: close\r\n\r\n"
         )
         .unwrap();
         let mut bytes = Vec::new();
@@ -558,151 +398,147 @@ mod tests {
         }
     }
 
+    const HOSTED_HEADER: &str = "Origin: https://ui.perfetto.dev\r\n";
+
+    fn open(
+        viewer: &mut ViewerServer,
+        hub: &ViewerHub,
+        trace: &Path,
+        timestamp: Option<i64>,
+    ) -> (u16, String) {
+        let mut url = String::new();
+        viewer
+            .open_with_hub(hub, trace, timestamp, |link| url = link.to_owned())
+            .unwrap();
+        let PublishedTrace { server, id } = viewer.trace.as_ref().unwrap();
+        let port = server.port;
+        let tail = timestamp
+            .map(|_| "&visStart=1495000000&visEnd=1505000000")
+            .unwrap_or_default();
+        assert_eq!(
+            url,
+            format!(
+                "https://ui.perfetto.dev/#!/?url=http%3A%2F%2F127.0.0.1%3A{port}%2Ftrace%2F{id}.pftrace{tail}"
+            )
+        );
+        (port, format!("/trace/{id}.pftrace"))
+    }
+
+    fn hosted_get(port: u16, path: &str) -> Response {
+        http_request(
+            port,
+            "GET",
+            path,
+            &format!("127.0.0.1:{port}"),
+            HOSTED_HEADER,
+        )
+    }
+
     #[test]
-    fn serves_exact_trace_bytes_with_cors_and_stops_idempotently() {
-        let directory = TestDirectory::new("trace");
-        let bytes = b"\x00\x01binary\r\n\r\n<trace>".to_vec();
-        let trace = trace_file(&directory, "capture.pftrace", &bytes);
-        let mut server = muted(0);
-
-        server.open(&trace, None, None, None, None).unwrap();
-        assert!(server.is_running());
-        let port = server.port();
-        assert_ne!(port, 0);
-
-        let response = http_get(port, "/trace");
+    fn opens_the_official_ui_with_the_selected_trace_and_zoom() {
+        let directory = TestDirectory::new("hosted");
+        let bytes = b"\x00\x01binary\r\n\r\n<trace>";
+        let trace = trace_file(&directory, "private capture.pftrace", bytes);
+        let hub = ViewerHub::new(0);
+        let mut viewer = ViewerServer::default();
+        let (port, path) = open(&mut viewer, &hub, &trace, Some(1_500_000_000));
+        let response = hosted_get(port, &path);
         assert_eq!(response.status, 200);
         assert_eq!(response.body, bytes);
         assert_eq!(
             response.header("content-type"),
             Some("application/octet-stream")
         );
-        assert_eq!(response.header("access-control-allow-origin"), Some("*"));
-
-        server.stop();
-        assert!(!server.is_running());
-        server.stop();
-        assert!(!server.is_running());
-    }
-
-    #[test]
-    fn opening_another_trace_reuses_the_running_server() {
-        let directory = TestDirectory::new("reuse");
-        let first = trace_file(&directory, "first.pftrace", b"first");
-        let second = trace_file(&directory, "second.pftrace", b"second");
-        let mut server = muted(0);
-        server.open(&first, None, None, None, None).unwrap();
-        let port = server.port();
-        server.open(&second, None, None, None, None).unwrap();
-        assert!(server.is_running());
-        assert_eq!(server.port(), port);
-        assert_eq!(http_get(port, "/trace").body, b"second".to_vec());
-        server.stop();
-    }
-
-    #[test]
-    fn fallback_page_explains_the_trace_url_and_zoom_window() {
-        let directory = TestDirectory::new("fallback");
-        let trace = trace_file(&directory, "capture.pftrace", b"trace");
-        let mut server = muted(0);
-        server
-            .open(&trace, Some(1_500_000_000), None, None, None)
-            .unwrap();
-        let page = http_get(server.port(), "/");
-        assert_eq!(page.status, 200);
-        let text = String::from_utf8(page.body).unwrap();
-        assert!(text.contains("/trace"));
-        assert!(text.contains("ui.perfetto.dev"));
-        assert!(text.contains("Suggested view window: 1.495000 s to 1.505000 s."));
-        assert!(text.contains("not uploaded anywhere"));
-
-        let (start, end) = zoom_window(Some(999), Some(10), Some(20)).unwrap();
-        assert_eq!((start, end), (10, 20));
-        assert_eq!(zoom_window(Some(0), None, None), Some((0, 5_000_000)));
-        assert_eq!(zoom_window(None, None, None), None);
-        server.stop();
-    }
-
-    #[test]
-    fn serves_ui_assets_and_rejects_traversal_or_missing_files() {
-        let directory = TestDirectory::new("assets");
-        let trace = trace_file(&directory, "capture.pftrace", b"trace");
-        let assets = directory.path().join("ui");
-        fs::create_dir_all(assets.join("static")).unwrap();
-        fs::write(
-            assets.join("index.html"),
-            b"<!doctype html><title>ui</title>",
-        )
-        .unwrap();
-        fs::write(assets.join("static").join("app.js"), b"console.log(1)").unwrap();
-        fs::write(directory.path().join("secret.txt"), b"secret").unwrap();
-        let mut server = muted(0);
-        server
-            .open(&trace, None, Some(&assets), None, None)
-            .unwrap();
-        let port = server.port();
-
-        let index = http_get(port, "/");
-        assert_eq!(index.status, 200);
-        assert_eq!(index.body, b"<!doctype html><title>ui</title>".to_vec());
         assert_eq!(
-            index.header("content-type"),
-            Some("text/html; charset=utf-8")
+            response.header("access-control-allow-origin"),
+            Some(OFFICIAL_ORIGIN)
         );
-        let script = http_get(port, "/static/app.js");
-        assert_eq!(script.status, 200);
-        assert_eq!(script.body, b"console.log(1)".to_vec());
-        assert_eq!(
-            script.header("content-type"),
-            Some("text/javascript; charset=utf-8")
-        );
-        assert_eq!(http_get(port, "/missing.js").status, 404);
-        assert_eq!(http_get(port, "/../secret.txt").status, 400);
-        assert_eq!(
-            http_get(port, "/").body,
-            b"<!doctype html><title>ui</title>"
-        );
-        server.stop();
+        assert_eq!(hosted_get(port, "/").status, 404);
+
+        viewer.stop();
+        viewer.stop();
+        assert!(TcpStream::connect((Ipv4Addr::LOCALHOST, port)).is_err());
     }
 
     #[test]
-    fn invalid_inputs_and_port_conflicts_fail_closed() {
-        let directory = TestDirectory::new("invalid");
-        let trace = trace_file(&directory, "capture.pftrace", b"trace");
-        let mut server = muted(0);
+    fn replaces_only_the_owning_workspace_link_on_the_shared_port() {
+        let directory = TestDirectory::new("shared");
+        let trace = trace_file(&directory, "first.pftrace", b"first");
+        let frame = trace_file(&directory, "second.pftrace", b"second");
+        let hub = ViewerHub::new(0);
+        let mut trace_viewer = ViewerServer::default();
+        let mut frame_viewer = ViewerServer::default();
+        let (port, path) = open(&mut trace_viewer, &hub, &trace, None);
+        let (frame_port, frame_path) = open(&mut frame_viewer, &hub, &frame, None);
+        assert_eq!(port, frame_port);
+        assert_eq!(hosted_get(port, &path).body, b"first");
+        assert_eq!(hosted_get(port, &frame_path).body, b"second");
+
+        let (_, replacement) = open(&mut trace_viewer, &hub, &trace, None);
+        assert_ne!(path, replacement);
+        assert_eq!(hosted_get(port, &path).status, 404);
+        trace_viewer.stop();
+        assert_eq!(hosted_get(port, &replacement).status, 404);
+        assert_eq!(hosted_get(port, &frame_path).body, b"second");
+    }
+
+    #[test]
+    fn refuses_other_origins_and_hosts_and_accepts_get_preflight() {
+        let directory = TestDirectory::new("origin");
+        let trace = trace_file(&directory, "trace.pftrace", b"trace");
+        let hub = ViewerHub::new(0);
+        let mut viewer = ViewerServer::default();
+        let (port, path) = open(&mut viewer, &hub, &trace, None);
+        let host = format!("127.0.0.1:{port}");
+        for (host, headers) in [
+            (host.as_str(), ""),
+            (host.as_str(), "Origin: https://example.com\r\n"),
+            ("example.com", HOSTED_HEADER),
+        ] {
+            let response = http_request(port, "GET", &path, host, headers);
+            assert_eq!(response.status, 403);
+            assert!(response.body.is_empty());
+            assert_eq!(response.header("access-control-allow-origin"), None);
+        }
+        let response = http_request(
+            port,
+            "OPTIONS",
+            &path,
+            &host,
+            "Origin: https://ui.perfetto.dev\r\nAccess-Control-Request-Method: GET\r\nAccess-Control-Request-Private-Network: true\r\n",
+        );
+        assert_eq!(response.status, 204);
+        assert_eq!(
+            response.header("access-control-allow-origin"),
+            Some(OFFICIAL_ORIGIN)
+        );
+        assert_eq!(
+            response.header("access-control-allow-private-network"),
+            Some("true")
+        );
+        assert_eq!(hosted_get(port, "/../secret.pftrace").status, 404);
+    }
+
+    #[test]
+    fn rejects_an_invalid_trace_and_opens_the_official_homepage_if_port_is_taken() {
+        let directory = TestDirectory::new("conflict");
+        let trace = trace_file(&directory, "trace.pftrace", b"trace");
+        let mut viewer = ViewerServer::default();
         assert!(
-            server
-                .open(
-                    &directory.path().join("missing.pftrace"),
-                    None,
-                    None,
-                    None,
-                    None
-                )
+            viewer
+                .open_with_hub(&ViewerHub::new(0), directory.path(), None, |_| panic!(
+                    "invalid trace"
+                ))
                 .is_err()
         );
-        assert!(!server.is_running());
-        assert!(
-            server
-                .open(directory.path(), None, None, None, None)
-                .is_err()
-        );
-        assert!(!server.is_running());
-
-        let occupied = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = occupied.local_addr().unwrap().port();
-        let mut conflict = muted(port);
-        assert!(conflict.open(&trace, None, None, None, None).is_err());
-        assert!(!conflict.is_running());
-    }
-
-    #[test]
-    fn open_is_muted_for_tests_without_launching_a_browser() {
-        let directory = TestDirectory::new("muted");
-        let trace = trace_file(&directory, "capture.pftrace", b"trace");
-        let mut server = muted(0);
-        assert!(server.open(&trace, None, None, None, None).is_ok());
-        assert!(server.is_running());
-        server.stop();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let hub = ViewerHub::new(listener.local_addr().unwrap().port());
+        let mut opened = String::new();
+        let error = viewer
+            .open_with_hub(&hub, &trace, None, |url| opened = url.to_owned())
+            .unwrap_err();
+        assert!(error.contains("Open trace file"));
+        assert_eq!(opened, "https://ui.perfetto.dev/");
+        assert!(viewer.trace.is_none());
     }
 }

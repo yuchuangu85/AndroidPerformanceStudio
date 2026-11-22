@@ -713,7 +713,7 @@ impl ImportWorkspace {
         .on_click(cx.listener(move |this, _, _, cx| this.capture_advanced_memory(kind, cx)))
     }
 
-    /// Opens the published Native heap trace in the local Perfetto UI. The
+    /// Opens the published Native heap trace in the official Perfetto UI. The
     /// button only exists once a capture or import produced a dataset.
     fn perfetto_action(&self, colors: &studio::StudioColors, cx: &mut Context<Self>) -> Button {
         toolbar_button(
@@ -726,18 +726,13 @@ impl ImportWorkspace {
         .on_click(cx.listener(|this, _, _, cx| this.open_native_heap_in_perfetto(cx)))
     }
 
-    /// Hands the Native heap trace to the loopback Perfetto UI server; the
-    /// system browser opens that local URL and the trace never leaves the host.
+    /// Opens the official Perfetto UI with the Native heap trace over loopback.
     pub(crate) fn open_native_heap_in_perfetto(&mut self, cx: &mut Context<Self>) {
         let Some(data) = self.memory_advanced.native.as_ref() else {
             return;
         };
         let path = data.path.clone();
-        let assets = crate::perfetto_tool::viewer_assets_dir();
-        match self
-            .memory_viewer
-            .open(&path, None, assets.as_deref(), None, None)
-        {
+        match self.memory_viewer.open(&path, None, |url| cx.open_url(url)) {
             Ok(()) => self.error = None,
             Err(error) => self.error = Some(error.into()),
         }
@@ -1409,7 +1404,7 @@ mod bitmap_grid_tests {
     }
 
     #[::core::prelude::v1::test]
-    fn native_heap_opens_its_trace_in_the_local_perfetto_ui() {
+    fn native_heap_opens_its_trace_in_the_official_perfetto_ui() {
         let advanced = runtime_source(include_str!("advanced.rs"));
         let action = advanced
             .split("fn perfetto_action(")
@@ -1435,8 +1430,7 @@ mod bitmap_grid_tests {
             .unwrap();
         for marker in [
             ".memory_viewer",
-            "crate::perfetto_tool::viewer_assets_dir()",
-            ".open(&path, None, assets.as_deref(), None, None)",
+            ".open(&path, None, |url| cx.open_url(url))",
         ] {
             assert!(open.contains(marker), "Missing perfetto handoff: {marker}");
         }
@@ -1455,9 +1449,9 @@ mod bitmap_grid_tests {
         assert!(native_branch
             .trim_start()
             .starts_with("return row.child(self.perfetto_action(colors, cx));"));
-        // The memory workspace owns a loopback port of its own.
+        // The memory workspace owns its trace link, not a separate listener.
         let workspace = runtime_source(include_str!("../../import.rs"));
-        assert!(workspace.contains("memory_viewer: crate::perfetto_viewer::ViewerServer::new(9419)"));
+        assert!(workspace.contains("memory_viewer: crate::perfetto_viewer::ViewerServer::default()"));
     }
 
     #[::core::prelude::v1::test]
