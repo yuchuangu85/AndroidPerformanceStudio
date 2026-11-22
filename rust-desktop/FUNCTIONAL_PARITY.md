@@ -52,7 +52,7 @@
 
 - [ ] 完成已接入采样参数之外的 CPU 捕获对等：事件能力发现、其余目标形式、分数/手动时长以及 Stop-and-save。当前时长为 1..300 个整数秒，频率为 1..4000 Hz，取消仍会丢弃输出，而不是停止并保存。
 - [ ] 修正会话文件夹打开以及剩余 raw protobuf、截图和 Simpleperf 报告导出操作。
-- [x] 实现持久化的 Native Rust / bundled Firefox / online Firefox 查看器选择和显式打开。bundled 模式提供私有回环数据；online 模式会在打开官方网站手动导入前先保存，不上传数据。HTTP/安全测试和本地浏览器 fixture 覆盖加载、函数选择、Flame Graph 和 Stack Chart；原生设置/对话框以及跨平台交接验收仍属于下方开放门槛的一部分。
+- [x] 实现持久化的 Native Rust / bundled Firefox / online Firefox 查看器选择和显式打开。bundled 模式提供私有回环数据；online 模式在浏览器内向官方网站的查看器交接当前报告，不上传数据。HTTP/安全测试和本地浏览器 fixture 覆盖加载、函数选择、Flame Graph 和 Stack Chart；原生设置/对话框以及跨平台交接验收仍属于下方开放门槛的一部分。
 - [x] 添加由 APS 拥有的只读本地 Firefox 查询扩展，并异步准备来自实时浏览器视图的 AI 证据。该扩展不修改上游源代码/资源，并拒绝外部 profile 和过期的文档/节点身份。单元/HTTP 测试和真实浏览器主机往返覆盖查询和 AI 证据验证，不覆盖提供方执行或打包/原生验收。
 - [ ] 对 Overview、Top Functions、Call Tree、Flame Graph 和 Stack Chart 进行相同输入下的数据和交互比较，包括大型真实 profile。
 - [ ] 完成原生已填充捕获/转换/导入、交互和恢复验收。后端已填充证据现在有 249 个真实样本和经过验证的导出；此前的零样本传输测试仍属于独立证据。

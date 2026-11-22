@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="{language}">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firefox Profiler · Android Performance Studio</title>
+<style>
+  :root { color-scheme: light dark; font: 1rem system-ui, sans-serif; }
+  body { margin: 0; }
+  main { margin: 12vh auto; max-width: 36rem; padding: 0 1.5rem; }
+  iframe { display: block; border: 0; width: 100%; height: 100dvh; }
+  [hidden] { display: none; }
+</style>
+<main>
+  <h1>Firefox Profiler</h1>
+  <p id="status" role="status"></p>
+  <button id="open-tab" hidden></button>
+</main>
+<iframe title="Firefox Profiler" referrerpolicy="no-referrer" hidden></iframe>
+<script src="./handoff.js" defer></script>
+</html>

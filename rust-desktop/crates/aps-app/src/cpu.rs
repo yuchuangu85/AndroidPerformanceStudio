@@ -281,6 +281,12 @@ struct CpuComparison {
     rows: Vec<CpuComparisonRow>,
 }
 
+#[derive(Clone, Copy)]
+enum FirefoxView {
+    Bundled { handoff_to_viewer: bool },
+    Online,
+}
+
 pub struct CpuWorkspace {
     follow_tooltip: bool,
     viewer_engine: u8,
@@ -423,7 +429,7 @@ impl CpuWorkspace {
         }
         match self.viewer_engine {
             1 => self.open_local_firefox(false, cx),
-            2 => self.save_firefox_for_site(true, cx),
+            2 => self.open_online_firefox(cx),
             _ => {
                 self.tab = CpuTab::CallTree;
                 self.reload(cx);
@@ -432,6 +438,14 @@ impl CpuWorkspace {
     }
 
     fn open_local_firefox(&mut self, handoff_to_viewer: bool, cx: &mut Context<Self>) {
+        self.open_firefox(FirefoxView::Bundled { handoff_to_viewer }, cx);
+    }
+
+    fn open_online_firefox(&mut self, cx: &mut Context<Self>) {
+        self.open_firefox(FirefoxView::Online, cx);
+    }
+
+    fn open_firefox(&mut self, mode: FirefoxView, cx: &mut Context<Self>) {
         let Some(session) = self.session.clone() else {
             return;
         };
@@ -450,12 +464,16 @@ impl CpuWorkspace {
         self.generation += 1;
         let generation = self.generation;
         let viewer_epoch = self.viewer_epoch;
+        let chinese = self.language.resolved() == Language::SimplifiedChinese;
         let task = cx.background_executor().spawn(async move {
             let bytes = session
                 .lock()
                 .map_err(|_| CpuError::Local(TextKey::ProfilerCpuSessionUnavailable))?
                 .export_firefox_profile()?;
-            let url = viewer.open(&bytes, &root)?;
+            let url = match mode {
+                FirefoxView::Bundled { .. } => viewer.open(&bytes, &root)?,
+                FirefoxView::Online => viewer.open_online(&bytes, &root, chinese)?,
+            };
             Ok::<_, CpuError>((viewer, url))
         });
         cx.spawn(async move |this, cx| {
@@ -475,12 +493,20 @@ impl CpuWorkspace {
                         this.firefox_viewer = Some(viewer);
                         if !already_open {
                             cx.open_url(&url);
-                            this.local_viewer_url = Some(url);
                         }
-                        this.export_message =
-                            Some(this.language.text(TextKey::CpuViewerLocalOpened).into());
-                        if handoff_to_viewer
-                            && !already_open
+                        this.local_viewer_url =
+                            matches!(mode, FirefoxView::Bundled { .. }).then_some(url);
+                        let message = match mode {
+                            FirefoxView::Bundled { .. } => TextKey::CpuViewerLocalOpened,
+                            FirefoxView::Online => TextKey::CpuViewerOnlineOpened,
+                        };
+                        this.export_message = Some(this.language.text(message).into());
+                        if matches!(
+                            mode,
+                            FirefoxView::Bundled {
+                                handoff_to_viewer: true
+                            }
+                        ) && !already_open
                             && let Some(studio) = this.studio.clone()
                         {
                             let _ = studio.update(cx, |studio, cx| {
@@ -1224,7 +1250,7 @@ impl CpuWorkspace {
                 self.reload(cx);
                 match self.viewer_engine {
                     1 => self.open_local_firefox(true, cx),
-                    2 => self.save_firefox_for_site(true, cx),
+                    2 => self.open_online_firefox(cx),
                     _ => {}
                 }
             }
@@ -1924,10 +1950,6 @@ impl CpuWorkspace {
     }
 
     fn save_firefox(&mut self, cx: &mut Context<Self>) {
-        self.save_firefox_for_site(false, cx);
-    }
-
-    fn save_firefox_for_site(&mut self, open_website: bool, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
@@ -1939,7 +1961,6 @@ impl CpuWorkspace {
         self.export_message = None;
         self.generation += 1;
         let generation = self.generation;
-        let viewer_epoch = self.viewer_epoch;
         let directory = self
             .metadata_path
             .as_deref()
@@ -1993,17 +2014,9 @@ impl CpuWorkspace {
                 this.busy = false;
                 match result {
                     Ok(()) => {
-                        let opened_website = open_website && this.viewer_epoch == viewer_epoch;
-                        if opened_website {
-                            cx.open_url(crate::firefox_viewer::OFFICIAL_URL);
-                        }
                         this.export_message = Some(
                             this.language
-                                .text(if opened_website {
-                                    TextKey::CpuViewerOnlineExported
-                                } else {
-                                    TextKey::CpuFirefoxProfileExportedExistingFilesAreNever
-                                })
+                                .text(TextKey::CpuFirefoxProfileExportedExistingFilesAreNever)
                                 .into(),
                         );
                     }
@@ -8970,7 +8983,7 @@ mod metadata_tests {
     fn reopened_local_viewer_does_not_open_a_second_browser_tab() {
         let source = include_str!("cpu.rs");
         let open = source
-            .split("fn open_local_firefox(")
+            .split("fn open_firefox(")
             .nth(1)
             .unwrap()
             .split("pub(crate) fn selected_converter(")
@@ -8979,7 +8992,7 @@ mod metadata_tests {
         let compare = open
             .find("this.local_viewer_url.as_deref() == Some(url.as_str())")
             .unwrap();
-        let assign = open.find("this.local_viewer_url = Some(url);").unwrap();
+        let assign = open.find("this.local_viewer_url =").unwrap();
         let open_url = open.find("cx.open_url(&url)").unwrap();
         assert!(compare < open_url && open_url < assign);
         assert!(open.contains("if !already_open"));
@@ -10527,14 +10540,14 @@ mod metadata_tests {
                 < success.find("match self.viewer_engine").unwrap()
         );
         assert!(automatic.contains("1 => self.open_local_firefox(true, cx)"));
-        assert!(automatic.contains("2 => self.save_firefox_for_site(true, cx)"));
+        assert!(automatic.contains("2 => self.open_online_firefox(cx)"));
         assert!(automatic.contains("_ => {}"), "native mode stays in APS");
         assert_eq!(
             success.matches("self.open_local_firefox(true, cx)").count(),
             1
         );
         assert!(!failure.contains("open_local_firefox"));
-        assert!(!failure.contains("save_firefox_for_site"));
+        assert!(!failure.contains("open_online_firefox"));
         let settings = source
             .split("pub(crate) fn set_viewer_engine(")
             .nth(1)
@@ -10550,10 +10563,10 @@ mod metadata_tests {
     }
 
     #[test]
-    fn local_firefox_open_rejects_engine_changes_before_browser_handoff() {
+    fn firefox_open_rejects_engine_changes_before_browser_handoff() {
         let source = include_str!("cpu.rs");
         let open = source
-            .split("fn open_local_firefox(")
+            .split("fn open_firefox(")
             .nth(1)
             .unwrap()
             .split("pub(crate) fn selected_converter(")
@@ -10577,7 +10590,7 @@ mod metadata_tests {
     }
 
     #[test]
-    fn manual_viewer_open_and_online_export_precede_official_site() {
+    fn online_viewer_hands_off_the_current_session_without_a_save_prompt() {
         let source = include_str!("cpu.rs");
         let open = source
             .split("pub(crate) fn open_selected_viewer(")
@@ -10588,23 +10601,32 @@ mod metadata_tests {
             .unwrap();
         assert!(open.contains("self.session.is_none()"));
         assert!(open.contains("1 => self.open_local_firefox(false, cx)"));
-        assert!(open.contains("2 => self.save_firefox_for_site(true, cx)"));
-        let site = source
-            .split("fn save_firefox_for_site(")
+        assert!(open.contains("2 => self.open_online_firefox(cx)"));
+        let online = source
+            .split_once("fn open_online_firefox(")
+            .unwrap()
+            .1
+            .split("pub(crate) fn selected_converter(")
+            .next()
+            .unwrap();
+        assert!(online.contains("self.open_firefox(FirefoxView::Online, cx)"));
+        assert!(
+            online.find(".export_firefox_profile()").unwrap()
+                < online
+                    .find("viewer.open_online(&bytes, &root, chinese)")
+                    .unwrap()
+        );
+        assert!(!online.contains("prompt_for_new_path"));
+        assert!(!online.contains("OFFICIAL_URL"));
+        let export = source
+            .split("fn save_firefox(")
             .nth(1)
             .unwrap()
             .split("fn apply_time(")
             .next()
             .unwrap();
-        assert!(
-            site.find("write_new_export(&destination, &bytes)").unwrap()
-                < site.find("cx.open_url(").unwrap()
-        );
-        let success = site.split("Ok(()) => {").nth(1).unwrap();
-        assert!(success.contains("open_website && this.viewer_epoch == viewer_epoch"));
-        assert!(success.contains("crate::firefox_viewer::OFFICIAL_URL"));
-        assert!(!site.contains("from-url"));
-        assert!(!site.contains("postMessage"));
+        assert!(export.contains("write_new_export(&destination, &bytes)"));
+        assert!(!export.contains("open_url"));
         assert!(source.contains(".id(\"cpu-workspace-toolbar\")"));
         assert!(source.contains("\"cpu-open-viewer\""));
         let close = source

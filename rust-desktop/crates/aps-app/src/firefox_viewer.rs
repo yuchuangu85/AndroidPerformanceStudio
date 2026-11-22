@@ -1,4 +1,4 @@
-//! Private, bounded loopback hosting for the bundled Firefox Profiler.
+//! Private, bounded loopback hosting for Firefox Profiler.
 //! Profile bytes are already gzip-encoded by the caller and are never uploaded.
 
 #[path = "firefox_viewer/bridge.rs"]
@@ -35,6 +35,9 @@ const QUERY_ADAPTER: &str =
     include_str!("../../../../integrations/firefox-profiler/aps-query-api.js");
 // The bundle uses external module scripts and inline styles, not inline scripts.
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self' data: blob:; connect-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'none'";
+const ONLINE_POLICY: &str = "default-src 'none'; connect-src 'self'; script-src 'self'; style-src 'unsafe-inline'; frame-src https://profiler.firefox.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+const ONLINE_HTML: &str = include_str!("firefox_viewer/online.html");
+const ONLINE_SCRIPT: &str = include_str!("firefox_viewer/online.js");
 
 pub(crate) struct FirefoxViewer {
     server: Option<ServerHandle>,
@@ -53,52 +56,82 @@ impl FirefoxViewer {
         self.open_with_root(profile, storage_root, &root)
     }
 
+    pub(crate) fn open_online(
+        &mut self,
+        profile: &[u8],
+        storage_root: &Path,
+        chinese: bool,
+    ) -> Result<String, String> {
+        let directory = private_directory(storage_root)?;
+        let profile_path = write_profile(&directory, profile)?;
+        self.replace_server(ViewerContent::Online { chinese }, profile_path)
+    }
+
     fn open_with_root(
         &mut self,
         profile: &[u8],
         storage_root: &Path,
         root: &Path,
     ) -> Result<String, String> {
-        if profile.is_empty() || profile.len() as u64 > MAX_BODY_BYTES {
-            return Err("Firefox profile must contain between 1 byte and 64 MiB".to_owned());
-        }
         let root = validate_dist_root(root)?;
         let directory = private_directory(storage_root)?;
         if directory.starts_with(&root) {
             return Err("Firefox profile storage must be outside the static asset tree".to_owned());
         }
-        let profile_path = write_profile(&directory, profile)?;
-        let reuse = self.server.as_ref().is_some_and(|server| {
-            server.state.root == root && server.workers.iter().all(|worker| !worker.is_finished())
-        });
-        if reuse {
-            let replacement = QueryBridge::new()?;
-            let state = &self.server.as_ref().unwrap().state;
-            let mut bridge = state
-                .bridge
-                .lock()
-                .map_err(|_| "Firefox Profiler bridge is unavailable".to_owned())?;
-            bridge.close();
-            *bridge = replacement;
-            let mut current = state
-                .profile_path
-                .lock()
-                .map_err(|_| "Firefox Profiler server state is unavailable".to_owned())?;
-            let previous = std::mem::replace(&mut *current, profile_path);
-            let _ = fs::remove_file(previous);
-        } else {
-            // Build the replacement before dropping a working listener.
-            let server = match start_server(root, profile_path.clone()) {
-                Ok(server) => server,
-                Err(error) => {
-                    let _ = fs::remove_file(profile_path);
-                    return Err(error);
+        let reusable = self
+            .server
+            .as_ref()
+            .and_then(|server| match &server.state.content {
+                ViewerContent::Bundled {
+                    root: active,
+                    bridge,
+                } if *active == root
+                    && server.workers.iter().all(|worker| !worker.is_finished()) =>
+                {
+                    Some((server, bridge))
                 }
-            };
-            self.stop();
-            self.server = Some(server);
+                _ => None,
+            });
+        if let Some((server, bridge)) = reusable {
+            let replacement = QueryBridge::new()?;
+            let profile_path = write_profile(&directory, profile)?;
+            let previous = (|| {
+                let mut bridge = bridge
+                    .lock()
+                    .map_err(|_| "Firefox Profiler bridge is unavailable".to_owned())?;
+                let mut current = server
+                    .state
+                    .profile_path
+                    .lock()
+                    .map_err(|_| "Firefox Profiler server state is unavailable".to_owned())?;
+                bridge.close();
+                *bridge = replacement;
+                Ok(std::mem::replace(&mut *current, profile_path.clone()))
+            })()
+            .inspect_err(|_: &String| {
+                let _ = fs::remove_file(profile_path);
+            })?;
+            let _ = fs::remove_file(previous);
+            Ok(server.view_url())
+        } else {
+            let bridge = Mutex::new(QueryBridge::new()?);
+            let profile_path = write_profile(&directory, profile)?;
+            self.replace_server(ViewerContent::Bundled { root, bridge }, profile_path)
         }
-        Ok(self.server.as_ref().unwrap().view_url())
+    }
+
+    fn replace_server(
+        &mut self,
+        content: ViewerContent,
+        profile_path: PathBuf,
+    ) -> Result<String, String> {
+        // Build the replacement before dropping a working listener.
+        let server = start_server(content, profile_path.clone()).inspect_err(|_| {
+            let _ = fs::remove_file(profile_path);
+        })?;
+        let url = server.view_url();
+        self.server = Some(server);
+        Ok(url)
     }
 
     pub(crate) fn stop(&mut self) {
@@ -116,7 +149,9 @@ impl FirefoxViewer {
         let server = self.server.as_ref().ok_or("E_BROWSER_NOT_OPEN")?;
         server
             .state
-            .bridge
+            .content
+            .bridge()
+            .ok_or("E_BROWSER_NOT_OPEN")?
             .lock()
             .map_err(|_| "E_BRIDGE_UNAVAILABLE")?
             .submit(method, params, expected_revision)
@@ -129,12 +164,31 @@ impl Drop for FirefoxViewer {
     }
 }
 
+enum ViewerContent {
+    Bundled {
+        root: PathBuf,
+        bridge: Mutex<QueryBridge>,
+    },
+    Online {
+        chinese: bool,
+    },
+}
+
+impl ViewerContent {
+    fn bridge(&self) -> Option<&Mutex<QueryBridge>> {
+        match self {
+            Self::Bundled { bridge, .. } => Some(bridge),
+            Self::Online { .. } => None,
+        }
+    }
+}
+
 struct ServerState {
-    root: PathBuf,
+    content: ViewerContent,
     address: SocketAddr,
     profile_route: String,
+    online_route: String,
     profile_path: Mutex<PathBuf>,
-    bridge: Mutex<QueryBridge>,
     stop: AtomicBool,
 }
 
@@ -146,6 +200,9 @@ struct ServerHandle {
 impl ServerHandle {
     fn view_url(&self) -> String {
         let origin = format!("http://{}", self.state.address);
+        if let ViewerContent::Online { .. } = &self.state.content {
+            return format!("{origin}{}", self.state.online_route);
+        }
         let profile_url = format!("{origin}{}", self.state.profile_route);
         format!(
             "{origin}/from-url/{}/calltree/",
@@ -156,7 +213,9 @@ impl ServerHandle {
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
-        if let Ok(bridge) = self.state.bridge.lock() {
+        if let Some(bridge) = self.state.content.bridge()
+            && let Ok(bridge) = bridge.lock()
+        {
             bridge.close();
         }
         self.state.stop.store(true, Ordering::Release);
@@ -169,8 +228,7 @@ impl Drop for ServerHandle {
     }
 }
 
-fn start_server(root: PathBuf, profile_path: PathBuf) -> Result<ServerHandle, String> {
-    let root = validate_dist_root(&root)?;
+fn start_server(content: ViewerContent, profile_path: PathBuf) -> Result<ServerHandle, String> {
     let token = random_token()?;
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .map_err(|error| format!("cannot bind Firefox Profiler loopback server: {error}"))?;
@@ -180,13 +238,18 @@ fn start_server(root: PathBuf, profile_path: PathBuf) -> Result<ServerHandle, St
     let address = listener
         .local_addr()
         .map_err(|error| format!("cannot read Firefox Profiler loopback address: {error}"))?;
+    let online_route = format!("/aps-online-{token}/");
+    let profile_route = match &content {
+        ViewerContent::Bundled { .. } => format!("/aps-profile-{token}.json.gz"),
+        ViewerContent::Online { .. } => format!("{online_route}{PROFILE_FILE}"),
+    };
     let mut server = ServerHandle {
         state: Arc::new(ServerState {
-            root,
+            content,
             address,
-            profile_route: format!("/aps-profile-{token}.json.gz"),
+            profile_route,
+            online_route,
             profile_path: Mutex::new(profile_path),
-            bridge: Mutex::new(QueryBridge::new()?),
             stop: AtomicBool::new(false),
         }),
         workers: Vec::with_capacity(WORKERS),
@@ -216,6 +279,10 @@ fn serve(listener: TcpListener, state: Arc<ServerState>) {
                     let mut connection = Connection {
                         stream,
                         stop: &state.stop,
+                        policy: match &state.content {
+                            ViewerContent::Bundled { .. } => CONTENT_SECURITY_POLICY,
+                            ViewerContent::Online { .. } => ONLINE_POLICY,
+                        },
                         deadline: Instant::now() + REQUEST_TIMEOUT,
                         buffered_body: Vec::new(),
                     };
@@ -233,6 +300,7 @@ fn serve(listener: TcpListener, state: Arc<ServerState>) {
 struct Connection<'a> {
     stream: TcpStream,
     stop: &'a AtomicBool,
+    policy: &'static str,
     deadline: Instant,
     buffered_body: Vec<u8>,
 }
@@ -437,8 +505,10 @@ fn handle_connection(connection: &mut Connection<'_>, state: &ServerState) -> io
         Ok(request) => request,
         Err(status) => return reply(connection, status, b"Request rejected", false),
     };
-    if request.target.starts_with("/aps-query/") {
-        return handle_query(connection, state, &request);
+    if request.target.starts_with("/aps-query/")
+        && let Some(bridge) = state.content.bridge()
+    {
+        return handle_query(connection, bridge, &request);
     }
     connection.deadline = Instant::now() + RESPONSE_TIMEOUT;
     let head = request.method == "HEAD";
@@ -461,17 +531,35 @@ fn handle_connection(connection: &mut Connection<'_>, state: &ServerState) -> io
             .clone();
         return serve_file(connection, &file, head, "application/gzip");
     }
+    let (root, bridge) = match &state.content {
+        ViewerContent::Bundled { root, bridge } => (root, bridge),
+        ViewerContent::Online { chinese } => match path.strip_prefix(&state.online_route) {
+            Some("") => {
+                let html = ONLINE_HTML.replace("{language}", if *chinese { "zh-CN" } else { "en" });
+                return serve_inline(connection, "text/html; charset=utf-8", &html, head);
+            }
+            Some("handoff.js") => {
+                return serve_inline(
+                    connection,
+                    "text/javascript; charset=utf-8",
+                    ONLINE_SCRIPT,
+                    head,
+                );
+            }
+            _ => return reply(connection, "404 Not Found", b"Not found", head),
+        },
+    };
     // Missing assets stay errors. Only the authenticated local view route gets
     // the SPA shell, never arbitrary unknown paths or missing JS/CSS files.
     let file = if is_view_route(path, request.authority, &state.profile_route) {
-        safe_static_path(&state.root, "/")
+        safe_static_path(root, "/")
     } else {
-        percent_decode(path).and_then(|decoded| safe_static_path(&state.root, &decoded))
+        percent_decode(path).and_then(|decoded| safe_static_path(root, &decoded))
     };
     if let Some(file) = &file
-        && file == &state.root.join(INDEX_FILE)
+        && file == &root.join(INDEX_FILE)
     {
-        return serve_shell(connection, state, head);
+        return serve_shell(connection, state, file, bridge, head);
     }
     match file {
         Some(file) => serve_file(connection, &file, head, content_type(&file)),
@@ -490,10 +578,13 @@ fn request_path(target: &str) -> Option<&str> {
     target.split('?').next()
 }
 
-fn serve_shell(connection: &mut Connection<'_>, state: &ServerState, head: bool) -> io::Result<()> {
-    let Some(path) = safe_static_path(&state.root, "/") else {
-        return reply(connection, "404 Not Found", b"Not found", head);
-    };
+fn serve_shell(
+    connection: &mut Connection<'_>,
+    state: &ServerState,
+    path: &Path,
+    bridge: &Mutex<QueryBridge>,
+    head: bool,
+) -> io::Result<()> {
     let mut html = String::new();
     File::open(path)?
         .take(2 * 1024 * 1024 + 1)
@@ -506,8 +597,7 @@ fn serve_shell(connection: &mut Connection<'_>, state: &ServerState, head: bool)
             head,
         );
     }
-    let bridge = state
-        .bridge
+    let bridge = bridge
         .lock()
         .map_err(|_| io::Error::other("bridge unavailable"))?
         .clone();
@@ -523,14 +613,18 @@ fn serve_shell(connection: &mut Connection<'_>, state: &ServerState, head: bool)
         .or_else(|| html.find("</body>"))
         .unwrap_or(html.len());
     html.insert_str(position, &script);
-    write_headers(
-        connection,
-        "200 OK",
-        "text/html; charset=utf-8",
-        html.len() as u64,
-    )?;
+    serve_inline(connection, "text/html; charset=utf-8", &html, head)
+}
+
+fn serve_inline(
+    connection: &mut Connection<'_>,
+    mime: &str,
+    body: &str,
+    head: bool,
+) -> io::Result<()> {
+    write_headers(connection, "200 OK", mime, body.len() as u64)?;
     if !head {
-        connection.write_all(html.as_bytes())?;
+        connection.write_all(body.as_bytes())?;
     }
     Ok(())
 }
@@ -543,11 +637,10 @@ fn json_reply(connection: &mut Connection<'_>, value: &serde_json::Value) -> io:
 
 fn handle_query(
     connection: &mut Connection<'_>,
-    state: &ServerState,
+    bridge: &Mutex<QueryBridge>,
     request: &Request<'_>,
 ) -> io::Result<()> {
-    let bridge = state
-        .bridge
+    let bridge = bridge
         .lock()
         .map_err(|_| io::Error::other("bridge unavailable"))?
         .clone();
@@ -796,6 +889,9 @@ fn private_directory(storage_root: &Path) -> Result<PathBuf, String> {
 }
 
 fn write_profile(directory: &Path, profile: &[u8]) -> Result<PathBuf, String> {
+    if profile.is_empty() || profile.len() as u64 > MAX_BODY_BYTES {
+        return Err("Firefox profile must contain between 1 byte and 64 MiB".to_owned());
+    }
     // A shared storage root must not let another viewer replace this server's bytes.
     let destination = directory.join(format!("{}-{PROFILE_FILE}", random_token()?));
     let temporary = directory.join(format!(".profile-{}.tmp", random_token()?));
@@ -919,8 +1015,9 @@ fn write_headers(
     mime: &str,
     length: u64,
 ) -> io::Result<()> {
+    let policy = connection.policy;
     connection.write_all(format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {length}\r\nContent-Security-Policy: {CONTENT_SECURITY_POLICY}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n"
+        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {length}\r\nContent-Security-Policy: {policy}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n"
     ).as_bytes())
 }
 
@@ -1061,7 +1158,9 @@ mod tests {
             .as_ref()
             .unwrap()
             .state
-            .bridge
+            .content
+            .bridge()
+            .unwrap()
             .lock()
             .unwrap()
             .issue_document()
@@ -1102,7 +1201,9 @@ mod tests {
         let bundle = fixture.root.join("Viewer.app");
         let executable = bundle.join("Contents/MacOS");
         fs::create_dir_all(&executable).unwrap();
-        let packaged = bundle.join("Contents/Resources").join(PACKAGED_DIST_DIRECTORY);
+        let packaged = bundle
+            .join("Contents/Resources")
+            .join(PACKAGED_DIST_DIRECTORY);
         fs::create_dir_all(&packaged).unwrap();
         fs::write(packaged.join(INDEX_FILE), b"packaged").unwrap();
         assert_eq!(
@@ -1130,6 +1231,61 @@ mod tests {
                 .is_err()
         );
         assert!(viewer.server.is_none());
+    }
+
+    #[test]
+    fn online_viewer_serves_the_current_profile_privately_without_bundled_assets() {
+        let fixture = Fixture::new();
+        fs::remove_dir_all(&fixture.assets).unwrap();
+        let mut viewer = FirefoxViewer::new();
+        let url = viewer
+            .open_online(b"current profile", &fixture.root, true)
+            .unwrap();
+        let state = &viewer.server.as_ref().unwrap().state;
+        let address = state.address;
+        let route = url.strip_prefix(&format!("http://{address}")).unwrap();
+        let asset_path = format!("{route}handoff.js");
+        let profile_route = format!("{route}{PROFILE_FILE}");
+        let shell = request(&viewer, route, "GET", "");
+        let shell = text(&shell);
+        assert!(shell.starts_with("HTTP/1.1 200 OK"));
+        assert!(shell.contains("lang=\"zh-CN\""));
+        assert!(shell.contains(&format!("Content-Security-Policy: {ONLINE_POLICY}\r\n")));
+        assert!(shell.contains("Referrer-Policy: no-referrer\r\n"));
+        assert!(!shell.contains("current profile"));
+        let script = request(&viewer, &asset_path, "GET", "");
+        assert!(text(&script).contains(ONLINE_SCRIPT));
+        let profile = request(&viewer, &profile_route, "GET", "");
+        assert!(text(&profile).ends_with("current profile"));
+        assert!(text(&profile).contains("Cross-Origin-Resource-Policy: same-origin\r\n"));
+        assert!(!text(&profile).contains("Access-Control-Allow"));
+        let foreign = request(
+            &viewer,
+            &profile_route,
+            "GET",
+            "Origin: https://profiler.firefox.com\r\n",
+        );
+        assert!(text(&foreign).starts_with("HTTP/1.1 403"));
+        for path in [
+            "/",
+            "/profile.json.gz",
+            "/aps-query/any/poll",
+            "/aps-online-wrong/profile.json.gz",
+        ] {
+            assert!(text(&request(&viewer, path, "GET", "")).starts_with("HTTP/1.1 404"));
+        }
+        assert!(
+            viewer
+                .query("context", serde_json::json!({}), None)
+                .is_err()
+        );
+        let file = profile_path(&viewer);
+        let next_url = viewer
+            .open_online(b"next profile", &fixture.root, false)
+            .unwrap();
+        assert_ne!(url, next_url);
+        assert!(!file.exists());
+        assert!(TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_err());
     }
 
     #[test]
@@ -1389,6 +1545,7 @@ mod tests {
         let mut connection = Connection {
             stream: server,
             stop: &stop,
+            policy: CONTENT_SECURITY_POLICY,
             deadline: Instant::now() + Duration::from_millis(80),
             buffered_body: Vec::new(),
         };
@@ -1454,7 +1611,7 @@ mod tests {
         body: Option<&serde_json::Value>,
     ) -> Vec<u8> {
         let state = &viewer.server.as_ref().unwrap().state;
-        let id = state.bridge.lock().unwrap().page_id();
+        let id = state.content.bridge().unwrap().lock().unwrap().page_id();
         let body = body.map(serde_json::Value::to_string);
         let method = if body.is_some() { "POST" } else { "GET" };
         let body_headers = body
@@ -1515,7 +1672,7 @@ mod tests {
         let fixture = Fixture::new();
         let viewer = fixture.viewer();
         let state = &viewer.server.as_ref().unwrap().state;
-        let id = state.bridge.lock().unwrap().page_id();
+        let id = state.content.bridge().unwrap().lock().unwrap().page_id();
         let path = format!("/aps-query/{id}/poll");
         assert!(text(&request(&viewer, &path, "GET", "")).starts_with("HTTP/1.1 403"));
         for headers in [
@@ -1588,7 +1745,9 @@ mod tests {
             .as_ref()
             .unwrap()
             .state
-            .bridge
+            .content
+            .bridge()
+            .unwrap()
             .lock()
             .unwrap()
             .page_id();

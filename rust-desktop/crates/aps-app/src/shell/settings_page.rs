@@ -1304,6 +1304,18 @@ impl Studio {
                         }),
                     ),
                 )
+                .when(self.settings.simpleperf_viewer_engine == 2, |card| {
+                    card.child(div().flex().child(
+                        studio::text_button(
+                            "settings-simpleperf-open-online",
+                            lang.text(TextKey::SettingsUiOpenFirefoxProfiler),
+                            true,
+                            false,
+                            &colors,
+                        )
+                        .on_click(|_, _, cx| cx.open_url(crate::firefox_viewer::OFFICIAL_URL)),
+                    ))
+                })
                 .child(studio::supporting(
                     lang.text(TextKey::SettingsUiViewerHint),
                     &colors,
@@ -2374,8 +2386,13 @@ mod tests {
         assert!(choices.contains("Radio::new((\"engine\", engine as usize))"));
         assert!(choices.contains(".checked(self.settings.simpleperf_viewer_engine == engine)"));
         assert!(!choices.contains(".disabled("));
-        assert!(!choices.contains("open_url"));
-        assert!(!choices.contains("open_selected_viewer"));
+        let (radios, online_button) = choices
+            .split_once(".when(self.settings.simpleperf_viewer_engine == 2, |card|")
+            .unwrap();
+        assert!(!radios.contains("open_url"));
+        assert!(!radios.contains("open_selected_viewer"));
+        assert!(online_button.contains("settings-simpleperf-open-online"));
+        assert!(online_button.contains("cx.open_url(crate::firefox_viewer::OFFICIAL_URL)"));
         let directory = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
         let path = directory.path().join("settings.conf");
         for engine in 0..=2 {
