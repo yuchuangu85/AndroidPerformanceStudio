@@ -10,6 +10,9 @@ on:
       - "aps-desktop-v*"
       - "v*"
 
+# A -rebuild.N tag suffix selects a new source commit without changing the
+# application or installer version. Keep the full tag in artifact filenames.
+
 permissions:
   contents: write
 
@@ -88,6 +91,7 @@ jobs:
           set -e
           version="${RELEASE_TAG#aps-desktop-v}"
           version="${version#rust-desktop-v}"; version="${version#v}"
+          version="${version%-rebuild.*}"
           root="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}"
           libdir="$root/usr/lib/aps-desktop"
           mkdir -p "$libdir" "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/1024x1024/apps" "$PWD/dist/rpm/BUILD" "$PWD/dist/rpm/RPMS" "$PWD/dist/rpm/SOURCES" "$PWD/dist/rpm/SPECS" "$PWD/dist/rpm/SRPMS"
@@ -218,6 +222,7 @@ jobs:
           set -e
           version="${RELEASE_TAG#aps-desktop-v}"
           version="${version#rust-desktop-v}"; version="${version#v}"
+          version="${version%-rebuild.*}"
           app="dist/Android Performance Studio.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
           cp "rust-desktop/target/${TARGET}/release/aps-app" "$app/Contents/MacOS/aps-app"
@@ -240,14 +245,7 @@ jobs:
           APS_TEST_PACKAGED_PERFETTO_RESOURCES="$PWD/$app/Contents/MacOS/resources" \
             cargo test --locked --release --target "$TARGET" --manifest-path rust-desktop/Cargo.toml \
             -p aps-perfetto --test pinned_tool signed_packaged_tool_opens_a_trace_and_rejects_modified_bytes -- --exact
-          # A DMG needs the application plus an /Applications target so the user can
-          # drag-install; a bundle alone in the volume gives no destination folder.
-          stage="dist/dmg-${ARCH}"
-          rm -rf "$stage"
-          mkdir -p "$stage"
-          cp -R "$app" "$stage/"
-          ln -s /Applications "$stage/Applications"
-          hdiutil create -volname "Android Performance Studio" -srcfolder "$stage" -ov -format UDZO "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.dmg"
+          bash scripts/package-macos-dmg.sh "$app" "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.dmg"
           pkgbuild --component "$app" --install-location /Applications --version "$version" "dist/aps-desktop-${RELEASE_TAG}-macos-${ARCH}.pkg"
       - name: Upload macOS packages
         uses: actions/upload-artifact@v4
@@ -290,7 +288,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = $env:RELEASE_TAG -replace '^(?:aps-desktop-|rust-desktop-)?v', ''
+          $version = ($env:RELEASE_TAG -replace '^(?:aps-desktop-|rust-desktop-)?v', '') -replace '-rebuild\..*$', ''
           $parts = (($version -replace '[^0-9.]', '.') -split '\.' | Where-Object { $_ -ne '' } | Select-Object -First 3)
           while ($parts.Count -lt 3) { $parts += '0' }
           $msiVersion = $parts -join '.'
@@ -372,6 +370,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#aps-desktop-v}"
           version="${version#rust-desktop-v}"; version="${version#v}"
+          version="${version%-rebuild.*}"
           title="AndroidPerfermanceStudio ${version}"
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             # Re-running a tag refreshes the packaged assets and keeps the
