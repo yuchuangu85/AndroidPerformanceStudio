@@ -524,6 +524,8 @@ User-requested Android Studio-style leak analysis supersedes the earlier exclusi
 - 每次从导航栏、菜单或协调器打开 AI 都产生新的窗口激活请求：已有窗口恢复最小化、移至前台并请求焦点，不重建 Runtime、不清空草稿或取消执行。仅将可见开关重复设为 true 不视为完成激活。
 - 长对话的滚动导航固定于整个消息区域最右下角，位于输入区上方，与消息文字保留独立侧边空间；32dp 的回到顶部/回到最新消息图标按钮上下竖排、间隔 6dp，距视口右边和底边各 12dp。短内容隐藏；上箭头仅离开顶部时显示，下箭头仅未到底部时显示。回到顶部暂停自动跟随，回到底部恢复跟随；滚动不触发模型或其他业务操作。
 - 对话显示用户问题、结构化 Findings、Evidence/Source 跳转、子任务/Skill timeline 和已验证 HTML/Markdown Artifact；HTML 由固定惰性模板转义生成。摘要与 Findings 共用原生 Markdown 显示子集：段落、标题、嵌套列表/任务项、引用、可横向滚动的表格、分隔线、强调和代码。正文 14sp/24sp、段落间距 16dp，h1/h2/h3 为 21/30、19/28、18/26；代码块带语言、复制、换行切换和轻量着色，8dp 圆角沿用本地约束。HTTP(S) 链接仅显示主题样式，不执行导航；HTML、图片及不安全链接惰性显示，不从模型文本读取文件或远程资源。附件、任意源码浏览、完整 CommonMark/数学公式、另存到任意目录、Token/速度精确统计等必须有真实后端和独立验收后才能呈现为可用功能；不能用占位按钮宣称 DSH 完全对齐。
+- 会话显示按本机 Deepseek-chat 的 `src/app/global.css`、`src/components/messages/UserMessage.module.css` 和 `src/components/markdown/markdown.css` 调整：宽／窄消息列上限 752／640dp，用户气泡右对齐、22dp 圆角、16sp/24sp，Markdown 正文 16sp/28sp，三级主标题分别为 24/34、22/32、20/30。代码使用浅深两套背景及 12dp 圆角，表格以行分隔线为主，超宽内容仍在块内横向滚动。该更新只覆盖消息和 Markdown 的视觉规格；不改侧栏、输入区、证据权限或消息操作。
+- AI 页头和会话菜单都可通过系统文件选择器预览 UTF-8 `.md`／`.markdown`。预览复用惰性 Markdown 渲染器，仅阅读明确选中的普通文件（最多 65,536 字符），不作为附件发送或写入会话。保留 HTML、图片和外部链接的原有安全边界，不执行脚本、不加载远程资源；不宣称支持 Deepseek-chat 的 KaTeX 或 Mermaid 渲染。
 - 中英、明暗、900/1280 布局、键盘/焦点/语义测试与截图独立于实际 provider、沙箱和跨平台 Release 证据。
 
 ### CPU AI Key Facts (2026-11-04)

@@ -18,6 +18,28 @@ pub const MAX_INLINE_DEPTH: usize = 12;
 /// Maximum input characters parsed as Markdown.
 pub const MAX_MARKDOWN_CHARS: usize = 64 * 1024;
 
+/// Reads only the Markdown file explicitly chosen in the OS picker.
+pub fn read_document(path: &std::path::Path) -> Option<String> {
+    use std::io::Read as _;
+    let extension = path.extension()?.to_str()?;
+    if !extension.eq_ignore_ascii_case("md") && !extension.eq_ignore_ascii_case("markdown") {
+        return None;
+    }
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    const MAX_BYTES: u64 = (MAX_MARKDOWN_CHARS * 4 + 3) as u64;
+    if !metadata.is_file() || metadata.len() > MAX_BYTES {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(MAX_BYTES + 1).read_to_string(&mut text).ok()?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    (text.chars().count() <= MAX_MARKDOWN_CHARS).then(|| text.to_owned())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
     Paragraph(String),
@@ -632,9 +654,17 @@ fn remove_indent(line: &str, count: usize) -> String {
 fn paragraph_text(lines: &[String]) -> String {
     let mut output = String::new();
     for (index, line) in lines.iter().enumerate() {
-        output.push_str(line.trim());
-        if index < lines.len() - 1 {
-            output.push(if line.ends_with("  ") { '\n' } else { ' ' });
+        let unescaped_backslash = line.ends_with('\\')
+            && line.bytes().rev().take_while(|&b| b == b'\\').count() % 2 == 1;
+        let continues = index + 1 < lines.len();
+        let text = if continues && unescaped_backslash {
+            line[..line.len() - 1].trim()
+        } else {
+            line.trim()
+        };
+        output.push_str(text);
+        if continues {
+            output.push(if unescaped_backslash || line.ends_with("  ") { '\n' } else { ' ' });
         }
     }
     output
@@ -643,6 +673,40 @@ fn paragraph_text(lines: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_utf8_markdown_files_with_real_document_blocks() {
+        let workspace = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let path = workspace.path().join("报告.MD");
+        std::fs::write(
+            &path,
+            "\u{feff}# 性能分析\r\n\r\n第一行\\\r\n第二行\r\n\r\n> 证据\r\n\r\n- [x] 完成\r\n\r\n| 指标 | 值 |\r\n| --- | ---: |\r\n| P95 | 16 ms |\r\n\r\n```sql\r\nSELECT 1;\r\n```\r\n",
+        )
+        .unwrap();
+        let blocks = parse_markdown(&read_document(&path).unwrap());
+        assert!(matches!(&blocks[0], Block::Heading { level: 1, text } if text == "性能分析"));
+        assert_eq!(blocks[1], Block::Paragraph("第一行\n第二行".into()));
+        assert!(matches!(&blocks[2], Block::Quote(_)));
+        assert!(matches!(&blocks[3], Block::List(list) if list.items[0].checked == Some(true)));
+        assert!(matches!(&blocks[4], Block::Table { rows, .. } if rows[0][1] == "16 ms"));
+        assert!(matches!(&blocks[5], Block::Code { language, text } if language == "sql" && text == "SELECT 1;"));
+    }
+
+    #[test]
+    fn markdown_file_preview_rejects_unsupported_and_oversized_inputs() {
+        let workspace = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let path = workspace.path().join("report.md");
+        std::fs::write(&path, b"\xff").unwrap();
+        assert!(read_document(&path).is_none());
+        std::fs::write(&path, "x".repeat(MAX_MARKDOWN_CHARS + 1)).unwrap();
+        assert!(read_document(&path).is_none());
+        let html = workspace.path().join("report.html");
+        std::fs::write(&html, "# Text").unwrap();
+        assert!(read_document(&html).is_none());
+        let directory = workspace.path().join("directory.md");
+        std::fs::create_dir(&directory).unwrap();
+        assert!(read_document(&directory).is_none());
+    }
 
     #[test]
     fn parses_paragraphs_headings_rules_and_fences() {

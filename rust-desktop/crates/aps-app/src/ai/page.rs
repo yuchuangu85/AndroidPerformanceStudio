@@ -59,6 +59,11 @@ pub fn render(
                 return;
             }
             if key == "escape" && !event.is_held {
+                if this.state.dialogs.markdown.is_some() {
+                    this.close_dialogs(cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if this.state.models_open {
                     this.close_models(cx);
                     cx.stop_propagation();

@@ -25,8 +25,7 @@ pub fn render_conversation(
         0.0
     };
     let available = (viewport - sidebar_width).max(0.0);
-    let chat_width =
-        style::chat_width(available).min((available - tokens::NAVIGATION_GUTTER * 2.0).max(0.0));
+    let chat_width = style::message_width(viewport, available);
     let composer_width = style::composer_width(available);
     let title = workspace
         .state
@@ -81,6 +80,17 @@ pub fn render_conversation(
             .text_ellipsis()
             .child(crate::studio::selectable(title)),
     );
+    header = header.child(widgets::icon_button(
+        entity.clone(),
+        IconName::FileText,
+        language.text(TextKey::AiChatOpenMarkdown),
+        "ai-open-markdown",
+        !workspace.picking_markdown && workspace.state.pending_approval.is_none(),
+        32.0,
+        rgba(0x00000000),
+        colors.muted,
+        |this, _, cx| this.pick_markdown(cx),
+    ));
 
     let message_list =
         render_message_list(workspace, colors, language, chat_width, &entity, window, cx);
@@ -142,6 +152,36 @@ fn render_message_list(
         .pt(px(tokens::MESSAGE_TOP_PADDING))
         .pb(px(tokens::MESSAGE_BOTTOM_PADDING));
 
+    if workspace.state.show_welcome() {
+        content = content.child(
+            div()
+                .id("ai-chat-welcome")
+                .w_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(20.))
+                .pt(px(tokens::EMPTY_TOP_PADDING))
+                .pb(px(tokens::EMPTY_BOTTOM_PADDING))
+                .child(
+                    div()
+                        .size(px(tokens::EMPTY_ICON_SIZE))
+                        .flex_shrink_0()
+                        .text_size(px(tokens::EMPTY_ICON_SIZE))
+                        .text_color(colors.send)
+                        .child(IconName::Bot),
+                )
+                .child(
+                    style::title_text(div())
+                        .text_center()
+                        .text_color(colors.text)
+                        .child(crate::studio::selectable(
+                            language.text(TextKey::AiChatEmptyPrompt),
+                        )),
+                ),
+        );
+    }
+
     let conversation_id = workspace.state.selected_conversation_id.clone();
     let retry_enabled = !workspace.state.busy && workspace.state.can_send;
     for turn in workspace.state.turns.clone() {
@@ -150,6 +190,7 @@ fn render_message_list(
             colors,
             language,
             &turn,
+            style::question_width(chat_width),
             conversation_id.as_deref(),
             retry_enabled,
             entity,
@@ -287,6 +328,7 @@ fn turn_view(
     colors: &DshChatColors,
     language: Language,
     turn: &aps_ai::runtime::TurnRecord,
+    question_width: f32,
     conversation_id: Option<&str>,
     retry_enabled: bool,
     entity: &WeakEntity<AiWorkspace>,
@@ -296,7 +338,7 @@ fn turn_view(
     let mut column = div().w_full().flex().flex_col().gap(px(18.));
     let text_style = |element: Div| {
         element
-            .text_size(px(tokens::BODY_FONT_SIZE))
+            .text_size(px(tokens::USER_FONT_SIZE))
             .line_height(px(tokens::USER_LINE_HEIGHT))
     };
     if let Some(question) = turn.question.clone() {
@@ -313,9 +355,9 @@ fn turn_view(
             .items_end()
             .child(
                 div()
-                    .max_w(relative(tokens::USER_BUBBLE_MAX_FRACTION))
+                    .max_w(px(question_width))
                     .bg(colors.bubble)
-                    .rounded(px(tokens::EXTRA_LARGE_RADIUS))
+                    .rounded(px(tokens::USER_BUBBLE_RADIUS))
                     .px(px(tokens::USER_BUBBLE_PADDING_X))
                     .py(px(tokens::USER_BUBBLE_PADDING_Y))
                     .child(text_style(div()).text_color(colors.text).child(

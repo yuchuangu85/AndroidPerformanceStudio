@@ -1,5 +1,6 @@
 {
   "ai_chat_conversations": "会话",
+  "ai_chat_conversation_actions": "会话操作",
   "ai_chat_close_sidebar": "收起侧栏",
   "ai_chat_new_chat": "新建会话",
   "ai_chat_search_conversations": "搜索会话",
@@ -28,6 +29,9 @@
   "ai_chat_open_sidebar": "展开侧栏",
   "ai_chat_back_to_top": "回到顶部",
   "ai_chat_back_to_latest": "回到最新消息",
+  "ai_chat_empty_prompt": "有什么想了解的？",
+  "ai_chat_open_markdown": "打开 Markdown 文件…",
+  "ai_chat_markdown_read_error": "请选择可读取的 UTF-8 .md 或 .markdown 文件，最多 65,536 个字符。",
   "ai_chat_copy": "复制",
   "ai_chat_copied": "已复制",
   "ai_chat_edit_question": "编辑问题",

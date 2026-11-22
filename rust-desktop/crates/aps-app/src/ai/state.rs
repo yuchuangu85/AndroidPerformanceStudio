@@ -48,6 +48,13 @@ pub struct Dialogs {
     pub archive: Option<String>,
     pub evidence: Option<String>,
     pub prompts: bool,
+    pub markdown: Option<Result<MarkdownDocument, ()>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MarkdownDocument {
+    pub title: String,
+    pub text: std::sync::Arc<str>,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +175,18 @@ impl ChatState {
             .iter()
             .find(|session| session.id == id)
             .map(|session| session.title.as_str())
+    }
+
+    /// A fresh chat already has an ID before its first send. An existing
+    /// conversation may briefly have no turns while its history loads.
+    pub fn show_welcome(&self) -> bool {
+        self.turns.is_empty()
+            && self.selected_title().is_none()
+            && !self.busy
+            && self.pending_approval.is_none()
+            && self.status.is_none()
+            && self.activity.is_empty()
+            && self.error.is_none()
     }
 
     pub fn can_submit(&self) -> bool {
@@ -504,6 +523,49 @@ mod tests {
             status: None,
             archived,
         }
+    }
+
+    #[test]
+    fn shows_welcome_only_before_the_conversation_starts() {
+        let mut state = ChatState::new();
+        assert!(state.show_welcome());
+        state.selected_conversation_id = Some("fresh".into());
+        state.draft = "An unsent question".into();
+        assert!(state.show_welcome(), "an ID and draft are not a conversation");
+
+        state.busy = true;
+        assert!(!state.show_welcome());
+        state.busy = false;
+        state.status = Some(RunStatus::AwaitingApproval);
+        assert!(!state.show_welcome());
+        state.status = None;
+        state.error = Some("Request failed".into());
+        assert!(!state.show_welcome());
+        state.error = None;
+
+        state
+            .sessions
+            .push(session("saved", "Earlier chat", false, false, 1));
+        assert!(
+            state.show_welcome(),
+            "other saved chats do not hide the welcome screen"
+        );
+        state.selected_conversation_id = Some("saved".into());
+        assert!(
+            !state.show_welcome(),
+            "do not flash the welcome screen while loading a saved chat"
+        );
+        state.sessions.clear();
+        state.turns.push(TurnRecord {
+            run_id: "run-1".into(),
+            generation: 1,
+            status: RunStatus::Succeeded,
+            question: Some("Earlier question".into()),
+            result: None,
+            timestamp_millis: 0,
+            artifact_hashes: Vec::new(),
+        });
+        assert!(!state.show_welcome());
     }
 
     #[test]

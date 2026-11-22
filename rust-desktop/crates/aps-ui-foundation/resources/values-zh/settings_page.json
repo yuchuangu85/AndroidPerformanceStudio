@@ -76,7 +76,7 @@
   "settings_ui_new_engine": "原生 Rust",
   "settings_ui_firefox_local_engine": "Firefox Profiler（本地）",
   "settings_ui_firefox_engine": "Firefox Profiler（在线）",
-  "settings_ui_user_guide_description": "在默认浏览器中阅读离线 Simpleperf 用户指南。",
+  "settings_ui_user_guide_description": "在默认浏览器中阅读内置用户指南，无需联网。",
   "settings_ui_open_user_guide_browser": "在浏览器中打开用户指南",
   "settings_ui_template_app_cpu_basic_description": "通用的应用 CPU 热点采样。",
   "settings_ui_template_ui_thread_focus_description": "对选定 UI 线程进行高频采样。",

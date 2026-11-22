@@ -76,7 +76,7 @@
   "settings_ui_new_engine": "Native Rust",
   "settings_ui_firefox_local_engine": "Firefox Profiler (bundled)",
   "settings_ui_firefox_engine": "Firefox Profiler (online)",
-  "settings_ui_user_guide_description": "Read the offline Simpleperf user guide in your default browser.",
+  "settings_ui_user_guide_description": "Read the bundled user guide in your default browser. No internet connection is required.",
   "settings_ui_open_user_guide_browser": "Open User Guide in Browser",
   "settings_ui_template_app_cpu_basic_description": "General-purpose app CPU hotspot sampling.",
   "settings_ui_template_ui_thread_focus_description": "High-frequency sampling for a selected UI thread.",

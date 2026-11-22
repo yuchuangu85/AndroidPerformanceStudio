@@ -33,6 +33,7 @@ use gpui_kit::{
         ActiveTheme, Disableable, IconName, Placement, Selectable,
         button::{Button, ButtonVariants},
         menu::{DropdownMenu, PopupMenuItem},
+        tooltip::Tooltip,
     },
     prelude::*,
     *,
@@ -48,6 +49,7 @@ enum SettingsPage {
     Simpleperf,
     CpuCapture,
     Ai,
+    UserGuide,
     About,
 }
 
@@ -123,13 +125,14 @@ impl Render for TitlebarDragState {
 }
 
 impl SettingsPage {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::General,
         Self::Configuration,
         Self::LayoutInspector,
         Self::Simpleperf,
         Self::CpuCapture,
         Self::Ai,
+        Self::UserGuide,
         Self::About,
     ];
 
@@ -143,6 +146,7 @@ impl SettingsPage {
             Self::Simpleperf => TextKey::CommonSimpleperf,
             Self::CpuCapture => TextKey::FoundationCapturePlanning,
             Self::Ai => TextKey::CommonAi,
+            Self::UserGuide => TextKey::SettingsUiGuide,
             Self::About => TextKey::CommonAbout,
         }
     }
@@ -2576,7 +2580,7 @@ impl Studio {
     }
 
     fn select_settings_page(&mut self, page: SettingsPage) {
-        if page == SettingsPage::LayoutInspector {
+        if matches!(page, SettingsPage::LayoutInspector | SettingsPage::UserGuide) {
             self.settings_scroll.set_offset(point(px(0.), px(0.)));
         }
         self.settings_page = page;
@@ -2958,6 +2962,7 @@ fn titlebar_notification_button(
     unread: usize,
     open: bool,
     colors: &crate::studio::StudioColors,
+    language: Language,
 ) -> AnyElement {
     let entity = notifications.clone();
     let badge = (unread > 0).then(|| {
@@ -2982,6 +2987,9 @@ fn titlebar_notification_button(
         .text_size(px(16.))
         .when(open, |this| this.bg(hover))
         .hover(move |style| style.bg(hover))
+        .tooltip(move |window, cx| {
+            Tooltip::new(language.text(TextKey::ShellNotificationTitle)).build(window, cx)
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             entity.update(cx, |notifications, cx| {
@@ -3101,6 +3109,7 @@ impl Render for Studio {
                 unread_notifications,
                 notifications_open,
                 &studio_colors,
+                language,
             )
         };
         let titlebar_state = window.use_state(cx, |_, _| TitlebarDragState { should_move: false });

@@ -247,19 +247,19 @@ fn render_block(
         Block::Paragraph(text) => inline_text(
             text,
             colors,
-            tokens::BODY_FONT_SIZE,
-            tokens::BODY_LINE_HEIGHT,
+            tokens::MARKDOWN_FONT_SIZE,
+            tokens::MARKDOWN_LINE_HEIGHT,
             FontWeight::NORMAL,
             TextAlign::Left,
         ),
         Block::Heading { level, text } => {
             let (size, line_height, weight) = match level {
-                1 => (21.0, 30.0, FontWeight::BOLD),
-                2 => (19.0, 28.0, FontWeight::BOLD),
-                3 => (18.0, 26.0, FontWeight::BOLD),
+                1 => (24.0, 34.0, FontWeight::BOLD),
+                2 => (22.0, 32.0, FontWeight::BOLD),
+                3 => (20.0, 30.0, FontWeight::BOLD),
                 _ => (
-                    tokens::BODY_FONT_SIZE,
-                    tokens::BODY_LINE_HEIGHT,
+                    tokens::MARKDOWN_FONT_SIZE,
+                    tokens::MARKDOWN_LINE_HEIGHT,
                     FontWeight::SEMIBOLD,
                 ),
             };
@@ -282,7 +282,7 @@ fn render_block(
             headers,
             rows,
             alignments,
-        } => render_table(headers, rows, alignments, colors),
+        } => render_table(headers, rows, alignments, colors, tag),
         Block::Rule => div()
             .w_full()
             .h(px(1.))
@@ -353,8 +353,8 @@ fn render_list_item(
             div()
                 .w(px(marker_width))
                 .pr(px(6.))
-                .text_size(px(tokens::BODY_FONT_SIZE))
-                .line_height(px(tokens::BODY_LINE_HEIGHT))
+                .text_size(px(tokens::MARKDOWN_FONT_SIZE))
+                .line_height(px(tokens::MARKDOWN_LINE_HEIGHT))
                 .text_color(colors.muted)
                 .child(studio_selectable(marker, format!("{tag}-marker-{index}"))),
         );
@@ -376,53 +376,38 @@ fn render_table(
     rows: &[Vec<String>],
     alignments: &[Alignment],
     colors: &DshChatColors,
+    tag: &str,
 ) -> AnyElement {
     let columns = headers.len().max(1);
     let column_width = 220.0;
-    let mut table = div()
-        .flex()
-        .flex_col()
-        .w(px(column_width * columns as f32))
-        .border_1()
-        .border_color(colors.border)
-        .rounded(px(0.));
+    let mut table = div().flex().flex_col().w(px(column_width * columns as f32));
     let mut all_rows: Vec<&[String]> = Vec::with_capacity(rows.len() + 1);
     all_rows.push(headers);
     for row in rows {
         all_rows.push(row);
     }
     for (row_index, cells) in all_rows.iter().enumerate() {
-        if row_index > 0 {
-            table = table.child(div().w_full().h(px(1.)).bg(colors.border));
-        }
-        let mut row_div = div().w_full().flex();
-        if row_index == 0 {
-            row_div = row_div.bg(colors.sidebar);
-        }
+        let mut row_div = div().w_full().flex().border_b_1().border_color(colors.border);
         for (column, cell) in cells.iter().enumerate() {
             let alignment = alignments.get(column).copied().unwrap_or(Alignment::Left);
             let weight = if row_index == 0 {
-                FontWeight::SEMIBOLD
+                FontWeight::MEDIUM
             } else {
                 FontWeight::NORMAL
             };
-            row_div = row_div.child(div().w(px(column_width)).px(px(10.)).py(px(10.)).child(
-                inline_text(
-                    cell,
-                    colors,
-                    tokens::BODY_FONT_SIZE,
-                    tokens::BODY_LINE_HEIGHT,
-                    weight,
-                    alignment_style(alignment),
-                ),
-            ));
+            row_div = row_div.child(
+                div()
+                    .w(px(column_width))
+                    .px(px(16.))
+                    .py(px(10.))
+                    .when(column == 0, |cell| cell.pl_0())
+                    .child(inline_text(cell, colors, 15.0, 25.0, weight, alignment_style(alignment))),
+            );
         }
         table = table.child(row_div);
     }
     div()
-        .id(ElementId::Name(
-            format!("ai-table-scroll-{}", headers.join("|")).into(),
-        ))
+        .id(ElementId::Name(format!("{tag}-table-scroll").into()))
         .w_full()
         .overflow_x_scroll()
         .child(table)
@@ -452,9 +437,13 @@ fn inline_text(
         }
         let highlight = HighlightStyle {
             color: style.link.then(|| colors.send.into()),
-            font_weight: style.bold.then_some(FontWeight::BOLD),
+            font_weight: style.bold.then_some(if weight == FontWeight::BOLD {
+                weight
+            } else {
+                FontWeight::SEMIBOLD
+            }),
             font_style: style.italic.then_some(FontStyle::Italic),
-            background_color: style.code.then(|| colors.sidebar.into()),
+            background_color: style.code.then(|| colors.inline_code_background().into()),
             underline: style.link.then_some(UnderlineStyle::default()),
             strikethrough: style.strike.then_some(StrikethroughStyle::default()),
             ..Default::default()
@@ -501,14 +490,25 @@ fn code_block(
     wrap_set: &std::collections::HashSet<String>,
 ) -> AnyElement {
     let wrap = wrap_set.contains(tag);
-    let mut header = div().w_full().flex().items_center().px(px(14.)).py(px(4.));
+    let mut header = div()
+        .w_full()
+        .flex()
+        .items_center()
+        .px(px(6.))
+        .py(px(6.))
+        .bg(if colors.dark {
+            colors.inline_code_background()
+        } else {
+            colors.code_background()
+        });
     header = header.child(
         div()
             .flex_1()
             .min_w_0()
             .text_size(px(tokens::SECONDARY_FONT_SIZE))
             .line_height(px(tokens::SECONDARY_LINE_HEIGHT))
-            .text_color(colors.muted)
+            .text_color(colors.text)
+            .pl(px(8.))
             .whitespace_nowrap()
             .text_ellipsis()
             .child(studio_selectable(
@@ -547,12 +547,10 @@ fn code_block(
         .w_full()
         .flex()
         .flex_col()
-        .rounded(px(tokens::SMALL_RADIUS))
-        .bg(colors.sidebar)
-        .border_1()
-        .border_color(colors.border)
-        .child(header)
-        .child(div().w_full().h(px(1.)).bg(colors.border));
+        .rounded(px(tokens::MARKDOWN_CODE_RADIUS))
+        .overflow_hidden()
+        .bg(colors.code_background())
+        .child(header);
     block = block.child(body);
     block.into_any_element()
 }
@@ -630,8 +628,8 @@ fn code_run_colored(
     let style = TextStyleRefinement {
         color: Some(color.into()),
         font_family: Some(MONOSPACE.into()),
-        font_size: Some(px(tokens::CODE_FONT_SIZE).into()),
-        line_height: Some(px(tokens::CODE_LINE_HEIGHT).into()),
+        font_size: Some(px(13.).into()),
+        line_height: Some(px(22.).into()),
         ..Default::default()
     };
     div()

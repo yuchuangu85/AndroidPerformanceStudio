@@ -404,6 +404,7 @@ pub fn render(
             })
             .text_color(if enabled { tint } else { tint.alpha(0.5) })
             .disabled(!enabled)
+            .tooltip(label)
             .accessibility_label(label)
             .on_click(move |_, window, cx| {
                 let _ = send_entity.update(cx, |this, cx| match handler {
@@ -528,6 +529,7 @@ fn model_popup(
         &workspace.state.models,
     );
     let refresh_entity = entity.clone();
+    let dismiss_entity = entity.clone();
     let mut popup = div()
         .id(ElementId::Name("ai-chat-model-menu".into()))
         .absolute()
@@ -536,6 +538,19 @@ fn model_popup(
         .w(px(tokens::MODEL_MENU_MAX_WIDTH))
         .max_h(px(tokens::MODEL_MENU_MAX_HEIGHT))
         .overflow_y_scroll()
+        .occlude()
+        .on_mouse_up_out(MouseButton::Left, move |_, _, cx| {
+            // Let the trigger handle its click before closing, so a second
+            // click on it cannot reopen a menu dismissed during capture.
+            let entity = dismiss_entity.clone();
+            cx.defer(move |cx| {
+                let _ = entity.update(cx, |this, cx| {
+                    if this.state.models_open {
+                        this.close_models(cx);
+                    }
+                });
+            });
+        })
         .flex()
         .flex_col()
         .bg(colors.dialog_background)

@@ -24,6 +24,7 @@ pub fn render(
         && dialogs.delete.is_none()
         && dialogs.archive.is_none()
         && dialogs.evidence.is_none()
+        && dialogs.markdown.is_none()
         && !dialogs.prompts
     {
         return None;
@@ -39,7 +40,16 @@ pub fn render(
             let _ = close_entity.update(cx, |this, cx| this.close_dialogs(cx));
         });
 
-    let card = if dialogs.prompts {
+    let card = if let Some(document) = dialogs.markdown.as_ref() {
+        markdown_dialog(
+            document,
+            workspace,
+            &colors,
+            language,
+            &entity,
+            f32::from(window.viewport_size().height),
+        )
+    } else if dialogs.prompts {
         prompt_dialog(workspace, &colors, language, &entity, cx)
     } else if let Some(renaming) = dialogs.rename.clone() {
         rename_dialog(workspace, &colors, language, &renaming, &entity, cx)
@@ -65,6 +75,56 @@ pub fn render(
             .child(card)
             .into_any_element(),
     )
+}
+
+fn markdown_dialog(
+    document: &Result<super::state::MarkdownDocument, ()>,
+    workspace: &AiWorkspace,
+    colors: &DshChatColors,
+    language: Language,
+    entity: &WeakEntity<AiWorkspace>,
+    viewport_height: f32,
+) -> AnyElement {
+    let mut panel = card(colors).w(relative(0.85)).max_w(px(800.));
+    match document {
+        Ok(document) => {
+            panel = panel
+                .child(title(&document.title, colors))
+                .child(
+                    div()
+                        .id("ai-markdown-preview")
+                        .min_h_0()
+                        .max_h(px(viewport_height * 0.65))
+                        .overflow_y_scroll()
+                        .child(super::markdown::render_safe_text(
+                            &document.text,
+                            colors,
+                            language,
+                            "ai-local-markdown",
+                            entity,
+                            &workspace.state.code_wrap,
+                        )),
+                );
+        }
+        Err(()) => {
+            panel = panel
+                .child(title(language.text(TextKey::AiChatOpenMarkdown), colors))
+                .child(body(language.text(TextKey::AiChatMarkdownReadError), colors));
+        }
+    }
+    panel
+        .child(buttons(vec![
+            widgets::text_action(
+                entity.clone(),
+                language.text(TextKey::AiChatClose),
+                "ai-markdown-close",
+                true,
+                colors.muted,
+                |this, _, cx| this.close_dialogs(cx),
+            )
+            .into_any_element(),
+        ]))
+        .into_any_element()
 }
 
 fn prompt_dialog(

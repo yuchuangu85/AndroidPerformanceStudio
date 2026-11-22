@@ -248,7 +248,7 @@ fn session_row(
     let menu = widgets::icon_button(
         menu_entity.clone(),
         IconName::Ellipsis,
-        language.text(TextKey::AiChatConversations),
+        language.text(TextKey::AiChatConversationActions),
         format!("ai-session-menu-{id}"),
         true,
         28.0,

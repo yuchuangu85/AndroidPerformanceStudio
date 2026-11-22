@@ -38,6 +38,7 @@ use std::{
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum AiMenuCommand {
     NewChat,
+    OpenMarkdown,
     FocusSearch,
     ClearEvidence,
 }
@@ -75,6 +76,7 @@ pub struct AiWorkspace {
     catalog: Option<ProviderCatalog>,
     audit_path: Option<PathBuf>,
     settings_requested: bool,
+    picking_markdown: bool,
     started: Instant,
     /// Question queued while busy that should be sent as soon as the run ends.
     auto_send: Option<String>,
@@ -141,6 +143,7 @@ impl AiWorkspace {
             catalog: None,
             audit_path: None,
             settings_requested: false,
+            picking_markdown: false,
             started: Instant::now(),
             auto_send: None,
             message_key: MessageKey::default(),
@@ -1362,6 +1365,43 @@ impl AiWorkspace {
         cx.notify();
     }
 
+    pub(crate) fn pick_markdown(&mut self, cx: &mut Context<Self>) {
+        if self.picking_markdown || self.state.pending_approval.is_some() {
+            return;
+        }
+        self.picking_markdown = true;
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(self.language.text(TextKey::AiChatOpenMarkdown).into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let result = match picker.await {
+                Ok(Ok(Some(paths))) if paths.len() == 1 => {
+                    let path = paths.into_iter().next().unwrap();
+                    Some(cx.background_executor().spawn(async move {
+                        let text = markdown::read_document(&path).ok_or(())?;
+                        Ok(state::MarkdownDocument {
+                            title: path.file_name().ok_or(())?.to_string_lossy().into_owned(),
+                            text: text.into(),
+                        })
+                    }).await)
+                }
+                Ok(Err(_)) => Some(Err(())),
+                _ => None,
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.picking_markdown = false;
+                if this.state.pending_approval.is_none() && result.is_some() {
+                    this.state.dialogs = state::Dialogs { markdown: result, ..Default::default() };
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(crate) fn use_prompt(
         &mut self,
         prompt: String,
@@ -1676,6 +1716,7 @@ impl crate::shell::menubar::MenuHost for AiWorkspace {
         vec![
             MenuGroup::new(TextKey::ShellMenuSession)
                 .item(TextKey::AiChatNewChat, AiMenuCommand::NewChat)
+                .item(TextKey::AiChatOpenMarkdown, AiMenuCommand::OpenMarkdown)
                 .item(
                     TextKey::AiChatSearchConversations,
                     AiMenuCommand::FocusSearch,
@@ -1693,6 +1734,7 @@ impl crate::shell::menubar::MenuHost for AiWorkspace {
     ) {
         match command {
             AiMenuCommand::NewChat => self.new_chat(window, cx),
+            AiMenuCommand::OpenMarkdown => self.pick_markdown(cx),
             AiMenuCommand::FocusSearch => self.focus_search(window, cx),
             AiMenuCommand::ClearEvidence => self.invalidate_origin(cx),
         }

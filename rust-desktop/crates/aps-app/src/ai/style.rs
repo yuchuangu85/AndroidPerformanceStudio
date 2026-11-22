@@ -1,4 +1,4 @@
-//! Chat-local DSH tokens for the AI Analysis conversation window.
+//! Chat-local tokens for the AI Analysis conversation window.
 //!
 //! These mirror Compose `DshChatStyle` exactly and are deliberately separate
 //! from the Studio/Viewer theme: the chat window keeps its own colors and
@@ -83,7 +83,14 @@ pub mod tokens {
     pub const MESSAGE_GAP: f32 = 24.0;
     pub const MESSAGE_TOP_PADDING: f32 = 16.0;
     pub const MESSAGE_BOTTOM_PADDING: f32 = 24.0;
-    pub const USER_BUBBLE_MAX_FRACTION: f32 = 0.702;
+    pub const EMPTY_TOP_PADDING: f32 = 72.0;
+    pub const EMPTY_BOTTOM_PADDING: f32 = 40.0;
+    pub const EMPTY_ICON_SIZE: f32 = 36.0;
+    pub const USER_BUBBLE_RADIUS: f32 = 22.0;
+    pub const USER_FONT_SIZE: f32 = 16.0;
+    pub const MARKDOWN_FONT_SIZE: f32 = 16.0;
+    pub const MARKDOWN_LINE_HEIGHT: f32 = 28.0;
+    pub const MARKDOWN_CODE_RADIUS: f32 = 12.0;
     pub const USER_BUBBLE_PADDING_X: f32 = 16.0;
     pub const USER_BUBBLE_PADDING_Y: f32 = 10.0;
     pub const COMPOSER_MIN_HEIGHT: f32 = 44.0;
@@ -97,7 +104,7 @@ pub mod tokens {
     pub const TITLE_LINE_HEIGHT: f32 = 32.0;
     pub const BODY_FONT_SIZE: f32 = 14.0;
     pub const BODY_LINE_HEIGHT: f32 = 24.0;
-    pub const USER_LINE_HEIGHT: f32 = 22.0;
+    pub const USER_LINE_HEIGHT: f32 = 24.0;
     pub const SECONDARY_FONT_SIZE: f32 = 12.0;
     pub const SECONDARY_LINE_HEIGHT: f32 = 18.0;
     pub const CODE_FONT_SIZE: f32 = 12.0;
@@ -107,6 +114,28 @@ pub mod tokens {
     pub const SIDEBAR_BREAKPOINT: f32 = 1000.0;
     pub const OVERLAY_BREAKPOINT: f32 = 640.0;
     pub const NAVIGATION_GUTTER: f32 = SCROLL_BUTTON_SIZE + SCROLL_CONTROLS_INSET;
+}
+
+/// Deepseek-chat's 840−2×44 and 712−2×36 content columns, with a
+/// minimum side inset that keeps the desktop scroll controls clear.
+pub fn message_width(viewport: f32, available: f32) -> f32 {
+    let max = if viewport >= 1024.0 { 752.0_f32 } else { 640.0 };
+    max.min((available - 2.0 * tokens::NAVIGATION_GUTTER).max(0.0))
+}
+
+pub fn question_width(message_width: f32) -> f32 {
+    let inset: f32 = if message_width >= 400.0 { 88.0 } else { 68.0 };
+    (message_width - inset.min(message_width * 0.35)).max(0.0)
+}
+
+impl DshChatColors {
+    pub fn code_background(self) -> Rgba {
+        if self.dark { rgb(0x1b1b1c) } else { rgb(0xf9fafb) }
+    }
+
+    pub fn inline_code_background(self) -> Rgba {
+        if self.dark { rgb(0x2c2c2e) } else { rgb(0xebeef2) }
+    }
 }
 
 /// Compose `DshChatStyle.chatWidth`: 64% of the available width clamped to
@@ -156,6 +185,15 @@ pub fn title_text(element: Div) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn conversation_uses_reference_column_and_bubble_widths() {
+        assert_eq!(message_width(1440.0, 1000.0), 752.0);
+        assert_eq!(message_width(1023.0, 900.0), 640.0);
+        assert_eq!(message_width(480.0, 440.0), 352.0);
+        assert_eq!(question_width(752.0), 664.0);
+        assert_eq!(question_width(352.0), 284.0);
+    }
 
     #[::core::prelude::v1::test]
     fn chat_width_matches_compose_clamp() {

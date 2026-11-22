@@ -28,7 +28,7 @@ pub(crate) fn url(language: Language) -> Result<String, String> {
 }
 
 fn site_directory(language: Language) -> &'static str {
-    if language == Language::SimplifiedChinese {
+    if language.resolved() == Language::SimplifiedChinese {
         "docs-user-zh"
     } else {
         "docs-user"
@@ -243,6 +243,10 @@ mod tests {
         let zh = url(Language::SimplifiedChinese).unwrap();
         let origin = en.strip_suffix("docs-user/").unwrap();
         assert_eq!(zh, format!("{origin}docs-user-zh/"));
+        assert_eq!(
+            url(Language::System).unwrap(),
+            url(Language::System.resolved()).unwrap()
+        );
         for (site, heading, language) in [
             ("docs-user", "# User Guide", "en"),
             ("docs-user-zh", "# 用户指南", "zh-CN"),

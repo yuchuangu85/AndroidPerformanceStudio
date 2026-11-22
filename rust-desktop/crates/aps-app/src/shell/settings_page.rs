@@ -245,6 +245,9 @@ impl Studio {
                     SettingsPage::Ai => {
                         include_bytes!("../../assets/navigation/ic_settings_ai.svg")
                     }
+                    SettingsPage::UserGuide => {
+                        include_bytes!("../../assets/navigation/ic_settings_user_guide.svg")
+                    }
                     SettingsPage::About => {
                         include_bytes!("../../assets/navigation/ic_settings_about.svg")
                     }
@@ -307,6 +310,7 @@ impl Studio {
             SettingsPage::Simpleperf => self.settings_simpleperf(cx),
             SettingsPage::CpuCapture => self.capture.clone().into_any_element(),
             SettingsPage::Ai => self.settings_ai(cx),
+            SettingsPage::UserGuide => self.settings_user_guide(cx),
             SettingsPage::About => self.settings_about(cx),
         };
         div()
@@ -1305,30 +1309,37 @@ impl Studio {
                     &colors,
                 )),
         )
-        .child(
-            studio::card(&colors)
-                .child(studio::section_title(
-                    lang.text(TextKey::SettingsUiGuide),
-                    &colors,
-                ))
-                .child(studio::supporting(
-                    lang.text(TextKey::SettingsUiUserGuideDescription),
-                    &colors,
-                ))
-                .child(
-                    div().flex().child(
-                        studio::text_button(
-                            "open-user-guide",
-                            lang.text(TextKey::SettingsUiOpenUserGuideBrowser),
-                            true,
-                            true,
-                            &colors,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.open_user_guide(cx))),
-                    ),
-                ),
-        )
+        .child(self.user_guide_card(&colors, cx))
         .into_any_element()
+    }
+
+    fn settings_user_guide(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = StudioColors::from_theme(cx);
+        studio::page(&colors)
+            .child(self.user_guide_card(&colors, cx))
+            .into_any_element()
+    }
+
+    fn user_guide_card(&self, colors: &StudioColors, cx: &mut Context<Self>) -> Div {
+        let lang = self.settings.language;
+        studio::card(colors)
+            .child(studio::section_title(lang.text(TextKey::SettingsUiGuide), colors))
+            .child(studio::supporting(
+                lang.text(TextKey::SettingsUiUserGuideDescription),
+                colors,
+            ))
+            .child(
+                div().flex().child(
+                    studio::text_button(
+                        "open-user-guide",
+                        lang.text(TextKey::SettingsUiOpenUserGuideBrowser),
+                        true,
+                        true,
+                        colors,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.open_user_guide(cx))),
+                ),
+            )
     }
 
     fn settings_about(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -2261,7 +2272,7 @@ mod tests {
             .split("fn settings_simpleperf(")
             .nth(1)
             .unwrap()
-            .split("fn settings_about(")
+            .split("fn settings_user_guide(")
             .next()
             .unwrap();
         for key in [
@@ -2275,8 +2286,6 @@ mod tests {
             "SettingsUiFrameInformationBox",
             "SettingsUiSimpleperfEngine",
             "SettingsUiAnalysisEngineOptions",
-            "SettingsUiGuide",
-            "SettingsUiUserGuideDescription",
             "SettingsUiEventRate",
             "SettingsUiDurationSecondsHint",
             "SettingsUiFixed",
@@ -2303,8 +2312,31 @@ mod tests {
         assert!(!page.contains("settings_ui.rate"));
         assert!(!page.contains("settings_ui.duration"));
         assert!(!page.contains("SettingsUiAdaptersNotConnected"));
-        assert!(page.contains("open-user-guide"));
+        assert!(page.contains(".child(self.user_guide_card(&colors, cx))"));
         assert!(!page.contains("stepper("));
+    }
+
+    #[::core::prelude::v1::test]
+    fn user_guide_has_its_own_settings_section_and_shares_the_browser_action() {
+        assert!(SettingsPage::ALL.contains(&SettingsPage::UserGuide));
+        for (language, label) in [
+            (Language::English, "User guide"),
+            (Language::SimplifiedChinese, "用户指南"),
+        ] {
+            assert_eq!(SettingsPage::UserGuide.label(language), label);
+        }
+        let source = include_str!("settings_page.rs");
+        assert!(source.contains("SettingsPage::UserGuide => self.settings_user_guide(cx)"));
+        let guide = source
+            .split("fn settings_user_guide(")
+            .nth(1)
+            .unwrap()
+            .split("fn settings_about(")
+            .next()
+            .unwrap();
+        assert!(guide.contains(".child(self.user_guide_card(&colors, cx))"));
+        assert!(guide.contains("TextKey::SettingsUiOpenUserGuideBrowser"));
+        assert!(guide.contains("this.open_user_guide(cx)"));
     }
 
     #[::core::prelude::v1::test]
@@ -2329,7 +2361,7 @@ mod tests {
             .split("TextKey::SettingsUiSimpleperfEngine")
             .nth(1)
             .unwrap()
-            .split("TextKey::SettingsUiGuide")
+            .split(".child(self.user_guide_card(")
             .next()
             .unwrap();
         for key in [

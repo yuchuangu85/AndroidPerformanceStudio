@@ -1,5 +1,6 @@
 {
   "ai_chat_conversations": "Conversations",
+  "ai_chat_conversation_actions": "Conversation actions",
   "ai_chat_close_sidebar": "Close sidebar",
   "ai_chat_new_chat": "New chat",
   "ai_chat_search_conversations": "Search conversations",
@@ -28,6 +29,9 @@
   "ai_chat_open_sidebar": "Open sidebar",
   "ai_chat_back_to_top": "Back to top",
   "ai_chat_back_to_latest": "Back to latest",
+  "ai_chat_empty_prompt": "What would you like to explore?",
+  "ai_chat_open_markdown": "Open Markdown file…",
+  "ai_chat_markdown_read_error": "Choose a readable UTF-8 .md or .markdown file with at most 65,536 characters.",
   "ai_chat_copy": "Copy",
   "ai_chat_copied": "Copied",
   "ai_chat_edit_question": "Edit question",

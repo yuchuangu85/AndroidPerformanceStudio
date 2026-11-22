@@ -51,8 +51,7 @@ pub fn secondary_text(value: impl Into<SharedString>, color: Rgba) -> Div {
         .child(studio::selectable(value.into()))
 }
 
-/// Round icon button; the tooltip is rendered as an accessibility label because
-/// GPUI has no floating tooltip surface.
+/// Round icon button with the same localized label for hover and accessibility.
 pub fn icon_button(
     entity: WeakEntity<AiWorkspace>,
     icon: IconName,
@@ -77,6 +76,7 @@ pub fn icon_button(
         .bg(background)
         .text_color(icon_color)
         .disabled(!enabled)
+        .tooltip(title.clone())
         .accessibility_label(title)
         .on_click(move |_, window, cx| {
             let handler = handler.clone();
