@@ -49,6 +49,11 @@ class LinuxPackagingTest(unittest.TestCase):
             self.assertIn(requirement, spec)
         self.assertNotIn("AutoReqProv: no", spec)
 
+    def test_rpm_preserves_prebuilt_bytes_without_disabling_other_postprocessing(self):
+        spec = self.linux.split("cat > dist/rpm/SPECS/aps-desktop.spec <<EOF", 1)[1].split("EOF", 1)[0]
+        self.assertIn("%global __strip /bin/true", spec)
+        self.assertNotIn("__os_install_post", spec)
+
     def test_both_formats_are_installed_and_verified_before_upload(self):
         self.assertIn('sudo apt-get install -y "$deb"', self.linux)
         self.assertIn("scripts/linux/verify-installed.sh", self.linux)
@@ -75,7 +80,7 @@ class LinuxPackagingTest(unittest.TestCase):
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and all(shutil.which(tool) for tool in
-                     ("cc", "dpkg-shlibdeps", "dpkg-deb", "rpmbuild", "rpm", "rpm2cpio", "cpio")),
+                     ("cc", "dpkg-shlibdeps", "dpkg-deb", "rpmbuild", "rpm", "rpm2cpio", "cpio", "file", "strip")),
                      "Native Linux compiler and DEB/RPM tools required")
 class NativeLinuxPackagingTest(unittest.TestCase):
     def command(self, arguments, **kwargs):
@@ -144,7 +149,8 @@ class NativeLinuxPackagingTest(unittest.TestCase):
             for installed in (deb_root, rpm_root):
                 tool = installed / "usr/lib/aps-desktop/resources/perfetto-tools/trace_processor_shell"
                 self.assertEqual(0o755, stat.S_IMODE(tool.stat().st_mode))
-                self.assertEqual(expected_hash, hashlib.sha256(tool.read_bytes()).hexdigest())
+                self.assertEqual(expected_hash, hashlib.sha256(tool.read_bytes()).hexdigest(),
+                                 f"{installed.name} changed the pinned Trace Processor bytes")
                 verifier = ["bash", str(ROOT / "scripts/linux/verify-installed.sh"), str(staged),
                             str(installed), expected_hash]
                 if os.geteuid() == 0:

@@ -76,7 +76,19 @@ class InstallerContractTest(unittest.TestCase):
         self.assertEqual("INSTALLFOLDER", shortcut.get("WorkingDirectory"))
         self.assertIsNotNone(self.product.find(".//w:Directory[@Id='ProgramMenuFolder']", NS))
         self.assertEqual("yes", app.get("Win64"))
-        self.assertEqual("AppIcon", shortcut.get("Icon"))
+        self.assertEqual("AppIcon.exe", shortcut.get("Icon"))
+
+    def test_advertised_shortcut_icon_resolves_and_matches_key_file_extension(self):
+        file = self.product.find(".//w:Component[@Id='AppComponent']/w:File", NS)
+        shortcut = file.find("w:Shortcut[@Advertise='yes']", NS)
+        icon_id = shortcut.get("Icon")
+        icon = self.product.find(f"w:Icon[@Id='{icon_id}']", NS)
+        self.assertIsNotNone(icon, "Advertised shortcut must reference an existing Icon")
+        self.assertEqual(Path(file.get("Source")).suffix.lower(), Path(icon_id).suffix.lower(),
+                         "ICE50 requires the advertised shortcut icon ID and key file extensions to match")
+        self.assertEqual("$(var.AppIcon)", icon.get("SourceFile"))
+        arp = self.product.find("w:Property[@Id='ARPPRODUCTICON']", NS)
+        self.assertEqual(icon_id, arp.get("Value"))
 
     def test_upgrade_remembers_install_location_and_arp_keeps_uninstall(self):
         search = self.product.find("w:Property[@Id='INSTALLFOLDER']/w:RegistrySearch", NS)

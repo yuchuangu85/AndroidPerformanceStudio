@@ -69,7 +69,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            rpm cpio dpkg-dev binutils pkg-config libfontconfig1-dev libfreetype-dev \
+            rpm cpio dpkg-dev binutils file pkg-config libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libx11-xcb-dev libxcb1-dev libxcb-randr0-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libvulkan-dev
@@ -148,6 +148,9 @@ jobs:
           cp "$root/usr/share/icons/hicolor/1024x1024/apps/com.androidperformancestudio.rust.png" dist/rpm/SOURCES/app-icon.png
           cp "$root/usr/share/applications/com.androidperformancestudio.rust.desktop" dist/rpm/SOURCES/aps.desktop
           cat > dist/rpm/SPECS/aps-desktop.spec <<EOF
+          # Preserve the pinned tool and prebuilt Rust executable bytes.
+          # Keep RPM's other postprocessing and automatic dependency checks.
+          %global __strip /bin/true
           Name: aps-desktop
           Version: ${version}
           Release: 1

@@ -10,8 +10,9 @@
                   DowngradeErrorMessage="A newer version of Android Performance Studio is already installed." />
     <MediaTemplate EmbedCab="yes" />
     <Condition Message="Android Performance Studio requires 64-bit Windows.">Installed OR VersionNT64</Condition>
-    <Icon Id="AppIcon" SourceFile="$(var.AppIcon)" />
-    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <!-- ICE50 requires the advertised shortcut icon ID to match its .exe key file extension. -->
+    <Icon Id="AppIcon.exe" SourceFile="$(var.AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
     <Property Id="INSTALLFOLDER" Secure="yes">
       <RegistrySearch Id="PreviousInstallDir" Root="HKLM" Key="Software\Android Performance Studio"
@@ -38,7 +39,7 @@
       <Component Id="AppComponent" Guid="*" Win64="yes">
         <File Id="AppFile" Source="$(var.PayloadSource)\aps-app.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Android Performance Studio"
-                    Advertise="yes" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+                    Advertise="yes" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.exe" />
         </File>
         <RegistryValue Root="HKLM" Key="Software\Android Performance Studio" Name="InstallDir"
                        Type="string" Value="[INSTALLFOLDER]" />
