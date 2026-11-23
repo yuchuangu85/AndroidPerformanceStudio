@@ -170,6 +170,8 @@
   "trace_capture_reset_config": "Reset to default",
   "trace_capture_reveal_integrity_report": "Reveal integrity report",
   "trace_capture_save_draft": "Save draft",
+  "trace_capture_startup_unconfirmed": "Capture launches in the background without waiting for every data source to acknowledge startup. Source readiness and capture completeness remain unverified.",
+  "trace_capture_stop_requested": "Stop requested; waiting for the owned capture to finish starting…",
   "trace_capture_total_buffer_kb": "Total configured buffer: {value1} KB",
   "trace_capture_validate_config": "Validate",
   "trace_template": "TRACE TEMPLATE",

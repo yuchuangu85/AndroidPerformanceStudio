@@ -68,8 +68,10 @@ pub(in crate::trace) fn capture_page(
         capabilities: this.capture.capabilities().cloned(),
         preflight: this.capture.preflight_report().cloned(),
         config_notice: this.capture.config_notice().map(str::to_owned),
+        runtime_notice: this.capture.runtime_notice().map(str::to_owned),
         integrity: this.capture.integrity().cloned(),
         active: this.capture.is_active(),
+        startup_unconfirmed: this.capture.startup_unconfirmed(),
         state: this.capture.state().clone(),
         inputs: inputs.map(|inputs| CaptureInputsSnapshot {
             target_package: inputs.target_package.clone(),
@@ -114,8 +116,10 @@ struct CaptureSnapshot {
     capabilities: Option<DeviceCapabilities>,
     preflight: Option<PreflightReport>,
     config_notice: Option<String>,
+    runtime_notice: Option<String>,
     integrity: Option<CaptureIntegritySummary>,
     active: bool,
+    startup_unconfirmed: bool,
     state: CaptureState,
     inputs: Option<CaptureInputsSnapshot>,
     device_label: Option<String>,
@@ -487,6 +491,17 @@ fn configuration_content(
             colors.warning,
         ));
     }
+    if snapshot.startup_unconfirmed {
+        column = column.child(error_line(
+            language
+                .text(TextKey::TraceCaptureStartupUnconfirmed)
+                .to_owned(),
+            colors.warning,
+        ));
+    }
+    if let Some(notice) = &snapshot.runtime_notice {
+        column = column.child(error_line(notice.clone(), colors.warning));
+    }
     if let Some(inputs) = &snapshot.inputs {
         if snapshot.template == CaptureTemplate::Custom {
             column = column.child(config_controls(snapshot, entity));
@@ -586,18 +601,23 @@ fn configuration_content(
             });
         }),
     );
-    if matches!(snapshot.state, CaptureState::Recording { .. }) {
+    if snapshot.state.shows_stop_button() {
         let stop_entity = entity.clone();
         buttons = buttons.child(
             studio::compact_text_button(
                 "capture-stop",
                 language.text(TextKey::Stop),
-                true,
+                !snapshot.state.stop_requested(),
                 false,
                 &colors,
             )
             .on_click(move |_, _, cx| {
-                let _ = stop_entity.update(cx, |this, cx| this.stop_capture(cx));
+                let _ = stop_entity.update(cx, |this, cx| {
+                    if this.capture.state().stop_requested() {
+                        return;
+                    }
+                    this.stop_capture(cx);
+                });
             }),
         );
     }
@@ -880,9 +900,28 @@ fn integrity_content(
 }
 
 fn capture_status(state: CaptureState, language: Language, colors: StudioColors) -> Div {
-    let text = match &state {
+    div()
+        .text_size(px(FONT_SUPPORTING))
+        .text_color(if matches!(state, CaptureState::Failed(_)) {
+            colors.error
+        } else {
+            colors.secondary_text
+        })
+        .child(crate::studio::selectable(capture_status_text(
+            &state, language,
+        )))
+}
+
+fn capture_status_text(state: &CaptureState, language: Language) -> String {
+    match state {
         CaptureState::Idle => language.text(TextKey::Ready).to_owned(),
-        CaptureState::Preparing => language.text(TextKey::PreparingCapture).to_owned(),
+        CaptureState::Preparing { stop_requested } => language
+            .text(if *stop_requested {
+                TextKey::TraceCaptureStopRequested
+            } else {
+                TextKey::PreparingCapture
+            })
+            .to_owned(),
         CaptureState::Recording { started_unix_ms } => language.format(
             TextKey::RecordingSince,
             &[("value1", &format_unix_ms(*started_unix_ms))],
@@ -895,15 +934,7 @@ fn capture_status(state: CaptureState, language: Language, colors: StudioColors)
         CaptureState::Failed(error) => {
             language.format(TextKey::Failed, &[("value1", &error.as_str())])
         }
-    };
-    div()
-        .text_size(px(FONT_SUPPORTING))
-        .text_color(if matches!(state, CaptureState::Failed(_)) {
-            colors.error
-        } else {
-            colors.secondary_text
-        })
-        .child(crate::studio::selectable(text))
+    }
 }
 
 fn field_label(text: &'static str, colors: StudioColors) -> Div {
@@ -923,7 +954,10 @@ fn error_line(text: String, color: Rgba) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{CONFIGURATION_MIN_WIDTH, capture_panel_widths, custom_config_height};
+    use super::{
+        CONFIGURATION_MIN_WIDTH, CaptureState, capture_panel_widths, capture_status_text,
+        custom_config_height, format_unix_ms,
+    };
     use aps_ui_foundation::{Language, TextKey};
 
     #[test]
@@ -993,6 +1027,187 @@ mod tests {
         assert_eq!(custom_config_height(720.), 360.);
         assert_eq!(custom_config_height(900.), 450.);
         assert_eq!(custom_config_height(1600.), 560.);
+    }
+
+    #[test]
+    fn runtime_observation_warnings_are_not_restricted_to_the_custom_editor() {
+        let source = include_str!("capture_page.rs");
+        let configuration = source.split("fn configuration_content(").nth(1).unwrap();
+        let before_inputs = configuration
+            .split("if let Some(inputs) = &snapshot.inputs")
+            .next()
+            .unwrap();
+        assert!(before_inputs.contains("if let Some(notice) = &snapshot.runtime_notice"));
+        assert!(!before_inputs.contains("snapshot.config_notice"));
+        assert!(
+            source.contains("runtime_notice: this.capture.runtime_notice().map(str::to_owned)")
+        );
+    }
+
+    #[test]
+    fn capture_stop_is_visible_during_startup_and_repeated_requests_are_disabled() {
+        let source = include_str!("capture_page.rs");
+        let configuration = source
+            .split("fn configuration_content(")
+            .nth(1)
+            .unwrap()
+            .split("fn config_controls(")
+            .next()
+            .unwrap();
+        let stop = configuration
+            .split("if snapshot.state.shows_stop_button() {")
+            .nth(1)
+            .unwrap()
+            .split("if let CaptureState::Completed")
+            .next()
+            .unwrap();
+        assert!(stop.contains("studio::compact_text_button("));
+        assert!(stop.contains("\"capture-stop\""));
+        assert!(stop.contains("language.text(TextKey::Stop)"));
+        assert!(stop.contains("!snapshot.state.stop_requested(),"));
+        assert!(stop.contains("if this.capture.state().stop_requested()"));
+        assert!(stop.contains("this.stop_capture(cx)"));
+        assert!(!stop.contains("start_capture("));
+        let start = configuration
+            .split("if snapshot.state.shows_stop_button()")
+            .next()
+            .unwrap();
+        assert!(start.contains("snapshot.can_start,"));
+        assert!(start.contains("if this.capture.is_active()"));
+    }
+
+    #[test]
+    fn preparing_offers_stop_and_localizes_pending_stop_without_claiming_recording() {
+        for (language, pending) in [
+            (
+                Language::English,
+                "Stop requested; waiting for the owned capture to finish starting…",
+            ),
+            (
+                Language::SimplifiedChinese,
+                "已请求停止，正在等待采集启动完成…",
+            ),
+        ] {
+            assert_eq!(language.text(TextKey::TraceCaptureStopRequested), pending);
+            for stop_requested in [false, true] {
+                let state = CaptureState::Preparing { stop_requested };
+                assert!(state.shows_stop_button());
+                assert!(state.in_progress());
+                assert_eq!(state.stop_requested(), stop_requested);
+                assert_eq!(
+                    capture_status_text(&state, language),
+                    if stop_requested {
+                        pending
+                    } else {
+                        language.text(TextKey::PreparingCapture)
+                    }
+                );
+                assert_ne!(
+                    capture_status_text(&state, language),
+                    capture_status_text(&CaptureState::Recording { started_unix_ms: 0 }, language)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn capture_status_covers_every_other_lifecycle_state() {
+        for language in [Language::English, Language::SimplifiedChinese] {
+            for (state, expected, shows_stop, active) in [
+                (
+                    CaptureState::Idle,
+                    language.text(TextKey::Ready).to_owned(),
+                    false,
+                    false,
+                ),
+                (
+                    CaptureState::Recording { started_unix_ms: 0 },
+                    language.format(TextKey::RecordingSince, &[("value1", &format_unix_ms(0))]),
+                    true,
+                    true,
+                ),
+                (
+                    CaptureState::Pulling,
+                    language.text(TextKey::PullingTraceFromDevice).to_owned(),
+                    false,
+                    true,
+                ),
+                (
+                    CaptureState::Completed {
+                        trace_path: "capture.perfetto-trace".into(),
+                        size_bytes: 2 * 1024 * 1024,
+                    },
+                    language.format(TextKey::CompletedMb, &[("value1", &2)]),
+                    false,
+                    false,
+                ),
+                (
+                    CaptureState::Failed("test failure".to_owned()),
+                    language.format(TextKey::Failed, &[("value1", &"test failure")]),
+                    false,
+                    false,
+                ),
+            ] {
+                assert_eq!(capture_status_text(&state, language), expected);
+                assert_eq!(state.shows_stop_button(), shows_stop);
+                assert_eq!(state.in_progress(), active);
+                assert!(!state.stop_requested());
+            }
+        }
+    }
+
+    #[test]
+    fn capture_status_explicitly_matches_the_struct_preparing_state() {
+        let source = include_str!("capture_page.rs");
+        let status = source
+            .split("fn capture_status_text(")
+            .nth(1)
+            .unwrap()
+            .split("fn field_label(")
+            .next()
+            .unwrap();
+        for variant in [
+            "CaptureState::Idle =>",
+            "CaptureState::Preparing { stop_requested } =>",
+            "CaptureState::Recording { started_unix_ms } =>",
+            "CaptureState::Pulling =>",
+            "CaptureState::Completed { size_bytes, .. } =>",
+            "CaptureState::Failed(error) =>",
+        ] {
+            assert!(status.contains(variant), "missing status arm: {variant}");
+        }
+        assert!(!status.contains("_ =>"));
+        assert!(!status.contains("CaptureState::Preparing =>"));
+    }
+
+    #[test]
+    fn startup_unconfirmed_notice_is_template_neutral_in_both_languages() {
+        let source = include_str!("capture_page.rs");
+        let before_inputs = source
+            .split("fn configuration_content(")
+            .nth(1)
+            .unwrap()
+            .split("if let Some(inputs) = &snapshot.inputs")
+            .next()
+            .unwrap();
+        assert!(before_inputs.contains("if snapshot.startup_unconfirmed {"));
+        assert!(before_inputs.contains("TextKey::TraceCaptureStartupUnconfirmed"));
+        assert!(!before_inputs.contains("CaptureTemplate::Custom"));
+        for (language, notice) in [
+            (
+                Language::English,
+                "Capture launches in the background without waiting for every data source to acknowledge startup. Source readiness and capture completeness remain unverified.",
+            ),
+            (
+                Language::SimplifiedChinese,
+                "采集以后台方式启动，不等待全部数据源的启动确认；数据源就绪状态和采集完整性保持未验证。",
+            ),
+        ] {
+            assert_eq!(
+                language.text(TextKey::TraceCaptureStartupUnconfirmed),
+                notice
+            );
+        }
     }
 
     #[test]
@@ -1092,5 +1307,6 @@ mod tests {
         assert_eq!(generated.matches(".readonly(snapshot.active)").count(), 4);
         let snapshot = source.split("struct CaptureSnapshot").next().unwrap();
         assert!(snapshot.contains(".is_some_and(PreflightReport::can_start)"));
+        assert!(snapshot.contains("&& !this.capture.is_active()"));
     }
 }

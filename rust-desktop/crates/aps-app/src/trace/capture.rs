@@ -29,7 +29,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -38,12 +41,14 @@ use std::{
 const DEVICE_TRACE_PATH: &str = "/data/misc/perfetto-traces/aps-perfetto-trace.pftrace";
 const REMOTE_STOP_POLL_ATTEMPTS: usize = 20;
 const REMOTE_STOP_POLL_DELAY: Duration = Duration::from_millis(250);
+const REMOTE_GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(60);
 const ADB_QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 const ADB_START_TIMEOUT: Duration = Duration::from_secs(60);
 const ADB_SHORT_TIMEOUT: Duration = Duration::from_secs(5);
 const ADB_TRANSFER_TIMEOUT: Duration = Duration::from_secs(120);
 const ADB_DEVICE_PUSH_TIMEOUT: Duration = Duration::from_secs(30);
 const SHELL_OUTPUT_LIMIT: usize = 512 * 1024;
+const STARTUP_UNCONFIRMED: &str = "Capture uses background launch without waiting for every data source's startup acknowledgement. Data-source readiness and complete coverage remain unverified.";
 const CAPTURE_CONFIG_PATH_SEGMENT: &str = "captures";
 const DEVICE_INFO_COMMAND: &str = "getprop ro.product.model; getprop ro.build.version.sdk";
 const DEVICE_BUILD_COMMAND: &str = "getprop ro.build.version.sdk; getprop ro.build.type";
@@ -103,6 +108,11 @@ impl CaptureTemplate {
             Self::FullCapture => TextKey::FullCaptureDescription,
             Self::Custom => TextKey::CustomDescription,
         }
+    }
+
+    /// Broad captures expose the owned client without an all-sources barrier.
+    fn uses_supervised_launch(self) -> bool {
+        matches!(self, Self::FullCapture | Self::Custom)
     }
 
     /// Preset probes before device/target filtering; Custom starts empty.
@@ -514,7 +524,9 @@ impl CaptureConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::trace) enum CaptureState {
     Idle,
-    Preparing,
+    Preparing {
+        stop_requested: bool,
+    },
     Recording {
         started_unix_ms: u64,
     },
@@ -527,10 +539,33 @@ pub(in crate::trace) enum CaptureState {
 }
 
 impl CaptureState {
+    pub(in crate::trace) fn shows_stop_button(&self) -> bool {
+        matches!(self, Self::Preparing { .. } | Self::Recording { .. })
+    }
+
+    pub(in crate::trace) fn stop_requested(&self) -> bool {
+        matches!(
+            self,
+            Self::Preparing {
+                stop_requested: true
+            }
+        )
+    }
+
+    /// Keep the launch alive until it returns its owned handle, then stop/save.
+    fn request_startup_stop(&mut self) -> bool {
+        if let Self::Preparing { stop_requested } = self {
+            *stop_requested = true;
+            true
+        } else {
+            false
+        }
+    }
+
     pub(in crate::trace) fn in_progress(&self) -> bool {
         matches!(
             self,
-            Self::Preparing | Self::Recording { .. } | Self::Pulling
+            Self::Preparing { .. } | Self::Recording { .. } | Self::Pulling
         )
     }
 }
@@ -1236,6 +1271,9 @@ struct AdbRunner {
 struct RemoteCapturePaths {
     config: String,
     trace: String,
+    pid: String,
+    log: String,
+    exit_status: String,
 }
 
 impl RemoteCapturePaths {
@@ -1244,10 +1282,65 @@ impl RemoteCapturePaths {
         Self {
             config: format!("/data/local/tmp/{id}.pbtxt"),
             trace: format!("/data/misc/perfetto-traces/{id}.pftrace"),
+            pid: format!("/data/local/tmp/{id}.pid"),
+            log: format!("/data/local/tmp/{id}.log"),
+            exit_status: format!("/data/local/tmp/{id}.exit"),
         }
     }
 
-    fn start_command(&self) -> String {
+    fn start_command(&self, template: CaptureTemplate) -> String {
+        if template.uses_supervised_launch() {
+            // Perfetto's own daemonization discards stderr and its final status.
+            // A shell supervisor retains both without an all-sources barrier.
+            // $! identifies the last pipeline process: the actual Perfetto PID.
+            // Pipe diagnostics to a shell-owned writer: SELinux denies direct
+            // Perfetto writes to shell_data_file, even through inherited FDs.
+            return format!(
+                r#"umask 077
+nohup sh -c '
+trap "" HUP
+(
+cat {config} | sh -c "
+attempts=0
+while [ ! -f {pid}.accepted ] && [ ! -f {pid}.abort ] && [ \"\$attempts\" -lt 100 ]; do
+    sleep 0.05
+    attempts=\$((attempts + 1))
+done
+[ -f {pid}.accepted ] && [ ! -f {pid}.abort ] || exit 125
+exec perfetto --txt -c - -o {trace} --no-clobber
+" &
+pid=$!
+if ! printf "%s\n" "$pid" >{pid}; then : >{pid}.abort; fi
+wait "$pid"
+result=$?
+printf "%s\n" "$result" >{exit_status}.tmp
+) 2>&1 | tail -c 8192 >{log}
+logger_status=$?
+if [ "$logger_status" -eq 0 ]; then
+    mv {exit_status}.tmp {exit_status}
+else
+    printf "logger_failed:%s\n" "$logger_status" >{exit_status}
+fi
+' </dev/null >>{log} 2>&1 &
+attempts=0
+while [ "$attempts" -lt 50 ]; do
+    if [ -f {pid} ] && [ -s {pid} ]; then break; fi
+    sleep 0.05
+    attempts=$((attempts + 1))
+done
+if [ -f {pid} ] && [ -s {pid} ]; then
+    : >{pid}.accepted && cat {pid}
+else
+    : >{pid}.abort
+    exit 1
+fi"#,
+                config = self.config,
+                trace = self.trace,
+                log = self.log,
+                pid = self.pid,
+                exit_status = self.exit_status,
+            );
+        }
         format!(
             "cat {} | perfetto --txt -c - -o {} --background-wait --no-clobber",
             self.config, self.trace,
@@ -1268,6 +1361,40 @@ struct ActiveCapture {
     capability_query_failed: bool,
     automatic_delay: Option<Duration>,
     remote: RemoteCapturePaths,
+    startup_unconfirmed: bool,
+    stop_confirmed: Arc<AtomicBool>,
+    stop_signal_sent: Arc<AtomicBool>,
+    manual_stop_requested: Arc<AtomicBool>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CaptureStart {
+    pid: u32,
+    startup_unconfirmed: bool,
+}
+
+fn capture_start_result(
+    output: &ProcessOutput,
+    template: CaptureTemplate,
+) -> Result<CaptureStart, String> {
+    let pid = parse_perfetto_pid(&String::from_utf8_lossy(&output.stdout));
+    if output.status.success() {
+        return pid
+            .map(|pid| CaptureStart {
+                pid,
+                startup_unconfirmed: template.uses_supervised_launch(),
+            })
+            .ok_or_else(|| {
+                "Perfetto started without returning a background process id".to_owned()
+            });
+    }
+    let error = perfetto_start_error(output);
+    Err(match pid {
+        Some(pid) => {
+            format!("{error}. Startup returned background PID {pid}; readiness was not accepted")
+        }
+        None => error,
+    })
 }
 
 impl AdbRunner {
@@ -1341,16 +1468,19 @@ impl AdbRunner {
         Ok(())
     }
 
-    fn start_capture(&self) -> Result<u32, String> {
-        let output = self.shell(&self.remote.start_command(), ADB_START_TIMEOUT)?;
-        if !output.status.success() {
-            return Err(perfetto_start_error(&output));
-        }
-        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-        text.push('\n');
-        text.push_str(&String::from_utf8_lossy(&output.stderr));
-        parse_perfetto_pid(&text)
-            .ok_or_else(|| "Perfetto started without returning a background process id".to_owned())
+    fn start_capture(&self, template: CaptureTemplate) -> Result<CaptureStart, String> {
+        let result = self
+            .shell(&self.remote.start_command(template), ADB_START_TIMEOUT)
+            .and_then(|output| capture_start_result(&output, template));
+        // Retain an accepted launch's PID before any further device probes.
+        // Broad-capture source readiness is not inferred from a launch result.
+        result.map_err(|error| {
+            if template.uses_supervised_launch() {
+                self.capture_failure(&error, template)
+            } else {
+                error
+            }
+        })
     }
 
     fn device_info(&self) -> (String, u32) {
@@ -1385,25 +1515,46 @@ impl AdbRunner {
         }
     }
 
-    /// Only explicit absence confirms stop. ADB errors never authorize transfer.
-    fn wait_for_remote_stop(&self, pid: u32) -> Result<bool, String> {
+    fn remote_process_stopped(&self, pid: u32) -> Result<bool, String> {
         let command = format!(
             "if [ -d /proc/{pid} ]; then echo running; elif [ -d /proc/self ]; then echo stopped; else exit 1; fi"
         );
+        let output = self
+            .shell(&command, ADB_SHORT_TIMEOUT)
+            .map_err(|error| format!("Unable to confirm Perfetto stopped: {error}"))?;
+        confirmed_remote_stop(&output)
+    }
+
+    /// Only explicit absence confirms stop. ADB errors never authorize transfer.
+    fn wait_for_remote_stop(&self, pid: u32) -> Result<bool, String> {
         for _ in 0..REMOTE_STOP_POLL_ATTEMPTS {
             if self.cancel.is_cancelled() {
                 return Err("Capture cancelled".to_owned());
             }
-            let output = self
-                .shell(&command, ADB_SHORT_TIMEOUT)
-                .map_err(|error| format!("Unable to confirm Perfetto stopped: {error}"))?;
-            match confirmed_remote_stop(&output)? {
+            match self.remote_process_stopped(pid)? {
                 true => return Ok(true),
                 false => {}
             }
             std::thread::sleep(REMOTE_STOP_POLL_DELAY);
         }
         Ok(false)
+    }
+
+    fn wait_for_graceful_stop(&self, pid: u32, timeout: Duration) -> Result<bool, String> {
+        let started = std::time::Instant::now();
+        loop {
+            if self.cancel.is_cancelled() {
+                return Err("Capture cancelled".to_owned());
+            }
+            if self.remote_process_stopped(pid)? {
+                return Ok(true);
+            }
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            std::thread::sleep(REMOTE_STOP_POLL_DELAY.min(remaining));
+        }
     }
 
     fn transfer_trace(&self, destination: &Path) -> Result<u64, String> {
@@ -1446,12 +1597,121 @@ impl AdbRunner {
         parse_trace_transfer_size(&remote.stdout)
     }
 
+    fn confirm_supervised_exit(&self) -> Result<(), String> {
+        let command = format!(
+            "if [ -f {} ]; then cat {}; else echo pending; fi",
+            self.remote.exit_status, self.remote.exit_status,
+        );
+        // /proc disappears just before the supervisor's wait returns. Allow
+        // that short handoff, but never infer success from a missing status.
+        for _ in 0..REMOTE_STOP_POLL_ATTEMPTS {
+            let output = self.shell(&command, ADB_SHORT_TIMEOUT)?;
+            if !output.status.success() {
+                return Err("Unable to read the Perfetto exit status".to_owned());
+            }
+            match parse_custom_exit_status(&output.stdout)? {
+                Some(0) => return Ok(()),
+                Some(code) => {
+                    return Err(format!("Perfetto capture failed (exit code {code})"));
+                }
+                None => std::thread::sleep(REMOTE_STOP_POLL_DELAY),
+            }
+        }
+        Err("The Perfetto process exited without a confirmed exit status".to_owned())
+    }
+
+    fn capture_failure(&self, error: &str, template: CaptureTemplate) -> String {
+        let mut message = error.to_owned();
+        if template.uses_supervised_launch() {
+            let command = format!("tail -c 8192 {}", self.remote.log);
+            match self.shell(&command, ADB_SHORT_TIMEOUT) {
+                Ok(output) if output.status.success() => {
+                    let detail = diagnostic_text(&output.stdout, 2048);
+                    if !detail.is_empty() {
+                        message.push_str(&format!(". Perfetto diagnostics: {detail}"));
+                    } else {
+                        message.push_str(". Perfetto produced no diagnostic output");
+                    }
+                }
+                _ => message.push_str(". Perfetto diagnostics could not be read"),
+            }
+            message.push_str(&format!(
+                ". Retained device config {}, PID {}, log {}, exit status {}",
+                self.remote.config, self.remote.pid, self.remote.log, self.remote.exit_status,
+            ));
+        }
+        message.push_str(&format!(
+            ". Device cleanup was skipped; the recovery path is {} on device {}",
+            self.remote.trace, self.serial,
+        ));
+        message
+    }
+
     fn cleanup_device_files(&self) {
+        let abort_path = format!("{}.abort", self.remote.pid);
+        let accepted_path = format!("{}.accepted", self.remote.pid);
+        let pending_exit_path = format!("{}.tmp", self.remote.exit_status);
         let _ = self.run(
-            self.with_arguments(&["shell", "rm", "-f", &self.remote.config, &self.remote.trace]),
+            self.with_arguments(&[
+                "shell",
+                "rm",
+                "-f",
+                &self.remote.config,
+                &self.remote.trace,
+                &self.remote.pid,
+                &self.remote.log,
+                &self.remote.exit_status,
+                &abort_path,
+                &accepted_path,
+                &pending_exit_path,
+            ]),
             ADB_SHORT_TIMEOUT,
             SHELL_OUTPUT_LIMIT,
         );
+    }
+}
+
+fn parse_custom_exit_status(output: &[u8]) -> Result<Option<u8>, String> {
+    let text = std::str::from_utf8(output)
+        .map_err(|_| "The Perfetto exit status is invalid".to_owned())?
+        .trim();
+    if text == "pending" || text.is_empty() {
+        return Ok(None);
+    }
+    if let Some(code) = text.strip_prefix("logger_failed:")
+        && code.parse::<u8>().is_ok_and(|code| code != 0)
+    {
+        return Err(format!(
+            "The Perfetto diagnostic logger failed (exit code {code}); the client exit status is retained in the .exit.tmp artifact"
+        ));
+    }
+    if text.bytes().all(|byte| byte.is_ascii_digit())
+        && let Ok(code) = text.parse()
+    {
+        return Ok(Some(code));
+    }
+    Err("The Perfetto exit status is invalid".to_owned())
+}
+
+fn diagnostic_text(output: &[u8], limit: usize) -> String {
+    let text = String::from_utf8_lossy(output)
+        .lines()
+        .map(|line| {
+            line.chars()
+                .filter(|character| !character.is_control())
+                .collect::<String>()
+        })
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let skip = text.chars().count().saturating_sub(limit);
+    if skip > 0 {
+        format!(
+            "[truncated] {}",
+            text.chars().skip(skip).collect::<String>()
+        )
+    } else {
+        text
     }
 }
 
@@ -1605,29 +1865,91 @@ fn capture_start_blocking(
     let host_config = captures_dir.join(format!("{}.pbtxt", unique_id("config")));
     std::fs::write(&host_config, config_text)
         .map_err(|_| "Unable to stage the capture config locally".to_owned())?;
-    let result = (|| {
+    let result: Result<ActiveCapture, String> = (|| {
         adb.push_config(&host_config)?;
         let started_unix_ms = unix_ms();
-        let pid = adb.start_capture()?;
+        let start_requested = std::time::Instant::now();
+        let started = adb.start_capture(config.template)?;
+        let automatic_delay = automatic_completion_delay(&config).map(|delay| {
+            if started.startup_unconfirmed {
+                delay.saturating_sub(start_requested.elapsed())
+            } else {
+                delay
+            }
+        });
         let (device_model, android_sdk) = adb.device_info();
         Ok(ActiveCapture {
             executable: adb.executable.clone(),
             serial,
-            pid,
+            pid: started.pid,
             config: config.clone(),
             started_unix_ms,
             device_model,
             android_sdk,
             capability_query_failed,
-            automatic_delay: automatic_completion_delay(&config),
+            automatic_delay,
             remote: adb.remote.clone(),
+            startup_unconfirmed: started.startup_unconfirmed,
+            stop_confirmed: Arc::new(AtomicBool::new(false)),
+            stop_signal_sent: Arc::new(AtomicBool::new(false)),
+            manual_stop_requested: Arc::new(AtomicBool::new(false)),
         })
     })();
-    let _ = std::fs::remove_file(&host_config);
-    if result.is_err() {
-        adb.cleanup_device_files();
+    match result {
+        Ok(active) => {
+            let _ = std::fs::remove_file(&host_config);
+            Ok(active)
+        }
+        Err(error) => Err(format!(
+            "{error}. Startup artifacts were retained: device trace {}, device config {} on {}; local config {}",
+            adb.remote.trace,
+            adb.remote.config,
+            adb.serial,
+            host_config.display(),
+        )),
     }
-    result
+}
+
+/// Send at most one graceful stop for this owned handle, including retries.
+/// Perfetto resets its SIGTERM handler after the first signal (SA_RESETHAND);
+/// sending it again can kill the client during final flush/readback.
+fn confirm_capture_stopped(
+    adb: &AdbRunner,
+    active: &ActiveCapture,
+    request_remote_stop: bool,
+    timeout: Duration,
+) -> Result<(), String> {
+    if request_remote_stop {
+        active.manual_stop_requested.store(true, Ordering::Release);
+    }
+    if active.stop_confirmed.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    if !request_remote_stop {
+        if adb.wait_for_remote_stop(active.pid)? {
+            active.stop_confirmed.store(true, Ordering::Release);
+            return Ok(());
+        }
+        if active.config.template.uses_supervised_launch() {
+            return Err(
+                "Capture is still running; automatic completion did not send a stop signal"
+                    .to_owned(),
+            );
+        }
+    }
+    // Mark before invoking ADB. On transport failure delivery is unknown, so
+    // retries must observe this same session rather than risk a second signal.
+    if !active.stop_signal_sent.swap(true, Ordering::AcqRel) {
+        adb.kill("-TERM", active.pid)?;
+    }
+    if !adb.wait_for_graceful_stop(active.pid, timeout)? {
+        return Err(format!(
+            "Perfetto is still finalizing after {} seconds; no repeated stop signal or force kill was sent. The owned session remains tracked",
+            timeout.as_secs()
+        ));
+    }
+    active.stop_confirmed.store(true, Ordering::Release);
+    Ok(())
 }
 
 fn complete_capture_blocking(
@@ -1639,64 +1961,51 @@ fn complete_capture_blocking(
 ) -> Result<CaptureOutput, String> {
     let mut adb = AdbRunner::new(active.executable.clone(), active.serial.clone(), cancel);
     adb.remote = active.remote.clone();
-    let stopped = (|| {
-        if request_remote_stop {
-            adb.kill("-TERM", active.pid)?;
-        }
-        if !adb.wait_for_remote_stop(active.pid)? {
-            adb.kill("-TERM", active.pid)?;
-            if !adb.wait_for_remote_stop(active.pid)? {
-                adb.kill("-KILL", active.pid)?;
-                if !adb.wait_for_remote_stop(active.pid)? {
-                    return Err(format!(
-                        "Timed out waiting for device Perfetto process {} to stop",
-                        active.pid
-                    ));
-                }
-            }
-        }
-        Ok(())
-    })();
-    stopped.map_err(|error: String| {
-        format!(
-            "{error}. Device cleanup was skipped; the recovery path is {} on device {}",
-            adb.remote.trace, active.serial,
-        )
-    })?;
+    let stopped = confirm_capture_stopped(
+        &adb,
+        &active,
+        request_remote_stop,
+        REMOTE_GRACEFUL_STOP_TIMEOUT,
+    );
+    stopped.map_err(|error: String| adb.capture_failure(&error, active.config.template))?;
+    if active.config.template.uses_supervised_launch() {
+        adb.confirm_supervised_exit()
+            .map_err(|error| adb.capture_failure(&error, active.config.template))?;
+    }
 
     let captures_dir = data_dir.join(CAPTURE_CONFIG_PATH_SEGMENT);
-    std::fs::create_dir_all(&captures_dir)
-        .map_err(|_| format!(
-            "The capture artifact directory is unavailable. Device cleanup was skipped; the recovery path is {} on device {}",
-            adb.remote.trace, active.serial,
-        ))?;
-    let artifact_id = unique_id("artifact");
-    let trace_path = captures_dir.join(format!("{artifact_id}.pftrace"));
-    let trace_size_bytes = adb.transfer_trace(&trace_path).map_err(|error| {
-        format!(
-            "{error}. Device cleanup was skipped; the recovery path is {} on device {}",
-            adb.remote.trace, active.serial,
+    std::fs::create_dir_all(&captures_dir).map_err(|_| {
+        adb.capture_failure(
+            "The capture artifact directory is unavailable",
+            active.config.template,
         )
     })?;
+    let artifact_id = unique_id("artifact");
+    let trace_path = captures_dir.join(format!("{artifact_id}.pftrace"));
+    let trace_size_bytes = adb
+        .transfer_trace(&trace_path)
+        .map_err(|error| adb.capture_failure(&error, active.config.template))?;
     adb.cleanup_device_files();
     let finished_unix_ms = unix_ms();
     let duration_nanos = finished_unix_ms
         .saturating_sub(active.started_unix_ms)
         .saturating_mul(1_000_000);
 
+    let manually_stopped = active.manual_stop_requested.load(Ordering::Acquire);
     let inspection =
         super::capture_config::preflight(&build_config_text(&active.config), None, None);
     let mut report = super::capture_report::inspect(
         &trace_path,
         &inspection.data_sources,
-        if request_remote_stop {
+        if manually_stopped {
             None
         } else {
             inspection.duration_ms
         },
         &adb.cancel,
     );
-    if request_remote_stop {
+    mark_startup_readiness(&mut report, active.startup_unconfirmed);
+    if manually_stopped {
         report.messages.push(
             "Capture was stopped manually; configured duration was not a completeness requirement"
                 .to_owned(),
@@ -1797,6 +2106,16 @@ fn complete_capture_blocking(
         config_summary: Some(summary),
         integrity,
     })
+}
+
+fn mark_startup_readiness(report: &mut super::capture_report::IntegrityReport, unconfirmed: bool) {
+    if unconfirmed {
+        report.status = super::capture_report::IntegrityStatus::Unverified;
+        report
+            .messages
+            .retain(|message| message != "Available checks passed.");
+        report.messages.push(STARTUP_UNCONFIRMED.to_owned());
+    }
 }
 
 fn detect_capabilities_blocking(serial: String, cancel: CancellationToken) -> DeviceCapabilities {
@@ -1911,6 +2230,7 @@ pub(in crate::trace) struct Capture {
     config_generation: u64,
     config_picking: bool,
     config_notice: Option<String>,
+    runtime_notice: Option<String>,
     preflight: Option<super::capture_config::PreflightReport>,
     preflight_dirty: bool,
     integrity: Option<CaptureIntegritySummary>,
@@ -1959,6 +2279,7 @@ impl Capture {
             config_generation: 0,
             config_picking: false,
             config_notice,
+            runtime_notice: None,
             preflight: None,
             preflight_dirty: true,
             integrity: None,
@@ -2211,6 +2532,10 @@ impl Capture {
         self.config_notice.as_deref()
     }
 
+    pub(in crate::trace) fn runtime_notice(&self) -> Option<&str> {
+        self.runtime_notice.as_deref()
+    }
+
     pub(in crate::trace) fn integrity(&self) -> Option<&CaptureIntegritySummary> {
         self.integrity.as_ref()
     }
@@ -2246,6 +2571,9 @@ impl Capture {
             sources,
             categories.as_ref(),
         );
+        if config.template == CaptureTemplate::Custom {
+            report.warnings.push(STARTUP_UNCONFIRMED.to_owned());
+        }
         if config.template == CaptureTemplate::FullCapture {
             if capabilities.is_none_or(|capabilities| {
                 capabilities.query_error.is_some() || capabilities.data_source_names.is_empty()
@@ -2737,6 +3065,12 @@ impl Capture {
         self.state.in_progress()
     }
 
+    pub(in crate::trace) fn startup_unconfirmed(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.startup_unconfirmed)
+    }
+
     /// Starts one explicit capture on the selected online device.
     pub(in crate::trace) fn start(
         &mut self,
@@ -2797,7 +3131,10 @@ impl Capture {
         let cancel = self.cancel.clone();
         self.active = None;
         self.integrity = None;
-        self.state = CaptureState::Preparing;
+        self.runtime_notice = None;
+        self.state = CaptureState::Preparing {
+            stop_requested: false,
+        };
         let task = cx.background_executor().spawn(async move {
             capture_start_blocking(serial, config, data_dir, cancel, capability_query_failed)
         });
@@ -2809,11 +3146,12 @@ impl Capture {
                 }
                 match result {
                     Ok(active) => {
-                        this.capture.state = CaptureState::Recording {
-                            started_unix_ms: active.started_unix_ms,
-                        };
-                        this.capture.active = Some(active);
-                        this.capture.schedule_automatic_completion(generation, cx);
+                        let stop_requested = this.capture.accept_started_capture(active);
+                        if stop_requested {
+                            this.capture.begin_completion(true, cx);
+                        } else {
+                            this.capture.schedule_automatic_completion(generation, cx);
+                        }
                     }
                     Err(error) => {
                         this.capture.active = None;
@@ -2829,8 +3167,22 @@ impl Capture {
         cx.notify();
     }
 
-    /// Stops the recording and pulls the trace; no-op unless recording.
+    /// Accept a late launch without losing a stop requested while preparing.
+    fn accept_started_capture(&mut self, active: ActiveCapture) -> bool {
+        let stop_requested = self.state.stop_requested();
+        self.state = CaptureState::Recording {
+            started_unix_ms: active.started_unix_ms,
+        };
+        self.active = Some(active);
+        stop_requested
+    }
+
+    /// Queue a preparing capture's stop, or stop/save an owned recording.
     pub(in crate::trace) fn stop(&mut self, cx: &mut Context<crate::trace::TraceWorkspace>) {
+        if self.state.request_startup_stop() {
+            cx.notify();
+            return;
+        }
         if !matches!(self.state, CaptureState::Recording { .. }) {
             return;
         }
@@ -2853,6 +3205,14 @@ impl Capture {
         generation: u64,
         cx: &mut Context<crate::trace::TraceWorkspace>,
     ) {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.config.template.uses_supervised_launch())
+        {
+            self.observe_supervised_completion(generation, cx);
+            return;
+        }
         let Some(delay) = self
             .active
             .as_ref()
@@ -2875,6 +3235,73 @@ impl Capture {
             .ok();
         })
         .detach();
+    }
+
+    fn observe_supervised_completion(
+        &self,
+        generation: u64,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        let Some(active) = self.active.as_ref() else {
+            return;
+        };
+        let delay = if active.stop_signal_sent.load(Ordering::Acquire) {
+            Duration::from_secs(1)
+        } else {
+            active.automatic_delay.unwrap_or(Duration::from_secs(1))
+        };
+        let executable = active.executable.clone();
+        let serial = active.serial.clone();
+        let remote = active.remote.clone();
+        let pid = active.pid;
+        let cancel = self.cancel.clone();
+        let executor = cx.background_executor().clone();
+        cx.spawn(async move |this, cx| {
+            executor.timer(delay).await;
+            loop {
+                let observing = this.update(cx, |this, _| {
+                    this.capture.generation == generation
+                        && matches!(this.capture.state, CaptureState::Recording { .. })
+                }).unwrap_or(false);
+                if !observing { return; }
+                let mut adb = AdbRunner::new(executable.clone(), serial.clone(), cancel.clone());
+                adb.remote = remote.clone();
+                let stopped = executor.spawn(async move { adb.remote_process_stopped(pid) }).await;
+                let again = this.update(cx, |this, cx| {
+                    if this.capture.generation != generation
+                        || !matches!(this.capture.state, CaptureState::Recording { .. }) {
+                        return false;
+                    }
+                    match stopped {
+                        Ok(true) => {
+                            this.capture.runtime_notice = None;
+                            if let Some(active) = this.capture.active.as_mut() {
+                                // Keep the observed exit: never signal this PID
+                                // again if it is reused before artifact transfer.
+                                active.stop_confirmed.store(true, Ordering::Release);
+                            }
+                            this.capture.begin_completion(false, cx);
+                            false
+                        }
+                        Ok(false) => {
+                            if this.capture.clear_recovered_observation_warning() {
+                                cx.notify();
+                            }
+                            true
+                        }
+                        Err(error) => {
+                            this.capture.runtime_notice = Some(format!(
+                                "{error}. The owned run remains tracked; automatic stop was not requested."
+                            ));
+                            cx.notify();
+                            true
+                        }
+                    }
+                }).unwrap_or(false);
+                if !again { return; }
+                executor.timer(Duration::from_secs(1)).await;
+            }
+        }).detach();
     }
 
     fn begin_completion(
@@ -2909,9 +3336,9 @@ impl Capture {
                 if this.capture.generation != generation {
                     return;
                 }
-                this.capture.active = None;
                 match result {
                     Ok(output) => {
+                        this.capture.active = None;
                         this.capture.integrity = Some(output.integrity.clone());
                         this.capture.state = CaptureState::Completed {
                             trace_path: output.trace_path.clone(),
@@ -2920,7 +3347,10 @@ impl Capture {
                         this.on_capture_completed(output, cx);
                     }
                     Err(error) => {
-                        this.capture.state = CaptureState::Failed(error.clone());
+                        this.capture.apply_completion_failure(error.clone());
+                        if matches!(this.capture.state, CaptureState::Recording { .. }) {
+                            this.capture.observe_supervised_completion(generation, cx);
+                        }
                         this.on_capture_failed(error, cx);
                     }
                 }
@@ -2930,6 +3360,33 @@ impl Capture {
         })
         .detach();
         cx.notify();
+    }
+
+    fn clear_recovered_observation_warning(&mut self) -> bool {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.stop_signal_sent.load(Ordering::Acquire))
+        {
+            // A successful running probe is not confirmation of graceful stop.
+            return false;
+        }
+        self.runtime_notice.take().is_some()
+    }
+
+    fn apply_completion_failure(&mut self, error: String) {
+        if let Some(active) = self.active.as_ref()
+            && !active.stop_confirmed.load(Ordering::Acquire)
+        {
+            self.state = CaptureState::Recording {
+                started_unix_ms: active.started_unix_ms,
+            };
+            self.runtime_notice = Some(error);
+        } else {
+            self.active = None;
+            self.runtime_notice = None;
+            self.state = CaptureState::Failed(error);
+        }
     }
 }
 
@@ -2946,6 +3403,709 @@ impl Drop for Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn preparing_exposes_stop_and_keeps_the_launch_tracked_until_it_returns() {
+        for stop_requested in [false, true] {
+            let mut capture = Capture::new(None);
+            capture.state = CaptureState::Preparing {
+                stop_requested: false,
+            };
+            assert!(capture.state.in_progress());
+            assert!(capture.state.shows_stop_button());
+            assert!(!capture.state.stop_requested());
+            if stop_requested {
+                assert!(capture.state.request_startup_stop());
+                assert!(capture.state.request_startup_stop());
+                assert!(capture.state.stop_requested());
+            }
+            assert!(!capture.cancel.is_cancelled());
+            let remote = RemoteCapturePaths::new();
+            let expected_path = remote.trace.clone();
+            let requested = capture.accept_started_capture(ActiveCapture {
+                executable: PathBuf::from("adb"),
+                serial: "serial".to_owned(),
+                pid: 1234,
+                config: CaptureConfig::new(CaptureTemplate::FullCapture),
+                started_unix_ms: 42,
+                device_model: "fixture".to_owned(),
+                android_sdk: 37,
+                capability_query_failed: false,
+                automatic_delay: None,
+                remote,
+                startup_unconfirmed: true,
+                stop_confirmed: Arc::new(AtomicBool::new(false)),
+                stop_signal_sent: Arc::new(AtomicBool::new(false)),
+                manual_stop_requested: Arc::new(AtomicBool::new(false)),
+            });
+            assert_eq!(requested, stop_requested);
+            assert_eq!(capture.active.as_ref().unwrap().pid, 1234);
+            assert_eq!(capture.active.as_ref().unwrap().remote.trace, expected_path);
+            assert_eq!(
+                capture.state,
+                CaptureState::Recording {
+                    started_unix_ms: 42
+                }
+            );
+            assert!(!capture.cancel.is_cancelled());
+        }
+        for mut state in [
+            CaptureState::Idle,
+            CaptureState::Pulling,
+            CaptureState::Completed {
+                trace_path: PathBuf::from("trace"),
+                size_bytes: 1,
+            },
+            CaptureState::Failed("failure".to_owned()),
+        ] {
+            assert!(!state.request_startup_stop());
+            assert!(!state.shows_stop_button());
+            assert!(!state.stop_requested());
+        }
+        let mut recording = CaptureState::Recording {
+            started_unix_ms: 42,
+        };
+        assert!(recording.shows_stop_button());
+        assert!(!recording.request_startup_stop());
+    }
+
+    #[::core::prelude::v1::test]
+    fn queued_startup_stop_is_completed_before_scheduling_any_auto_stop() {
+        let source = include_str!("capture.rs");
+        let implementation = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+        let accepted = implementation
+            .split("let stop_requested = this.capture.accept_started_capture(active);")
+            .nth(1)
+            .unwrap();
+        assert!(accepted.starts_with("\n                        if stop_requested {\n                            this.capture.begin_completion(true, cx);\n                        } else {\n                            this.capture.schedule_automatic_completion(generation, cx);"));
+        let stop = implementation
+            .split("pub(in crate::trace) fn stop(")
+            .nth(1)
+            .unwrap()
+            .split("/// Cancels")
+            .next()
+            .unwrap();
+        assert!(stop.contains("self.state.request_startup_stop()"));
+        assert!(!stop.contains("cancel.cancel()"));
+        assert!(!stop.contains("active = None"));
+    }
+
+    fn owned_stop_fixture(executable: PathBuf) -> ActiveCapture {
+        ActiveCapture {
+            executable,
+            serial: "serial".to_owned(),
+            pid: 1234,
+            config: custom(
+                "buffers { size_kb: 1024 } duration_ms: 1000 data_sources { config { name: \"linux.ftrace\" } }",
+            ),
+            started_unix_ms: 42,
+            device_model: "fixture".to_owned(),
+            android_sdk: 37,
+            capability_query_failed: false,
+            automatic_delay: None,
+            remote: RemoteCapturePaths::new(),
+            startup_unconfirmed: true,
+            stop_confirmed: Arc::new(AtomicBool::new(false)),
+            stop_signal_sent: Arc::new(AtomicBool::new(false)),
+            manual_stop_requested: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn manual_stop_allows_flush_longer_than_five_seconds_without_a_second_signal() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+set -eu
+root=$(dirname "$0")
+printf '%s\n' "$*" >> "$root/calls.log"
+if [ "$3" = shell ] && [ "$#" -eq 4 ]; then
+  case "$4" in
+    *'kill -TERM 1234'*) printf 'TERM\n' >> "$root/signals.log" ;;
+    *'/proc/1234'*)
+      count=0
+      if [ -f "$root/polls" ]; then count=$(cat "$root/polls"); fi
+      count=$((count + 1)); printf '%s\n' "$count" > "$root/polls"
+      if [ "$count" -le 23 ]; then printf 'running\n'; else printf 'stopped\n'; fi ;;
+    *'echo pending'*) printf '0\n' ;;
+    *) exit 90 ;;
+  esac
+elif [ "$3" = shell ] && [ "$4" = stat ]; then printf '4\n'
+elif [ "$3" = pull ]; then printf data > "$5"
+elif [ "$3" = shell ] && [ "$4" = rm ]; then exit 0
+else exit 91
+fi
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let active = owned_stop_fixture(executable);
+        let retained = active.clone();
+        let started = std::time::Instant::now();
+        let output = complete_capture_blocking(
+            active,
+            true,
+            root.0.clone(),
+            CancellationToken::new(),
+            Language::English,
+        )
+        .unwrap();
+        assert!(started.elapsed() > Duration::from_secs(5));
+        assert_eq!(
+            std::fs::read_to_string(root.0.join("signals.log")).unwrap(),
+            "TERM\n"
+        );
+        assert!(
+            !std::fs::read_to_string(root.0.join("calls.log"))
+                .unwrap()
+                .contains("-KILL")
+        );
+        assert!(retained.stop_confirmed.load(Ordering::Acquire));
+        assert!(retained.manual_stop_requested.load(Ordering::Acquire));
+        assert_eq!(output.trace_size_bytes, 4);
+        assert!(
+            output
+                .integrity
+                .messages
+                .iter()
+                .any(|message| message.contains("stopped manually"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn uncertain_stops_keep_the_handle_and_retries_never_send_another_signal() {
+        use std::os::unix::fs::PermissionsExt;
+        for failure in ["timeout", "probe", "delivery"] {
+            let root = TransferTestDirectory::new();
+            let executable = root.0.join("fake adb");
+            std::fs::write(
+                &executable,
+                format!(
+                    r#"#!/bin/sh
+set -eu
+root=$(dirname "$0")
+printf '%s\n' "$*" >> "$root/calls.log"
+case "$4" in
+  *'kill -TERM 1234'*)
+    printf 'TERM\n' >> "$root/signals.log"
+    if [ '{failure}' = delivery ]; then exit 1; fi ;;
+  *'/proc/1234'*)
+    if [ '{failure}' = probe ]; then exit 1; fi
+    printf 'running\n' ;;
+  *) exit 90 ;;
+esac
+"#
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let mut capture = Capture::new(None);
+            let active = owned_stop_fixture(executable.clone());
+            let cloned = active.clone();
+            let mut adb = AdbRunner::new(executable, "serial".to_owned(), CancellationToken::new());
+            adb.remote = active.remote.clone();
+            let error = confirm_capture_stopped(&adb, &active, true, Duration::ZERO).unwrap_err();
+            capture.accept_started_capture(active);
+            capture.apply_completion_failure(error.clone());
+            assert!(capture.active.is_some());
+            assert!(matches!(capture.state, CaptureState::Recording { .. }));
+            assert!(capture.runtime_notice.as_ref().unwrap().contains(&error));
+            assert!(!capture.clear_recovered_observation_warning());
+            assert!(capture.runtime_notice.as_ref().unwrap().contains(&error));
+            assert!(cloned.stop_signal_sent.load(Ordering::Acquire));
+            assert!(!cloned.stop_confirmed.load(Ordering::Acquire));
+            assert!(confirm_capture_stopped(&adb, &cloned, true, Duration::ZERO).is_err());
+            assert_eq!(
+                std::fs::read_to_string(root.0.join("signals.log")).unwrap(),
+                "TERM\n"
+            );
+            let calls = std::fs::read_to_string(root.0.join("calls.log")).unwrap();
+            assert!(!calls.contains("-KILL"));
+            assert!(!calls.contains(" pull "));
+            assert!(!calls.contains(" rm "));
+            // Once exit is confirmed, a real capture error remains fatal and
+            // cannot be turned into a retry or successful capture.
+            cloned.stop_confirmed.store(true, Ordering::Release);
+            capture.apply_completion_failure("exit code 143".to_owned());
+            assert!(capture.active.is_none());
+            assert_eq!(
+                capture.state,
+                CaptureState::Failed("exit code 143".to_owned())
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn recovered_observation_only_clears_transient_warnings_without_a_pending_stop() {
+        let mut capture = Capture::new(None);
+        capture.accept_started_capture(owned_stop_fixture(PathBuf::from("adb")));
+        capture.runtime_notice = Some("transient ADB probe failure".to_owned());
+        assert!(capture.clear_recovered_observation_warning());
+        assert!(capture.runtime_notice.is_none());
+    }
+
+    fn startup_output(code: i32, stdout: &str, stderr: &str) -> ProcessOutput {
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code << 8)
+        };
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code as u32)
+        };
+        ProcessOutput {
+            status,
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_background_launch_does_not_claim_readiness_and_all_nonzero_exits_fail() {
+        let output = startup_output(
+            2,
+            "1234\n",
+            "Timeout waiting for all data sources to start\n",
+        );
+        for template in CaptureTemplate::ALL {
+            assert!(capture_start_result(&output, template).is_err());
+            assert_eq!(
+                capture_start_result(&startup_output(0, "1234\n", ""), template).unwrap(),
+                CaptureStart {
+                    pid: 1234,
+                    startup_unconfirmed: matches!(
+                        template,
+                        CaptureTemplate::Custom | CaptureTemplate::FullCapture
+                    ),
+                }
+            );
+        }
+        for output in [
+            startup_output(2, "", "Timeout waiting for all data sources to start"),
+            startup_output(2, "0\n", "Timeout waiting for all data sources to start"),
+            startup_output(1, "1234\n", "Timeout waiting for all data sources to start"),
+            startup_output(2, "1234\n", "Failed to open the output file"),
+            startup_output(1, "1234\n", "invalid config"),
+        ] {
+            assert!(capture_start_result(&output, CaptureTemplate::Custom).is_err());
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn unconfirmed_startup_cannot_be_reported_as_integrity_passed() {
+        let root = TransferTestDirectory::new();
+        let mut report = super::super::capture_report::inspect(
+            &root.0.join("missing.pftrace"),
+            &[],
+            None,
+            &CancellationToken::new(),
+        );
+        report.status = super::super::capture_report::IntegrityStatus::Verified;
+        report.messages = vec!["Available checks passed.".to_owned()];
+        mark_startup_readiness(&mut report, false);
+        assert_eq!(
+            report.status,
+            super::super::capture_report::IntegrityStatus::Verified
+        );
+        mark_startup_readiness(&mut report, true);
+        assert_eq!(
+            report.status,
+            super::super::capture_report::IntegrityStatus::Unverified
+        );
+        assert_eq!(report.messages, vec![STARTUP_UNCONFIRMED.to_owned()]);
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn broad_supervised_launch_retains_owned_trace_and_marks_report_unverified() {
+        use std::os::unix::fs::PermissionsExt;
+        for template in [CaptureTemplate::FullCapture, CaptureTemplate::Custom] {
+            let root = TransferTestDirectory::new();
+            let executable = root.0.join("fake adb");
+            std::fs::write(
+                &executable,
+                r#"#!/bin/sh
+set -eu
+if [ "$3" = 'shell' ] && [ "$#" -eq 4 ]; then
+  case "$4" in
+    umask*)
+      case "$4" in *'--background'*) exit 92 ;; esac
+      printf '1234\n' ;;
+    *'echo pending'*) printf '0\n' ;;
+    *'/proc/1234'*) exit 93 ;;
+    *) exit 90 ;;
+  esac
+elif [ "$3" = 'shell' ] && [ "$4" = 'stat' ]; then
+  printf '4\n'
+elif [ "$3" = 'pull' ]; then
+  printf 'data' > "$5"
+elif [ "$3" = 'shell' ] && [ "$4" = 'rm' ]; then
+  exit 0
+else
+  exit 91
+fi
+"#,
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let adb = AdbRunner::new(
+                executable.clone(),
+                "serial".to_owned(),
+                CancellationToken::new(),
+            );
+            let started = adb.start_capture(template).unwrap();
+            assert!(started.startup_unconfirmed);
+            let mut config = CaptureConfig::new(template);
+            config.duration_seconds = 1;
+            config.enabled_probes = Some([Probe::CpuScheduling].into_iter().collect());
+            config.template = template;
+            let output = complete_capture_blocking(
+                ActiveCapture {
+                    executable,
+                    serial: "serial".to_owned(),
+                    pid: started.pid,
+                    config,
+                    started_unix_ms: 0,
+                    device_model: "fixture".to_owned(),
+                    android_sdk: 34,
+                    capability_query_failed: false,
+                    automatic_delay: Some(Duration::ZERO),
+                    remote: adb.remote.clone(),
+                    startup_unconfirmed: started.startup_unconfirmed,
+                    stop_confirmed: Arc::new(AtomicBool::new(true)),
+                    stop_signal_sent: Arc::new(AtomicBool::new(false)),
+                    manual_stop_requested: Arc::new(AtomicBool::new(false)),
+                },
+                true,
+                root.0.clone(),
+                CancellationToken::new(),
+                Language::English,
+            )
+            .unwrap();
+            assert_eq!(output.trace_size_bytes, 4);
+            assert_eq!(
+                output.integrity.status,
+                Language::English.text(TextKey::TraceCaptureIntegrityUnverified)
+            );
+            assert!(
+                output
+                    .integrity
+                    .messages
+                    .iter()
+                    .any(|message| message == STARTUP_UNCONFIRMED)
+            );
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_exit_status_requires_an_explicit_bounded_code() {
+        assert_eq!(parse_custom_exit_status(b"0\n"), Ok(Some(0)));
+        assert_eq!(parse_custom_exit_status(b"137\r\n"), Ok(Some(137)));
+        assert_eq!(parse_custom_exit_status(b"255\n"), Ok(Some(255)));
+        assert_eq!(parse_custom_exit_status(b"pending\n"), Ok(None));
+        assert_eq!(parse_custom_exit_status(b""), Ok(None));
+        assert!(
+            parse_custom_exit_status(b"logger_failed:1\n")
+                .unwrap_err()
+                .contains("diagnostic logger failed")
+        );
+        for invalid in [b"-1".as_slice(), b"256", b"0\n1", b"abc", b"\xff"] {
+            assert!(parse_custom_exit_status(invalid).is_err());
+        }
+        assert_eq!(
+            diagnostic_text(b"failed\r\nreason\0\n", 100),
+            "failed | reason"
+        );
+        let verbose = format!("{}\nterminal error", "warning\n".repeat(500));
+        assert!(diagnostic_text(verbose.as_bytes(), 2048).ends_with("terminal error"));
+        assert!(diagnostic_text(verbose.as_bytes(), 2048).starts_with("[truncated] "));
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn custom_failure_keeps_diagnostics_and_never_accepts_nonzero_output() {
+        use std::os::unix::fs::PermissionsExt;
+        for (status, size, expected) in [
+            ("7", "4", "exit code 7"),
+            ("143", "4", "exit code 143"),
+            ("0", "0", "captured trace is empty"),
+            ("invalid", "4", "exit status is invalid"),
+        ] {
+            let root = TransferTestDirectory::new();
+            let executable = root.0.join("fake adb");
+            std::fs::write(
+                &executable,
+                format!(
+                    r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$(dirname "$0")/calls.log"
+if [ "$3" = shell ] && [ "$#" -eq 4 ]; then
+  case "$4" in
+    *'echo pending'*) printf '%s\n' '{status}' ;;
+    'tail -c 8192 '*) printf 'Disconnected from the traced service\n' ;;
+    *) exit 90 ;;
+  esac
+elif [ "$3" = shell ] && [ "$4" = stat ]; then
+  printf '%s\n' '{size}'
+else
+  exit 91
+fi
+"#
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let remote = RemoteCapturePaths::new();
+            let expected_log = remote.log.clone();
+            let expected_trace = remote.trace.clone();
+            let result = complete_capture_blocking(
+                ActiveCapture {
+                    executable,
+                    serial: "serial".to_owned(),
+                    pid: 1234,
+                    config: custom(
+                        "buffers { size_kb: 1024 } duration_ms: 1000 data_sources { config { name: \"linux.ftrace\" } }",
+                    ),
+                    started_unix_ms: 0,
+                    device_model: "fixture".to_owned(),
+                    android_sdk: 34,
+                    capability_query_failed: false,
+                    automatic_delay: None,
+                    remote,
+                    startup_unconfirmed: true,
+                    stop_confirmed: Arc::new(AtomicBool::new(true)),
+                    stop_signal_sent: Arc::new(AtomicBool::new(false)),
+                    manual_stop_requested: Arc::new(AtomicBool::new(false)),
+                },
+                false,
+                root.0.clone(),
+                CancellationToken::new(),
+                Language::English,
+            );
+            let error = result.unwrap_err();
+            assert!(error.contains(expected), "{error}");
+            assert!(
+                error.contains("Disconnected from the traced service"),
+                "{error}"
+            );
+            assert!(error.contains(&expected_log));
+            assert!(error.contains(&expected_trace));
+            assert!(error.contains("Device cleanup was skipped"));
+            let calls = std::fs::read_to_string(root.0.join("calls.log")).unwrap();
+            assert!(!calls.contains(" pull "));
+            assert!(!calls.contains(" rm "));
+        }
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn custom_supervisor_survives_launcher_exit_and_records_the_actual_child() {
+        use std::os::unix::fs::PermissionsExt;
+        for logger_fails in [false, true] {
+            let root = TransferTestDirectory::new();
+            if logger_fails {
+                let tail = root.0.join("tail");
+                std::fs::write(&tail, "#!/bin/sh\ncat >/dev/null\nexit 9\n").unwrap();
+                std::fs::set_permissions(&tail, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let executable = root.0.join("perfetto");
+            std::fs::write(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' "$$" > "$APS_TEST_CHILD_PID"
+IFS= read -r config
+[ "$config" = 'config from stdin' ] || exit 91
+sleep 0.3
+printf 'child failed after the launcher exited\n' >&2
+exit 7
+"#,
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let remote = RemoteCapturePaths {
+                config: root.0.join("config").to_string_lossy().into_owned(),
+                trace: root.0.join("trace").to_string_lossy().into_owned(),
+                pid: root.0.join("pid").to_string_lossy().into_owned(),
+                log: root.0.join("log").to_string_lossy().into_owned(),
+                exit_status: root.0.join("exit").to_string_lossy().into_owned(),
+            };
+            std::fs::write(&remote.config, "config from stdin\n").unwrap();
+            let child_pid_path = root.0.join("actual-pid");
+            let mut request = ProcessRequest::new("/bin/sh");
+            request.arguments = vec![
+                "-c".into(),
+                remote.start_command(CaptureTemplate::Custom).into(),
+            ];
+            request.environment.insert(
+                "PATH".into(),
+                format!("{}:/usr/bin:/bin", root.0.display()).into(),
+            );
+            request.environment.insert(
+                "APS_TEST_CHILD_PID".into(),
+                child_pid_path.as_os_str().to_owned(),
+            );
+            let output = ProcessRunner
+                .run(&request, &CancellationToken::new())
+                .unwrap();
+            let started = capture_start_result(&output, CaptureTemplate::Custom).unwrap();
+            for _ in 0..100 {
+                if std::fs::read(&remote.exit_status).is_ok_and(|text| !text.is_empty()) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if logger_fails {
+                assert_eq!(
+                    std::fs::read(&remote.exit_status).unwrap(),
+                    b"logger_failed:9\n"
+                );
+                assert_eq!(
+                    std::fs::read(format!("{}.tmp", remote.exit_status)).unwrap(),
+                    b"7\n"
+                );
+            } else {
+                assert_eq!(std::fs::read(&remote.exit_status).unwrap(), b"7\n");
+                assert_eq!(
+                    std::fs::read_to_string(&remote.log).unwrap(),
+                    "child failed after the launcher exited\n"
+                );
+            }
+            assert_eq!(
+                std::fs::read_to_string(child_pid_path)
+                    .unwrap()
+                    .trim()
+                    .parse::<u32>()
+                    .unwrap(),
+                started.pid
+            );
+            assert!(started.startup_unconfirmed);
+        }
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn custom_supervisor_reaps_child_when_pid_publication_fails_or_is_late() {
+        use std::os::unix::fs::PermissionsExt;
+        for delayed in [false, true] {
+            let root = TransferTestDirectory::new();
+            let executable = root.0.join("perfetto");
+            std::fs::write(&executable, "#!/bin/sh\nsleep 0.4\nexit 0\n").unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            if delayed {
+                let nohup = root.0.join("nohup");
+                std::fs::write(&nohup, "#!/bin/sh\nsleep 0.2\nexec \"$@\"\n").unwrap();
+                std::fs::set_permissions(&nohup, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let remote = RemoteCapturePaths {
+                config: root.0.join("config").to_string_lossy().into_owned(),
+                trace: root.0.join("trace").to_string_lossy().into_owned(),
+                pid: root.0.join("pid").to_string_lossy().into_owned(),
+                log: root.0.join("log").to_string_lossy().into_owned(),
+                exit_status: root.0.join("exit").to_string_lossy().into_owned(),
+            };
+            std::fs::write(&remote.config, "test\n").unwrap();
+            if !delayed {
+                std::fs::create_dir(&remote.pid).unwrap();
+            }
+            let mut request = ProcessRequest::new("/bin/sh");
+            request.arguments = vec![
+                "-c".into(),
+                remote
+                    .start_command(CaptureTemplate::Custom)
+                    .replace("sleep 0.05", "sleep 0.001")
+                    .into(),
+            ];
+            request.environment.insert(
+                "PATH".into(),
+                format!("{}:/usr/bin:/bin", root.0.display()).into(),
+            );
+            let output = ProcessRunner
+                .run(&request, &CancellationToken::new())
+                .unwrap();
+            assert!(capture_start_result(&output, CaptureTemplate::Custom).is_err());
+            for _ in 0..100 {
+                if std::fs::read(&remote.exit_status).is_ok_and(|text| {
+                    parse_custom_exit_status(&text).is_ok_and(|code| code.is_some())
+                }) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let code = parse_custom_exit_status(&std::fs::read(&remote.exit_status).unwrap())
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                code, 125,
+                "an unaccepted launch must exit before executing Perfetto"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn custom_background_launch_without_a_pid_stays_failed() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+set -eu
+if [ "$3" = 'shell' ] && [ "$#" -eq 4 ]; then
+  case "$4" in
+    umask*) exit 0 ;;
+    *'/proc/1234'*) printf 'stopped\n' ;;
+    *) exit 90 ;;
+  esac
+else
+  exit 1
+fi
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let adb = AdbRunner::new(executable, "serial".to_owned(), CancellationToken::new());
+        assert!(
+            adb.start_capture(CaptureTemplate::Custom)
+                .unwrap_err()
+                .contains("without returning a background process id")
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_auto_completion_observes_exit_and_keeps_the_handle_on_probe_failure() {
+        let source = include_str!("capture.rs");
+        let implementation = source.split("#[cfg(test)]\nmod tests").next().unwrap();
+        let schedule = implementation
+            .split("fn schedule_automatic_completion(")
+            .nth(1)
+            .unwrap()
+            .split("fn observe_supervised_completion(")
+            .next()
+            .unwrap();
+        assert!(schedule.contains("uses_supervised_launch()"));
+        assert!(schedule.contains("self.observe_supervised_completion(generation, cx)"));
+        let observe = implementation
+            .split("fn observe_supervised_completion(")
+            .nth(1)
+            .unwrap()
+            .split("fn begin_completion(")
+            .next()
+            .unwrap();
+        assert!(observe.contains("active.stop_confirmed.store(true, Ordering::Release)"));
+        assert!(observe.contains("this.capture.begin_completion(false, cx)"));
+        assert!(observe.contains("this.capture.runtime_notice"));
+        assert!(!observe.contains(".kill("));
+        assert!(!observe.contains("active = None"));
+        assert!(!observe.contains("CaptureState::Failed"));
+    }
 
     struct TransferTestDirectory(PathBuf);
 
@@ -3171,6 +4331,10 @@ fi
                 capability_query_failed: false,
                 automatic_delay: None,
                 remote: RemoteCapturePaths::new(),
+                startup_unconfirmed: false,
+                stop_confirmed: Arc::new(AtomicBool::new(false)),
+                stop_signal_sent: Arc::new(AtomicBool::new(false)),
+                manual_stop_requested: Arc::new(AtomicBool::new(false)),
             },
             false,
             root.0.clone(),
@@ -3234,6 +4398,10 @@ fi
                 capability_query_failed: false,
                 automatic_delay: None,
                 remote,
+                startup_unconfirmed: false,
+                stop_confirmed: Arc::new(AtomicBool::new(false)),
+                stop_signal_sent: Arc::new(AtomicBool::new(false)),
+                manual_stop_requested: Arc::new(AtomicBool::new(false)),
             },
             false,
             root.0.clone(),
@@ -3264,19 +4432,78 @@ fi
         config.buffer_size_kb = 1024;
         config.enabled_probes = Some([Probe::CpuScheduling].into_iter().collect());
         config.atrace_category_selection = Some(BTreeSet::new());
+        let custom_capture = std::env::var("APS_TEST_CAPTURE_CUSTOM").as_deref() == Ok("1");
+        let full_capture = std::env::var("APS_TEST_CAPTURE_FULL").as_deref() == Ok("1");
+        assert!(!(custom_capture && full_capture));
+        if full_capture {
+            // Exercise FullCapture launch policy with bounded scheduling only,
+            // not every supported/high-overhead producer on a user's device.
+            config.template = CaptureTemplate::FullCapture;
+        }
+        let delayed_start_ms: u32 = std::env::var("APS_TEST_CAPTURE_DELAY_MS")
+            .ok()
+            .map(|value| value.parse().expect("numeric smoke start delay"))
+            .unwrap_or(0);
+        assert!(delayed_start_ms <= 7_000);
+        if custom_capture {
+            let mut text = "buffers { size_kb: 1024 } duration_ms: 1000 data_sources { config { name: \"linux.ftrace\" ftrace_config { ftrace_events: \"sched/sched_switch\" } } }".to_owned();
+            if delayed_start_ms > 0 {
+                text.push_str(&format!(" cmd_trace_start_delay {{ min_delay_ms: {delayed_start_ms} max_delay_ms: {delayed_start_ms} }}"));
+            }
+            config = custom(&text);
+        }
         let cancel = CancellationToken::new();
-        let active =
+        let launched_at = std::time::Instant::now();
+        let mut active =
             capture_start_blocking(serial, config, directory.clone(), cancel.clone(), false)
                 .unwrap();
+        let startup_elapsed = launched_at.elapsed();
         println!(
-            "Owned smoke process={}, trace={}",
-            active.pid, active.remote.trace
+            "Owned smoke process={}, trace={}, startup_ms={}",
+            active.pid,
+            active.remote.trace,
+            startup_elapsed.as_millis()
         );
+        let supervised = custom_capture || full_capture;
+        assert_eq!(active.startup_unconfirmed, supervised);
         let manual_stop = std::env::var("APS_TEST_CAPTURE_MANUAL").as_deref() == Ok("1");
+        if supervised && !manual_stop {
+            let mut adb = AdbRunner::new(
+                active.executable.clone(),
+                active.serial.clone(),
+                cancel.clone(),
+            );
+            adb.remote = active.remote.clone();
+            for _ in 0..60 {
+                if adb.remote_process_stopped(active.pid).unwrap() {
+                    active.stop_confirmed.store(true, Ordering::Release);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            assert!(
+                active.stop_confirmed.load(Ordering::Acquire),
+                "bounded smoke trace must finish naturally"
+            );
+        }
         let output =
             complete_capture_blocking(active, manual_stop, directory, cancel, Language::English)
                 .unwrap();
         assert!(output.trace_size_bytes > 0);
+        if supervised {
+            assert!(launched_at.elapsed() >= Duration::from_millis(u64::from(delayed_start_ms)));
+            assert_eq!(
+                output.integrity.status,
+                Language::English.text(TextKey::TraceCaptureIntegrityUnverified)
+            );
+            assert!(
+                output
+                    .integrity
+                    .messages
+                    .iter()
+                    .any(|message| message == STARTUP_UNCONFIRMED)
+            );
+        }
         assert_eq!(
             std::fs::metadata(&output.trace_path).unwrap().len(),
             output.trace_size_bytes
@@ -3286,6 +4513,52 @@ fi
             output.trace_size_bytes,
             output.trace_path.display()
         );
+    }
+
+    #[::core::prelude::v1::test]
+    #[ignore = "requires explicit APS_TEST_CAPTURE_SMOKE=1 and device/directory; submits an unknown schema field, never starts recording, retains diagnostics"]
+    fn device_custom_parse_failure_retains_the_actual_error_and_artifacts() {
+        assert_eq!(std::env::var("APS_TEST_CAPTURE_SMOKE").as_deref(), Ok("1"));
+        let serial = std::env::var("APS_TEST_TRACE_SERIAL").expect("APS_TEST_TRACE_SERIAL");
+        let directory = PathBuf::from(
+            std::env::var_os("APS_TEST_TRACE_RECOVERY_DIR").expect("APS_TEST_TRACE_RECOVERY_DIR"),
+        );
+        assert!(directory.is_absolute() && directory.is_dir());
+        let config = custom(
+            "buffers { size_kb: 1024 } duration_ms: 1000 data_sources { config { name: \"linux.ftrace\" ftrace_config { aps_invalid_field_for_diagnostic_smoke: true } } }",
+        );
+        let cancel = CancellationToken::new();
+        let mut active =
+            capture_start_blocking(serial, config, directory.clone(), cancel.clone(), false)
+                .unwrap();
+        let mut adb = AdbRunner::new(
+            active.executable.clone(),
+            active.serial.clone(),
+            cancel.clone(),
+        );
+        adb.remote = active.remote.clone();
+        assert!(adb.wait_for_remote_stop(active.pid).unwrap());
+        active.stop_confirmed.store(true, Ordering::Release);
+        let error = complete_capture_blocking(active, false, directory, cancel, Language::English)
+            .unwrap_err();
+        assert!(error.contains("exit code 1"), "{error}");
+        assert!(
+            error.contains("aps_invalid_field_for_diagnostic_smoke"),
+            "{error}"
+        );
+        assert!(error.contains(&adb.remote.log), "{error}");
+        assert!(error.contains("Device cleanup was skipped"));
+        let retained = adb
+            .shell(
+                &format!(
+                    "test -s {} && test -s {} && test -s {}",
+                    adb.remote.config, adb.remote.log, adb.remote.exit_status
+                ),
+                ADB_SHORT_TIMEOUT,
+            )
+            .unwrap();
+        assert!(retained.status.success());
+        println!("Production failure retained diagnostics: {error}");
     }
 
     #[::core::prelude::v1::test]
@@ -4423,7 +5696,7 @@ fi
     #[::core::prelude::v1::test]
     fn capture_commands_match_the_compose_session_contract() {
         let remote = RemoteCapturePaths::new();
-        let command = remote.start_command();
+        let command = remote.start_command(CaptureTemplate::SystemOverview);
         assert!(remote.trace.starts_with("/data/misc/perfetto-traces/"));
         assert!(!remote.trace.starts_with("/data/local/tmp/"));
         assert!(command.contains("perfetto --txt -c - -o"));
@@ -4431,6 +5704,29 @@ fi
         assert!(command.contains("--no-clobber"));
         assert!(command.contains(&remote.trace));
         assert!(!command.contains("exec-out"));
+        let custom = remote.start_command(CaptureTemplate::Custom);
+        assert_eq!(custom, remote.start_command(CaptureTemplate::FullCapture));
+        assert!(custom.contains("nohup sh -c"));
+        assert!(custom.contains("--no-clobber"));
+        assert!(!custom.contains("--background"));
+        assert!(custom.contains("wait \"$pid\""));
+        assert!(custom.contains("trap \"\" HUP"));
+        assert!(custom.contains(&format!("</dev/null >>{} 2>&1", remote.log)));
+        assert!(custom.contains(&format!(") 2>&1 | tail -c 8192 >{}", remote.log)));
+        assert!(custom.contains(".accepted"));
+        assert!(!custom.contains("kill -"));
+        for template in CaptureTemplate::ALL {
+            let command = remote.start_command(template);
+            if matches!(
+                template,
+                CaptureTemplate::Custom | CaptureTemplate::FullCapture
+            ) {
+                assert!(command.contains("nohup sh -c"));
+                assert!(!command.contains("--background"));
+            } else {
+                assert!(command.contains("--background-wait"));
+            }
+        }
         let another = RemoteCapturePaths::new();
         assert_ne!(remote.config, another.config);
         assert_ne!(remote.trace, another.trace);
@@ -4445,7 +5741,7 @@ fi
             "serial".to_owned(),
             CancellationToken::new(),
         );
-        let start_command = adb.remote.start_command();
+        let start_command = adb.remote.start_command(CaptureTemplate::SystemOverview);
         for command in [
             start_command.as_str(),
             DEVICE_INFO_COMMAND,

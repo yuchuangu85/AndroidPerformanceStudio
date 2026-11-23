@@ -1371,3 +1371,51 @@ client (GPUI's default is a null client), so any provider request failed with
   input budget; verify remote size before/after transfer and local size. Keep
   device artifacts on stop/transfer failure and report the exact recovery path
   and byte counts instead of silently accepting incomplete data.
+- SystemOverview and the existing narrow presets retain `--background-wait`.
+  Full Capture and Custom run a foreground Perfetto client under the existing
+  device-side `nohup` shell supervisor so a producer that never acknowledges
+  startup cannot turn the 30-second
+  all-sources barrier into a recording-start failure. A valid launcher
+  PID is not source readiness: show that distinction before/during capture and
+  keep completed Full Capture and Custom integrity reports Unverified. Retain
+  submitted config snapshots and exact device paths on startup failure; never
+  unlink a possibly live output or silently retry with a changed config.
+  Supervised automatic completion observes actual process exit without sending
+  stop signals on its duration estimate, preserving delayed/triggered starts. Probe
+  errors retain the active PID and Stop control; a confirmed exit is carried
+  into finalization so that PID is never signaled again if reused.
+  The supervisor records the actual client PID, stderr/stdout log and final exit
+  status at unique private paths. Confirm the final status after client exit;
+  a nonzero or unavailable status cannot authorize a successful capture. Zero
+  status still requires a nonempty, stable trace and integrity inspection.
+  Include bounded client diagnostics and their recovery paths in failure
+  messages, retaining all device artifacts. Do not silently rerun a failing
+  Custom config or change its source scopes to obtain a successful smoke.
+  A bounded acceptance handshake precedes client exec; failed PID publication
+  or a late supervisor cannot start an untracked recording or signal a reused
+  PID. Publish the final status only after the bounded pipe logger drains;
+  logger failure retains the client status separately and fails closed.
+
+- Start/Stop responsiveness: expose Stop as soon as the request enters Preparing,
+  without claiming source readiness. A Stop pressed before the owned handle
+  arrives stays pending (localized, disabled against repeat clicks); do not
+  cancel the launcher or discard its eventual PID. Once the handle arrives,
+  stop/save it before scheduling automatic completion. Startup failure still
+  reports its real diagnostics. Full Capture reuses the supervised launch to
+  avoid the all-sources startup barrier, without changing generated config,
+  source/target filtering, duration, or other presets' launch commands.
+  Show runtime observation/ADB warnings for both supervised templates, separate
+  from Custom-only draft notices; clear recovered warnings on a successful probe.
+
+- Graceful stop sends SIGTERM at most once per owned capture, including retries
+  after ADB delivery becomes uncertain. Perfetto's one-shot handler makes a
+  repeated SIGTERM a possible hard termination during final flush/readback.
+  Allow a bounded 60-second graceful-finalization window; timeout never triggers
+  a second signal or automatic SIGKILL. Keep the PID, stop-delivery state and
+  device artifacts tracked, surface the warning, and observe eventual exit.
+  A retry waits on the same handle rather than signaling again. Share confirmed
+  exit and manual-stop intent across completion tasks so recovered completion
+  preserves manual duration semantics. A successful still-running probe does not
+  clear a pending-stop warning; only confirmed exit resolves that warning.
+  Nonzero exit (including 143), empty
+  output, unknown exit status and failed transfers remain failures.

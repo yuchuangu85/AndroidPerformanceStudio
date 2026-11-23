@@ -170,6 +170,8 @@
   "trace_capture_reset_config": "恢复默认",
   "trace_capture_reveal_integrity_report": "显示完整性报告",
   "trace_capture_save_draft": "保存草稿",
+  "trace_capture_startup_unconfirmed": "采集以后台方式启动，不等待全部数据源的启动确认；数据源就绪状态和采集完整性保持未验证。",
+  "trace_capture_stop_requested": "已请求停止，正在等待采集启动完成…",
   "trace_capture_total_buffer_kb": "配置缓冲区总量：{value1} KB",
   "trace_capture_validate_config": "验证",
   "trace_template": "轨迹模板",
