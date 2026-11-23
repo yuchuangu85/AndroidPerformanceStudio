@@ -1326,3 +1326,48 @@ client (GPUI's default is a null client), so any provider request failed with
   renders a separate cancel button beside it. The Bitmap findings state (an
   imported HPROF without a bitmap dump) reuses that same slot instead of adding
   a second capture or a disabled export.
+
+### Trace Capture Configuration (2026-11-23)
+
+- Preserve SystemOverview and the existing presets, explicit Start/Stop and
+  completed-trace opening. Generated presets retain the target, duration,
+  buffer, additional-event and probe controls. Import, Save, Reset and Validate
+  appear only in Custom; its bundled editable TraceConfig is authoritative.
+  Save persists the managed draft, never the imported file. Configuration
+  actions do not start recording.
+- Custom hides generated target/duration/buffer/extra-event fields and shows
+  parsed duration, buffer total, sources and categories from live preflight and
+  manual validation, with errors/warnings. The existing textarea keeps a
+  stable 280-560px height derived from workspace height.
+- Do not expose a separate device atrace-category editor. Generated presets keep
+  their existing template category defaults; Full Capture selects the reported
+  device categories internally. Custom uses the imported or edited TraceConfig
+  text as the sole source of atrace categories, and preflight reports the
+  categories parsed from that text. Preserve query failures and unavailable
+  states without replacing custom configuration text with device defaults.
+- Full Capture is a separate generated preset: select all device-reported atrace
+  categories and app-supported probes, preserving SDK, producer, build and target
+  guards. Without a target, collect all-app atrace annotations. Do not equate
+  this preset with every Perfetto producer or lossless data; expose its higher
+  overhead, permission and sensitive-data limits without changing other presets.
+- Reuse compact controls, neutral Studio surfaces and English/Chinese TextKeys.
+  Capture owns the Trace workspace and stays in three horizontal columns:
+  templates on the left (170-210px initially), categories/probes in the middle
+  (280px minimum, taking the remaining space), configuration on the right
+  (360px initially, 300px minimum). Reuse the existing resizable panel group
+  for both draggable dividers; page-owned split state keeps user widths across
+  rerenders, template switches and closing/reopening capture in this workspace.
+  Each column scrolls independently; smaller containers scroll horizontally
+  instead of stacking. Closing capture restores the analysis rails. Keep the
+  editor/category list bounded and freeze capture mutations throughout capture;
+  presentation-only column resizing remains available.
+- Completion shows the runtime integrity status/messages and an explicit report
+  reveal action. Available checks passed is not a claim that all data is complete;
+  native GUI, real-device capture and report evidence remain separate gates.
+- Each capture owns unique device config/trace paths, retained in its active
+  session. Confirm process exit through `/proc`, not a failed `kill -0` (devices
+  may deny that signal probe). Transport errors never establish stopped state.
+  Pull trace bytes directly to a private local file, within the existing 8 GiB
+  input budget; verify remote size before/after transfer and local size. Keep
+  device artifacts on stop/transfer failure and report the exact recovery path
+  and byte counts instead of silently accepting incomplete data.

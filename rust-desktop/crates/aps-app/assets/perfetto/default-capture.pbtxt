@@ -1,0 +1,205 @@
+# Based on the supplied perfetto_config.pbtx; retain its explicit source scopes.
+# Ring history can overwrite older packets; DISCARD can lose new packets.
+buffers: {
+    size_kb: 63488
+    fill_policy: RING_BUFFER
+}
+buffers: {
+    size_kb: 2048
+    fill_policy: DISCARD
+}
+data_sources: {
+    config {
+        name: "android.gpu.memory"
+    }
+}
+data_sources: {
+    config {
+        name: "linux.process_stats"
+        target_buffer: 1
+        process_stats_config {
+            scan_all_processes_on_start: true
+        }
+    }
+}
+unique_session_name: "my_custom_session"
+# Verbose WM, input, layers and transactions can be expensive and sensitive.
+data_sources: {
+    config {
+        name: "android.windowmanager"
+        windowmanager_config: {
+            log_level: LOG_LEVEL_VERBOSE
+            log_frequency: LOG_FREQUENCY_TRANSACTION
+        }
+    }
+}
+data_sources: {
+    config {
+        name: "android.protolog"
+        protolog_config: {
+            tracing_mode: ENABLE_ALL
+        }
+    }
+}
+data_sources: {
+    config {
+        name: "android.input.inputevent"
+        android_input_event_config: {
+            mode: TRACE_MODE_TRACE_ALL
+        }
+    }
+}
+data_sources: {
+    config {
+        name: "android.surfaceflinger.layers"
+        surfaceflinger_layers_config: {
+            mode: MODE_ACTIVE
+            trace_flags: TRACE_FLAG_INPUT
+            trace_flags: TRACE_FLAG_COMPOSITION
+            trace_flags: TRACE_FLAG_HWC
+            trace_flags: TRACE_FLAG_BUFFERS
+            trace_flags: TRACE_FLAG_VIRTUAL_DISPLAYS
+        }
+    }
+}
+data_sources: {
+    config {
+        name: "android.surfaceflinger.transactions"
+        surfaceflinger_transactions_config: {
+            mode: MODE_ACTIVE
+        }
+    }
+}
+data_sources: {
+    config {
+        name: "com.android.wm.shell.transition"
+    }
+}
+data_sources: {
+    config {
+        name: "android.inputmethod"
+    }
+}
+data_sources: {
+    config {
+        name: "android.viewcapture"
+    }
+}
+# Broad log buffers may expose private data; availability is device-dependent.
+data_sources: {
+    config {
+        name: "android.log"
+        android_log_config {
+            log_ids: LID_EVENTS
+            log_ids: LID_CRASH
+            log_ids: LID_KERNEL
+            log_ids: LID_DEFAULT
+            log_ids: LID_RADIO
+            log_ids: LID_SECURITY
+            log_ids: LID_STATS
+            log_ids: LID_SYSTEM
+        }
+    }
+}
+data_sources: {
+    config {
+        name: "android.surfaceflinger.frametimeline"
+    }
+}
+data_sources: {
+    config {
+        name: "linux.sys_stats"
+        sys_stats_config {
+            stat_period_ms: 1000
+            stat_counters: STAT_CPU_TIMES
+            stat_counters: STAT_FORK_COUNT
+        }
+    }
+}
+# Native heap sampling every 4096 bytes and 1s dumps add overhead.
+# block_client can stall the selected processes; permissions still apply.
+data_sources {
+    config {
+        name: "android.heapprofd"
+        heapprofd_config {
+            sampling_interval_bytes: 4096
+            process_cmdline: "system_server"
+            process_cmdline: "com.android.systemui"
+            process_cmdline: "com.tcl.android.launcher"
+            continuous_dump_config {
+                dump_phase_ms: 1000
+                dump_interval_ms: 1000
+            }
+            shmem_size_bytes: 8388608
+            block_client: true
+            all_heaps: false
+        }
+    }
+}
+# Repeated Java heap graphs / smaps can pause and expose selected processes.
+data_sources {
+    config {
+        name: "android.java_hprof"
+        java_hprof_config {
+            process_cmdline: "system_server"
+            process_cmdline: "com.android.systemui"
+            process_cmdline: "com.tcl.android.launcher"
+            dump_smaps: true
+            continuous_dump_config {
+                dump_phase_ms: 1000
+                dump_interval_ms: 1000
+            }
+        }
+    }
+}
+# Broad atrace app/category scope increases volume; it does not ensure coverage.
+data_sources: {
+    config {
+        name: "linux.ftrace"
+        ftrace_config {
+            ftrace_events: "sched/sched_switch"
+            ftrace_events: "power/suspend_resume"
+            ftrace_events: "sched/sched_wakeup"
+            ftrace_events: "sched/sched_wakeup_new"
+            ftrace_events: "sched/sched_waking"
+            ftrace_events: "power/cpu_frequency"
+            ftrace_events: "power/cpu_idle"
+            ftrace_events: "power/gpu_frequency"
+            ftrace_events: "gpu_mem/gpu_mem_total"
+            ftrace_events: "sched/sched_process_exit"
+            ftrace_events: "sched/sched_process_free"
+            ftrace_events: "task/task_newtask"
+            ftrace_events: "task/task_rename"
+            ftrace_events: "ftrace/print"
+            atrace_categories: "am"
+            atrace_categories: "adb"
+            atrace_categories: "aidl"
+            atrace_categories: "dalvik"
+            atrace_categories: "audio"
+            atrace_categories: "binder_lock"
+            atrace_categories: "binder_driver"
+            atrace_categories: "bionic"
+            atrace_categories: "camera"
+            atrace_categories: "database"
+            atrace_categories: "gfx"
+            atrace_categories: "hal"
+            atrace_categories: "input"
+            atrace_categories: "network"
+            atrace_categories: "nnapi"
+            atrace_categories: "pm"
+            atrace_categories: "power"
+            atrace_categories: "rs"
+            atrace_categories: "res"
+            atrace_categories: "rro"
+            atrace_categories: "sm"
+            atrace_categories: "ss"
+            atrace_categories: "vibrator"
+            atrace_categories: "video"
+            atrace_categories: "view"
+            atrace_categories: "webview"
+            atrace_categories: "wm"
+            atrace_apps: "*"
+        }
+    }
+}
+duration_ms: 10000

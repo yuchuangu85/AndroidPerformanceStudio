@@ -8,7 +8,9 @@
 
 mod ai;
 mod capture;
+mod capture_config;
 mod capture_page;
+mod capture_report;
 mod export;
 mod model;
 mod page;

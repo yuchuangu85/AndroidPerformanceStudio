@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Android Performance Studio" Language="1033"
+           Version="$(var.ProductVersion)" Manufacturer="Android Performance Studio"
+           UpgradeCode="7D3A2A7A-48B6-4EF0-8D8D-5C9D1E7E8F21">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <!-- Rebuild tags keep the MSI version. Remove the old product inside the
+         transaction so failed replacements roll back, including same-version rebuilds. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of Android Performance Studio is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Condition Message="Android Performance Studio requires 64-bit Windows.">Installed OR VersionNT64</Condition>
+    <Icon Id="AppIcon" SourceFile="$(var.AppIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
+    <Property Id="INSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="PreviousInstallDir" Root="HKLM" Key="Software\Android Performance Studio"
+                      Name="InstallDir" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    <!-- No fabricated license agreement: retain the stock folder/maintenance
+         wizard, but route directly between Welcome and InstallDir. -->
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2">NOT Installed</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">1</Publish>
+    </UI>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Android Performance Studio">
+          <Directory Id="ResourcesDir" Name="resources" />
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+    </Directory>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AppComponent" Guid="*" Win64="yes">
+        <File Id="AppFile" Source="$(var.PayloadSource)\aps-app.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Android Performance Studio"
+                    Advertise="yes" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        </File>
+        <RegistryValue Root="HKLM" Key="Software\Android Performance Studio" Name="InstallDir"
+                       Type="string" Value="[INSTALLFOLDER]" />
+      </Component>
+      <Component Id="WorkerComponent" Guid="*" Win64="yes">
+        <File Id="WorkerFile" Source="$(var.PayloadSource)\aps-memory-worker.exe" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+    <Feature Id="MainFeature" Title="Android Performance Studio" Level="1" Absent="disallow">
+      <ComponentRef Id="AppComponent" />
+      <ComponentRef Id="WorkerComponent" />
+      <ComponentGroupRef Id="BundledResources" />
+    </Feature>
+  </Product>
+</Wix>

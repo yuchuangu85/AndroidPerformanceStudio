@@ -25,7 +25,7 @@ mod user_guide;
 
 use aps_ui_foundation::{Settings, ThemeMode as StudioTheme, typography};
 use gpui_kit::{
-    component::{Theme, ThemeMode},
+    component::{Theme, ThemeMode, TitleBar},
     prelude::*,
     *,
 };
@@ -356,17 +356,10 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(900.), px(600.))),
-                titlebar: Some(TitlebarOptions {
-                    title: None,
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(px(9.), px(9.))),
-                    ..Default::default()
-                }),
-                app_owns_titlebar_drag: true,
                 app_id: Some("com.androidperformancestudio.rust".into()),
                 #[cfg(target_os = "linux")]
                 icon: linux_window_icon(),
-                ..Default::default()
+                ..TitleBar::window_options()
             },
             cx,
             |window, cx| {

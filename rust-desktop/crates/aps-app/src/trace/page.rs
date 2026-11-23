@@ -22,6 +22,7 @@ use gpui_kit::{
         button::Button,
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
+        resizable::ResizableState,
         scroll::{ScrollableElement, Scrollbar, ScrollbarAxis},
     },
     prelude::*,
@@ -61,6 +62,7 @@ pub(in crate::trace) struct PageUi {
     session_scroll: UniformListScrollHandle,
     result_scroll: UniformListScrollHandle,
     hits_scroll: UniformListScrollHandle,
+    pub(in crate::trace) capture_panels: Entity<ResizableState>,
 }
 
 impl PageUi {
@@ -91,6 +93,7 @@ impl PageUi {
             session_scroll: UniformListScrollHandle::new(),
             result_scroll: UniformListScrollHandle::new(),
             hits_scroll: UniformListScrollHandle::new(),
+            capture_panels: cx.new(|_| ResizableState::default()),
         }
     }
 
@@ -407,6 +410,19 @@ fn workspace(
     colors: &StudioColors,
     cx: &mut Context<TraceWorkspace>,
 ) -> AnyElement {
+    if this.capture_visible {
+        let capture = viewer_or_capture(this, window, colors, cx);
+        return div()
+            .id("trace-capture-full-workspace")
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .p(px(studio::metrics::WORKSPACE_PADDING))
+            .child(div().flex_1().min_h_0().w_full().child(capture))
+            .into_any_element();
+    }
     let summaries = model::build_trace_workspace_summaries(&this.insights);
     if wide {
         let left = sessions_rail(this, colors, cx);
@@ -2480,6 +2496,19 @@ fn row_actions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[::core::prelude::v1::test]
+    fn capture_owns_the_workspace_instead_of_the_narrow_analysis_center() {
+        let source = include_str!("page.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap();
+        let workspace = implementation.split("fn workspace(").nth(1).unwrap();
+        let capture = workspace.split("let summaries =").next().unwrap();
+        assert!(capture.contains("if this.capture_visible"));
+        assert!(capture.contains("trace-capture-full-workspace"));
+        assert!(capture.contains("return"));
+        assert!(!capture.contains("sessions_rail("));
+        assert!(!capture.contains("insights_panel("));
+    }
 
     #[::core::prelude::v1::test]
     fn result_row_actions_respond_even_without_timestamps() {

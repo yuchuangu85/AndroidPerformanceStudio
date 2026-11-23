@@ -69,10 +69,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            rpm pkg-config libfontconfig1-dev libfreetype-dev \
+            rpm cpio dpkg-dev binutils pkg-config libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libx11-xcb-dev libxcb1-dev libxcb-randr0-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libvulkan-dev
+      - name: Test Linux packaging contracts
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_linux_*.py' -v
       - name: Build binaries
         working-directory: rust-desktop
         run: cargo build --locked --release --target ${{ matrix.target }} -p aps-app -p aps-memory
@@ -88,7 +90,8 @@ jobs:
           RPM_ARCH: ${{ matrix.rpm_arch }}
           TARGET: ${{ matrix.target }}
         run: |
-          set -e
+          set -euo pipefail
+          umask 022
           version="${RELEASE_TAG#aps-desktop-v}"
           version="${version#rust-desktop-v}"; version="${version#v}"
           version="${version%-rebuild.*}"
@@ -101,6 +104,7 @@ jobs:
           # The app resolves packaged tools next to its executable, so both
           # binaries live in /usr/lib/aps-desktop and /usr/bin only links to them.
           PERFETTO_TOOLS_DIR="$libdir/resources/perfetto-tools" bash scripts/install-trace-processor.sh
+          chmod 0755 "$libdir/resources/perfetto-tools/trace_processor_shell"
           cp -R dist/firefox-profiler "$libdir/resources/"
           test -s "$libdir/resources/firefox-profiler/index.html"
           ln -s ../lib/aps-desktop/aps-app "$root/usr/bin/aps-app"
@@ -117,12 +121,22 @@ jobs:
           Terminal=false
           EOF
           mkdir -p "$root/DEBIAN"
+          # Scan every shipped ELF; build-host libraries must not mask missing
+          # dependency declarations in an installed package.
+          dependency_root="$PWD/dist/deb-dependencies"
+          mkdir -p "$dependency_root/debian"
+          printf 'Source: aps-desktop\n\nPackage: aps-desktop\nArchitecture: any\nDescription: Android Performance Studio\n' > "$dependency_root/debian/control"
+          dependency_output="$(cd "$dependency_root" && dpkg-shlibdeps -O "$libdir/aps-app" "$libdir/aps-memory-worker" "$libdir/resources/perfetto-tools/trace_processor_shell")"
+          [[ "$dependency_output" == shlibs:Depends=* ]]
+          shlib_dependencies="${dependency_output#shlibs:Depends=}"
+          test -n "$shlib_dependencies"
           cat > "$root/DEBIAN/control" <<EOF
           Package: aps-desktop
           Version: ${version}
           Section: devel
           Priority: optional
           Architecture: ${DEB_ARCH}
+          Depends: ${shlib_dependencies}, libvulkan1, libegl1, libwayland-client0, curl, xdg-utils
           Maintainer: Android Performance Studio
           Description: Android Performance Studio Rust desktop application
           EOF
@@ -140,6 +154,7 @@ jobs:
           Summary: Android Performance Studio Rust desktop application
           License: Proprietary
           BuildArch: ${RPM_ARCH}
+          Requires: libvulkan.so.1()(64bit), libEGL.so.1()(64bit), libwayland-client.so.0()(64bit), curl, xdg-utils
           %description
           Android Performance Studio Rust desktop application.
           %install
@@ -161,6 +176,50 @@ jobs:
           EOF
           rpmbuild --define "_topdir $PWD/dist/rpm" -bb dist/rpm/SPECS/aps-desktop.spec
           cp "dist/rpm/RPMS/${RPM_ARCH}/"*.rpm "dist/aps-desktop-${RELEASE_TAG}-linux-${RPM_ARCH}.rpm"
+          readelf --version-info "$libdir/aps-app" "$libdir/aps-memory-worker" "$libdir/resources/perfetto-tools/trace_processor_shell" > "dist/linux-abi-${DEB_ARCH}.log"
+          rpm -qp --requires "dist/aps-desktop-${RELEASE_TAG}-linux-${RPM_ARCH}.rpm" > "dist/linux-rpm-requires-${DEB_ARCH}.log"
+      - name: Verify installed Linux packages as an ordinary user
+        timeout-minutes: 15
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DEB_ARCH: ${{ matrix.deb_arch }}
+          RPM_ARCH: ${{ matrix.rpm_arch }}
+        run: |
+          set -euo pipefail
+          root="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}"
+          deb="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${DEB_ARCH}.deb"
+          rpm="$PWD/dist/aps-desktop-${RELEASE_TAG}-linux-${RPM_ARCH}.rpm"
+          host_arch=arm64
+          if [[ "$DEB_ARCH" == amd64 ]]; then host_arch=x64; fi
+          checksum="$(python3 -c 'import json,sys; print(json.load(open("rust-desktop/assets/manifests/trace-processor-manifest.json"))["artifacts"]["linux-" + sys.argv[1]]["sha256"])' "$host_arch")"
+          sudo apt-get install -y "$deb"
+          trap 'sudo apt-get remove -y aps-desktop' EXIT
+          bash scripts/linux/verify-installed.sh "$root" / "$checksum" 2>&1 | tee "dist/linux-deb-smoke-${DEB_ARCH}.log"
+          sudo apt-get remove -y aps-desktop
+          trap - EXIT
+          test ! -e /usr/lib/aps-desktop
+          test ! -L /usr/bin/aps-app
+          test ! -L /usr/bin/aps-memory-worker
+          # Resolve RPM dependencies in a real RPM distribution, not an Ubuntu
+          # rpm database with dependency checks bypassed. No GPU/GUI claim.
+          docker run --rm --mount "type=bind,src=$PWD,dst=/workspace,readonly" -w /workspace registry.fedoraproject.org/fedora:44 \
+            bash -euc '
+              dnf install -y "$1" binutils diffutils findutils shadow-utils util-linux
+              useradd --no-create-home aps-smoke
+              runuser -u aps-smoke -- bash scripts/linux/verify-installed.sh "$2" / "$3"
+              dnf remove -y aps-desktop
+              test ! -e /usr/lib/aps-desktop
+              test ! -L /usr/bin/aps-app
+              test ! -L /usr/bin/aps-memory-worker
+            ' bash "/workspace/dist/$(basename "$rpm")" "/workspace/dist/$(basename "$root")" "$checksum" \
+            2>&1 | tee "dist/linux-rpm-smoke-${DEB_ARCH}.log"
+      - name: Upload Linux packaging evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packaging-evidence-${{ matrix.arch }}
+          path: dist/linux-*.log
+          if-no-files-found: ignore
       - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
@@ -263,6 +322,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Test Windows packaging contracts
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s scripts/tests -p test_windows_packaging.py -v
+          if ($LASTEXITCODE -ne 0) { throw "Windows packaging regression tests failed" }
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -271,7 +335,16 @@ jobs:
           target: x86_64-pc-windows-msvc
       - name: Build binaries
         working-directory: rust-desktop
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc -p aps-app -p aps-memory
+        shell: pwsh
+        env:
+          # Target-only flags leave host proc macros/build scripts unchanged.
+          # GPUI embeds release shaders; cc-based native libraries honor crt-static.
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: '-C target-feature=+crt-static'
+        run: |
+          # Cargo prioritizes these over target-specific flags, even when empty.
+          Remove-Item Env:RUSTFLAGS, Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
+          cargo build --locked --release --target x86_64-pc-windows-msvc -p aps-app -p aps-memory
+          if ($LASTEXITCODE -ne 0) { throw "Windows build failed: $LASTEXITCODE" }
       - name: Package Trace Processor
         shell: bash
         run: PERFETTO_TOOLS_DIR="$PWD/dist/resources/perfetto-tools" bash scripts/install-trace-processor.sh
@@ -282,66 +355,28 @@ jobs:
           path: dist/resources/firefox-profiler
       - name: Install WiX
         shell: pwsh
-        run: choco install wixtoolset -y --no-progress
-      - name: Package exe and msi
+        run: |
+          choco install wixtoolset -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "WiX installation failed: $LASTEXITCODE" }
+      - name: Package portable ZIP and guided MSI
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $version = ($env:RELEASE_TAG -replace '^(?:aps-desktop-|rust-desktop-)?v', '') -replace '-rebuild\..*$', ''
-          $parts = (($version -replace '[^0-9.]', '.') -split '\.' | Where-Object { $_ -ne '' } | Select-Object -First 3)
-          while ($parts.Count -lt 3) { $parts += '0' }
-          $msiVersion = $parts -join '.'
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-app.exe dist/aps-app.exe
-          Copy-Item rust-desktop/target/x86_64-pc-windows-msvc/release/aps-memory-worker.exe dist/aps-memory-worker.exe
-          if (-not (Test-Path "dist/resources/firefox-profiler/index.html" -PathType Leaf)) { throw "Missing bundled Firefox Profiler" }
-          Compress-Archive -Path dist/aps-app.exe, dist/aps-memory-worker.exe, dist/resources -DestinationPath "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.zip" -Force
-          @"
-          <?xml version="1.0" encoding="UTF-8"?>
-          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-            <Product Id="*" Name="Android Performance Studio" Language="1033" Version="$msiVersion" Manufacturer="Android Performance Studio" UpgradeCode="7D3A2A7A-48B6-4EF0-8D8D-5C9D1E7E8F21">
-              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
-              <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
-              <MediaTemplate EmbedCab="yes" />
-              <Icon Id="AppIcon" SourceFile="rust-desktop\crates\aps-app\assets\icons\windows\app-icon.ico" /><Property Id="ARPPRODUCTICON" Value="AppIcon" />
-              <Directory Id="TARGETDIR" Name="SourceDir">
-                <Directory Id="ProgramFiles64Folder">
-                  <Directory Id="INSTALLFOLDER" Name="Android Performance Studio" />
-                </Directory>
-              </Directory>
-              <Feature Id="MainFeature" Title="Android Performance Studio" Level="1">
-                <ComponentRef Id="AppComponent" />
-                <ComponentRef Id="WorkerComponent" />
-                <ComponentRef Id="TraceProcessorComponent" />
-                <ComponentGroupRef Id="FirefoxProfilerFiles" />
-              </Feature>
-            </Product>
-            <Fragment>
-              <Component Id="AppComponent" Directory="INSTALLFOLDER" Guid="*" Win64="yes">
-                <File Id="AppFile" Source="dist\aps-app.exe" KeyPath="yes" />
-              </Component>
-              <Component Id="WorkerComponent" Directory="INSTALLFOLDER" Guid="*" Win64="yes">
-                <File Id="WorkerFile" Source="dist\aps-memory-worker.exe" KeyPath="yes" />
-              </Component>
-              <DirectoryRef Id="INSTALLFOLDER">
-                <Directory Id="ResourcesDir" Name="resources">
-                  <Directory Id="FirefoxProfilerDir" Name="firefox-profiler" />
-                  <Directory Id="PerfettoToolsDir" Name="perfetto-tools">
-                    <Component Id="TraceProcessorComponent" Guid="*" Win64="yes">
-                      <File Id="TraceProcessorFile" Source="dist\resources\perfetto-tools\trace_processor_shell.exe" KeyPath="yes" />
-                    </Component>
-                  </Directory>
-                </Directory>
-              </DirectoryRef>
-            </Fragment>
-          </Wix>
-          "@ | Set-Content dist/aps-desktop.wxs
-          & heat.exe dir "dist\resources\firefox-profiler" -nologo -cg FirefoxProfilerFiles -dr FirefoxProfilerDir -srd -ag -scom -sreg -var var.FirefoxProfilerSource -out dist/firefox-profiler.wxs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & candle.exe -nologo -arch x64 "-dFirefoxProfilerSource=dist\resources\firefox-profiler" dist/aps-desktop.wxs dist/firefox-profiler.wxs -out "dist\"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & light.exe -nologo -out "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.msi" dist/aps-desktop.wixobj dist/firefox-profiler.wixobj
+          ./scripts/windows/package.ps1
+      - name: Smoke test Windows install, repair and uninstall
+        shell: pwsh
+        timeout-minutes: 10
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/windows/smoke.ps1 -MsiPath "dist/aps-desktop-${env:RELEASE_TAG}-windows-x86_64.msi"
+      - name: Upload Windows installer smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-smoke-logs
+          path: dist/windows-smoke/*.log
+          if-no-files-found: ignore
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
         with:

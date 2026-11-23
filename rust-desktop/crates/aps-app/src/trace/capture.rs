@@ -26,16 +26,15 @@ use gpui_kit::{prelude::*, *};
 pub(in crate::trace) use super::capture_page::capture_page;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     ffi::OsString,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-/// Device-side config text pushed for the next capture (Compose parity).
-const DEVICE_CONFIG_PATH: &str = "/data/local/tmp/perfetto-config.pbtxt";
-/// Traces are written to the Android Perfetto trace directory, never world-writable tmp.
+/// Legacy path is retained only for explicitly requested recovery tests.
+#[cfg(test)]
 const DEVICE_TRACE_PATH: &str = "/data/misc/perfetto-traces/aps-perfetto-trace.pftrace";
 const REMOTE_STOP_POLL_ATTEMPTS: usize = 20;
 const REMOTE_STOP_POLL_DELAY: Duration = Duration::from_millis(250);
@@ -46,7 +45,6 @@ const ADB_TRANSFER_TIMEOUT: Duration = Duration::from_secs(120);
 const ADB_DEVICE_PUSH_TIMEOUT: Duration = Duration::from_secs(30);
 const SHELL_OUTPUT_LIMIT: usize = 512 * 1024;
 const CAPTURE_CONFIG_PATH_SEGMENT: &str = "captures";
-const DEVICE_TRACE_COMMAND: &str = "cat /data/local/tmp/perfetto-config.pbtxt | perfetto --txt -c - -o /data/misc/perfetto-traces/aps-perfetto-trace.pftrace --background-wait";
 const DEVICE_INFO_COMMAND: &str = "getprop ro.product.model; getprop ro.build.version.sdk";
 const DEVICE_BUILD_COMMAND: &str = "getprop ro.build.version.sdk; getprop ro.build.type";
 /// Runs on the device shell: adb itself has no `perfetto` command, so omitting
@@ -68,16 +66,18 @@ pub(in crate::trace) enum CaptureTemplate {
     GfxPipeline,
     InputLatency,
     MemoryProfile,
+    FullCapture,
     Custom,
 }
 
 impl CaptureTemplate {
-    pub(in crate::trace) const ALL: [Self; 6] = [
+    pub(in crate::trace) const ALL: [Self; 7] = [
         Self::SystemOverview,
         Self::AppPerformance,
         Self::GfxPipeline,
         Self::InputLatency,
         Self::MemoryProfile,
+        Self::FullCapture,
         Self::Custom,
     ];
 
@@ -88,6 +88,7 @@ impl CaptureTemplate {
             Self::GfxPipeline => TextKey::GraphicsPipeline,
             Self::InputLatency => TextKey::InputLatency,
             Self::MemoryProfile => TextKey::MemoryProfile,
+            Self::FullCapture => TextKey::FullCapture,
             Self::Custom => TextKey::Custom,
         }
     }
@@ -99,11 +100,12 @@ impl CaptureTemplate {
             Self::GfxPipeline => TextKey::GraphicsPipelineDescription,
             Self::InputLatency => TextKey::InputLatencyDescription,
             Self::MemoryProfile => TextKey::MemoryProfileDescription,
+            Self::FullCapture => TextKey::FullCaptureDescription,
             Self::Custom => TextKey::CustomDescription,
         }
     }
 
-    /// PerfettoTraceTemplate.defaultProbes(); Custom starts empty.
+    /// Preset probes before device/target filtering; Custom starts empty.
     pub(in crate::trace) fn default_probes(self) -> BTreeSet<Probe> {
         use Probe::*;
         match self {
@@ -158,6 +160,7 @@ impl CaptureTemplate {
             ]
             .into_iter()
             .collect(),
+            Self::FullCapture => Probe::ALL.into_iter().collect(),
             Self::Custom => BTreeSet::new(),
         }
     }
@@ -395,6 +398,8 @@ pub(in crate::trace) struct DeviceCapabilities {
     pub(in crate::trace) build_type: String,
     pub(in crate::trace) data_source_names: BTreeSet<String>,
     pub(in crate::trace) query_error: Option<String>,
+    pub(in crate::trace) atrace_categories: BTreeMap<String, String>,
+    pub(in crate::trace) category_query_error: Option<String>,
 }
 
 /// Why a probe cannot be enabled for the observed device or config.
@@ -457,6 +462,7 @@ pub(in crate::trace) struct CaptureConfig {
     pub(in crate::trace) additional_categories: Vec<String>,
     pub(in crate::trace) custom_config_text: Option<String>,
     pub(in crate::trace) enabled_probes: Option<BTreeSet<Probe>>,
+    pub(in crate::trace) atrace_category_selection: Option<BTreeSet<String>>,
 }
 
 impl CaptureConfig {
@@ -468,7 +474,10 @@ impl CaptureConfig {
             buffer_size_kb: 32_768,
             additional_categories: Vec::new(),
             custom_config_text: None,
-            enabled_probes: None,
+            // FullCapture needs an observed capability snapshot before opting in.
+            enabled_probes: (template == CaptureTemplate::FullCapture).then(BTreeSet::new),
+            atrace_category_selection: (template == CaptureTemplate::FullCapture)
+                .then(BTreeSet::new),
         }
     }
 
@@ -479,6 +488,14 @@ impl CaptureConfig {
         }
         if !(1_024..=1_048_576).contains(&self.buffer_size_kb) {
             return Err("Capture buffer must be between 1 and 1024 MB".to_owned());
+        }
+        if self.template == CaptureTemplate::FullCapture
+            && self
+                .target_package
+                .as_deref()
+                .is_some_and(|target| !is_target_package(target))
+        {
+            return Err("Full capture requires a real target package or no target".to_owned());
         }
         if self.template == CaptureTemplate::Custom
             && self
@@ -534,6 +551,14 @@ pub(in crate::trace) struct CaptureOutput {
     pub(in crate::trace) limitations: Vec<String>,
     pub(in crate::trace) warnings: Vec<String>,
     pub(in crate::trace) config_summary: Option<String>,
+    pub(in crate::trace) integrity: CaptureIntegritySummary,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::trace) struct CaptureIntegritySummary {
+    pub(in crate::trace) status: String,
+    pub(in crate::trace) messages: Vec<String>,
+    pub(in crate::trace) report_path: Option<PathBuf>,
 }
 
 /// One target row from adb devices -l; offline rows stay visible but not selectable.
@@ -598,7 +623,12 @@ fn build_config_text(config: &CaptureConfig) -> String {
     ftrace_events.extend(extra_ftrace_events);
     dedup_preserving_order(&mut ftrace_events);
 
-    let mut atrace_categories: Vec<String> = if probes.contains(&Probe::Atrace) {
+    let full_capture = config.template == CaptureTemplate::FullCapture;
+    let mut atrace_categories: Vec<String> = if full_capture && !probes.contains(&Probe::Atrace) {
+        Vec::new()
+    } else if let Some(selected) = &config.atrace_category_selection {
+        selected.iter().cloned().collect()
+    } else if probes.contains(&Probe::Atrace) {
         atrace_categories(config.template)
             .iter()
             .map(|category| (*category).to_owned())
@@ -606,18 +636,28 @@ fn build_config_text(config: &CaptureConfig) -> String {
     } else {
         Vec::new()
     };
-    atrace_categories.extend(extra_atrace_categories);
+    if !full_capture || probes.contains(&Probe::Atrace) {
+        atrace_categories.extend(extra_atrace_categories);
+    }
     dedup_preserving_order(&mut atrace_categories);
 
     let mut atrace_apps: Vec<String> = Vec::new();
-    if let Some(target) = config
-        .target_package
-        .as_deref()
-        .filter(|target| !target.trim().is_empty())
-    {
-        atrace_apps.push(target.to_owned());
+    if !full_capture || probes.contains(&Probe::Atrace) {
+        if let Some(target) = config
+            .target_package
+            .as_deref()
+            .filter(|target| !target.trim().is_empty())
+        {
+            atrace_apps.push(target.to_owned());
+        } else if full_capture {
+            // Perfetto's atrace wildcard enables annotations from all apps only.
+            atrace_apps.push("*".to_owned());
+        }
     }
-    if probes.contains(&Probe::LowMemoryKiller) && !atrace_apps.iter().any(|app| app == "lmkd") {
+    if !full_capture
+        && probes.contains(&Probe::LowMemoryKiller)
+        && !atrace_apps.iter().any(|app| app == "lmkd")
+    {
         atrace_apps.push("lmkd".to_owned());
     }
 
@@ -641,7 +681,11 @@ fn build_config_text(config: &CaptureConfig) -> String {
             probes.contains(&Probe::ProcessStats),
         ));
     }
-    push_direct_data_sources(&mut data_sources, &probes, config.target_package.as_deref());
+    let target = config
+        .target_package
+        .as_deref()
+        .filter(|target| !full_capture || is_target_package(target));
+    push_direct_data_sources(&mut data_sources, &probes, target);
     data_sources.push(DataSource {
         name: "android.packages_list",
         config: String::new(),
@@ -986,8 +1030,26 @@ fn atrace_categories(template: CaptureTemplate) -> &'static [&'static str] {
         CaptureTemplate::GfxPipeline => &["gfx", "view", "wm"],
         CaptureTemplate::InputLatency => &["input", "view", "wm"],
         CaptureTemplate::MemoryProfile => &["am", "dalvik"],
-        CaptureTemplate::Custom => &[],
+        CaptureTemplate::FullCapture | CaptureTemplate::Custom => &[],
     }
+}
+
+fn is_target_package(target: &str) -> bool {
+    target.split('.').all(|part| {
+        part.as_bytes()
+            .first()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    })
+}
+
+fn custom_category_selection(live_editor: Option<&str>, saved_draft: &str) -> BTreeSet<String> {
+    super::capture_config::preflight(live_editor.unwrap_or(saved_draft), None, None)
+        .atrace_categories
+        .into_iter()
+        .collect()
 }
 
 fn escape_proto_string(value: &str) -> String {
@@ -1003,25 +1065,9 @@ fn dedup_preserving_order(values: &mut Vec<String>) {
 fn automatic_completion_delay(config: &CaptureConfig) -> Option<Duration> {
     if config.template == CaptureTemplate::Custom {
         let text = config.custom_config_text.as_deref()?;
-        let mut delay = None;
-        for line in text.lines() {
-            let trimmed = line.trim();
-            let Some(rest) = trimmed.strip_prefix("duration_ms") else {
-                continue;
-            };
-            let Some(rest) = rest.trim_start().strip_prefix(':') else {
-                continue;
-            };
-            let value = rest.trim();
-            if !value.is_empty()
-                && value.bytes().all(|byte| byte.is_ascii_digit())
-                && let Ok(millis) = value.parse::<u64>()
-                && millis > 0
-            {
-                delay = Some(Duration::from_millis(millis));
-            }
-        }
-        delay
+        super::capture_config::preflight(text, None, None)
+            .duration_ms
+            .map(Duration::from_millis)
     } else {
         Some(Duration::from_secs(u64::from(config.duration_seconds)))
     }
@@ -1038,6 +1084,26 @@ fn parse_perfetto_data_source_names(output: &str) -> BTreeSet<String> {
         .filter(|line| !line.is_empty() && !line.starts_with("NAME") && !line.starts_with("==="))
         .filter_map(|line| line.split_whitespace().next())
         .map(str::to_owned)
+        .collect()
+}
+
+fn parse_atrace_categories(output: &str) -> BTreeMap<String, String> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (name, description) = line.trim().split_once(" - ")?;
+            let name = name.trim();
+            if name.is_empty()
+                || name.len() > 128
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+            {
+                return None;
+            }
+            Some((name.to_owned(), description.chars().take(256).collect()))
+        })
+        .take(512)
         .collect()
 }
 
@@ -1163,6 +1229,30 @@ struct AdbRunner {
     executable: PathBuf,
     serial: String,
     cancel: CancellationToken,
+    remote: RemoteCapturePaths,
+}
+
+#[derive(Clone, Debug)]
+struct RemoteCapturePaths {
+    config: String,
+    trace: String,
+}
+
+impl RemoteCapturePaths {
+    fn new() -> Self {
+        let id = unique_id("aps");
+        Self {
+            config: format!("/data/local/tmp/{id}.pbtxt"),
+            trace: format!("/data/misc/perfetto-traces/{id}.pftrace"),
+        }
+    }
+
+    fn start_command(&self) -> String {
+        format!(
+            "cat {} | perfetto --txt -c - -o {} --background-wait --no-clobber",
+            self.config, self.trace,
+        )
+    }
 }
 
 /// One started capture; enough to stop, pull and describe the trace.
@@ -1177,6 +1267,7 @@ struct ActiveCapture {
     android_sdk: u32,
     capability_query_failed: bool,
     automatic_delay: Option<Duration>,
+    remote: RemoteCapturePaths,
 }
 
 impl AdbRunner {
@@ -1185,6 +1276,7 @@ impl AdbRunner {
             executable,
             serial,
             cancel,
+            remote: RemoteCapturePaths::new(),
         }
     }
 
@@ -1241,7 +1333,7 @@ impl AdbRunner {
         let mut arguments = self.base_arguments();
         arguments.push("push".into());
         arguments.push(local.as_os_str().to_owned());
-        arguments.push(DEVICE_CONFIG_PATH.into());
+        arguments.push(self.remote.config.clone().into());
         let output = self.run(arguments, ADB_DEVICE_PUSH_TIMEOUT, SHELL_OUTPUT_LIMIT)?;
         if !output.status.success() {
             return Err("Unable to push the capture config to the device".to_owned());
@@ -1250,12 +1342,9 @@ impl AdbRunner {
     }
 
     fn start_capture(&self) -> Result<u32, String> {
-        let output = self.shell(DEVICE_TRACE_COMMAND, ADB_START_TIMEOUT)?;
+        let output = self.shell(&self.remote.start_command(), ADB_START_TIMEOUT)?;
         if !output.status.success() {
-            return Err(
-                "Perfetto could not start the capture; check that the device allows system tracing"
-                    .to_owned(),
-            );
+            return Err(perfetto_start_error(&output));
         }
         let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
         text.push('\n');
@@ -1285,34 +1374,32 @@ impl AdbRunner {
     }
 
     fn kill(&self, signal: &str, pid: u32) -> Result<(), String> {
-        let pid = pid.to_string();
-        let _ = self.run(
-            self.with_arguments(&["shell", "kill", signal, pid.as_str()]),
-            ADB_SHORT_TIMEOUT,
-            SHELL_OUTPUT_LIMIT,
-        )?;
-        Ok(())
+        let command = format!("if [ ! -d /proc/{pid} ]; then exit 0; fi; kill {signal} {pid}");
+        let output = self.shell(&command, ADB_SHORT_TIMEOUT)?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Unable to deliver {signal} to the owned Perfetto process {pid}"
+            ))
+        }
     }
 
-    /// A failed kill -0 means the process is gone; cancellation aborts the poll.
+    /// Only explicit absence confirms stop. ADB errors never authorize transfer.
     fn wait_for_remote_stop(&self, pid: u32) -> Result<bool, String> {
-        let pid_text = pid.to_string();
+        let command = format!(
+            "if [ -d /proc/{pid} ]; then echo running; elif [ -d /proc/self ]; then echo stopped; else exit 1; fi"
+        );
         for _ in 0..REMOTE_STOP_POLL_ATTEMPTS {
             if self.cancel.is_cancelled() {
                 return Err("Capture cancelled".to_owned());
             }
-            match self.run(
-                self.with_arguments(&["shell", "kill", "-0", pid_text.as_str()]),
-                Duration::from_secs(2),
-                SHELL_OUTPUT_LIMIT,
-            ) {
-                Ok(output) => {
-                    if !output.status.success() {
-                        return Ok(true);
-                    }
-                }
-                Err(error) if error == "Capture cancelled" => return Err(error),
-                Err(_) => return Ok(true),
+            let output = self
+                .shell(&command, ADB_SHORT_TIMEOUT)
+                .map_err(|error| format!("Unable to confirm Perfetto stopped: {error}"))?;
+            match confirmed_remote_stop(&output)? {
+                true => return Ok(true),
+                false => {}
             }
             std::thread::sleep(REMOTE_STOP_POLL_DELAY);
         }
@@ -1320,29 +1407,169 @@ impl AdbRunner {
     }
 
     fn transfer_trace(&self, destination: &Path) -> Result<u64, String> {
-        let output = self.run(
-            self.with_arguments(&["exec-out", "cat", DEVICE_TRACE_PATH]),
-            ADB_TRANSFER_TIMEOUT,
-            MAX_OUTPUT_LIMIT,
+        let expected = self.remote_trace_size()?;
+        let mut arguments = self.base_arguments();
+        arguments.push("pull".into());
+        arguments.push(self.remote.trace.clone().into());
+        arguments.push(destination.as_os_str().to_owned());
+        // Only pull diagnostics count against ProcessOutput's allocation limit;
+        // the trace itself is streamed to disk by ADB.
+        receive_trace_file(destination, expected, &self.cancel, || {
+            let output = self
+                .run(arguments, ADB_TRANSFER_TIMEOUT, SHELL_OUTPUT_LIMIT)
+                .map_err(|error| format!("Trace file transfer failed: {error}"))?;
+            if !output.status.success() {
+                return Err("Unable to pull the captured trace from the device".to_owned());
+            }
+            let after = self.remote_trace_size()?;
+            if after != expected {
+                let local = std::fs::symlink_metadata(destination)
+                    .map(|metadata| metadata.len().to_string())
+                    .unwrap_or_else(|_| "unavailable".to_owned());
+                return Err(format!(
+                    "Device trace changed during transfer: before={expected} bytes, after={after} bytes, local={local} bytes; no capture was accepted"
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    fn remote_trace_size(&self) -> Result<u64, String> {
+        let remote = self.run(
+            self.with_arguments(&["shell", "stat", "-c", "%s", &self.remote.trace]),
+            ADB_SHORT_TIMEOUT,
+            SHELL_OUTPUT_LIMIT,
         )?;
-        if !output.status.success() {
-            return Err("Unable to read the captured trace from the device".to_owned());
+        if !remote.status.success() {
+            return Err("Unable to inspect the captured trace on the device".to_owned());
         }
-        if output.stdout.is_empty() {
-            return Err("The captured trace is empty".to_owned());
-        }
-        std::fs::write(destination, &output.stdout).map_err(|_| {
-            "Unable to store the captured trace in the local data directory".to_owned()
-        })?;
-        Ok(output.stdout.len() as u64)
+        parse_trace_transfer_size(&remote.stdout)
     }
 
     fn cleanup_device_files(&self) {
         let _ = self.run(
-            self.with_arguments(&["shell", "rm", "-f", DEVICE_CONFIG_PATH, DEVICE_TRACE_PATH]),
+            self.with_arguments(&["shell", "rm", "-f", &self.remote.config, &self.remote.trace]),
             ADB_SHORT_TIMEOUT,
             SHELL_OUTPUT_LIMIT,
         );
+    }
+}
+
+fn confirmed_remote_stop(output: &ProcessOutput) -> Result<bool, String> {
+    if output.status.success() {
+        match output.stdout.as_slice() {
+            b"stopped\n" | b"stopped\r\n" => return Ok(true),
+            b"running\n" | b"running\r\n" => return Ok(false),
+            _ => {}
+        }
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout)
+        .chars()
+        .take(160)
+        .collect::<String>();
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .chars()
+        .take(160)
+        .collect::<String>();
+    Err(format!(
+        "Unable to confirm Perfetto stopped: exit={:?}, state={stdout:?}, diagnostic={stderr:?}",
+        output.status.code(),
+    ))
+}
+
+fn parse_trace_transfer_size(output: &[u8]) -> Result<u64, String> {
+    let text = std::str::from_utf8(output)
+        .map_err(|_| "The device returned an invalid trace file size".to_owned())?
+        .trim();
+    let size = text
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| text.parse::<u64>().ok())
+        .flatten()
+        .ok_or_else(|| "The device returned an invalid trace file size".to_owned())?;
+    validate_trace_transfer_size(size)?;
+    Ok(size)
+}
+
+fn validate_trace_transfer_size(size: u64) -> Result<(), String> {
+    if size == 0 {
+        Err("The captured trace is empty".to_owned())
+    } else if size > aps_perfetto::MAX_TRACE_BYTES {
+        Err("The captured trace exceeds the supported 8 GiB trace file limit".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
+fn receive_trace_file(
+    destination: &Path,
+    expected: u64,
+    cancel: &CancellationToken,
+    pull: impl FnOnce() -> Result<(), String>,
+) -> Result<u64, String> {
+    validate_trace_transfer_size(expected)?;
+    if cancel.is_cancelled() {
+        return Err("Capture cancelled".to_owned());
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    // Reserve a new private destination, but do not hold its handle across ADB
+    // pull: ADB may replace the placeholder inode, including on Windows.
+    drop(options.open(destination).map_err(|_| {
+        "Cannot reserve a new local trace file; check disk space and directory permissions"
+            .to_owned()
+    })?);
+    let result = (|| {
+        pull()?;
+        if cancel.is_cancelled() {
+            return Err("Capture cancelled".to_owned());
+        }
+        let metadata = std::fs::symlink_metadata(destination)
+            .map_err(|_| "Unable to inspect the pulled trace file".to_owned())?;
+        if metadata.is_symlink() || !metadata.is_file() || metadata.len() != expected {
+            return Err(format!(
+                "The trace transfer is incomplete or the local file changed: expected={expected} bytes, actual={} bytes, regular={}, symlink={}",
+                metadata.len(),
+                metadata.is_file(),
+                metadata.is_symlink(),
+            ));
+        }
+        Ok(metadata.len())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(destination);
+    }
+    result
+}
+
+fn perfetto_start_error(output: &ProcessOutput) -> String {
+    let mut diagnostics = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .chain(String::from_utf8_lossy(&output.stdout).lines())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.chars().all(|character| character.is_ascii_digit()))
+        .map(|line| {
+            line.chars()
+                .filter(|character| !character.is_control())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    diagnostics.dedup();
+    let detail = diagnostics.join(" | ");
+    let detail = if detail.is_empty() {
+        "The device returned no diagnostic output".to_owned()
+    } else {
+        detail.chars().take(512).collect()
+    };
+    match output.status.code() {
+        Some(code) => format!("Perfetto could not start the capture (exit code {code}): {detail}"),
+        None => format!("Perfetto could not start the capture: {detail}"),
     }
 }
 
@@ -1350,7 +1577,9 @@ fn sanitized_process_error(error: ProcessError) -> String {
     match error {
         ProcessError::Cancelled => "Capture cancelled".to_owned(),
         ProcessError::Timeout => "The ADB command timed out".to_owned(),
-        ProcessError::OutputLimit(_) => "ADB output exceeded the bounded transfer limit".to_owned(),
+        ProcessError::OutputLimit(_) => {
+            "ADB command diagnostic output exceeded its limit".to_owned()
+        }
         ProcessError::OutputNotClosed => {
             "The ADB command exited but did not close its output".to_owned()
         }
@@ -1391,6 +1620,7 @@ fn capture_start_blocking(
             android_sdk,
             capability_query_failed,
             automatic_delay: automatic_completion_delay(&config),
+            remote: adb.remote.clone(),
         })
     })();
     let _ = std::fs::remove_file(&host_config);
@@ -1407,40 +1637,99 @@ fn complete_capture_blocking(
     cancel: CancellationToken,
     language: Language,
 ) -> Result<CaptureOutput, String> {
-    let adb = AdbRunner::new(active.executable.clone(), active.serial.clone(), cancel);
-    if request_remote_stop {
-        adb.kill("-TERM", active.pid)?;
-    }
-    if !adb.wait_for_remote_stop(active.pid)? {
-        adb.kill("-TERM", active.pid)?;
+    let mut adb = AdbRunner::new(active.executable.clone(), active.serial.clone(), cancel);
+    adb.remote = active.remote.clone();
+    let stopped = (|| {
+        if request_remote_stop {
+            adb.kill("-TERM", active.pid)?;
+        }
         if !adb.wait_for_remote_stop(active.pid)? {
-            adb.kill("-KILL", active.pid)?;
+            adb.kill("-TERM", active.pid)?;
             if !adb.wait_for_remote_stop(active.pid)? {
-                adb.cleanup_device_files();
-                return Err(format!(
-                    "Timed out waiting for device Perfetto process {} to stop",
-                    active.pid
-                ));
+                adb.kill("-KILL", active.pid)?;
+                if !adb.wait_for_remote_stop(active.pid)? {
+                    return Err(format!(
+                        "Timed out waiting for device Perfetto process {} to stop",
+                        active.pid
+                    ));
+                }
             }
         }
-    }
+        Ok(())
+    })();
+    stopped.map_err(|error: String| {
+        format!(
+            "{error}. Device cleanup was skipped; the recovery path is {} on device {}",
+            adb.remote.trace, active.serial,
+        )
+    })?;
 
     let captures_dir = data_dir.join(CAPTURE_CONFIG_PATH_SEGMENT);
     std::fs::create_dir_all(&captures_dir)
-        .map_err(|_| "The capture artifact directory is unavailable".to_owned())?;
+        .map_err(|_| format!(
+            "The capture artifact directory is unavailable. Device cleanup was skipped; the recovery path is {} on device {}",
+            adb.remote.trace, active.serial,
+        ))?;
     let artifact_id = unique_id("artifact");
     let trace_path = captures_dir.join(format!("{artifact_id}.pftrace"));
-    let transfer = adb.transfer_trace(&trace_path);
+    let trace_size_bytes = adb.transfer_trace(&trace_path).map_err(|error| {
+        format!(
+            "{error}. Device cleanup was skipped; the recovery path is {} on device {}",
+            adb.remote.trace, active.serial,
+        )
+    })?;
     adb.cleanup_device_files();
-    let trace_size_bytes = transfer?;
-
     let finished_unix_ms = unix_ms();
     let duration_nanos = finished_unix_ms
         .saturating_sub(active.started_unix_ms)
         .saturating_mul(1_000_000);
 
+    let inspection =
+        super::capture_config::preflight(&build_config_text(&active.config), None, None);
+    let mut report = super::capture_report::inspect(
+        &trace_path,
+        &inspection.data_sources,
+        if request_remote_stop {
+            None
+        } else {
+            inspection.duration_ms
+        },
+        &adb.cancel,
+    );
+    if request_remote_stop {
+        report.messages.push(
+            "Capture was stopped manually; configured duration was not a completeness requirement"
+                .to_owned(),
+        );
+    }
+    match super::capture_report::write_report(&trace_path, &report) {
+        Ok(path) => report.report_path = Some(path),
+        Err(error) => {
+            report.status = super::capture_report::IntegrityStatus::Unverified;
+            report
+                .messages
+                .push(format!("Unable to persist integrity report: {error}"));
+        }
+    }
+    let status_key = match report.status {
+        super::capture_report::IntegrityStatus::Verified => TextKey::TraceCaptureIntegrityPassed,
+        super::capture_report::IntegrityStatus::Issues => TextKey::TraceCaptureIntegrityIssues,
+        super::capture_report::IntegrityStatus::Unverified => {
+            TextKey::TraceCaptureIntegrityUnverified
+        }
+    };
+    let integrity = CaptureIntegritySummary {
+        status: language.text(status_key).to_owned(),
+        messages: report.messages.clone(),
+        report_path: report.report_path.clone(),
+    };
+
     let mut warnings = Vec::new();
     let mut limitations = Vec::new();
+    limitations.extend(report.messages.iter().take(24).cloned());
+    if let Some(path) = &report.report_path {
+        limitations.push(format!("Integrity report: {}", path.display()));
+    }
     if active.device_model.trim().is_empty() || active.device_model == "unknown" {
         warnings.push("The target did not report a device model".to_owned());
     }
@@ -1457,24 +1746,38 @@ fn complete_capture_blocking(
         limitations.push("The captured trace is empty".to_owned());
     }
 
-    let display_name = active
-        .config
-        .target_package
-        .clone()
-        .filter(|target| !target.trim().is_empty())
-        .unwrap_or_else(|| language.text(active.config.template.label()).to_owned());
-    let mut summary = format!(
-        "{} · {} s · {} MB",
-        language.text(active.config.template.label()),
-        active.config.duration_seconds,
-        active.config.buffer_size_kb / 1_024
-    );
-    if let Some(target) = active
-        .config
-        .target_package
-        .as_deref()
-        .filter(|target| !target.trim().is_empty())
-    {
+    let display_name = if active.config.template == CaptureTemplate::Custom {
+        language.text(active.config.template.label()).to_owned()
+    } else {
+        active
+            .config
+            .target_package
+            .clone()
+            .filter(|target| !target.trim().is_empty())
+            .unwrap_or_else(|| language.text(active.config.template.label()).to_owned())
+    };
+    let mut summary = if active.config.template == CaptureTemplate::Custom {
+        format!(
+            "{} · {} ms · {} KiB · {} sources",
+            language.text(active.config.template.label()),
+            inspection
+                .duration_ms
+                .map(|duration| duration.to_string())
+                .unwrap_or_else(|| "manual".to_owned()),
+            inspection.total_buffer_kb,
+            inspection.data_sources.len()
+        )
+    } else {
+        format!(
+            "{} · {} s · {} MB",
+            language.text(active.config.template.label()),
+            active.config.duration_seconds,
+            active.config.buffer_size_kb / 1_024
+        )
+    };
+    if let Some(target) = active.config.target_package.as_deref().filter(|target| {
+        !target.trim().is_empty() && active.config.template != CaptureTemplate::Custom
+    }) {
         summary.push_str(" · ");
         summary.push_str(target);
     }
@@ -1488,12 +1791,11 @@ fn complete_capture_blocking(
         device_model: active.device_model,
         android_sdk: active.android_sdk,
         trace_size_bytes,
-        completeness_label: language
-            .text(TextKey::DetailsCaptureStateComplete)
-            .to_owned(),
+        completeness_label: integrity.status.clone(),
         limitations,
         warnings,
         config_summary: Some(summary),
+        integrity,
     })
 }
 
@@ -1524,7 +1826,7 @@ fn detect_capabilities_blocking(serial: String, cancel: CancellationToken) -> De
         ADB_QUERY_TIMEOUT,
         SHELL_OUTPUT_LIMIT,
     );
-    match query {
+    let mut capabilities = match query {
         Ok(output) if output.status.success() => DeviceCapabilities {
             android_sdk,
             build_type,
@@ -1532,6 +1834,7 @@ fn detect_capabilities_blocking(serial: String, cancel: CancellationToken) -> De
                 &output.stdout,
             )),
             query_error: None,
+            ..DeviceCapabilities::default()
         },
         Ok(_) => DeviceCapabilities {
             android_sdk,
@@ -1545,7 +1848,26 @@ fn detect_capabilities_blocking(serial: String, cancel: CancellationToken) -> De
             query_error: Some(error),
             ..DeviceCapabilities::default()
         },
+    };
+    match adb.run(
+        adb.with_arguments(&["shell", "atrace", "--list_categories"]),
+        ADB_QUERY_TIMEOUT,
+        SHELL_OUTPUT_LIMIT,
+    ) {
+        Ok(output) if output.status.success() => {
+            capabilities.atrace_categories =
+                parse_atrace_categories(&String::from_utf8_lossy(&output.stdout));
+            if capabilities.atrace_categories.is_empty() {
+                capabilities.category_query_error =
+                    Some("The device returned no atrace categories".to_owned());
+            }
+        }
+        Ok(_) => {
+            capabilities.category_query_error = Some("Unable to query atrace categories".to_owned())
+        }
+        Err(error) => capabilities.category_query_error = Some(error),
     }
+    capabilities
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,10 +1905,30 @@ pub(in crate::trace) struct Capture {
     inputs: Option<CaptureInputs>,
     shared_target_package: Option<String>,
     applied_target_package: Option<String>,
+    selected_categories: BTreeSet<String>,
+    config_draft: String,
+    pending_editor_text: Option<String>,
+    config_generation: u64,
+    config_picking: bool,
+    config_notice: Option<String>,
+    preflight: Option<super::capture_config::PreflightReport>,
+    preflight_dirty: bool,
+    integrity: Option<CaptureIntegritySummary>,
 }
 
 impl Capture {
     pub(in crate::trace) fn new(data_dir: Option<PathBuf>) -> Self {
+        let (config_draft, config_notice) = match data_dir.as_deref() {
+            Some(directory) => match super::capture_config::load_draft(directory) {
+                Ok(Some(text)) => (text, None),
+                Ok(None) => (super::capture_config::default_text().to_owned(), None),
+                Err(error) => (
+                    super::capture_config::default_text().to_owned(),
+                    Some(error),
+                ),
+            },
+            None => (super::capture_config::default_text().to_owned(), None),
+        };
         Self {
             data_dir,
             language: Language::English,
@@ -1608,6 +1950,18 @@ impl Capture {
             inputs: None,
             shared_target_package: None,
             applied_target_package: None,
+            selected_categories: atrace_categories(CaptureTemplate::SystemOverview)
+                .iter()
+                .map(|category| (*category).to_owned())
+                .collect(),
+            config_draft,
+            pending_editor_text: None,
+            config_generation: 0,
+            config_picking: false,
+            config_notice,
+            preflight: None,
+            preflight_dirty: true,
+            integrity: None,
         }
     }
 
@@ -1664,6 +2018,10 @@ impl Capture {
         self.capabilities = None;
         self.capabilities_in_progress = false;
         self.capability_generation = self.capability_generation.wrapping_add(1);
+        if self.selected_template == CaptureTemplate::FullCapture {
+            self.selected_categories.clear();
+            self.invalidate_preflight();
+        }
     }
 
     pub(in crate::trace) fn apply_devices(
@@ -1750,12 +2108,20 @@ impl Capture {
         let Some(serial) = self.selected_serial.clone() else {
             self.capabilities = None;
             self.capabilities_in_progress = false;
+            if self.selected_template == CaptureTemplate::FullCapture {
+                self.selected_categories.clear();
+                self.invalidate_preflight();
+            }
             return;
         };
         self.capability_generation = self.capability_generation.wrapping_add(1);
         let generation = self.capability_generation;
         self.capabilities = None;
         self.capabilities_in_progress = true;
+        if self.selected_template == CaptureTemplate::FullCapture {
+            self.selected_categories.clear();
+            self.invalidate_preflight();
+        }
         let cancel = CancellationToken::new();
         let task = cx
             .background_executor()
@@ -1763,19 +2129,271 @@ impl Capture {
         cx.spawn(async move |this, cx| {
             let capabilities = task.await;
             this.update(cx, |this, cx| {
-                if this.capture.capability_generation != generation {
-                    return;
+                if this.capture.apply_capabilities(generation, capabilities) {
+                    cx.notify();
                 }
-                this.capture.capabilities = Some(capabilities);
-                this.capture.capabilities_in_progress = false;
-                cx.notify();
             })
             .ok();
         })
         .detach();
     }
 
+    fn apply_capabilities(&mut self, generation: u64, capabilities: DeviceCapabilities) -> bool {
+        if self.capability_generation != generation {
+            return false;
+        }
+        self.capabilities = Some(capabilities);
+        self.capabilities_in_progress = false;
+        self.preflight = None;
+        self.preflight_dirty = true;
+        if self.selected_template == CaptureTemplate::FullCapture {
+            self.select_all_categories(true);
+        }
+        true
+    }
+
     // -- config UI state --------------------------------------------------
+
+    fn invalidate_preflight(&mut self) {
+        self.preflight = None;
+        self.preflight_dirty = true;
+        self.config_generation = self.config_generation.wrapping_add(1);
+    }
+
+    pub(in crate::trace) fn selected_categories(&self) -> &BTreeSet<String> {
+        &self.selected_categories
+    }
+
+    pub(in crate::trace) fn toggle_category(&mut self, name: &str, selected: bool) {
+        if self.is_active()
+            || !self.capabilities.as_ref().is_some_and(|capabilities| {
+                capabilities.atrace_categories.contains_key(name)
+                    && (self.selected_template != CaptureTemplate::FullCapture
+                        || capabilities.category_query_error.is_none())
+            })
+        {
+            return;
+        }
+        if selected {
+            self.selected_categories.insert(name.to_owned());
+        } else {
+            self.selected_categories.remove(name);
+        }
+        self.invalidate_preflight();
+    }
+
+    pub(in crate::trace) fn select_all_categories(&mut self, selected: bool) {
+        if self.is_active() {
+            return;
+        }
+        self.selected_categories = if selected {
+            self.capabilities
+                .as_ref()
+                .filter(|capabilities| {
+                    self.selected_template != CaptureTemplate::FullCapture
+                        || capabilities.category_query_error.is_none()
+                })
+                .map(|capabilities| capabilities.atrace_categories.keys().cloned().collect())
+                .unwrap_or_default()
+        } else {
+            BTreeSet::new()
+        };
+        self.invalidate_preflight();
+    }
+
+    pub(in crate::trace) fn preflight_report(
+        &self,
+    ) -> Option<&super::capture_config::PreflightReport> {
+        self.preflight.as_ref()
+    }
+
+    pub(in crate::trace) fn config_notice(&self) -> Option<&str> {
+        self.config_notice.as_deref()
+    }
+
+    pub(in crate::trace) fn integrity(&self) -> Option<&CaptureIntegritySummary> {
+        self.integrity.as_ref()
+    }
+
+    pub(in crate::trace) fn reveal_integrity_report(
+        &self,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        if let Some(path) = self
+            .integrity
+            .as_ref()
+            .and_then(|report| report.report_path.as_ref())
+        {
+            cx.reveal_path(path);
+        }
+    }
+
+    fn inspect_config(&self, config: &CaptureConfig) -> super::capture_config::PreflightReport {
+        let capabilities = self.capabilities.as_ref();
+        let sources = capabilities
+            .filter(|capabilities| {
+                capabilities.query_error.is_none() && !capabilities.data_source_names.is_empty()
+            })
+            .map(|capabilities| &capabilities.data_source_names);
+        let categories: Option<BTreeSet<String>> = capabilities
+            .filter(|capabilities| {
+                capabilities.category_query_error.is_none()
+                    && !capabilities.atrace_categories.is_empty()
+            })
+            .map(|capabilities| capabilities.atrace_categories.keys().cloned().collect());
+        let mut report = super::capture_config::preflight(
+            &build_config_text(config),
+            sources,
+            categories.as_ref(),
+        );
+        if config.template == CaptureTemplate::FullCapture {
+            if capabilities.is_none_or(|capabilities| {
+                capabilities.query_error.is_some() || capabilities.data_source_names.is_empty()
+            }) {
+                report.errors.push(
+                    "Full capture requires a successful device capability query before recording"
+                        .to_owned(),
+                );
+            } else if config
+                .enabled_probes
+                .as_ref()
+                .is_some_and(|probes| probes.contains(&Probe::Atrace))
+                && categories.is_none()
+            {
+                report.errors.push(
+                    "Full capture with Atrace requires a successful device category query before recording"
+                        .to_owned(),
+                );
+            }
+        }
+        report
+    }
+
+    pub(in crate::trace) fn run_preflight(
+        &mut self,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        self.preflight = Some(self.inspect_config(&self.config(cx)));
+        self.preflight_dirty = false;
+        cx.notify();
+    }
+
+    pub(in crate::trace) fn save_config(&mut self, cx: &mut Context<crate::trace::TraceWorkspace>) {
+        if self.is_active() {
+            return;
+        }
+        let text = self
+            .inputs
+            .as_ref()
+            .map(|inputs| inputs.custom_config.read(cx).value().to_string())
+            .unwrap_or_else(|| self.config_draft.clone());
+        self.config_notice = Some(match self.data_dir.as_deref() {
+            Some(directory) => match super::capture_config::save_draft(directory, &text) {
+                Ok(()) => {
+                    self.config_draft = text;
+                    self.language
+                        .text(TextKey::TraceCaptureConfigSaved)
+                        .to_owned()
+                }
+                Err(error) => error,
+            },
+            None => "The application data directory is unavailable".to_owned(),
+        });
+        cx.notify();
+    }
+
+    fn set_custom_text(
+        &mut self,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        self.config_draft = text.clone();
+        self.selected_template = CaptureTemplate::Custom;
+        let inspection = super::capture_config::preflight(&text, None, None);
+        self.selected_categories = inspection.atrace_categories.into_iter().collect();
+        if let Some(inputs) = &self.inputs {
+            inputs
+                .custom_config
+                .update(cx, |state, cx| state.set_value(text, window, cx));
+        } else {
+            self.pending_editor_text = Some(text);
+        }
+        self.invalidate_preflight();
+    }
+
+    pub(in crate::trace) fn reset_config(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        if self.is_active() {
+            return;
+        }
+        self.set_custom_text(super::capture_config::default_text().to_owned(), window, cx);
+        self.save_config(cx);
+    }
+
+    pub(in crate::trace) fn import_config(
+        &mut self,
+        _: &mut Window,
+        cx: &mut Context<crate::trace::TraceWorkspace>,
+    ) {
+        if self.is_active() || self.config_picking {
+            return;
+        }
+        self.invalidate_preflight();
+        let generation = self.config_generation;
+        self.config_picking = true;
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("TraceConfig (.pbtx, .pbtxt, .textproto)".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let selected = picker.await;
+            let path = match selected {
+                Ok(Ok(Some(paths))) if paths.len() == 1 => paths[0].clone(),
+                _ => {
+                    this.update(cx, |this, cx| {
+                        this.capture.config_picking = false;
+                        cx.notify();
+                    })
+                    .ok();
+                    return;
+                }
+            };
+            let task = cx
+                .background_executor()
+                .spawn(async move { super::capture_config::read_config(&path) });
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                this.capture.config_picking = false;
+                if this.capture.config_generation != generation || this.capture.is_active() {
+                    return;
+                }
+                match result {
+                    Ok(text) => {
+                        let inspection = super::capture_config::preflight(&text, None, None);
+                        this.capture.selected_categories =
+                            inspection.atrace_categories.into_iter().collect();
+                        this.capture.config_draft = text.clone();
+                        this.capture.pending_editor_text = Some(text);
+                        this.capture.selected_template = CaptureTemplate::Custom;
+                        this.capture.config_notice = None;
+                        this.capture.preflight = None;
+                        this.capture.preflight_dirty = true;
+                    }
+                    Err(error) => this.capture.config_notice = Some(error),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
 
     pub(in crate::trace) fn selected_template(&self) -> CaptureTemplate {
         self.selected_template
@@ -1785,20 +2403,55 @@ impl Capture {
         &self.enabled_probes
     }
 
-    pub(in crate::trace) fn select_template(&mut self, template: CaptureTemplate) {
-        if self.selected_template == template {
+    pub(in crate::trace) fn select_template(&mut self, template: CaptureTemplate, cx: &App) {
+        if self.is_active() || self.selected_template == template {
+            return;
+        }
+        let custom_categories = if template == CaptureTemplate::Custom {
+            let live = self
+                .inputs
+                .as_ref()
+                .map(|inputs| inputs.custom_config.read(cx).value());
+            custom_category_selection(live.as_deref(), &self.config_draft)
+        } else {
+            BTreeSet::new()
+        };
+        self.apply_template(template, custom_categories);
+    }
+
+    fn apply_template(&mut self, template: CaptureTemplate, custom_categories: BTreeSet<String>) {
+        if self.is_active() || self.selected_template == template {
             return;
         }
         self.selected_template = template;
         self.enabled_probes = template.default_probes();
+        self.selected_categories = if template == CaptureTemplate::Custom {
+            custom_categories
+        } else {
+            atrace_categories(template)
+                .iter()
+                .map(|category| (*category).to_owned())
+                .collect()
+        };
+        if template == CaptureTemplate::FullCapture {
+            self.select_all_categories(true);
+        }
+        self.invalidate_preflight();
     }
 
     pub(in crate::trace) fn toggle_probe(&mut self, probe: Probe, enabled: bool) {
+        if self.is_active() {
+            return;
+        }
         if enabled {
             self.enabled_probes.insert(probe);
         } else {
             self.enabled_probes.remove(&probe);
+            if probe == Probe::Atrace {
+                self.selected_categories.clear();
+            }
         }
+        self.invalidate_preflight();
     }
 
     pub(in crate::trace) fn inputs(&self) -> Option<&CaptureInputs> {
@@ -1850,37 +2503,63 @@ impl Capture {
         cx: &mut Context<crate::trace::TraceWorkspace>,
     ) {
         if self.inputs.is_some() {
+            if let Some(text) = self.pending_editor_text.take() {
+                if let Some(inputs) = &self.inputs {
+                    inputs
+                        .custom_config
+                        .update(cx, |state, cx| state.set_value(text, window, cx));
+                }
+            }
             self.set_language(language, window, cx);
+            if self.preflight_dirty {
+                self.preflight = Some(self.inspect_config(&self.config(cx)));
+                self.preflight_dirty = false;
+            }
             return;
         }
         let target_package = cx.new(|cx| InputState::new(window, cx));
         let duration = cx.new(|cx| InputState::new(window, cx).default_value("10"));
         let buffer_mb = cx.new(|cx| InputState::new(window, cx).default_value("32"));
         let additional_categories = cx.new(|cx| InputState::new(window, cx));
-        let custom_config = cx.new(|cx| TextareaState::new(window, cx));
+        let draft = self
+            .pending_editor_text
+            .take()
+            .unwrap_or_else(|| self.config_draft.clone());
+        let custom_config = cx.new(|cx| TextareaState::new(window, cx).default_value(draft));
         let subscriptions = vec![
-            cx.subscribe(&target_package, |_, _, event: &InputEvent, cx| {
+            cx.subscribe(&target_package, |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.capture.invalidate_preflight();
                     cx.notify();
                 }
             }),
-            cx.subscribe(&duration, |_, _, event: &InputEvent, cx| {
+            cx.subscribe(&duration, |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.capture.invalidate_preflight();
                     cx.notify();
                 }
             }),
-            cx.subscribe(&buffer_mb, |_, _, event: &InputEvent, cx| {
+            cx.subscribe(&buffer_mb, |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.capture.invalidate_preflight();
                     cx.notify();
                 }
             }),
-            cx.subscribe(&additional_categories, |_, _, event: &InputEvent, cx| {
+            cx.subscribe(&additional_categories, |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.capture.invalidate_preflight();
                     cx.notify();
                 }
             }),
-            cx.subscribe(&custom_config, |_, _, event: &InputEvent, cx| {
+            cx.subscribe(&custom_config, |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    this.capture.invalidate_preflight();
+                    if this.capture.inputs.as_ref().is_some_and(|inputs| {
+                        inputs.custom_config.read(cx).value().as_ref()
+                            != this.capture.config_draft.as_str()
+                    }) {
+                        this.capture.config_notice = None;
+                    }
                     cx.notify();
                 }
             }),
@@ -1895,6 +2574,8 @@ impl Capture {
         });
         self.language = language;
         self.apply_placeholders(language, window, cx);
+        self.preflight = Some(self.inspect_config(&self.config(cx)));
+        self.preflight_dirty = false;
     }
 
     pub(in crate::trace) fn set_language(
@@ -1961,8 +2642,7 @@ impl Capture {
                 .additional_categories
                 .read(cx)
                 .value()
-                .to_string()
-                .split([',', '\n'])
+                .split(|character: char| character == ',' || character.is_whitespace())
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned)
@@ -1975,8 +2655,19 @@ impl Capture {
         config.target_package = target_package;
         config.duration_seconds = duration_seconds;
         config.buffer_size_kb = buffer_size_kb;
+        dedup_preserving_order(&mut additional_categories);
         config.additional_categories = additional_categories;
         config.custom_config_text = custom_config_text;
+        self.apply_selection(&mut config);
+        config
+    }
+
+    fn apply_selection(&self, config: &mut CaptureConfig) {
+        let full_capture = config.template == CaptureTemplate::FullCapture;
+        let target_present = config
+            .target_package
+            .as_deref()
+            .is_some_and(|target| !full_capture || is_target_package(target));
         config.enabled_probes = Some(
             self.enabled_probes
                 .iter()
@@ -1986,11 +2677,54 @@ impl Capture {
                         .as_ref()
                         .and_then(|capabilities| capabilities.probe_blocker(*probe))
                         .is_none()
-                        && (!probe.requires_target_package() || config.target_package.is_some())
+                        && (!probe.requires_target_package() || target_present)
+                        && (!full_capture
+                            || self.capabilities.as_ref().is_some_and(|capabilities| {
+                                capabilities.query_error.is_none()
+                                    && probe.required_data_source().is_some_and(|source| {
+                                        capabilities.data_source_names.contains(source)
+                                    })
+                            }))
                 })
                 .collect(),
         );
-        config
+        let categories = if full_capture {
+            self.capabilities.as_ref().filter(|capabilities| {
+                capabilities.category_query_error.is_none()
+                    && config
+                        .enabled_probes
+                        .as_ref()
+                        .is_some_and(|probes| probes.contains(&Probe::Atrace))
+            })
+        } else {
+            None
+        };
+        config.atrace_category_selection = Some(
+            self.selected_categories
+                .iter()
+                .filter(|category| {
+                    !full_capture
+                        || categories.is_some_and(|capabilities| {
+                            capabilities.atrace_categories.contains_key(*category)
+                        })
+                })
+                .cloned()
+                .collect(),
+        );
+        if full_capture {
+            config.additional_categories.retain(|category| {
+                if category.contains('/') {
+                    self.capabilities.as_ref().is_some_and(|capabilities| {
+                        capabilities.query_error.is_none()
+                            && capabilities.data_source_names.contains("linux.ftrace")
+                    })
+                } else {
+                    categories.is_some_and(|capabilities| {
+                        capabilities.atrace_categories.contains_key(category)
+                    })
+                }
+            });
+        }
     }
 
     // -- capture lifecycle ------------------------------------------------
@@ -2017,6 +2751,14 @@ impl Capture {
             cx.notify();
             return;
         }
+        let preflight = self.inspect_config(&config);
+        let errors = preflight.errors.join("\n");
+        self.preflight = Some(preflight);
+        if !errors.is_empty() {
+            self.state = CaptureState::Failed(errors);
+            cx.notify();
+            return;
+        }
         let Some(data_dir) = self.data_dir.clone() else {
             self.state =
                 CaptureState::Failed("The capture artifact directory is unavailable".to_owned());
@@ -2038,12 +2780,23 @@ impl Capture {
             .capabilities
             .as_ref()
             .is_none_or(|capabilities| capabilities.query_error.is_some());
+        if config.template == CaptureTemplate::Custom
+            && let Some(text) = config.custom_config_text.as_deref()
+        {
+            if let Err(error) = super::capture_config::save_draft(&data_dir, text) {
+                self.config_notice = Some(error);
+                cx.notify();
+                return;
+            }
+            self.config_draft = text.to_owned();
+        }
         self.generation = self.generation.wrapping_add(1);
         let generation = self.generation;
         self.cancel.cancel();
         self.cancel = CancellationToken::new();
         let cancel = self.cancel.clone();
         self.active = None;
+        self.integrity = None;
         self.state = CaptureState::Preparing;
         let task = cx.background_executor().spawn(async move {
             capture_start_blocking(serial, config, data_dir, cancel, capability_query_failed)
@@ -2159,6 +2912,7 @@ impl Capture {
                 this.capture.active = None;
                 match result {
                     Ok(output) => {
+                        this.capture.integrity = Some(output.integrity.clone());
                         this.capture.state = CaptureState::Completed {
                             trace_path: output.trace_path.clone(),
                             size_bytes: output.trace_size_bytes,
@@ -2192,6 +2946,925 @@ impl Drop for Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TransferTestDirectory(PathBuf);
+
+    impl TransferTestDirectory {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "aps-trace-transfer-{}-{}",
+                std::process::id(),
+                unique_id("test"),
+            ));
+            std::fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+    }
+
+    impl Drop for TransferTestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn trace_file_sizes_use_the_trace_budget_not_the_process_output_budget() {
+        for size in [
+            1,
+            MAX_OUTPUT_LIMIT as u64 + 1,
+            aps_perfetto::MAX_TRACE_BYTES,
+        ] {
+            assert_eq!(
+                parse_trace_transfer_size(format!("{size}\n").as_bytes()),
+                Ok(size)
+            );
+        }
+        assert!(
+            parse_trace_transfer_size(b"0\n")
+                .unwrap_err()
+                .contains("empty")
+        );
+        assert!(
+            parse_trace_transfer_size(format!("{}", aps_perfetto::MAX_TRACE_BYTES + 1).as_bytes())
+                .unwrap_err()
+                .contains("8 GiB"),
+        );
+        for text in ["", "-1", "+1", "12 bytes", "1\n2", "18446744073709551616"] {
+            assert!(
+                parse_trace_transfer_size(text.as_bytes()).is_err(),
+                "{text:?}"
+            );
+        }
+        assert!(parse_trace_transfer_size(&[0xff]).is_err());
+    }
+
+    #[::core::prelude::v1::test]
+    fn trace_transfer_accepts_a_file_larger_than_64_mib_without_buffering_it() {
+        let root = TransferTestDirectory::new();
+        let path = root.0.join("large trace.pftrace");
+        let expected = MAX_OUTPUT_LIMIT as u64 + 1024;
+        let bytes = receive_trace_file(&path, expected, &CancellationToken::new(), || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_len(expected)
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(bytes, expected);
+        assert_eq!(std::fs::metadata(path).unwrap().len(), expected);
+    }
+
+    #[::core::prelude::v1::test]
+    fn trace_transfer_failures_remove_only_the_owned_partial_file() {
+        let root = TransferTestDirectory::new();
+        let path = root.0.join("partial.pftrace");
+        for error in [
+            "The ADB command timed out",
+            "Capture cancelled",
+            "transport disconnected",
+        ] {
+            let result = receive_trace_file(&path, 4, &CancellationToken::new(), || {
+                std::fs::write(&path, b"xx").unwrap();
+                Err(error.to_owned())
+            });
+            assert_eq!(result.unwrap_err(), error);
+            assert!(!path.exists());
+        }
+        let cancel = CancellationToken::new();
+        let result = receive_trace_file(&path, 4, &cancel, || {
+            std::fs::write(&path, b"data").unwrap();
+            cancel.cancel();
+            Ok(())
+        });
+        assert_eq!(result.unwrap_err(), "Capture cancelled");
+        assert!(!path.exists());
+    }
+
+    #[::core::prelude::v1::test]
+    fn trace_transfer_rejects_empty_truncated_and_oversized_local_files() {
+        let root = TransferTestDirectory::new();
+        let path = root.0.join("incomplete.pftrace");
+        for bytes in [b"".as_slice(), b"abc".as_slice(), b"abcde".as_slice()] {
+            let result = receive_trace_file(&path, 4, &CancellationToken::new(), || {
+                std::fs::write(&path, bytes).unwrap();
+                Ok(())
+            });
+            let error = result.unwrap_err();
+            assert!(error.contains("incomplete"));
+            assert!(error.contains("expected=4 bytes"));
+            assert!(error.contains(&format!("actual={} bytes", bytes.len())));
+            assert!(!path.exists());
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn trace_transfer_preserves_an_existing_destination_and_checks_cancel_before_io() {
+        let root = TransferTestDirectory::new();
+        let path = root.0.join("existing.pftrace");
+        std::fs::write(&path, b"keep").unwrap();
+        assert!(
+            receive_trace_file(&path, 4, &CancellationToken::new(), || {
+                panic!("must not pull over an existing destination");
+            })
+            .is_err(),
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"keep");
+        let cancelled_path = root.0.join("cancelled.pftrace");
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert_eq!(
+            receive_trace_file(&cancelled_path, 4, &cancel, || panic!("must not pull"))
+                .unwrap_err(),
+            "Capture cancelled",
+        );
+        assert!(!cancelled_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn adb_pull_transfers_large_files_instead_of_returning_their_bytes_as_stdout() {
+        use std::io::{Read, Seek, SeekFrom, Write};
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TransferTestDirectory::new();
+        let source = root.0.join("source trace.pftrace");
+        let size = MAX_OUTPUT_LIMIT as u64 + 1024;
+        let mut file = std::fs::File::create(&source).unwrap();
+        file.set_len(size).unwrap();
+        file.write_all(b"start").unwrap();
+        file.seek(SeekFrom::End(-3)).unwrap();
+        file.write_all(b"end").unwrap();
+        drop(file);
+        let remote = RemoteCapturePaths::new();
+        let remote_path = &remote.trace;
+        let executable = root.0.join("fake adb");
+        let script = format!(
+            r#"#!/bin/sh
+set -eu
+[ "$1" = '-s' ] && [ "$2" = 'serial' ] || exit 90
+if [ "$3" = 'shell' ]; then
+  [ "$#" -eq 7 ] && [ "$4" = 'stat' ] && [ "$5" = '-c' ] && [ "$6" = '%s' ] && [ "$7" = '{remote_path}' ] || exit 91
+  printf '%s\n' '{size}'
+elif [ "$3" = 'pull' ]; then
+  [ "$#" -eq 5 ] && [ "$4" = '{remote_path}' ] || exit 92
+  cp "$(dirname "$0")/source trace.pftrace" "$5"
+  printf '1 file pulled\n'
+else
+  exit 93
+fi
+"#,
+        );
+        std::fs::write(&executable, script).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut adb = AdbRunner::new(executable, "serial".to_owned(), CancellationToken::new());
+        adb.remote = remote;
+        let destination = root.0.join("pulled trace.pftrace");
+        assert_eq!(adb.transfer_trace(&destination).unwrap(), size);
+        let mut pulled = std::fs::File::open(destination).unwrap();
+        let mut prefix = [0; 5];
+        pulled.read_exact(&mut prefix).unwrap();
+        assert_eq!(&prefix, b"start");
+        pulled.seek(SeekFrom::End(-3)).unwrap();
+        let mut suffix = [0; 3];
+        pulled.read_exact(&mut suffix).unwrap();
+        assert_eq!(&suffix, b"end");
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn failed_trace_pull_keeps_the_device_trace_for_recovery() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$(dirname "$0")/calls.log"
+if [ "$3" = 'shell' ] && [ "$#" -eq 4 ]; then
+  printf 'stopped\n'
+elif [ "$3" = 'shell' ] && [ "$4" = 'stat' ]; then
+  printf '4\n'
+elif [ "$3" = 'pull' ]; then
+  printf 'xx' > "$5"
+  exit 1
+else
+  exit 93
+fi
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let result = complete_capture_blocking(
+            ActiveCapture {
+                executable,
+                serial: "serial".to_owned(),
+                pid: 1234,
+                config: CaptureConfig::new(CaptureTemplate::SystemOverview),
+                started_unix_ms: 0,
+                device_model: "fixture".to_owned(),
+                android_sdk: 34,
+                capability_query_failed: false,
+                automatic_delay: None,
+                remote: RemoteCapturePaths::new(),
+            },
+            false,
+            root.0.clone(),
+            CancellationToken::new(),
+            Language::English,
+        );
+        let error = result.unwrap_err();
+        assert!(error.contains("Unable to pull"));
+        assert!(error.contains("Device cleanup was skipped"));
+        assert!(error.contains("/data/misc/perfetto-traces/aps-"));
+        let calls = std::fs::read_to_string(root.0.join("calls.log")).unwrap();
+        assert!(calls.contains(" pull "));
+        assert!(!calls.contains(" rm "));
+        assert_eq!(
+            std::fs::read_dir(root.0.join(CAPTURE_CONFIG_PATH_SEGMENT))
+                .unwrap()
+                .count(),
+            0,
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    #[ignore = "requires an explicitly supplied device, ADB and recovery directory; never records or deletes the device trace"]
+    fn recover_existing_device_trace_through_the_production_transfer() {
+        let executable = PathBuf::from(std::env::var_os("APS_TEST_ADB").expect("APS_TEST_ADB"));
+        let serial = std::env::var("APS_TEST_TRACE_SERIAL").expect("APS_TEST_TRACE_SERIAL");
+        let directory = PathBuf::from(
+            std::env::var_os("APS_TEST_TRACE_RECOVERY_DIR").expect("APS_TEST_TRACE_RECOVERY_DIR"),
+        );
+        assert!(executable.is_absolute() && directory.is_absolute() && directory.is_dir());
+        let destination = directory.join(format!("{}.pftrace", unique_id("recovered")));
+        let mut adb = AdbRunner::new(executable, serial, CancellationToken::new());
+        adb.remote.trace = DEVICE_TRACE_PATH.to_owned();
+        let bytes = adb.transfer_trace(&destination).unwrap();
+        println!(
+            "Production transfer recovered {bytes} bytes to {}",
+            destination.display()
+        );
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn local_storage_failure_keeps_the_unique_remote_recovery_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(&executable, "#!/bin/sh\nprintf 'stopped\\n'\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(root.0.join(CAPTURE_CONFIG_PATH_SEGMENT), b"existing file").unwrap();
+        let remote = RemoteCapturePaths::new();
+        let expected_path = remote.trace.clone();
+        let result = complete_capture_blocking(
+            ActiveCapture {
+                executable,
+                serial: "serial".to_owned(),
+                pid: 1234,
+                config: CaptureConfig::new(CaptureTemplate::SystemOverview),
+                started_unix_ms: 0,
+                device_model: "fixture".to_owned(),
+                android_sdk: 34,
+                capability_query_failed: false,
+                automatic_delay: None,
+                remote,
+            },
+            false,
+            root.0.clone(),
+            CancellationToken::new(),
+            Language::English,
+        );
+        let error = result.unwrap_err();
+        assert!(error.contains("artifact directory is unavailable"));
+        assert!(error.contains(&expected_path));
+        assert!(error.contains("device serial"));
+        assert_eq!(
+            std::fs::read(root.0.join(CAPTURE_CONFIG_PATH_SEGMENT)).unwrap(),
+            b"existing file"
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    #[ignore = "requires explicit APS_TEST_CAPTURE_SMOKE=1 and device/ADB/directory; records only a one-second scheduling trace at unique paths"]
+    fn device_capture_completes_through_the_production_stop_and_transfer() {
+        assert_eq!(std::env::var("APS_TEST_CAPTURE_SMOKE").as_deref(), Ok("1"));
+        let serial = std::env::var("APS_TEST_TRACE_SERIAL").expect("APS_TEST_TRACE_SERIAL");
+        let directory = PathBuf::from(
+            std::env::var_os("APS_TEST_TRACE_RECOVERY_DIR").expect("APS_TEST_TRACE_RECOVERY_DIR"),
+        );
+        assert!(directory.is_absolute() && directory.is_dir());
+        let mut config = CaptureConfig::new(CaptureTemplate::SystemOverview);
+        config.duration_seconds = 1;
+        config.buffer_size_kb = 1024;
+        config.enabled_probes = Some([Probe::CpuScheduling].into_iter().collect());
+        config.atrace_category_selection = Some(BTreeSet::new());
+        let cancel = CancellationToken::new();
+        let active =
+            capture_start_blocking(serial, config, directory.clone(), cancel.clone(), false)
+                .unwrap();
+        println!(
+            "Owned smoke process={}, trace={}",
+            active.pid, active.remote.trace
+        );
+        let manual_stop = std::env::var("APS_TEST_CAPTURE_MANUAL").as_deref() == Ok("1");
+        let output =
+            complete_capture_blocking(active, manual_stop, directory, cancel, Language::English)
+                .unwrap();
+        assert!(output.trace_size_bytes > 0);
+        assert_eq!(
+            std::fs::metadata(&output.trace_path).unwrap().len(),
+            output.trace_size_bytes
+        );
+        println!(
+            "Production capture recovered {} bytes to {}",
+            output.trace_size_bytes,
+            output.trace_path.display()
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn stop_probe_requires_explicit_successful_absence_not_just_an_adb_exit() {
+        #[cfg(unix)]
+        fn exit_status(code: i32) -> std::process::ExitStatus {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code << 8)
+        }
+        #[cfg(windows)]
+        fn exit_status(code: i32) -> std::process::ExitStatus {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(code as u32)
+        }
+        for (text, code, expected) in [
+            ("stopped\n", 0, Some(true)),
+            ("running\n", 0, Some(false)),
+            ("stopped\r\n", 0, Some(true)),
+            ("stopped\n", 1, None),
+            ("", 1, None),
+            ("unknown\n", 0, None),
+        ] {
+            let output = ProcessOutput {
+                status: exit_status(code),
+                stdout: text.as_bytes().to_vec(),
+                stderr: Vec::new(),
+            };
+            assert_eq!(confirmed_remote_stop(&output).ok(), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn stop_probe_transport_failure_never_authorizes_a_pull() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(
+            &executable,
+            "#!/bin/sh\nprintf 'device offline' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let adb = AdbRunner::new(executable, "serial".to_owned(), CancellationToken::new());
+        assert!(
+            adb.wait_for_remote_stop(1234)
+                .unwrap_err()
+                .contains("Unable to confirm")
+        );
+        assert!(adb.kill("-TERM", 1234).is_err());
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn stop_probe_does_not_require_the_devices_signal_zero_permission() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$(dirname "$0")/calls.log"
+case "$4" in
+  *'kill -0'*) printf 'Permission denied\n' >&2; exit 1 ;;
+  *'/proc/1234'*)
+    if [ -e "$(dirname "$0")/polled" ]; then printf 'stopped\n'; else
+      touch "$(dirname "$0")/polled"
+      printf 'running\n'
+    fi ;;
+  *) exit 1 ;;
+esac
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let adb = AdbRunner::new(executable, "serial".to_owned(), CancellationToken::new());
+        assert!(adb.wait_for_remote_stop(1234).unwrap());
+        let calls = std::fs::read_to_string(root.0.join("calls.log")).unwrap();
+        assert_eq!(calls.lines().count(), 2);
+        assert!(!calls.contains("kill -0"));
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn remote_trace_change_is_reported_with_sizes_and_rejected() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = TransferTestDirectory::new();
+        let executable = root.0.join("fake adb");
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+set -eu
+if [ "$3" = 'shell' ]; then
+  if [ -e "$(dirname "$0")/pulled" ]; then printf '5\n'; else printf '4\n'; fi
+elif [ "$3" = 'pull' ]; then
+  printf '12345' > "$5"
+  touch "$(dirname "$0")/pulled"
+else
+  exit 1
+fi
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let adb = AdbRunner::new(executable, "serial".to_owned(), CancellationToken::new());
+        let destination = root.0.join("changed.pftrace");
+        let error = adb.transfer_trace(&destination).unwrap_err();
+        assert!(error.contains("before=4 bytes, after=5 bytes"));
+        assert!(!destination.exists());
+    }
+
+    fn full_capabilities(categories: &[&str]) -> DeviceCapabilities {
+        DeviceCapabilities {
+            android_sdk: 34,
+            build_type: "userdebug".to_owned(),
+            data_source_names: Probe::ALL
+                .into_iter()
+                .filter_map(Probe::required_data_source)
+                .chain(["android.packages_list", "vendor.unknown_producer"])
+                .map(str::to_owned)
+                .collect(),
+            atrace_categories: categories
+                .iter()
+                .map(|name| ((*name).to_owned(), format!("Device {name}")))
+                .collect(),
+            ..DeviceCapabilities::default()
+        }
+    }
+
+    fn selected_config(capture: &Capture, target: Option<&str>) -> CaptureConfig {
+        let mut config = CaptureConfig::new(capture.selected_template);
+        config.target_package = target.map(str::to_owned);
+        capture.apply_selection(&mut config);
+        config
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_has_localized_labels_and_warning_before_custom() {
+        assert_eq!(CaptureTemplate::ALL[5], CaptureTemplate::FullCapture);
+        assert_eq!(CaptureTemplate::ALL[6], CaptureTemplate::Custom);
+        for language in [Language::English, Language::SimplifiedChinese] {
+            assert!(
+                !language
+                    .text(CaptureTemplate::FullCapture.label())
+                    .is_empty()
+            );
+            assert!(
+                !language
+                    .text(CaptureTemplate::FullCapture.description())
+                    .is_empty()
+            );
+            assert!(!language.text(TextKey::TraceCaptureFullWarning).is_empty());
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_covers_only_supported_probes_and_reported_categories() {
+        let mut capture = Capture::new(None);
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        let all = Probe::ALL.into_iter().collect::<BTreeSet<_>>();
+        assert_eq!(CaptureTemplate::FullCapture.default_probes(), all);
+        assert_eq!(capture.enabled_probes, all);
+        assert!(capture.selected_categories.is_empty());
+        assert!(
+            selected_config(&capture, None)
+                .enabled_probes
+                .unwrap()
+                .is_empty()
+        );
+        let categories = ["gfx", "input", "vendor_category"];
+        assert!(capture.apply_capabilities(0, full_capabilities(&categories)));
+        let config = selected_config(&capture, Some("com.example.app"));
+        assert_eq!(config.enabled_probes.as_ref().unwrap(), &all);
+        assert_eq!(
+            capture.selected_categories,
+            categories.into_iter().map(str::to_owned).collect()
+        );
+        let text = build_config_text(&config);
+        for probe in Probe::ALL {
+            assert!(
+                text.contains(&format!(
+                    "name: \"{}\"",
+                    probe.required_data_source().unwrap()
+                )),
+                "{probe:?}"
+            );
+            for event in ftrace_events(probe) {
+                assert!(
+                    text.contains(&format!("ftrace_events: \"{event}\"")),
+                    "{probe:?}: {event}"
+                );
+            }
+        }
+        for category in categories {
+            assert!(text.contains(&format!("atrace_categories: \"{category}\"")));
+        }
+        assert!(!text.contains("vendor.unknown_producer"));
+        assert!(matches!(capture.state, CaptureState::Idle));
+        assert!(capture.active.is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_selects_categories_on_selection_and_each_new_snapshot() {
+        let mut capture = Capture::new(None);
+        assert!(capture.apply_capabilities(0, full_capabilities(&["gfx", "view"])));
+        let original = capture.selected_categories.clone();
+        assert!(original.contains("am"));
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        assert_eq!(capture.selected_categories.len(), 2);
+        assert!(!capture.selected_categories.contains("am"));
+        capture.toggle_category("view", false);
+        capture.toggle_probe(Probe::AndroidLog, false);
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        let config = selected_config(&capture, None);
+        assert!(!config.atrace_category_selection.unwrap().contains("view"));
+        assert!(!config.enabled_probes.unwrap().contains(&Probe::AndroidLog));
+        assert!(capture.apply_capabilities(0, full_capabilities(&["view", "input"])));
+        assert_eq!(
+            capture.selected_categories,
+            ["view".to_owned(), "input".to_owned()]
+                .into_iter()
+                .collect()
+        );
+        assert!(!capture.enabled_probes.contains(&Probe::AndroidLog));
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_device_switch_clears_categories_and_rejects_stale_snapshots() {
+        let mut capture = Capture::new(None);
+        capture.set_selected_serial(Some("first".to_owned()));
+        let generation = capture.capability_generation;
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        assert!(capture.apply_capabilities(generation, full_capabilities(&["first_only"])));
+        capture.set_selected_serial(Some("second".to_owned()));
+        assert!(capture.selected_categories.is_empty());
+        assert!(capture.capabilities.is_none());
+        let config = selected_config(&capture, None);
+        assert!(config.enabled_probes.unwrap().is_empty());
+        assert!(config.atrace_category_selection.unwrap().is_empty());
+        assert!(!capture.apply_capabilities(generation, full_capabilities(&["stale"])));
+        assert!(capture.apply_capabilities(
+            capture.capability_generation,
+            full_capabilities(&["second_only"])
+        ));
+        let text = build_config_text(&selected_config(&capture, None));
+        assert!(text.contains("atrace_categories: \"second_only\""));
+        assert!(!text.contains("first_only"));
+        assert!(!text.contains("stale"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_filters_unsupported_and_target_dependent_probes() {
+        let mut capture = Capture::new(None);
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        let mut capabilities = full_capabilities(&["gfx"]);
+        capabilities.android_sdk = 28;
+        capabilities.build_type = "user".to_owned();
+        capabilities.data_source_names.remove("gpu.renderstages");
+        assert!(capture.apply_capabilities(0, capabilities));
+        let config = selected_config(&capture, Some("com.example.app"));
+        let probes = config.enabled_probes.as_ref().unwrap();
+        for probe in [
+            Probe::NativeHeap,
+            Probe::JavaHeapDump,
+            Probe::Syscalls,
+            Probe::FrameTimeline,
+            Probe::GpuMemory,
+            Probe::GpuWorkPeriod,
+            Probe::NetworkPackets,
+            Probe::GameInterventions,
+            Probe::GpuRenderStages,
+        ] {
+            assert!(!probes.contains(&probe), "{probe:?}");
+        }
+        assert!(probes.contains(&Probe::CpuScheduling));
+        assert!(capture.apply_capabilities(0, full_capabilities(&["gfx"])));
+        let config = selected_config(&capture, None);
+        let probes = config.enabled_probes.as_ref().unwrap();
+        assert!(!probes.contains(&Probe::NativeHeap));
+        assert!(!probes.contains(&Probe::JavaHeapDump));
+        let text = build_config_text(&config);
+        assert!(!text.contains("heapprofd_config"));
+        assert!(!text.contains("java_hprof_config"));
+        for target in ["*", "com.example.*", " ", "com..example"] {
+            let config = selected_config(&capture, Some(target));
+            assert!(config.validate().is_err(), "{target}");
+            assert!(
+                !config
+                    .enabled_probes
+                    .as_ref()
+                    .unwrap()
+                    .contains(&Probe::NativeHeap)
+            );
+            assert!(!build_config_text(&config).contains("process_cmdline:"));
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_query_failure_and_missing_capabilities_fail_closed() {
+        let mut capture = Capture::new(None);
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        let mut capabilities = full_capabilities(&["stale_category"]);
+        capabilities.category_query_error = Some("permission denied".to_owned());
+        assert!(capture.apply_capabilities(0, capabilities.clone()));
+        capture.select_all_categories(true);
+        capture.toggle_category("stale_category", true);
+        assert!(capture.selected_categories.is_empty());
+        let mut config = selected_config(&capture, None);
+        config.additional_categories = vec!["stale_category".to_owned(), "unknown".to_owned()];
+        capture.apply_selection(&mut config);
+        assert!(!build_config_text(&config).contains("atrace_categories:"));
+        capabilities.query_error = Some("query failed".to_owned());
+        assert!(capture.apply_capabilities(0, capabilities));
+        assert!(
+            selected_config(&capture, None)
+                .enabled_probes
+                .unwrap()
+                .is_empty()
+        );
+        assert!(capture.apply_capabilities(0, DeviceCapabilities::default()));
+        assert!(
+            selected_config(&capture, None)
+                .enabled_probes
+                .unwrap()
+                .is_empty()
+        );
+        let mut config = CaptureConfig::new(CaptureTemplate::FullCapture);
+        config.target_package = Some("com.example.app".to_owned());
+        assert!(!build_config_text(&config).contains("atrace_apps:"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_wildcard_is_atrace_only_and_explicit_targets_stay_scoped() {
+        for template in CaptureTemplate::ALL {
+            if template != CaptureTemplate::FullCapture {
+                assert!(
+                    !build_config_text(&CaptureConfig::new(template))
+                        .contains("atrace_apps: \"*\"")
+                );
+            }
+        }
+        let mut capture = Capture::new(None);
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        assert!(capture.apply_capabilities(0, full_capabilities(&["gfx"])));
+        let text = build_config_text(&selected_config(&capture, None));
+        assert!(text.contains("atrace_apps: \"*\""));
+        assert!(!text.contains("process_cmdline:"));
+        let text = build_config_text(&selected_config(&capture, Some("com.example.app")));
+        assert!(text.contains("atrace_apps: \"com.example.app\""));
+        assert!(!text.contains("atrace_apps: \"*\""));
+        assert!(!text.contains("atrace_apps: \"lmkd\""));
+        assert_eq!(
+            text.matches("process_cmdline: \"com.example.app\"").count(),
+            2
+        );
+        capture.toggle_probe(Probe::Atrace, false);
+        let text = build_config_text(&selected_config(&capture, None));
+        assert!(!text.contains("atrace_apps:"));
+        assert!(!text.contains("atrace_categories:"));
+        assert!(text.contains("ftrace_events: \"sched/sched_switch\""));
+        capture.toggle_probe(Probe::Atrace, true);
+        capture.select_all_categories(false);
+        let text = build_config_text(&selected_config(&capture, None));
+        assert!(text.contains("atrace_apps: \"*\""));
+        assert!(!text.contains("atrace_categories:"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_switching_to_and_from_custom_preserves_the_draft() {
+        let mut capture = Capture::new(None);
+        let draft = "buffers { size_kb: 1024 } # unsaved draft\nduration_ms: 1234";
+        capture.config_draft = draft.to_owned();
+        capture.pending_editor_text = Some(draft.to_owned());
+        for template in [
+            CaptureTemplate::FullCapture,
+            CaptureTemplate::Custom,
+            CaptureTemplate::AppPerformance,
+            CaptureTemplate::Custom,
+        ] {
+            capture.apply_template(template, custom_category_selection(None, draft));
+            assert_eq!(capture.config_draft, draft);
+            assert_eq!(capture.pending_editor_text.as_deref(), Some(draft));
+        }
+        assert_eq!(build_config_text(&custom(&capture.config_draft)), draft);
+    }
+
+    #[::core::prelude::v1::test]
+    fn capability_arrival_preserves_non_full_config_generation() {
+        for template in CaptureTemplate::ALL {
+            if template == CaptureTemplate::FullCapture {
+                continue;
+            }
+            let mut capture = Capture::new(None);
+            capture.apply_template(template, BTreeSet::new());
+            let generation = capture.config_generation;
+            let categories = capture.selected_categories.clone();
+            assert!(capture.apply_capabilities(0, full_capabilities(&["gfx"])));
+            assert_eq!(capture.config_generation, generation, "{template:?}");
+            assert_eq!(capture.selected_categories, categories, "{template:?}");
+            assert!(capture.preflight_dirty);
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn full_capture_preflight_blocks_unestablished_coverage_only_in_full_mode() {
+        let mut source_failure = full_capabilities(&["gfx"]);
+        source_failure.query_error = Some("permission denied".to_owned());
+        let mut category_failure = full_capabilities(&["gfx"]);
+        category_failure.category_query_error = Some("permission denied".to_owned());
+        for capabilities in [
+            None,
+            Some(DeviceCapabilities::default()),
+            Some(source_failure),
+            Some(category_failure),
+        ] {
+            let mut capture = Capture::new(None);
+            capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+            if let Some(capabilities) = capabilities {
+                assert!(capture.apply_capabilities(0, capabilities));
+            }
+            let config = selected_config(&capture, None);
+            let report = capture.inspect_config(&config);
+            assert!(!report.can_start());
+            assert!(
+                report
+                    .errors
+                    .iter()
+                    .any(|error| error.starts_with("Full capture"))
+            );
+            for template in [CaptureTemplate::AppPerformance, CaptureTemplate::Custom] {
+                let config = if template == CaptureTemplate::Custom {
+                    custom("buffers { size_kb: 1024 } duration_ms: 1000")
+                } else {
+                    CaptureConfig::new(template)
+                };
+                assert!(
+                    !capture
+                        .inspect_config(&config)
+                        .errors
+                        .iter()
+                        .any(|error| error.starts_with("Full capture"))
+                );
+            }
+        }
+        let mut capture = Capture::new(None);
+        capture.apply_template(CaptureTemplate::FullCapture, BTreeSet::new());
+        assert!(capture.apply_capabilities(0, full_capabilities(&["gfx"])));
+        assert!(
+            capture
+                .inspect_config(&selected_config(&capture, None))
+                .can_start()
+        );
+        let mut category_failure = full_capabilities(&["gfx"]);
+        category_failure.category_query_error = Some("permission denied".to_owned());
+        assert!(capture.apply_capabilities(0, category_failure));
+        capture.toggle_probe(Probe::Atrace, false);
+        assert!(
+            capture
+                .inspect_config(&selected_config(&capture, None))
+                .can_start()
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn original_template_defaults_and_category_configs_remain_unchanged() {
+        use Probe::*;
+        let cases: &[(CaptureTemplate, &[Probe], &[&str])] = &[
+            (
+                CaptureTemplate::SystemOverview,
+                &[
+                    CpuUsage,
+                    CpuScheduling,
+                    CpuFrequency,
+                    KernelMeminfo,
+                    Vmstat,
+                    ProcessStats,
+                    FilesystemIo,
+                    PageFaults,
+                    ArtRuntime,
+                    Thermal,
+                    Atrace,
+                    FrameTimeline,
+                ],
+                &[
+                    "am",
+                    "binder_driver",
+                    "dalvik",
+                    "database",
+                    "gfx",
+                    "view",
+                    "wm",
+                    "power",
+                ],
+            ),
+            (
+                CaptureTemplate::AppPerformance,
+                &[
+                    CpuUsage,
+                    CpuScheduling,
+                    ProcessStats,
+                    FilesystemIo,
+                    PageFaults,
+                    ArtRuntime,
+                    Atrace,
+                    FrameTimeline,
+                ],
+                &[
+                    "am",
+                    "binder_driver",
+                    "dalvik",
+                    "database",
+                    "gfx",
+                    "view",
+                    "wm",
+                ],
+            ),
+            (
+                CaptureTemplate::GfxPipeline,
+                &[
+                    CpuScheduling,
+                    CpuFrequency,
+                    GpuFrequency,
+                    Atrace,
+                    FrameTimeline,
+                ],
+                &["gfx", "view", "wm"],
+            ),
+            (
+                CaptureTemplate::InputLatency,
+                &[CpuScheduling, Atrace],
+                &["input", "view", "wm"],
+            ),
+            (
+                CaptureTemplate::MemoryProfile,
+                &[
+                    NativeHeap,
+                    KernelMeminfo,
+                    Vmstat,
+                    HighFrequencyMemory,
+                    LowMemoryKiller,
+                    ProcessStats,
+                    PageFaults,
+                    ArtRuntime,
+                    Atrace,
+                ],
+                &["am", "dalvik"],
+            ),
+            (CaptureTemplate::Custom, &[], &[]),
+        ];
+        for &(template, probes, categories) in cases {
+            assert_eq!(
+                template.default_probes(),
+                probes.iter().copied().collect(),
+                "{template:?}"
+            );
+            assert_eq!(atrace_categories(template), categories, "{template:?}");
+            let config = CaptureConfig::new(template);
+            assert!(config.enabled_probes.is_none());
+            assert!(config.atrace_category_selection.is_none());
+            let text = build_config_text(&config);
+            let report = super::super::capture_config::preflight(&text, None, None);
+            assert_eq!(
+                report
+                    .atrace_categories
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+                categories
+                    .iter()
+                    .map(|category| (*category).to_owned())
+                    .collect()
+            );
+            assert!(!text.contains("atrace_apps: \"*\""));
+            assert_eq!(
+                text.contains("atrace_apps: \"lmkd\""),
+                template == CaptureTemplate::MemoryProfile
+            );
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn shared_devices_populate_the_selected_target_without_opening_capture() {
@@ -2406,12 +4079,111 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
+    fn device_categories_are_parsed_without_interpreting_shell_flags_or_diagnostics() {
+        let categories = parse_atrace_categories(
+            " gfx - Graphics\n sched - Scheduling\nerror: permission denied\ninvalid/category - ignored\n",
+        );
+        assert_eq!(categories.len(), 2);
+        assert_eq!(categories.get("gfx").map(String::as_str), Some("Graphics"));
+        assert_eq!(
+            categories.get("sched").map(String::as_str),
+            Some("Scheduling")
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn category_select_all_is_device_scoped_and_does_not_start_capture() {
+        let mut capture = Capture::new(None);
+        capture.capabilities = Some(DeviceCapabilities {
+            atrace_categories: [
+                ("gfx".to_owned(), "Graphics".to_owned()),
+                ("sched".to_owned(), "Scheduling".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+            ..DeviceCapabilities::default()
+        });
+        capture.select_all_categories(true);
+        assert_eq!(
+            capture.selected_categories,
+            ["gfx".to_owned(), "sched".to_owned()].into_iter().collect()
+        );
+        capture.toggle_category("cpu-not-advertised", true);
+        assert!(!capture.selected_categories.contains("cpu-not-advertised"));
+        assert!(matches!(capture.state(), CaptureState::Idle));
+        assert!(capture.active.is_none());
+        capture.select_all_categories(false);
+        assert!(capture.selected_categories.is_empty());
+        capture.state = CaptureState::Recording { started_unix_ms: 1 };
+        capture.select_all_categories(true);
+        assert!(capture.selected_categories.is_empty());
+    }
+
+    #[::core::prelude::v1::test]
+    fn explicit_category_selection_never_restores_deselected_template_defaults() {
+        let mut config = CaptureConfig::new(CaptureTemplate::SystemOverview);
+        config.atrace_category_selection = Some(BTreeSet::new());
+        let text = build_config_text(&config);
+        assert!(!text.contains("atrace_categories:"));
+        assert!(text.contains("sched/sched_switch"));
+        config.atrace_category_selection = Some(["view".to_owned()].into_iter().collect());
+        let text = build_config_text(&config);
+        assert!(text.contains("atrace_categories: \"view\""));
+        assert!(!text.contains("atrace_categories: \"gfx\""));
+        assert!(!text.contains("atrace_categories: \"am\""));
+        assert_eq!(
+            super::super::capture_config::preflight(&text, None, None).atrace_categories,
+            vec!["view"]
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_category_selection_prefers_unsaved_editor_text() {
+        let saved = "buffers { size_kb: 1024 } data_sources { config { name: \"linux.ftrace\" ftrace_config { atrace_categories: \"gfx\" } } } duration_ms: 1000";
+        let edited = saved.replace("\"gfx\"", "\"view\"");
+        assert_eq!(
+            custom_category_selection(Some(&edited), saved),
+            ["view".to_owned()].into_iter().collect()
+        );
+        assert_eq!(
+            custom_category_selection(None, saved),
+            ["gfx".to_owned()].into_iter().collect()
+        );
+        let source = include_str!("capture.rs");
+        let selection = source
+            .split("pub(in crate::trace) fn select_template(")
+            .nth(1)
+            .unwrap()
+            .split("pub(in crate::trace) fn toggle_probe(")
+            .next()
+            .unwrap();
+        assert!(selection.contains("inputs.custom_config.read(cx).value()"));
+        assert!(
+            selection.contains("custom_category_selection(live.as_deref(), &self.config_draft)")
+        );
+    }
+
+    #[::core::prelude::v1::test]
+    fn custom_timer_reads_inline_textproto_without_rewriting_the_config() {
+        let config = custom("buffers { size_kb: 1024 } duration_ms: 2500 # stop after 2.5s");
+        assert_eq!(
+            automatic_completion_delay(&config),
+            Some(Duration::from_millis(2500))
+        );
+        assert_eq!(
+            build_config_text(&config),
+            config.custom_config_text.unwrap()
+        );
+    }
+
+    #[::core::prelude::v1::test]
     fn capability_reasons_cover_sdk_build_and_source_availability() {
         let capabilities = DeviceCapabilities {
             android_sdk: 28,
             build_type: "user".to_owned(),
             data_source_names: ["linux.ftrace".to_owned()].into_iter().collect(),
             query_error: None,
+            ..DeviceCapabilities::default()
         };
         assert_eq!(
             capabilities.probe_blocker(Probe::NativeHeap),
@@ -2477,6 +4249,7 @@ mod tests {
             build_type: "user".to_owned(),
             data_source_names: BTreeSet::new(),
             query_error: Some("Perfetto is unavailable on this device".to_owned()),
+            ..DeviceCapabilities::default()
         };
         assert_eq!(capabilities.probe_blocker(Probe::GpuMemory), None);
     }
@@ -2649,11 +4422,18 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn capture_commands_match_the_compose_session_contract() {
-        assert!(DEVICE_TRACE_PATH.starts_with("/data/misc/perfetto-traces/"));
-        assert!(!DEVICE_TRACE_PATH.starts_with("/data/local/tmp/"));
-        assert!(DEVICE_TRACE_COMMAND.contains("perfetto --txt -c - -o"));
-        assert!(DEVICE_TRACE_COMMAND.contains("--background-wait"));
-        assert!(DEVICE_TRACE_COMMAND.contains(DEVICE_TRACE_PATH));
+        let remote = RemoteCapturePaths::new();
+        let command = remote.start_command();
+        assert!(remote.trace.starts_with("/data/misc/perfetto-traces/"));
+        assert!(!remote.trace.starts_with("/data/local/tmp/"));
+        assert!(command.contains("perfetto --txt -c - -o"));
+        assert!(command.contains("--background-wait"));
+        assert!(command.contains("--no-clobber"));
+        assert!(command.contains(&remote.trace));
+        assert!(!command.contains("exec-out"));
+        let another = RemoteCapturePaths::new();
+        assert_ne!(remote.config, another.config);
+        assert_ne!(remote.trace, another.trace);
         assert_eq!(ADB_START_TIMEOUT, Duration::from_secs(60));
         assert_eq!(PERFETTO_QUERY_ARGUMENTS, ["shell", "perfetto", "--query"]);
     }
@@ -2665,8 +4445,9 @@ mod tests {
             "serial".to_owned(),
             CancellationToken::new(),
         );
+        let start_command = adb.remote.start_command();
         for command in [
-            DEVICE_TRACE_COMMAND,
+            start_command.as_str(),
             DEVICE_INFO_COMMAND,
             DEVICE_BUILD_COMMAND,
         ] {

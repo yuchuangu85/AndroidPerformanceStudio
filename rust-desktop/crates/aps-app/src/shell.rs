@@ -28,9 +28,8 @@ use aps_ui_foundation::{
 };
 use gpui_kit::{
     base::{TextSelection, TextSelectionLayer},
-    component::InteractiveElementExt,
     component::{
-        ActiveTheme, Disableable, IconName, Placement, Selectable,
+        ActiveTheme, Disableable, IconName, Placement, Selectable, TitleBar,
         button::{Button, ButtonVariants},
         menu::{DropdownMenu, PopupMenuItem},
         tooltip::Tooltip,
@@ -111,16 +110,6 @@ fn resolve_capture_route(
         (Destination::Settings, SettingsPage::CpuCapture)
     } else {
         (destination, settings_page)
-    }
-}
-
-struct TitlebarDragState {
-    should_move: bool,
-}
-
-impl Render for TitlebarDragState {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
     }
 }
 
@@ -3077,16 +3066,18 @@ impl Render for Studio {
             self.route_menu_dispatch.clone(),
             &studio_colors,
         );
-        // The macOS traffic lights own a 78 px leading inset while the window gap
-        // is 16 px, so a centred page label compensates by the 62 px difference on
-        // its trailing edge to sit on the window's centre instead of the content
-        // box's centre.
-        const TITLEBAR_LEADING_INSET: f32 = 78.;
+        // Only macOS reserves leading space for native traffic lights. Other
+        // platforms place their controls at the trailing edge of TitleBar.
+        const TITLEBAR_LEADING_INSET: f32 = if cfg!(target_os = "macos") { 78. } else { 16. };
         const TITLEBAR_TRAILING_INSET: f32 = 16.;
         // Narrower windows cannot fit the fixed 200 px target selectors on both
         // sides of a centred label, so the strip keeps the simple leading-name
         // layout there instead of overlapping.
-        const PAGE_TITLE_MIN_WIDTH: f32 = 1140.;
+        const PAGE_TITLE_MIN_WIDTH: f32 = if cfg!(target_os = "macos") {
+            1140.
+        } else {
+            1240.
+        };
         let show_page_title = f32::from(window.viewport_size().width) >= PAGE_TITLE_MIN_WIDTH;
         let app_name = |flex: bool| {
             let zone = div().min_w_0().flex().items_center();
@@ -3112,7 +3103,6 @@ impl Render for Studio {
                 language,
             )
         };
-        let titlebar_state = window.use_state(cx, |_, _| TitlebarDragState { should_move: false });
         let mut titlebar = div()
             .id("studio-titlebar")
             .h(px(36.))
@@ -3121,32 +3111,7 @@ impl Render for Studio {
             .items_center()
             .gap(px(8.))
             .pl(px(TITLEBAR_LEADING_INSET))
-            .pr(px(TITLEBAR_TRAILING_INSET))
-            .bg(background)
-            .border_b_1()
-            .border_color(border)
-            .on_mouse_down_out(window.listener_for(&titlebar_state, |state, _, _, _| {
-                state.should_move = false;
-            }))
-            .on_mouse_down(
-                MouseButton::Left,
-                window.listener_for(&titlebar_state, |state, _, _, _| {
-                    state.should_move = true;
-                }),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                window.listener_for(&titlebar_state, |state, _, _, _| {
-                    state.should_move = false;
-                }),
-            )
-            .on_mouse_move(window.listener_for(&titlebar_state, |state, _, window, _| {
-                if state.should_move {
-                    state.should_move = false;
-                    window.start_window_move();
-                }
-            }))
-            .on_double_click(|_, window, _| window.titlebar_double_click());
+            .pr(px(TITLEBAR_TRAILING_INSET));
         if show_page_title {
             // Compose retitles its native window per destination; the Rust window
             // title is hidden, so the app-drawn strip carries the active page name
@@ -3391,7 +3356,15 @@ impl Render for Studio {
             .text_size(px(typography::BODY))
             .flex_col()
             .child(TextSelectionLayer)
-            .child(titlebar)
+            .child(
+                TitleBar::new()
+                    .h(px(36.))
+                    .pl_0()
+                    .bg(background)
+                    .border_b_1()
+                    .border_color(border)
+                    .child(titlebar),
+            )
             .child(menubar)
             .child(
                 div()
@@ -4332,6 +4305,24 @@ mod menubar_tests {
         assert!(titlebar.contains(".child(selected.label(language))"));
         assert!(titlebar.contains("justify_end()"));
         assert!(titlebar.contains("TITLEBAR_LEADING_INSET - TITLEBAR_TRAILING_INSET"));
+    }
+
+    #[::core::prelude::v1::test]
+    fn titlebar_uses_component_platform_controls_and_matching_window_options() {
+        let source = include_str!("shell.rs");
+        let render = source
+            .split("impl Render for Studio")
+            .nth(1)
+            .expect("Studio render")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("render body");
+        assert!(render.contains("TitleBar::new()"));
+        assert!(render.contains(".child(titlebar)"));
+        assert!(!render.contains("start_window_move()"));
+        assert!(!render.contains("titlebar_double_click()"));
+        assert!(include_str!("main.rs").contains("..TitleBar::window_options()"));
+        assert!(render.contains("if cfg!(target_os = \"macos\") { 78. } else { 16. }"));
     }
 
     /// The Layout Inspector window menu mirrors Compose NativeViewerMenuBar:
