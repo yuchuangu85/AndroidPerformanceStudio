@@ -37,53 +37,75 @@ See the [English user guide](docs-user/README.md) or [Simplified Chinese user gu
 
 These screenshots show captured application states. Available fields and capture capabilities depend on the device, application, and evidence source.
 
-### Home
-
-Connected devices, quick actions, analysis modules, and recent artifacts.
-
-![Home with connected devices, analysis modules, and recent sessions](media/AndroidPerformanceStudio00.png)
-
 ### Layout Inspector
 
-View hierarchy, bounds overlay, node properties, timeline differences, and findings.
+View hierarchy, bounds overlay, node properties, findings, and timeline captures.
 
-![Layout Inspector with hierarchy, screenshot canvas, node properties, and findings](media/AndroidPerformanceStudio01.png)
+![Layout Inspector with hierarchy, screenshot canvas, node properties, and findings](media/AndroidPerformanceStudio00.png)
 
 ### CPU Profiler
 
-Thread tracks, linked call-tree selection, function details, and sample-quality indicators.
+Thread tracks, a sample-weighted flame graph, the call tree, and selected-frame details.
 
-![CPU Profiler showing thread tracks, call-tree analysis, and function details](media/AndroidPerformanceStudio02.png)
+![CPU Profiler with thread tracks, a sample-weighted flame graph, and frame details](media/AndroidPerformanceStudio01.png)
+
+![CPU Profiler call tree with total, inclusive, self, and sample columns](media/AndroidPerformanceStudio02.png)
+
+### Trace Analyzer
+
+Recent trace sessions, prepared diagnostics, evidence-linked insights, and handoff to the Perfetto UI.
+
+![Trace Analyzer with trace sessions, diagnostic results, and APS insights](media/AndroidPerformanceStudio03.png)
 
 ### Memory Profiler
 
-Heap classes, instance lists, fields, references, and evidence availability.
+Heap distribution, class and instance tables, retained sizes, reference paths, and Bitmap dumps.
 
-![Memory Profiler with class statistics, a flat instance list, and instance details](media/AndroidPerformanceStudio03.png)
+![Memory Profiler with heap distribution, class statistics, and instance details](media/AndroidPerformanceStudio04.png)
+
+![Memory Profiler Bitmaps with a dump comparison, duplicate groups, and PNG/PSS metrics](media/AndroidPerformanceStudio05.png)
 
 ### Frame Profiler
 
-Frame durations, deadline-miss clusters, and per-frame evidence.
+Frame timeline, deadline-miss clusters, problem frames, and per-frame detail.
 
-![Frame Profiler with frame timeline, deadline-miss clusters, and frame details](media/AndroidPerformanceStudio04.png)
+![Frame Profiler with frame timeline, deadline-miss clusters, problem frames, and frame detail](media/AndroidPerformanceStudio06.png)
 
 ### Startup Profiler
 
-Cold, warm, and hot experiments, per-run startup metrics, and compilation/profile evidence.
+Cold, warm, and hot runs, startup metrics, the startup waterfall, and compilation evidence.
 
-![Startup Profiler with startup modes, TTID and TTFD availability, and measured runs](media/AndroidPerformanceStudio05.png)
+![Startup Profiler with startup modes, TTID and TTFD availability, waterfall, and measured runs](media/AndroidPerformanceStudio07.png)
 
 ### Battery Profiler
 
-Saved experiments, battery snapshots, and UID-attributed resource evidence.
+Saved experiments, UID-attributed resources, baseline comparison, and battery history.
 
-![Battery Profiler with saved sessions, battery snapshots, and resource details](media/AndroidPerformanceStudio06.png)
+![Battery Profiler with saved sessions, resource evidence, baseline comparison, and battery history](media/AndroidPerformanceStudio08.png)
+
+### Network Profiler
+
+HAR import or live capture, request list, domains, and redacted request details.
+
+![Network Profiler with capture controls, request list, and request details](media/AndroidPerformanceStudio09.png)
 
 ### GPU Inspector
 
-Artifact indexing, integrity verification, and external-tool capability checks.
+Indexed artifacts, integrity checks, graphics context, and external-tool capability.
 
-![GPU Inspector showing verified artifacts, graphics context, and AGI capability status](media/AndroidPerformanceStudio07.png)
+![GPU Inspector with verified artifacts, graphics context, and AGI capability status](media/AndroidPerformanceStudio10.png)
+
+### Source Workspaces
+
+Registered read-only workspaces, indexed symbol search, and the source viewer.
+
+![Source Workspaces with a registered AOSP workspace, symbol search, and the source viewer](media/AndroidPerformanceStudio11.png)
+
+### Settings
+
+Language, theme, display scale, sidebar labels, and accent color.
+
+![Settings showing language, theme, display scale, sidebar labels, and theme color](media/AndroidPerformanceStudio12.png)
 
 ## Features
 

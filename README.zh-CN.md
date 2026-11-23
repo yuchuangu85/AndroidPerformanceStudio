@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Android Performance Studio 是一个基于 Compose Desktop 的 Android 性能分析工作台，用于采集、查看和关联性能证据。布局、CPU、系统 Trace、内存、帧耗时、启动、电量、网络、GPU 工具和基准回归分析共用一个桌面应用，同时保持各分析器的数据模型与实现边界。
+Android Performance Studio 是一个基于 Rust + GPUI Kit 的 Android 性能分析工作台，用于采集、查看和关联性能证据。布局、CPU、系统 Trace、内存、帧耗时、启动、电量、网络、GPU 工具和基准回归分析共用一个桌面应用，同时保持各分析器的数据模型与实现边界。
 
 > 部分可执行文件和安装包文件名沿用历史拼写 `AndroidPerfermanceStudio`，以保持兼容。
 
@@ -37,53 +37,75 @@ Android Performance Studio 是一个基于 Compose Desktop 的 Android 性能分
 
 以下图片展示实际采集或查看时的应用状态；字段是否可用、采集能力是否具备，取决于设备、目标应用和证据来源。
 
-### 主页
-
-连接设备、快捷操作、分析模块和最近分析产物。
-
-![主页：连接设备、分析模块与最近会话](media/AndroidPerformanceStudio00.png)
-
 ### Layout Inspector
 
-View 层级、边界叠加、节点属性、时间线差异与问题提示。
+View 层级、边界叠加、节点属性、问题提示和时间线快照。
 
-![Layout Inspector：层级树、截图画布、节点属性与问题提示](media/AndroidPerformanceStudio01.png)
+![Layout Inspector：层级树、截图画布、节点属性与问题提示](media/AndroidPerformanceStudio00.png)
 
 ### CPU Profiler
 
-线程轨道、调用树联动选择、函数详情和采样质量指标。
+线程轨道、按采样加权的火焰图、调用树和选中帧详情。
 
-![CPU Profiler：线程轨道、调用树分析与函数详情](media/AndroidPerformanceStudio02.png)
+![CPU Profiler：线程轨道、采样加权火焰图与函数详情](media/AndroidPerformanceStudio01.png)
+
+![CPU Profiler：含总计、包含、自身与样本数列的调用树](media/AndroidPerformanceStudio02.png)
+
+### Trace Analyzer
+
+最近 Trace 会话、预置诊断、关联证据的洞察，以及交接 Perfetto UI。
+
+![Trace Analyzer：Trace 会话、诊断结果与 APS 洞察](media/AndroidPerformanceStudio03.png)
 
 ### Memory Profiler
 
-堆中的类、实例列表、字段、引用和证据可用状态。
+堆分布、类与实例表格、保留大小、引用链和 Bitmap 转储。
 
-![Memory Profiler：类统计、平铺实例列表与实例详情](media/AndroidPerformanceStudio03.png)
+![Memory Profiler：堆分布、类统计与实例详情](media/AndroidPerformanceStudio04.png)
+
+![Memory Profiler Bitmaps：转储对比、重复分组与 PNG/PSS 指标](media/AndroidPerformanceStudio05.png)
 
 ### Frame Profiler
 
-帧耗时、截止时间未命中聚类和单帧证据。
+帧时间线、截止时间未命中聚类、问题帧和单帧详情。
 
-![Frame Profiler：帧时间线、截止时间未命中聚类与单帧详情](media/AndroidPerformanceStudio04.png)
+![Frame Profiler：帧时间线、截止时间未命中聚类、问题帧与单帧详情](media/AndroidPerformanceStudio06.png)
 
 ### Startup Profiler
 
-冷启动、温启动、热启动实验，逐轮指标和编译、Profile 证据。
+冷、温、热启动的重复运行、启动指标、启动瀑布和编译证据。
 
-![Startup Profiler：启动模式、TTID 与 TTFD 可用状态和测量记录](media/AndroidPerformanceStudio05.png)
+![Startup Profiler：启动模式、TTID/TTFD 可用状态、启动瀑布与测量记录](media/AndroidPerformanceStudio07.png)
 
 ### Battery Profiler
 
-已保存实验、电池快照和 UID 归因的资源证据。
+已保存实验、UID 归因资源、基线比较和电池历史。
 
-![Battery Profiler：实验会话、电池快照与资源详情](media/AndroidPerformanceStudio06.png)
+![Battery Profiler：实验会话、资源证据、基线比较与电池历史](media/AndroidPerformanceStudio08.png)
+
+### Network Profiler
+
+HAR 导入或在线采集、请求列表、域名和脱敏后的请求详情。
+
+![Network Profiler：采集控制、请求列表与请求详情](media/AndroidPerformanceStudio09.png)
 
 ### GPU Inspector
 
-产物索引、完整性校验和外部工具能力检查。
+产物索引、完整性校验、图形上下文和外部工具能力。
 
-![GPU Inspector：已校验产物、图形上下文与 AGI 能力状态](media/AndroidPerformanceStudio07.png)
+![GPU Inspector：已校验产物、图形上下文与 AGI 能力状态](media/AndroidPerformanceStudio10.png)
+
+### Source Workspaces
+
+已注册的只读工作区、索引符号搜索和源码查看器。
+
+![Source Workspaces：已注册的 AOSP 工作区、符号搜索与源码查看器](media/AndroidPerformanceStudio11.png)
+
+### Settings
+
+语言、主题、显示缩放、侧边栏标签和主题色。
+
+![Settings：语言、主题、显示缩放、侧边栏标签与主题色](media/AndroidPerformanceStudio12.png)
 
 ## 功能说明
 
