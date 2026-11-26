@@ -203,6 +203,12 @@ impl ProcessRunner {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // Background tools must not allocate or inherit a console window.
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
         let child = command.spawn().map_err(|error| io_error("start", error))?;
         let mut guard = ChildGuard(Some(child));
         let child = guard.0.as_mut().expect("child is present until reaped");
@@ -376,5 +382,110 @@ fn signal_group(id: u32) {
         // SAFETY: kill accepts integer identifiers; this is the process group
         // created explicitly for this child, not the caller's inherited group.
         let _ = unsafe { kill(-id, 9) };
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleWindow() -> *mut std::ffi::c_void;
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn IsWindowVisible(window: *mut std::ffi::c_void) -> i32;
+    }
+
+    fn has_console() -> bool {
+        // SAFETY: GetConsoleWindow takes no arguments and returns a borrowed handle.
+        !unsafe { GetConsoleWindow() }.is_null()
+    }
+
+    #[test]
+    fn background_child_has_no_console_and_preserves_output_and_status() {
+        // Give the host a hidden console: the unfixed runner inherits it instead
+        // of creating a visible window. PowerShell is only the fixture launcher;
+        // both the ProcessRunner host and its console probe are Rust test helpers.
+        let executable = std::env::current_exe().unwrap();
+        let quoted = executable.to_str().unwrap().replace('\'', "''");
+        let script = format!(
+            "$ErrorActionPreference = 'Stop'; \
+             $stdout = [IO.Path]::GetTempFileName(); \
+             $stderr = [IO.Path]::GetTempFileName(); \
+             try {{ $child = Start-Process -FilePath '{quoted}' \
+             -ArgumentList '--exact process::windows_tests::hidden_console_host --ignored --nocapture' \
+             -WindowStyle Hidden -RedirectStandardOutput $stdout \
+             -RedirectStandardError $stderr -PassThru -Wait; \
+             [Console]::Out.Write([IO.File]::ReadAllText($stdout)); \
+             [Console]::Error.Write([IO.File]::ReadAllText($stderr)); \
+             exit $child.ExitCode }} finally {{ Remove-Item -LiteralPath $stdout, $stderr }}"
+        );
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &script,
+            ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW: never flash the launcher.
+            .output()
+            .expect("Windows PowerShell must be available for the hidden-console fixture");
+        assert!(
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).contains("aps-hidden-console-host-ok"),
+            "hidden console host failed: status={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture, launched with a hidden console by the regression test"]
+    fn hidden_console_host() {
+        assert!(
+            has_console(),
+            "fixture must own a console to detect inheritance"
+        );
+        // SAFETY: the console window handle is borrowed and only queried.
+        assert_eq!(unsafe { IsWindowVisible(GetConsoleWindow()) }, 0);
+        let request = ProcessRequest::new(std::env::current_exe().unwrap()).args([
+            "--exact",
+            "process::windows_tests::console_probe_child",
+            "--ignored",
+            "--nocapture",
+        ]);
+        let output = ProcessRunner
+            .run(&request, &CancellationToken::new())
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            stdout.contains("console=false"),
+            "child inherited a console: {stdout}"
+        );
+        assert!(
+            stdout.ends_with("probe-out"),
+            "stdout was not preserved: {stdout}"
+        );
+        assert_eq!(output.stderr, b"probe-err");
+        assert_eq!(output.status.code(), Some(7));
+        println!("aps-hidden-console-host-ok");
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture, launched only through ProcessRunner"]
+    fn console_probe_child() {
+        let mut stdout = io::stdout().lock();
+        write!(stdout, "console={}\nprobe-out", has_console()).unwrap();
+        stdout.flush().unwrap();
+        let mut stderr = io::stderr().lock();
+        stderr.write_all(b"probe-err").unwrap();
+        stderr.flush().unwrap();
+        std::process::exit(7);
     }
 }

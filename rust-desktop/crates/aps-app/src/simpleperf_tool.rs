@@ -28,7 +28,11 @@ pub(crate) fn discover_simpleperf() -> Option<PathBuf> {
     }
     if let Some(paths) = std::env::var_os("PATH") {
         for directory in std::env::split_paths(&paths) {
-            let candidate = directory.join("simpleperf");
+            let candidate = directory.join(if cfg!(windows) {
+                "simpleperf.exe"
+            } else {
+                "simpleperf"
+            });
             if executable_file(&candidate) {
                 return Some(candidate);
             }
@@ -74,4 +78,51 @@ pub(crate) fn discover_simpleperf() -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_path_discovers_the_native_executable() {
+        use std::os::windows::process::CommandExt;
+
+        let root = aps_platform::TempWorkspace::create(&std::env::temp_dir()).unwrap();
+        let tool = root.path().join("simpleperf.exe");
+        std::fs::write(&tool, b"discovery fixture, not executed").unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .creation_flags(0x08000000)
+            .args([
+                "--exact",
+                "simpleperf_tool::tests::discovery_subprocess_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("PATH", root.path())
+            .env("APS_EXPECTED_SIMPLEPERF", &tool)
+            .env_remove("APS_SIMPLEPERF")
+            .env_remove("ANDROID_NDK_HOME")
+            .env_remove("ANDROID_NDK_ROOT")
+            .env_remove("ANDROID_HOME")
+            .env_remove("ANDROID_SDK_ROOT")
+            .env_remove("HOME")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "subprocess fixture for isolated host-tool discovery"]
+    fn discovery_subprocess_fixture() {
+        let expected = PathBuf::from(std::env::var_os("APS_EXPECTED_SIMPLEPERF").unwrap());
+        assert_eq!(discover_simpleperf(), Some(expected));
+    }
 }

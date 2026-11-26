@@ -78,6 +78,31 @@ function Assert-StaticRuntime {
     }
 }
 
+function Assert-GuiSubsystem {
+    param([string]$Binary)
+    $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($Binary))
+    try {
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            throw "Invalid PE executable: $Binary"
+        }
+        $reader.BaseStream.Position = 0x3C
+        $peOffset = $reader.ReadUInt32()
+        if ([long]$peOffset + 94 -gt $reader.BaseStream.Length) { throw "Truncated PE executable: $Binary" }
+        $reader.BaseStream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) { throw "Invalid PE signature: $Binary" }
+        $reader.BaseStream.Position = [long]$peOffset + 20
+        if ($reader.ReadUInt16() -lt 70) { throw "Missing PE optional header: $Binary" }
+        $reader.BaseStream.Position = [long]$peOffset + 24
+        if ($reader.ReadUInt16() -notin @(0x10B, 0x20B)) { throw "Invalid PE optional header: $Binary" }
+        $reader.BaseStream.Position = [long]$peOffset + 24 + 68
+        if ($reader.ReadUInt16() -ne 2) {
+            throw "Expected Windows GUI subsystem in $Binary. Check aps-app windows_subsystem."
+        }
+    } finally {
+        $reader.Dispose()
+    }
+}
+
 function New-WindowsPackage {
     $version = Get-MsiVersion $ReleaseTag
     $wix = Find-WixBin $WixBin
@@ -95,6 +120,7 @@ function New-WindowsPackage {
             throw "Missing or empty bundled resource: $path"
         }
     }
+    Assert-GuiSubsystem (Join-Path $output.FullName 'aps-app.exe')
     $payload = @((Join-Path $output.FullName 'aps-app.exe'), (Join-Path $output.FullName 'aps-memory-worker.exe'), $resources)
     $binaries = @($payload[0], $payload[1]) + @(Get-ChildItem -LiteralPath $resources -Recurse -File |
         Where-Object { $_.Extension -in @('.exe', '.dll') } | ForEach-Object { $_.FullName })

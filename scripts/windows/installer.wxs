@@ -34,11 +34,14 @@
         </Directory>
       </Directory>
       <Directory Id="ProgramMenuFolder" />
+      <Directory Id="DesktopFolder" />
     </Directory>
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="AppComponent" Guid="*" Win64="yes">
         <File Id="AppFile" Source="$(var.PayloadSource)\aps-app.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Android Performance Studio"
+                    Advertise="yes" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.exe" />
+          <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="Android Performance Studio"
                     Advertise="yes" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon.exe" />
         </File>
         <RegistryValue Root="HKLM" Key="Software\Android Performance Studio" Name="InstallDir"

@@ -317,6 +317,12 @@ fn curl_command(
     is_head: bool,
 ) -> Command {
     let mut command = Command::new(OsString::from(CURL));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // GUI requests must neither allocate nor inherit a console window.
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
     command
         .env_remove("APS_CLI_AI_KEY")
         .arg("-q")
@@ -463,5 +469,207 @@ impl AsyncRead for BodyReader {
                 Poll::Pending => return Poll::Pending,
             }
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Output};
+    use std::time::Instant;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleWindow() -> *mut std::ffi::c_void;
+        fn GetConsoleProcessList(processes: *mut u32, count: u32) -> u32;
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn IsWindowVisible(window: *mut std::ffi::c_void) -> i32;
+    }
+
+    // Reap children even when an assertion or I/O operation fails.
+    struct ChildGuard(Option<Child>);
+
+    impl ChildGuard {
+        fn output(mut self, timeout: Duration) -> Output {
+            let deadline = Instant::now() + timeout;
+            while self.0.as_mut().unwrap().try_wait().unwrap().is_none() {
+                assert!(Instant::now() < deadline, "child timed out");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            self.0.take().unwrap().wait_with_output().unwrap()
+        }
+    }
+
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            if let Some(child) = self.0.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    #[test]
+    fn curl_does_not_inherit_hidden_console() {
+        // Give the host a hidden console so the unfixed curl safely inherits it
+        // without flashing a window. PowerShell only launches the Rust host.
+        let executable = std::env::current_exe().unwrap();
+        let quoted = executable.to_str().unwrap().replace('\'', "''");
+        let script = format!(
+            "$ErrorActionPreference = 'Stop'; \
+             $stdout = [IO.Path]::GetTempFileName(); \
+             $stderr = [IO.Path]::GetTempFileName(); \
+             try {{ $child = Start-Process -FilePath '{quoted}' \
+             -ArgumentList '--exact curl_client::windows_tests::hidden_console_host --ignored --nocapture' \
+             -WindowStyle Hidden -RedirectStandardOutput $stdout \
+             -RedirectStandardError $stderr -PassThru; \
+             if (-not $child.WaitForExit(10000)) {{ $child.Kill(); $child.WaitForExit(); throw 'host timed out' }}; \
+             $child.WaitForExit(); \
+             [Console]::Out.Write([IO.File]::ReadAllText($stdout)); \
+             [Console]::Error.Write([IO.File]::ReadAllText($stderr)); \
+             exit $child.ExitCode }} finally {{ Remove-Item -LiteralPath $stdout, $stderr }}"
+        );
+        let output = ChildGuard(Some(
+            Command::new("powershell.exe")
+                .args([
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &script,
+                ])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW: never flash the launcher.
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("Windows PowerShell must be available for the hidden-console fixture"),
+        ))
+        .output(Duration::from_secs(15));
+        println!("{}", String::from_utf8_lossy(&output.stdout));
+        assert!(
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .contains("aps-curl-hidden-console-host-ok"),
+            "hidden console host failed: status={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture, launched with a hidden console by the regression test"]
+    fn hidden_console_host() {
+        // SAFETY: both functions only query the borrowed console window handle.
+        let window = unsafe { GetConsoleWindow() };
+        assert!(!window.is_null(), "fixture must own a console");
+        assert_eq!(
+            unsafe { IsWindowVisible(window) },
+            0,
+            "fixture console must be hidden"
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let request = PreparedRequest {
+            method: Method::GET,
+            url: format!("http://{}/", listener.local_addr().unwrap()),
+            headers: HeaderMap::new(),
+            follow: RedirectPolicy::NoFollow,
+            timeout: Duration::from_secs(5),
+        };
+        let config = config_text(&request.headers);
+        let mut command = curl_command(&request, &config, None, false);
+        // Keep the fixture independent of the machine's proxy configuration.
+        command.arg("--noproxy").arg("*");
+        let mut child = ChildGuard(Some(command.spawn().unwrap()));
+        child
+            .0
+            .as_mut()
+            .unwrap()
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(config.as_bytes())
+            .unwrap();
+        let pid = child.0.as_ref().unwrap().id();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "curl did not connect");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept failed: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(line, "GET / HTTP/1.1\r\n");
+        loop {
+            line.clear();
+            assert!(
+                reader.read_line(&mut line).unwrap() > 0,
+                "incomplete request"
+            );
+            if line == "\r\n" {
+                break;
+            }
+            assert!(Instant::now() < deadline, "request headers timed out");
+        }
+        // Withhold the response until the real curl PID has been checked.
+        assert!(child.0.as_mut().unwrap().try_wait().unwrap().is_none());
+        // Retry on growth instead of assuming an exact console process count.
+        let mut processes = vec![0u32; 16];
+        let inherited = loop {
+            // SAFETY: the writable buffer has the advertised number of u32 slots.
+            let count =
+                unsafe { GetConsoleProcessList(processes.as_mut_ptr(), processes.len() as u32) }
+                    as usize;
+            assert!(count > 0, "GetConsoleProcessList failed");
+            if count <= processes.len() {
+                assert!(processes[..count].contains(&std::process::id()));
+                break processes[..count].contains(&pid);
+            }
+            assert!(
+                Instant::now() < deadline,
+                "console population did not stabilize"
+            );
+            processes.resize(count + 16, 0);
+        };
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\ncurl-ok")
+            .unwrap();
+        drop(reader);
+        drop(stream);
+        let output = child.output(Duration::from_secs(3));
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.starts_with("HTTP/1.1 200 OK\r\n"), "{stdout}");
+        assert!(stdout.ends_with("\r\n\r\ncurl-ok"), "{stdout}");
+        println!("curl pid={pid}, inherited_console={inherited}, exit=0, HTTP output verified");
+        assert!(
+            !inherited,
+            "actual curl PID {pid} inherited the hidden host console"
+        );
+        println!("aps-curl-hidden-console-host-ok");
     }
 }

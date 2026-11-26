@@ -41,6 +41,18 @@ impl ImportWorkspace {
             )
             .child(
                 toolbar_button(
+                    "memory-live-compare",
+                    language.text(MemoryViewMode::LiveCompare.label()),
+                    true,
+                    self.memory_state.view_mode == MemoryViewMode::LiveCompare,
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.memory_set_view_mode(MemoryViewMode::LiveCompare, cx)
+                })),
+            )
+            .child(
+                toolbar_button(
                     "memory-dump-heap",
                     language.text(TextKey::MemoryPageDumpHeap),
                     self.memory_capture_block_reason().is_none(),

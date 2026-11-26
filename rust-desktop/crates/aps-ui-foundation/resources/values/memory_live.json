@@ -1,8 +1,11 @@
 {
   "memory_live_recording": "Recording selected process; trace duration is 10 seconds. Cancellation requests stopping only this recording session.",
-  "memory_live_bitmap_recording": "Dumping the selected process's bitmap heap and extracting images. This may pause the app. Cancellation stops the owned host transfer/extraction; the Android dump may finish independently.",
+  "memory_live_bitmap_recording": "Dumping the selected process's bitmap heap. This may pause the app; cancellation stops the owned host operation.",
+  "memory_live_bitmap_transferring": "Transferring the bitmap heap from the device. Cancellation stops the owned host transfer.",
+  "memory_live_bitmap_extracting": "Extracting bitmap PNG images in the isolated worker. Cancellation stops extraction.",
   "memory_live_ai_unavailable": "AI evidence export is not connected for Native Heap, ART samples or Bitmap image dumps. A retained Java heap is not evidence for this workspace.",
   "memory_live_published": "Measured artifact analyzed and published; missing samples remain unavailable.",
+  "memory_live_bitmap_published": "Capture finished. {recorded} images recorded, {discovered} discovered, {images} extracted, {omitted} omitted · PNG {bytes}. The dump is published above; capturing again replaces it.",
   "memory_live_exported": "Verified artifact exported to the selected destination.",
   "memory_live_capture": "Capture selected process",
   "memory_live_import": "Import artifact…",

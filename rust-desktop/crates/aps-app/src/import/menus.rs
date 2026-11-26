@@ -435,8 +435,8 @@ mod tests {
             .iter()
             .find(|group| group.title() == TextKey::ShellMenuView)
             .expect("Memory publishes View");
-        assert_eq!(view.len(), 8);
-        assert_eq!(view.enabled(), 8);
+        assert_eq!(view.len(), 9);
+        assert_eq!(view.enabled(), 9);
         for (index, expected) in [
             MemoryViewMode::Dashboard,
             MemoryViewMode::Classes,
@@ -446,13 +446,14 @@ mod tests {
             MemoryViewMode::BitmapDump,
             MemoryViewMode::NativeHeap,
             MemoryViewMode::SampledArt,
+            MemoryViewMode::LiveCompare,
         ]
         .into_iter()
         .enumerate()
         {
             assert_eq!(memory::menus::memory_view_mode(index as u8), Some(expected));
         }
-        assert_eq!(memory::menus::memory_view_mode(8), None);
+        assert_eq!(memory::menus::memory_view_mode(9), None);
     }
 
     #[::core::prelude::v1::test]

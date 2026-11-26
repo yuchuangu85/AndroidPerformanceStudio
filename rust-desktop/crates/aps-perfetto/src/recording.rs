@@ -381,12 +381,9 @@ fn record_with_action(
         let start = shell_script(io, request, &command, timeout, cancel)?;
         // Only an explicit preflight refusal proves no start was attempted.
         // Empty/garbled stdout can also be a lost transport acknowledgement.
-        start_acknowledged = start
-            .stdout
-            .split(|b| *b == b'\n')
-            .any(|line| line == b"aps-started");
+        start_acknowledged = receipt_lines(&start.stdout).any(|line| line == b"aps-started");
         // A completed preflight refusal has not touched the output or key.
-        if start.stdout == b"aps-refused\n" && !start.status.success() {
+        if is_exact_receipt(&start.stdout, b"aps-refused") && !start.status.success() {
             start_attempted = false;
             remote_uncertain = false;
         } else if start_acknowledged && start.status.success() {
@@ -816,7 +813,7 @@ fn reserve_remote_config(
     *uncertain = true;
     let output = io.run(&process, cancel).map_err(process_failure)?;
     // A bare ADB failure is not proof of a failed exclusive redirection.
-    if output.stdout == b"aps-refused\n" && !output.status.success() {
+    if is_exact_receipt(&output.stdout, b"aps-refused") && !output.status.success() {
         *uncertain = false;
         return Ok((None, output));
     }
@@ -831,8 +828,21 @@ fn reserve_remote_config(
     Ok((identity, output))
 }
 
+fn receipt_lines(stdout: &[u8]) -> impl Iterator<Item = &[u8]> {
+    stdout
+        .split(|b| *b == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+}
+
+fn is_exact_receipt(stdout: &[u8], marker: &[u8]) -> bool {
+    stdout == [marker, b"\n"].concat() || stdout == [marker, b"\r\n"].concat()
+}
+
 fn reservation_identity(stdout: &[u8], marker: &[u8]) -> Option<String> {
-    let mut lines = stdout.split(|b| *b == b'\n');
+    // adb shell may translate its line endings to CRLF. Accept only that one
+    // transport-level difference; do not trim arbitrary whitespace from either
+    // the marker or the ownership receipt.
+    let mut lines = receipt_lines(stdout);
     lines.find(|line| *line == marker)?;
     let identity = std::str::from_utf8(lines.next()?).ok()?;
     identity
@@ -1159,10 +1169,14 @@ fn validate_body(body: &str) -> Result<(), RecordingFailure> {
 }
 
 /// FakeIo never launches a subprocess or ADB.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::BTreeMap, os::unix::process::ExitStatusExt, sync::Mutex};
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    #[cfg(windows)]
+    use std::os::windows::process::ExitStatusExt;
+    use std::{collections::BTreeMap, sync::Mutex};
 
     const CONFIG_ID: &str = "42:100";
     const TRACE_ID: &str = "42:101";
@@ -1183,6 +1197,7 @@ mod tests {
         config_timeout: bool,
         config_write_error: bool,
         config_lost_output: bool,
+        crlf_receipts: bool,
         invalid_receipt: bool,
         invalid_trace_receipt: bool,
         start_code: i32,
@@ -1209,6 +1224,7 @@ mod tests {
                 config_timeout: false,
                 config_write_error: false,
                 config_lost_output: false,
+                crlf_receipts: false,
                 invalid_receipt: false,
                 invalid_trace_receipt: false,
                 start_code: 0,
@@ -1221,7 +1237,10 @@ mod tests {
     }
     fn output(code: i32, text: &[u8]) -> ProcessOutput {
         ProcessOutput {
+            #[cfg(unix)]
             status: std::process::ExitStatus::from_raw(code << 8),
+            #[cfg(windows)]
+            status: std::process::ExitStatus::from_raw(code as u32),
             stdout: text.to_vec(),
             stderr: Vec::new(),
         }
@@ -1295,7 +1314,14 @@ mod tests {
                         files.insert(path.into(), ("99:999".into(), b"unowned".to_vec()));
                     }
                     if files.contains_key(path) {
-                        return Ok(output(1, b"aps-refused\n"));
+                        return Ok(output(
+                            1,
+                            if self.crlf_receipts {
+                                b"aps-refused\r\n"
+                            } else {
+                                b"aps-refused\n"
+                            },
+                        ));
                     }
                     files.insert(
                         path.into(),
@@ -1310,9 +1336,14 @@ mod tests {
                     if self.invalid_receipt {
                         return Ok(output(0, b"aps-reserved\ninvalid\n"));
                     }
+                    let receipt = if self.crlf_receipts {
+                        format!("aps-reserved\r\n{CONFIG_ID}\r\n")
+                    } else {
+                        format!("aps-reserved\n{CONFIG_ID}\n")
+                    };
                     return Ok(output(
                         i32::from(self.config_write_error),
-                        format!("aps-reserved\n{CONFIG_ID}\n").as_bytes(),
+                        receipt.as_bytes(),
                     ));
                 }
                 if script.contains("--detach=") || script.contains("--background-wait") {
@@ -1354,7 +1385,14 @@ mod tests {
                     let mut files = self.files.lock().unwrap();
                     if self.collision == Some(".pftrace") {
                         files.insert(path, ("99:999".into(), b"unowned".to_vec()));
-                        return Ok(output(1, b"aps-refused\n"));
+                        return Ok(output(
+                            1,
+                            if self.crlf_receipts {
+                                b"aps-refused\r\n"
+                            } else {
+                                b"aps-refused\n"
+                            },
+                        ));
                     }
                     files.insert(path, (TRACE_ID.into(), b"data".to_vec()));
                     if self.start_error {
@@ -1372,10 +1410,12 @@ mod tests {
                     if self.invalid_trace_receipt {
                         return Ok(output(0, b"aps-start\naps-started\ninvalid\n"));
                     }
-                    return Ok(output(
-                        0,
-                        format!("aps-start\naps-started\n{TRACE_ID}\n").as_bytes(),
-                    ));
+                    let receipt = if self.crlf_receipts {
+                        format!("aps-start\r\naps-started\r\n{TRACE_ID}\r\n")
+                    } else {
+                        format!("aps-start\naps-started\n{TRACE_ID}\n")
+                    };
+                    return Ok(output(0, receipt.as_bytes()));
                 }
                 if script.contains("--attach=") {
                     assert!(script.contains("'--stop'"));
@@ -1431,7 +1471,10 @@ mod tests {
     }
     fn request(root: &Path) -> RecordingRequest<'_> {
         RecordingRequest {
+            #[cfg(unix)]
             adb_executable: Path::new("/fake/adb"),
+            #[cfg(windows)]
+            adb_executable: Path::new(r"C:\fake\adb.exe"),
             serial: "device-one",
             output_root: root,
             config_body: "buffers { size_kb: 8192 } data_sources { config { name: \"android.heapprofd\" } }",
@@ -1708,6 +1751,62 @@ mod tests {
             }));
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    #[test]
+    fn crlf_preflight_refusals_do_not_misclassify_unmodified_files_as_uncertain() {
+        for suffix in [".pbtxt", ".pftrace"] {
+            let root = root();
+            let io = FakeIo {
+                collision: Some(suffix),
+                crlf_receipts: true,
+                ..Default::default()
+            };
+            let error = record(&io, &root, &CancellationToken::new()).unwrap_err();
+            assert_eq!(error.kind, RecordingFailureKind::Transport);
+            assert!(error.stop_confirmed);
+            assert!(error.preserved_paths.is_none());
+            let files = io.files.lock().unwrap();
+            assert_eq!(files.len(), 1);
+            assert!(files.first_key_value().unwrap().0.ends_with(suffix));
+            assert_eq!(files.first_key_value().unwrap().1.1, b"unowned");
+            drop(files);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn crlf_reservation_and_trace_receipts_complete_the_bounded_recording() {
+        let root = root();
+        let io = FakeIo {
+            crlf_receipts: true,
+            ..Default::default()
+        };
+        let result = record(&io, &root, &CancellationToken::new()).unwrap();
+        assert_eq!(result.trace_bytes, 4);
+        assert!(io.files.lock().unwrap().is_empty());
+        drop(result);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reservation_identity_accepts_crlf_receipts_without_accepting_whitespace() {
+        assert_eq!(
+            reservation_identity(b"aps-reserved\r\n42:100\r\n", b"aps-reserved"),
+            Some(CONFIG_ID.into())
+        );
+        assert_eq!(
+            reservation_identity(b"aps-start\r\naps-started\r\n42:101\r\n", b"aps-started"),
+            Some(TRACE_ID.into())
+        );
+        assert_eq!(
+            reservation_identity(b"aps-reserved \r\n42:100\r\n", b"aps-reserved"),
+            None
+        );
+        assert_eq!(
+            reservation_identity(b"aps-reserved\r\n42:100 \r\n", b"aps-reserved"),
+            None
+        );
     }
 
     #[test]

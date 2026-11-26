@@ -1327,6 +1327,44 @@ client (GPUI's default is a null client), so any provider request failed with
   imported HPROF without a bitmap dump) reuses that same slot instead of adding
   a second capture or a disabled export.
 
+### Live Memory Comparison (2026-11-25)
+
+- In the Memory workspace, **Live Compare** is a separate mode from HPROF and
+  snapshot diff. Each online device has its own searchable process selector;
+  selections do not change the application-wide title-bar target.
+- Memory metrics use shared-scale charts in three equal-width cards per row,
+  with a consistent color and text label per device. Keep the source-provided
+  hierarchy: App Summary, detailed memory/mappings, SQLite and memory budget.
+  Objects (including Parcel memory) use a numeric comparison table, never charts.
+  Total PSS/RSS/Swap PSS values remain visible above the scrollable content and
+  refresh from the newest observation, irrespective of the active section.
+  Desktop and report charts reserve a Y-axis gutter with a visible axis and
+  labeled zero, midpoint and maximum ticks. Memory ticks display M; counts keep
+  count units. Labels and curves share one scale; empty/tiny ranges stay legible.
+  An unavailable value is not zero; leave a gap rather than joining across a failure.
+- Start only with two or more selected device/process pairs. Start a new history
+  on each run; Stop freezes the current results. Keep elapsed time and current
+  values legible at a glance, and expose the original per-device report for
+  details that cannot be normalized across Android versions.
+- Export HTML snapshots the retained history at click time, even during a run.
+  The offline report includes all recorded metric groups, regardless of the
+  active tab, with the same per-device colors and gaps for unavailable points.
+  The HTML report uses a fixed, non-scrolling six-item left navigation and an
+  independently vertically scrollable right content pane. Navigation selects a
+  single section, defaults to App Summary and supports keyboard/hash navigation.
+  Raw meminfo reports open by default in adjacent device panels, never stacked.
+  Preserve monospace whitespace and source units; scroll horizontally on narrow
+  windows or with more devices rather than wrapping columns or overlapping text.
+- Reuse compact controls, neutral cards and standard contrast in both themes.
+  Sampling is read-only, bounded and independent per device. It continues until
+  stopped, even if the operator switches views to do other work.
+- Device and process discovery is explicit: entering the mode refreshes once, and
+  the Refresh button re-runs it, which is how a device attached later becomes
+  selectable. Never poll device or process lists in the background: each cycle
+  costs `cmd package list packages` plus `ps` per device, keeps Refresh disabled
+  for most of the cycle, and rebuilds the process menus under the operator's
+  search.
+
 ### Trace Capture Configuration (2026-11-23)
 
 - Preserve SystemOverview and the existing presets, explicit Start/Stop and

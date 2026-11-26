@@ -40,6 +40,7 @@ pub(crate) fn memory_view_mode(index: u8) -> Option<MemoryViewMode> {
             MemoryViewMode::BitmapDump,
             MemoryViewMode::NativeHeap,
             MemoryViewMode::SampledArt,
+            MemoryViewMode::LiveCompare,
         ])
         .nth(index as usize)
 }
@@ -189,6 +190,7 @@ impl ImportWorkspace {
                 MemoryViewMode::BitmapDump,
                 MemoryViewMode::NativeHeap,
                 MemoryViewMode::SampledArt,
+                MemoryViewMode::LiveCompare,
             ])
             .enumerate()
         {

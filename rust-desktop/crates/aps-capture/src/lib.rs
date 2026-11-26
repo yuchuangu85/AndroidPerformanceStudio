@@ -5,6 +5,8 @@ mod config;
 mod duration;
 mod perf_data;
 mod remote;
+#[cfg(windows)]
+mod windows_converter;
 pub use config::{EventScope, SamplingConfiguration, SamplingRate, SamplingTemplate};
 pub use duration::{
     CaptureDuration, MANUAL_CAPTURE_TIMEOUT, MANUAL_LEASE_SECONDS, MAX_TIMED_CAPTURE,
@@ -78,7 +80,10 @@ impl CaptureHandle {
     pub fn can_stop(&self) -> bool {
         matches!(
             self.state(),
-            CaptureState::Recording
+            CaptureState::Confirmed
+                | CaptureState::Rechecking
+                | CaptureState::Preparing
+                | CaptureState::Recording
                 | CaptureState::Pausing
                 | CaptureState::Paused
                 | CaptureState::Resuming
@@ -138,7 +143,10 @@ impl CaptureHandle {
         let mut state = self.state.lock().expect("capture state lock");
         if !matches!(
             *state,
-            CaptureState::Recording
+            CaptureState::Confirmed
+                | CaptureState::Rechecking
+                | CaptureState::Preparing
+                | CaptureState::Recording
                 | CaptureState::Pausing
                 | CaptureState::Paused
                 | CaptureState::Resuming
@@ -382,6 +390,7 @@ impl ConfirmedCapture {
     }
     fn run_inner(&self) -> Result<CaptureOutput, String> {
         self.set(CaptureState::Rechecking);
+        self.ensure_not_stopped()?;
         let request = &self.plan.request;
         let current = observe(
             &self.plan.controller.adb,
@@ -395,11 +404,13 @@ impl ConfirmedCapture {
         if self.handle.cancel.is_cancelled() {
             return Err("capture cancelled".into());
         }
+        self.ensure_not_stopped()?;
         let local = self.plan.controller.artifact_root.join(&request.run_id);
         create_session_directory(&self.plan.controller.artifact_root, &local)?;
         let mut cleanup = SessionCleanup::new(local.clone());
         let remote_data = format!("{}/perf.data", self.plan.remote_directory);
         self.set(CaptureState::Preparing);
+        self.ensure_not_stopped()?;
         self.adb(
             &["shell", "mkdir", "-m", "700", &self.plan.remote_directory],
             Duration::from_secs(30),
@@ -408,6 +419,7 @@ impl ConfirmedCapture {
         let result = (|| {
             let pid = request.pid.to_string();
             self.recheck_target()?;
+            self.ensure_not_stopped()?;
             if request.duration == CaptureDuration::Manual {
                 self.refresh_manual_lease(0)?;
             }
@@ -433,10 +445,9 @@ impl ConfirmedCapture {
             let protobuf = if let Some(converter) = &request.converter {
                 self.set(CaptureState::Converting);
                 let output = local.join("report-sample.pb");
-                // No converter-created regular output exists while it runs. On
-                // Unix the explicit -o target is the inherited stdout pipe; the
-                // existing process runner enforces its 64 MiB hard read budget.
-                // A converter which cannot write this stream fails closed.
+                // Stream conversion before creating the protobuf artifact:
+                // stdout on Unix, a local named pipe on Windows. Both enforce
+                // the same 64 MiB hard read budget and fail closed on overflow.
                 if Some(SourceDigest::hash_file(converter, 256 * 1024 * 1024)?)
                     != self.plan.converter_digest
                 {
@@ -447,7 +458,7 @@ impl ConfirmedCapture {
                     .map_err(|_| "cannot write bounded protobuf artifact")?;
                 Some(artifact(
                     output,
-                    "host simpleperf report-sample --protobuf --show-callchain; bounded stdout",
+                    "host simpleperf report-sample --protobuf --show-callchain; bounded stream",
                     Some(raw.digest),
                 )?)
             } else {
@@ -484,6 +495,14 @@ impl ConfirmedCapture {
             (Err(error), _) | (_, Err(error)) => Err(error),
         }
     }
+    fn ensure_not_stopped(&self) -> Result<(), String> {
+        if self.handle.stop.load(Ordering::Acquire) {
+            self.set(CaptureState::Stopping);
+            return Err("capture stopped before recorder launch".into());
+        }
+        Ok(())
+    }
+
     fn recheck_target(&self) -> Result<(), String> {
         let current = observe(
             &self.plan.controller.adb,
@@ -654,7 +673,16 @@ fn convert_bounded(
     validate_protobuf_prefix(&result.stdout)?;
     Ok(result.stdout)
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn convert_bounded(
+    converter: &Path,
+    input: &Path,
+    cancel: &CancellationToken,
+    offline: bool,
+) -> Result<Vec<u8>, String> {
+    windows_converter::convert(converter, input, cancel, offline)
+}
+#[cfg(not(any(unix, windows)))]
 fn convert_bounded(_: &Path, _: &Path, _: &CancellationToken, _: bool) -> Result<Vec<u8>, String> {
     Err("bounded converter output is not supported on this host; capture raw perf.data without conversion".into())
 }
@@ -681,8 +709,8 @@ fn validate_request(request: &CpuCaptureRequest) -> Result<(), String> {
     {
         return Err("invalid bounded CPU capture request".into());
     }
-    if request.converter.is_some() && !cfg!(unix) {
-        return Err("bounded Simpleperf conversion is available only on Unix hosts".into());
+    if request.converter.is_some() && !cfg!(any(unix, windows)) {
+        return Err("bounded Simpleperf conversion is unavailable on this host".into());
     }
     if let Some(path) = &request.converter
         && (!path.is_absolute() || !path.is_file())
@@ -873,8 +901,25 @@ mod tests {
     }
 
     #[test]
+    fn stop_is_available_before_recording_and_transitions_immediately() {
+        for state in [
+            CaptureState::Confirmed,
+            CaptureState::Rechecking,
+            CaptureState::Preparing,
+        ] {
+            let handle = handle_in(state.clone());
+            assert!(handle.can_stop(), "{state:?}");
+            assert!(handle.stop(), "{state:?}");
+            assert_eq!(handle.state(), CaptureState::Stopping);
+        }
+    }
+
+    #[test]
     fn stop_and_cancel_override_pending_and_paused_sampling_controls() {
         for state in [
+            CaptureState::Confirmed,
+            CaptureState::Rechecking,
+            CaptureState::Preparing,
             CaptureState::Recording,
             CaptureState::Pausing,
             CaptureState::Paused,
@@ -909,9 +954,6 @@ mod tests {
     fn sampling_controls_cannot_mutate_non_recording_or_terminal_states() {
         for state in [
             CaptureState::Planned,
-            CaptureState::Confirmed,
-            CaptureState::Rechecking,
-            CaptureState::Preparing,
             CaptureState::Pulling,
             CaptureState::Converting,
             CaptureState::Stopping,
@@ -941,6 +983,20 @@ mod tests {
             &["--call-graph", "fp"]
         );
         assert!(CallGraphMode::None.arguments().is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_capture_accepts_a_converter_for_automatic_cpu_import() {
+        let request = CpuCaptureRequest {
+            run_id: "windows-conversion".into(),
+            serial: "device".into(),
+            pid: 42,
+            duration: CaptureDuration::Timed(Duration::from_secs(1)),
+            sampling: SamplingConfiguration::default(),
+            converter: Some(std::env::current_exe().unwrap()),
+        };
+        assert_eq!(validate_request(&request), Ok(()));
     }
 
     #[test]

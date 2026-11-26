@@ -200,11 +200,20 @@ impl MemorySession {
         let executable = worker_executable
             .canonicalize()
             .map_err(|_| MemoryError::WorkerUnavailable)?;
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .env_clear()
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // The isolated HPROF worker is a background implementation detail;
+            // never let Windows create a visible console for heap capture.
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let mut child = command
             .spawn()
             .map_err(|_| MemoryError::WorkerUnavailable)?;
         let Some(stdin) = child.stdin.take() else {
@@ -866,6 +875,100 @@ pub(crate) fn encode_response(response: &Value, max_response: usize) -> io::Resu
         return Err(io::ErrorKind::InvalidData.into());
     }
     Ok(bytes)
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::io::Write;
+    use std::os::windows::process::CommandExt;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleWindow() -> *mut std::ffi::c_void;
+    }
+
+    fn has_console() -> bool {
+        // SAFETY: GetConsoleWindow takes no arguments and returns a borrowed handle.
+        !unsafe { GetConsoleWindow() }.is_null()
+    }
+
+    #[test]
+    fn memory_worker_starts_without_a_console_window() {
+        let executable = std::env::current_exe().unwrap();
+        let quoted = executable.to_str().unwrap().replace('\'', "''");
+        let script = format!(
+            concat!(
+                "$ErrorActionPreference = 'Stop'; ",
+                "$stdout = [IO.Path]::GetTempFileName(); ",
+                "$stderr = [IO.Path]::GetTempFileName(); ",
+                "try {{ $child = Start-Process -FilePath '{}' ",
+                "-ArgumentList '--exact windows_tests::hidden_console_host --ignored --nocapture' ",
+                "-WindowStyle Hidden -RedirectStandardOutput $stdout ",
+                "-RedirectStandardError $stderr -PassThru -Wait; ",
+                "[Console]::Out.Write([IO.File]::ReadAllText($stdout)); ",
+                "[Console]::Error.Write([IO.File]::ReadAllText($stderr)); ",
+                "exit $child.ExitCode }} finally {{ Remove-Item -LiteralPath $stdout, $stderr }}"
+            ),
+            quoted
+        );
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &script,
+            ])
+            .creation_flags(0x08000000)
+            .output()
+            .expect("Windows PowerShell must be available for the hidden-console fixture");
+        assert!(
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .contains("aps-memory-hidden-console-host-ok"),
+            "hidden console host failed: status={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture, launched with a hidden console by the regression test"]
+    fn hidden_console_host() {
+        assert!(
+            has_console(),
+            "fixture must own a console to detect inheritance"
+        );
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "windows_tests::console_probe_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(0x08000000);
+        let output = command.output().unwrap();
+        assert!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("console=false"),
+            "worker inherited a console"
+        );
+        println!("aps-memory-hidden-console-host-ok");
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture, launched only through the memory worker command"]
+    fn console_probe_child() {
+        let mut stdout = io::stdout().lock();
+        writeln!(stdout, "console={}", has_console()).unwrap();
+    }
 }
 
 #[cfg(test)]

@@ -309,11 +309,13 @@ impl Drop for FakeAdb {
 }
 
 fn wait_until_recording(handle: &CaptureHandle) {
+    // Stop is legal from Confirmed onward, so can_stop() no longer implies a
+    // launched recorder; sampling controls still require Recording itself.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !handle.can_stop() {
+    while handle.state() != CaptureState::Recording {
         assert!(
             Instant::now() < deadline,
-            "recorder never became stoppable: {:?}",
+            "recorder never started: {:?}",
             handle.state()
         );
         thread::sleep(Duration::from_millis(10));
@@ -667,13 +669,30 @@ fn stop_cannot_promote_invalid_recorder_identity_into_a_successful_capture() {
 }
 
 #[test]
+fn stop_before_recorder_launch_prevents_remote_recorder_start() {
+    let fake = FakeAdb::new("eof");
+    let capture = fake.capture();
+    let handle = capture.handle();
+    assert_eq!(handle.state(), CaptureState::Confirmed);
+    assert!(handle.can_stop());
+    assert!(handle.stop());
+
+    let error = capture.run().unwrap_err();
+    assert!(error.contains("stopped before recorder launch"), "{error}");
+    assert_eq!(handle.state(), CaptureState::Failed);
+    assert!(!fake.root.join("recorder-argv").exists());
+    assert!(!fake.root.join("remote").exists());
+}
+
+#[test]
 fn graceful_stop_preserves_output_and_terminal_controls_cannot_change_completion() {
     let fake = FakeAdb::new("eof");
     let mut plan = fake.plan(CallGraphMode::Dwarf);
     plan.request.duration = CaptureDuration::Timed(Duration::from_secs(20));
     let capture = plan.confirm("device", 42, "boot", 7).unwrap();
     let handle = capture.handle();
-    assert!(!handle.stop());
+    // Stop is intentionally legal from Confirmed onward; see
+    // stop_before_recorder_launch_prevents_remote_recorder_start.
     let stopper_handle = handle.clone();
     let stopper = thread::spawn(move || {
         wait_until_recording(&stopper_handle);

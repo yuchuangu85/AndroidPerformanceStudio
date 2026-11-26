@@ -53,20 +53,26 @@ impl Language {
                     .or(locale)
             };
             #[cfg(target_os = "windows")]
-            let locale = std::process::Command::new("powershell.exe")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "[System.Globalization.CultureInfo]::CurrentUICulture.Name",
-                ])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .and_then(|output| String::from_utf8(output.stdout).ok())
-                .map(|locale| locale.trim().to_owned())
-                .filter(|locale| !locale.is_empty())
-                .or(locale);
+            let locale = {
+                use std::os::windows::process::CommandExt;
+
+                std::process::Command::new("powershell.exe")
+                    // CREATE_NO_WINDOW: piped output alone does not hide a console.
+                    .creation_flags(0x08000000)
+                    .args([
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "[System.Globalization.CultureInfo]::CurrentUICulture.Name",
+                    ])
+                    .output()
+                    .ok()
+                    .filter(|output| output.status.success())
+                    .and_then(|output| String::from_utf8(output.stdout).ok())
+                    .map(|locale| locale.trim().to_owned())
+                    .filter(|locale| !locale.is_empty())
+                    .or(locale)
+            };
             let locale = locale.unwrap_or_default().to_ascii_lowercase();
             if locale.starts_with("zh")
                 && !locale.contains("hant")

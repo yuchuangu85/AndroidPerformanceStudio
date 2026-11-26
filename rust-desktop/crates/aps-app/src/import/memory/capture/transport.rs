@@ -18,7 +18,8 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        Arc,
+        atomic::{AtomicU8, AtomicU64, Ordering},
         mpsc,
     },
     thread,
@@ -38,6 +39,38 @@ const DIAGNOSTIC_LIMIT: usize = 512;
 const HPROF_HEADER_BYTES: usize = 31;
 const BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
 static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::import::memory) enum BitmapCapturePhase {
+    #[default]
+    Dumping,
+    Transferring,
+    Extracting,
+}
+
+#[derive(Clone, Default)]
+pub(in crate::import::memory) struct BitmapCaptureProgress(Arc<AtomicU8>);
+
+impl BitmapCaptureProgress {
+    pub(in crate::import::memory) fn phase(&self) -> BitmapCapturePhase {
+        match self.0.load(Ordering::Acquire) {
+            1 => BitmapCapturePhase::Transferring,
+            2 => BitmapCapturePhase::Extracting,
+            _ => BitmapCapturePhase::Dumping,
+        }
+    }
+
+    pub(in crate::import::memory) fn set(&self, phase: BitmapCapturePhase) {
+        self.0.store(
+            match phase {
+                BitmapCapturePhase::Dumping => 0,
+                BitmapCapturePhase::Transferring => 1,
+                BitmapCapturePhase::Extracting => 2,
+            },
+            Ordering::Release,
+        );
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::import::memory) struct HeapCaptureTarget {
@@ -91,12 +124,14 @@ pub(in crate::import::memory) fn capture_heap(
 
 /// API 35's bitmap extension is a different evidence source from ordinary
 /// HPROF bitmap instances. Its PNGs are extracted by the isolated worker.
-pub(in crate::import::memory) fn capture_bitmap_heap(
+pub(in crate::import::memory) fn capture_bitmap_heap_with_progress(
     target: &HeapCaptureTarget,
     root: &Path,
     cancel: &CancellationToken,
+    progress: &BitmapCaptureProgress,
 ) -> Result<CapturedHeap, String> {
     validate_target(target, root)?;
+    check_cancelled(cancel)?;
     let location = AdbLocator::new().locate(None).map_err(|e| e.to_string())?;
     let executable = location.executable.clone();
     let executor = AndroidExecutor {
@@ -120,7 +155,15 @@ pub(in crate::import::memory) fn capture_bitmap_heap(
     {
         return Err("Bitmap image dump requires Android API 35 or newer; ordinary HPROF findings do not contain PNG images.".into());
     }
-    capture_with_options(&executor, &executable, target, root, cancel, true)
+    capture_with_options(
+        &executor,
+        &executable,
+        target,
+        root,
+        cancel,
+        true,
+        Some(progress),
+    )
 }
 
 // Discovery uses the shared client's package/process semantics; the command
@@ -178,7 +221,7 @@ fn capture_with(
     root: &Path,
     cancel: &CancellationToken,
 ) -> Result<CapturedHeap, String> {
-    capture_with_options(executor, executable, target, root, cancel, false)
+    capture_with_options(executor, executable, target, root, cancel, false, None)
 }
 
 fn capture_with_options(
@@ -188,6 +231,7 @@ fn capture_with_options(
     root: &Path,
     cancel: &CancellationToken,
     bitmap: bool,
+    progress: Option<&BitmapCaptureProgress>,
 ) -> Result<CapturedHeap, String> {
     validate_target(target, root)?;
     check_cancelled(cancel)?;
@@ -254,6 +298,9 @@ fn capture_with_options(
         // through the placeholder. Reserve the path for the transfer, but do
         // not retain a handle to the placeholder across the pull.
         drop(create_local_file(&path)?);
+        if let Some(progress) = progress {
+            progress.set(BitmapCapturePhase::Transferring);
+        }
         let pull = request(executable, &target.serial, PULL_TIMEOUT)
             .args(["pull", &remote.path])
             .arg(&path);
@@ -1320,6 +1367,16 @@ mod tests {
             Ok(_) => panic!("capture unexpectedly succeeded"),
             Err(error) => error,
         }
+    }
+
+    #[test]
+    fn bitmap_capture_progress_exposes_dump_transfer_and_extraction_phases() {
+        let progress = BitmapCaptureProgress::default();
+        assert_eq!(progress.phase(), BitmapCapturePhase::Dumping);
+        progress.set(BitmapCapturePhase::Transferring);
+        assert_eq!(progress.phase(), BitmapCapturePhase::Transferring);
+        progress.set(BitmapCapturePhase::Extracting);
+        assert_eq!(progress.phase(), BitmapCapturePhase::Extracting);
     }
 
     #[test]

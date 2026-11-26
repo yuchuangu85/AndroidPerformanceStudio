@@ -10,7 +10,10 @@ $msi = (Resolve-Path -LiteralPath $MsiPath).Path
 $payload = Split-Path $msi
 $logs = New-Item -ItemType Directory -Force -Path (Join-Path $payload 'windows-smoke')
 $installRoot = Join-Path $env:ProgramFiles 'APS Installer Smoke'
-$shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Android Performance Studio.lnk'
+$shortcuts = @(
+    (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Android Performance Studio.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'Android Performance Studio.lnk')
+)
 $installer = New-Object -ComObject WindowsInstaller.Installer
 $database = $installer.OpenDatabase($msi, 0)
 $view = $database.OpenView('SELECT `Value` FROM `Property` WHERE `Property` = ''ProductCode''')
@@ -18,14 +21,15 @@ $view.Execute()
 $productCode = $view.Fetch().StringData(1)
 $view.Close()
 $uninstallKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$productCode"
-if ($installer.ProductState($productCode) -ne -1 -or (Test-Path -LiteralPath $installRoot) -or (Test-Path -LiteralPath $shortcut)) {
+if ($installer.ProductState($productCode) -ne -1 -or (Test-Path -LiteralPath $installRoot) -or
+    @($shortcuts | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0) {
     throw 'Refusing to run over an existing APS installation or smoke directory.'
 }
 
 function Invoke-Msi {
     param([string]$Operation, [string[]]$Arguments)
     $log = Join-Path $logs.FullName "$Operation.log"
-    $process = Start-Process -FilePath "$env:SystemRoot/System32/msiexec.exe" -PassThru -ArgumentList (
+    $process = Start-Process -FilePath "$env:SystemRoot/System32/msiexec.exe" -PassThru -WindowStyle Hidden -ArgumentList (
         $Arguments + @('/qn', '/norestart', 'REBOOT=ReallySuppress', '/L*v', "`"$log`""))
     if (-not $process.WaitForExit(120000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
@@ -48,8 +52,18 @@ function Assert-InstalledPayload {
             throw "Missing or changed installed payload: $relative"
         }
     }
-    if (-not (Test-Path -LiteralPath $shortcut) -or -not (Test-Path -LiteralPath $uninstallKey)) {
-        throw 'Missing all-users Start menu shortcut or uninstall registration.'
+    foreach ($shortcut in $shortcuts) {
+        if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) {
+            throw "Missing all-users shortcut: $shortcut"
+        }
+        $target = $installer.ShortcutTarget($shortcut)
+        if ($target.StringData(1) -ne $productCode -or
+            $installer.ComponentPath($productCode, $target.StringData(3)) -ne (Join-Path $installRoot 'aps-app.exe')) {
+            throw "Shortcut does not resolve to the installed application: $shortcut"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $uninstallKey)) {
+        throw 'Missing uninstall registration.'
     }
 }
 
@@ -58,13 +72,14 @@ try {
     $needsCleanup = $true
     Invoke-Msi 'install' @('/i', "`"$msi`"", "INSTALLFOLDER=`"$installRoot`"")
     Assert-InstalledPayload
-    # Repair must restore an owned file without relying on a developer checkout.
+    # Repair must restore owned files and shortcuts without a developer checkout.
     Remove-Item -LiteralPath (Join-Path $installRoot 'aps-memory-worker.exe')
-    Invoke-Msi 'repair' @('/fa', "`"$msi`"")
+    Remove-Item -LiteralPath $shortcuts
+    Invoke-Msi 'repair' @('/fas', "`"$msi`"")
     Assert-InstalledPayload
     Invoke-Msi 'uninstall' @('/x', $productCode)
     $needsCleanup = $false
-    foreach ($path in @($installRoot, $shortcut, $uninstallKey)) {
+    foreach ($path in (@($installRoot, $uninstallKey) + $shortcuts)) {
         if (Test-Path -LiteralPath $path) { throw "Uninstall left an owned artifact: $path" }
     }
     if ($installer.ProductState($productCode) -ne -1) { throw 'MSI product remains registered after uninstall.' }

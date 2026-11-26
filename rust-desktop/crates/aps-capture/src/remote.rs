@@ -4,6 +4,50 @@
 use super::*;
 
 const CONTROL_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+const EXIT_RECEIPT_TIMEOUT: Duration = Duration::from_secs(5);
+
+// A single ADB query may time out while a user stop is in flight. Retrying
+// cannot establish success: only an actual parsed supervisor receipt can.
+fn exit_receipt_poll(
+    stop: &AtomicBool,
+    deadline: Option<Instant>,
+    read: impl FnOnce(Duration) -> Result<Option<i32>, String>,
+) -> Result<Option<i32>, String> {
+    let timeout = match deadline {
+        Some(deadline) => deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or("owned stop request did not produce a verified recorder exit before timeout")?
+            .min(EXIT_RECEIPT_TIMEOUT),
+        None => EXIT_RECEIPT_TIMEOUT,
+    };
+    match read(timeout) {
+        Err(error)
+            if stop.load(Ordering::Acquire)
+                && error == "cannot read recorder exit receipt: Host process timed out" =>
+        {
+            Ok(None)
+        }
+        result => result,
+    }
+}
+
+fn exit_receipt_poll_for_cleanup(
+    deadline: Instant,
+    read: impl FnOnce(Duration) -> Result<Option<i32>, String>,
+) -> Result<Option<i32>, String> {
+    let timeout = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or("owned recorder termination was not confirmed")?
+        .min(EXIT_RECEIPT_TIMEOUT);
+    match read(timeout) {
+        Err(error) if error == "cannot read recorder exit receipt: Host process timed out" => {
+            Ok(None)
+        }
+        result => result,
+    }
+}
 
 #[cfg(test)]
 mod tests;
@@ -65,7 +109,11 @@ impl<'a> RemoteRecording<'a> {
                 self.capture.request_recorder_stop()?;
                 let deadline = Instant::now() + Duration::from_secs(10);
                 loop {
-                    if self.capture.recorder_exit_code()?.is_some() {
+                    if exit_receipt_poll_for_cleanup(deadline, |timeout| {
+                        self.capture.recorder_exit_code_with_timeout(timeout)
+                    })?
+                    .is_some()
+                    {
                         break;
                     }
                     if Instant::now() >= deadline {
@@ -224,7 +272,16 @@ impl ConfirmedCapture {
                 self.set(CaptureState::Stopping);
                 return Err("capture cancelled; awaiting owned recorder shutdown".into());
             }
-            if let Some(code) = self.recorder_exit_code()? {
+            // Stop has priority over all polling reads. A device may take up to
+            // five seconds to answer an exit-status query; issuing the owned EOF
+            // first makes a UI stop request observable by the recorder promptly.
+            if self.handle.stop.load(Ordering::Acquire) && stop_deadline.is_none() {
+                self.request_recorder_stop()?;
+                stop_deadline = Some(Instant::now() + Duration::from_secs(10));
+            }
+            if let Some(code) = exit_receipt_poll(&self.handle.stop, stop_deadline, |timeout| {
+                self.recorder_exit_code_with_timeout(timeout)
+            })? {
                 if self.plan.request.duration == CaptureDuration::Manual {
                     let directory = &self.plan.remote_directory;
                     let expired = self.adb_output(&["shell", &format!("if [ -f {directory}/record.lease.expired ]; then printf expired; fi")], Duration::from_secs(5), &CancellationToken::new())?;
@@ -233,10 +290,6 @@ impl ConfirmedCapture {
                     }
                 }
                 return self.check_recorder_exit(code);
-            }
-            if self.handle.stop.load(Ordering::Acquire) && stop_deadline.is_none() {
-                self.request_recorder_stop()?;
-                stop_deadline = Some(Instant::now() + Duration::from_secs(10));
             }
             if self.plan.request.duration == CaptureDuration::Manual
                 && stop_deadline.is_none()
@@ -402,15 +455,15 @@ impl ConfirmedCapture {
         )
         .map_err(|error| format!("cannot request owned recorder stop: {error}"))
     }
+    #[cfg(all(test, unix))]
     fn recorder_exit_code(&self) -> Result<Option<i32>, String> {
+        self.recorder_exit_code_with_timeout(EXIT_RECEIPT_TIMEOUT)
+    }
+    fn recorder_exit_code_with_timeout(&self, timeout: Duration) -> Result<Option<i32>, String> {
         let path = format!("{}/record.exit", self.plan.remote_directory);
         let script = format!("if [ -f {path} ]; then cat {path}; fi");
         let output = self
-            .adb_output(
-                &["shell", &script],
-                Duration::from_secs(5),
-                &CancellationToken::new(),
-            )
+            .adb_output(&["shell", &script], timeout, &CancellationToken::new())
             .map_err(|error| format!("cannot read recorder exit receipt: {error}"))?;
         if output.trim().is_empty() {
             return Ok(None);
@@ -481,5 +534,107 @@ impl ConfirmedCapture {
             boot_id: boot_id.to_owned(),
             start_ticks,
         }))
+    }
+}
+
+#[cfg(test)]
+mod receipt_retry_tests {
+    use super::*;
+
+    #[test]
+    fn real_host_process_timeout_retries_then_accepts_only_verified_receipt() {
+        let stop = AtomicBool::new(true);
+        let deadline = Some(Instant::now() + Duration::from_secs(5));
+        let first = exit_receipt_poll(&stop, deadline, |_| {
+            let mut process = ProcessRequest::new(std::env::current_exe().unwrap()).args([
+                "--exact",
+                "remote::receipt_retry_tests::timeout_child",
+                "--ignored",
+                "--nocapture",
+            ]);
+            process.timeout = Duration::from_millis(200);
+            let err = ProcessRunner
+                .run(&process, &CancellationToken::new())
+                .unwrap_err();
+            Err(format!("cannot read recorder exit receipt: {err}"))
+        });
+        assert_eq!(first, Ok(None));
+        assert_eq!(
+            exit_receipt_poll(&stop, deadline, |_| Ok(Some(0))),
+            Ok(Some(0))
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture for the real host timeout regression"]
+    fn timeout_child() {
+        thread::sleep(Duration::from_secs(3));
+    }
+
+    #[test]
+    fn stopping_timeout_retries_but_bad_receipts_never_become_success() {
+        let stop = AtomicBool::new(true);
+        let deadline = Some(Instant::now() + Duration::from_secs(1));
+        assert_eq!(
+            exit_receipt_poll(&stop, deadline, |_| Err(
+                "cannot read recorder exit receipt: Host process timed out".into()
+            )),
+            Ok(None)
+        );
+        assert_eq!(
+            exit_receipt_poll(&stop, deadline, |_| Ok(Some(0))),
+            Ok(Some(0))
+        );
+        assert!(
+            exit_receipt_poll(&stop, deadline, |_| Err(
+                "malformed recorder exit status".into()
+            ))
+            .is_err()
+        );
+        assert!(
+            exit_receipt_poll(&stop, deadline, |_| Err(
+                "cannot read recorder exit receipt: ADB remote capture command failed".into()
+            ))
+            .is_err()
+        );
+        assert!(
+            exit_receipt_poll(&stop, Some(Instant::now()), |_| panic!(
+                "expired stop deadline must not spawn another ADB process"
+            ))
+            .is_err()
+        );
+        assert_eq!(
+            exit_receipt_poll_for_cleanup(Instant::now() + Duration::from_secs(1), |_| Err(
+                "cannot read recorder exit receipt: Host process timed out".into()
+            )),
+            Ok(None)
+        );
+        assert!(
+            exit_receipt_poll_for_cleanup(Instant::now(), |_| panic!(
+                "expired cleanup deadline must not spawn another ADB process"
+            ))
+            .is_err()
+        );
+        assert!(
+            exit_receipt_poll_for_cleanup(Instant::now() + Duration::from_secs(1), |_| Err(
+                "malformed recorder exit status".into()
+            ))
+            .is_err()
+        );
+        stop.store(false, Ordering::Release);
+        assert!(
+            exit_receipt_poll(&stop, None, |_| Err(
+                "cannot read recorder exit receipt: Host process timed out".into()
+            ))
+            .is_err()
+        );
+        assert_eq!(
+            exit_receipt_poll(&stop, None, |_| {
+                stop.store(true, Ordering::Release);
+                Err("cannot read recorder exit receipt: Host process timed out".into())
+            }),
+            Ok(None),
+            "stop racing an in-flight query must issue EOF on the next loop"
+        );
     }
 }

@@ -584,6 +584,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn stdio_session_speaks_definition_and_references() {
         use std::fs;

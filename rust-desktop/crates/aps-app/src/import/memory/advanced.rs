@@ -10,7 +10,13 @@ use aps_perfetto::{
     heap_profile::{HeapProfileKind, HeapProfilePage},
 };
 use aps_platform::TempWorkspace;
-use std::{io::Write, sync::Arc};
+use std::{
+    io::Write,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AdvancedMemoryKind {
@@ -264,6 +270,10 @@ impl ImportWorkspace {
         let cancel = self.cancel.clone();
         self.busy = true;
         self.memory_capture.in_progress = true;
+        // The phase watcher below must be able to observe this run's completion
+        // even if another task changes `busy` before the result is published.
+        let loaded = Arc::new(AtomicBool::new(false));
+        let watcher_loaded = loaded.clone();
         self.error = None;
         self.notice = None;
         self.memory_state.error = None;
@@ -279,14 +289,20 @@ impl ImportWorkspace {
                 .into(),
         );
         let task_target = target.clone();
+        let bitmap_progress =
+            (kind == AdvancedMemoryKind::Bitmap).then(transport::BitmapCaptureProgress::default);
+        let task_progress = bitmap_progress.clone();
         let work = cx.background_executor().spawn(async move {
             match kind {
                 AdvancedMemoryKind::Bitmap => {
-                    let owner = Arc::new(transport::capture_bitmap_heap(
+                    let progress = task_progress.as_ref().expect("bitmap progress is present");
+                    let owner = Arc::new(transport::capture_bitmap_heap_with_progress(
                         &task_target,
                         &root,
                         &cancel,
+                        progress,
                     )?);
+                    progress.set(transport::BitmapCapturePhase::Extracting);
                     // Only host-side loading/extraction is import work; device
                     // recording time is not part of this status metric.
                     Ok(Loaded::Bitmap(load_bitmap(
@@ -315,13 +331,61 @@ impl ImportWorkspace {
                 }
             }
         });
+        if let Some(progress) = bitmap_progress {
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |this, cx| {
+                let mut previous = transport::BitmapCapturePhase::Dumping;
+                loop {
+                    executor.timer(Duration::from_millis(150)).await;
+                    let phase = progress.phase();
+                    let done = this
+                        .update(cx, |this, cx| {
+                            if this.generation != generation
+                                || !this.busy
+                                || watcher_loaded.load(Ordering::Acquire)
+                            {
+                                return true;
+                            }
+                            if phase != previous {
+                                this.memory_state.loading_message = Some(
+                                    this.language
+                                        .text(match phase {
+                                            transport::BitmapCapturePhase::Dumping => {
+                                                TextKey::MemoryLiveBitmapRecording
+                                            }
+                                            transport::BitmapCapturePhase::Transferring => {
+                                                TextKey::MemoryLiveBitmapTransferring
+                                            }
+                                            transport::BitmapCapturePhase::Extracting => {
+                                                TextKey::MemoryLiveBitmapExtracting
+                                            }
+                                        })
+                                        .into(),
+                                );
+                                cx.notify();
+                                previous = phase;
+                            }
+                            false
+                        })
+                        .unwrap_or(true);
+                    if done {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
         cx.spawn(async move |this, cx| {
             let result: Result<Loaded, UiText> = work.await;
             this.update(cx, |this, cx| {
+                // This run owns the one capture slot until it publishes or the
+                // workspace cancels it; a stale result must not reset a newer run.
                 if this.generation != generation || this.memory_capture.target() != Some(&target) {
+                    loaded.store(true, Ordering::Release);
                     return;
                 }
                 this.memory_capture.in_progress = false;
+                loaded.store(true, Ordering::Release);
                 this.finish_advanced_memory(kind, result, cx);
             })
             .ok();
@@ -339,6 +403,7 @@ impl ImportWorkspace {
         self.memory_state.loading_message = None;
         match result {
             Ok(Loaded::Heap(data)) => {
+                self.memory_capture.in_progress = false;
                 if kind == AdvancedMemoryKind::Art {
                     self.memory_advanced.art = Some(Arc::new(data));
                 } else {
@@ -347,7 +412,11 @@ impl ImportWorkspace {
                 self.memory_state.view_mode = kind.view();
                 self.notice = Some(TextKey::MemoryLivePublished.into());
             }
-            Ok(Loaded::Bitmap(mut data)) => {
+            Ok(Loaded::Bitmap(data)) => {
+                // `in_progress` drops only after this result is published, so the
+                // capture slot keeps this run and ends on the completed dump.
+                let mut data = data;
+                self.memory_capture.in_progress = false;
                 data.comparison = self
                     .memory_advanced
                     .bitmap
@@ -359,9 +428,31 @@ impl ImportWorkspace {
                     .bitmap_scroll
                     .set_offset(point(px(0.), px(0.)));
                 self.memory_state.view_mode = MemoryViewMode::BitmapDump;
-                self.notice = Some(TextKey::MemoryLivePublished.into());
+                let dump = &self
+                    .memory_advanced
+                    .bitmap
+                    .as_ref()
+                    .expect("the new bitmap dump is published")
+                    .dump;
+                let summary = dump.summary();
+                self.notice = Some(UiText::format(
+                    TextKey::MemoryLiveBitmapPublished,
+                    [
+                        ("recorded", UiText::from(dump.recorded.to_string())),
+                        ("discovered", UiText::from(dump.discovered.to_string())),
+                        ("images", UiText::from(dump.images.len().to_string())),
+                        ("omitted", UiText::from(dump.omitted.to_string())),
+                        (
+                            "bytes",
+                            UiText::from(super::auxiliary::memory_bytes(summary.total_png_bytes)),
+                        ),
+                    ],
+                ));
             }
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                self.memory_capture.in_progress = false;
+                self.error = Some(error);
+            }
         }
         cx.notify();
     }
@@ -584,7 +675,8 @@ impl ImportWorkspace {
     ) -> AnyElement {
         let language = self.language;
         let data = self.memory_advanced.heap(kind).cloned();
-        let mut page = studio::page_fill(colors).id("memory-advanced-heap")
+        let mut page = studio::page_fill(colors)
+            .id("memory-advanced-heap")
             .child(studio::section_title(language.text(kind.title()), colors))
             .child(self.advanced_actions(kind, colors, cx))
             .child(studio::supporting(
@@ -1343,6 +1435,35 @@ mod bitmap_grid_tests {
     }
 
     #[::core::prelude::v1::test]
+    fn bitmap_capture_completion_clears_progress_and_publishes_its_result() {
+        let advanced = runtime_source(include_str!("advanced.rs"));
+        let publish = advanced
+            .split("fn finish_advanced_memory(")
+            .nth(1)
+            .expect("finish_advanced_memory is defined")
+            .split("fn import_advanced_memory(")
+            .next()
+            .expect("publish body is bounded");
+        // A finished capture must leave the live state and state what it produced
+        // instead of reverting to the idle recording action.
+        assert!(publish.contains("self.memory_capture.in_progress = false;"));
+        assert!(publish.contains("TextKey::MemoryLiveBitmapPublished"));
+        assert!(!publish.contains("TextKey::MemoryLiveRecording"));
+        let trigger = advanced
+            .split("fn capture_advanced_memory(")
+            .nth(1)
+            .expect("capture entry point is defined")
+            .split("fn finish_advanced_memory(")
+            .next()
+            .expect("capture body is bounded");
+        // The result task keeps the slot until it publishes, and the phase
+        // watcher must end on completion instead of polling a finished run.
+        assert!(trigger.contains("this.finish_advanced_memory(kind, result, cx)"));
+        assert!(trigger.contains("watcher_loaded.load(Ordering::Acquire)"));
+        assert!(trigger.contains("AtomicBool::new(false)"));
+    }
+
+    #[::core::prelude::v1::test]
     fn bitmap_and_native_capture_is_one_slot_after_export_that_becomes_cancel() {
         // The bitmap and native heap pages own capture; the toolbar keeps ART.
         let toolbar = include_str!("toolbar.rs");
@@ -1446,12 +1567,16 @@ mod bitmap_grid_tests {
             .split("if kind == AdvancedMemoryKind::Native {")
             .nth(1)
             .unwrap();
-        assert!(native_branch
-            .trim_start()
-            .starts_with("return row.child(self.perfetto_action(colors, cx));"));
+        assert!(
+            native_branch
+                .trim_start()
+                .starts_with("return row.child(self.perfetto_action(colors, cx));")
+        );
         // The memory workspace owns its trace link, not a separate listener.
         let workspace = runtime_source(include_str!("../../import.rs"));
-        assert!(workspace.contains("memory_viewer: crate::perfetto_viewer::ViewerServer::default()"));
+        assert!(
+            workspace.contains("memory_viewer: crate::perfetto_viewer::ViewerServer::default()")
+        );
     }
 
     #[::core::prelude::v1::test]
@@ -1645,7 +1770,8 @@ mod import_timing_tests {
             .unwrap();
         let capture: String = capture.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(
-            capture.find("capture_bitmap_heap(").unwrap() < capture.find("load_bitmap(").unwrap()
+            capture.find("capture_bitmap_heap_with_progress(").unwrap()
+                < capture.find("load_bitmap(").unwrap()
         );
         assert!(capture.find("capture_trace(").unwrap() < capture.find("load_trace(").unwrap());
         assert!(capture.contains("Some(owner),Instant::now(),&cancel"));

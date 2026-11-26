@@ -180,7 +180,10 @@ fn capture_controls(busy: bool, state: Option<&CaptureState>) -> CaptureControls
             && matches!(
                 state,
                 Some(
-                    CaptureState::Recording
+                    CaptureState::Confirmed
+                        | CaptureState::Rechecking
+                        | CaptureState::Preparing
+                        | CaptureState::Recording
                         | CaptureState::Pausing
                         | CaptureState::Paused
                         | CaptureState::Resuming
@@ -198,6 +201,18 @@ fn capture_controls(busy: bool, state: Option<&CaptureState>) -> CaptureControls
                 )
             ),
     }
+}
+
+/// Capture converts through a bounded stream before publishing its completed
+/// artifact. Unix uses stdout; Windows uses a local named pipe.
+#[cfg(any(unix, windows))]
+fn automatically_discovered_converter() -> Option<PathBuf> {
+    crate::simpleperf_tool::discover_simpleperf()
+}
+
+#[cfg(not(any(unix, windows)))]
+fn automatically_discovered_converter() -> Option<PathBuf> {
+    None
 }
 
 fn converter_prefill(
@@ -680,7 +695,7 @@ impl CaptureWorkspace {
         let task = cx.background_executor().spawn(async move {
             let mut request = request;
             if request.converter.is_none() {
-                request.converter = crate::simpleperf_tool::discover_simpleperf();
+                request.converter = automatically_discovered_converter();
             }
             let location = AdbLocator::new()
                 .locate(None)
@@ -1209,6 +1224,17 @@ mod tests {
     }
 
     #[::core::prelude::v1::test]
+    fn automatic_converter_selection_matches_host_conversion_support() {
+        #[cfg(any(unix, windows))]
+        assert_eq!(
+            automatically_discovered_converter(),
+            crate::simpleperf_tool::discover_simpleperf()
+        );
+        #[cfg(not(any(unix, windows)))]
+        assert_eq!(automatically_discovered_converter(), None);
+    }
+
+    #[::core::prelude::v1::test]
     fn persisted_defaults_initialize_the_same_draft_used_by_requests() {
         let draft = CpuCaptureDraft::new(37, 123);
         let request = request(&draft).unwrap();
@@ -1731,7 +1757,10 @@ mod tests {
                 active.can_stop,
                 matches!(
                     state,
-                    CaptureState::Recording
+                    CaptureState::Confirmed
+                        | CaptureState::Rechecking
+                        | CaptureState::Preparing
+                        | CaptureState::Recording
                         | CaptureState::Pausing
                         | CaptureState::Paused
                         | CaptureState::Resuming

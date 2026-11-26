@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import textwrap
@@ -34,6 +35,52 @@ def step(windows, name):
 def run_script(source):
     run = source.split("\n        run: ", 1)[1]
     return textwrap.dedent(run[1:]).strip() if run.startswith("|") else run.strip()
+
+
+class WindowsStartupContractTest(unittest.TestCase):
+    def test_only_release_gui_entry_uses_windows_subsystem(self):
+        source = (ROOT / "rust-desktop/crates/aps-app/src/main.rs").read_text(encoding="utf-8")
+        header = re.sub(r"\s+", "", source.split("mod ai;", 1)[0]).replace(",)", ")")
+        self.assertEqual(
+            '#![cfg_attr(all(target_os="windows",not(debug_assertions)),windows_subsystem="windows")]',
+            header)
+        for entry in (ROOT / "rust-desktop/crates").rglob("main.rs"):
+            if entry != ROOT / "rust-desktop/crates/aps-app/src/main.rs":
+                self.assertNotIn('windows_subsystem = "windows"', entry.read_text(encoding="utf-8"))
+
+    def test_system_locale_powershell_does_not_create_a_console(self):
+        source = (ROOT / "rust-desktop/crates/aps-ui-foundation/src/lib.rs").read_text(encoding="utf-8")
+        windows = source.split('#[cfg(target_os = "windows")]', 1)[1].split(
+            "let locale = locale.unwrap_or_default()", 1)[0]
+        self.assertIn("std::os::windows::process::CommandExt", windows)
+        self.assertIn(".creation_flags(0x08000000)", windows)
+        self.assertLess(windows.index(".creation_flags("), windows.index(".output()"))
+        self.assertIn("CurrentUICulture.Name", windows)
+        self.assertIn(".or(locale)", windows)
+
+    def test_background_runner_disables_console_before_spawning(self):
+        source = (ROOT / "rust-desktop/crates/aps-platform/src/process.rs").read_text(encoding="utf-8")
+        windows = source.split("#[cfg(windows)]", 1)[1].split("let child = command.spawn()", 1)[0]
+        self.assertIn("std::os::windows::process::CommandExt", windows)
+        self.assertIn("command.creation_flags(0x08000000)", windows)
+        self.assertIn("command.process_group(0)", source)
+
+    def test_ai_http_transport_disables_console_before_spawning(self):
+        source = (ROOT / "rust-desktop/crates/aps-ai/src/curl_client.rs").read_text(encoding="utf-8")
+        command = source.split("fn curl_command(", 1)[1].split("fn ", 1)[0]
+        self.assertIn("#[cfg(windows)]", command)
+        self.assertIn("std::os::windows::process::CommandExt", command)
+        self.assertIn("command.creation_flags(0x08000000)", command)
+        self.assertIn('.env_remove("APS_CLI_AI_KEY")', command)
+        self.assertIn(".stdin(Stdio::piped())", command)
+        self.assertIn(".stdout(Stdio::piped())", command)
+        self.assertIn(".stderr(Stdio::piped())", command)
+
+    def test_packaging_rejects_console_gui_binary_before_archiving(self):
+        source = (WINDOWS / "package.ps1").read_text(encoding="utf-8")
+        guard = "Assert-GuiSubsystem (Join-Path $output.FullName 'aps-app.exe')"
+        self.assertIn(guard, source)
+        self.assertLess(source.index(guard), source.index("Compress-Archive"))
 
 
 class InstallerContractTest(unittest.TestCase):
@@ -77,6 +124,25 @@ class InstallerContractTest(unittest.TestCase):
         self.assertIsNotNone(self.product.find(".//w:Directory[@Id='ProgramMenuFolder']", NS))
         self.assertEqual("yes", app.get("Win64"))
         self.assertEqual("AppIcon.exe", shortcut.get("Icon"))
+
+    def test_desktop_shortcut_is_installed_by_default_with_the_app_file(self):
+        app = self.product.find(".//w:Component[@Id='AppComponent']", NS)
+        file = app.find("w:File[@Id='AppFile']", NS)
+        shortcut = file.find("w:Shortcut[@Id='DesktopShortcut']", NS)
+        self.assertIsNotNone(shortcut, "The MSI must create its own desktop shortcut")
+        self.assertIsNotNone(self.product.find("w:Directory[@Id='TARGETDIR']/w:Directory[@Id='DesktopFolder']", NS))
+        self.assertEqual("DesktopFolder", shortcut.get("Directory"))
+        self.assertEqual("Android Performance Studio", shortcut.get("Name"))
+        self.assertEqual("yes", shortcut.get("Advertise"))
+        self.assertEqual("INSTALLFOLDER", shortcut.get("WorkingDirectory"))
+        self.assertEqual("AppIcon.exe", shortcut.get("Icon"))
+        self.assertIsNone(shortcut.get("Arguments"))
+        self.assertIsNone(shortcut.get("Target"), "Use the installed AppFile, not a cached executable or product path")
+        feature = self.product.find("w:Feature[@Id='MainFeature']", NS)
+        self.assertEqual("1", feature.get("Level"))
+        self.assertEqual("disallow", feature.get("Absent"))
+        self.assertIsNotNone(feature.find("w:ComponentRef[@Id='AppComponent']", NS))
+        self.assertIsNone(app.find("w:Condition", NS))
 
     def test_advertised_shortcut_icon_resolves_and_matches_key_file_extension(self):
         file = self.product.find(".//w:Component[@Id='AppComponent']/w:File", NS)
@@ -181,6 +247,15 @@ class WorkflowContractTest(unittest.TestCase):
             self.assertIn(token, script)
         self.assertNotIn("Win32_Product", script)
 
+    def test_smoke_checks_both_shortcut_targets_and_restores_them_during_repair(self):
+        script = (WINDOWS / "smoke.ps1").read_text()
+        for token in ("CommonDesktopDirectory", "$shortcuts = @(",
+                      "foreach ($shortcut in $shortcuts)", "$installer.ShortcutTarget($shortcut)",
+                      "$installer.ComponentPath($productCode,", "Remove-Item -LiteralPath $shortcuts",
+                      "Invoke-Msi 'repair' @('/fas'", "@($installRoot, $uninstallKey) + $shortcuts",
+                      "@($shortcuts | Where-Object { Test-Path -LiteralPath $_ }).Count"):
+            self.assertIn(token, script)
+
 
 @unittest.skipUnless(PWSH, "PowerShell is required for executable helper regressions")
 class PowerShellContractTest(unittest.TestCase):
@@ -211,6 +286,34 @@ foreach ($run in ($env:APS_TEST_RUNS | ConvertFrom-Json)) {
 ConvertTo-Json -InputObject @($errorsFound) -Compress
 """, APS_TEST_RUNS=json.dumps(runs))
         self.assertEqual([], result)
+
+    def test_gui_subsystem_guard_accepts_gui_and_rejects_console_or_invalid_pe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            expected = {}
+            for magic in (0x10B, 0x20B):
+                for subsystem in (2, 3):
+                    name = f"{magic}-{subsystem}.exe"
+                    data = bytearray(256)
+                    data[:2] = b"MZ"
+                    struct.pack_into("<I", data, 0x3C, 0x80)
+                    data[0x80:0x84] = b"PE\0\0"
+                    struct.pack_into("<H", data, 0x80 + 20, 0x70)
+                    struct.pack_into("<H", data, 0x80 + 24, magic)
+                    struct.pack_into("<H", data, 0x80 + 24 + 68, subsystem)
+                    Path(directory, name).write_bytes(data)
+                    expected[name] = "accepted" if subsystem == 2 else "rejected"
+            for name, data in {"invalid.exe": b"not a PE", "truncated.exe": b"MZ"}.items():
+                Path(directory, name).write_bytes(data)
+                expected[name] = "rejected"
+            result = self.ps("""
+$results = @{}
+foreach ($file in Get-ChildItem -LiteralPath $env:APS_TEST_PE_DIRECTORY) {
+    try { Assert-GuiSubsystem $file.FullName; $results[$file.Name] = 'accepted' }
+    catch { $results[$file.Name] = 'rejected' }
+}
+$results | ConvertTo-Json -Compress
+""", APS_TEST_PE_DIRECTORY=directory)
+            self.assertEqual(expected, result)
 
     def test_versions_are_strict_bounded_and_rebuilds_keep_product_version(self):
         valid = {"v0.8.2": "0.8.2", "aps-desktop-v1.2.3-rebuild.4": "1.2.3",

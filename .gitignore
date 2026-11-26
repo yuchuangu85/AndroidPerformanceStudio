@@ -55,3 +55,6 @@ google-services.json
 
 !rust-desktop/crates/aps-memory/src/bin/
 !rust-desktop/crates/aps-memory/src/bin/worker.rs
+
+# Local release packages and generated installer files
+/dist/

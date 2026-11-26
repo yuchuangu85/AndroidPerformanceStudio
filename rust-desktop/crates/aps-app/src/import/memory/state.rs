@@ -26,6 +26,7 @@ pub(crate) enum MemoryViewMode {
     NativeHeap,
     SampledArt,
     LeakAnalysis,
+    LiveCompare,
 }
 
 impl MemoryViewMode {
@@ -42,6 +43,7 @@ impl MemoryViewMode {
             Self::NativeHeap => TextKey::MemoryAppNativeHeapView,
             Self::SampledArt => TextKey::MemoryAppSampledArtView,
             Self::LeakAnalysis => TextKey::MemoryAppMemoryLeaksView,
+            Self::LiveCompare => TextKey::MemoryCompareView,
         }
     }
 }

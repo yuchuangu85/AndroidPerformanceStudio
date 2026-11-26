@@ -1438,20 +1438,6 @@ fn timeline_panel(
                             TextKey::FrameSelectADebuggableProcessFramemetricsAgentIsPreferredAndGfxinf,
                         ))),
                 );
-            if let Some(message) = this
-                .operation_status
-                .as_ref()
-                .map(|status| status.localized(language))
-            {
-                empty = empty.child(
-                    div()
-                        .w_full()
-                        .pt(px(8.))
-                        .text_size(px(FONT_SUPPORTING))
-                        .text_color(colors.secondary_text)
-                        .child(crate::studio::selectable(message)),
-                );
-            }
             if let Some(error) = this.error.clone() {
                 empty = empty.child(
                     div()

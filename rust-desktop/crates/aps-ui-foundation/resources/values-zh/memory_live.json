@@ -1,8 +1,11 @@
 {
   "memory_live_recording": "正在录制所选进程；Trace 时长为 10 秒。取消仅请求停止本次创建的录制会话。",
-  "memory_live_bitmap_recording": "正在转储所选进程的 Bitmap 堆并提取图像，应用可能短暂停顿。取消会停止本次主机传输/提取；Android 端的转储可能仍独立完成。",
+  "memory_live_bitmap_recording": "正在转储所选进程的 Bitmap 堆，应用可能短暂停顿；取消会停止本次主机操作。",
+  "memory_live_bitmap_transferring": "正在从设备传输 Bitmap 堆；取消会停止本次主机传输。",
+  "memory_live_bitmap_extracting": "正在通过隔离 worker 提取 Bitmap PNG 图像；取消会停止提取。",
   "memory_live_ai_unavailable": "Native Heap、ART 采样与 Bitmap 图像转储尚未连接 AI 证据导出。保留的 Java 堆不是当前工作区的证据。",
   "memory_live_published": "真实采集产物已分析并发布；缺失样本仍标为不可用。",
+  "memory_live_bitmap_published": "采集已完成：记录 {recorded}、发现 {discovered}、提取 {images}、省略 {omitted} 张图像 · PNG {bytes}。转储已在上方发布；再次采集会替换当前结果。",
   "memory_live_exported": "已将校验后的产物导出到所选位置。",
   "memory_live_capture": "采集所选进程",
   "memory_live_import": "导入产物…",

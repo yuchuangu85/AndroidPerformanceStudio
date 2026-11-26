@@ -13,6 +13,7 @@ pub(super) mod dominators;
 pub(super) mod exports;
 pub(super) mod inspector;
 pub(super) mod leaks;
+pub(super) mod live_compare;
 pub(super) mod mapping;
 pub(crate) mod menus;
 pub(super) mod phase3;
@@ -81,9 +82,12 @@ impl ImportWorkspace {
             .text_color(colors.text);
         root = root
             .child(self.render_memory_toolbar(window, &colors, cx))
-            .child(studio::divider(&colors))
-            .child(self.render_memory_snapshot_tabs(&colors, cx))
             .child(studio::divider(&colors));
+        if self.memory_state.view_mode != MemoryViewMode::LiveCompare {
+            root = root
+                .child(self.render_memory_snapshot_tabs(&colors, cx))
+                .child(studio::divider(&colors));
+        }
         let content = match self.memory_state.view_mode {
             MemoryViewMode::Dashboard => self.render_memory_dashboard(&colors, cx),
             MemoryViewMode::Classes => self.render_memory_classes(window, &colors, cx),
@@ -93,6 +97,7 @@ impl ImportWorkspace {
             MemoryViewMode::NativeHeap => self.render_memory_native_heap(&colors, cx),
             MemoryViewMode::SampledArt => self.render_memory_art_samples(&colors, cx),
             MemoryViewMode::LeakAnalysis => self.render_memory_leak_analysis(&colors, cx),
+            MemoryViewMode::LiveCompare => self.render_memory_live_compare(window, &colors, cx),
         };
         root.child(content)
             .child(self.render_memory_status(&colors, cx))
@@ -110,6 +115,9 @@ impl ImportWorkspace {
             return;
         }
         self.memory_state.view_mode = mode;
+        if mode == MemoryViewMode::LiveCompare {
+            self.memory_compare_enter(cx);
+        }
         if mode == MemoryViewMode::Dominators && self.memory_state.snapshot.is_some() {
             self.memory_resume_dominator_queries(cx);
         }

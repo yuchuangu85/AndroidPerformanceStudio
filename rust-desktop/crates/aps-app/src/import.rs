@@ -274,6 +274,7 @@ pub struct ImportWorkspace {
     memory_state: MemoryState,
     memory_capture: memory::capture::MemoryCaptureUi,
     memory_advanced: memory::advanced::AdvancedMemoryUi,
+    memory_compare: memory::live_compare::LiveCompareUi,
     /// Loopback trace handoff to the official Perfetto UI.
     memory_viewer: crate::perfetto_viewer::ViewerServer,
     startup_capture: startup::StartupCaptureUi,
@@ -322,6 +323,7 @@ impl ImportWorkspace {
             memory_state: MemoryState::new(),
             memory_capture: memory::capture::MemoryCaptureUi::default(),
             memory_advanced: memory::advanced::AdvancedMemoryUi::default(),
+            memory_compare: memory::live_compare::LiveCompareUi::default(),
             memory_viewer: crate::perfetto_viewer::ViewerServer::default(),
             startup_capture: startup::StartupCaptureUi::default(),
             memory_snapshots: Vec::new(),
